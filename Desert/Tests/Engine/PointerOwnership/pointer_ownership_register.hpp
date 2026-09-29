@@ -988,6 +988,9 @@ namespace Desert::Tests::PointerCensus
         // one is a fact about the editor's own construction order, and a panel's lifetime is tangled
         // with the six renderer slots (a preview must be DESTROYED to give its slot back).
         // ------------------------------------------------------------------------------------------
+        { "Editor/Source/Editor/Import/TextureImporter.cpp",
+          "ExrMemoryStream", "Bytes", Guard::CallScoped,
+          "an argument pack built inside DecodeExr(const std::string& bytes) as ExrMemoryStream{ &bytes, {} } and handed to OpenEXRCore as the context userdata; the context is started and destroyed inside that same call, so the read callbacks run only while the caller's source string is alive" },
         { "Editor/Source/Editor/Core/CommandHistory.hpp",
           "ByteCommand", "m_Target", Guard::ReboundBeforeEveryUse,
           "the undo stack DROPS every pointer-based entry whenever its target may have died -- CommandHistory::DropVolatile, called by OnStructuralChange from all thirteen structural commands and again whenever the selected entity changes -- and Clear() runs on scene load and on entering Play. The mechanism is written down at the call site and names the same entt pool relocation A8-3 was about. NAMED RESIDUAL: CreateNewEntity is also called from about twenty-five places in EditorLayer.cpp that do not go through SceneCommands, and whether each of them ends up dropping (by selecting the new entity, or by Clear()) is not something any one place asserts" },

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
+#include <Common/Content/ShaderAssetHeader.hpp>
 
 using Desert::Core::Preprocess::DShaderParser;
 using namespace Desert::Core::Formats;
@@ -922,8 +923,139 @@ In vec3 a_Position;
     EXPECT_NE( translated.find( "layout(location = 1) in vec3 a_Position;" ), std::string::npos ) << translated;
 }
 
+// MAT1b: a template's IMPORT CONTRACT. The mock is a two-property surface; the rows name source keys
+// (`gltf.*`/`fbx.*`), the Property they feed and, for a texture, the source channels.
+namespace
+{
+    std::string ImportMock( const std::string& importBody )
+    {
+        return R"(Shader "ImportMock"
+{
+    Domain Surface
+    Import
+    {
+)" + importBody +
+               R"(
+    }
+    Properties Binding(1) TextureBinding(2)
+    {
+        Color     AlbedoColor     ("Albedo") = (1, 1, 1, 1)
+        Texture2D u_MetallicTexture ("Metallic")
+    }
+    Vertex
+    {
+        void main() { gl_Position = vec4(0.0); }
+    }
+    Fragment
+    {
+        layout( location = 0 ) out vec4 o_Color;
+        void main() { o_Color = u_Material.AlbedoColor * texture( u_MetallicTexture, vec2(0.5) ); }
+    }
+}
+)";
+    }
+} // namespace
+
+TEST( DShaderImportContract, RowsAndRequiresReachTheManifest )
+{
+    const std::string src    = ImportMock( R"(        Requires "gltf.KHR_materials_unlit"
+        "gltf.baseColorFactor" -> AlbedoColor;   // a value
+        "gltf.metallicRoughnessTexture" -> u_MetallicTexture.b)" );
+    const auto        parsed = DShaderParser::Parse( src );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+
+    const auto manifest = Common::Content::ReadShaderManifest( src );
+    ASSERT_TRUE( manifest.IsSuccess() ) << manifest.GetError();
+    const auto& m = manifest.GetValue();
+    EXPECT_TRUE( m.DeclaresImport );
+    ASSERT_EQ( m.ImportRequires.size(), 1u );
+    EXPECT_EQ( m.ImportRequires[0], "gltf.KHR_materials_unlit" );
+    ASSERT_EQ( m.Import.size(), 2u );
+    EXPECT_EQ( m.Import[0].SourceKey, "gltf.baseColorFactor" );
+    EXPECT_EQ( m.Import[0].Property, "AlbedoColor" );
+    EXPECT_EQ( m.Import[0].Channels, "" );
+    EXPECT_EQ( m.Import[1].Property, "u_MetallicTexture" );
+    EXPECT_EQ( m.Import[1].Channels, "b" );
+}
+
+TEST( DShaderImportContract, AnUnknownPropertyIsAParseErrorNamingIt )
+{
+    const auto parsed = DShaderParser::Parse( ImportMock( R"(        "gltf.normalTexture" -> u_NormalTexture)" ) );
+    ASSERT_FALSE( parsed.IsSuccess() );
+    EXPECT_NE( parsed.GetError().find( "u_NormalTexture" ), std::string::npos ) << parsed.GetError();
+    EXPECT_NE( parsed.GetError().find( "line 6" ), std::string::npos ) << parsed.GetError();
+}
+
+TEST( DShaderImportContract, OnlyATextureTakesSourceChannels )
+{
+    const auto parsed =
+         DShaderParser::Parse( ImportMock( R"(        "gltf.baseColorFactor" -> AlbedoColor.rgb)" ) );
+    ASSERT_FALSE( parsed.IsSuccess() );
+    EXPECT_NE( parsed.GetError().find( "not a texture" ), std::string::npos ) << parsed.GetError();
+}
+
+TEST( DShaderImportContract, MalformedRowsAreRefused )
+{
+    for ( const char* row : { R"(        "baseColorTexture" -> u_MetallicTexture)", // no <source>.
+                              R"(        "gltf.x" u_MetallicTexture)",              // no ->
+                              R"(        "gltf.x" -> u_MetallicTexture.rr)",        // repeated channel
+                              R"(        "gltf.x" -> u_MetallicTexture.xyz)" } )    // not rgba
+    {
+        EXPECT_FALSE( DShaderParser::Parse( ImportMock( row ) ).IsSuccess() ) << row;
+        EXPECT_FALSE( Common::Content::ReadShaderManifest( ImportMock( row ) ).IsSuccess() ) << row;
+    }
+}
+
+TEST( DShaderImportContract, AnUnclosedImportBlockIsRefusedByTheManifestReader )
+{
+    const auto manifest =
+         Common::Content::ReadShaderManifest( "Shader \"X\"\n{\n    Import\n    {\n        \"gltf.a\" -> B\n" );
+    ASSERT_FALSE( manifest.IsSuccess() );
+    EXPECT_NE( manifest.GetError().find( "not closed" ), std::string::npos ) << manifest.GetError();
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// MAT1s: `Sampler(WrapU, WrapV, Filter)` on a Texture2D is the template's sampling state; a property without
+// it keeps Repeat/Repeat/Linear (the state every sampler had before), and a misspelling or a non-texture is
+// refused by name at parse time.
+TEST( DShaderParser, ATexturesSamplerAttributeIsTheTemplateStateAndABadOneIsRefused )
+{
+    const auto parse = []( const std::string& property )
+    {
+        return DShaderParser::Parse( R"(
+Shader "SamplerProbe"
+{
+    Domain Surface
+    Properties Binding(1) TextureBinding(2)
+    {
+        )" + property + R"(
+        Texture2D u_Plain ("Plain")
+    }
+    Fragment { void main() {} }
+}
+)" );
+    };
+
+    auto res = parse( R"(Texture2D u_Slot ("Slot", Category("T"), Sampler(Clamp, Mirror, Nearest)) = "black")" );
+    ASSERT_TRUE( res.IsSuccess() ) << res.GetError();
+    const auto& params = res.GetValue().Meta.Params;
+    ASSERT_EQ( params.size(), 2u );
+    EXPECT_EQ( params[0].Sampler,
+               ( SamplerState{ SamplerWrap::Clamp, SamplerWrap::Mirror, SamplerFilter::Nearest } ) );
+    EXPECT_EQ( params[0].DefaultTexture, DefaultTextureKind::Black );
+    EXPECT_EQ( params[1].Sampler, SamplerState{} ) << "no attribute: Repeat/Repeat/Linear";
+
+    auto typo = parse( R"(Texture2D u_Slot ("Slot", Sampler(Clmap, Repeat, Linear)))" );
+    ASSERT_FALSE( typo.IsSuccess() );
+    EXPECT_NE( typo.GetError().find( "clmap" ), std::string::npos ) << typo.GetError();
+    EXPECT_NE( typo.GetError().find( "u_Slot" ), std::string::npos ) << typo.GetError();
+
+    auto notTexture = parse( R"(float u_F ("F", Sampler(Clamp, Clamp, Linear)) = 1.0)" );
+    ASSERT_FALSE( notTexture.IsSuccess() );
+    EXPECT_NE( notTexture.GetError().find( "not a Texture2D" ), std::string::npos ) << notTexture.GetError();
 }

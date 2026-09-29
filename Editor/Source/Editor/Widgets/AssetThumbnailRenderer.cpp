@@ -325,6 +325,28 @@ namespace Desert::Editor
         return Common::MakeSuccess( true );
     }
 
+    namespace
+    {
+        // The mesh's own material slots, resolved through the material service. Empty when any slot is still
+        // unresolved: MeshECSSystem then retries every frame instead of freezing on a Null() slot.
+        std::vector<Assets::AssetHandle> MeshOwnSlots( const Assets::AssetHandle& meshHandle )
+        {
+            auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( meshHandle );
+            if ( asset == nullptr )
+                return {};
+            std::vector<Assets::AssetHandle> slots;
+            for ( const auto& external : asset->GetMaterialHandles() )
+            {
+                const auto internal =
+                     Runtime::ResourceRegistry::GetMaterialService()->GetAssetHandleByExternal( external );
+                if ( internal.IsNull() )
+                    return {};
+                slots.push_back( internal );
+            }
+            return slots;
+        }
+    } // namespace
+
     Common::BoolResultStr AssetThumbnailRenderer::RequestMesh( const Assets::AssetHandle& meshHandle,
                                                                const std::string&         outPng,
                                                                const Assets::AssetHandle& material )
@@ -456,12 +478,15 @@ namespace Desert::Editor
                     extent = frame.Extent;
                 }
 
-                // Slot count = submesh count; fill with the linked material (or leave default if none).
+                // Slot count = submesh count; a sidecar material wears every slot. Without one, THE MESH'S OWN
+                // SLOTS — the .demat each submesh names by GUID, as an imported mesh carries them and as the
+                // scene draws them (MeshECSSystem). Clearing them here photographed every import in the
+                // fallback grey. ResolveMesh waited for their closure, so they resolve now.
                 if ( static_cast<uint64_t>( m_PendingMaterial ) != 0 )
                     smc.MaterialSlots.assign( std::max<size_t>( 1, mesh->GetSubmeshes().size() ),
                                               m_PendingMaterial );
                 else
-                    smc.MaterialSlots.clear();
+                    smc.MaterialSlots = MeshOwnSlots( m_PendingHandle );
             }
             else
             {
@@ -472,11 +497,10 @@ namespace Desert::Editor
         else
         {
             // Material preview. Geometry is built once and reused; clearing the runtime instances forces a
-            // rebuild against the current material handle. Foliage/cutout materials (a grass-card atlas) wrap
-            // and garble on a sphere, so those preview on a flat PLANE turned to face the fixed camera.
+            // rebuild against the current material handle. Always the sphere: a masked material is cut by
+            // the mesh path's alpha discard, so its blades show against the backdrop.
             smc.MeshHandle    = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
-            const bool flat   = m_PendingPreview == ThumbnailSubject::Preview::Card;
-            smc.Primitive     = flat ? Geometry::PrimitiveType::Plane : Geometry::PrimitiveType::Sphere;
+            smc.Primitive     = Geometry::PrimitiveType::Sphere;
             smc.MaterialSlots = { m_PendingHandle };
             smc.RuntimeMaterialInstances.clear();
             ECS::ClearEditableMesh( smc ); // drop any previously-built primitive so the type change rebuilds
@@ -501,17 +525,6 @@ namespace Desert::Editor
                 }
             }
             FitTarget( matCenter, matExtent );
-
-            if ( flat )
-            {
-                // Turn the card to face the camera. Through ThumbnailFraming::FacingYaw, which takes BOTH
-                // points as arguments — the card is no longer at the world origin, and the eye is no longer
-                // a constant anyone may write down here.
-                auto& tc = m_Target.GetComponent<ECS::TransformComponent>();
-                if ( auto cam = m_Scene->GetMainCamera().lock() )
-                    tc.Rotation = glm::vec3(
-                         0.0f, ThumbnailFraming::FacingYaw( cam->GetPosition(), tc.Translation ), 0.0f );
-            }
         }
     }
 

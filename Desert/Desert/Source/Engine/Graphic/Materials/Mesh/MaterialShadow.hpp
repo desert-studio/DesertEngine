@@ -47,12 +47,6 @@ namespace Desert::Graphic
     class MaterialShadowSkinned final : public MaterialShadow
     {
     public:
-        // Offset of `BoneOffset` in Shadow_Skinned's push block, straight after the transform that
-        // Renderer::RenderMesh writes. Public for the same reason MaterialPBR's are: the other half of
-        // this pair is GLSL, and the block's total length is what a test can hold it to.
-        static constexpr uint32_t kBoneOffsetPushOffset = sizeof( glm::mat4 );
-        static constexpr uint32_t kPushSize             = kBoneOffsetPushOffset + 4;
-
         MaterialShadowSkinned();
 
         void UploadBones( const std::vector<glm::mat4>& packedBoneMatrices );

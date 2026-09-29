@@ -17,6 +17,6 @@ namespace Desert::Editor
     // (EncodeMeshBinary) - the DDC value. Its header GUID is null: identity lives in the asset, and a derived
     // entry shared by two assets with the same source cannot name either of them. Refused, naming the reason: a
     // skinned asset (the skeleton's form is AF4f's decision), a triangle whose material ID has no slot, and
-    // everything ToMeshAssetData refuses (colour layer, second UV layer).
+    // everything ToMeshAssetData refuses (a UV layer past 1; the colour layer and UV 1 are written as streams).
     Common::ResultStr<std::string> BuildMeshPlatformData( const Assets::MeshSourceAsset& asset );
 } // namespace Desert::Editor

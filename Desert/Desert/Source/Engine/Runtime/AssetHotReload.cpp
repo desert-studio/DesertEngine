@@ -286,7 +286,7 @@ namespace Desert::Runtime
             // answered below by `classMatches`, which compares the CURRENT `custom` flag against the C++
             // class of each live runtime material — a stronger question, because it also catches a variant
             // built as the wrong class for a reason other than an edit.
-            const auto oldShader = asset->GetShaderName();
+            const auto oldShader = asset->GetShaderHandle();
 
             if ( const auto res = asset->Load(); !res )
             {
@@ -322,7 +322,7 @@ namespace Desert::Runtime
                 classMatches =
                      classMatches && ( custom ? dynamic_cast<Graphic::DataDrivenMaterial*>( runtime ) != nullptr
                                               : dynamic_cast<Graphic::MaterialPBR*>( runtime ) != nullptr );
-            const bool sameShader = classMatches && asset->GetShaderName() == oldShader;
+            const bool sameShader = classMatches && asset->GetShaderHandle() == oldShader;
 
             if ( sameShader && !custom )
             {

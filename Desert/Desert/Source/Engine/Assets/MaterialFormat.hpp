@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <format>
 #include <span>
 #include <string>
 #include <string_view>
@@ -165,7 +166,7 @@ namespace Desert::Assets
                 return Common::MakeError<MaterialData>(
                      "[Material] '" + std::string( source ) + "': Shader states no GUID (path '" +
                      material.Shader->Path + "'); leave Shader out for the standard surface" );
-            const MaterialAssetRef shaderRef{ "Shader", material.Shader->Guid, material.Shader->Path };
+            const MaterialAssetRef shaderRef{ "Shader", material.Shader->Guid, material.Shader->Path, {} };
             if ( const auto ok = Detail::CheckStatedRef( source, "shader", shaderRef, deps ); !ok )
                 return Common::MakeError<MaterialData>( ok.GetError() );
         }
@@ -175,6 +176,19 @@ namespace Desert::Assets
         for ( const auto& ref : material.CloudAssets )
             if ( const auto ok = Detail::CheckStatedRef( source, "cloud asset", ref, deps ); !ok )
                 return Common::MakeError<MaterialData>( ok.GetError() );
+        // A stated preview mesh is never empty: "draw the sphere" is said by stating none.
+        if ( material.PreviewMesh.has_value() )
+        {
+            const MaterialAssetRef meshRef{
+                 "PreviewMesh", material.PreviewMesh->Guid, material.PreviewMesh->Path, {} };
+            if ( material.PreviewMesh->Guid.empty() )
+                return Common::MakeError<MaterialData>(
+                     std::format( "[Material] '{}': PreviewMesh states no GUID (path '{}'); leave PreviewMesh out "
+                                  "for the sphere",
+                                  source, material.PreviewMesh->Path ) );
+            if ( const auto ok = Detail::CheckStatedRef( source, "preview mesh", meshRef, deps ); !ok )
+                return Common::MakeError<MaterialData>( ok.GetError() );
+        }
         return Common::MakeSuccess( parsed.ExtractValue() );
     }
 } // namespace Desert::Assets

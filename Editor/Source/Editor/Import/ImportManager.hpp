@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Assets/AssetGuidRef.hpp>
 #include <memory>
 #include <unordered_map>
 #include "BackgroundCook.hpp"
@@ -25,6 +26,11 @@ namespace Desert::Editor
         static std::vector<std::filesystem::path> MeshSources( const std::filesystem::path& root );
         void         ImportAllFromDirectory( const std::filesystem::path& root, bool force = false );
         Common::UUID ImportTexture( const std::filesystem::path& path );
+
+        // Publishes the import templates every importer chooses among: the loaded ShaderAssets of `manager`
+        // whose manifest declares an Import block (the registry, not a directory scan). Call after the shaders
+        // load; a material import before it is refused. Returns how many templates were published.
+        static std::size_t PublishImportTemplates( const Assets::AssetManager& manager );
 
         /// Imports every loose image under `LooseTextureRoots()` that has no `.detex` yet; returns the count.
         /// See the definition for why the mesh scan could not do this and why there is no `force`.
@@ -53,8 +59,9 @@ namespace Desert::Editor
 
         // Success ALSO means "a .demat was already there and was deliberately kept" — re-import must not
         // clobber the artist's edits, so not writing is the correct outcome, not a failure to write.
-        [[nodiscard]] Common::BoolResultStr SerializeMaterialAsset( const ImportedMaterial&      material,
-                                                                    const std::filesystem::path& sourcePath );
+        [[nodiscard]] Common::BoolResultStr
+        SerializeMaterialAsset( const ImportedMaterial& material, const std::filesystem::path& sourcePath,
+                                const std::optional<Assets::AssetGuidRef>& previewMesh );
 
         [[nodiscard]] Common::BoolResultStr
         SerializeSkeletonAsset( const Desert::Assets::Serialization::SkeletonAssetData& data,

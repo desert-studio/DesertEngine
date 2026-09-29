@@ -9,6 +9,8 @@
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/MaterialParamDiff.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
+#include <Engine/Assets/Shader/ShaderAsset.hpp>
+#include <Engine/Project/ProjectContext.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 
@@ -29,6 +31,19 @@
 
 namespace Desert::Editor::MaterialAssetUtils
 {
+    // States in @p data the template every NEW material is created with: the project's `.deproj`
+    // DefaultSurfaceTemplate when it names one, else the one loaded shader declaring `Default Surface`
+    // (Assets::FindDefaultSurfaceTemplate). A material is never written without a template.
+    [[nodiscard]] inline Common::BoolResultStr StateDefaultSurface( Assets::MaterialData&       data,
+                                                                    const Assets::AssetManager& manager )
+    {
+        const auto shader = Assets::FindDefaultSurfaceTemplate(
+             manager, Project::ProjectContext::DefaultSurfaceTemplate(), Project::ProjectContext::FilePath() );
+        if ( !shader )
+            return Common::MakeError( shader.GetError() );
+        return Assets::SurfaceMaterialAsset::StateShader( data, manager, shader.GetValue() );
+    }
+
     // WHICH OF THE TWO THINGS HAPPENED. The function below can either author a material or hand back
     // one somebody else authored, and those are different answers to the caller's question — which is
     // precisely what it used to be unable to say. `Reused` does NOT mean "wrong": a demo material the
@@ -122,6 +137,11 @@ namespace Desert::Editor::MaterialAssetUtils
         if ( !onDisk )
         {
             Assets::MaterialData data;
+            if ( const auto stated = StateDefaultSurface( data, *am ); !stated )
+            {
+                LOG_ERROR( "[Material] '{}' was not created: {}", path.generic_string(), stated.GetError() );
+                return outcome;
+            }
             for ( const auto& param : params )
                 data.SetParam( param.Name, param.Value );
             // REFUSED rather than carried on: the CreateAsset below would load the file that was not

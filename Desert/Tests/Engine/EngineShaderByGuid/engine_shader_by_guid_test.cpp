@@ -22,8 +22,11 @@
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 
+#include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <format>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -142,9 +145,14 @@ TEST( EngineShaderByGuid, EveryCommittedMaterialResolvesItsShaderByGuid )
 
         const Desert::Assets::MaterialData& data = shell->Data();
         if ( !data.Shader.has_value() )
-            continue; // states no shader by absence — the standard surface, not this defect's shape.
+        {
+            // An instance's template is its parent's; anything else must name one (there is no default).
+            if ( !data.InstanceParentId().has_value() )
+                unresolved.push_back( std::format( "{}: names no surface template", materialPath.string() ) );
+            continue;
+        }
 
-        if ( shell->GetShaderName().empty() )
+        if ( shell->GetShaderName().empty() || shell->GetShaderHandle().IsNull() )
         {
             unresolved.push_back( std::format( "{}: shader GUID {} ('{}') did not resolve to a name",
                                                materialPath.string(), data.Shader->Guid, data.Shader->Path ) );
@@ -156,10 +164,291 @@ TEST( EngineShaderByGuid, EveryCommittedMaterialResolvesItsShaderByGuid )
         joined += "\n  " + line;
     EXPECT_TRUE( unresolved.empty() ) << unresolved.size()
                                       << " material(s) did not resolve their shader:" << joined;
+
+    // THE TEMPLATE REGISTRY over the engine corpus: each role and the default are declared by exactly one file.
+    const auto pbr = Desert::Assets::FindTemplateByRole( manager, Common::Content::kPBRSurfaceRole );
+    ASSERT_TRUE( pbr ) << pbr.GetError();
+    const auto debugColor = Desert::Assets::FindTemplateByRole( manager, Common::Content::kDebugColorRole );
+    ASSERT_TRUE( debugColor ) << debugColor.GetError();
+    const auto byDefault = Desert::Assets::FindDefaultSurfaceTemplate( manager, "", "" );
+    ASSERT_TRUE( byDefault ) << byDefault.GetError();
+    EXPECT_EQ( byDefault.GetValue(), pbr.GetValue() ) << "StaticMeshPBR.shader declares `Default Surface`";
+}
+
+namespace
+{
+    namespace fs = std::filesystem;
+
+    struct ScratchDir
+    {
+        fs::path Root =
+             fs::temp_directory_path() /
+             std::format( "mat1g_templates_{}", ::testing::UnitTest::GetInstance()->current_test_info()->name() );
+        ScratchDir()
+        {
+            fs::remove_all( Root );
+            fs::create_directories( Root );
+        }
+        ~ScratchDir()
+        {
+            std::error_code ec;
+            fs::remove_all( Root, ec );
+        }
+    };
+
+    fs::path WriteMockShader( const fs::path& dir, const std::string& name, const std::string& guid,
+                              const std::string& manifest )
+    {
+        const fs::path path = dir / std::format( "{}.shader", name );
+        std::ofstream( path ) << R"(// DesertAsset {"Kind":"Shader","Guid":")" << guid
+                              << "\",\"Versions\":{\"SHDR\":1},\"Dependencies\":[]}\nShader \"" << name
+                              << "\"\n{\n    Domain Surface\n"
+                              << manifest << "}\n";
+        return path;
+    }
+
+    fs::path WriteMaterial( const fs::path& dir, const std::string& shaderPart, const std::string& guid,
+                            const std::string& dependencies )
+    {
+        const fs::path path = dir / "M_Mock.demat";
+        std::ofstream( path ) << "{\n    \"Header\": {\n        \"Kind\": \"Material\",\n        \"Guid\": "
+                                 "\""
+                              << guid
+                              << "\",\n        \"Versions\": {\n            "
+                                 "\"MATL\": 4\n        },\n        \"Dependencies\": ["
+                              << dependencies << "]\n    },\n"
+                              << shaderPart
+                              << "    \"Params\": [],\n    \"Textures\": [],\n    \"CloudAssets\": []\n}\n";
+        return path;
+    }
+
+    constexpr const char* kMockGuidA = "1111aaaa1111aaaa1111aaaa1111aaaa";
+    constexpr const char* kMockGuidB = "2222bbbb2222bbbb2222bbbb2222bbbb";
+} // namespace
+
+// NO DEFAULT BY ABSENCE: a material (not an instance) that names no template is refused on load, by path.
+TEST( EngineShaderByGuid, MaterialWithoutTemplateIsRefused )
+{
+    const ScratchDir dir;
+    const fs::path   material = WriteMaterial( dir.Root, "", "0badc0de0badc0de0badc0de0badc0d1", "" );
+    Desert::Assets::SurfaceMaterialAsset asset( material );
+    const auto                           loaded = asset.LoadFromFile();
+    ASSERT_FALSE( loaded ) << "a material without \"Shader\" loaded — a default template came back";
+    EXPECT_NE( loaded.GetError().find( material.generic_string() ), std::string::npos ) << loaded.GetError();
+    EXPECT_TRUE( asset.GetShaderHandle().IsNull() );
+}
+
+// The template is identified by its GUID: renaming the shader (file stem + DSL `Shader "…"`) changes the display
+// name and nothing the material resolves.
+TEST( EngineShaderByGuid, RenamingTheShaderDoesNotChangeResolution )
+{
+    const ScratchDir dir;
+    const fs::path   material = WriteMaterial(
+         dir.Root,
+         std::format( "    \"Shader\": {{\n        \"Guid\": \"{}\",\n        \"Path\": \"mock\"\n    }},\n",
+                        kMockGuidA ),
+         "0badc0de0badc0de0badc0de0badc0d2", std::format( "\"{}\"", kMockGuidA ) );
+    Common::AssetHandle before;
+    for ( const std::string name : { "MockBefore", "MockAfter" } )
+    {
+        const fs::path sub = dir.Root / name;
+        fs::create_directories( sub );
+        Desert::Assets::AssetManager manager;
+        ASSERT_TRUE(
+             manager.CreateAsset<Desert::Assets::ShaderAsset>( WriteMockShader( sub, name, kMockGuidA, "" ) ) );
+        Desert::Assets::SurfaceMaterialAsset asset( material );
+        ASSERT_TRUE( asset.LoadFromFile() );
+        asset.ResolveDependencies( manager );
+        ASSERT_FALSE( asset.GetShaderHandle().IsNull() ) << "did not resolve through shader '" << name << "'";
+        EXPECT_EQ( asset.GetShaderName(), name ) << "the name is display text read from the shader";
+        if ( name == "MockBefore" )
+            before = asset.GetShaderHandle();
+        else
+            EXPECT_EQ( asset.GetShaderHandle(), before ) << "renaming the shader moved the material's template";
+    }
+}
+
+// Exactly one `Default Surface` and one shader per role: none or several is a refusal naming every path.
+TEST( EngineShaderByGuid, DefaultAndRolesAreDeclaredExactlyOnce )
+{
+    const ScratchDir             dir;
+    Desert::Assets::AssetManager none;
+    ASSERT_TRUE( none.CreateAsset<Desert::Assets::ShaderAsset>(
+         WriteMockShader( dir.Root, "MockPlain", kMockGuidA, "" ) ) );
+    EXPECT_FALSE( Desert::Assets::FindDefaultSurfaceTemplate( none, "", "" ) );
+    EXPECT_FALSE( Desert::Assets::FindTemplateByRole( none, "DebugColor" ) );
+
+    const fs::path twice = dir.Root / "twice";
+    fs::create_directories( twice );
+    Desert::Assets::AssetManager two;
+    const fs::path a = WriteMockShader( twice, "MockA", kMockGuidA, "    Role DebugColor\n    Default Surface\n" );
+    const fs::path b = WriteMockShader( twice, "MockB", kMockGuidB, "    Role DebugColor\n    Default Surface\n" );
+    ASSERT_TRUE( two.CreateAsset<Desert::Assets::ShaderAsset>( a ) );
+    ASSERT_TRUE( two.CreateAsset<Desert::Assets::ShaderAsset>( b ) );
+    for ( const auto& refused : { Desert::Assets::FindDefaultSurfaceTemplate( two, "", "" ),
+                                  Desert::Assets::FindTemplateByRole( two, "DebugColor" ) } )
+    {
+        ASSERT_FALSE( refused );
+        EXPECT_NE( refused.GetError().find( "MockA.shader" ), std::string::npos ) << refused.GetError();
+        EXPECT_NE( refused.GetError().find( "MockB.shader" ), std::string::npos ) << refused.GetError();
+    }
+
+    // The project override picks one of them; a GUID no loaded shader has is refused naming the .deproj.
+    const auto picked = Desert::Assets::FindDefaultSurfaceTemplate( two, kMockGuidB, "Game.deproj" );
+    ASSERT_TRUE( picked ) << picked.GetError();
+    const auto unknown =
+         Desert::Assets::FindDefaultSurfaceTemplate( two, "3333cccc3333cccc3333cccc3333cccc", "Game.deproj" );
+    ASSERT_FALSE( unknown );
+    EXPECT_NE( unknown.GetError().find( "Game.deproj" ), std::string::npos ) << unknown.GetError();
 }
 
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// CENSUS: no decision in the sources takes a material TEMPLATE by its name. A template is a `.shader` under
+// Editor/Resources/Shaders that declares a material domain (`Domain Surface`/`Domain Terrain`) or a
+// template manifest line (`Role …`, `Default Surface`); its identity is its handle, found by role or by the
+// project's default (FindTemplateByRole / FindDefaultSurfaceTemplate). A quoted template name in a code
+// line is a decision by name unless it is listed below, BY FILE AND NAME, with the reason it may stay —
+// never a count. Comment lines are not code and are skipped.
+namespace
+{
+    struct AllowedTemplateName
+    {
+        const char* File; // repo-relative, generic separators
+        const char* Name;
+        const char* Why;
+    };
+
+    constexpr AllowedTemplateName kAllowedTemplateNames[] = {
+         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "StaticMeshPBR",
+           "ShaderService compile key of the batched PBR backend's geometry program (MAT1a-T1 owns it)" },
+         { "Desert/Desert/Source/Engine/Graphic/Materials/Mesh/MeshVertexPath.cpp", "StaticMeshPBR",
+           "ShaderService compile-key table of the PBR backend's per-pass programs (MAT1a-T1 owns it)" },
+         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "DefaultSurface",
+           "compile key of the renderer's fallback surface program (MAT1a-T1 owns it)" },
+         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.cpp", "Terrain",
+           "compile key of the terrain renderer's own program, not a material's template" },
+         { "Desert/Common/Source/Common/Content/ShaderAssetHeader.hpp", "Terrain",
+           "the ROLE's spelling (`Role Terrain`, kTerrainRole), which shares the word with the template" },
+         { "Desert/Desert/Source/Engine/Graphic/Clouds/CloudMaterialValues.hpp", "CloudRaymarch",
+           "compile key of the cloud renderer's own program, whose Properties block is the cloud material "
+           "schema" },
+         { "Desert/Desert/Source/Engine/ECS/System/TextECSSystem.hpp", "TextSDF",
+           "compile key of the text system's own program, not a material's template" },
+         { "Desert/Desert/Source/Engine/Core/Formats/ShaderProgramMeta.hpp", "Terrain",
+           "the DOMAIN's spelling (`Domain Terrain`), which shares the word with the template" },
+         { "Editor/Source/Editor/Panels/MaterialEditor/MaterialEditorPanel.cpp", "Terrain",
+           "the DOMAIN's display label, which shares the word with the template" },
+         { "Desert/Desert/Source/Engine/Geometry/PrimitiveType.hpp", "Terrain",
+           "a primitive type's display name, which shares the word with the template" },
+         { "Editor/Source/Editor/Panels/NodeGraph/NodeGraphPanel.cpp", "NewShaderGraph",
+           "the file name a NEW graph document is saved under; the graph compiles to a shader of its own name" },
+    };
+
+    std::vector<std::string> TemplateStems( const std::filesystem::path& shadersDir )
+    {
+        std::vector<std::string> stems;
+        std::error_code          ec;
+        for ( const auto& entry : std::filesystem::recursive_directory_iterator( shadersDir, ec ) )
+        {
+            if ( !entry.is_regular_file() || entry.path().extension() != ".shader" )
+                continue;
+            std::ifstream in( entry.path() );
+            for ( std::string line; std::getline( in, line ); )
+            {
+                const auto first = line.find_first_not_of( " \t" );
+                if ( first == std::string::npos )
+                    continue;
+                const std::string_view text = std::string_view( line ).substr( first );
+                if ( text.starts_with( "Domain Surface" ) || text.starts_with( "Domain Terrain" ) ||
+                     text.starts_with( "Role " ) || text.starts_with( "Default Surface" ) )
+                {
+                    stems.push_back( entry.path().stem().string() );
+                    break;
+                }
+            }
+        }
+        return stems;
+    }
+} // namespace
+
+// A MaterialComponent's Shader names an override only (MAT1g): the PBRSurface template is refused
+// with the path the reference states - not dropped, not substituted - and any other template resolves.
+TEST( EngineShaderByGuid, AComponentShaderNamingThePBRSurfaceTemplateIsRefused )
+{
+    const ScratchDir             dir;
+    Desert::Assets::AssetManager manager;
+    ASSERT_TRUE( manager.CreateAsset<Desert::Assets::ShaderAsset>(
+         WriteMockShader( dir.Root, "MockPBR", kMockGuidA, "    Role PBRSurface\n" ) ) );
+    ASSERT_TRUE( manager.CreateAsset<Desert::Assets::ShaderAsset>(
+         WriteMockShader( dir.Root, "MockOverride", kMockGuidB, "" ) ) );
+    const Desert::Assets::AssetRefSite site{ "shader", "Material.Shader", "Entities[id=1]" };
+
+    const auto refused = Desert::Assets::FindOverrideShaderNameByRef(
+         manager, { kMockGuidA, "Resources/Shaders/MockPBR.shader" }, site );
+    ASSERT_FALSE( refused ) << "the PBRSurface template was accepted as an override";
+    EXPECT_NE( refused.GetError().find( "Resources/Shaders/MockPBR.shader" ), std::string::npos )
+         << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "Entities[id=1]" ), std::string::npos ) << refused.GetError();
+
+    const auto kept = Desert::Assets::FindOverrideShaderNameByRef(
+         manager, { kMockGuidB, "Resources/Shaders/MockOverride.shader" }, site );
+    ASSERT_TRUE( kept ) << kept.GetError();
+    EXPECT_EQ( kept.GetValue(), "MockOverride" );
+}
+
+TEST( EngineShaderByGuid, NoDecisionNamesATemplate )
+{
+    const std::filesystem::path editorDir = EditorDirectory();
+    const std::filesystem::path repo      = editorDir.parent_path();
+    const auto                  stems     = TemplateStems( editorDir / "Resources" / "Shaders" );
+    ASSERT_GE( stems.size(), 3u ) << "the template census found too few templates to mean anything";
+    for ( const char* expected : { "Unlit", "StaticMeshPBR", "Terrain" } )
+        EXPECT_NE( std::find( stems.begin(), stems.end(), expected ), stems.end() ) << expected;
+
+    std::vector<std::string> offenders;
+    for ( const char* root :
+          { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source" } )
+    {
+        std::error_code ec;
+        for ( const auto& entry : std::filesystem::recursive_directory_iterator( repo / root, ec ) )
+        {
+            const auto ext = entry.path().extension();
+            if ( !entry.is_regular_file() || ( ext != ".cpp" && ext != ".hpp" && ext != ".h" ) )
+                continue;
+            const std::string rel = entry.path().lexically_relative( repo ).generic_string();
+            std::ifstream     in( entry.path() );
+            int               number = 0;
+            for ( std::string line; std::getline( in, line ); )
+            {
+                ++number;
+                const auto first = line.find_first_not_of( " \t" );
+                if ( first == std::string::npos )
+                    continue;
+                const std::string_view text = std::string_view( line ).substr( first );
+                if ( text.starts_with( "//" ) || text.starts_with( "*" ) || text.starts_with( "/*" ) )
+                    continue;
+                for ( const auto& stem : stems )
+                {
+                    if ( line.find( std::format( "\"{}\"", stem ) ) == std::string::npos )
+                        continue;
+                    const bool allowed = std::any_of(
+                         std::begin( kAllowedTemplateNames ), std::end( kAllowedTemplateNames ),
+                         [&]( const AllowedTemplateName& a ) { return rel == a.File && stem == a.Name; } );
+                    if ( !allowed )
+                        offenders.push_back( std::format( "{}:{}: \"{}\"", rel, number, stem ) );
+                }
+            }
+        }
+    }
+    std::string list;
+    for ( const auto& o : offenders )
+        std::format_to( std::back_inserter( list ), "{}\n", o );
+    EXPECT_TRUE( offenders.empty() ) << "a template chosen by name (use its handle / role, or allow-list it by "
+                                        "file with a reason):\n"
+                                     << list;
 }

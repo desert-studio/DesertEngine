@@ -3,15 +3,15 @@
 #include <Engine/Assets/MaterialAsset.hpp>
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
-#include <Engine/Assets/Mesh/SurfaceShaderNames.hpp>
 
 namespace Desert::Assets
 {
     // The concrete material asset (.demat): a shader + generic parameter values (MaterialData —
     // THE single material protocol; the shader's schema defines what the params mean).
-    // "StaticMeshPBR" (the default) routes to the optimized batched backend; any Surface-domain
-    // DSL shader routes to the generic per-object path. Pre-protocol files (typed PBR fields /
-    // the ancient cooker format) are migrated on Load and the file is upgraded on disk.
+    // The template is named by the shader file's GUID and nothing else; there is no default template
+    // (a material that names none is refused on load). The two engine PBR templates route to the batched
+    // backend; any other Surface-domain DSL shader routes to the generic per-object path. Pre-protocol files
+    // (typed PBR fields / the ancient cooker format) are migrated on Load and the file is upgraded on disk.
     class SurfaceMaterialAsset final : public MaterialAsset
     {
     public:
@@ -73,25 +73,28 @@ namespace Desert::Assets
             return AssetTypeID::Material;
         }
 
-        // THE shader this material draws with, and the one place that question is answered. The data holds
-        // what the FILE says (a shader GUID, or nothing); this is the name that GUID resolves to - the
-        // ShaderAsset's file stem, which ShaderAsset guarantees equals its DSL name - set by
-        // ResolveDependencies. Load alone leaves a stated shader unresolved (empty): the lookup needs the
-        // manager, and every load path pairs the two (EnsureLoaded, AssetManager, AssetHotReload). EMPTY after
-        // a resolve means the GUID names no loaded shader, logged as an error naming the material and the
-        // GUID; the material then draws nothing. A material that states no shader draws with the standard
-        // surface, kDefaultShaderName. An INSTANCE states none either, and this answers the default for it
-        // too: its shader lives on the parent, which callers resolve through the parent chain.
+        // THE template this material draws with, and the one place that question is answered. IDENTITY IS
+        // THE HANDLE: HandleForGuid of the GUID the file states, which is the handle the ShaderAsset adopted
+        // from its own header. The name is display text only — the ShaderAsset's file stem — and no decision
+        // is taken on it. Both are set by ResolveDependencies (Load alone leaves them empty: the lookup needs
+        // the manager). NULL after a resolve means the file names no template, or a GUID no loaded shader
+        // has; both are logged naming the material, and the material draws nothing. An INSTANCE states no
+        // template: its template is the parent's, which callers resolve through the parent chain.
+        [[nodiscard]] Common::AssetHandle GetShaderHandle() const override
+        {
+            return m_ShaderHandle;
+        }
+
         virtual std::string GetShaderName() const override
         {
             return m_ShaderName;
         }
 
-        // The two engine PBR shaders take the batched PBR backend; every other name is a DSL shader drawn
-        // through the generic data-driven path. Asked of the RESOLVED name, never of the raw data.
+        // The template declaring `Role PBRSurface` takes the batched PBR backend; every other template is
+        // drawn through the generic data-driven path. Asked of the RESOLVED template's manifest, never of a name.
         [[nodiscard]] bool UsesCustomShader() const
         {
-            return !IsPBRSurfaceShader( m_ShaderName );
+            return !m_ShaderIsPBRSurface;
         }
 
         // Resolves Data().Shader's GUID to the ShaderAsset registered under HandleForGuid of it. The loads
@@ -100,15 +103,12 @@ namespace Desert::Assets
         // answering the shader the data no longer names.
         void ResolveDependencies( AssetManager& manager ) override;
 
-        // What an absent Shader resolves to.
-        static constexpr std::string_view kDefaultShaderName = kStaticMeshPBRShader;
-
-        // States in @p data the shader an editor action names BY NAME (a picker row, a graph, a component's
-        // default): the loaded ShaderAsset whose file stem is @p name, by its header GUID and stable path.
-        // kDefaultShaderName states none (the standard surface is said by absence). A name no loaded shader
-        // has, or a shader file with no header GUID, is refused by name and @p data is left untouched.
-        static Common::BoolResultStr StateShaderByName( MaterialData& data, const AssetManager& manager,
-                                                        std::string_view name );
+        // States in @p data the template an editor action CHOSE BY HANDLE (a picker row, the project's
+        // default surface, a role lookup): by the shader's header GUID and stable path. Every template is
+        // stated explicitly — there is no default said by absence. A handle no loaded shader has, or a
+        // shader file with no header GUID, is refused and @p data is left untouched.
+        static Common::BoolResultStr StateShader( MaterialData& data, const AssetManager& manager,
+                                                  Common::AssetHandle shader );
 
         virtual Common::UUID GetMaterialUUID() const override
         {
@@ -127,7 +127,9 @@ namespace Desert::Assets
         bool         m_ReadyForUse  = false;
         Common::UUID m_MaterialUUID = Common::UUID::Null();
         MaterialData m_Data;
-        std::string  m_ShaderName = std::string( kDefaultShaderName );
+        std::string         m_ShaderName;                 // display only
+        Common::AssetHandle m_ShaderHandle;               // THE identity of the template; null = none resolved
+        bool                m_ShaderIsPBRSurface = false; // the resolved template declares `Role PBRSurface`
 
         // TRUE when m_Data is NOT what the file says — the file exists but could not be read, or it
         // read and would not parse. The asset is deliberately still usable in that state (see Load),

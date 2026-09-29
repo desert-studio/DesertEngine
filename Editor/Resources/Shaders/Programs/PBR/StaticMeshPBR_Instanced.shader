@@ -6,6 +6,47 @@ Shader "StaticMeshPBR_Instanced"
     // single instanced draw call (RenderMeshInstanced). Like StaticMeshPBR it is a specialized C++ material,
     // not data-driven (no #pragma domain/param).
 
+    // ONE parameter layout for every PBR pass (forward, instanced, GBuffer, skinned, glass): the renderer
+    // writes one Materials[] row per object from the forward material and every pass reads it, so these
+    // rows are identical by contract — ShippedShaderPasses.EveryPBRPassDeclaresTheOneRowLayout holds them equal.
+    Properties Binding(2)
+    {
+        Color       AlbedoColor ("Albedo", Category("Surface")) = (1, 1, 1, 1)
+        Float       MetallicFactor ("Metallic", Range(0,1), Category("Surface")) = 0
+        Float       RoughnessFactor ("Roughness", Range(0,1), Category("Surface")) = 0.5
+        Float       AOStrength ("Ambient Occlusion", Range(0,1), Category("Surface")) = 1
+        Color       EmissiveColor ("Emissive", Category("Surface")) = (0, 0, 0, 1)
+        Float       EmissiveIntensity ("Emissive Intensity", Range(0,100), Category("Surface")) = 1
+        Float       AlphaCutoff ("Alpha Cutoff", Range(0,1), Category("Surface")) = 0
+        Float       Transmission ("Transmission", Range(0,1), Category("Glass")) = 0
+        Float       IOR ("IOR", Range(1,2.5), Category("Glass")) = 1.5
+        Color       GlassTint ("Glass Tint", Category("Glass")) = (1, 1, 1, 1)
+        Vec2        UVTiling ("UV Tiling", Category("Surface")) = (1, 1)
+        Vec2        UVOffset ("UV Offset", Category("Surface")) = (0, 0)
+        Float       UVRotation ("UV Rotation", Range(-3.14159,3.14159), Category("Surface")) = 0
+        Float       NormalScale ("Normal Scale", Range(0,4), Category("Surface")) = 1
+        Float       OcclusionStrength ("Occlusion Strength", Range(0,1), Category("Surface")) = 1
+        // Which channel of u_OpacityTexture is the mask: 0 = R of a separate opacity map, 3 = A (the importer binds the
+        // albedo texture itself there for a glTF MASK). Stated, never guessed from the bound texture's size.
+        Float       OpacityChannel ("Opacity Channel", Range(0,3), Category("Surface")) = 0
+        // Material half of the sun-shadow receive decision; the renderer also zeroes it for a mesh whose
+        // Receive Shadows toggle is off, so a surface skips the sun shadow when EITHER says so.
+        Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
+        Texture2D   u_AlbedoTexture ("Albedo Map", Category("Textures"))
+        // The ONE slot whose empty state is not white. A normal map is unpacked with `2*t - 1`, so a
+        // white texel decodes to a normalised (1,1,1) — a normal tilted 54 degrees off the surface —
+        // whereas (0.5,0.5,1) decodes to +Z, which is what "this surface has no normal detail" means.
+        // The fragment stages here, in StaticMeshGBuffer and in StaticMeshPBR_Instanced all guard with
+        // `textureSize(u_NormalTexture,0).x > 1` and skip a 1x1, so this changes no pixel today; it is
+        // written down so the guard is a fast path rather than the only thing standing between an empty
+        // slot and a wrong normal.
+        Texture2D   u_NormalTexture ("Normal Map", Category("Textures")) = "normal"
+        Texture2D   u_OpacityTexture ("Opacity Map", Category("Textures"))
+        // Packed glTF-style: R = occlusion, G = roughness, B = metallic, each multiplying its factor; white when empty.
+        Texture2D   u_ORMTexture ("ORM Map", Category("Textures"))
+        Texture2D   u_EmissiveTexture ("Emissive Map", Category("Textures"))
+    }
+
     Vertex
     {
         In(0) vec3 a_Position;
@@ -31,16 +72,11 @@ Shader "StaticMeshPBR_Instanced"
         	mat4 transforms[];
         };
 
-        // Kept byte-identical to Static.glsl.vert / PBR.glsl.frag so the reflected push range matches. The
-        // instanced vertex IGNORES Transform (the instance SSBO supplies the model matrix); MaterialIndex is still
-        // used by the fragment stage.
-        PushConstant PushConstants
-        {
-        	mat4 Transform;     // offset 0  — unused here
-        	uint MaterialIndex; // offset 64
-        	vec4 WindA;         // offset 80 — Graphic::kInstancedWindPushOffset (Common/FoliageWind.glslh)
-        	vec4 WindB;         // offset 96
-        } m_PushConstants;
+        // The ONE engine push block, the same header the parser injects into the fragment stage, so both
+        // stages reflect one range of one length. This stage IGNORES Transform (the instance SSBO supplies
+        // the model matrix) and reads WindA/WindB (Graphic::kInstancedWindPushOffset); MaterialIndex is the
+        // fragment stage's.
+        #include <Common/MaterialTransport.glslh>
 
         #include <Common/FoliageWind.glslh>
 
@@ -104,26 +140,9 @@ Shader "StaticMeshPBR_Instanced"
         // Shared push-constant block. Must be byte-for-byte identical to the one in Static.glsl.vert /
         // Skinned.glsl.vert. Per-object material data lives in the Materials[] storage buffer (GPU-scene
         // style); the push constant only carries the per-object index into it.
-        PushConstant PushConstants
-        {
-        	mat4 Transform;     // offset 0   (vertex)
-        	uint MaterialIndex; // offset 64  index into Materials[]
-        } pc;
 
         // One entry per drawn object (std430). Filled on the CPU each frame (per-object / per-instance).
-        struct GpuMaterial
-        {
-        	vec4 AlbedoAO;           // rgb = albedo, a = ambient occlusion
-        	vec4 MetalRoughEmission; // x = metallic, y = roughness, z = emission strength
-        	vec4 EmissionColor;      // rgb = emission color
-        	vec4 ExtraParams;        // xy = UV tiling, z = IOR, w = reserved
-        	vec4 GlassTint;          // rgb = glass tint, a = transmission (opaque path ignores it)
-        };
 
-        ReadBuffer(2) Materials
-        {
-        	GpuMaterial materials[];
-        };
 
         struct DirectionLight
         {
@@ -166,9 +185,13 @@ Shader "StaticMeshPBR_Instanced"
         Uniform(10) sampler2D u_BRDFLUTTexture;
 
         #include <Common/TangentNormal.glslh>
+        // The source-to-surface arithmetic (UV transform, base colour, ORM, normal strength, emission).
+        #include <Common/PBRSurfaceInputs.glslh>
         Uniform(11) sampler2D u_AlbedoTexture;
         Uniform(12) sampler2D u_NormalTexture;
         Uniform(18) sampler2D u_OpacityTexture; // alpha-cutout mask (foliage); unused when cutoff == 0 (16/17 = light SSBOs)
+        Uniform(23) sampler2D u_ORMTexture;      // R = occlusion, G = roughness, B = metallic (data, linear)
+        Uniform(24) sampler2D u_EmissiveTexture; // sRGB colour, linearised below like the albedo
 
         // THE CLOUD LAYER'S SHADOW ON THE WORLD — the sun's SECOND occluder, at the same slots as in
         // StaticMeshPBR / SkinnedMeshPBR / StaticMeshGlass / StaticMeshGBuffer. See
@@ -225,26 +248,29 @@ Shader "StaticMeshPBR_Instanced"
 
         void main() {
 
-        	GpuMaterial mat = materials[pc.MaterialIndex];
 
-        	// Tiled UV: surface UVs * material UV-tiling (ExtraParams.xy; default {1,1} = no tiling). Guard against 0
+        	// Tiled UV: surface UVs * material UV-tiling (u_Material.UVTiling; default {1,1} = no tiling). Guard against 0
         	// (un-set / legacy material) so the texture never collapses to a single texel.
-        	vec2 tiling = mat.ExtraParams.xy;
+        	vec2 tiling = u_Material.UVTiling;
         	if (tiling.x <= 0.0) tiling.x = 1.0;
         	if (tiling.y <= 0.0) tiling.y = 1.0;
-        	vec2 uv = inVertex.Texcoord * tiling;
+        	// Offset, rotation and scale come from the Materials[] row; TEXCOORD_1
+        	// is not a vertex input of this shader, so set 0 is the only set.
+        	vec2 uv = PBRTransformUV(PBRSelectUV(inVertex.Texcoord, inVertex.Texcoord, 0), u_Material.UVOffset, tiling, u_Material.UVRotation);
 
         	// Alpha cutout (foliage/cards): discard transparent texels per the Opacity Map. MetalRoughEmission.w is
         	// the cutoff (0 = disabled, so opaque materials are unaffected). Done first to skip lighting on discards.
-        	float alphaCutoff = mat.MetalRoughEmission.w;
-        	if (alphaCutoff > 0.0 && texture(u_OpacityTexture, uv).r < alphaCutoff)
+        	float alphaCutoff = u_Material.AlphaCutoff;
+        	// The ONE mask source: the channel OpacityChannel names of u_OpacityTexture (an empty slot is white, so no cut).
+        	float mask = texture(u_OpacityTexture, uv)[int(u_Material.OpacityChannel)];
+        	if (alphaCutoff > 0.0 && mask < alphaCutoff)
         		discard;
 
-        	m_Params.AlbedoColor = mat.AlbedoAO.rgb;
         	// Albedo maps are authored in sRGB (gamma) space; lighting must run in LINEAR space. The engine loads
         	// 8-bit textures as UNORM (no hardware sRGB sampling yet), so convert here. Normal/roughness/metallic/AO
         	// are DATA maps and are intentionally NOT converted. (Proper fix later: hardware VK_FORMAT_*_SRGB.)
-        	m_Params.AlbedoColor *= pow( texture(u_AlbedoTexture, uv).rgb, vec3(2.2) );
+        	// No vertex-colour input exists in this vertex layout, so the vertex colour is white.
+        	m_Params.AlbedoColor = PBRBaseColor(u_Material.AlbedoColor.rgb, pow( texture(u_AlbedoTexture, uv).rgb, vec3(2.2) ), vec3(1.0));
 
         	// Default: use the world-space normal from the vertex shader directly.
         	m_Params.Normal = normalize(inVertex.Normal);
@@ -253,7 +279,8 @@ Shader "StaticMeshPBR_Instanced"
         	if(textureSize.x > 1 && textureSize.y > 1) // real normal map — not the 1x1 fallback
         	{
         		// Transform tangent-space normal to world space via TBN.
-        		vec3 tangentNormal = SampleTangentNormal(u_NormalTexture, uv);
+        		// NormalScale from the row (glTF normalTexture.scale).
+        		vec3 tangentNormal = PBRScaleTangentNormal(SampleTangentNormal(u_NormalTexture, uv), u_Material.NormalScale);
         		m_Params.Normal = normalize(inVertex.TBN * tangentNormal);
         	}
         	// Without a normal map the TBN transform is intentionally skipped:
@@ -266,10 +293,13 @@ Shader "StaticMeshPBR_Instanced"
         		return;
         	}
 
-        	const float metalness = mat.MetalRoughEmission.x;
+        	// The ORM map against its factors (an empty slot is white, so the factors pass through unchanged).
+        	const vec3  orm       = PBRResolveORM(texture(u_ORMTexture, uv).rgb, u_Material.OcclusionStrength, u_Material.RoughnessFactor, u_Material.MetallicFactor);
+        	const vec3  emissiveTexel = pow(texture(u_EmissiveTexture, uv).rgb, vec3(2.2));
+        	const float metalness = orm.z;
         	// Clamp to a minimum roughness so the GGX NDF stays finite even for mirror-smooth materials.
-        	const float roughness = max(mat.MetalRoughEmission.y, 0.04);
-        	const float ao        = mat.AlbedoAO.a;
+        	const float roughness = max(orm.y, 0.04);
+        	const float ao        = u_Material.AOStrength * orm.x;
 
         	const vec3 view = normalize(inVertex.CameraPosition - inVertex.WorldPosition);
 
@@ -344,7 +374,7 @@ Shader "StaticMeshPBR_Instanced"
             }
 
             // Ambient occlusion attenuates only the ambient (IBL) term; emission is added unlit.
-            vec3 emission = mat.EmissionColor.rgb * mat.MetalRoughEmission.z;
+            vec3 emission = PBREmission(emissiveTexel, u_Material.EmissiveColor.rgb, u_Material.EmissiveIntensity);
 
             // The ambient, assembled by the shared header — the SAME call the deferred composite makes,
             // so the two paths cannot floor, occlude or albedo-weight it differently. The forward path

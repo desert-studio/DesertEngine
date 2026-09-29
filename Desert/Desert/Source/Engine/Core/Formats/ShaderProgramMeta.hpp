@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Core/Formats/DefaultTexture.hpp>
+#include <Engine/Core/Formats/SamplerState.hpp>
 #include <Engine/Core/Formats/Shader.hpp>
 
 #include <glm/glm.hpp>
@@ -116,6 +117,11 @@ namespace Desert::Core::Formats
         // Meaningless (and left at White) for a non-texture param; see DefaultTexture.hpp for why the
         // implicit value reproduces the old picture rather than choosing a new one.
         DefaultTextureKind DefaultTexture = DefaultTextureKind::White;
+
+        // The template's sampling state for this Texture2D slot — the DSL `Sampler(Clamp, Clamp, Nearest)`
+        // attribute. A material slot may override it (MaterialAssetRef::Sampler); ResolveSlotSampler picks.
+        // Meaningless for a non-texture param and left at the Repeat/Linear default there.
+        SamplerState Sampler;
 
         bool IsAssetRef() const
         {
@@ -267,6 +273,17 @@ namespace Desert::Core::Formats
         return domain == kUIPathDomain;
     }
 
+    // What a template's `Properties Binding(n) TextureBinding(n)` asked for. Carried on the metadata (and
+    // so through the shader-map cache) because the material layout is DERIVED from Params + these two
+    // numbers (Core/Formats/MaterialLayout.hpp BuildMaterialLayout), on a cache hit as on a parse.
+    struct MaterialLayoutBindings
+    {
+        std::optional<uint32_t> Row;          // Binding(n): the Materials[] storage buffer
+        std::optional<uint32_t> FirstTexture; // TextureBinding(n): the first generated sampler
+
+        bool operator==( const MaterialLayoutBindings& ) const = default;
+    };
+
     struct ShaderProgramMeta
     {
         std::vector<ShaderParam> Params;
@@ -291,6 +308,8 @@ namespace Desert::Core::Formats
         // Empty for every ordinary program, which is what makes IsMediumProgram() a fact about the file
         // rather than a convention.
         std::string MediumSource;
+
+        MaterialLayoutBindings LayoutBindings;
 
         // A program fragment and nothing else: no stages of its own, so it compiles to no modules and is
         // never used to build a pipeline. ShaderService registers it by name without complaining that it

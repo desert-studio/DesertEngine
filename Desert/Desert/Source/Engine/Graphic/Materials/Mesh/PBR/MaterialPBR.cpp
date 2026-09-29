@@ -1,7 +1,10 @@
 #include "MaterialPBR.hpp"
 
+#include <Engine/Graphic/Materials/MaterialBinder.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/ShaderProtocols/SkinnedMaterialUB.hpp>
+#include <Engine/Graphic/Shader.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -30,6 +33,9 @@ namespace Desert::Graphic
                             std::string( shaderName ) ),
            m_Path( path ), m_Pass( pass )
     {
+        if ( auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( shaderName ) )
+            m_Schema = shader->GetProgramMeta();
+        m_Row = MaterialBinder::DefaultRow( GetMaterialLayout() );
     }
 
     void MaterialPBR::UploadBones( const glm::mat4* matrices, size_t count )
@@ -61,10 +67,12 @@ namespace Desert::Graphic
         //
         // The row index is the third such value and is written by Material::SetMaterialIndex, straight
         // into this same buffer, because generic draws need it without ever calling Bind.
+        //
+        // Both by NAME through the cell's layout: a static or instanced cell has no BoneOffset field in its
+        // reconciled layout, so nothing is written there — the layout says so, not the vertex path.
         glm::mat4 transform = instance->GetMat4( "Transform" );
-        m_MaterialExecutor->PushConstant( &transform, sizeof( glm::mat4 ), kPushTransformOffset );
-        if ( m_Path == MeshVertexPath::Skinned )
-            m_MaterialExecutor->PushConstant( &m_BoneOffset, sizeof( uint32_t ), kPushBoneOffsetOffset );
+        SetPushMatrix( transform );
+        WritePushField( "BoneOffset", &m_BoneOffset, sizeof( uint32_t ) );
 
         // Flush shared uniform buffers (camera/lights), textures and the Materials storage descriptor.
         Material::Bind( instance );

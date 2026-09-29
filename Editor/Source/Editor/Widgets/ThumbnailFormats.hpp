@@ -102,9 +102,7 @@ namespace Desert::Editor::ThumbnailFormats
          { "gif", Producer::Decoded, "the first frame of the image" },
          { "tga", Producer::Decoded, "the image itself" },
          // ── An offscreen render, and therefore a renderer slot ─────────────────────────────────────
-         { "demat", Producer::RenderedMaterial,
-           "the material on a sphere, or on a camera-facing card "
-           "when it is a cutout (a foliage atlas garbles on a ball)" },
+         { "demat", Producer::RenderedMaterial, "the material on a sphere; a masked one is cut by its mask" },
          { "lmat", Producer::RenderedMaterial,
            "the same picture as a .demat. The extension is Lumos-era and nothing in this engine writes "
            "one any more, but the browser still TYPES it as a material, so it still owes an answer here — "

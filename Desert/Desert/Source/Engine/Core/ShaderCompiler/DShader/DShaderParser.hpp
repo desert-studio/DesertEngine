@@ -51,6 +51,7 @@
 // #line directives so shaderc errors point at the original .shader lines.
 
 #include <Engine/Core/Formats/Shader.hpp>
+#include <Engine/Core/Formats/MaterialLayout.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 #include <Common/Core/ResultStr.hpp>
 
@@ -75,6 +76,9 @@ namespace Desert::Core::Preprocess
         Core::Formats::ShaderProgramMeta                            Meta;   // default pass meta (+ PassNames)
         std::unordered_map<Core::Formats::ShaderStage, std::string> Stages; // default pass GLSL
         std::vector<DShaderPass>                                    Passes; // all passes; [0] is the default
+        // The row and texture layout the generated GLSL was written from (Core/Formats/MaterialLayout.hpp);
+        // its push fields stay empty until ReconcileMaterialLayout reads them off a compiled cell.
+        Core::Formats::MaterialLayout Layout;
 
         // nullptr when the pass doesn't exist. Empty name = the default pass.
         const DShaderPass* FindPass( const std::string& name ) const

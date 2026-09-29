@@ -3,6 +3,7 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/AssetRedirector.hpp>
 #include <Common/Content/ImportRecord.hpp>
+#include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -320,6 +321,21 @@ namespace Common::Content
         }
     } // namespace
 
+    namespace
+    {
+        // The template role the shader's manifest declares; a manifest that does not parse states none here
+        // (ShaderAsset refuses that file by name when it loads).
+        std::string StatedShaderRole( const std::filesystem::path& file )
+        {
+            const auto text =
+                 Utils::FileSystem::ReadFileContentPrefix( file, Utils::FileSystem::GetFileSize( file ) );
+            if ( !text )
+                return {};
+            const auto manifest = ReadShaderManifest( text.GetValue() );
+            return manifest ? manifest.GetValue().Role : std::string();
+        }
+    } // namespace
+
     ContentFile DescribeContentFile( const std::filesystem::path& file, ContentKind kind )
     {
         // A STATIC MESH IMPORTED SINCE AF4h HAS NO FILE OF ITS OWN: its row is described from the import
@@ -357,6 +373,8 @@ namespace Common::Content
             described.RigSignature = StatedRigSignature( file );
         if ( kind == ContentKind::Animation )
             described.RigSignature = StatedClipRigSignature( file );
+        if ( kind == ContentKind::Shader )
+            described.Role = StatedShaderRole( file );
         // RECORD ONLY: the versions are the loading build's to judge, not this walk's (see the context).
         const AssetHeaderReadContext context{ {}, true };
         auto                         stated = ReadAssetHeaderIfStated( file, context );
@@ -537,6 +555,7 @@ namespace Common::Content
         entry.DisplayName  = file.DisplayName;
         entry.Skinned      = file.Skinned;
         entry.RigSignature = file.RigSignature;
+        entry.Role         = file.Role;
         return MakeSuccess( std::move( entry ) );
     }
 

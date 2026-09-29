@@ -16,6 +16,8 @@ project(test_name)
         -- The unit RULE itself, compiled in rather than restated: this suite asserts the SIZE a file
         -- imports at, and a second copy of the rule here would be a second thing to keep in agreement.
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportUnits.cpp",
+        -- MAT1v: the importer's colour / UV1 stream reader, driven here by a glTF the suite writes itself.
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/VertexStreams.cpp",
     }
 
     includedirs {

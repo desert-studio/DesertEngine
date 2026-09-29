@@ -256,6 +256,11 @@ namespace
         }
 
         EXPECT_EQ( expected.PolyGroups, actual.PolyGroups );
+        EXPECT_EQ( expected.Colors, actual.Colors );
+        ASSERT_EQ( expected.UV1.size(), actual.UV1.size() );
+        if ( !expected.UV1.empty() )
+            EXPECT_EQ( 0, std::memcmp( expected.UV1.data(), actual.UV1.data(),
+                                       expected.UV1.size() * sizeof( glm::vec2 ) ) );
 
         ASSERT_EQ( expected.MorphTargets.size(), actual.MorphTargets.size() );
         for ( size_t i = 0; i < expected.MorphTargets.size(); ++i )
@@ -345,8 +350,11 @@ namespace
     // v3 minus its identity: the 16 GUID bytes after the 64-byte header go, and every submesh row ends in
     // the 8-byte pre-GUID material number (`materialNumber` in each) where v3 has the material's 16-byte
     // GUID. The sections are laid out again, each at the next 8-byte boundary, as the reader derives them.
-    std::string AsVersionTwo( const std::string& v3, uint64_t materialNumber = 0 )
+    std::string AsVersionThree( const std::string& v4 );
+
+    std::string AsVersionTwo( const std::string& v4, uint64_t materialNumber = 0 )
     {
+        const std::string v3      = AsVersionThree( v4 );
         constexpr size_t kHeader = 64, kRow = 24, kSubmeshRow = 3, kRowV3 = 136, kRowV2 = 128, kShared = 120;
         const size_t     prefix  = Common::Content::kMeshBinaryPrefixV3;
         uint32_t         version = 2, sections = 0;
@@ -392,6 +400,49 @@ namespace
         return v2;
     }
 
+    // v4 minus its two optional streams: a v3 file is exactly a v4 file without the last two table rows
+    // (48 bytes), every offset 48 lower, the size 48 smaller, Version 3 and SectionCount 10. Only a mesh with
+    // neither stream has a v3 spelling.
+    std::string AsVersionThree( const std::string& v4 )
+    {
+        constexpr size_t kPrefix  = Common::Content::kMeshBinaryPrefixV3;
+        constexpr size_t kRow     = 24;
+        constexpr size_t kRowsV4  = 12;
+        constexpr size_t kDropped = 2;
+        uint32_t         version  = 0;
+        uint32_t         sections = 0;
+        uint64_t         fileSize = 0;
+        std::memcpy( &version, v4.data() + 12, 4 );
+        std::memcpy( &fileSize, v4.data() + 16, 8 );
+        std::memcpy( &sections, v4.data() + 24, 4 );
+        EXPECT_EQ( version, 4u );
+        EXPECT_EQ( sections, kRowsV4 );
+        for ( size_t row = kRowsV4 - kDropped; row < kRowsV4; ++row )
+        {
+            uint64_t count = 0;
+            std::memcpy( &count, v4.data() + kPrefix + row * kRow + 16, 8 );
+            EXPECT_EQ( count, 0u ) << "only a mesh with no colour and no UV1 stream has a v3 spelling";
+        }
+        const size_t cut = kDropped * kRow;
+        std::string  v3 =
+             v4.substr( 0, kPrefix + ( kRowsV4 - kDropped ) * kRow ) + v4.substr( kPrefix + kRowsV4 * kRow );
+        version  = 3;
+        sections = kRowsV4 - kDropped;
+        fileSize -= cut;
+        std::memcpy( v3.data() + 12, &version, 4 );
+        std::memcpy( v3.data() + 16, &fileSize, 8 );
+        std::memcpy( v3.data() + 24, &sections, 4 );
+        for ( size_t row = 0; row < kRowsV4 - kDropped; ++row )
+        {
+            uint64_t offset = 0;
+            std::memcpy( &offset, v3.data() + kPrefix + row * kRow + 8, 8 );
+            offset -= cut;
+            std::memcpy( v3.data() + kPrefix + row * kRow + 8, &offset, 8 );
+        }
+        EXPECT_EQ( v3.size(), fileSize );
+        return v3;
+    }
+
     std::string AsVersionOne( const std::string& v2 )
     {
         constexpr size_t kHeader  = 64;
@@ -428,6 +479,73 @@ namespace
         return v1;
     }
 } // namespace
+
+// VERSION 4 (MAT1v): the colour and UV1 streams are optional sections, one entry per vertex or none.
+namespace
+{
+    Ser::MeshAssetData WithStreams()
+    {
+        Ser::MeshAssetData data = FullyPopulated();
+        const size_t       n    = data.StaticVertices.size() + data.SkinnedVertices.size();
+        for ( size_t v = 0; v < n; ++v )
+        {
+            // Not derived from the index alone in one channel, so a reader that shifted by a vertex fails.
+            data.Colors.push_back( { static_cast<uint8_t>( v * 37 ), static_cast<uint8_t>( 255 - v ),
+                                     static_cast<uint8_t>( v * v ), static_cast<uint8_t>( 128 + v ) } );
+            data.UV1.emplace_back( 0.125f * static_cast<float>( v ), -3.5f + static_cast<float>( v ) );
+        }
+        return data;
+    }
+} // namespace
+
+TEST( MeshBinaryFormat, TheColourAndSecondUVStreamsSurviveTheRoundTrip )
+{
+    const Ser::MeshAssetData source = WithStreams();
+    ASSERT_FALSE( source.Colors.empty() );
+    const std::string encoded = Ser::EncodeMeshBinary( source );
+    const auto        decoded = Ser::DecodeMeshBinary( encoded, "streams.stmesh" );
+    ASSERT_TRUE( decoded.IsSuccess() ) << decoded.GetError();
+    ExpectSameMesh( source, decoded.GetValue() );
+    ASSERT_EQ( decoded.GetValue().Colors.size(), source.Colors.size() );
+    EXPECT_EQ( decoded.GetValue().UV1.size(), source.UV1.size() );
+
+    // A mesh without the streams pays for them nothing but two empty table rows.
+    const std::string without = Ser::EncodeMeshBinary( FullyPopulated() );
+    EXPECT_EQ( encoded.size() - without.size(), ( source.Colors.size() * 4 + 7 ) / 8 * 8 + source.UV1.size() * 8 );
+}
+
+TEST( MeshBinaryFormat, EachStreamIsOptionalOnItsOwn )
+{
+    Ser::MeshAssetData colours = WithStreams();
+    colours.UV1.clear();
+    Ser::MeshAssetData uv1 = WithStreams();
+    uv1.Colors.clear();
+    for ( const Ser::MeshAssetData& source : { colours, uv1 } )
+    {
+        const auto decoded = Ser::DecodeMeshBinary( Ser::EncodeMeshBinary( source ), "one-stream.stmesh" );
+        ASSERT_TRUE( decoded.IsSuccess() ) << decoded.GetError();
+        ExpectSameMesh( source, decoded.GetValue() );
+    }
+}
+
+TEST( MeshBinaryFormat, AStreamThatDoesNotCoverEveryVertexIsRefusedByName )
+{
+    Ser::MeshAssetData source = WithStreams();
+    source.Colors.pop_back();
+    const auto decoded = Ser::DecodeMeshBinary( Ser::EncodeMeshBinary( source ), "short.stmesh" );
+    ASSERT_FALSE( decoded.IsSuccess() );
+    EXPECT_NE( decoded.GetError().find( "Colors" ), std::string::npos ) << decoded.GetError();
+}
+
+TEST( MeshBinaryFormat, AVersionThreeFileIsAVersionFourFileWithoutTheStreams )
+{
+    const Ser::MeshAssetData source = FullyPopulated();
+    const auto read = Ser::DecodeMeshBinary( AsVersionThree( Ser::EncodeMeshBinary( source ) ), "v3.stmesh" );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    ExpectSameMesh( source, read.GetValue() );
+    EXPECT_TRUE( read.GetValue().Colors.empty() );
+    EXPECT_TRUE( read.GetValue().UV1.empty() );
+}
 
 TEST( MeshBinaryFormat, AVersionTwoFileIsReadWithANullGuid )
 {

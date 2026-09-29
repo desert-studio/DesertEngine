@@ -116,6 +116,9 @@ namespace Desert::Assets::Serialization
         static_assert( std::is_trivially_copyable_v<SkinnedVertexData> );
         static_assert( std::is_trivially_copyable_v<IndexData> );
         static_assert( std::is_trivially_copyable_v<glm::vec3> );
+        static_assert( sizeof( std::array<uint8_t, 4> ) == 4 &&
+                       std::is_trivially_copyable_v<std::array<uint8_t, 4>> );
+        static_assert( std::is_trivially_copyable_v<glm::vec2> );
 
         constexpr uint32_t kByteOrderTag = Common::Content::kMeshBinaryByteOrderTag;
 
@@ -141,16 +144,22 @@ namespace Desert::Assets::Serialization
             SecMorphDeltas,
             SecStrings,
             SecPolyGroups, // version 2
+            SecColors,     // version 4
+            SecUV1,        // version 4
             SecCount_      // one past the last id; also the number of rows in the table
         };
         static_assert( SecSubmeshes == Common::Content::kMeshBinarySubmeshSectionId );
         constexpr uint32_t kSectionCount = SecCount_ - 1;
-        // Version 1 is version 2 without its last section (MeshBinary.hpp); the table is otherwise identical.
+        // Each version is the next one without its trailing sections (MeshBinary.hpp); the table is otherwise
+        // identical, so one reader reads them all and a missing row reads as an empty section.
         constexpr uint32_t kSectionCountV1 = SecStrings;
+        constexpr uint32_t kSectionCountV3 = SecPolyGroups;
 
         uint32_t SectionCountOf( const uint32_t version )
         {
-            return version == 1 ? kSectionCountV1 : kSectionCount;
+            if ( version == 1 )
+                return kSectionCountV1;
+            return version <= 3 ? kSectionCountV3 : kSectionCount;
         }
 
         constexpr uint32_t kFlagIsSkinned            = Common::Content::kMeshFlagIsSkinned;
@@ -182,6 +191,10 @@ namespace Desert::Assets::Serialization
                     return 1;
                 case SecPolyGroups:
                     return sizeof( int32_t );
+                case SecColors:
+                    return 4; // std::array<uint8_t, 4>
+                case SecUV1:
+                    return sizeof( glm::vec2 );
                 default:
                     return 0;
             }
@@ -211,6 +224,10 @@ namespace Desert::Assets::Serialization
                     return "Strings";
                 case SecPolyGroups:
                     return "PolyGroups";
+                case SecColors:
+                    return "Colors";
+                case SecUV1:
+                    return "UV1";
                 default:
                     return "<unknown>";
             }
@@ -340,6 +357,8 @@ namespace Desert::Assets::Serialization
              { SecMorphDeltas, AsBytes( morphDeltas.data(), morphDeltas.size() ), morphDeltas.size() },
              { SecStrings, AsBytes( strings.data(), strings.size() ), strings.size() },
              { SecPolyGroups, AsBytes( data.PolyGroups.data(), data.PolyGroups.size() ), data.PolyGroups.size() },
+             { SecColors, AsBytes( data.Colors.data(), data.Colors.size() ), data.Colors.size() },
+             { SecUV1, AsBytes( data.UV1.data(), data.UV1.size() ), data.UV1.size() },
         };
 
         // Offsets are computed before anything is written, because the table sits in front of the
@@ -662,6 +681,24 @@ namespace Desert::Assets::Serialization
         data.PolyGroups.resize( N( SecPolyGroups ) );
         if ( !data.PolyGroups.empty() )
             std::memcpy( data.PolyGroups.data(), At( SecPolyGroups ), N( SecPolyGroups ) * sizeof( int32_t ) );
+
+        // The optional streams: one entry per vertex or none, the same rule as the polygroups' per face.
+        const size_t vertexTotal = N( SecStaticVertices ) + N( SecSkinnedVertices );
+        for ( const uint32_t stream : { static_cast<uint32_t>( SecColors ), static_cast<uint32_t>( SecUV1 ) } )
+        {
+            if ( N( stream ) != 0 && N( stream ) != vertexTotal )
+            {
+                return Common::MakeFormattedError<MeshAssetData>( "'{}' carries {} {} entries for {} vertices.",
+                                                                  who, N( stream ), SectionName( stream ),
+                                                                  vertexTotal );
+            }
+        }
+        data.Colors.resize( N( SecColors ) );
+        if ( !data.Colors.empty() )
+            std::memcpy( data.Colors.data(), At( SecColors ), N( SecColors ) * 4 );
+        data.UV1.resize( N( SecUV1 ) );
+        if ( !data.UV1.empty() )
+            std::memcpy( data.UV1.data(), At( SecUV1 ), N( SecUV1 ) * sizeof( glm::vec2 ) );
 
         data.MorphTargets.resize( N( SecMorphTargets ) );
         for ( size_t i = 0; i < data.MorphTargets.size(); ++i )

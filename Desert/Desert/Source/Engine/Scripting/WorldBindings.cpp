@@ -1,5 +1,7 @@
 #include "Internal/ScriptRuntime.hpp"
 
+#include <Engine/Assets/Shader/ShaderAsset.hpp>
+
 namespace Desert::Scripting
 {
     // World table: scene queries (find/spawn/raycast) + water controls.
@@ -111,8 +113,22 @@ namespace Desert::Scripting
             t.Translation = glm::vec3( x, y, z );
             t.Scale       = glm::vec3( scale <= 0.0f ? 0.15f : scale );
 
+            // The flat-colour template is found BY ROLE; its name is only the compile key it is built by.
+            const auto debugColor =
+                 impl->Assets != nullptr
+                      ? Assets::FindTemplateByRole( *impl->Assets, Common::Content::kDebugColorRole )
+                      : Common::MakeError<Common::AssetHandle>( std::string( "no asset manager is bound" ) );
+            const auto template_ =
+                 debugColor ? impl->Assets->FindByHandle<Assets::ShaderAsset>( debugColor.GetValue() ) : nullptr;
+            if ( template_ == nullptr )
+            {
+                LOG_ERROR( "[Script] World.spawnMarker: {} — the marker draws its mesh's own material",
+                           debugColor ? std::string( "the DebugColor template is not loaded" )
+                                      : debugColor.GetError() );
+                return impl->MakeEntity( e.GetHandle() );
+            }
             auto& mc      = e.AddComponent<ECS::MaterialComponent>();
-            mc.ShaderName = "Unlit";
+            mc.ShaderName = template_->GetMetadata().Filepath.stem().string();
             mc.Params.push_back( ECS::MaterialParamOverride{ "Color", glm::vec4( r, g, b, 1.0f ) } );
 
             return impl->MakeEntity( e.GetHandle() );

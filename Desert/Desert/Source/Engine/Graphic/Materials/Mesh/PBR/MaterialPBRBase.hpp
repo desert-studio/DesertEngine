@@ -12,7 +12,7 @@ namespace Desert::Graphic
     // to a lit draw is Graphic::PBRSceneFrame, and PBRSceneFrame::ApplyTo writes it through the one set of
     // writers in Engine/Graphic/Materials/SceneLightingBinding.hpp, which take a Material and therefore
     // reach the skinned path and the generic (data-driven) path as well as this one. Material parameters
-    // themselves live in the reflected Assets::PBRSurfaceParams and travel via push constants (PBRPush.hpp).
+    // themselves travel as a Materials[] row (Core/Formats/MaterialParamRow.hpp).
     //
     // What is left here is the half of the CPU/GLSL contract that a test can hold still: how many cascades
     // the ShadowUB block carries, its byte layout, and the NAMES every writer looks the blocks up under.

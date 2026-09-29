@@ -227,8 +227,8 @@ namespace
                                                        const AssetGuid& trimDerived )
     {
         Desert::Editor::ImportResult result;
-        result.Materials.push_back( { .Name = "model", .Data = {}, .Guid = modelDerived, .Textures = {} } );
-        result.Materials.push_back( { .Name = "trim", .Data = {}, .Guid = trimDerived, .Textures = {} } );
+        result.Materials.push_back( { .Name = "model", .Source = {}, .Guid = modelDerived } );
+        result.Materials.push_back( { .Name = "trim", .Source = {}, .Guid = trimDerived } );
         result.Mesh.emplace();
         result.Mesh->Submeshes.resize( 3 );
         result.Mesh->Submeshes[0].MaterialGuid = modelDerived;

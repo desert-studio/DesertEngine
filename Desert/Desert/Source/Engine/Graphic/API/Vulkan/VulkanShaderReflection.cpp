@@ -185,7 +185,7 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             // Populate fields once; multi-stage shaders call ReflectStage() per stage, avoid duplicates.
             if ( ub.Fields.empty() )
             {
-                for ( uint32_t i = 0; i < (uint32_t)structType.member_types.size(); ++i )
+                for ( uint32_t i = 0; i < static_cast<uint32_t>( structType.member_types.size() ); ++i )
                 {
                     ShaderResources::ShaderLayout::ShaderFieldLayout field;
                     field.Name   = compiler.get_member_name( resource.base_type_id, i );
@@ -319,7 +319,7 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         {
             const auto&    res          = resources.push_constant_buffers[0];
             auto&          type         = compiler.get_type( res.base_type_id );
-            const uint32_t declaredSize = (uint32_t)compiler.get_declared_struct_size( type );
+            const auto     declaredSize = static_cast<uint32_t>( compiler.get_declared_struct_size( type ) );
             if ( !data.PushConstantRanges )
             {
                 ShaderResources::ShaderLayout::PushConstantRange range;
@@ -331,15 +331,12 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             }
             else
             {
+                // One pipeline, one block: the SIZE is not merged here. ReconcileCellLayout refuses a cell
+                // whose stages declare different blocks, and VulkanShader::BuildFromSpirv sets the range to
+                // the reconciled MaterialLayout::PushSize — there is no "the larger wins" to hide a stage
+                // that declared a shorter block (the T1b 72-vs-68 regression).
                 data.PushConstantRanges->ShaderStage = ( Core::Formats::ShaderStage )(
                      (uint32_t)data.PushConstantRanges->ShaderStage | (uint32_t)stage );
-                // Different stages may declare the same push-constant block but glslang strips members
-                // a stage doesn't use, so each reports a different declared size. The pipeline-layout
-                // range must span the largest, or a stage's access lands outside the range.
-                if ( declaredSize > data.PushConstantRanges->Size )
-                {
-                    data.PushConstantRanges->Size = declaredSize;
-                }
             }
         }
 
@@ -391,6 +388,71 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         for ( const auto& binding : bindings )
             total += binding.descriptorCount;
         return total;
+    }
+
+    Core::Formats::ReflectedMaterialStage ReflectMaterialStage( const std::vector<uint32_t>& spirv,
+                                                                Core::Formats::ShaderStage   stage )
+    {
+        Core::Formats::ReflectedMaterialStage out;
+        out.Stage = stage;
+
+        spirv_cross::Compiler compiler( spirv );
+        const auto            resources = compiler.get_shader_resources();
+
+        const auto membersOf = [&]( const spirv_cross::SPIRType& structType, spirv_cross::TypeID typeId )
+        {
+            std::vector<Core::Formats::ReflectedLayoutMember> members;
+            for ( uint32_t i = 0; i < static_cast<uint32_t>( structType.member_types.size() ); ++i )
+                members.push_back(
+                     { compiler.get_member_name( typeId, i ), compiler.type_struct_member_offset( structType, i ),
+                       static_cast<uint32_t>( compiler.get_declared_struct_member_size( structType, i ) ) } );
+            return members;
+        };
+
+        for ( const auto& resource : resources.storage_buffers )
+        {
+            const auto& block = compiler.get_type( resource.base_type_id );
+            if ( compiler.get_name( resource.base_type_id ) != Core::Formats::kMaterialRowBlockName &&
+                 resource.name != Core::Formats::kMaterialRowBlockName )
+                continue;
+            if ( block.member_types.empty() )
+                continue;
+            out.RowBinding    = compiler.get_decoration( resource.id, spv::DecorationBinding );
+            const auto& array = compiler.get_type( block.member_types[0] );
+            out.RowStride     = compiler.type_struct_member_array_stride( block, 0 );
+            // A runtime array's element type is its parent; the member names live on that struct type.
+            const spirv_cross::TypeID rowId =
+                 array.array.empty() ? spirv_cross::TypeID( array.self ) : array.parent_type;
+            const auto& row = compiler.get_type( rowId );
+            if ( row.basetype == spirv_cross::SPIRType::Struct )
+                out.RowMembers = membersOf( row, rowId );
+        }
+
+        for ( const auto& resource : resources.sampled_images )
+            out.Samplers.push_back(
+                 { resource.name, compiler.get_decoration( resource.id, spv::DecorationBinding ), 0 } );
+
+        if ( !resources.push_constant_buffers.empty() )
+        {
+            const auto& res  = resources.push_constant_buffers[0];
+            const auto& type = compiler.get_type( res.base_type_id );
+            out.PushSize     = static_cast<uint32_t>( compiler.get_declared_struct_size( type ) );
+            out.PushMembers  = membersOf( type, res.base_type_id );
+        }
+        return out;
+    }
+
+    ReconciledCellLayout ReconcileCellLayout( const Core::Formats::ShaderProgramMeta&  meta,
+                                              const std::vector<Core::ShaderMapStage>& stages,
+                                              std::string_view templateName, std::string_view cellName )
+    {
+        ReconciledCellLayout                               out{ Core::Formats::BuildMaterialLayout( meta ), {} };
+        std::vector<Core::Formats::ReflectedMaterialStage> reflected;
+        reflected.reserve( stages.size() );
+        for ( const auto& stage : stages )
+            reflected.push_back( ReflectMaterialStage( stage.Spirv, stage.Stage ) );
+        out.Errors = Core::Formats::ReconcileMaterialLayout( out.Layout, templateName, cellName, reflected );
+        return out;
     }
 
 } // namespace Desert::Graphic::API::Vulkan::ShaderReflection

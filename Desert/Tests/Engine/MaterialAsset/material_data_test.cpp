@@ -264,3 +264,55 @@ int main( int argc, char** argv )
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
+// THM1e: PreviewMesh round-trips and is a stated dependency; a file naming it outside the header is refused.
+TEST( MaterialData, PreviewMeshRoundTripsAsAStatedDependency )
+{
+    Desert::Assets::MaterialData m;
+    m.PreviewMesh =
+         Desert::Assets::AssetGuidRef{ "45d579b03cc0d0a8df2e4cb025d6bea5", "Resources/Assets/Meshes/G.fbx" };
+    const auto text = Desert::Assets::WriteMaterialJson( m );
+    ASSERT_TRUE( text ) << text.GetError();
+    const auto back = Desert::Assets::ParseMaterialJson( "g.demat", text.GetValue() );
+    ASSERT_TRUE( back ) << back.GetError();
+    const auto& readBack = back.GetValue().PreviewMesh;
+    if ( !readBack.has_value() || !m.PreviewMesh.has_value() )
+        FAIL() << "PreviewMesh did not survive the round trip";
+    EXPECT_EQ( *readBack, *m.PreviewMesh );
+
+    std::string unstated = text.GetValue();
+    const auto  at       = unstated.find( "\"Dependencies\"" );
+    ASSERT_NE( at, std::string::npos );
+    const auto open  = unstated.find( '[', at );
+    const auto close = unstated.find( ']', at );
+    unstated.replace( open, close - open + 1, "[]" );
+    EXPECT_FALSE( Desert::Assets::ParseMaterialJson( "g.demat", unstated ) ) << "PreviewMesh outside the header";
+}
+
+// MAT1s: a slot's sampler is the .demat's when the slot states one, the template's otherwise - through the one
+// resolver MaterialFactory hands to Texture2DProperty, after a write/read of the file.
+TEST( MaterialData, ASlotSamplerOverridesTheTemplateAndAnUnstatedSlotKeepsTheTemplates )
+{
+    using Desert::Core::Formats::SamplerFilter;
+    using Desert::Core::Formats::SamplerState;
+    using Desert::Core::Formats::SamplerWrap;
+
+    MaterialData m;
+    m.SetTexture( "u_AlbedoTexture", kTexGuid, "assets:Textures/T.detex" );
+    m.SetTexture( "u_NormalTexture", kTexGuid, "assets:Textures/T.detex" );
+    const SamplerState clamp{ SamplerWrap::Clamp, SamplerWrap::Clamp, SamplerFilter::Nearest };
+    m.Textures[0].Sampler = clamp;
+
+    const auto text = Desert::Assets::WriteMaterialJson( m );
+    ASSERT_TRUE( text ) << text.GetError();
+    EXPECT_NE( text.GetValue().find( "\"Clamp\"" ), std::string::npos ) << "the state is written by name";
+
+    const auto back = Desert::Assets::ParseMaterialJson( "s.demat", text.GetValue() );
+    ASSERT_TRUE( back ) << back.GetError();
+    const MaterialData& r = back.GetValue();
+
+    const SamplerState templateDefault{ SamplerWrap::Mirror, SamplerWrap::Repeat, SamplerFilter::Linear };
+    EXPECT_EQ( r.SlotSampler( "u_AlbedoTexture", templateDefault ), clamp ) << "the slot's own state wins";
+    EXPECT_EQ( r.SlotSampler( "u_NormalTexture", templateDefault ), templateDefault )
+         << "no state: the template's";
+    EXPECT_EQ( r.SlotSampler( "u_Unnamed", templateDefault ), templateDefault ) << "no slot: the template's";
+}

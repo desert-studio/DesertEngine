@@ -9,6 +9,7 @@
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
@@ -42,11 +43,9 @@ namespace Desert::Editor::ThumbnailSubject
 
         const Core::Formats::ShaderDomain domain = shader->GetProgramMeta().Domain;
 
-        // A cutout material garbles on a sphere: the atlas wraps and the picture becomes one of the ball.
-        // THE ONE STATEMENT OF THAT RULE — it used to be copied into the browser tile, the Details slot
-        // and the static-mesh row, three files deciding one thing.
-        const bool cutout = asset.Data().GetFloat( "AlphaCutoff" ) > 0.0f;
-        if ( const auto how = PreviewForDomain( domain, cutout ) )
+        // The domain alone decides. A masked material is NOT flattened onto a card: it goes on the ball
+        // like any other surface and the mesh path's alpha discard cuts it (StaticMeshPBR.shader).
+        if ( const auto how = PreviewForMaterial( domain, asset.Data().PreviewMesh.has_value() ) )
             return Common::MakeSuccess( *how );
 
         // Skybox, Terrain, PostProcess, Unspecified. NAMED RATHER THAN DROPPED: until now these reached
@@ -72,37 +71,76 @@ namespace Desert::Editor::ThumbnailSubject
             static std::unordered_map<std::string, Assets::LoadRequest> reads;
             return reads;
         }
-
-        // Everything after the bytes are in memory: route, register, answer. Shared by the resident case
-        // (answered in the caller's frame) and the arrival (answered from the loader's Pump).
-        Common::ResultStr<Material>
-        ResolveLoadedMaterial( const Assets::Asset<Assets::SurfaceMaterialAsset>& asset,
-                               const std::string&                                 assetPath )
-        {
-            auto route = PreviewRouteFor( *asset );
-            if ( !route )
-                return Common::MakeFormattedError<Material>( "'{}': {}", assetPath, route.GetError() );
-
-            // Was `if ( !GetMaterialService()->Get( h ) ) Register( a )`. `Get` BUILDS the runtime material on a
-            // miss, so the question and the answer were the same call — and the sweep asks it about every
-            // material in the project. The registration is a map write now; the build happens when the capture
-            // shades with it, which is one frame later and only for the materials actually photographed.
-            Runtime::EnsureMaterialRegistered( asset );
-
-            // THE SERVICE MAY HOLD ITS OWN SHELL of this material — one it discovered from the registry row
-            // before the browser asked — and registration keeps that one. The capture shades through the
-            // service, so an unread service shell was parsed inside the capture's frame (M_HDR_Chrome,
-            // CB_Red, … on Starter). Waited for here on a worker (AwaitOne: not an in-frame load), which is
-            // free when the service's asset is the one just read.
-            (void)Runtime::AwaitAssetClosure( asset->GetMetadata().Handle,
-                                              Common::Content::ContentKind::Material );
-
-            Material out;
-            out.Handle = asset->GetMetadata().Handle;
-            out.How    = route.GetValue();
-            return Common::MakeSuccess( out );
-        }
     } // namespace
+
+    // Everything after the bytes are in memory: route, register, answer. Shared by the resident case
+    // (answered in the caller's frame), the arrival (answered from the loader's Pump) and the panels.
+    Common::ResultStr<Material> ResolveLoadedMaterial( Assets::AssetManager&                              manager,
+                                                       const Assets::Asset<Assets::SurfaceMaterialAsset>& asset,
+                                                       const std::string& assetPath )
+    {
+        auto route = PreviewRouteFor( *asset );
+        if ( !route )
+            return Common::MakeFormattedError<Material>( "'{}': {}", assetPath, route.GetError() );
+
+        // THE PREVIEW MESH IS RESOLVED HERE, where the manager is: named by GUID, located by its path, and
+        // the record at that path must state the same GUID — a moved or replaced source is refused by
+        // name rather than photographed as whatever now sits there.
+        Common::AssetHandle previewMesh{ static_cast<uint64_t>( 0 ) };
+        if ( route.GetValue() == Preview::Mesh )
+        {
+            const auto& preview = asset->Data().PreviewMesh;
+            if ( !preview.has_value() )
+                return Common::MakeFormattedError<Material>( "'{}': its preview is its mesh, and it names none",
+                                                             assetPath );
+            const auto& ref    = *preview;
+            const auto  stated = Assets::Serialization::ReadImportRecordGuid( ref.Path );
+            if ( !stated )
+                return Common::MakeFormattedError<Material>( "'{}': its PreviewMesh '{}': {}", assetPath, ref.Path,
+                                                             stated.GetError() );
+            if ( Common::Content::AssetGuidToText( stated.GetValue() ) != ref.Guid )
+                return Common::MakeFormattedError<Material>(
+                     "'{}': its PreviewMesh names GUID {} at '{}', and the record there states {}", assetPath,
+                     ref.Guid, ref.Path, Common::Content::AssetGuidToText( stated.GetValue() ) );
+            auto mesh = ResolveMesh( manager, ref.Path );
+            if ( mesh && mesh.GetValue().Pending )
+            {
+                // A cold PreviewMesh is waited for, not refused: the material route has no second ask
+                // (its arrival delegate answers once), so the read started above is awaited on the
+                // loader's workers — the wait this function already takes for the material's closure.
+                (void)Runtime::AwaitAssetClosure( mesh.GetValue().Handle,
+                                                  Common::Content::ContentKind::StaticMesh );
+                mesh = ResolveMesh( manager, ref.Path );
+                if ( mesh && mesh.GetValue().Pending )
+                    return Common::MakeFormattedError<Material>(
+                         "'{}': its PreviewMesh '{}' was still unread after its closure was awaited", assetPath,
+                         ref.Path );
+            }
+            if ( !mesh )
+                return Common::MakeFormattedError<Material>( "'{}': its PreviewMesh: {}", assetPath,
+                                                             mesh.GetError() );
+            previewMesh = mesh.GetValue().Handle;
+        }
+
+        // Was `if ( !GetMaterialService()->Get( h ) ) Register( a )`. `Get` BUILDS the runtime material on a
+        // miss, so the question and the answer were the same call — and the sweep asks it about every
+        // material in the project. The registration is a map write now; the build happens when the capture
+        // shades with it, which is one frame later and only for the materials actually photographed.
+        Runtime::EnsureMaterialRegistered( asset );
+
+        // THE SERVICE MAY HOLD ITS OWN SHELL of this material — one it discovered from the registry row
+        // before the browser asked — and registration keeps that one. The capture shades through the
+        // service, so an unread service shell was parsed inside the capture's frame (M_HDR_Chrome,
+        // CB_Red, … on Starter). Waited for here on a worker (AwaitOne: not an in-frame load), which is
+        // free when the service's asset is the one just read.
+        (void)Runtime::AwaitAssetClosure( asset->GetMetadata().Handle, Common::Content::ContentKind::Material );
+
+        Material out;
+        out.Handle      = asset->GetMetadata().Handle;
+        out.How         = route.GetValue();
+        out.PreviewMesh = previewMesh;
+        return Common::MakeSuccess( out );
+    }
 
     Common::ResultStr<std::optional<Material>> ResolveMaterial( Assets::AssetManager&    manager,
                                                                 const std::string&       assetPath,
@@ -147,7 +185,7 @@ namespace Desert::Editor::ThumbnailSubject
         // the bytes arrive — still never of a shell.
         if ( asset->IsReadyForUse() )
         {
-            auto resolved = ResolveLoadedMaterial( asset, assetPath );
+            auto resolved = ResolveLoadedMaterial( manager, asset, assetPath );
             if ( !resolved )
                 return Common::MakeError<Answer>( resolved.GetError() );
             return Common::MakeSuccess( Answer( resolved.GetValue() ) );
@@ -186,9 +224,10 @@ namespace Desert::Editor::ThumbnailSubject
                      return;
                  }
                  loaded->ResolveDependencies( *owner );
-                 onArrived( assetPath,
-                            ResolveLoadedMaterial(
-                                 std::static_pointer_cast<Assets::SurfaceMaterialAsset>( loaded ), assetPath ) );
+                 onArrived(
+                      assetPath,
+                      ResolveLoadedMaterial(
+                           *owner, std::static_pointer_cast<Assets::SurfaceMaterialAsset>( loaded ), assetPath ) );
              },
              [assetPath]() { MaterialReadsInFlight().erase( assetPath ); } );
         // NOLINTEND(bugprone-exception-escape)
@@ -240,12 +279,17 @@ namespace Desert::Editor::ThumbnailSubject
         // window appeared. A cold mesh is registered and asked for instead — MeshService answers pending and
         // hands the read to AsyncAssetLoader — and the sweep's next pass, which re-finds every asset that
         // still has no picture, meets it resident.
+        // THM1f: PENDING, NOT A REFUSAL. This answered an error, and the browser files every refusal of this
+        // function as permanent for the session — so a cold mesh never got its picture, and a material
+        // whose PreviewMesh was cold was refused in the frame it was asked.
         if ( !asset->IsReadyForUse() )
         {
             Runtime::RequestMeshRead( asset, manager );
-            return Common::MakeFormattedError<Mesh>( "'{}' is being read on a worker; its picture follows on a "
-                                                     "later pass",
-                                                     cooked );
+            Mesh pending;
+            pending.Handle     = asset->GetMetadata().Handle;
+            pending.CookedPath = cooked;
+            pending.Pending    = true;
+            return Common::MakeSuccess( pending );
         }
         const auto readiness = Runtime::EnsureMeshDrawable( asset, manager );
         if ( readiness != Runtime::MeshReadiness::Drawable )
@@ -254,6 +298,13 @@ namespace Desert::Editor::ThumbnailSubject
                  "{}, so a capture would photograph empty sky and file it as the asset",
                  Runtime::ExplainMeshReadiness( readiness, cooked ) );
         }
+
+        // THE MESH'S OWN MATERIALS AND THEIR TEXTURES, resident before the capture is queued (THM1f). An
+        // imported mesh names its slots' .demat by GUID and has no sidecar; the capture resolves those slots
+        // (AssetThumbnailRenderer), and a slot whose material or textures are still on disk at capture time
+        // photographs the fallback grey and files it as the asset. The same worker-side wait the material
+        // route takes (ResolveLoadedMaterial); free once the closure is resident.
+        (void)Runtime::AwaitAssetClosure( asset->GetMetadata().Handle, Common::Content::ContentKind::StaticMesh );
 
         Mesh out;
         out.Handle     = asset->GetMetadata().Handle;

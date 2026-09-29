@@ -7,6 +7,7 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 
@@ -119,7 +120,12 @@ TEST( MaterialDocumentOpen, ARecordIsLoadedByTheEditorsOwnPreparationNotByTheRou
 {
     const TempMaterial   tmp;
     Assets::AssetManager manager;
-    const auto           written = Assets::WriteMaterialFile( tmp.File, Assets::MaterialData{} );
+    // A material names its template by GUID (no default by absence); no manager here needs to hold it.
+    Assets::MaterialData data;
+    const auto           shaderGuid = Common::Content::AssetGuidFromText( "4f1cac6af403a010c792d835dd6f7d44" );
+    ASSERT_TRUE( shaderGuid ) << shaderGuid.GetError();
+    data.SetShader( shaderGuid.GetValue(), "engine:Shaders/Programs/PBR/StaticMeshPBR.shader" );
+    const auto written = Assets::WriteMaterialFile( tmp.File, data );
     ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
 
     // A record only — what a scene's material slot names before anything has drawn it.

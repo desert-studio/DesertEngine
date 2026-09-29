@@ -11,6 +11,8 @@
 // here is a free function over a SPIR-V binary; the unit test in Desert/Tests/Engine/ShaderReflection
 // compiles GLSL, runs ReflectStage and asserts the buckets, on a machine with no Vulkan at all.
 
+#include <Engine/Core/Formats/MaterialLayout.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderMapCache.hpp>
 #include <Engine/Core/Formats/Shader.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderResource.hpp>
 
@@ -50,6 +52,26 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
     [[nodiscard]] std::vector<std::string> ReflectStage( const std::vector<uint32_t>&    spirv,
                                                          Core::Formats::ShaderStage      stage,
                                                          ShaderResource::ReflectionData& data );
+
+    // What ONE stage's SPIR-V says about the material layout: the `Materials` row (binding, stride and
+    // every member of one row, padding included), the combined image samplers (name -> binding) and the
+    // push block (size and every member). Pure. Core::Formats::ReconcileMaterialLayout holds these to the
+    // template's layout and to each other — the witnesses behind Core/Formats/MaterialLayout.hpp.
+    Core::Formats::ReflectedMaterialStage ReflectMaterialStage( const std::vector<uint32_t>& spirv,
+                                                                Core::Formats::ShaderStage   stage );
+
+    // ONE CELL'S LAYOUT, as a program load takes it: BuildMaterialLayout from the metadata, every stage
+    // reflected (ReflectMaterialStage) and held to it by ReconcileMaterialLayout. Non-empty Errors = the
+    // cell does not load; each names `templateName`/`cellName`. Pure, so a test refuses a cell the way
+    // VulkanShader::BuildFromSpirv does, with no device.
+    struct ReconciledCellLayout
+    {
+        Core::Formats::MaterialLayout Layout;
+        std::vector<std::string>      Errors;
+    };
+    ReconciledCellLayout ReconcileCellLayout( const Core::Formats::ShaderProgramMeta&  meta,
+                                              const std::vector<Core::ShaderMapStage>& stages,
+                                              std::string_view templateName, std::string_view cellName );
 
     /**
      * The descriptor-set layout bindings one reflected set turns into, sorted by binding number.

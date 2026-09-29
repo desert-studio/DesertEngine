@@ -12,6 +12,7 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/AssetGuidRef.hpp>
+#include <Engine/Core/Formats/SamplerState.hpp>
 
 namespace Desert::Assets
 {
@@ -40,6 +41,10 @@ namespace Desert::Assets
         std::string Name;
         std::string Guid;
         std::string Path;
+        // This slot's sampler (wrap U/V, filter), when the material states one: an override of the template's
+        // `Sampler(...)` (ShaderParam::Sampler), resolved by Core::Formats::ResolveSlotSampler. Absent = the
+        // template's. A glTF import writes it from the source texture's sampler. Additive: no schema step.
+        std::optional<Core::Formats::SamplerState> Sampler;
     };
 
     // THE material asset payload (.demat) — the single protocol for every material.
@@ -69,6 +74,13 @@ namespace Desert::Assets
         // name meant. Medium joined in MATL 4, when shaders got a header GUID (T7j) and a path stopped being
         // the handle a shader registers under.
         std::vector<MaterialAssetRef> CloudAssets;
+
+        // THE MESH THIS MATERIAL IS PHOTOGRAPHED ON (UE: UMaterial's ThumbnailInfo / PreviewMesh), by the mesh's
+        // header GUID (its `.deimport` or `.stmesh` header); `Path` is the mesh SOURCE relative to the assets
+        // root, a locator only. Absent -> the thumbnail draws the sphere. An import states the mesh it came
+        // from, so a grass atlas previews as the tuft it was authored for rather than cut out of a ball.
+        // Optional and additive: a file without it is the same MATL 4 material, so no schema step.
+        std::optional<AssetGuidRef> PreviewMesh;
 
         // MATERIAL INSTANCE (UE model): when set, this asset is a CHILD of the material whose header GUID this
         // names (32 hex digits, AssetGuidToText), and Params/Textures hold ONLY the overridden values - the
@@ -215,6 +227,17 @@ namespace Desert::Assets
             SetRef( Textures, name, guid, path );
         }
 
+        /// THE SAMPLER THE `name` SLOT DRAWS WITH: this material's own `Sampler` on the slot when it states
+        /// one, else @p templateDefault (the shader's `Sampler(...)`, ShaderParam::Sampler). The one reader of
+        /// MaterialAssetRef::Sampler; MaterialFactory hands its answer to the slot's Texture2DProperty.
+        [[nodiscard]] Core::Formats::SamplerState
+        SlotSampler( std::string_view name, const Core::Formats::SamplerState& templateDefault ) const
+        {
+            const MaterialAssetRef* ref = FindRef( Textures, name );
+            return Core::Formats::ResolveSlotSampler(
+                 templateDefault, ref != nullptr ? ref->Sampler : std::optional<Core::Formats::SamplerState>{} );
+        }
+
         uint64_t GetCloudAsset( std::string_view name ) const
         {
             return HandleOfRef( FindRef( CloudAssets, name ) );
@@ -274,6 +297,8 @@ namespace Desert::Assets
                 add( r.Guid );
             for ( const auto& r : CloudAssets )
                 add( r.Guid );
+            if ( PreviewMesh.has_value() )
+                add( PreviewMesh->Guid );
             return out;
         }
 
@@ -306,7 +331,7 @@ namespace Desert::Assets
                     r.Path = std::move( where );
                     return;
                 }
-            refs.push_back( { std::string( name ), std::move( text ), std::move( where ) } );
+            refs.push_back( { std::string( name ), std::move( text ), std::move( where ), std::nullopt } );
         }
     };
 } // namespace Desert::Assets

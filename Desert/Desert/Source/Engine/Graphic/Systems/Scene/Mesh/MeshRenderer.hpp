@@ -634,7 +634,7 @@ namespace Desert::Graphic::System
         {
             const StaticMeshRenderData* Obj  = nullptr;
             MaterialInstance*           Inst = nullptr;
-            PBRGpuMaterial              Gm{};
+            Core::Formats::MaterialParamRow Row; // this object's effective Materials[] row
             bool                        HasOverrides = false;
         };
         struct InstancedDraw
@@ -668,7 +668,7 @@ namespace Desert::Graphic::System
             Graphic::MaterialPBR*       Mat  = nullptr;
             MaterialInstance*           Inst = nullptr;
             std::vector<glm::mat4>      Transforms;
-            std::vector<PBRGpuMaterial> Materials;
+            std::vector<glm::vec4>      Materials; // Materials[] rows, end to end
             std::vector<InstancedDraw>  Draws;
         };
 
@@ -724,7 +724,7 @@ namespace Desert::Graphic::System
         // stable by construction.
         std::vector<std::unique_ptr<InstancedBatchSet>> m_ScratchInstSets;
         std::size_t                                     m_ScratchInstSetCount = 0;
-        std::vector<PBRGpuMaterial> m_ScratchGpuMaterials; // per-object Materials[] SSBO
+        std::vector<glm::vec4>                   m_ScratchGpuMaterials; // per-object Materials[] rows, end to end
         std::vector<ObjDraw>        m_ScratchSingles;
         std::vector<ShadowBatch>    m_ScratchShadowBatches;
         std::vector<const StaticMeshRenderData*> m_ScratchShadowSingles;

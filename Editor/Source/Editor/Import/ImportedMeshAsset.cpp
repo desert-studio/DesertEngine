@@ -3,6 +3,7 @@
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 
 #include "CookPaths.hpp"
+#include "MaterialAdoption.hpp"
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Logger.hpp>
@@ -75,6 +76,14 @@ namespace Desert::Editor
         };
 
         const bool groupsPerFace = imported.PolyGroups.size() == imported.Indices.size();
+        // The optional streams (MeshBinary v4) are one per vertex or absent; a stream of any other length is
+        // not sliced by guess but refused.
+        const size_t vertexTotal = imported.StaticVertices.size();
+        if ( ( !imported.Colors.empty() && imported.Colors.size() != vertexTotal ) ||
+             ( !imported.UV1.empty() && imported.UV1.size() != vertexTotal ) )
+            return Common::MakeFormattedError<Result>(
+                 "'{}' carries {} colours and {} UV1 entries for {} vertices", name, imported.Colors.size(),
+                 imported.UV1.size(), vertexTotal );
         for ( const auto& [level, submeshes] : levels )
         {
             Ser::MeshAssetData part;
@@ -100,6 +109,12 @@ namespace Desert::Editor
                 part.StaticVertices.insert( part.StaticVertices.end(),
                                             imported.StaticVertices.begin() + vertexBegin,
                                             imported.StaticVertices.begin() + vertexEnd );
+                if ( !imported.Colors.empty() )
+                    part.Colors.insert( part.Colors.end(), imported.Colors.begin() + vertexBegin,
+                                        imported.Colors.begin() + vertexEnd );
+                if ( !imported.UV1.empty() )
+                    part.UV1.insert( part.UV1.end(), imported.UV1.begin() + vertexBegin,
+                                     imported.UV1.begin() + vertexEnd );
                 part.Indices.insert( part.Indices.end(), imported.Indices.begin() + faceBegin,
                                      imported.Indices.begin() + faceEnd );
                 if ( groupsPerFace )
@@ -163,6 +178,43 @@ namespace Desert::Editor
              .has_value();
     }
 
+    bool ImportedMaterialsPresent( const std::filesystem::path& source )
+    {
+        const auto hash = Assets::HashMeshSourceFile( source );
+        if ( !hash )
+            return false;
+        const auto blob =
+             Common::DDC::Get( Assets::kMeshSourceDeriver, Assets::MeshSourceDerivedDataKey( hash.GetValue() ) );
+        if ( !blob )
+            return false;
+        const auto asset =
+             Assets::DecodeMeshSourceAsset( std::as_bytes( std::span( blob->data(), blob->size() ) ) );
+        if ( !asset )
+        {
+            LOG_ERROR( "[Import] '{}': the cached import envelope does not decode ({}), so it is imported again",
+                       source.generic_string(), asset.GetError() );
+            return false;
+        }
+        bool present = true;
+        for ( const auto& slot : asset.GetValue().Source.MaterialSlots )
+        {
+            const std::filesystem::path path = MaterialAdoption::MaterialAssetPath( source, slot.Name );
+            std::error_code             ec;
+            if ( std::filesystem::exists( path, ec ) )
+                continue;
+            LOG_WARN( "[Import] '{}': material '{}' is missing ('{}' is not on disk), so the source is imported "
+                      "again to write it",
+                      source.generic_string(), slot.Name, path.generic_string() );
+            present = false;
+        }
+        return present;
+    }
+
+    bool ImportedMeshAssetIsCurrent( const std::filesystem::path& source )
+    {
+        return ImportedMeshAssetIsFresh( source ) && ImportedMaterialsPresent( source );
+    }
+
     bool StaticMeshCookAvailable( const std::filesystem::path& cooked, const std::filesystem::path& source )
     {
         std::error_code ec;
@@ -221,5 +273,16 @@ namespace Desert::Editor
             return Common::MakeFormattedError<MeshAssetWrite>( "'{}': imported source built but not cached: {}",
                                                                source.string(), put.GetError() );
         return Common::MakeSuccess( MeshAssetWrite::Written );
+    }
+
+    Common::ResultStr<Assets::AssetGuidRef> PreviewMeshRefFor( const std::filesystem::path& source )
+    {
+        const auto guid = Assets::Serialization::ReadImportRecordGuid( source );
+        if ( !guid )
+            return Common::MakeError<Assets::AssetGuidRef>( guid.GetError() );
+        std::error_code ec;
+        const auto      located = std::filesystem::proximate( source, ec );
+        return Common::MakeSuccess( Assets::AssetGuidRef{ Common::Content::AssetGuidToText( guid.GetValue() ),
+                                                          ( ec ? source : located ).generic_string() } );
     }
 } // namespace Desert::Editor
