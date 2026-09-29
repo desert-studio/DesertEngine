@@ -1301,9 +1301,10 @@ namespace Desert::Core::Preprocess
                 return AssembleStage( stage, code, include, std::string() );
             }
             else
-                code.Content = std::format( "{}#include <{}>\n#line {}\n{}\n#include <{}>\n", defines,
-                                            kSurfaceTypesInclude, surface.StartLine > 0 ? surface.StartLine - 1 : 0,
-                                            surface.Content, SurfacePassInclude( pass ) );
+                code.Content =
+                     std::format( "{}#include <{}>\n#line {}\n{}\n#include <{}>\n", defines, kSurfaceTypesInclude,
+                                  surface.StartLine > 0 ? surface.StartLine - 1 : 0, surface.Content,
+                                  SurfacePassInclude( pass ) );
             return AssembleStage( stage, code, include, autoDecls );
         }
 

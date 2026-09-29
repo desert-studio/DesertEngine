@@ -223,7 +223,7 @@ namespace
     // stage computed from it, its five maps at the slots that shader declared them at.
     std::string StandardSurfaceMock()
     {
-        std::ifstream     in( s_EditorDir / "Resources/Shaders/Programs/PBR/StaticMeshPBR.shader", std::ios::binary );
+        std::ifstream in( s_EditorDir / "Resources/Shaders/Programs/PBR/StaticMeshPBR.shader", std::ios::binary );
         const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
         const size_t      begin = text.find( "Properties Binding(2)" );
         const size_t      end   = text.find( "\n    }", begin );
@@ -287,14 +287,14 @@ namespace
     {
         namespace Refl = Desert::Graphic::API::Vulkan::ShaderReflection;
         Desert::Graphic::API::Vulkan::ShaderResource::ReflectionData data;
-        std::vector<std::string>                                    lines;
+        std::vector<std::string>                                     lines;
         for ( const auto& stage : stages )
         {
             for ( const auto& refused : Refl::ReflectStage( stage.Spirv, stage.Stage, data ) )
                 lines.push_back( "refused: " + refused );
-            const char*                 name = Desert::Core::Formats::MaterialLayoutStageName( stage.Stage );
-            spirv_cross::Compiler       compiler( stage.Spirv );
-            const auto                  resources = compiler.get_shader_resources();
+            const char*           name = Desert::Core::Formats::MaterialLayoutStageName( stage.Stage );
+            spirv_cross::Compiler compiler( stage.Spirv );
+            const auto            resources = compiler.get_shader_resources();
             for ( const auto& input : resources.stage_inputs )
                 lines.push_back( std::format( "{} in location {}", name,
                                               compiler.get_decoration( input.id, spv::DecorationLocation ) ) );
@@ -334,13 +334,17 @@ TEST_F( SurfaceTemplateFixture, TheStandardSurfaceCellsHaveTheLayoutOfTheShaders
     };
     for ( const auto& [cell, shipped] : replaced )
     {
-        const auto builtCell = Desert::Core::BuildShaderMap(
-             { mock, "Resources/Shaders/Programs/Test/StandardMock.shader", cell, {}, std::format( "StandardMock/{}", cell ) } );
+        const auto builtCell =
+             Desert::Core::BuildShaderMap( { mock,
+                                             "Resources/Shaders/Programs/Test/StandardMock.shader",
+                                             cell,
+                                             {},
+                                             std::format( "StandardMock/{}", cell ) } );
         ASSERT_TRUE( builtCell.IsSuccess() ) << "cell '" << cell << "': " << builtCell.GetError();
 
         const std::filesystem::path path = std::filesystem::path( "Resources/Shaders/Programs" ) / shipped;
         std::ifstream               in( path, std::ios::binary );
-        const std::string           text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+        const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
         ASSERT_FALSE( text.empty() ) << path;
         const auto builtShipped = Desert::Core::BuildShaderMap( { text, path, "", {}, shipped } );
         ASSERT_TRUE( builtShipped.IsSuccess() ) << shipped << ": " << builtShipped.GetError();
