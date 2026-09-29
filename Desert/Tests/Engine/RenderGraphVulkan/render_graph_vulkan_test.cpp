@@ -15,8 +15,10 @@
 #include <array>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <functional>
+#include <iterator>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -32,29 +34,39 @@ namespace
 
     constexpr uint32_t kSize = 16;
 
-    std::mutex               g_MessageMutex;
-    std::vector<std::string> g_Messages;
+    // A message's identity (e.g. "SYNC-HAZARD-WRITE-AFTER-WRITE") is pMessageIdName; pMessage is prose.
+    // Validation layers up to 1.3.290 also repeated the id inside pMessage, newer ones (SDK 1.3.296+, the
+    // Homebrew layer on macOS) do not - so classifying by pMessage misses every hazard there.
+    struct Message
+    {
+        std::string Id;
+        std::string Text;
+    };
+
+    std::mutex           g_MessageMutex;
+    std::vector<Message> g_Messages;
 
     VKAPI_ATTR VkBool32 VKAPI_CALL CollectMessage( VkDebugUtilsMessageSeverityFlagBitsEXT,
                                                    VkDebugUtilsMessageTypeFlagsEXT,
                                                    const VkDebugUtilsMessengerCallbackDataEXT* data, void* )
     {
         std::lock_guard lock( g_MessageMutex );
-        g_Messages.emplace_back( data && data->pMessage ? data->pMessage : "<no message>" );
+        g_Messages.push_back( { data && data->pMessageIdName ? data->pMessageIdName : "<no id>",
+                                data && data->pMessage ? data->pMessage : "<no message>" } );
         return VK_FALSE;
     }
 
-    std::vector<std::string> TakeMessages()
+    std::vector<Message> TakeMessages()
     {
         std::lock_guard lock( g_MessageMutex );
         return std::exchange( g_Messages, {} );
     }
 
-    std::string Join( const std::vector<std::string>& messages )
+    std::string Join( const std::vector<Message>& messages )
     {
         std::string out;
-        for ( const std::string& message : messages )
-            out += "\n  " + message;
+        for ( const Message& message : messages )
+            std::format_to( std::back_inserter( out ), "\n  [{}] {}", message.Id, message.Text );
         return out;
     }
 
@@ -695,7 +707,7 @@ TEST( RenderGraphVulkan, ClearSampleComputeCopyIsByteExactAndValidationClean )
         EXPECT_EQ( pool.GetTextureCount(), 3u );
         vkDeviceWaitIdle( gpu.Device.device );
     }
-    const std::vector<std::string> messages = TakeMessages();
+    const std::vector<Message> messages = TakeMessages();
     EXPECT_TRUE( messages.empty() ) << messages.size() << " validation message(s):" << Join( messages );
 }
 
@@ -717,9 +729,9 @@ TEST( RenderGraphVulkan, SynchronizationValidationReportsAWeakenedBarrier )
         ASSERT_TRUE( run.Error.empty() ) << run.Error;
         vkDeviceWaitIdle( gpu.Device.device );
     }
-    const std::vector<std::string> messages = TakeMessages();
-    const bool hazard = std::any_of( messages.begin(), messages.end(), []( const std::string& m )
-                                     { return m.find( "SYNC-HAZARD" ) != std::string::npos; } );
+    const std::vector<Message> messages = TakeMessages();
+    const bool                 hazard   = std::any_of( messages.begin(), messages.end(),
+                                                       []( const Message& m ) { return m.Id.starts_with( "SYNC-HAZARD-" ); } );
     EXPECT_TRUE( hazard ) << "no SYNC-HAZARD among " << messages.size() << " message(s):" << Join( messages );
 }
 
