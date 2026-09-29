@@ -81,6 +81,7 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<RigidBodyComponent, RigidBodyData>{ "RigidBody", "RigidBodyData", &RigidBodyComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<CharacterControllerComponent, CharacterControllerData>{ "CharacterController", "CharacterControllerData", &CharacterControllerComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<PlayerStartComponent, PlayerStartData>{ "PlayerStart", "PlayerStartData", &PlayerStartComponent::Data, R::ActorsAndUI } );
+        visit( ReflectedMemberBlock<StreamingSourceComponent, StreamingSourceData>{ "StreamingSource", "StreamingSourceData", &StreamingSourceComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<AudioSourceComponent, AudioSourceData>{ "AudioSource", "AudioSourceData", &AudioSourceComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<ParticleEmitterComponent, ParticleEmitterData>{ "ParticleEmitter", "ParticleEmitterData", &ParticleEmitterComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<UICanvasComponent, UICanvasData>{ "UICanvas", "UICanvasData", &UICanvasComponent::Data, R::ActorsAndUI } );

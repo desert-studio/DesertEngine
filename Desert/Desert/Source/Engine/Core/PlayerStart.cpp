@@ -89,6 +89,11 @@ namespace Desert::Core
         // The start's facing is the pawn's facing (UE spawns at the PlayerStart's rotation); only yaw and
         // pitch of a camera matter for Play from Here, and the prefab's own scale is kept.
         pawn.GetComponent<ECS::TransformComponent>().Rotation = glm::eulerAngles( rotation );
+        // The player is where the world must exist: UE's player controller is a streaming source by default. A
+        // prefab that authored its own (a range, a priority, or Enabled off for a pawn that should not stream)
+        // keeps it.
+        if ( !pawn.HasComponent<ECS::StreamingSourceComponent>() )
+            pawn.AddComponent<ECS::StreamingSourceComponent>();
         scene.SetPlayerPawn( pawn.GetHandle() );
         return Common::MakeSuccess( pawn );
     }

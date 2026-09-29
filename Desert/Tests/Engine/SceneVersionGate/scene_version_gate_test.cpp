@@ -340,8 +340,9 @@ TEST( SceneVersionGateCorpus, TheScenesAreWhereThisSuiteThinksTheyAre )
 //
 // A FAILURE HERE IS NOT A BROKEN TEST. It means a real file in this tree will not open in the editor or the
 // runtime, and the fix is the one the message names: run Tools/SceneMigrator over it. That includes files
-// this repository does not track — the sweep is recursive and Scenes/Autosave holds gitignored editor
-// crash-recovery files, which are exactly the ones most likely to have been written by an older build.
+// this repository does not track under the scene roots. Editor recovery copies are not among them: they live
+// in <Project>/Saved/Autosaves, outside every root, are never migrated, and recovery offers only a copy at
+// the current version (AutosavePaths.ChooseRecovery).
 // 4a. THE POSITIVE CONTROL FOR 4b AND 4c, AND IT WAS MISSING. Both tests below are `for` loops over
 // `RepositoryScenes()`, so an empty list passes them — a renamed assets directory would have turned this
 // gate off without turning it red. That is this repository's most frequent defect shape: the instrument

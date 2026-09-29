@@ -157,27 +157,6 @@ namespace
             if ( !entry.is_regular_file() || entry.path().extension() != ".desce" )
                 continue;
 
-            // `Autosave/` IS SKIPPED, AND THE REASON IS THE POINT OF THIS SUITE, NOT AN EXCEPTION TO IT.
-            //
-            // Autosaves are UNTRACKED — `git ls-files` on that directory is empty — and the editor
-            // rewrites them while it runs. Walking the filesystem therefore collects a corpus that
-            // differs per machine: on CI, where the checkout is clean, the directory does not exist and
-            // the canonicity assertion passes; on any developer who has had the editor open since before
-            // the last format bump, the same assertion fails on scratch files nobody committed. That is
-            // this project's recurring shape — a container whose contents come from a different source
-            // than the question asked of it — and it cost the integrator a false red on the merge that
-            // landed this very suite.
-            //
-            // The question here is "does a scene THE REPOSITORY SHIPS survive a read-modify-write", so
-            // the corpus is the shipped scenes. A developer's own autosave being unmigrated is a real
-            // thing but it is the migrator's `--check` to report, not a shared gate's to fail on.
-            bool underAutosave = false;
-            for ( const auto& part : entry.path() )
-                if ( part == "Autosave" )
-                    underAutosave = true;
-            if ( underAutosave )
-                continue;
-
             scenes.push_back( entry.path() );
         }
         return scenes;

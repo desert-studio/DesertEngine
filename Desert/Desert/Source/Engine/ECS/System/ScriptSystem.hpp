@@ -145,17 +145,25 @@ namespace Desert::ECS
                 if ( !registry.valid( entity ) )
                     continue;
 
-                // Dispatch animation notifies (footstep, hit-frame, ...) queued this frame by the Animator to
-                // EVERY started slot as OnAnimationNotify(name), then clear so each fires exactly once.
+                // Dispatch animation notify events (footstep, hit-frame, a state's begin / end, ...) queued this
+                // frame by the Animator to EVERY started slot, then clear so each fires exactly once. UE's
+                // Notify / NotifyBegin / NotifyEnd, one Lua callback each.
                 if ( registry.has<AnimationComponent>( entity ) )
                 {
                     auto& anim = registry.get<AnimationComponent>( entity );
                     if ( !anim.PendingNotifies.empty() )
                     {
                         for ( const auto& notify : anim.PendingNotifies )
+                        {
+                            const char* callback = "OnAnimationNotify";
+                            if ( notify.Kind == Animation::NotifyEventKind::Begin )
+                                callback = "OnAnimationNotifyBegin";
+                            else if ( notify.Kind == Animation::NotifyEventKind::End )
+                                callback = "OnAnimationNotifyEnd";
                             for ( uint32_t slot = 0; slot < sc.Scripts.size(); ++slot )
                                 if ( !sc.Scripts[slot].ScriptKey.empty() && sc.Scripts[slot].Started )
-                                    m_Engine.CallAnimationNotify( id, slot, notify );
+                                    m_Engine.CallAnimationNotify( id, slot, callback, notify.Name );
+                        }
                         anim.PendingNotifies.clear();
                     }
                 }

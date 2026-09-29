@@ -57,3 +57,38 @@ TEST( DocumentPlacement, AnUnmeasurableWorkAreaGivesNoNegativeOrInfiniteWindow )
     EXPECT_EQ( p.Size, glm::vec2( 0.0f ) );
     EXPECT_EQ( p.Pos, glm::vec2( 0.0f ) );
 }
+
+// A LEVEL TIMELINE (the Sequencer) opens in the drawer under the viewport, never as a tab that covers it.
+TEST( DocumentPlacement, ATimelineOpensInTheDrawerUnderTheViewportNotBesideIt )
+{
+    using Desert::Editor::DocumentPlacement::Remembered;
+    using Desert::Editor::DocumentPlacement::ResolveTimeline;
+    constexpr uint32_t kScene  = 0x10u;
+    constexpr uint32_t kDrawer = 0x20u;
+
+    const auto fresh =
+         ResolveTimeline( "Sequencer", nullptr, kDrawer, true, kScene, true, false, kWorkPos, kWorkSize );
+    EXPECT_EQ( fresh.Place.DockId, kDrawer ) << "first opening: the drawer";
+    EXPECT_TRUE( fresh.Report.empty() );
+
+    const Remembered beside{};
+    EXPECT_EQ( ResolveTimeline( "Sequencer", &beside, kDrawer, true, kScene, true, false, kWorkPos, kWorkSize )
+                    .Place.DockId,
+               kDrawer )
+         << "'beside the scene' is exactly what hides the viewport, remembered or not";
+
+    const Remembered mine{ Remembered::Where::DockNode, 0x30u, glm::vec2( 0.0f ), glm::vec2( 0.0f ) };
+    EXPECT_EQ( ResolveTimeline( "Sequencer", &mine, kDrawer, true, kScene, true, true, kWorkPos, kWorkSize )
+                    .Place.DockId,
+               0x30u )
+         << "a node the person chose stands";
+
+    EXPECT_EQ( ResolveTimeline( "Sequencer", nullptr, kDrawer, false, kScene, true, false, kWorkPos, kWorkSize )
+                    .Place.DockId,
+               kScene )
+         << "no live drawer: the ordinary rule";
+    EXPECT_EQ( ResolveTimeline( "Sequencer", nullptr, kScene, true, kScene, true, false, kWorkPos, kWorkSize )
+                    .Place.DockId,
+               kScene )
+         << "a drawer that IS the scene's node is no drawer";
+}

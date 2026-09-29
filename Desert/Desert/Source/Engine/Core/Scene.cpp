@@ -746,6 +746,7 @@ namespace Desert::Core
         r.prepare<ECS::RigidBodyComponent>();
         r.prepare<ECS::CharacterControllerComponent>();
         r.prepare<ECS::PlayerStartComponent>();
+        r.prepare<ECS::StreamingSourceComponent>();
         r.prepare<ECS::LocomotionComponent>();
         r.prepare<ECS::ScriptComponent>();
         r.prepare<ECS::AudioSourceComponent>();

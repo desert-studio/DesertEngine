@@ -59,7 +59,15 @@ if [ -z "${HANDOFF_NO_BUILD:-}" ]; then
 fi
 tree_state >"$LOG/tree.before"
 bins=()
-for t in "$BIN"/*; do [ -f "$t" ] && [ -x "$t" ] && bins+=("$t"); done
+for t in "$BIN"/*; do
+    [ -f "$t" ] && [ -x "$t" ] || continue
+    # A suite deleted on dev leaves its binary behind: AUTO1's handoff ran CookedFixtureWhitelist (deleted by AF8b2)
+    # and reported it red. A binary with no makefile is parked (never deleted), not run.
+    if [ -f "$DEV_PROJECTS/Makefile" ] && [ ! -f "$DEV_PROJECTS/$(basename "$t").make" ]; then
+        mkdir -p build/stale-bin; mv "$t" build/stale-bin/; echo "handoff_check: parked orphan binary $t"; continue
+    fi
+    bins+=("$t")
+done
 total=${#bins[@]}
 [ "$total" -gt 0 ] && printf '%s\n' "${bins[@]}" | xargs -P "${HANDOFF_JOBS:-4}" -I{} bash -c 'run_one "$1" "$2"' _ {} "$LOG"
 passed=0; red=(); stale=()

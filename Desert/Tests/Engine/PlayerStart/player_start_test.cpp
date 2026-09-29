@@ -151,6 +151,68 @@ TEST( SpawnIsNotACamera, SpawnDefaultPawnNeverReadsACameraComponent )
     EXPECT_NE( src.find( "PlayerStartComponent" ), std::string::npos );
 }
 
+namespace
+{
+    std::string ReadSource( const char* relative )
+    {
+        const std::filesystem::path file = Desert::TestSupport::RepositoryRoot() / relative;
+        const std::ifstream         in( file );
+        EXPECT_TRUE( in ) << "could not open " << file;
+        std::stringstream text;
+        text << in.rdbuf();
+        return text.str();
+    }
+} // namespace
+
+// WP24: the player's pawn is where the world must exist (UE: the player controller is a streaming source).
+TEST( PawnIsAStreamingSource, SpawnDefaultPawnGivesThePawnASourceUnlessItsPrefabHasOne )
+{
+    const std::string src   = ReadSource( "Desert/Desert/Source/Engine/Core/PlayerStart.cpp" );
+    const auto        guard = src.find( "if ( !pawn.HasComponent<ECS::StreamingSourceComponent>() )" );
+    ASSERT_NE( guard, std::string::npos ) << "a prefab's own source (range, priority, Enabled off) must be kept";
+    const auto add = src.find( "pawn.AddComponent<ECS::StreamingSourceComponent>()", guard );
+    ASSERT_NE( add, std::string::npos ) << "the spawned pawn is not made a streaming source";
+    EXPECT_LT( add, src.find( "scene.SetPlayerPawn( pawn.GetHandle() )" ) )
+         << "the pawn must be a source before Play hands it on";
+}
+
+// WP24: in Play the residency follows the sources, never the view.
+TEST( PawnIsAStreamingSource, NoCameraDrivesResidencyInPlay )
+{
+    const std::string src = ReadSource( "Desert/Desert/Source/Engine/Core/WorldStreamer.cpp" );
+    EXPECT_EQ( src.find( "GetActiveCamera" ), std::string::npos )
+         << "WorldStreamer reads the active camera: the view would stream the world again";
+    EXPECT_EQ( src.find( "CameraComponent" ), std::string::npos );
+    EXPECT_NE( src.find( "registry.view<ECS::StreamingSourceComponent>()" ), std::string::npos );
+    EXPECT_NE( src.find( "if ( !data.Enabled )" ), std::string::npos ) << "a disabled source must not stream";
+    EXPECT_NE( src.find( "Play has no streaming source" ), std::string::npos )
+         << "a Play with no source must say so by name, not fall back";
+}
+
+// WP24: both the editor and the game start streaming only after BeginPlay spawned the pawn it streams around.
+TEST( PawnIsAStreamingSource, StreamingBeginsAfterThePawnIsSpawned )
+{
+    for ( const char* file : { "Editor/Source/EditorLayer.cpp", "Runtime/Source/RuntimeLayer.cpp" } )
+    {
+        const std::string src   = ReadSource( file );
+        std::size_t       at    = 0;
+        int               pairs = 0;
+        while ( ( at = src.find( "BeginPlay( *", at ) ) != std::string::npos )
+        {
+            const auto streamer = src.find( "WorldStreamer::Begin", at );
+            ASSERT_NE( streamer, std::string::npos ) << file;
+            const auto nextPlay = src.find( "BeginPlay( *", at + 1 );
+            EXPECT_TRUE( nextPlay == std::string::npos || streamer < nextPlay )
+                 << file << ": a BeginPlay is not followed by its streamer's begin";
+            ++pairs;
+            at = streamer;
+        }
+        EXPECT_GE( pairs, 1 ) << file;
+        const auto firstStreamer = src.find( "WorldStreamer::Begin" );
+        EXPECT_GT( firstStreamer, src.find( "BeginPlay( *" ) ) << file << ": streaming begins before Play";
+    }
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

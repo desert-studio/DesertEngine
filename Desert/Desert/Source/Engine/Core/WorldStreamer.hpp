@@ -1,7 +1,14 @@
 #pragma once
 
-// A PARTITIONED WORLD IN PLAY: ONLY THE NEIGHBOURHOOD OF THE CAMERA IS IN THE ECS, AND ITS CELLS ARE READ OFF
-// THE MAIN THREAD.
+// A PARTITIONED WORLD IN PLAY: ONLY THE NEIGHBOURHOOD OF ITS STREAMING SOURCES IS IN THE ECS, AND ITS CELLS ARE
+// READ OFF THE MAIN THREAD.
+//
+// THE SOURCES (WP24, UE's UWorldPartitionStreamingSourceComponent). Every entity with an enabled
+// ECS::StreamingSourceComponent, the player's pawn among them (Core::SpawnDefaultPawn gives it one), plus
+// whatever an instrument hands Begin/Tick (the editor's --flight camera — UE's streaming source providers).
+// Residency follows their UNION. The view is not a source: a camera looking at the world is not where the
+// world must exist. A Play with no source at all streams nothing beyond the always-loaded part and says so
+// once, by name — the origin or the camera standing in would stream the wrong neighbourhood in silence.
 //
 // The decisions are pure and tested (Serialize/WorldPartitionResidencyExecutor.hpp, suite WorldPartitionStreamer);
 // this is the Scene side of them — the ResidencyWorld whose loads read a unit's records on a JobSystem worker
@@ -16,7 +23,7 @@
 //   this starts and Stop rebuilds the scene from it, so what streaming destroyed during Play comes back whole.
 //
 //   BeginCooked — A GAME. Its world was cut into cell files by the packager (WorldCells.hpp, WP8/WP9); only the
-//   index and the always-loaded file are read before the first frame, and every cell is read when the camera
+//   index and the always-loaded file are read before the first frame, and every cell is read when a source
 //   first wants it. The start of a world is then the start of a small scene: its always-loaded part.
 //
 // Either way a cell streamed back in is the cell as it was authored, not as Play left it: a record is not
@@ -41,6 +48,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <vector>
 #include <string>
 
 namespace Desert::Assets
@@ -74,20 +82,22 @@ namespace Desert::Core
     {
     public:
         // Starts streaming @p scene, whose entities are the whole of @p snapshotJson right now. Returns nullptr —
-        // and touches nothing — when the snapshot states no WorldPartition block. The streaming source is the
-        // scene's active camera.
+        // and touches nothing — when the snapshot states no WorldPartition block. The sources are the scene's
+        // (see THE SOURCES) plus @p instruments; the pawn must already be spawned (Core::BeginPlay first).
         [[nodiscard]] static Common::ResultStr<std::unique_ptr<WorldStreamer>>
-        Begin( Scene& scene, Assets::AssetManager& assets, const std::string& snapshotJson );
+        Begin( Scene& scene, Assets::AssetManager& assets, const std::string& snapshotJson,
+               std::span<const Rules::StreamingSource> instruments = {} );
 
         // Starts streaming @p scene, whose entities are exactly @p world's always-loaded records right now (the
         // caller loaded world.AlwaysLoadedJson into it). No cell is an entity yet: the first Tick starts reading
-        // the ones the camera wants.
+        // the ones the sources want.
         [[nodiscard]] static Common::ResultStr<std::unique_ptr<WorldStreamer>>
         BeginCooked( Scene& scene, Assets::AssetManager& assets, CookedWorldStart world );
 
-        // One frame: collect the reads that finished, step the residency from the active camera's position and
-        // apply what it decides.
-        [[nodiscard]] Common::BoolResultStr Tick( double nowSeconds );
+        // One frame: collect the reads that finished, step the residency from the sources (the scene's and
+        // @p instruments) and apply what it decides.
+        [[nodiscard]] Common::BoolResultStr Tick( double                                  nowSeconds,
+                                                  std::span<const Rules::StreamingSource> instruments = {} );
 
         // WHAT THE LAST Tick DID, for an instrument that attributes a frame's cost (the editor's --flight).
         // Reset at the start of every Tick, so it never carries an earlier frame's activations.
@@ -144,11 +154,17 @@ namespace Desert::Core
         {
             return m_Settings;
         }
-        // nullopt until the first source is known: Begin reads one, BeginCooked waits for the first Tick.
-        [[nodiscard]] const std::optional<Rules::StreamingSource>& LastSource() const
+        // The sources the last Begin/Tick streamed around; empty before BeginCooked's first Tick and in a Play
+        // with no source.
+        [[nodiscard]] const std::vector<Rules::StreamingSource>& LastSources() const
         {
-            return m_LastSource;
+            return m_LastSources;
         }
+
+        // Every enabled StreamingSourceComponent of @p scene, at its entity's world position, then @p instruments.
+        // A disabled one is not a source; an override range is the component's own.
+        [[nodiscard]] static std::vector<Rules::StreamingSource>
+        GatherSources( Scene& scene, std::span<const Rules::StreamingSource> instruments );
 
         // Says what streaming cost, once: the activation measurement MsPerRecord comes from.
         ~WorldStreamer() override;
@@ -172,7 +188,8 @@ namespace Desert::Core
 
     private:
         WorldStreamer( Scene& scene, Assets::AssetManager& assets, std::string sceneName );
-        [[nodiscard]] Common::ResultStr<Rules::StreamingSource> Source() const;
+        // Takes @p sources as this frame's; the first frame with none logs the one named error (THE SOURCES).
+        void UseSources( std::vector<Rules::StreamingSource> sources );
 
         // One HLOD as the streamer takes it: the cell unit it stands in for and its records.
         struct CellHLOD
@@ -220,6 +237,7 @@ namespace Desert::Core
         // The one settings value both beginnings hand the executor, kept so the panel reads the same margin.
         Rules::ResidencySettings              m_Settings;
         WorldPartitionSerialized              m_Partition;
-        std::optional<Rules::StreamingSource> m_LastSource;
+        std::vector<Rules::StreamingSource>   m_LastSources;
+        bool                                  m_SaidNoSource = false;
     };
 } // namespace Desert::Core

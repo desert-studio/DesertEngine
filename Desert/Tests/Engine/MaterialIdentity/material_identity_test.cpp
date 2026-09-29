@@ -66,20 +66,6 @@ namespace
         return buffer.str();
     }
 
-    // A scene the REPOSITORY ships, as opposed to one this machine happens to have on disk.
-    // `Scenes/Autosave/` holds the editor's gitignored crash-recovery copies (.gitignore:98). They are
-    // never migrated and are not content, so a sweep that descends into them passes in CI — where a
-    // fresh checkout has no such directory — and fails on any machine that has run the editor. The
-    // terrain-material suite hit exactly that on a stale `Clouds_Demo_autosave.desce` and its helper is
-    // copied here rather than reinvented (the suites share no header; copy-paste is the convention this
-    // directory already follows for RepoRoot too).
-    bool IsShippedScene( const std::filesystem::path& p )
-    {
-        for ( const auto& part : p )
-            if ( part == "Autosave" )
-                return false;
-        return true;
-    }
 } // namespace
 
 // ── The materials in the repository ────────────────────────────────────────────────────────────────
@@ -247,8 +233,6 @@ TEST( MaterialIdentity, EveryMaterialGuidAShippedSceneNamesIsCarriedByExactlyOne
     {
         if ( !entry.is_regular_file() || entry.path().extension() != ".desce" )
             continue;
-        if ( !IsShippedScene( entry.path() ) )
-            continue;
 
         const std::string text = ReadAll( entry.path() );
         static const std::regex key( R"re("MaterialGuids"\s*:\s*\[)re" );
@@ -304,8 +288,6 @@ TEST( MaterialIdentity, EveryMaterialPathAShippedSceneNamesResolvesToAFileOnDisk
     for ( const auto& entry : std::filesystem::recursive_directory_iterator( scenes ) )
     {
         if ( !entry.is_regular_file() || entry.path().extension() != ".desce" )
-            continue;
-        if ( !IsShippedScene( entry.path() ) )
             continue;
 
         const std::string text = ReadAll( entry.path() );

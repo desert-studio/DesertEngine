@@ -696,6 +696,16 @@ namespace
                     .Register();
             }
             {
+                using T = ::Desert::ECS::StreamingSourceData;
+                TypeBuilder( "StreamingSourceData", sizeof( T ) )
+                    .Field( FieldInfo{ .Name = "Enabled", .Type = FieldType::Bool, .Offset = offsetof( T, Enabled ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Enabled )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Enabled", .Category = "Streaming Source", .Tooltip = "Off = the world does not load around this entity.", } } )
+                    .Field( FieldInfo{ .Name = "OverrideLoadingRange", .Type = FieldType::Bool, .Offset = offsetof( T, OverrideLoadingRange ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::OverrideLoadingRange )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Override Loading Range", .Category = "Streaming Source", .Tooltip = "Off = the World Partition grid's Loading Range.", } } )
+                    .Field( FieldInfo{ .Name = "LoadingRange", .Type = FieldType::Float, .Offset = offsetof( T, LoadingRange ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::LoadingRange )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Loading Range", .Category = "Streaming Source", .Tooltip = "Cells within this distance of the entity load (cm).", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1000000.0f, .Units = "cm", .EditCondition = "OverrideLoadingRange", } } )
+                    .Field( FieldInfo{ .Name = "Priority", .Type = FieldType::Int, .Offset = offsetof( T, Priority ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Priority )>(), .TypeName = "int", .Meta = PropertyMetadata{ .DisplayName = "Priority", .Category = "Streaming Source", .Tooltip = "Higher loads first when several sources want cells; it never changes which cells load.", } } )
+                    .WithDefault<T>()
+                    .Register();
+            }
+            {
                 using T = ::Desert::ECS::VolumetricCloudData;
                 TypeBuilder( "VolumetricCloudData", sizeof( T ) )
                     .Field( FieldInfo{ .Name = "Enabled", .Type = FieldType::Bool, .Offset = offsetof( T, Enabled ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Enabled )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Enabled", .Category = "Cloud Layer", .Tooltip = "Master switch. Off dispatches nothing: a scene with the clouds disabled pays zero GPU cost, exactly like a scene without the component.", .Summary = true, } } )

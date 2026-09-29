@@ -181,6 +181,10 @@ namespace Desert::Assets::Serialization
         std::string                     Name;
         std::string                     ShapeName;
         std::optional<RigTransformData> ShapeTransform;
+        /// Linear 0..1. ABSENT MEANS THE SIDE COLOUR OF `Name` (`Animation::ControlSideColor`), for the same
+        /// reason an absent `ShapeTransform` means identity: that is what every file written before the
+        /// field was drawn as, so `kControlRigVersion` does not move and the corpus needs no rewrite.
+        std::optional<glm::vec3>        Color;
         RigTransformData                Offset;
         RigTransformData                Pose;
         std::vector<ControlSpaceData>   Parents;

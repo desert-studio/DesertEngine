@@ -26,6 +26,7 @@
 #include "../SettingConsumers/setting_consumers_reader.hpp"
 
 #include <Engine/Assets/AssetEviction.hpp>
+#include <Engine/Assets/AssetRootPin.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/CloudLayoutAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
@@ -322,6 +323,30 @@ TEST( AssetEviction, AnAssetNothingReferencesIsReleasedAndAReferencedOneIsNot )
     EXPECT_EQ( outcome.Refused, 0u );
     EXPECT_EQ( sink.CollectGarbageCalls, 1 )
          << "the graveyard was never collected, so nothing the sweep dropped was actually destroyed";
+}
+
+TEST( AssetEviction, AnOpenEditorsPinnedSubjectSurvivesTheSweepAndIsReleasedOnceUnpinned )
+{
+    AssetManager manager;
+    const auto   edited = Register( manager, "probe/edited.deprefab", true );
+
+    {
+        const AssetRootPin pin( edited->GetMetadata().Handle, "the Animation Editor has it open" );
+        AssetRootSet       roots;
+        AssetRootPin::MarkAll( roots );
+        EXPECT_EQ( roots.WhyKept( edited->GetMetadata().Handle ), "the Animation Editor has it open" );
+        RecordingSink sink;
+        (void)AssetEviction::Run( manager, roots, sink );
+        EXPECT_TRUE( edited->IsReadyForUse() ) << "a sweep released the subject of an open editor window";
+        EXPECT_EQ( edited->UnloadCount, 0 );
+    }
+
+    AssetRootSet roots;
+    AssetRootPin::MarkAll( roots );
+    EXPECT_EQ( roots.Size(), 0u ) << "a closed window left its pin behind";
+    RecordingSink sink;
+    (void)AssetEviction::Run( manager, roots, sink );
+    EXPECT_FALSE( edited->IsReadyForUse() );
 }
 
 TEST( AssetEviction, EveryMeshStillBuiltAfterTheSweepIsNamedWithWhy )

@@ -192,7 +192,7 @@ namespace Desert::ECS
                         }
 
                         anim.Animator->Update( animTs );
-                        anim.PendingNotifies = anim.Animator->ConsumeNotifies();
+                        anim.PendingNotifies = anim.Animator->ConsumeNotifyEvents();
                     }
                     continue;
                 }
@@ -256,7 +256,7 @@ namespace Desert::ECS
 
                     // Notify markers crossed this frame -> queued for ScriptSystem to dispatch (assigned, so
                     // a paused/cleared frame leaves it empty and nothing re-fires).
-                    anim.PendingNotifies = anim.Animator->ConsumeNotifies();
+                    anim.PendingNotifies = anim.Animator->ConsumeNotifyEvents();
 
                     if ( !anim.Loop && anim.Animator->IsFinished() )
                     {

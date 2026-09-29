@@ -492,6 +492,9 @@ namespace Desert::Core::Rules
          // Play chooses among ALL starts (a tag must name exactly one) before the streamer begins, so a
          // start in an unloaded cell would silently change which one wins, or make a tag unresolvable.
          { "PlayerStart", ComponentLoading::Global },
+         // A source decides what streams; one inside a cell would unload the cell and with it itself, and the
+         // world around it would never come back.
+         { "StreamingSource", ComponentLoading::Global },
          // ── By field ──
          // RenderMode 1 = WorldSpace (a nameplate, a floating panel): it lives at its entity. 0 =
          // ScreenSpace (HUD, menus), the default: it has no place in the world at all.

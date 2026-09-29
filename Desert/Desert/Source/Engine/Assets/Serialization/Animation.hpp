@@ -113,7 +113,12 @@ namespace Desert::Assets::Serialization
     struct NotifyData
     {
         std::string Name;
-        int32_t     Tick = 0;
+        int32_t     Tick  = 0;
+        int32_t     Track = 0; // the Animation Editor row (UE Notify Track); playback ignores it
+        // UE's Notify State: 0 is an instant notify, more is a span [Tick, Tick + DurationTicks) that
+        // begins and ends. Required like every field here (the reader is strict); ANV3 met no notify in the
+        // corpus, so no file had to be rewritten for it.
+        int32_t DurationTicks = 0;
     };
 
     // An exact rational rate, mirroring Animation::FrameRate. A SEPARATE STRUCT and not that type because
@@ -140,6 +145,18 @@ namespace Desert::Assets::Serialization
         KeyShape Shape;
         float    ArriveTangent = 0.0f;
         float    LeaveTangent  = 0.0f;
+    };
+
+    /**
+     * @brief A named float curve of the clip — UE's FFloatCurve (anim curve).
+     *
+     * Its keys are the SAME scalar key a section weight stores, because both are one number with the key
+     * shape vocabulary of this file; a second key struct would be a second reading of the same bytes.
+     */
+    struct CurveData
+    {
+        std::string                   Name;
+        std::vector<SectionWeightKey> Keys;
     };
 
     /**
@@ -210,6 +227,11 @@ namespace Desert::Assets::Serialization
          * `Tests/Engine/AnimationClipCorpus` reads the files back to check that it did.
          */
         std::vector<SectionData> Sections;
+
+        // Anim curves (ANV3). Required (the reader is strict): a clip without curves STATES an empty list.
+        // The corpus was rewritten with `"Curves": []` in the same change and ANIM stays 4, because no
+        // value any file held changes meaning — the step adds a statement, it does not reinterpret one.
+        std::vector<CurveData> Curves;
     };
 
     /**

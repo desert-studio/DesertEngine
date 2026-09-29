@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <vector>
 
 namespace Desert::Editor::Core
@@ -46,13 +47,13 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::CloudModellingVolume:
             case Assets::AssetTypeID::CloudLayout:
             case Assets::AssetTypeID::Skybox:
-            case Assets::AssetTypeID::Mesh: // static meshes; a `.skmesh` is refused by name in AssetSubjectFor
+            case Assets::AssetTypeID::Mesh:      // `.stmesh` the viewer, `.skmesh` Persona's Mesh mode
+            case Assets::AssetTypeID::Animation: // Persona's Animation mode (ANV1a)
+            case Assets::AssetTypeID::Skeleton:  // Persona's Skeleton mode (ANV1f)
                 return nullptr;
             case Assets::AssetTypeID::Unknown:
                 return "the asset has no type — nothing can say which editor opens it";
             case Assets::AssetTypeID::Shader:
-            case Assets::AssetTypeID::Skeleton:
-            case Assets::AssetTypeID::Animation:
             case Assets::AssetTypeID::Prefab:
             case Assets::AssetTypeID::UITheme:
             case Assets::AssetTypeID::StringTable:
@@ -61,11 +62,41 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::AnimGraph:
             case Assets::AssetTypeID::Retarget:
             case Assets::AssetTypeID::LandscapeLayerInfo: // edited in the landscape panel's layer list
+            case Assets::AssetTypeID::FoliageType:        // edited in the foliage panel
                 return kNoEditor;
             case Assets::AssetTypeID::Count:
                 return "AssetTypeID::Count is the number of types, not a type";
         }
         return "the number is outside AssetTypeID";
+    }
+
+    // UE's PERSONA: one character editor with three modes, each about one asset of a skeleton — the Skeleton
+    // (`.skeleton`), a Skeletal Mesh (`.skmesh`) and an Animation (`.anim`). The mode is a property of the asset
+    // opened, so it is decided here from the metadata and nowhere else: EditorLayer's Mesh registration asks it
+    // which window a Mesh subject gets, because AssetTypeID::Mesh names both `.stmesh` and `.skmesh`.
+    enum class PersonaMode : uint8_t
+    {
+        Skeleton,
+        Mesh,
+        Animation,
+    };
+
+    // The Persona mode this asset opens in, or nullopt for an asset another editor owns (a static mesh).
+    [[nodiscard]] inline std::optional<PersonaMode> PersonaModeFor( const Assets::AssetMetadata& found )
+    {
+        switch ( found.AssetType )
+        {
+            case Assets::AssetTypeID::Skeleton:
+                return PersonaMode::Skeleton;
+            case Assets::AssetTypeID::Animation:
+                return PersonaMode::Animation;
+            case Assets::AssetTypeID::Mesh:
+                if ( found.Filepath.extension() == Common::Constants::Extensions::SKINNED_MESH )
+                    return PersonaMode::Mesh;
+                return std::nullopt;
+            default:
+                return std::nullopt;
+        }
     }
 
     [[nodiscard]] inline Common::ResultStr<SubjectId> AssetSubjectFor( const Assets::AssetMetadata* found,
@@ -82,15 +113,6 @@ namespace Desert::Editor::Core
             return Common::MakeFormattedError<SubjectId>(
                  "asset {:016x} ('{}') is a {} (AssetTypeID {}): {}", static_cast<uint64_t>( requested ),
                  found->Filepath.generic_string(), Assets::AssetTypeName( found->AssetType ), type, refusal );
-
-        // ONE TYPE, TWO FORMATS: AssetTypeID::Mesh names both `.stmesh` and `.skmesh`, and only the static one
-        // has a viewer (AV1f). The skinned one is refused here, by name, before a window is built for it.
-        if ( found->AssetType == Assets::AssetTypeID::Mesh &&
-             found->Filepath.extension() == Common::Constants::Extensions::SKINNED_MESH )
-            return Common::MakeFormattedError<SubjectId>(
-                 "asset {:016x} ('{}') is a skeletal mesh: only static meshes have a viewer; the skeletal mesh "
-                 "viewer (AV1g) does not exist yet",
-                 static_cast<uint64_t>( requested ), found->Filepath.generic_string() );
 
         // The register says it opens; an editor missing here is a wiring defect, not a property of the type.
         if ( !editors.HasEditorFor( AssetSubjectType( type ) ) )

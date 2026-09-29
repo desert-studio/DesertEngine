@@ -1620,7 +1620,10 @@ namespace Desert::Editor
                 // bone authoring owns the gizmo (edits the selected bone, not the object)
                 m_Gizmo.RenderBone( *m_Scene, ViewCamera(), m_ViewportData.ViewportPos, m_ViewportData.Size );
             }
-            else if ( m_Gizmo.IsActive() && !selectedIsUI )
+            // Control mode's axis gizmo is drawn by the control overlay on the SELECTED CONTROL
+            // (LightGizmoRenderer::RenderControlRig); an object gizmo on the entity beside it would be a
+            // second manipulator fighting it for the same click.
+            else if ( m_Gizmo.IsActive() && !selectedIsUI && !Core::ActiveAuthoringContext().ShowsControls() )
             {
                 m_Gizmo.RenderObject( *m_Scene, ViewCamera(), m_ViewportData.ViewportPos, m_ViewportData.Size );
             }
@@ -2436,6 +2439,22 @@ namespace Desert::Editor
                 break;
             case Common::KeyCode::C:
                 m_Gizmo.SetOperation( Tools::GizmoController::Operation::Scale );
+                break;
+            case Common::KeyCode::W:
+            case Common::KeyCode::E:
+                // UE's Control Rig keys: W translates the selected control, E rotates it. Only in Control mode
+                // and never while the right button flies the camera (W is also the fly key then).
+                if ( Core::ActiveAuthoringContext().ShowsControls() &&
+                     !ImGui::IsMouseDown( ImGuiMouseButton_Right ) )
+                {
+                    const bool rotate = ( e.GetKeyCode() == Common::KeyCode::E );
+                    if ( const auto set = Core::ActiveAuthoringContext().SetControlRotate( m_AuthoringOwner,
+                                                                                           m_Authoring, rotate );
+                         !set )
+                    {
+                        LOG_WARN( "[Animation] the control manipulator mode was not changed: {}", set.GetError() );
+                    }
+                }
                 break;
             case Common::KeyCode::F:
                 // Frame the selected entity (Unity/Godot 'F').
