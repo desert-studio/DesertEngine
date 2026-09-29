@@ -340,7 +340,8 @@ TEST_F( ShaderRootFixture, NoMeshPBRShaderDeclaresASceneResourceNoApplierFills )
     // Everything in a mesh PBR set 0 that is genuinely per-OBJECT and is therefore filled by the material
     // itself rather than by the frame snapshot: the GPU-scene material row and the surface maps
     // (MaterialFactory binds these three by name from the material asset).
-    const char* kPerObject[] = { "Materials", "u_AlbedoTexture", "u_NormalTexture", "u_OpacityTexture" };
+    const char* kPerObject[] = { "Materials", "u_AlbedoTexture", "u_NormalTexture", "u_OpacityTexture",
+                                 "u_ORMTexture", "u_EmissiveTexture" }; // MAT1a-T2: bound by manifest name
     // The cloud-shadow pair, filled by Graphic::CloudShadowBind out of the same snapshot — see the note on
     // SceneBindingNames().
     const char* kCloudShadow[] = { "u_CloudShadowMap", "CloudShadowUB" };

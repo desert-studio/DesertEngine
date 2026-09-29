@@ -581,7 +581,8 @@ TEST_F( ShaderRootFixture, EveryInstancedVertexStagePositionsThroughTheOneWindFu
         EXPECT_EQ( vertex.find( "model*vec4(a_Position" ), std::string::npos )
              << name << " still computes an undisplaced position beside the shared one";
 
-        const auto        spirv = CompileStage( vertex, file, shaderc_vertex_shader );
+        // Compiled from the stage as assembled — `vertex` above is a whitespace-free text for the finds.
+        const auto        spirv = CompileStage( StageSource( name, ShaderStage::Vertex ), file, shaderc_vertex_shader );
         const std::string words( reinterpret_cast<const char*>( spirv.data() ),
                                  spirv.size() * sizeof( uint32_t ) );
         EXPECT_NE( words.find( "FoliageWindOffset(" ), std::string::npos )
