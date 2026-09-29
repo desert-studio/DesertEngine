@@ -41,6 +41,8 @@ TREE_SEARCH = [
     re.compile(r"(^|[;&|(]\s*|\s)(ag|ack)\s"),
 ]
 FIND = re.compile(r"(^|[;&|(]\s*|\s)find\s")
+# grep -r over a build log directory or the scratch is reading logs, not searching the tree (09-29: L10b refused)
+LOG_SEARCH = re.compile(r"grep\s+-[A-Za-z]*[rR][A-Za-z]*\s+(\S+\s+)?[\"']?(\S*build/DevLogs|/private/tmp/|/tmp/)")
 SLEEP = re.compile(r"\bsleep\s+(\d+)")
 EDITOR_BUILD = re.compile(r"((^|[;&|(]\s*|\s)make\s|build_quiet\.sh\s)[^;&|]*\bEditor\b")  # make as a COMMAND: `ls Desert.make Editor.make` counted as a build
 SINGLE_TU = re.compile(r"\.o\b|\s-n\b|--dry-run")
@@ -49,6 +51,7 @@ MAKE_JOBS = re.compile(r"\bmake\b[^;&|]*?-j\s*(\d+)")
 MAX_MAKE_JOBS = 4
 SELF_WAIT = re.compile(r"pgrep\s+-x\s+make|build_quiet\.sh")  # a command that waits for the other build itself is allowed
 GIT_COMMIT = re.compile(r"\bgit\b[^;&|]*\bcommit\b")
+WIP_COMMIT = re.compile(r"\bgit\b[^;&|]*\bcommit\b[^;&|]*(-m\s*[\"']wip|-F\s*-\s*<<-?\s*[\"']?\w+[\"']?\s*\n\s*wip)", re.I)
 CODE_FILE = re.compile(r"\.(cpp|hpp|h|glslh|shader|mm)\b")
 CODE_READ = re.compile(r"(^|[;&|(]\s*)(cat|head|tail|sed|grep|awk|less|more)\s")
 MAX_READ_LINES = 150
@@ -263,6 +266,8 @@ def script_rule(cmd, cwd):
     if GIT_PUSH.search(cmd) and "--delete" not in cmd and has("handoff_check.sh"):
         head = subprocess.run(["git", "-C", tree, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
         subject = subprocess.run(["git", "-C", tree, "log", "-1", "--format=%s"], capture_output=True, text=True).stdout
+        if WIP_COMMIT.search(cmd):  # `git commit -m "wip: …" && git push` — HEAD is still the old commit at check time
+            subject = "wip"
         if head and not subject.lower().startswith("wip") and \
                 not os.path.exists(os.path.join(tree, ".cache", "handoff", head + ".ok")):
             return ("[agent_guard] Push без проверки: нет .cache/handoff/<HEAD>.ok. Запусти scripts/Dev/handoff_check.sh "
@@ -444,7 +449,7 @@ def main():
         deny(f"[agent_guard] Код читается диапазоном ≤ {MAX_READ_LINES} строк: Read(file_path, offset, limit≤{MAX_READ_LINES}) "
              f"или sed -n 'A,Bp'. Целый файл — главная статья расхода.", data, agent)
     if tool == "Bash" and CODE_FILE.search(cmd):
-        if re.search(r"(^|[;&|(]\s*)cat\s+[^|;&]*\.(cpp|hpp|h|glslh|shader|lua|mm)\b", cmd):
+        if re.search(r"(^|[;&|(]\s*)cat\s+(?!>)[^|;&>]*\.(cpp|hpp|h|glslh|shader|lua|mm)\b", cmd):
             save_state(state, path)
             deny(f"[agent_guard] `cat` исходника целиком запрещён: grep -n → sed -n 'A,Bp' (≤ {MAX_READ_LINES} строк).",
                  data, agent)
@@ -471,7 +476,7 @@ def main():
 
     if tool == "Bash":
         for rx in TREE_SEARCH:
-            if rx.search(cmd):
+            if rx.search(cmd) and not LOG_SEARCH.search(cmd):
                 save_state(state, path)
                 deny("[agent_guard] Поиск по дереву в своём контексте запрещён (контракт §7.3). Где определено имя — "
                      "scripts/Dev/sym.sh <Имя> (1–2 с), где используется — sym.sh --refs <Имя>. Вопрос шире — "
