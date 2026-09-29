@@ -22,6 +22,7 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/DrawCounters.hpp>
+#include <Engine/Graphic/Materials/Mesh/MeshVertexLayout.hpp>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -288,15 +289,16 @@ namespace Desert::Graphic::API::Vulkan
             VKUtils::EndDebugLabel( m_CurrentCommandBuffer );
     }
 
-    bool VulkanRendererAPI::BindGraphicsPipeline( const GraphicsPipeline* pipeline, const bool meshHasStreams )
+    bool VulkanRendererAPI::BindGraphicsPipeline( const GraphicsPipeline* pipeline )
     {
         if ( !pipeline )
             return false;
 
         const auto* vulkanPipeline = static_cast<const VulkanPipeline*>( pipeline );
-        if ( const VkPipeline variant = vulkanPipeline->GetVkPipeline( meshHasStreams ); variant != VK_NULL_HANDLE )
+        if ( vulkanPipeline->GetVkPipeline() != VK_NULL_HANDLE )
         {
-            vkCmdBindPipeline( m_CurrentCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, variant );
+            vkCmdBindPipeline( m_CurrentCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                               vulkanPipeline->GetVkPipeline() );
             return true;
         }
         // Still in the driver (PSO1): not an error, and not drawn. An ENGINE pipeline is counted by
@@ -318,16 +320,19 @@ namespace Desert::Graphic::API::Vulkan
         return false;
     }
 
-    const std::shared_ptr<VertexBuffer>& VulkanRendererAPI::DefaultVertexStreams()
+    const std::shared_ptr<VertexBuffer>& VulkanRendererAPI::DefaultVertexStreams( const uint32_t capacity )
     {
-        // ONE vertex of the streams, read by every vertex of a mesh that has none (stride 0): white colour,
-        // UV1 (0,0) — what UE's GNullColorVertexBuffer and a missing TexCoord1 give a material.
-        if ( m_DefaultVertexStreams == nullptr )
+        // White colour and UV1 (0,0) in every vertex — what UE's GNullColorVertexBuffer and a missing TexCoord1
+        // give a material. Grown, never shrunk; the replaced buffer is released through the allocator's
+        // per-frame deletion queue, so a command buffer still in flight keeps reading valid memory.
+        if ( m_DefaultVertexStreams == nullptr || capacity > m_DefaultVertexStreamsCapacity )
         {
-            const MeshVertexStreams defaults{};
-            m_DefaultVertexStreams = VertexBuffer::Create( (void*)&defaults, sizeof( defaults ) );
-            const auto uploaded    = m_DefaultVertexStreams->RT_Invalidate();
+            const std::vector<MeshVertexStreams> defaults( capacity );
+            m_DefaultVertexStreams = VertexBuffer::Create(
+                 (void*)defaults.data(), static_cast<uint32_t>( defaults.size() * sizeof( MeshVertexStreams ) ) );
+            const auto uploaded = m_DefaultVertexStreams->RT_Invalidate();
             DESERT_VERIFY( uploaded.IsSuccess(), "the default vertex-streams buffer could not be uploaded" );
+            m_DefaultVertexStreamsCapacity = capacity;
         }
         return m_DefaultVertexStreams;
     }
@@ -344,10 +349,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( !IsRecording() )
             return;
         const auto vulkanPipeline = static_cast<const VulkanPipeline*>( pipeline );
-        // The mesh's vertex streams pick the pipeline variant: its own at their stride, or the shared default
-        // at stride 0 (VertexBufferLayout::WithStreams).
-        const auto& streams = mesh->GetStreamBuffer();
-        if ( !BindGraphicsPipeline( pipeline, streams != nullptr ) )
+        if ( !BindGraphicsPipeline( pipeline ) )
             return;
 
         // Bind Descriptor Sets
@@ -372,10 +374,19 @@ namespace Desert::Graphic::API::Vulkan
         VkDeviceSize offsets[] = { 0, 0 };
         auto vbuffer = sp_cast<API::Vulkan::VulkanVertexBuffer>( mesh->GetVertexBuffer() )->GetVulkanBuffer();
         vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 0, 1, &vbuffer, offsets );
+        // Binding 1, the optional streams (MeshVertexLayout): the mesh's own, or the shared default holding at
+        // least as many vertices as this mesh — one pipeline, one stride either way.
         if ( vulkanPipeline->HasVertexStreams() )
         {
-            auto sbuffer =
-                 sp_cast<API::Vulkan::VulkanVertexBuffer>( streams != nullptr ? streams : DefaultVertexStreams() )
+            const auto& own = mesh->GetStreamBuffer();
+            auto        sbuffer =
+                 sp_cast<API::Vulkan::VulkanVertexBuffer>(
+                      own != nullptr
+                           ? own
+                           : DefaultVertexStreams( DefaultVertexStreamsFor( *pipeline->GetSpecification().Layout,
+                                                                            mesh->GetVertexBuffer()->GetSize(),
+                                                                            m_DefaultVertexStreamsCapacity )
+                                                        .Capacity ) )
                       ->GetVulkanBuffer();
             vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 1, 1, &sbuffer, offsets );
         }

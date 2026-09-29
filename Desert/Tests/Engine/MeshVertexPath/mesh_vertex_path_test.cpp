@@ -1016,8 +1016,8 @@ TEST_F( ShaderRootFixture, MeshRendererSpellsNoVertexLayoutOfItsOwn )
     EXPECT_NE( source.find( "MeshVertexLayout(" ), std::string::npos );
 }
 
-// A mesh with neither Colors nor UV1 uploads no stream buffer: it draws through the stride-0 twin against
-// the one shared default vertex, which is white and (0,0) — the format's meaning, not a fallback.
+// A mesh with neither Colors nor UV1 uploads no stream buffer: it binds the one shared default buffer, which
+// is white and (0,0) in every vertex — the format's meaning, not a fallback.
 TEST( MeshVertexStreamsFormat, AMeshWithoutStreamsUploadsNoneAndTheDefaultIsWhite )
 {
     EXPECT_TRUE( Desert::PackMeshVertexStreams( {}, {}, 24 ).empty() );
@@ -1030,6 +1030,44 @@ TEST( MeshVertexStreamsFormat, AMeshWithoutStreamsUploadsNoneAndTheDefaultIsWhit
     ASSERT_EQ( onlyUV1.size(), 2u );
     EXPECT_EQ( onlyUV1[0].Color, defaults.Color ) << "an absent colour stream is white in every vertex";
     EXPECT_EQ( onlyUV1[0].UV1, glm::vec2( 0.25f, 0.5f ) );
+}
+
+// SURF1e-d: no stride-0 binding (portability devices refuse it: vertexAttributeAccessBeyondStride = false). A
+// mesh without streams binds the shared default buffer at the layout's stream stride, so that buffer holds at
+// least as many stream vertices as the mesh has vertices — on every vertex path, for small and large meshes,
+// and it only grows as bigger meshes are drawn.
+TEST( MeshVertexStreamsFormat, AMeshWithoutStreamsBindsADefaultAtLeastAsLongAsItsVerticesAtANonZeroStride )
+{
+    using namespace Desert::Graphic;
+    for ( const auto path : { MeshVertexPath::Static, MeshVertexPath::Skinned } )
+    {
+        const VertexBufferLayout layout = MeshVertexLayout( path );
+        ASSERT_NE( layout.GetStride(), 0u );
+        uint32_t capacity = 0;
+        for ( const uint64_t vertices : { 3ull, 4096ull, 4097ull, 100000ull, 24ull, 1500000ull } )
+        {
+            const auto binding = DefaultVertexStreamsFor( layout, vertices * layout.GetStride(), capacity );
+            EXPECT_NE( binding.Stride, 0u ) << "a stride-0 binding is refused on portability devices";
+            EXPECT_EQ( binding.Stride, sizeof( Desert::MeshVertexStreams ) );
+            EXPECT_GE( binding.Capacity, vertices ) << "the default must cover every vertex the mesh reads";
+            EXPECT_GE( binding.Capacity, capacity ) << "the shared buffer grows, never shrinks";
+            capacity = binding.Capacity;
+        }
+    }
+}
+
+// The backend keeps ONE pipeline per layout: no stride-0 twin and no per-mesh variant choice at bind time.
+TEST_F( ShaderRootFixture, TheBackendBuildsNoStrideZeroTwin )
+{
+    for ( const char* file : { "../Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanPipeline.hpp",
+                               "../Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanPipeline.cpp",
+                               "../Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.hpp" } )
+    {
+        const auto source = ReadFile( file );
+        ASSERT_FALSE( source.empty() ) << file;
+        EXPECT_EQ( source.find( "NoStreams" ), std::string::npos ) << file;
+        EXPECT_EQ( source.find( "meshHasStreams" ), std::string::npos ) << file;
+    }
 }
 
 int main( int argc, char** argv )

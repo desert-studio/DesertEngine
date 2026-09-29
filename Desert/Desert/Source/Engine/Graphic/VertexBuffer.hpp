@@ -152,10 +152,10 @@ namespace Desert::Graphic
 
     public:
         // THE OPTIONAL VERTEX STREAMS (UE FVertexFactory's Color / TexCoord1 streams): a second vertex binding
-        // (binding 1), read from `firstLocation` on, that a mesh may or may not carry. A mesh without it is
-        // drawn from one shared buffer at stride 0 — every vertex reads the same default — which in Vulkan is
-        // a different vertex-input state, so the backend builds the pipeline twice (VulkanPipeline) and the
-        // draw picks the variant by the mesh (VulkanRendererAPI::RenderMesh). Empty = no binding 1 at all.
+        // (binding 1), read from `firstLocation` on at the streams' stride, that a mesh may or may not carry.
+        // A mesh without it binds one shared default buffer at the same stride, as long as the largest mesh
+        // (VulkanRendererAPI::RenderMesh, MeshVertexLayout.hpp DefaultVertexStreamsFor) — one vertex-input
+        // state, one pipeline. Empty = no binding 1 at all.
         VertexBufferLayout& WithStreams( const uint32_t firstLocation,
                                          const std::initializer_list<VertexBufferElement>& elements )
         {

@@ -33,7 +33,8 @@ namespace Desert
             return m_VertexBuffer;
         }
         // The optional vertex streams (MeshVertexStreams, binding 1); null when the mesh carries neither colours
-        // nor a second UV set, and then the draw reads the shared default at stride 0.
+        // nor a second UV set, and then the draw binds the shared default buffer (white, UV1 0,0) at the same
+        // stride.
         [[nodiscard]] const std::shared_ptr<Graphic::VertexBuffer>& GetStreamBuffer() const
         {
             return m_StreamBuffer;

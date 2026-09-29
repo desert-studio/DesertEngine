@@ -67,14 +67,7 @@ namespace Desert::Graphic::API::Vulkan
         {
             return GetBuildState() == BuildState::Built ? m_Pipeline : VK_NULL_HANDLE;
         }
-        // The variant a mesh draws through: its own streams at their stride, or the shared default at stride 0
-        // (VertexBufferLayout::WithStreams). A layout without streams has one pipeline and answers it for both.
-        VkPipeline GetVkPipeline( const bool meshHasStreams ) const
-        {
-            return meshHasStreams || !HasVertexStreams() ? GetVkPipeline()
-                   : GetBuildState() == BuildState::Built ? m_PipelineNoStreams
-                                                          : VK_NULL_HANDLE;
-        }
+        // The layout carries the optional streams binding (binding 1): the draw must bind a buffer there.
         [[nodiscard]] bool HasVertexStreams() const
         {
             return !m_Specification.PullingConfig && m_Specification.Layout && m_Specification.Layout->HasStreams();
@@ -117,8 +110,7 @@ namespace Desert::Graphic::API::Vulkan
         GraphicsPipelineSpecification m_Specification;
 
         VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
-        VkPipeline       m_Pipeline= VK_NULL_HANDLE;
-        VkPipeline       m_PipelineNoStreams = VK_NULL_HANDLE; // stride-0 twin; null without streams
+        VkPipeline       m_Pipeline       = VK_NULL_HANDLE;
 
         // The descriptor set layouts m_PipelineLayout was built from, held so they outlive it. A shader
         // recompile replaces the shader's references; this pipeline keeps its own until it is rebuilt.
@@ -131,10 +123,8 @@ namespace Desert::Graphic::API::Vulkan
         VkPipelineRasterizationStateCreateInfo m_Rasterizer{};
         VkPipelineMultisampleStateCreateInfo   m_Multisampling{};
         VkPipelineDepthStencilStateCreateInfo  m_DepthStencil{};
-        VkPipelineColorBlendStateCreateInfo    m_ColorBlending{};
-        VkPipelineVertexInputStateCreateInfo           m_VertexInputInfoNoStreams{};
+        VkPipelineColorBlendStateCreateInfo            m_ColorBlending{};
         std::array<VkVertexInputBindingDescription, 2> m_VertexInputBindings{};
-        std::array<VkVertexInputBindingDescription, 2> m_VertexInputBindingsNoStreams{};
 
         std::vector<VkVertexInputAttributeDescription>   m_VertexAttributes;
         std::vector<VkDynamicState>                      m_DynamicStates;

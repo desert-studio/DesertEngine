@@ -424,8 +424,7 @@ namespace Desert::Graphic
                     sig *= 1099511628211ull;
                 }
                 // The optional streams binding (VertexBufferLayout::WithStreams) is a different vertex-input
-                // state, and the backend builds its stride-0 twin from it: two layouts that differ only there
-                // are two pipelines.
+                // state: two layouts that differ only there are two pipelines.
                 sig ^= static_cast<uint64_t>( s.Layout->GetStreamStride() );
                 sig *= 1099511628211ull;
                 sig ^= static_cast<uint64_t>( s.Layout->GetStreamFirstLocation() );

@@ -138,8 +138,7 @@ namespace Desert::Graphic::API::Vulkan
         m_Compile = {};
         m_State.store( BuildState::Unbuilt, std::memory_order_release );
 
-        if ( m_Pipeline == VK_NULL_HANDLE && m_PipelineNoStreams == VK_NULL_HANDLE &&
-             m_PipelineLayout == VK_NULL_HANDLE )
+        if ( m_Pipeline == VK_NULL_HANDLE && m_PipelineLayout == VK_NULL_HANDLE )
             return;
 
         VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
@@ -148,11 +147,6 @@ namespace Desert::Graphic::API::Vulkan
         {
             vkDestroyPipeline( device, m_Pipeline, nullptr );
             m_Pipeline = VK_NULL_HANDLE;
-        }
-        if ( m_PipelineNoStreams != VK_NULL_HANDLE )
-        {
-            vkDestroyPipeline( device, m_PipelineNoStreams, nullptr );
-            m_PipelineNoStreams = VK_NULL_HANDLE;
         }
         if ( m_PipelineLayout != VK_NULL_HANDLE )
         {
@@ -306,18 +300,15 @@ namespace Desert::Graphic::API::Vulkan
             location++;
         }
 
-        // The optional streams (VertexBufferLayout::WithStreams): binding 1, read per vertex at the streams'
-        // stride by a mesh that carries them, and at stride 0 from the shared default buffer by one that does
-        // not. Stride is baked into the vertex-input state (no extendedDynamicState in the required set), so
-        // the second state differs from the first in that one number and becomes the second pipeline.
+        // The optional streams (VertexBufferLayout::WithStreams): binding 1, always read per vertex at the
+        // streams' stride — from the mesh's own buffer, or from the shared default one (white, UV1 0,0) that
+        // holds at least as many vertices (VulkanRendererAPI::RenderMesh). ONE vertex-input state, one
+        // pipeline: a stride-0 binding is refused on portability devices (vertexAttributeAccessBeyondStride).
         const uint32_t bindingCount = layout.HasStreams() ? 2u : 1u;
         if ( layout.HasStreams() )
         {
-            m_VertexInputBindings[1] = VkVertexInputBindingDescription{ .binding   = 1,
-                                                                        .stride    = layout.GetStreamStride(),
-                                                                        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX };
-            m_VertexInputBindingsNoStreams    = m_VertexInputBindings;
-            m_VertexInputBindingsNoStreams[1].stride = 0;
+            m_VertexInputBindings[1] = VkVertexInputBindingDescription{
+                 .binding = 1, .stride = layout.GetStreamStride(), .inputRate = VK_VERTEX_INPUT_RATE_VERTEX };
             for ( uint32_t location = layout.GetStreamFirstLocation(); const auto& element : layout.GetStreamElements() )
             {
                 m_VertexAttributes.push_back(
@@ -335,8 +326,6 @@ namespace Desert::Graphic::API::Vulkan
              .pVertexBindingDescriptions      = m_VertexInputBindings.data(),
              .vertexAttributeDescriptionCount = static_cast<uint32_t>( m_VertexAttributes.size() ),
              .pVertexAttributeDescriptions    = m_VertexAttributes.data() };
-        m_VertexInputInfoNoStreams                            = m_VertexInputInfo;
-        m_VertexInputInfoNoStreams.pVertexBindingDescriptions = m_VertexInputBindingsNoStreams.data();
     }
 
     void VulkanPipeline::CreateInputAssemblyState()
@@ -524,18 +513,6 @@ namespace Desert::Graphic::API::Vulkan
             const Core::ScopedShaderPhase timer( Core::ShaderPhase::PipelineCreate );
             result = vkCreateGraphicsPipelines( device, pipelineCache, 1, &m_PipelineInfo, nullptr, &built );
         }
-        // The stride-0 twin for meshes without vertex streams (CreateVertexInputState): same create-info,
-        // the other vertex-input state.
-        VkPipeline builtNoStreams = VK_NULL_HANDLE;
-        if ( result == VK_SUCCESS && HasVertexStreams() )
-        {
-            VkGraphicsPipelineCreateInfo info = m_PipelineInfo;
-            info.pVertexInputState            = &m_VertexInputInfoNoStreams;
-            const Core::ScopedShaderPhase timer( Core::ShaderPhase::PipelineCreate );
-            result = vkCreateGraphicsPipelines( device, pipelineCache, 1, &info, nullptr, &builtNoStreams );
-            if ( result != VK_SUCCESS )
-                vkDestroyPipeline( device, built, nullptr );
-        }
         if ( result != VK_SUCCESS )
         {
             // A refusal with the driver's code, not an assert: on a worker there is nobody to catch one,
@@ -549,8 +526,7 @@ namespace Desert::Graphic::API::Vulkan
         // Debug name so RenderDoc/validation identify the pipeline by its spec name.
         if ( !m_Specification.DebugName.empty() )
             VKUtils::SetDebugUtilsObjectName( device, VK_OBJECT_TYPE_PIPELINE, m_Specification.DebugName, built );
-        m_Pipeline          = built;
-        m_PipelineNoStreams = builtNoStreams;
+        m_Pipeline = built;
         // Release: the handle written above is visible to whoever reads Built.
         m_State.store( BuildState::Built, std::memory_order_release );
         LOG_INFO( "Created {} VulkanPipeline", m_Specification.DebugName );

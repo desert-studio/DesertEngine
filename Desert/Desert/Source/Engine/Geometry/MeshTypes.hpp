@@ -21,7 +21,7 @@ namespace Desert
 
     // ONE VERTEX OF THE OPTIONAL STREAMS (UE FVertexFactory Color + TexCoord1), interleaved in the mesh's
     // second vertex buffer (binding 1, locations 7 and 8; the layout is MeshVertexLayout's). The defaults are
-    // what a mesh without the streams reads at stride 0: white, UV1 (0,0).
+    // what a mesh without the streams reads from the shared default buffer: white, UV1 (0,0).
     struct MeshVertexStreams
     {
         std::array<uint8_t, 4> Color = { 255, 255, 255, 255 }; // linear RGBA8, read as UNORM
@@ -30,7 +30,7 @@ namespace Desert
     static_assert( sizeof( MeshVertexStreams ) == 12, "the streams' stride is part of the pipeline layout" );
 
     // The mesh asset's Colors / UV1 (either may be absent) packed into the stream vertices. BOTH absent = empty
-    // — no buffer, the mesh draws through the stride-0 variant; one absent = its default in every vertex.
+    // — no buffer, the mesh binds the shared default; one absent = its default in every vertex.
     inline std::vector<MeshVertexStreams> PackMeshVertexStreams( const std::vector<std::array<uint8_t, 4>>& colors,
                                                                  const std::vector<glm::vec2>&              uv1,
                                                                  const size_t vertexCount )

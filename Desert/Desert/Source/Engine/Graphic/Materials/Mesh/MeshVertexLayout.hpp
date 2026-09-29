@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Graphic/VertexBuffer.hpp>
 
+#include <algorithm>
 #include <cstdint>
 
 namespace Desert::Graphic
@@ -16,9 +17,10 @@ namespace Desert::Graphic
     //   binding 0 — the mesh's own vertices: position, normal, tangent, bitangent, UV0 at 0..4, and for the
     //               skinned path bone indices / weights at 5..6.
     //   binding 1 — the optional streams (Geometry/MeshTypes.hpp MeshVertexStreams): vertex colour (RGBA8
-    //               UNORM) at 7, UV1 at 8. A mesh without them draws through the stride-0 twin of the same
-    //               pipeline against one shared white / (0,0) vertex — defined format semantics, as UE's
-    //               GNullColorVertexBuffer, not a fallback.
+    //               UNORM) at 7, UV1 at 8. ONE pipeline, always at the streams' stride: a mesh without them
+    //               binds the shared default buffer (white, UV1 0,0 in every vertex; DefaultVertexStreamsFor)
+    //               — defined format semantics, as UE's GNullColorVertexBuffer, not a fallback. No stride-0
+    //               variant: portability devices refuse it (vertexAttributeAccessBeyondStride = false).
     inline constexpr uint32_t kMeshVertexStreamFirstLocation = 7;
 
     inline VertexBufferLayout MeshVertexLayout( const MeshVertexPath path )
@@ -39,5 +41,28 @@ namespace Desert::Graphic
         layout.WithStreams( kMeshVertexStreamFirstLocation, { { ShaderDataType::UNorm8x4, "a_Color", true },
                                                               { ShaderDataType::Float2, "a_TexCoord1" } } );
         return layout;
+    }
+
+    // THE SHARED DEFAULT STREAMS BUFFER a mesh without its own streams binds at binding 1. It is read per vertex
+    // at the layout's stream stride like any mesh's own, so it must hold at least as many stream vertices as the
+    // mesh has vertices (its vertex buffer at binding 0 over the layout's stride). One owner
+    // (VulkanRendererAPI::RenderMesh) grows it by doubling to the largest mesh drawn so far; it never shrinks.
+    struct DefaultVertexStreamsBinding
+    {
+        uint32_t Capacity = 0; // stream vertices the buffer must hold
+        uint32_t Stride   = 0; // the binding's stride — the layout's, never 0
+    };
+    inline constexpr uint32_t kDefaultVertexStreamsMinCapacity = 4096;
+
+    inline DefaultVertexStreamsBinding DefaultVertexStreamsFor( const VertexBufferLayout& layout,
+                                                                const uint64_t            meshVertexBytes,
+                                                                const uint32_t            currentCapacity )
+    {
+        const uint64_t vertices =
+             layout.GetStride() == 0 ? 0 : meshVertexBytes / static_cast<uint64_t>( layout.GetStride() );
+        uint64_t capacity = std::max( currentCapacity, kDefaultVertexStreamsMinCapacity );
+        while ( capacity < vertices )
+            capacity *= 2;
+        return { static_cast<uint32_t>( capacity ), layout.GetStreamStride() };
     }
 } // namespace Desert::Graphic
