@@ -17,6 +17,32 @@ Shader "StaticMeshPBR"
     Role PBRSurface
     Default Surface
 
+    // THE IMPORT CONTRACT (MAT1 adapters): the importer carries a source material as the source's own
+    // dictionary and never names a template; this block says which source keys feed which Property here
+    // (a texture row may name the source channels it takes, glTF packing roughness in G and metal in B).
+    // A key may be both a value and a texture (FBX binds maps to its colour properties): the Property's
+    // kind says which half it takes. The DSL parser refuses a row whose Property is not declared below.
+    Import
+    {
+        "gltf.baseColorFactor"          -> AlbedoColor
+        "gltf.baseColorTexture"         -> u_AlbedoTexture
+        "gltf.metallicFactor"           -> MetallicFactor
+        "gltf.roughnessFactor"          -> RoughnessFactor
+        "gltf.metallicRoughnessTexture" -> u_MetallicTexture.b
+        "gltf.metallicRoughnessTexture" -> u_RoughnessTexture.g
+        "gltf.normalTexture"            -> u_NormalTexture
+        "gltf.occlusionTexture"         -> u_AOTexture.r
+        "gltf.emissiveFactor"           -> EmissiveColor
+        "gltf.emissiveTexture"          -> u_EmissiveTexture
+        "gltf.alphaCutoff"              -> AlphaCutoff
+        "fbx.DiffuseColor"              -> AlbedoColor
+        "fbx.DiffuseColor"              -> u_AlbedoTexture
+        "fbx.NormalMap"                 -> u_NormalTexture
+        "fbx.EmissiveColor"             -> EmissiveColor
+        "fbx.EmissiveColor"             -> u_EmissiveTexture
+        "fbx.TransparentColor"          -> u_OpacityTexture
+    }
+
     // ONE parameter layout for every PBR pass (forward, instanced, GBuffer, skinned, glass): the renderer
     // writes one Materials[] row per object from the forward material and every pass reads it, so these
     // rows are identical by contract — ShippedShaderPasses.EveryPBRPassDeclaresTheOneRowLayout holds them equal.

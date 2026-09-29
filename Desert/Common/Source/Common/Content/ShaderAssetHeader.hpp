@@ -5,6 +5,7 @@
 #include <istream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 // THE SHADER'S HEADER (T7j, lead decision 2026-09-25): the fourth way of stating an AssetHeader. A .shader is
 // DSL source, not JSON, so its header cannot be a document's first member; it is the file's FIRST LINE, a
@@ -40,11 +41,36 @@ namespace Common::Content
     // never a shader name) and `Default Surface` (the template a material is created with when the project
     // overrides nothing). The DSL parser reads the same two lines into ShaderProgramMeta. Refuses a second Role
     // line or a `Default` that is not `Surface`, naming the line.
+    //
+    // `Import { ... }` is the template's IMPORT CONTRACT (MAT1 adapters): the importer carries a source
+    // material as the source's own dictionary (`gltf.baseColorTexture`, `fbx.DiffuseColor`, ...) and each
+    // template says which of those keys feed which of its Properties — `"key" -> Property` or, for a texture,
+    // `"key" -> Property.gb` naming the source channels. `Requires "key"` lines say which keys a source
+    // material must carry for this template to take it at all (Unlit requires `gltf.KHR_materials_unlit`).
+    // The DSL parser refuses a row whose Property the shader does not declare; this reader has no schema.
+    struct ShaderImportRow
+    {
+        std::string SourceKey; // `<source>.<name>`, e.g. "gltf.metallicRoughnessTexture"
+        std::string Property;  // a Properties name of the declaring shader
+        std::string Channels;  // source channels for a texture ("gb"); empty = the whole value
+    };
     struct ShaderManifest
     {
-        std::string Role;
-        bool        DefaultSurface = false;
+        std::string                  Role;
+        bool                         DefaultSurface = false;
+        bool                         DeclaresImport = false; // an `Import` block is present (even an empty one)
+        std::vector<std::string>     ImportRequires;
+        std::vector<ShaderImportRow> Import;
     };
+    // One row of an Import block, `"key" -> Property[.channels]` or `Requires "key"` (a trailing `;` is
+    // allowed). Shared by ReadShaderManifest and the DSL parser so the grammar has one home. The error names
+    // what was wrong; the caller adds the file and line.
+    struct ShaderImportLine
+    {
+        bool            IsRequires = false;
+        ShaderImportRow Row;
+    };
+    ResultStr<ShaderImportLine> ParseShaderImportLine( std::string_view line );
     ResultStr<ShaderManifest> ReadShaderManifest( std::string_view source );
 
     // The roles engine code asks the template registry for. A role is declared by the shader file
