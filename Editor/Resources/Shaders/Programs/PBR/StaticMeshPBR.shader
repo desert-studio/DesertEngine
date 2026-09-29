@@ -48,6 +48,11 @@ Shader "StaticMeshPBR"
         "fbx.EmissiveColor"             -> EmissiveColor
         "fbx.EmissiveColor"             -> u_EmissiveTexture
         "fbx.TransparentColor"          -> u_OpacityTexture
+        "fbx.Metalness"                 -> MetallicFactor
+        "fbx.Metalness"                 -> u_ORMTexture.b
+        "fbx.Roughness"                 -> RoughnessFactor
+        "fbx.Roughness"                 -> u_ORMTexture.g
+        "fbx.AmbientOcclusion"          -> u_ORMTexture.r
         "fbx.alphaCutoff"               -> AlphaCutoff
     }
 

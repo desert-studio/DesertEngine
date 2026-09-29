@@ -73,6 +73,16 @@ namespace Desert::Editor
                 emissive->a = 1.0f;
             put( "EmissiveColor", emissive, texture( aiTextureType_EMISSIVE ) );
             put( "TransparentColor", std::nullopt, texture( aiTextureType_OPACITY ) );
+            // PBR keys as assimp's FBX converter hands them over (FBXConverter.cpp SetTextureProperties /
+            // SetShadingPropertiesCommon): Maya Stingray PBS and 3ds Max Physical maps land in METALNESS,
+            // DIFFUSE_ROUGHNESS and AMBIENT_OCCLUSION; their factors in METALLIC_FACTOR and ROUGHNESS_FACTOR (the
+            // latter also derived from a Phong ShininessExponent, Blender's rule). A map in SHININESS (a Phong
+            // exponent map, or 3ds Max's inverted roughness/glossiness) is carried as GlossinessMap so the
+            // unread-key warning names it: no template reads a glossiness image today.
+            put( "Metalness", scalar( AI_MATKEY_METALLIC_FACTOR ), texture( aiTextureType_METALNESS ) );
+            put( "Roughness", scalar( AI_MATKEY_ROUGHNESS_FACTOR ), texture( aiTextureType_DIFFUSE_ROUGHNESS ) );
+            put( "AmbientOcclusion", std::nullopt, texture( aiTextureType_AMBIENT_OCCLUSION ) );
+            put( "GlossinessMap", std::nullopt, texture( aiTextureType_SHININESS ) );
             if ( read.Alpha.AlphaCutoff > 0.0f )
                 put( "alphaCutoff", glm::vec4( read.Alpha.AlphaCutoff, 0, 0, 0 ) );
             return read;

@@ -14,9 +14,11 @@
 #include <Editor/Import/MaterialImportContract.hpp>
 #include <Editor/Import/TextureChannelPack.hpp>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <iterator>
+#include <map>
 #include <cstring>
 #include <fstream>
 #include <sstream>
@@ -296,4 +298,61 @@ TEST( MaterialImportAdapter, AMaterialNoTemplateTakesIsRefused )
     const auto                        choice    = ChooseImportTemplate( source, templates, file.generic_string() );
     ASSERT_FALSE( choice.IsSuccess() );
     EXPECT_NE( choice.GetError().find( "'M'" ), std::string::npos ) << choice.GetError();
+}
+
+// MAT1b-4: an FBX PBR material as assimp's FBX converter states it (Maya Stingray PBS / 3ds Max Physical: maps in
+// METALNESS, DIFFUSE_ROUGHNESS, AMBIENT_OCCLUSION, factors in METALLIC_FACTOR / ROUGHNESS_FACTOR). assimp cannot
+// write those properties into an .fbx, so the aiMaterial is built here with the converter's own keys.
+TEST( MaterialImportAdapter, EveryFbxPbrKeyReachesTheOrmTextureAndItsFactors )
+{
+    aiMaterial mat;
+    const auto map = [&]( aiTextureType type, const char* file )
+    {
+        const aiString path( file );
+        mat.AddProperty( &path, AI_MATKEY_TEXTURE( type, 0 ) );
+    };
+    const ai_real   metallic = 0.7f, roughness = 0.35f;
+    const aiColor4D diffuse( 0.5f, 0.25f, 0.125f, 1.0f );
+    mat.AddProperty( &diffuse, 1, AI_MATKEY_COLOR_DIFFUSE );
+    mat.AddProperty( &metallic, 1, AI_MATKEY_METALLIC_FACTOR );
+    mat.AddProperty( &roughness, 1, AI_MATKEY_ROUGHNESS_FACTOR );
+    map( aiTextureType_DIFFUSE, "albedo.png" );
+    map( aiTextureType_METALNESS, "metal.png" );
+    map( aiTextureType_DIFFUSE_ROUGHNESS, "rough.png" );
+    map( aiTextureType_AMBIENT_OCCLUSION, "ao.png" );
+    map( aiTextureType_SHININESS, "gloss.png" );
+
+    const SourceMaterial source = ReadSourceMaterial( mat, SourceFormatOf( "helmet.fbx" ), "M",
+                                                      []( const std::string& ref ) { return fs::path( ref ); } )
+                                       .Material;
+    const std::vector<ImportTemplate> templates = { Template( "PBR/StaticMeshPBR.shader" ),
+                                                    Template( "Unlit/Unlit.shader" ) };
+    const auto                        choice    = ChooseImportTemplate( source, templates, "helmet.fbx" );
+    ASSERT_TRUE( choice.IsSuccess() ) << choice.GetError();
+    ASSERT_EQ( templates[choice.GetValue()].ShaderName, "StaticMeshPBR" );
+    const TemplateFill fill = FillFromTemplate( source, templates[choice.GetValue()] );
+
+    const ImportedParam* metal = Param( fill, "MetallicFactor" );
+    ASSERT_NE( metal, nullptr ) << "fbx metallic factor was not read";
+    EXPECT_NEAR( metal->Value.x, 0.7f, 1e-5f );
+    const ImportedParam* rough = Param( fill, "RoughnessFactor" );
+    ASSERT_NE( rough, nullptr ) << "fbx roughness factor was not read";
+    EXPECT_NEAR( rough->Value.x, 0.35f, 1e-5f );
+
+    // Three grey maps from three images -> one packed ORM: AO in R, roughness in G, metal in B (the glTF layout).
+    const ImportedTextureSlot* orm = Slot( fill, "u_ORMTexture" );
+    ASSERT_NE( orm, nullptr );
+    ASSERT_EQ( orm->Parts.size(), 3u );
+    std::map<std::string, std::string> channelOf;
+    for ( const auto& part : orm->Parts )
+        channelOf[part.Source.filename().string()] = part.Channels;
+    EXPECT_EQ( channelOf["ao.png"], "r" );
+    EXPECT_EQ( channelOf["rough.png"], "g" );
+    EXPECT_EQ( channelOf["metal.png"], "b" );
+    EXPECT_TRUE( orm->NeedsPacking() );
+
+    // A glossiness map has no taker: named as unread, not dropped.
+    EXPECT_NE( std::ranges::find( fill.UnreadKeys, "fbx.GlossinessMap" ), fill.UnreadKeys.end() );
+    for ( const char* read : { "fbx.Metalness", "fbx.Roughness", "fbx.AmbientOcclusion" } )
+        EXPECT_EQ( std::ranges::find( fill.UnreadKeys, read ), fill.UnreadKeys.end() ) << read;
 }
