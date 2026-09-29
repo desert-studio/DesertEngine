@@ -1791,9 +1791,20 @@ namespace Desert::Core::Preprocess
             result.Meta.PassNames.push_back( pass.Name );
         }
 
+        // A surface template's default program is NAMED, never positional: kSurfaceDefaultCell. A template
+        // whose cell set lost it is refused here by name, rather than having some other cell stand in for it.
+        if ( !result.Surface.Cells.empty() )
+        {
+            const DShaderPass* defaultCell = result.FindPass( std::string( kSurfaceDefaultCell ) );
+            if ( defaultCell == nullptr )
+                return Common::MakeFormattedError<DShaderParseResult>(
+                     "DShader '{}': surface template has no default cell '{}'", result.Name, kSurfaceDefaultCell );
+            result.Meta.State = defaultCell->State;
+            result.Stages     = defaultCell->Stages;
+        }
         // Guarded, because a medium-only shader has no passes at all and `front()` on an empty vector is
         // the kind of crash that reads as a corrupt file rather than as a missing branch.
-        if ( !result.Passes.empty() )
+        else if ( !result.Passes.empty() )
         {
             result.Meta.State = result.Passes.front().State;
             result.Stages     = result.Passes.front().Stages;

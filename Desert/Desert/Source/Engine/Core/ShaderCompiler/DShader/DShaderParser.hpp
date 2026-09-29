@@ -122,9 +122,9 @@ namespace Desert::Core::Preprocess
         Core::Formats::MaterialLayout Layout;
         SurfaceTemplateInfo           Surface; // the expanded `Surface` block; Cells empty for any other shader
 
-        // nullptr when the pass doesn't exist. Empty name = the default pass, which for a shader made
-        // solely of named passes (a surface template's cells) is the first one — the same pass whose
-        // stages the parser copies into `Stages` above, so the default program and its lookup agree.
+        // nullptr when the pass doesn't exist. Empty name = the default pass; for a surface template that is
+        // the cell named kSurfaceDefaultCell (the parser refuses a template without it) — by name, never "the
+        // first pass", so the default program and its lookup are the same cell by construction.
         const DShaderPass* FindPass( const std::string& name ) const
         {
             if ( name.empty() && !Surface.Cells.empty() )
@@ -132,8 +132,6 @@ namespace Desert::Core::Preprocess
             for ( const auto& p : Passes )
                 if ( p.Name == name )
                     return &p;
-            if ( name.empty() && !Passes.empty() )
-                return &Passes.front();
             return nullptr;
         }
     };

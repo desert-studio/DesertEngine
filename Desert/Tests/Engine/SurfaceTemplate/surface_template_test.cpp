@@ -117,6 +117,21 @@ TEST_F( SurfaceTemplateFixture, TheSurfaceBlockExpandsIntoTheNineNamedCells )
     }
 }
 
+// A template's default program (the empty pass name: what a lookup by shader name returns and what the top-level
+// Stages/State hold) is the cell NAMED kSurfaceDefaultCell — the lookup and the parser's copy are that one cell.
+TEST_F( SurfaceTemplateFixture, TheDefaultProgramIsTheNamedDefaultCell )
+{
+    const auto parsed = PP::DShaderParser::Parse( kMockTemplate );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    const auto& result = parsed.GetValue();
+
+    const auto* named = result.FindPass( std::string( PP::kSurfaceDefaultCell ) );
+    ASSERT_NE( named, nullptr ) << PP::kSurfaceDefaultCell;
+    EXPECT_EQ( result.FindPass( "" ), named );
+    EXPECT_EQ( result.Stages, named->Stages );
+    EXPECT_EQ( result.Meta.State, named->State );
+}
+
 TEST_F( SurfaceTemplateFixture, EveryCellCompilesAndItsMaterialLayoutHolds )
 {
     const Desert::TestSupport::DerivedDataSandbox cache( "SurfaceTemplateCells" );

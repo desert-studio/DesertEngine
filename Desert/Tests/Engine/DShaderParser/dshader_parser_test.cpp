@@ -426,6 +426,28 @@ TEST( DShaderParserPasses, CollectsAllPasses )
     EXPECT_EQ( p.FindPass( "Missing" ), nullptr );
 }
 
+// The default program is NAMED or it does not exist: a shader made only of named passes has no default
+// pass to look up, and "the first pass" is not allowed to stand in for one (a surface template names its
+// default cell, kSurfaceDefaultCell — SurfaceTemplate asserts that half).
+TEST( DShaderParserPasses, OnlyNamedPassesHaveNoDefaultPassToFind )
+{
+    const char* kOnlyNamed = R"(
+Shader "OnlyNamed"
+{
+    Pass "A"
+    {
+        Vertex   { void main() { gl_Position = vec4(0.0); } }
+        Fragment { layout( location = 0 ) out vec4 c; void main() { c = vec4(1.0); } }
+    }
+}
+)";
+    auto res = DShaderParser::Parse( kOnlyNamed );
+    ASSERT_TRUE( res.IsSuccess() ) << res.GetError();
+    const auto& p = res.GetValue();
+    ASSERT_NE( p.FindPass( "A" ), nullptr );
+    EXPECT_EQ( p.FindPass( "" ), nullptr ) << "the first named pass was guessed to be the default program";
+}
+
 TEST( DShaderParserPasses, DefaultProgramKeepsTopLevelStagesAndState )
 {
     auto res = DShaderParser::Parse( kMultiPass );

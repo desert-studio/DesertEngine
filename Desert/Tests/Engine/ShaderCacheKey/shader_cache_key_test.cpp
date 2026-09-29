@@ -1199,18 +1199,15 @@ TEST_F( ShaderRootFixture, TheLitGraphSurfaceIsHANDEDTheSceneITSHADESWITH )
     EXPECT_TRUE( HasBinding( bindings, 4, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );          // LightsMetadata
     EXPECT_TRUE( HasBinding( bindings, 6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );          // PointLightsUB
     EXPECT_TRUE( HasBinding( bindings, 16, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // SpotLightsUB
-    EXPECT_TRUE( HasBinding( bindings, 14, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // DirectionLightsUB
+    EXPECT_TRUE( HasBinding( bindings, 3, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );          // DirectionLightsUB
 
-    // The five cascade bindings Д20 added. Two of them are NOT at the mesh shaders' numbers and cannot be:
-    // 14 and 15 hold DirectionLightsUB and TimeUB in a shader-graph layout, which no mesh shader declares.
-    // The NAMES are what the engine binds by, and Tests/Engine/PBRSceneFrame asserts those against the C++
-    // writer for every consumer of the shared text; what is pinned here is that the numbers this layout
-    // chose are the ones it still has.
+    // The five cascade bindings. Since SURF1f a graph surface's forward cell is lit by Mesh/Surface/Pass_Forward.glslh,
+    // so these are the mesh forward layout's numbers (StandardSurface's), not a shader-graph layout of its own.
     EXPECT_TRUE( HasBinding( bindings, 7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );          // ShadowUB
     EXPECT_TRUE( HasBinding( bindings, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // u_ShadowMap0
     EXPECT_TRUE( HasBinding( bindings, 13, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ShadowMap1
-    EXPECT_TRUE( HasBinding( bindings, 22, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ShadowMap2
-    EXPECT_TRUE( HasBinding( bindings, 23, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ShadowMap3
+    EXPECT_TRUE( HasBinding( bindings, 14, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ShadowMap2
+    EXPECT_TRUE( HasBinding( bindings, 15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ShadowMap3
 
     // The graph's own textures start at kGraphTextureBinding (24) and count upward, so none of the slots
     // above can be taken by a Properties block however many textures an artist adds. Distinctness is the
