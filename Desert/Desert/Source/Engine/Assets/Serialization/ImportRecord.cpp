@@ -124,6 +124,25 @@ namespace Desert::Assets::Serialization
         return settings;
     }
 
+    Common::ResultStr<Common::Content::ContentKind> ReadImportRecordKind( const std::filesystem::path& source )
+    {
+        using Common::Content::ContentKind;
+        const std::string record = Common::Content::ImportRecordPathFor( source ).string();
+        auto              data   = ReadImportRecord( source );
+        if ( !data )
+            return Common::MakeError<ContentKind>( data.GetError() );
+        if ( !data.GetValue() )
+            return Common::MakeFormattedError<ContentKind>( "'{}' does not exist", record );
+        if ( !data.GetValue()->Header )
+            return Common::MakeFormattedError<ContentKind>( "'{}' states no header", record );
+        const std::string& name = data.GetValue()->Header->Kind;
+        const auto         kind = Common::Content::ContentKindNamed( name );
+        if ( !kind || !IsImportRecordKind( *kind ) )
+            return Common::MakeFormattedError<ContentKind>( "'{}' states Kind '{}', which no import writes", record,
+                                                            name );
+        return Common::MakeSuccess( *kind );
+    }
+
     Common::ResultStr<Common::Content::AssetGuid>
     EnsureImportRecord( const std::filesystem::path& source, const Common::Content::ContentKind kind,
                         const std::optional<Common::Math::AABB>& bounds,

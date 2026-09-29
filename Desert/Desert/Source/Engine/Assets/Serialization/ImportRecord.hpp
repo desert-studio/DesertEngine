@@ -102,6 +102,11 @@ namespace Desert::Assets::Serialization
     Common::ResultStr<Assets::SourceImportSettings>
     ReadImportRecordSettings( const std::filesystem::path& source );
 
+    /// What @p source's record says it imports as (the header's Kind, one IsImportRecordKind names) - the fields
+    /// its Details' Import Settings show. An error naming the record when it is missing, unreadable or states a
+    /// kind no import writes.
+    Common::ResultStr<Common::Content::ContentKind> ReadImportRecordKind( const std::filesystem::path& source );
+
     /// @p source's whole record; nullopt when the source has no record yet. An error naming the record when it is
     /// unreadable.
     Common::ResultStr<std::optional<ImportRecordData>> ReadImportRecord( const std::filesystem::path& source );

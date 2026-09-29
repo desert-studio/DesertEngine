@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include <fstream>
+#include <sstream>
 
 namespace fs = std::filesystem;
 using namespace Desert;
@@ -247,4 +248,59 @@ TEST( ImportRecord, ThePreviewMeshAnImportedMaterialNamesIsTheRecordsGuid )
     ASSERT_TRUE( ref ) << ref.GetError();
     EXPECT_EQ( ref.GetValue().Guid, Common::Content::AssetGuidToText( guid.GetValue() ) );
     EXPECT_EQ( fs::weakly_canonical( ref.GetValue().Path ), fs::weakly_canonical( project.Source ) );
+}
+
+TEST( ImportRecord, ARecordStatingAKindNoImportWritesIsRefusedByName )
+{
+    const Project project( "import_record_foreign_kind" );
+    const fs::path record = Common::Content::ImportRecordPathFor( project.Source );
+    const auto box     = Ser::MeshDataBounds( Quad() );
+    const auto written = Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::SkinnedMesh, box, {} );
+    ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
+    const auto skinned = Ser::ReadImportRecordKind( project.Source );
+    ASSERT_TRUE( skinned.IsSuccess() ) << skinned.GetError();
+    EXPECT_EQ( skinned.GetValue(), Common::Content::ContentKind::SkinnedMesh );
+
+    std::ostringstream text;
+    text << std::ifstream( record ).rdbuf();
+    std::string body = text.str();
+    const auto  at   = body.find( "\"SkinnedMesh\"" );
+    ASSERT_NE( at, std::string::npos );
+    body.replace( at, 13, "\"Material\"" );
+    std::ofstream( record, std::ios::trunc ) << body;
+    const auto foreign = Ser::ReadImportRecordKind( project.Source );
+    ASSERT_FALSE( foreign.IsSuccess() );
+    EXPECT_NE( foreign.GetError().find( "Material" ), std::string::npos ) << foreign.GetError();
+}
+
+// EVERY RECORD IN THE REPOSITORY STATES WHAT ITS SOURCE IMPORTS AS (THM1l): a source that imported skinned (its
+// `.skmesh` stands beside it, CookPaths::SkinnedAsset) is never recorded as StaticMesh - a Details section would
+// show it static fields and ContentScan would list a static mesh that has no file. No record is left for "the next
+// import" to correct.
+TEST( ImportRecord, NoRecordInTheRepositoryCallsASkinnedSourceStatic )
+{
+    std::string root = "./";
+    for ( int up = 0; up < 6 && !fs::exists( root + "Desert/Desert/Source/Engine/Core/SceneSettings.hpp" ); ++up )
+        root += "../";
+    const fs::path resources = fs::path( root ) / "Editor/Resources";
+    ASSERT_TRUE( fs::is_directory( resources ) ) << "the census runs from inside the repository";
+
+    int walked = 0;
+    for ( const auto& entry : fs::recursive_directory_iterator( resources ) )
+    {
+        if ( !entry.is_regular_file() || !Common::Content::IsImportRecord( entry.path() ) )
+            continue;
+        ++walked;
+        const fs::path source  = entry.path().parent_path() / entry.path().stem();
+        const bool     skinned = fs::exists( Editor::CookPaths::SkinnedAsset( source, ".skmesh" ) );
+        const auto     kind    = Ser::ReadImportRecordKind( source );
+        ASSERT_TRUE( kind.IsSuccess() ) << kind.GetError();
+        if ( skinned )
+            EXPECT_EQ( kind.GetValue(), Common::Content::ContentKind::SkinnedMesh )
+                 << entry.path().generic_string() << ": its source imports skinned";
+        else
+            EXPECT_NE( kind.GetValue(), Common::Content::ContentKind::SkinnedMesh )
+                 << entry.path().generic_string() << ": no skinned mesh stands beside its source";
+    }
+    EXPECT_GT( walked, 0 ) << "the walk found no record: it is looking in the wrong place";
 }

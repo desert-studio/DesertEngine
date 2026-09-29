@@ -314,6 +314,10 @@ TEST( NodeMeshSplit, ASkinnedImportIsRecordedWithItsOptions )
     ASSERT_TRUE( whole.GetValue()->Header.has_value() );
     EXPECT_EQ( whole.GetValue()->Header->Kind, "SkinnedMesh" )
          << "a skinned source's record says what it imports as";
+    const auto kind = Ser::ReadImportRecordKind( project.Source );
+    ASSERT_TRUE( kind.IsSuccess() ) << kind.GetError();
+    EXPECT_EQ( kind.GetValue(), Common::Content::ContentKind::SkinnedMesh )
+         << "the Details' Import Settings show the skeletal mesh's fields for it";
     const auto guid = Ser::ReadImportRecordGuid( project.Source );
     ASSERT_TRUE( guid.IsSuccess() ) << guid.GetError();
 

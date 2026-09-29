@@ -63,15 +63,21 @@ namespace Desert::Editor
         Common::BoolResultStr SaveLastUsed( const Assets::SourceImportSettings& settings );
         std::filesystem::path LastUsedPath();
 
-        // The raw source a static mesh asset was imported from: the source beside a combined mesh
-        // (`base.stmesh` -> `base.fbx`), or the file a node mesh's IMPT names (`base_TuftA.stmesh`). nullopt for a
-        // mesh with no source (hand-authored, recovered).
+        // The raw source a mesh asset was imported from: the source beside a combined static mesh or a skinned
+        // mesh (`base.stmesh` / `base.skmesh` -> `base.fbx`), or the file a static node mesh's IMPT names
+        // (`base_TuftA.stmesh`). nullopt for a mesh with no source (hand-authored, recovered).
         std::optional<std::filesystem::path> ImportSourceOfMeshAsset( const std::filesystem::path& assetPath );
 
-        // The Details panel's "Import Settings" section for the mesh asset at @p assetPath: the source's recorded
-        // options, editable, and Reimport - which imports the source again with the edited options (a changed
-        // Combine Meshes changes how many static meshes the source makes). Draws nothing for a mesh with no
-        // source.
+        // What @p source's import record says it imports as (the header's Kind: StaticMesh, SkinnedMesh ->
+        // SkeletalMesh, Skeleton / Animation -> Animation) - which fields its Import Settings show. An error
+        // naming the record when it is missing, unreadable or states another kind.
+        Common::ResultStr<ImportContentKind> RecordedImportKind( const std::filesystem::path& source );
+
+        // The Details panel's "Import Settings" section for the mesh asset at @p assetPath (static or skinned):
+        // the source's recorded options in the fields of what the record says it imports as, editable, and
+        // Reimport - which imports the source again with the edited options (a changed Combine Meshes changes how
+        // many static meshes the source makes; a skinned source rewrites its mesh, skeleton and clips, re-read in
+        // place). Draws nothing for a mesh with no source.
         void DrawImportSettingsSection( const std::filesystem::path& assetPath );
         // The section's Reimport button, one body (the palette's "Assets / Reimport selected" runs it too): the
         // source of the mesh asset at @p assetPath imported again with the section's edited options, the

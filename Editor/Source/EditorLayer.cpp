@@ -6199,20 +6199,27 @@ namespace Desert::Editor
         for ( const bool on : { true, false } )
             commands.push_back( { "Assets", std::format( "Import Options: Combine Meshes {}", on ? "on" : "off" ),
                                   [on] { return ImportOptions::SetShownCombineMeshes( on ); } } );
-        // The Details' Import Settings Reimport, for the selected entity's static mesh: the button's own body.
+        // The Details' Import Settings Reimport, for the selected entity's mesh - static or skinned (UE: Reimport
+        // on a skeletal mesh actor reimports its USkeletalMesh with the skeleton and the clips): the button's own
+        // body.
         commands.push_back( { "Assets", "Reimport selected", [this]() -> Common::BoolResultStr
                               {
                                   const auto selected = Core::SelectionManager::GetSelected();
                                   if ( !m_MainScene || !selected.has_value() )
                                       return Common::MakeError<bool>( "no entity is selected" );
                                   auto ref = m_MainScene->FindEntityByID( *selected );
-                                  if ( !ref || !ref->get().HasComponent<ECS::StaticMeshComponent>() )
-                                      return Common::MakeError<bool>( "the selected entity has no static mesh" );
-                                  const auto& mesh = ref->get().GetComponent<ECS::StaticMeshComponent>();
-                                  const auto  asset =
-                                       mesh.MeshHandle
-                                             ? m_AssetManager->FindByHandle<Assets::MeshAsset>( mesh.MeshHandle )
-                                             : nullptr;
+                                  if ( !ref )
+                                      return Common::MakeError<bool>( "the selected entity is not in the scene" );
+                                  Assets::AssetHandle handle;
+                                  if ( ref->get().HasComponent<ECS::StaticMeshComponent>() )
+                                      handle = ref->get().GetComponent<ECS::StaticMeshComponent>().MeshHandle;
+                                  else if ( ref->get().HasComponent<ECS::SkinnedMeshComponent>() )
+                                      handle = ref->get().GetComponent<ECS::SkinnedMeshComponent>().MeshHandle;
+                                  else
+                                      return Common::MakeError<bool>(
+                                           "the selected entity has no static or skinned mesh" );
+                                  const auto asset =
+                                       handle ? m_AssetManager->FindByHandle<Assets::MeshAsset>( handle ) : nullptr;
                                   if ( !asset )
                                       return Common::MakeError<bool>( "the selected entity's mesh is not loaded" );
                                   return ImportOptions::Reimport( asset->GetMetadata().Filepath );

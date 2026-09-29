@@ -62,6 +62,7 @@ namespace Desert::Editor::ImportOptions
         {
             Assets::SourceImportSettings Recorded; // what the record states (read once, not every frame)
             Assets::SourceImportSettings Edit;     // what the section shows
+            ImportContentKind            Kind;     // what the record says the source imports as (its fields)
         };
         std::unordered_map<std::string, SectionEdit>& Edits()
         {
@@ -460,6 +461,8 @@ namespace Desert::Editor::ImportOptions
     {
         if ( auto beside = Common::Content::MeshSourceBeside( assetPath ) )
             return beside;
+        if ( assetPath.extension() != ".stmesh" ) // only a static node mesh names its source inside (IMPT)
+            return std::nullopt;
         std::error_code ec;
         if ( !std::filesystem::is_regular_file( assetPath, ec ) )
             return std::nullopt;
@@ -473,6 +476,23 @@ namespace Desert::Editor::ImportOptions
         return source;
     }
 
+    Common::ResultStr<ImportContentKind> RecordedImportKind( const std::filesystem::path& source )
+    {
+        const auto kind = Ser::ReadImportRecordKind( source );
+        if ( !kind )
+            return Common::MakeError<ImportContentKind>( kind.GetError() );
+        switch ( kind.GetValue() )
+        {
+            case Common::Content::ContentKind::SkinnedMesh:
+                return Common::MakeSuccess( ImportContentKind::SkeletalMesh );
+            case Common::Content::ContentKind::Skeleton:
+            case Common::Content::ContentKind::Animation:
+                return Common::MakeSuccess( ImportContentKind::Animation );
+            default: // StaticMesh: ReadImportRecordKind admits only the kinds an import writes
+                return Common::MakeSuccess( ImportContentKind::StaticMesh );
+        }
+    }
+
     void DrawImportSettingsSection( const std::filesystem::path& assetPath )
     {
         const auto source = ImportSourceOfMeshAsset( assetPath );
@@ -484,13 +504,15 @@ namespace Desert::Editor::ImportOptions
         if ( it == edits.end() )
         {
             auto recorded = Ser::ReadImportRecordSettings( *source );
-            if ( !recorded )
+            auto kind     = RecordedImportKind( *source );
+            if ( !recorded || !kind )
             {
                 if ( Utils::ImGuiUtilities::SectionHeader( ICON_MDI_FILE_IMPORT_OUTLINE "  Import Settings" ) )
-                    ImGui::TextWrapped( "%s", recorded.GetError().c_str() );
+                    ImGui::TextWrapped( "%s", ( !recorded ? recorded.GetError() : kind.GetError() ).c_str() );
                 return;
             }
-            it = edits.emplace( key, SectionEdit{ recorded.GetValue(), recorded.GetValue() } ).first;
+            it = edits.emplace( key, SectionEdit{ recorded.GetValue(), recorded.GetValue(), kind.GetValue() } )
+                       .first;
         }
 
         if ( !Utils::ImGuiUtilities::SectionHeader( ICON_MDI_FILE_IMPORT_OUTLINE "  Import Settings" ) )
@@ -502,7 +524,7 @@ namespace Desert::Editor::ImportOptions
         if ( ImGui::IsItemHovered() )
             ImGui::SetTooltip( "%s", key.c_str() );
         Utils::ImGuiUtilities::EndPropertyRow();
-        (void)DrawImportSettingsFields( it->second.Edit, ImportContentKind::StaticMesh );
+        (void)DrawImportSettingsFields( it->second.Edit, it->second.Kind );
 
         const bool edited = it->second.Recorded != it->second.Edit;
         if ( ImGui::Button( ICON_MDI_RELOAD "  Reimport" ) )
