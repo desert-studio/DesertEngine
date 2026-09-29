@@ -80,6 +80,9 @@ namespace Desert::Core::Preprocess
     inline constexpr std::array<std::string_view, 3> kSurfaceVertexPaths = { "Static", "Instanced", "Skinned" };
     inline constexpr std::array<std::string_view, 3> kSurfaceCellPasses  = { "Forward", "GBuffer", "ShadowDepth" };
     inline constexpr std::string_view                kSurfaceTypesInclude = "Mesh/Surface/SurfaceTypes.glslh";
+    // The pass whose opaque cells never evaluate the surface: their fragment stage is the pass header alone (no
+    // surface function, no material row, no push block), so the cell's layout is the shadow shader's.
+    inline constexpr std::string_view kSurfaceDepthPass = "ShadowDepth";
 
     enum class SurfaceBlendMode
     {

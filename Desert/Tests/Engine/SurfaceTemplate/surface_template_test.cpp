@@ -13,6 +13,7 @@
 
 #include <TestSupport/derived_data_sandbox.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -182,7 +183,7 @@ TEST_F( SurfaceTemplateFixture, EditingAnyCellHeaderMovesTheKeyOfEveryCell )
     std::filesystem::create_directories( shaders / "Mesh" );
     std::filesystem::copy( s_EditorDir / "Resources/Shaders/Common", shaders / "Common",
                            std::filesystem::copy_options::recursive );
-    std::filesystem::copy( s_EditorDir / "Resources/Shaders/Mesh/Surface", shaders / "Mesh" / "Surface",
+    std::filesystem::copy( s_EditorDir / "Resources/Shaders/Mesh", shaders / "Mesh",
                            std::filesystem::copy_options::recursive );
 
     const auto previous = std::filesystem::current_path();
@@ -213,6 +214,146 @@ TEST_F( SurfaceTemplateFixture, EditingAnyCellHeaderMovesTheKeyOfEveryCell )
 
     std::filesystem::current_path( previous );
     std::filesystem::remove_all( root );
+}
+
+namespace
+{
+    // THE STANDARD SURFACE, as a template: StaticMeshPBR's own Properties block (read from the shipped file, so
+    // the row is the shipped row by construction) and a surface function computing what StaticMeshPBR's fragment
+    // stage computed from it, its five maps at the slots that shader declared them at.
+    std::string StandardSurfaceMock()
+    {
+        std::ifstream     in( s_EditorDir / "Resources/Shaders/Programs/PBR/StaticMeshPBR.shader", std::ios::binary );
+        const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+        const size_t      begin = text.find( "Properties Binding(2)" );
+        const size_t      end   = text.find( "\n    }", begin );
+        if ( begin == std::string::npos || end == std::string::npos )
+            return {};
+        const std::string properties = text.substr( begin, end + 6 - begin );
+        return std::format( R"(Shader "StandardMock"
+{{
+    Domain Surface
+
+    {}
+
+    Surface
+    {{
+        layout( binding = 11 ) uniform sampler2D u_AlbedoTexture;
+        layout( binding = 12 ) uniform sampler2D u_NormalTexture;
+        layout( binding = 18 ) uniform sampler2D u_OpacityTexture;
+        layout( binding = 23 ) uniform sampler2D u_ORMTexture;
+        layout( binding = 24 ) uniform sampler2D u_EmissiveTexture;
+
+        SurfaceOutput EvaluateSurface( SurfaceInput i )
+        {{
+            SurfaceOutput s = DefaultSurfaceOutput();
+            vec2 tiling = u_Material.UVTiling;
+            if ( tiling.x <= 0.0 ) tiling.x = 1.0;
+            if ( tiling.y <= 0.0 ) tiling.y = 1.0;
+            const vec2 uv = PBRTransformUV( PBRSelectUV( i.UV0, i.UV0, 0 ), u_Material.UVOffset, tiling,
+                                            u_Material.UVRotation );
+            const float mask = texture( u_OpacityTexture, uv )[int( u_Material.OpacityChannel )];
+            if ( u_Material.AlphaCutoff > 0.0 && mask < u_Material.AlphaCutoff )
+                discard;
+            s.BaseColor = PBRBaseColor( u_Material.AlbedoColor.rgb,
+                                        pow( texture( u_AlbedoTexture, uv ).rgb, vec3( 2.2 ) ), vec3( 1.0 ) );
+            const ivec2 normalSize = textureSize( u_NormalTexture, 0 );
+            if ( normalSize.x > 1 && normalSize.y > 1 )
+                s.Normal = PBRScaleTangentNormal( SampleTangentNormal( u_NormalTexture, uv ), u_Material.NormalScale );
+            const vec3 orm = PBRResolveORM( texture( u_ORMTexture, uv ).rgb, u_Material.OcclusionStrength,
+                                            u_Material.RoughnessFactor, u_Material.MetallicFactor );
+            s.Metallic          = orm.z;
+            s.Roughness         = orm.y;
+            s.AmbientOcclusion  = u_Material.AOStrength * orm.x;
+            s.Emissive          = PBREmission( pow( texture( u_EmissiveTexture, uv ).rgb, vec3( 2.2 ) ),
+                                               u_Material.EmissiveColor.rgb, u_Material.EmissiveIntensity );
+            s.ReceiveSunShadows = u_Material.ReceiveSunShadows;
+            s.SampledTextureCount = float( int( textureSize( u_AlbedoTexture, 0 ).x > 1 ) + int( normalSize.x > 1 ) +
+                                           int( textureSize( u_OpacityTexture, 0 ).x > 1 ) +
+                                           int( textureSize( u_ORMTexture, 0 ).x > 1 ) +
+                                           int( textureSize( u_EmissiveTexture, 0 ).x > 1 ) );
+            return s;
+        }}
+    }}
+}}
+)",
+                            properties );
+    }
+
+    // What a pipeline built from a program has to agree with: every descriptor (set, binding, type, count,
+    // stages), the push range, and every stage's input and output locations — one line each, sorted, so a
+    // mismatch names itself.
+    std::vector<std::string> DescribeProgramLayout( const std::vector<Desert::Core::ShaderMapStage>& stages )
+    {
+        namespace Refl = Desert::Graphic::API::Vulkan::ShaderReflection;
+        Desert::Graphic::API::Vulkan::ShaderResource::ReflectionData data;
+        std::vector<std::string>                                    lines;
+        for ( const auto& stage : stages )
+        {
+            for ( const auto& refused : Refl::ReflectStage( stage.Spirv, stage.Stage, data ) )
+                lines.push_back( "refused: " + refused );
+            const char*                 name = Desert::Core::Formats::MaterialLayoutStageName( stage.Stage );
+            spirv_cross::Compiler       compiler( stage.Spirv );
+            const auto                  resources = compiler.get_shader_resources();
+            for ( const auto& input : resources.stage_inputs )
+                lines.push_back( std::format( "{} in location {}", name,
+                                              compiler.get_decoration( input.id, spv::DecorationLocation ) ) );
+            for ( const auto& output : resources.stage_outputs )
+                lines.push_back( std::format( "{} out location {}", name,
+                                              compiler.get_decoration( output.id, spv::DecorationLocation ) ) );
+        }
+        for ( const auto& [set, descriptors] : data.ShaderDescriptorSets )
+            for ( const auto& b : Refl::BuildLayoutBindings( descriptors ) )
+                lines.push_back( std::format( "set {} binding {} type {} count {} stages {:#x}", set, b.binding,
+                                              static_cast<int>( b.descriptorType ), b.descriptorCount,
+                                              b.stageFlags ) );
+        if ( data.PushConstantRanges )
+            lines.push_back( std::format( "push {} bytes, stages {:#x}", data.PushConstantRanges->Size,
+                                          static_cast<uint32_t>( data.PushConstantRanges->ShaderStage ) ) );
+        std::sort( lines.begin(), lines.end() );
+        return lines;
+    }
+} // namespace
+
+TEST_F( SurfaceTemplateFixture, TheStandardSurfaceCellsHaveTheLayoutOfTheShadersTheyReplace )
+{
+    const Desert::TestSupport::DerivedDataSandbox cache( "SurfaceTemplateStandard" );
+    const std::string                             mock = StandardSurfaceMock();
+    ASSERT_FALSE( mock.empty() ) << "StaticMeshPBR.shader has no 'Properties Binding(2)' block to copy";
+
+    // Skinned.GBuffer replaces nothing: skinned meshes are drawn forward today.
+    const std::pair<const char*, const char*> replaced[] = {
+         { "Static.Forward", "PBR/StaticMeshPBR.shader" },
+         { "Static.GBuffer", "PBR/StaticMeshGBuffer.shader" },
+         { "Static.ShadowDepth", "Shadow/Shadow.shader" },
+         { "Instanced.Forward", "PBR/StaticMeshPBR_Instanced.shader" },
+         { "Instanced.GBuffer", "PBR/StaticMeshGBuffer_Instanced.shader" },
+         { "Instanced.ShadowDepth", "Shadow/Shadow_Instanced.shader" },
+         { "Skinned.Forward", "PBR/SkinnedMeshPBR.shader" },
+         { "Skinned.ShadowDepth", "Shadow/Shadow_Skinned.shader" },
+    };
+    for ( const auto& [cell, shipped] : replaced )
+    {
+        const auto builtCell = Desert::Core::BuildShaderMap(
+             { mock, "Resources/Shaders/Programs/Test/StandardMock.shader", cell, {}, std::format( "StandardMock/{}", cell ) } );
+        ASSERT_TRUE( builtCell.IsSuccess() ) << "cell '" << cell << "': " << builtCell.GetError();
+
+        const std::filesystem::path path = std::filesystem::path( "Resources/Shaders/Programs" ) / shipped;
+        std::ifstream               in( path, std::ios::binary );
+        const std::string           text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+        ASSERT_FALSE( text.empty() ) << path;
+        const auto builtShipped = Desert::Core::BuildShaderMap( { text, path, "", {}, shipped } );
+        ASSERT_TRUE( builtShipped.IsSuccess() ) << shipped << ": " << builtShipped.GetError();
+
+        EXPECT_EQ( DescribeProgramLayout( builtCell.GetValue().Stages ),
+                   DescribeProgramLayout( builtShipped.GetValue().Stages ) )
+             << "cell " << cell << " would not bind where " << shipped << " bound";
+
+        const auto reconciled = Desert::Graphic::API::Vulkan::ShaderReflection::ReconcileCellLayout(
+             builtCell.GetValue().Meta, builtCell.GetValue().Stages, "StandardMock", cell );
+        for ( const auto& error : reconciled.Errors )
+            ADD_FAILURE() << error;
+    }
 }
 
 int main( int argc, char** argv )
