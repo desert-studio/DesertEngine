@@ -309,7 +309,8 @@ namespace Desert::ECS
         {
             using Result = std::optional<ColliderMesh>;
             if ( !registry.has<StaticMeshComponent>( entity ) )
-                return Common::MakeError<Result>( "the collider builds from its entity's StaticMesh, and there is none" );
+                return Common::MakeError<Result>(
+                     "the collider builds from its entity's StaticMesh, and there is none" );
             const auto& mesh = registry.get<StaticMeshComponent>( entity );
 
             ColliderMesh out;
@@ -328,8 +329,8 @@ namespace Desert::ECS
             {
                 const DynamicMesh* shared = Geometry::PrimitiveMeshFactory::GetShared( *mesh.Primitive );
                 if ( !shared )
-                    return Common::MakeError<Result>( std::format( "primitive {} has no shared mesh",
-                                                                   static_cast<int>( *mesh.Primitive ) ) );
+                    return Common::MakeError<Result>(
+                         std::format( "primitive {} has no shared mesh", static_cast<int>( *mesh.Primitive ) ) );
                 fill( shared->GetVertices(), shared->GetIndices() );
             }
             else if ( mesh.MeshHandle )
@@ -342,8 +343,9 @@ namespace Desert::ECS
                     return Common::MakeSuccess( Result{} );
                 const auto* staticAsset = dynamic_cast<const Assets::StaticMeshAsset*>( asset );
                 if ( !staticAsset )
-                    return Common::MakeError<Result>( "the StaticMesh's asset is skinned: a skinned mesh has no rest "
-                                                      "collision, use a Box/Sphere/Capsule" );
+                    return Common::MakeError<Result>(
+                         "the StaticMesh's asset is skinned: a skinned mesh has no rest "
+                         "collision, use a Box/Sphere/Capsule" );
                 fill( staticAsset->GetVertices(), staticAsset->GetIndices() );
             }
             else

@@ -161,11 +161,16 @@ namespace Desert::Physics
         {
             switch ( shape )
             {
-                case ShapeType::Box: return "Box";
-                case ShapeType::Sphere: return "Sphere";
-                case ShapeType::Capsule: return "Capsule";
-                case ShapeType::Mesh: return "Mesh";
-                case ShapeType::ConvexHull: return "ConvexHull";
+                case ShapeType::Box:
+                    return "Box";
+                case ShapeType::Sphere:
+                    return "Sphere";
+                case ShapeType::Capsule:
+                    return "Capsule";
+                case ShapeType::Mesh:
+                    return "Mesh";
+                case ShapeType::ConvexHull:
+                    return "ConvexHull";
             }
             return "unknown";
         }
@@ -199,7 +204,7 @@ namespace Desert::Physics
                 joltPoints.push_back( ToJolt( p ) );
             // The builder stops at cMaxPointsInHull and keeps the hull within tolerance of the rest, so a
             // dense mesh is simplified here rather than refused.
-            const JPH::ConvexHullShapeSettings   settings( joltPoints );
+            const JPH::ConvexHullShapeSettings    settings( joltPoints );
             const JPH::ShapeSettings::ShapeResult result = settings.Create();
             if ( result.HasError() )
                 return Common::MakeError<JPH::ShapeRefC>( std::format(
@@ -225,16 +230,16 @@ namespace Desert::Physics
                 for ( size_t k = i; k < i + 3u; ++k )
                     if ( indices[k] >= points.size() )
                         return Common::MakeError<JPH::ShapeRefC>(
-                             std::format( "Mesh collider index {} (at {}) is out of range for {} points", indices[k],
-                                          k, points.size() ) );
+                             std::format( "Mesh collider index {} (at {}) is out of range for {} points",
+                                          indices[k], k, points.size() ) );
                 triangles.push_back( JPH::IndexedTriangle( indices[i], indices[i + 1u], indices[i + 2u] ) );
             }
             const JPH::MeshShapeSettings          settings( std::move( vertices ), std::move( triangles ) );
             const JPH::ShapeSettings::ShapeResult result = settings.Create();
             if ( result.HasError() )
                 return Common::MakeError<JPH::ShapeRefC>(
-                     std::format( "Jolt refused the triangle mesh of {} points and {} triangles: {}", points.size(),
-                                  indices.size() / 3u, result.GetError().c_str() ) );
+                     std::format( "Jolt refused the triangle mesh of {} points and {} triangles: {}",
+                                  points.size(), indices.size() / 3u, result.GetError().c_str() ) );
             return Common::MakeSuccess( JPH::ShapeRefC( result.Get() ) );
         }
     } // namespace
@@ -363,8 +368,8 @@ namespace Desert::Physics
                          "a Mesh collider cannot be on a Dynamic body: Jolt's MeshShape has no volume to carry "
                          "mass (use ConvexHull, or make the body Static)" );
                 if ( desc.MeshPoints.empty() )
-                    return Common::MakeError<BodyHandle>(
-                         std::format( "{} collider has no points: its mesh has no vertices", ShapeName( desc.Shape ) ) );
+                    return Common::MakeError<BodyHandle>( std::format(
+                         "{} collider has no points: its mesh has no vertices", ShapeName( desc.Shape ) ) );
                 const uint64_t key    = CookKey( desc );
                 const auto     cached = m_Impl->CookedShapes.find( key );
                 if ( cached != m_Impl->CookedShapes.end() )
@@ -406,9 +411,9 @@ namespace Desert::Physics
         const JPH::EActivation activation = isStatic ? JPH::EActivation::DontActivate : JPH::EActivation::Activate;
         const JPH::BodyID      id         = m_Impl->Bodies->CreateAndAddBody( settings, activation );
         if ( id.IsInvalid() )
-            return Common::MakeError<BodyHandle>( std::format(
-                 "Jolt refused the {} body: {} bodies exist, the world's limit is reached", ShapeName( desc.Shape ),
-                 GetBodyCount() ) );
+            return Common::MakeError<BodyHandle>(
+                 std::format( "Jolt refused the {} body: {} bodies exist, the world's limit is reached",
+                              ShapeName( desc.Shape ), GetBodyCount() ) );
         return Common::MakeSuccess( BodyHandle( id.GetIndexAndSequenceNumber() ) );
     }
 
