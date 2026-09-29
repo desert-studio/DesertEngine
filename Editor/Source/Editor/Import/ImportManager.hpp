@@ -12,6 +12,11 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ItemProgress.hpp>
 
+namespace Desert::Assets
+{
+    class TextureAsset;
+}
+
 namespace Desert::Editor
 {
     // What an import with options wrote: its verdict, and every asset file derived from the source that now
@@ -60,11 +65,12 @@ namespace Desert::Editor
         /// @p progress names each source as it is reached (the splash's item line).
         size_t ImportLooseTextures( const Assets::ItemProgress& progress = {} );
 
-        // Import a source texture into its `.detex` asset, create+register a TextureAsset, and return its
-        // handle (the same handle TextureService keys by). Returns a zero handle on failure. Drives the
-        // import-on-demand drag-drop path (see Editor::TextureDnD).
-        Assets::AssetHandle ImportAndRegisterTexture( Assets::AssetManager&         mgr,
-                                                      const std::filesystem::path& source );
+        // Import a source texture into its `.detex` asset and create its TextureAsset in @p mgr; null on failure.
+        // The cook stops at the asset: registering it with the runtime's TextureService is the caller's
+        // (TextureDnD::ImportAndRegister), so the import layer links without the renderer (THM1l-b16: the
+        // SkinnedImport suite runs ImportManager on a mock).
+        std::shared_ptr<Assets::TextureAsset> ImportTextureAsset( Assets::AssetManager&        mgr,
+                                                                  const std::filesystem::path& source );
 
     private:
         // EVERY ONE OF THESE ANSWERS WHETHER THE COOKED FILE IS ON THE DISK (Д35). They were `void`, and

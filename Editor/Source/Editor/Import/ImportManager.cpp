@@ -29,7 +29,6 @@
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Common/Core/JobSystem.hpp>
 
@@ -558,14 +557,14 @@ namespace Desert::Editor
         return imported;
     }
 
-    Assets::AssetHandle ImportManager::ImportAndRegisterTexture( Assets::AssetManager&         mgr,
-                                                                 const std::filesystem::path& source )
+    std::shared_ptr<Assets::TextureAsset> ImportManager::ImportTextureAsset( Assets::AssetManager&        mgr,
+                                                                             const std::filesystem::path& source )
     {
         // Import + derive the texture (the importer logs a failure and returns the null handle), then create
         // the TextureAsset on its `.detex` -- the asset IS the file the runtime reads (header + DDC key).
         if ( static_cast<uint64_t>( m_TextureImporter->Import( source ) ) == 0 )
         {
-            return Common::UUID::Null();
+            return nullptr;
         }
 
         const auto cookedMeta = TextureImporter::AssetPathFor( source );
@@ -573,13 +572,11 @@ namespace Desert::Editor
         auto asset = mgr.CreateAsset<Assets::TextureAsset>( cookedMeta.string() );
         if ( !asset )
         {
-            LOG_ERROR( "ImportAndRegisterTexture: failed to create TextureAsset from {}",
+            LOG_ERROR( "ImportTextureAsset: failed to create TextureAsset from {}",
                        cookedMeta.string() );
-            return Common::UUID::Null();
+            return nullptr;
         }
-
-        Runtime::ResourceRegistry::GetTextureService()->Register( asset );
-        return asset->GetMetadata().Handle;
+        return asset;
     }
 
 } // namespace Desert::Editor
