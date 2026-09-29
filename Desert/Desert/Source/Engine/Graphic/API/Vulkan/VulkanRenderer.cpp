@@ -288,16 +288,15 @@ namespace Desert::Graphic::API::Vulkan
             VKUtils::EndDebugLabel( m_CurrentCommandBuffer );
     }
 
-    bool VulkanRendererAPI::BindGraphicsPipeline( const GraphicsPipeline* pipeline )
+    bool VulkanRendererAPI::BindGraphicsPipeline( const GraphicsPipeline* pipeline, const bool meshHasStreams )
     {
         if ( !pipeline )
             return false;
 
         const auto* vulkanPipeline = static_cast<const VulkanPipeline*>( pipeline );
-        if ( vulkanPipeline->GetVkPipeline() != VK_NULL_HANDLE )
+        if ( const VkPipeline variant = vulkanPipeline->GetVkPipeline( meshHasStreams ); variant != VK_NULL_HANDLE )
         {
-            vkCmdBindPipeline( m_CurrentCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                               vulkanPipeline->GetVkPipeline() );
+            vkCmdBindPipeline( m_CurrentCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, variant );
             return true;
         }
         // Still in the driver (PSO1): not an error, and not drawn. An ENGINE pipeline is counted by
@@ -319,6 +318,20 @@ namespace Desert::Graphic::API::Vulkan
         return false;
     }
 
+    const std::shared_ptr<VertexBuffer>& VulkanRendererAPI::DefaultVertexStreams()
+    {
+        // ONE vertex of the streams, read by every vertex of a mesh that has none (stride 0): white colour,
+        // UV1 (0,0) — what UE's GNullColorVertexBuffer and a missing TexCoord1 give a material.
+        if ( m_DefaultVertexStreams == nullptr )
+        {
+            const MeshVertexStreams defaults{};
+            m_DefaultVertexStreams = VertexBuffer::Create( (void*)&defaults, sizeof( defaults ) );
+            const auto uploaded    = m_DefaultVertexStreams->RT_Invalidate();
+            DESERT_VERIFY( uploaded.IsSuccess(), "the default vertex-streams buffer could not be uploaded" );
+        }
+        return m_DefaultVertexStreams;
+    }
+
     void VulkanRendererAPI::RenderMesh( const GraphicsPipeline* pipeline, const Mesh* mesh,
                                         const glm::mat4 transform, const MaterialExecutor* materialExecutor,
                                         uint32_t instanceCount, uint32_t firstInstance,
@@ -331,7 +344,10 @@ namespace Desert::Graphic::API::Vulkan
         if ( !IsRecording() )
             return;
         const auto vulkanPipeline = static_cast<const VulkanPipeline*>( pipeline );
-        if ( !BindGraphicsPipeline( pipeline ) )
+        // The mesh's vertex streams pick the pipeline variant: its own at their stride, or the shared default
+        // at stride 0 (VertexBufferLayout::WithStreams).
+        const auto& streams = mesh->GetStreamBuffer();
+        if ( !BindGraphicsPipeline( pipeline, streams != nullptr ) )
             return;
 
         // Bind Descriptor Sets
@@ -353,9 +369,16 @@ namespace Desert::Graphic::API::Vulkan
                 return;
         }
 
-        VkDeviceSize offsets[] = { 0 };
+        VkDeviceSize offsets[] = { 0, 0 };
         auto vbuffer = sp_cast<API::Vulkan::VulkanVertexBuffer>( mesh->GetVertexBuffer() )->GetVulkanBuffer();
         vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 0, 1, &vbuffer, offsets );
+        if ( vulkanPipeline->HasVertexStreams() )
+        {
+            auto sbuffer =
+                 sp_cast<API::Vulkan::VulkanVertexBuffer>( streams != nullptr ? streams : DefaultVertexStreams() )
+                      ->GetVulkanBuffer();
+            vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 1, 1, &sbuffer, offsets );
+        }
 
         if ( auto indexBuffer = mesh->GetIndexBuffer() )
         {

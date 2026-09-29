@@ -33,6 +33,12 @@ namespace Desert::Assets
         }
 
         // Blendshapes (empty when the mesh has none). Deltas are index-aligned with GetVertices().
+        // Colors / UV1 packed for the mesh's optional stream buffer; empty when the asset has neither.
+        const std::vector<MeshVertexStreams>& GetVertexStreams() const
+        {
+            return m_VertexStreams;
+        }
+
         const std::vector<MorphTarget>& GetMorphTargets() const override
         {
             return m_MorphTargets;
@@ -53,6 +59,7 @@ namespace Desert::Assets
         std::vector<Index>        m_Indices;
         std::vector<Submesh>      m_Submeshes;
         std::vector<MorphTarget>  m_MorphTargets;
+        std::vector<MeshVertexStreams> m_VertexStreams;
         std::vector<Common::UUID> m_MaterialAssetHandles;
 
         bool m_IsReadyForUse = false;

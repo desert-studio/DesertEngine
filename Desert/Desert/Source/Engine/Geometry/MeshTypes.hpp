@@ -19,6 +19,36 @@ namespace Desert
         glm::vec2 TexCoord;
     };
 
+    // ONE VERTEX OF THE OPTIONAL STREAMS (UE FVertexFactory Color + TexCoord1), interleaved in the mesh's
+    // second vertex buffer (binding 1, locations 7 and 8; the layout is MeshVertexLayout's). The defaults are
+    // what a mesh without the streams reads at stride 0: white, UV1 (0,0).
+    struct MeshVertexStreams
+    {
+        std::array<uint8_t, 4> Color = { 255, 255, 255, 255 }; // linear RGBA8, read as UNORM
+        glm::vec2              UV1   = { 0.0f, 0.0f };
+    };
+    static_assert( sizeof( MeshVertexStreams ) == 12, "the streams' stride is part of the pipeline layout" );
+
+    // The mesh asset's Colors / UV1 (either may be absent) packed into the stream vertices. BOTH absent = empty
+    // — no buffer, the mesh draws through the stride-0 variant; one absent = its default in every vertex.
+    inline std::vector<MeshVertexStreams> PackMeshVertexStreams( const std::vector<std::array<uint8_t, 4>>& colors,
+                                                                 const std::vector<glm::vec2>&              uv1,
+                                                                 const size_t vertexCount )
+    {
+        std::vector<MeshVertexStreams> streams;
+        if ( colors.empty() && uv1.empty() )
+            return streams;
+        streams.resize( vertexCount );
+        for ( size_t i = 0; i < vertexCount; ++i )
+        {
+            if ( i < colors.size() )
+                streams[i].Color = colors[i];
+            if ( i < uv1.size() )
+                streams[i].UV1 = uv1[i];
+        }
+        return streams;
+    }
+
     struct SkinnedVertex
     {
         static constexpr size_t MAX_BONE_INFLUENCES = 4;

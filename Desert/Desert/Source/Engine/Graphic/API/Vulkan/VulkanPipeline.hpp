@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
 
@@ -65,6 +67,18 @@ namespace Desert::Graphic::API::Vulkan
         {
             return GetBuildState() == BuildState::Built ? m_Pipeline : VK_NULL_HANDLE;
         }
+        // The variant a mesh draws through: its own streams at their stride, or the shared default at stride 0
+        // (VertexBufferLayout::WithStreams). A layout without streams has one pipeline and answers it for both.
+        VkPipeline GetVkPipeline( const bool meshHasStreams ) const
+        {
+            return meshHasStreams || !HasVertexStreams() ? GetVkPipeline()
+                   : GetBuildState() == BuildState::Built ? m_PipelineNoStreams
+                                                          : VK_NULL_HANDLE;
+        }
+        [[nodiscard]] bool HasVertexStreams() const
+        {
+            return !m_Specification.PullingConfig && m_Specification.Layout && m_Specification.Layout->HasStreams();
+        }
 
         VkPipelineLayout GetVkPipelineLayout() const
         {
@@ -104,6 +118,7 @@ namespace Desert::Graphic::API::Vulkan
 
         VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
         VkPipeline       m_Pipeline= VK_NULL_HANDLE;
+        VkPipeline       m_PipelineNoStreams = VK_NULL_HANDLE; // stride-0 twin; null without streams
 
         // The descriptor set layouts m_PipelineLayout was built from, held so they outlive it. A shader
         // recompile replaces the shader's references; this pipeline keeps its own until it is rebuilt.
@@ -117,7 +132,9 @@ namespace Desert::Graphic::API::Vulkan
         VkPipelineMultisampleStateCreateInfo   m_Multisampling{};
         VkPipelineDepthStencilStateCreateInfo  m_DepthStencil{};
         VkPipelineColorBlendStateCreateInfo    m_ColorBlending{};
-        VkVertexInputBindingDescription m_VertexInputBinding;
+        VkPipelineVertexInputStateCreateInfo           m_VertexInputInfoNoStreams{};
+        std::array<VkVertexInputBindingDescription, 2> m_VertexInputBindings{};
+        std::array<VkVertexInputBindingDescription, 2> m_VertexInputBindingsNoStreams{};
 
         std::vector<VkVertexInputAttributeDescription>   m_VertexAttributes;
         std::vector<VkDynamicState>                      m_DynamicStates;

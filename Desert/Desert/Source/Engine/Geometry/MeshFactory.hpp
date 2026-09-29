@@ -54,7 +54,8 @@ namespace Desert::Graphic
             }
 
             const auto staticMesh =
-                 std::make_shared<StaticMesh>( asset->GetVertices(), asset->GetIndices(), asset->GetSubmeshes() );
+                 std::make_shared<StaticMesh>( asset->GetVertices(), asset->GetIndices(), asset->GetSubmeshes(),
+                                               asset->GetVertexStreams() );
             if ( !staticMesh->Invalidate() )
             {
                 DESERT_VERIFY( false );
@@ -88,7 +89,8 @@ namespace Desert::Graphic
             }
 
             const auto skinnedMesh = std::make_shared<SkinnedMesh>( asset->GetVertices(), asset->GetIndices(),
-                                                                    asset->GetSubmeshes(), skeletonRT );
+                                                                    asset->GetSubmeshes(), skeletonRT,
+                                                                    asset->GetVertexStreams() );
             if ( !skinnedMesh->Invalidate() )
             {
                 DESERT_VERIFY( false );

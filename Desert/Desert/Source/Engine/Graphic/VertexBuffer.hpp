@@ -23,7 +23,10 @@ namespace Desert::Graphic
         Int2,
         Int3,
         Int4,
-        Bool
+        Bool,
+        // Four 8-bit channels read as 0..1 floats (VK_FORMAT_R8G8B8A8_UNORM): the vertex colour stream, as
+        // UE's FColor vertex colours.
+        UNorm8x4
     };
 
     inline uint32_t ShaderDataTypeSize( ShaderDataType type )
@@ -48,6 +51,9 @@ namespace Desert::Graphic
 
             case ShaderDataType::Bool:
                 return 1;
+
+            case ShaderDataType::UNorm8x4:
+                return 4;
 
             // `None` is the enum's ZERO, so a default-constructed VertexBufferElement carries it. It
             // was the one value with no case and no fallthrough return, which made the whole function
@@ -143,6 +149,47 @@ namespace Desert::Graphic
 
         std::vector<VertexBufferElement> m_Elements;
         std::uint32_t                    m_Stride = 0;
+
+    public:
+        // THE OPTIONAL VERTEX STREAMS (UE FVertexFactory's Color / TexCoord1 streams): a second vertex binding
+        // (binding 1), read from `firstLocation` on, that a mesh may or may not carry. A mesh without it is
+        // drawn from one shared buffer at stride 0 — every vertex reads the same default — which in Vulkan is
+        // a different vertex-input state, so the backend builds the pipeline twice (VulkanPipeline) and the
+        // draw picks the variant by the mesh (VulkanRendererAPI::RenderMesh). Empty = no binding 1 at all.
+        VertexBufferLayout& WithStreams( const uint32_t firstLocation,
+                                         const std::initializer_list<VertexBufferElement>& elements )
+        {
+            m_StreamElements      = elements;
+            m_StreamFirstLocation = firstLocation;
+            m_StreamStride        = 0;
+            for ( auto& element : m_StreamElements )
+            {
+                element.Offset = m_StreamStride;
+                m_StreamStride += element.Size;
+            }
+            return *this;
+        }
+        [[nodiscard]] bool HasStreams() const
+        {
+            return !m_StreamElements.empty();
+        }
+        [[nodiscard]] const std::vector<VertexBufferElement>& GetStreamElements() const
+        {
+            return m_StreamElements;
+        }
+        [[nodiscard]] uint32_t GetStreamStride() const
+        {
+            return m_StreamStride;
+        }
+        [[nodiscard]] uint32_t GetStreamFirstLocation() const
+        {
+            return m_StreamFirstLocation;
+        }
+
+    private:
+        std::vector<VertexBufferElement> m_StreamElements;
+        std::uint32_t                    m_StreamStride        = 0;
+        std::uint32_t                    m_StreamFirstLocation = 0;
     };
 
     class VertexBuffer : public DynamicResources

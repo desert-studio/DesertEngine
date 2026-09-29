@@ -110,7 +110,11 @@ namespace Desert::Graphic::API::Vulkan
          * Latched by debug name because this is asked once per draw call: a broken shader would
          * otherwise write the same line thousands of times a second and the log would stop being read.
          */
-        NO_DISCARD bool BindGraphicsPipeline( const GraphicsPipeline* pipeline );
+        // `meshHasStreams` picks a mesh pipeline's variant (VulkanPipeline::GetVkPipeline); true for every other draw.
+        NO_DISCARD bool BindGraphicsPipeline( const GraphicsPipeline* pipeline, bool meshHasStreams = true );
+        // The one-vertex buffer a mesh without vertex streams reads at stride 0 (white, UV1 0,0); made on first use.
+        const std::shared_ptr<VertexBuffer>& DefaultVertexStreams();
+        std::shared_ptr<VertexBuffer>        m_DefaultVertexStreams;
 
     private:
         // THE ONE QUESTION EVERY RECORDING ENTRY POINT ASKS. BeginFrame is gated, but a loss can be noted
