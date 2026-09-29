@@ -160,9 +160,6 @@ namespace Desert::Editor::ThumbnailSubject
         /// this picture and the only file whose modification time means anything about it.
         std::string CookedPath;
 
-        /// THE MESH'S OWN ORBIT (its THMB section; MeshSourceAsset::Thumbnail). Default = straight on.
-        Assets::ThumbnailOrbit Orbit;
-
         /// The sidecar material to apply to every submesh, or a zero handle when the mesh has none. It
         /// is resolved from the SOURCE, because a sidecar `.demat` is what an artist leaves beside the
         /// `.fbx` — a different question from which file gets photographed.

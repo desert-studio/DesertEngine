@@ -25,33 +25,15 @@ namespace Desert::Assets
     namespace
     {
         constexpr uint32_t kImportInfoVersion = 1;
-        // The THMB layout: version, then the orbit's Pitch, Yaw, Zoom (degrees, degrees, fraction).
-        constexpr uint32_t kThumbnailVersion = 1;
         // 2: SRCE holds a LIST of source models (one per authored LOD) ahead of the shared slots; version 1 held
         // one mesh and was never written by an import, so it has no migration.
         constexpr uint32_t kSourceVersion = 2;
 
         const CC::SubsystemVersion kKnown[] = { { kMeshAssetSubsystemTag, kMeshAssetSubsystemVersion } };
 
-        // The one order every mesh asset's sections are in (see the header); THMB sits between IMPT and SRCE
-        // when the orbit is not the default and is absent otherwise.
+        // The one order every mesh asset's sections are in (see the header).
         constexpr std::array<CC::EnvelopeSection, 3> kSectionOrder = {
              CC::EnvelopeSection::Meta, CC::EnvelopeSection::ImportInfo, CC::EnvelopeSection::Source };
-        constexpr std::array<CC::EnvelopeSection, 4> kSectionOrderWithThumbnail = {
-             CC::EnvelopeSection::Meta, CC::EnvelopeSection::ImportInfo, CC::EnvelopeSection::Thumbnail,
-             CC::EnvelopeSection::Source };
-
-        template <size_t N>
-        bool SectionsAre( const std::vector<CC::EnvelopeSectionData>& sections,
-                          const std::array<CC::EnvelopeSection, N>&   order )
-        {
-            if ( sections.size() != N )
-                return false;
-            for ( size_t i = 0; i < N; ++i )
-                if ( sections[i].Tag != order[i] )
-                    return false;
-            return true;
-        }
 
         // ── writing ───────────────────────────────────────────────────────────────────────────────────
         struct Writer
@@ -375,40 +357,6 @@ namespace Desert::Assets
             return Common::MakeSuccess( std::move( info ) );
         }
 
-        // ── THMB ────────────────────────────────────────────────────────────────────────────────────────
-        std::vector<std::byte> EncodeThumbnail( const ThumbnailOrbit& orbit )
-        {
-            Writer w;
-            w.U32( kThumbnailVersion );
-            w.F32( orbit.Pitch );
-            w.F32( orbit.Yaw );
-            w.F32( orbit.Zoom );
-            return std::move( w.Out );
-        }
-
-        Common::ResultStr<ThumbnailOrbit> DecodeThumbnail( std::span<const std::byte> bytes )
-        {
-            Reader     r{ bytes };
-            const auto version = r.U32();
-            if ( r.Ok && version != kThumbnailVersion )
-                return Common::MakeFormattedError<ThumbnailOrbit>(
-                     "mesh Thumbnail version {} is not the {} this build reads", version, kThumbnailVersion );
-            ThumbnailOrbit orbit;
-            orbit.Pitch = r.F32();
-            orbit.Yaw   = r.F32();
-            orbit.Zoom  = r.F32();
-            if ( !r.Ok || r.At != bytes.size() )
-                return Common::MakeError<ThumbnailOrbit>( "mesh Thumbnail is truncated or has trailing bytes" );
-            if ( !IsValidThumbnailOrbit( orbit ) )
-                return Common::MakeError<ThumbnailOrbit>(
-                     "mesh Thumbnail orbit is not finite or its Zoom is not above -1" );
-            // A stated default would make two files mean one asset; the writer never states it.
-            if ( orbit == ThumbnailOrbit{} )
-                return Common::MakeError<ThumbnailOrbit>(
-                     "mesh Thumbnail states the default orbit; the default is said by leaving THMB out" );
-            return Common::MakeSuccess( orbit );
-        }
-
         // ── SRCE ──────────────────────────────────────────────────────────────────────────────────────
         std::vector<std::byte> EncodeSource( const MeshSourceData& s )
         {
@@ -574,14 +522,6 @@ namespace Desert::Assets
              { CC::EnvelopeSection::Meta, CC::EnvelopeCodec::Stored, CC::EncodeEnvelopeMeta( meta ) } );
         envelope.Sections.push_back(
              { CC::EnvelopeSection::ImportInfo, CC::EnvelopeCodec::Stored, EncodeImportInfo( asset.Import ) } );
-        if ( asset.Thumbnail != ThumbnailOrbit{} )
-        {
-            if ( !IsValidThumbnailOrbit( asset.Thumbnail ) )
-                return Common::MakeError<std::vector<std::byte>>(
-                     "the mesh's thumbnail orbit is not finite or its Zoom is not above -1" );
-            envelope.Sections.push_back( { CC::EnvelopeSection::Thumbnail, CC::EnvelopeCodec::Stored,
-                                           EncodeThumbnail( asset.Thumbnail ) } );
-        }
         envelope.Sections.push_back(
              { CC::EnvelopeSection::Source, CC::EnvelopeCodec::Stored, EncodeSource( asset.Source ) } );
         return CC::WriteAssetEnvelope( envelope );
@@ -599,27 +539,21 @@ namespace Desert::Assets
         if ( std::find( e.Asset.Subsystems.begin(), e.Asset.Subsystems.end(), kKnown[0] ) ==
              e.Asset.Subsystems.end() )
             return Common::MakeError<MeshSourceAsset>( "the mesh envelope is not stamped with the MSAS layout" );
-        const bool withThumbnail = SectionsAre( e.Sections, kSectionOrderWithThumbnail );
-        if ( !withThumbnail && !SectionsAre( e.Sections, kSectionOrder ) )
+        bool inOrder = e.Sections.size() == kSectionOrder.size();
+        for ( size_t i = 0; inOrder && i < kSectionOrder.size(); ++i )
+            inOrder = e.Sections[i].Tag == kSectionOrder[i];
+        if ( !inOrder )
         {
             std::string seen;
             for ( const CC::EnvelopeSectionData& s : e.Sections )
                 seen += ( seen.empty() ? "" : "," ) + CC::FourCCToString( static_cast<uint32_t>( s.Tag ) );
             return Common::MakeFormattedError<MeshSourceAsset>(
-                 "a mesh asset has sections META,IMPT,[THMB],SRCE in that order; this one has [{}]", seen );
+                 "a mesh asset has sections META,IMPT,SRCE in that order; this one has [{}]", seen );
         }
 
         auto meta   = CC::DecodeEnvelopeMeta( e.Sections[0].Bytes );
         auto import = DecodeImportInfo( e.Sections[1].Bytes );
-        auto           source = DecodeSource( e.Sections.back().Bytes );
-        ThumbnailOrbit thumbnail;
-        if ( withThumbnail )
-        {
-            auto decoded = DecodeThumbnail( e.Sections[2].Bytes );
-            if ( !decoded.IsSuccess() )
-                return Common::MakeError<MeshSourceAsset>( decoded.GetError() );
-            thumbnail = decoded.GetValue();
-        }
+        auto source = DecodeSource( e.Sections[2].Bytes );
         if ( !meta.IsSuccess() )
             return Common::MakeError<MeshSourceAsset>( meta.GetError() );
         if ( !import.IsSuccess() )
@@ -631,9 +565,8 @@ namespace Desert::Assets
         asset.Kind   = e.Asset.Kind;
         asset.Guid   = e.Asset.Guid;
         asset.Name   = meta.GetValue().Name;
-        asset.Import    = import.GetValue();
-        asset.Thumbnail = thumbnail;
-        asset.Source    = source.GetValue();
+        asset.Import = import.GetValue();
+        asset.Source = source.GetValue();
         if ( auto r = ValidateImport( asset.Import ); !r.IsSuccess() )
             return Common::MakeError<MeshSourceAsset>( r.GetError() );
         if ( auto r = ValidateSource( asset.Source, asset.Kind ); !r.IsSuccess() )

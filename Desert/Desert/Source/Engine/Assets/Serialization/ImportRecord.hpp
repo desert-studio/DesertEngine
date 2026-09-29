@@ -2,6 +2,7 @@
 // The body of an import record, `<name>.<ext>.deimport` (FIX8; UE: a .uasset's persistent GUID and its
 // UAssetImportData). Path rules and the reason the record exists: Common/Content/ImportRecord.hpp.
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
+#include <Engine/Assets/ThumbnailInfo.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ImportRecord.hpp>
 #include <Common/Core/Math/AABB.hpp>
@@ -9,6 +10,7 @@
 
 #include <array>
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
@@ -61,6 +63,15 @@ namespace Desert::Assets::Serialization
         // source (NodeMeshSplit). Present only when the source was split; then there is NO combined mesh, and
         // the import's freshness is these files' (each states the source's hash), not a combined envelope's.
         std::optional<std::vector<std::string>> Nodes;
+
+        // HOW EACH MESH THIS IMPORT WRITES IS PHOTOGRAPHED (UE: UStaticMesh::ThumbnailInfo, a USceneThumbnailInfo
+        // saved in the mesh's package). The record IS the imported mesh's package: the combined mesh lives in the
+        // DDC and every node `.stmesh` is rewritten by each re-import, so an orbit stored in either would be lost;
+        // the record is kept by every re-import (EnsureImportRecord rewrites the parsed record). Keyed by the
+        // mesh asset's file name beside the source: the source's own name ("base.fbx") for the combined mesh,
+        // `<stem>_<node>.stmesh` for a node mesh (NodeMeshAssetPath). A mesh without an entry has the default
+        // orbit (ThumbnailInfo.hpp); a stated default is refused, so one picture has one spelling.
+        std::optional<std::map<std::string, ThumbnailOrbit>> Thumbnail;
     };
 
     Common::ResultStr<ImportRecordData> ParseImportRecord( const std::string& text );
@@ -85,6 +96,11 @@ namespace Desert::Assets::Serialization
     /// The record must exist (EnsureImportRecord runs first); written only when the list changes.
     Common::BoolResultStr SetImportRecordNodes( const std::filesystem::path&                   source,
                                                 const std::optional<std::vector<std::string>>& nodes );
+
+    /// The orbit @p source's record states for the mesh asset named @p meshFile (ImportRecordData::Thumbnail);
+    /// the default orbit when it states none for it. An error naming the record when it is missing or unreadable.
+    Common::ResultStr<ThumbnailOrbit> ReadImportRecordThumbnail( const std::filesystem::path& source,
+                                                                 const std::string&           meshFile );
 
     Common::ResultStr<Common::Content::AssetGuid> EnsureImportRecord( const std::filesystem::path& source,
                                                                       const Common::Math::AABB&    bounds );

@@ -26,6 +26,23 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<ImportRecordData>( "import record names no Source" );
         if ( !data.Bounds )
             return Common::MakeFormattedError<ImportRecordData>( "import record states no Bounds" );
+        if ( data.Thumbnail )
+        {
+            if ( data.Thumbnail->empty() )
+                return Common::MakeFormattedError<ImportRecordData>(
+                     "import record states an empty Thumbnail: no orbit for any mesh is written as no key" );
+            for ( const auto& [mesh, orbit] : *data.Thumbnail )
+            {
+                if ( !IsValidThumbnailOrbit( orbit ) )
+                    return Common::MakeFormattedError<ImportRecordData>(
+                         "import record: the Thumbnail orbit of '{}' is not finite or zooms to -1 or in", mesh );
+                if ( orbit == ThumbnailOrbit{} )
+                    return Common::MakeFormattedError<ImportRecordData>(
+                         "import record states the default Thumbnail orbit for '{}': the default is written as no "
+                         "entry",
+                         mesh );
+            }
+        }
         return Common::MakeSuccess( std::move( data ) );
     }
 
@@ -127,6 +144,22 @@ namespace Desert::Assets::Serialization
         if ( !parsed )
             return Common::MakeFormattedError<Result>( "'{}': {}", record.string(), parsed.GetError() );
         return Common::MakeSuccess( Result{ parsed.ExtractValue() } );
+    }
+
+    Common::ResultStr<ThumbnailOrbit> ReadImportRecordThumbnail( const std::filesystem::path& source,
+                                                                 const std::string&           meshFile )
+    {
+        const auto data = ReadImportRecord( source );
+        if ( !data )
+            return Common::MakeError<ThumbnailOrbit>( data.GetError() );
+        if ( !data.GetValue() )
+            return Common::MakeFormattedError<ThumbnailOrbit>(
+                 "'{}' has no import record, so the orbit of '{}' has no home", source.string(), meshFile );
+        const auto& thumbnail = data.GetValue()->Thumbnail;
+        if ( !thumbnail )
+            return Common::MakeSuccess( ThumbnailOrbit{} );
+        const auto it = thumbnail->find( meshFile );
+        return Common::MakeSuccess( it == thumbnail->end() ? ThumbnailOrbit{} : it->second );
     }
 
     Common::BoolResultStr SetImportRecordNodes( const std::filesystem::path&                   source,

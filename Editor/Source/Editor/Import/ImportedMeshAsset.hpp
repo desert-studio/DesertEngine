@@ -3,6 +3,7 @@
 #include <Engine/Assets/AssetGuidRef.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
+#include <Engine/Assets/ThumbnailInfo.hpp>
 #include <Engine/Assets/Serialization/Mesh.hpp>
 
 #include <filesystem>
@@ -71,6 +72,15 @@ namespace Desert::Editor
     // the generic type icon (or, for MeshDnD::ResolveOrImport, failing the drop outright) with nothing in
     // the log to say why.
     bool StaticMeshCookAvailable( const std::filesystem::path& cooked, const std::filesystem::path& source );
+
+    // THE THUMBNAIL ORBIT OF THE MESH WHOSE FILE IS @p meshFile (ThumbnailFreshness::MeshFreshnessSource: the raw
+    // source of a combined import, or a node's `.stmesh`), read from its one home, the import record
+    // (ImportRecordData::Thumbnail). A combined mesh: the source's own record, keyed by the source's name. A node
+    // mesh: the record beside it whose `Nodes` wrote it (NodeMeshAssetPath), keyed by the `.stmesh` name. A mesh
+    // no import wrote (a hand-authored `.stmesh`) has no package to state one and answers the default orbit.
+    // An error naming the record when it is unreadable.
+    [[nodiscard]] Common::ResultStr<Assets::ThumbnailOrbit>
+    MeshThumbnailOrbit( const std::filesystem::path& meshFile );
 
     // What a re-import does to the file at CookPaths::MeshAsset( @p source ): removes it. Either a legacy file
     // from a build before AF4h (never read, removed silently) or an EDITED import (Assets::IsEditedImportedMesh,

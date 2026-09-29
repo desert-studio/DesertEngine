@@ -105,42 +105,6 @@ namespace
     }
 } // namespace
 
-// THM1l: the thumbnail orbit (UE UStaticMesh::ThumbnailInfo) lives in the asset's optional THMB section. A
-// stated orbit round-trips byte for byte; the default orbit writes NO section (so every file written before
-// THMB existed is the same file), and a THMB stating the default is refused rather than read as a second
-// spelling of it.
-TEST( MeshSourceAsset, ThumbnailOrbitRoundTripsInItsOwnSectionAndTheDefaultWritesNone )
-{
-    MeshSourceAsset a     = MakeQuad( false );
-    const auto      plain = Encode( a );
-    auto            e     = CC::ReadAssetEnvelope( plain, MeshAssetHeaderReadContext() );
-    ASSERT_TRUE( e.IsSuccess() ) << e.GetError();
-    EXPECT_EQ( e.GetValue().Sections.size(), 3u ) << "the default orbit wrote a THMB section";
-
-    a.Thumbnail      = ThumbnailOrbit{ -11.25f, 180.0f, 0.5f };
-    const auto bytes = Encode( a );
-    const auto back  = DecodeMeshSourceAsset( bytes );
-    ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
-    EXPECT_EQ( back.GetValue().Thumbnail, a.Thumbnail );
-    EXPECT_EQ( back.GetValue(), a );
-    EXPECT_EQ( Encode( back.GetValue() ), bytes );
-
-    const auto statedDefault = Reassemble( bytes,
-                                           []( CC::AssetEnvelope& env )
-                                           {
-                                               // Hand-build a THMB that states the default: version 1 + three zero
-                                               // floats.
-                                               std::vector<std::byte> thmb( 16, std::byte{ 0 } );
-                                               thmb[0]               = std::byte{ 1 };
-                                               env.Sections[2].Bytes = thmb;
-                                           } );
-    ExpectRefused( statedDefault, "default" );
-
-    MeshSourceAsset bad = MakeQuad( false );
-    bad.Thumbnail.Zoom  = -1.0f;
-    EXPECT_FALSE( EncodeMeshSourceAsset( bad ).IsSuccess() ) << "a Zoom that puts the camera in the subject";
-}
-
 TEST( MeshSourceAsset, StaticRoundTripIsByteIdentical )
 {
     const MeshSourceAsset a     = MakeQuad( false );
@@ -248,7 +212,7 @@ TEST( MeshSourceAsset, MissingImportInfoIsRefused )
 {
     const auto file = Reassemble( Encode( MakeQuad( false ) ),
                                   []( CC::AssetEnvelope& e ) { e.Sections.erase( e.Sections.begin() + 1 ); } );
-    ExpectRefused( file, "META,IMPT,[THMB],SRCE" );
+    ExpectRefused( file, "META,IMPT,SRCE" );
 }
 
 TEST( MeshSourceAsset, CorruptHeaderCrcIsRefused )

@@ -258,6 +258,36 @@ namespace Desert::Editor
         return std::filesystem::exists( cooked, ec ) || ImportedMeshAssetIsFresh( source );
     }
 
+    Common::ResultStr<Assets::ThumbnailOrbit> MeshThumbnailOrbit( const std::filesystem::path& meshFile )
+    {
+        std::error_code   ec;
+        const std::string name = meshFile.filename().string();
+        if ( std::filesystem::is_regular_file( Common::Content::ImportRecordPathFor( meshFile ), ec ) )
+            return Ser::ReadImportRecordThumbnail( meshFile, name );
+
+        // A node mesh: `<source stem>_<node>.stmesh` beside its source. Only the records whose source stem
+        // prefixes this name can have written it; the record's own `Nodes` decides.
+        const std::string stem = meshFile.stem().string();
+        for ( const auto& entry : std::filesystem::directory_iterator( meshFile.parent_path(), ec ) )
+        {
+            if ( !Common::Content::IsImportRecord( entry.path() ) )
+                continue;
+            const std::filesystem::path source = entry.path().parent_path() / entry.path().stem();
+            const std::string           prefix = source.stem().string() + "_";
+            if ( stem.size() <= prefix.size() || stem.compare( 0, prefix.size(), prefix ) != 0 )
+                continue;
+            const auto record = Ser::ReadImportRecord( source );
+            if ( !record )
+                return Common::MakeError<Assets::ThumbnailOrbit>( record.GetError() );
+            if ( !record.GetValue() || !record.GetValue()->Nodes )
+                continue;
+            for ( const std::string& node : *record.GetValue()->Nodes )
+                if ( NodeMeshAssetPath( source, node ).filename() == meshFile.filename() )
+                    return Ser::ReadImportRecordThumbnail( source, name );
+        }
+        return Common::MakeSuccess( Assets::ThumbnailOrbit{} );
+    }
+
     Common::ResultStr<MeshAssetWrite> WriteImportedMeshAsset( const Ser::MeshAssetData&                 imported,
                                                               std::span<const Assets::MeshMaterialSlot> named,
                                                               const std::filesystem::path&              source )

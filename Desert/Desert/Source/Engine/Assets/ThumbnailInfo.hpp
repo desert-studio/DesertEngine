@@ -6,8 +6,9 @@
 // primitive it is drawn on and an optional PreviewMesh — SceneThumbnailInfoWithPrimitive.h), and the thumbnail
 // renderer reads ONLY that object. The same split here:
 //
-//   ThumbnailOrbit   the orbit every photographed asset has; a mesh stores it in its THMB section
-//                    (MeshSourceAsset.hpp), absent = the default orbit
+//   ThumbnailOrbit   the orbit every photographed asset has; an imported mesh's lives in its package, the
+//                    import record (ImportRecordData::Thumbnail, one entry per mesh the import writes), no
+//                    entry = the default orbit
 //   ThumbnailInfo    a material's: the primitive, its own mesh instead of the primitive, and the orbit; it lives
 //                    in MaterialData::Thumbnail (.demat), absent = the default info
 //
@@ -29,7 +30,7 @@ namespace Desert::Assets
 {
     // The shape a material is photographed on when it names no mesh of its own (UE EThumbnailPrimType minus
     // TPT_None: "no primitive" is said here by naming a PreviewMesh).
-    enum class ThumbnailPrimitive
+    enum class ThumbnailPrimitive : int
     {
         Sphere,
         Cube,

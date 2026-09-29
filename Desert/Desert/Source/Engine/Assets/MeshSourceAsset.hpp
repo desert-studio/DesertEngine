@@ -12,13 +12,10 @@
 //   Meta     display name + bounds of the source positions (cm) — what the registry and a thumbnail read
 //            without the body; it replaces the Reserved/flag bounds of the DESTMESH render header
 //   IMPT     MeshImportInfo: provenance (stable key and content hash of the imported file) + import settings
-//   THMB     OPTIONAL: the thumbnail orbit (UE: UStaticMesh::ThumbnailInfo, a USceneThumbnailInfo in the package).
-//            Written only when the orbit is not the default; no THMB = the default orbit (ThumbnailInfo.hpp) -
-//            the format's meaning of absent, so a file without it re-writes byte for byte
 //   SRCE     MeshSourceData: the source models, one EditMeshSer (our FMeshDescription) per authored LOD, the
 //            material slots they share, and for a skinned mesh its skin (bone names + per-vertex influences)
 //
-// Sections are written and read in exactly that order (META, IMPT, [THMB], SRCE), nothing else: the order is part
+// Sections are written and read in exactly that order (META, IMPT, SRCE), nothing else: the order is part
 // of the format so a read-then-write reproduces the file byte for byte, and a file assembled any other way
 // is refused by name rather than half-understood.
 //
@@ -26,7 +23,6 @@
 // from SRCE + settings under a DDC key, exactly as a texture's mips are built from its SRCE.
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/ResultStr.hpp>
-#include <Engine/Assets/ThumbnailInfo.hpp>
 #include <Engine/Geometry/SavedMeshForm.hpp>
 
 #include <cstddef>
@@ -144,7 +140,6 @@ namespace Desert::Assets
         Common::Content::AssetGuid   Guid;
         std::string                  Name;
         MeshImportInfo               Import;
-        ThumbnailOrbit               Thumbnail; // THMB; the default orbit = no section
         MeshSourceData               Source;
         bool                         operator==( const MeshSourceAsset& ) const = default;
     };

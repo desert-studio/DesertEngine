@@ -240,3 +240,55 @@ TEST( NodeMeshSplit, ASplitImportWritesNoCombinedMesh )
     ASSERT_TRUE( after.IsSuccess() && after.GetValue() );
     EXPECT_FALSE( after.GetValue()->Nodes.has_value() );
 }
+
+// THE ORBIT'S ONE HOME IS THE IMPORT RECORD (THM1l-c2; UE: UStaticMesh::ThumbnailInfo in the package): each mesh
+// the import writes reads its own entry, the entry survives a re-import that rewrites every node mesh, and a
+// stated default is refused so one picture has one spelling.
+TEST( NodeMeshSplit, EachImportedMeshReadsItsOrbitFromTheRecord )
+{
+    const GrassProject project;
+    const auto [data, nodes] = project.Import( { "TuftA", "TuftB", "TuftC" } );
+    const fs::path material  = Editor::MaterialAdoption::MaterialAssetPath( project.Source, "GrassAtlas" );
+    fs::create_directories( material.parent_path() );
+    std::ofstream( material ) << "{}";
+    auto split = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source );
+    ASSERT_TRUE( split.IsSuccess() ) << split.GetError();
+    ASSERT_EQ( split.GetValue().size(), 3u );
+    const fs::path tuftB = split.GetValue()[1].second;
+
+    const auto before = Editor::MeshThumbnailOrbit( tuftB );
+    ASSERT_TRUE( before.IsSuccess() ) << before.GetError();
+    EXPECT_EQ( before.GetValue(), Assets::ThumbnailOrbit{} ) << "no entry = the default orbit";
+
+    const auto record = Ser::ReadImportRecord( project.Source );
+    ASSERT_TRUE( record.IsSuccess() && record.GetValue() );
+    Ser::ImportRecordData        stated = *record.GetValue();
+    const Assets::ThumbnailOrbit yawed{ 10.0f, 180.0f, 0.25f };
+    stated.Thumbnail = std::map<std::string, Assets::ThumbnailOrbit>{
+         { tuftB.filename().string(), yawed }, { project.Source.filename().string(), { 0.0f, 90.0f, 0.0f } } };
+    const fs::path recordPath = Common::Content::ImportRecordPathFor( project.Source );
+    std::ofstream( recordPath, std::ios::binary | std::ios::trunc ) << Ser::WriteImportRecord( stated );
+
+    const auto node = Editor::MeshThumbnailOrbit( tuftB );
+    ASSERT_TRUE( node.IsSuccess() ) << node.GetError();
+    EXPECT_EQ( node.GetValue(), yawed ) << "the node mesh reads its own key";
+    const auto other = Editor::MeshThumbnailOrbit( split.GetValue()[0].second );
+    ASSERT_TRUE( other.IsSuccess() ) << other.GetError();
+    EXPECT_EQ( other.GetValue(), Assets::ThumbnailOrbit{} ) << "a sibling node does not read TuftB's orbit";
+    const auto combined = Editor::MeshThumbnailOrbit( project.Source );
+    ASSERT_TRUE( combined.IsSuccess() ) << combined.GetError();
+    EXPECT_EQ( combined.GetValue().Yaw, 90.0f ) << "the combined mesh is keyed by the source's own name";
+
+    // A re-import rewrites every node .stmesh; the record, and so the orbit, is kept.
+    auto again = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source );
+    ASSERT_TRUE( again.IsSuccess() ) << again.GetError();
+    const auto kept = Editor::MeshThumbnailOrbit( tuftB );
+    ASSERT_TRUE( kept.IsSuccess() ) << kept.GetError();
+    EXPECT_EQ( kept.GetValue(), yawed ) << "a re-import lost the orbit";
+
+    // A stated default is refused by name.
+    stated.Thumbnail->at( tuftB.filename().string() ) = Assets::ThumbnailOrbit{};
+    const auto refused                                = Ser::ParseImportRecord( Ser::WriteImportRecord( stated ) );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "default" ), std::string::npos ) << refused.GetError();
+}

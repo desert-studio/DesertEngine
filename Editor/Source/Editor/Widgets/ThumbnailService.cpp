@@ -1,5 +1,6 @@
 #include "ThumbnailService.hpp"
 
+#include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Widgets/CloudThumbnail.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
@@ -153,9 +154,23 @@ namespace Desert::Editor
     {
         // Keyed and judged exactly as RequestMesh keys and judges it, so the browser tile and the splash
         // ask for ONE picture of the cooked mesh, never two.
-        Warm( { Kind::Mesh, mesh.Handle, mesh.Material, ThumbnailKey::Identity( mesh.CookedPath ),
-                ThumbnailFreshness::MeshFreshnessSource( mesh.CookedPath ).generic_string(),
-                ThumbnailKey::DiskPath( mesh.CookedPath ), ThumbnailSubject::Preview::Sphere } );
+        const std::filesystem::path meshFile = ThumbnailFreshness::MeshFreshnessSource( mesh.CookedPath );
+        const auto                  orbit    = MeshThumbnailOrbit( meshFile );
+        if ( !orbit )
+        {
+            LOG_WARN( "[Thumbnails] no picture for '{}': {}", mesh.CookedPath, orbit.GetError() );
+            m_Failed.insert( ThumbnailKey::Identity( mesh.CookedPath ) );
+            return;
+        }
+        Request req{ Kind::Mesh,
+                     mesh.Handle,
+                     mesh.Material,
+                     ThumbnailKey::Identity( mesh.CookedPath ),
+                     meshFile.generic_string(),
+                     ThumbnailKey::DiskPath( mesh.CookedPath ),
+                     ThumbnailSubject::Preview::Sphere };
+        req.Thumbnail.Orbit = orbit.GetValue();
+        Warm( std::move( req ) );
     }
 
     void ThumbnailService::Warm( Request req )
@@ -211,10 +226,21 @@ namespace Desert::Editor
         const std::string identity = ThumbnailKey::Identity( assetPath );
         const std::string png      = ThumbnailKey::DiskPath( assetPath );
         const std::string source   = ThumbnailFreshness::MeshFreshnessSource( assetPath ).generic_string();
+        if ( m_Failed.count( identity ) )
+            return std::string();
         if ( ShouldQueue( identity, png, source ) )
         {
-            m_Queue.push_back(
-                 { Kind::Mesh, mesh, material, identity, source, png, ThumbnailSubject::Preview::Sphere } );
+            // THE ORBIT FROM THE MESH'S PACKAGE (its import record), read only when a capture is owed.
+            const auto orbit = MeshThumbnailOrbit( source );
+            if ( !orbit )
+            {
+                LOG_WARN( "[Thumbnails] no picture for '{}': {}", assetPath, orbit.GetError() );
+                m_Failed.insert( identity );
+                return std::string();
+            }
+            Request req{ Kind::Mesh, mesh, material, identity, source, png, ThumbnailSubject::Preview::Sphere };
+            req.Thumbnail.Orbit = orbit.GetValue();
+            m_Queue.push_back( std::move( req ) );
             m_Queued.insert( identity );
             HoldSubjects();
         }
