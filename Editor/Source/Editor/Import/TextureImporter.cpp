@@ -24,8 +24,12 @@
 #include <cstring>
 
 #include <stb_image/stb_image.h>
+#include <openexr.h>
 
 #include <algorithm>
+#include <cstdlib>
+#include <format>
+#include <string>
 #include <cctype>
 #include <cmath>
 
@@ -265,6 +269,220 @@ namespace Desert::Editor
         {
             return static_cast<uint64_t>( version ) | ( static_cast<uint64_t>( intent ) << 32 );
         }
+        /// ONE DECODED `.exr`: float RGBA, four floats a texel, or the reason OpenEXR gave for refusing it.
+        struct ExrDecode
+        {
+            int                w = 0;
+            int                h = 0;
+            std::vector<float> Rgba;
+            std::string        Problem; // empty on success
+        };
+
+        /// OpenEXR magic (0x76 0x2f 0x31 0x01) OR the `.exr` spelling. The spelling alone would send a
+        /// renamed PNG to OpenEXR; the magic alone would send a TRUNCATED `.exr` to stb, whose "unknown
+        /// image type" says nothing about what is actually wrong with the file. Either means "EXR".
+        bool IsExrSource( const std::string& bytes, const std::string& sourceKey )
+        {
+            constexpr std::string_view kExrMagic{ "\x76\x2f\x31\x01", 4 };
+            if ( std::string_view( bytes ).starts_with( kExrMagic ) )
+                return true;
+            std::string ext = std::filesystem::path( sourceKey ).extension().string();
+            std::ranges::transform( ext, ext.begin(),
+                                    []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
+            return ext == ".exr";
+        }
+
+        /// The source bytes OpenEXRCore reads through its stream callbacks, and the first error it reported.
+        struct ExrMemoryStream
+        {
+            const std::string* Bytes = nullptr;
+            std::string        FirstError;
+        };
+
+        int64_t ExrReadMemory( exr_const_context_t, void* userdata, void* buffer, uint64_t size, uint64_t offset,
+                               exr_stream_error_func_ptr_t )
+        {
+            const auto& bytes = *static_cast<ExrMemoryStream*>( userdata )->Bytes;
+            if ( offset >= bytes.size() )
+                return 0;
+            const uint64_t n = std::min<uint64_t>( size, bytes.size() - offset );
+            std::memcpy( buffer, bytes.data() + offset, n );
+            return static_cast<int64_t>( n );
+        }
+
+        int64_t ExrSizeMemory( exr_const_context_t, void* userdata )
+        {
+            return static_cast<int64_t>( static_cast<ExrMemoryStream*>( userdata )->Bytes->size() );
+        }
+
+        void ExrRecordError( exr_const_context_t ctxt, exr_result_t code, const char* message )
+        {
+            void* userdata = nullptr;
+            if ( exr_get_user_data( ctxt, &userdata ) != EXR_ERR_SUCCESS || !userdata )
+                return;
+            auto& stream = *static_cast<ExrMemoryStream*>( userdata );
+            if ( stream.FirstError.empty() )
+                stream.FirstError = std::format( "{}: {}", exr_get_error_code_as_string( code ),
+                                                 message ? message : exr_get_default_error_message( code ) );
+        }
+
+        /// Which RGBA slot a channel feeds: the name after the last '.', so a layered `diffuse.R` is R.
+        /// `Y` (luminance-only files) feeds R, G and B; anything else is not read. -1 = not read, 4 = Y.
+        int ExrChannelSlot( std::string_view name )
+        {
+            if ( const size_t dot = name.rfind( '.' ); dot != std::string_view::npos )
+                name = name.substr( dot + 1 );
+            if ( name == "R" )
+                return 0;
+            if ( name == "G" )
+                return 1;
+            if ( name == "B" )
+                return 2;
+            if ( name == "A" )
+                return 3;
+            if ( name == "Y" )
+                return 4;
+            return -1;
+        }
+
+        /// Decodes part 0 of a scanline EXR, every compression OpenEXR has (NONE/RLE/ZIPS/ZIP/PIZ/PXR24/
+        /// B44/B44A/DWAA/DWAB/HTJ2K/ZSTD), any pixel type, into float RGBA. A missing alpha is 1, a
+        /// missing colour channel 0. Tiled and deep files are refused by name, not guessed at.
+        ExrDecode DecodeExr( const std::string& bytes )
+        {
+            ExrDecode       out;
+            ExrMemoryStream stream{ &bytes, {} };
+
+            exr_context_initializer_t init = EXR_DEFAULT_CONTEXT_INITIALIZER;
+            init.user_data                 = &stream;
+            init.read_fn                   = &ExrReadMemory;
+            init.size_fn                   = &ExrSizeMemory;
+            init.error_handler_fn          = &ExrRecordError;
+
+            exr_context_t         ctxt        = nullptr;
+            exr_decode_pipeline_t decoder     = EXR_DECODE_PIPELINE_INITIALIZER;
+            bool                  decoderLive = false;
+
+            const auto fail = [&]( exr_result_t rc, std::string_view step )
+            {
+                out.Problem = std::format( "OpenEXR {} failed: {}", step,
+                                           stream.FirstError.empty() ? exr_get_default_error_message( rc )
+                                                                     : stream.FirstError );
+                out.Rgba.clear();
+                if ( decoderLive )
+                    exr_decoding_destroy( ctxt, &decoder );
+                exr_finish( &ctxt );
+                return out;
+            };
+
+            exr_result_t rc = exr_start_read( &ctxt, "<texture source>", &init );
+            if ( rc != EXR_ERR_SUCCESS )
+                return fail( rc, "header read" );
+
+            exr_storage_t storage = EXR_STORAGE_LAST_TYPE;
+            if ( ( rc = exr_get_storage( ctxt, 0, &storage ) ) != EXR_ERR_SUCCESS )
+                return fail( rc, "storage query" );
+            if ( storage != EXR_STORAGE_SCANLINE )
+            {
+                stream.FirstError = storage == EXR_STORAGE_TILED ? "tiled EXR sources are not imported"
+                                                                 : "deep EXR sources are not imported";
+                return fail( EXR_ERR_FEATURE_NOT_IMPLEMENTED, "storage check" );
+            }
+
+            exr_attr_box2i_t window{};
+            if ( ( rc = exr_get_data_window( ctxt, 0, &window ) ) != EXR_ERR_SUCCESS )
+                return fail( rc, "data window query" );
+            out.w = window.max.x - window.min.x + 1;
+            out.h = window.max.y - window.min.y + 1;
+
+            const exr_attr_chlist_t* channels = nullptr;
+            if ( ( rc = exr_get_channels( ctxt, 0, &channels ) ) != EXR_ERR_SUCCESS )
+                return fail( rc, "channel list query" );
+            bool hasColour = false;
+            bool hasRgb    = false;
+            for ( int c = 0; c < channels->num_channels; ++c )
+            {
+                const int slot = ExrChannelSlot( channels->entries[c].name.str );
+                hasColour |= slot == 0 || slot == 1 || slot == 2 || slot == 4;
+                hasRgb |= slot == 0 || slot == 1 || slot == 2;
+            }
+            if ( !hasColour )
+            {
+                stream.FirstError = "no R, G, B or Y channel";
+                return fail( EXR_ERR_INVALID_ARGUMENT, "channel check" );
+            }
+
+            out.Rgba.assign( static_cast<size_t>( out.w ) * out.h * 4u, 0.0f );
+            for ( size_t i = 3; i < out.Rgba.size(); i += 4 )
+                out.Rgba[i] = 1.0f;
+            // Luminance-only: decode Y into R, then copy it to G and B below.
+            const bool lumaOnly = !hasRgb;
+
+            int32_t linesPerChunk = 0;
+            if ( ( rc = exr_get_scanlines_per_chunk( ctxt, 0, &linesPerChunk ) ) != EXR_ERR_SUCCESS )
+                return fail( rc, "chunk size query" );
+
+            const size_t lineStride = static_cast<size_t>( out.w ) * 4u * sizeof( float );
+            for ( int y = window.min.y; y <= window.max.y; y += linesPerChunk )
+            {
+                exr_chunk_info_t chunk{};
+                if ( ( rc = exr_read_scanline_chunk_info( ctxt, 0, y, &chunk ) ) != EXR_ERR_SUCCESS )
+                    return fail( rc, std::format( "chunk read at line {}", y ) );
+                rc = decoderLive ? exr_decoding_update( ctxt, 0, &chunk, &decoder )
+                                 : exr_decoding_initialize( ctxt, 0, &chunk, &decoder );
+                if ( rc != EXR_ERR_SUCCESS )
+                    return fail( rc, std::format( "decoder setup at line {}", y ) );
+                decoderLive = true;
+
+                auto* row = reinterpret_cast<uint8_t*>( out.Rgba.data() ) +
+                            static_cast<size_t>( chunk.start_y - window.min.y ) * lineStride;
+                for ( int16_t c = 0; c < decoder.channel_count; ++c )
+                {
+                    exr_coding_channel_info_t& ch   = decoder.channels[c];
+                    int                        slot = ExrChannelSlot( ch.channel_name );
+                    if ( slot == 4 )
+                        slot = lumaOnly ? 0 : -1;
+                    if ( slot < 0 || ch.x_samples != 1 || ch.y_samples != 1 )
+                    {
+                        ch.decode_to_ptr = nullptr; // read, not kept: a subsampled or unnamed channel
+                        continue;
+                    }
+                    ch.decode_to_ptr          = row + static_cast<size_t>( slot ) * sizeof( float );
+                    ch.user_pixel_stride      = static_cast<int32_t>( 4u * sizeof( float ) );
+                    ch.user_line_stride       = static_cast<int32_t>( lineStride );
+                    ch.user_data_type         = EXR_PIXEL_FLOAT;
+                    ch.user_bytes_per_element = static_cast<int16_t>( sizeof( float ) );
+                }
+                if ( ( rc = exr_decoding_choose_default_routines( ctxt, 0, &decoder ) ) != EXR_ERR_SUCCESS )
+                    return fail( rc, std::format( "decoder choice at line {}", y ) );
+                if ( ( rc = exr_decoding_run( ctxt, 0, &decoder ) ) != EXR_ERR_SUCCESS )
+                    return fail( rc, std::format( "decode at line {}", y ) );
+            }
+            if ( decoderLive )
+                exr_decoding_destroy( ctxt, &decoder );
+            exr_finish( &ctxt );
+
+            if ( lumaOnly )
+                for ( size_t i = 0; i < out.Rgba.size(); i += 4 )
+                    out.Rgba[i + 1] = out.Rgba[i + 2] = out.Rgba[i];
+            return out;
+        }
+
+        /// A NORMAL MAP IS DIRECTION DATA IN [0, 1], NOT RADIANCE. polyhaven ships its normals as `.exr`;
+        /// the float path would keep them RGBA32F and uncompressed (16 bytes a texel, no block format
+        /// offered), while the same map as a PNG goes to BC5. The authored NormalMap intent is what says
+        /// which of the two this is, so the float texels are quantised linearly to 8 bits (no transfer
+        /// curve: a normal map is never sRGB) and the texture takes the ordinary normal-map path.
+        std::vector<unsigned char> QuantiseToUnorm8( const std::vector<float>& rgba )
+        {
+            std::vector<unsigned char> bytes( rgba.size() );
+            for ( size_t i = 0; i < rgba.size(); ++i )
+            {
+                const float v = std::isfinite( rgba[i] ) ? std::clamp( rgba[i], 0.0f, 1.0f ) : 0.0f;
+                bytes[i]      = static_cast<unsigned char>( std::lround( v * 255.0f ) );
+            }
+            return bytes;
+        }
     } // namespace
 
     TextureCookResult TextureImporter::Cook( const std::filesystem::path& path )
@@ -340,14 +558,41 @@ namespace Desert::Editor
             Assets::ContentRegistry::NoteFile( assetPath );
             return { handle, TextureCookOutcome::Fresh };
         }
-        const bool isHDR = stbi_is_hdr_from_memory( reinterpret_cast<const stbi_uc*>( sourceBytesStorage.data() ),
-                                                    static_cast<int>( sourceBytesStorage.size() ) ) != 0;
+        const bool isEXR = IsExrSource( sourceBytesStorage, sourceKey );
+        const bool isHDR =
+             !isEXR && stbi_is_hdr_from_memory( reinterpret_cast<const stbi_uc*>( sourceBytesStorage.data() ),
+                                                static_cast<int>( sourceBytesStorage.size() ) ) != 0;
 
         int                                w = 0, h = 0, ch = 0;
         std::vector<unsigned char>         base;
         Desert::Core::Formats::ImageFormat format = Desert::Core::Formats::ImageFormat::RGBA8F;
 
-        if ( isHDR )
+        if ( isEXR )
+        {
+            // stb has no EXR decoder; OpenEXRCore is the one (ThirdParty/openexr). A refusal is the same
+            // refusal as stb's below: nothing written, nothing cached, the path and OpenEXR's reason logged.
+            ExrDecode exr = DecodeExr( sourceBytesStorage );
+            if ( !exr.Problem.empty() )
+            {
+                LOG_ERROR( "[TextureImporter] EXR decode failed for '{0}' ({1}); no cooked texture was "
+                           "written and the null handle is returned.",
+                           abs, exr.Problem );
+                return { Common::AssetHandle::Null(), TextureCookOutcome::Failed };
+            }
+            w = exr.w;
+            h = exr.h;
+            if ( authored.Intent == Fmt::TextureIntent::NormalMap )
+            {
+                base = QuantiseToUnorm8( exr.Rgba );
+            }
+            else
+            {
+                format = Desert::Core::Formats::ImageFormat::RGBA32F;
+                base.resize( exr.Rgba.size() * sizeof( float ) );
+                std::memcpy( base.data(), exr.Rgba.data(), base.size() );
+            }
+        }
+        else if ( isHDR )
         {
             float* pixels =
                  stbi_loadf_from_memory( reinterpret_cast<const stbi_uc*>( sourceBytesStorage.data() ),
