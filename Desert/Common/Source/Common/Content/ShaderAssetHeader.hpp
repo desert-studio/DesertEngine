@@ -47,5 +47,11 @@ namespace Common::Content
     };
     ResultStr<ShaderManifest> ReadShaderManifest( std::string_view source );
 
+    // The roles engine code asks the template registry for. A role is declared by the shader file
+    // (`Role <Name>`), exactly one loaded shader per role; the asset registry carries it as the Role tag so
+    // the world cook knows a material's backend without loading the shader (WorldCells::CustomShaderFrom).
+    inline constexpr std::string_view kPBRSurfaceRole = "PBRSurface"; // the batched PBR backend (until MAT1a)
+    inline constexpr std::string_view kDebugColorRole = "DebugColor"; // the scripting flat-colour material
+
     const IAssetHeaderFormat& ShaderCommentHeaderFormat();
 } // namespace Common::Content

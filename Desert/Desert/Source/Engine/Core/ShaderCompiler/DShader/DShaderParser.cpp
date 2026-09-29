@@ -1387,10 +1387,12 @@ namespace Desert::Core::Preprocess
                     return fail();
                 }
             }
+            // The template MANIFEST (`Role <Name>`, `Default Surface`) is not program schema: its one reader is
+            // Common::Content::ReadShaderManifest (ShaderAsset, the asset registry's Role tag). The compiler
+            // only checks the lines are well formed, so a malformed manifest fails the compile by line too.
             else if ( lower == "role" )
             {
-                result.Meta.Role = ReadIdent( c );
-                if ( result.Meta.Role.empty() )
+                if ( ReadIdent( c ).empty() )
                 {
                     err = { line, "Role needs a name ('Role <Name>')" };
                     return fail();
@@ -1404,7 +1406,6 @@ namespace Desert::Core::Preprocess
                     err = { line, "unknown Default '" + v + "' (the only one is 'Default Surface')" };
                     return fail();
                 }
-                result.Meta.DefaultSurface = true;
             }
             else if ( lower == "properties" )
             {

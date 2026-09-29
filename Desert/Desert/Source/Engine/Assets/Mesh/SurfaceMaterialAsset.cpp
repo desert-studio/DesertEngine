@@ -107,7 +107,7 @@ namespace Desert::Assets
              Common::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( m_Data.ShaderGuid() ) ) );
         m_ShaderName = name.GetValue();
         if ( const auto shader = manager->FindByHandle<ShaderAsset>( m_ShaderHandle ) )
-            m_ShaderIsPBRSurface = shader->GetRole() == kPBRSurfaceRole;
+            m_ShaderIsPBRSurface = shader->GetRole() == Common::Content::kPBRSurfaceRole;
     }
 
     Common::BoolResultStr SurfaceMaterialAsset::StateShaderByName( MaterialData& data, const AssetManager& manager,

@@ -38,6 +38,7 @@
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
@@ -291,6 +292,18 @@ namespace
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 // RELATION 1 — referenced stays, unreferenced goes. BOTH HALVES, ONE TEST.
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+namespace
+{
+    // A material names its template by GUID (there is no default by absence); the probes name the engine's
+    // standard surface. No manager here holds it — the edges under test are the texture and the submesh.
+    void StateProbeTemplate( Desert::Assets::MaterialData& data )
+    {
+        const auto guid = Common::Content::AssetGuidFromText( "4f1cac6af403a010c792d835dd6f7d44" );
+        ASSERT_TRUE( guid ) << guid.GetError();
+        data.SetShader( guid.GetValue(), "engine:Shaders/Programs/PBR/StaticMeshPBR.shader" );
+    }
+} // namespace
 
 TEST( AssetEviction, AnAssetNothingReferencesIsReleasedAndAReferencedOneIsNot )
 {
@@ -629,6 +642,7 @@ TEST( AssetEviction, AMaterialsTextureSurvivesBecauseTheMaterialNamesIt )
         // Through the one .demat writer, so the probe states the header and schema generation the loader
         // requires; a hand-typed body without them loads as substituted defaults and names no texture.
         MaterialData probe;
+        StateProbeTemplate( probe );
         probe.SetTexture( "u_AlbedoTexture", textureSource.Guid, "assets:Textures/EvictionProbe.detex" );
         const auto written = WriteMaterialFile( materialPath, probe );
         ASSERT_TRUE( written ) << written.GetError();
@@ -920,7 +934,9 @@ TEST( AssetEviction, AMeshsMaterialSurvivesBecauseASubmeshNamesIt )
     AssetManager manager;
 
     {
-        const auto written = WriteMaterialFile( materialPath, MaterialData{} );
+        MaterialData probe;
+        StateProbeTemplate( probe );
+        const auto written = WriteMaterialFile( materialPath, probe );
         ASSERT_TRUE( written ) << written.GetError();
     }
     auto material = manager.CreateAsset<SurfaceMaterialAsset>( Common::Filepath( materialPath ) );

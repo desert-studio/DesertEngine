@@ -164,9 +164,9 @@ TEST( EngineShaderByGuid, EveryCommittedMaterialResolvesItsShaderByGuid )
                                       << " material(s) did not resolve their shader:" << joined;
 
     // THE TEMPLATE REGISTRY over the engine corpus: each role and the default are declared by exactly one file.
-    const auto pbr = Desert::Assets::FindTemplateByRole( manager, Desert::Assets::kPBRSurfaceRole );
+    const auto pbr = Desert::Assets::FindTemplateByRole( manager, Common::Content::kPBRSurfaceRole );
     ASSERT_TRUE( pbr ) << pbr.GetError();
-    const auto debugColor = Desert::Assets::FindTemplateByRole( manager, Desert::Assets::kDebugColorRole );
+    const auto debugColor = Desert::Assets::FindTemplateByRole( manager, Common::Content::kDebugColorRole );
     ASSERT_TRUE( debugColor ) << debugColor.GetError();
     const auto byDefault = Desert::Assets::FindDefaultSurfaceTemplate( manager, "", "" );
     ASSERT_TRUE( byDefault ) << byDefault.GetError();

@@ -272,11 +272,6 @@ namespace Desert::Core::Formats
         std::vector<ShaderParam> Params;
         ShaderRenderState        State;
         ShaderDomain             Domain = ShaderDomain::Unspecified;
-        // The template's MANIFEST (`Role <Name>`, `Default Surface`): what code and the project ask the shader
-        // registry for, by declaration in the shader file and never by its name. Read for the asset registry by
-        // Common::Content::ReadShaderManifest; exactly one shader per role, exactly one default (ShaderAsset.hpp).
-        std::string Role;
-        bool        DefaultSurface = false;
 
         // Additional named passes declared by the shader (DSL `Pass "Name" { ... }` blocks).
         // Each is a separate program registered in the ShaderService as "<Shader>/<Pass>";

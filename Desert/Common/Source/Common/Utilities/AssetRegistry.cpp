@@ -19,7 +19,7 @@ namespace Common::Utils
     namespace
     {
         constexpr std::string_view kMagic         = "DesertAssetRegistry";
-        constexpr int              kFormatVersion = 5;
+        constexpr int              kFormatVersion = 6;
         // The file's name under the Cooked tree. One spelling, here, because both the producer (the
         // editor's cook) and the consumer (both hosts' boot) have to name the same file and a second
         // literal is how they would come to name two.
@@ -240,6 +240,7 @@ namespace Common::Utils
         constexpr std::string_view kTagName    = "Name";
         constexpr std::string_view kTagSkinned = "Skinned";
         constexpr std::string_view kTagRig     = "Rig";
+        constexpr std::string_view kTagRole    = "Role";
 
         // `Name=<escaped>` and `Skinned`, comma separated in that order, or `-` when the file states neither.
         std::string TagsText( const AssetRegistryEntry& entry )
@@ -264,6 +265,14 @@ namespace Common::Utils
                 out += kTagRig;
                 out += '=';
                 out += std::to_string( entry.RigSignature );
+            }
+            if ( !entry.Role.empty() )
+            {
+                if ( !out.empty() )
+                    out += ',';
+                out += kTagRole;
+                out += '=';
+                out += EscapeTagValue( entry.Role );
             }
             return out.empty() ? std::string( kNone ) : out;
         }
@@ -292,6 +301,12 @@ namespace Common::Utils
                           one[kTagName.size()] == '=' )
                 {
                     if ( !UnescapeTagValue( one.substr( kTagName.size() + 1 ), entry.DisplayName ) )
+                        return false;
+                }
+                else if ( one.starts_with( kTagRole ) && one.size() > kTagRole.size() + 1 &&
+                          one[kTagRole.size()] == '=' )
+                {
+                    if ( !UnescapeTagValue( one.substr( kTagRole.size() + 1 ), entry.Role ) )
                         return false;
                 }
                 else
@@ -763,7 +778,7 @@ namespace Common::Utils
             if ( tagsText != kNone && !ParseTags( tagsText, entry ) )
                 return MakeFormattedError<AssetRegistry>(
                      "line {}: '{}' is neither '-' nor 'Name=<%XX-escaped "
-                     "text>', 'Skinned' and/or 'Rig=<signature>', comma separated",
+                     "text>', 'Skinned', 'Rig=<signature>' and/or 'Role=<text>', comma separated",
                      lineNo, std::string( tagsText ) );
 
             if ( const auto inserted = registry.Insert( std::move( entry ) ); !inserted )

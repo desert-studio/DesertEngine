@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Assets/AssetGuidRef.hpp>
+#include <Common/Content/ShaderAssetHeader.hpp>
 #include <Engine/Assets/AssetRefSerialization.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 
@@ -47,11 +48,6 @@ namespace Desert::Assets
         std::string m_Role;
         bool        m_DefaultSurface = false;
     };
-
-    // The roles engine code asks the template registry for. A role is declared by the shader file
-    // (`Role <Name>`), exactly one loaded shader per role.
-    inline constexpr std::string_view kPBRSurfaceRole = "PBRSurface"; // the batched PBR backend (until MAT1a)
-    inline constexpr std::string_view kDebugColorRole = "DebugColor"; // the scripting flat-colour material
 
     class AssetManager;
 
