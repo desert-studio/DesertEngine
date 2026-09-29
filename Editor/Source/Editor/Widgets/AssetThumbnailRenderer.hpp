@@ -46,7 +46,7 @@ namespace Desert::Editor
          * RequestMesh for why these answer instead of returning void.
          *
          * @p how is NOT a preference and is not chosen here: it is the material's shader DOMAIN, decided
-         * once by `ThumbnailSubject::PreviewRouteFor`. A ball, a camera-facing card, or the SKY the
+         * once by `ThumbnailSubject::PreviewRouteFor`. A ball, or the SKY the
          * material authors. This entry point used to take `bool flatPreview` and therefore had no way to
          * express the third picture, so every Volume-domain material in the project was queued as a mesh
          * draw and photographed as an empty sphere.

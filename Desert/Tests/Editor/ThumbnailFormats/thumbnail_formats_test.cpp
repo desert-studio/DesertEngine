@@ -552,7 +552,7 @@ TEST( ThumbnailMaterialDomains, APictureExistsForExactlyTheDomainsADrawPathCanEx
     for ( const F::ShaderDomain domain : kAllDomains )
     {
         const bool drawable = F::DrawnByMeshPath( domain ) || F::DrawnByVolumePath( domain );
-        EXPECT_EQ( TS::PreviewForDomain( domain, false ).has_value(), drawable )
+        EXPECT_EQ( TS::PreviewForDomain( domain ).has_value(), drawable )
              << "domain " << F::ShaderDomainName( domain )
              << ": the thumbnail router and the draw paths disagree about whether this can be drawn at "
                 "all. Either a capture is queued that MeshRenderer will refuse (and its empty frame "
@@ -566,18 +566,29 @@ TEST( ThumbnailMaterialDomains, EachDrawableDomainGetsThePictureItsOwnPathProduc
     namespace TS = Desert::Editor::ThumbnailSubject;
     namespace F  = Desert::Core::Formats;
 
-    // The mesh path: a ball, or the camera-facing card a cutout needs. The cutout choice is INSIDE the
-    // mesh path and nowhere else — a medium has no alpha-tested silhouette to flatten.
-    EXPECT_EQ( TS::PreviewForDomain( F::kMeshPathDomain, false ), TS::Preview::Sphere );
-    EXPECT_EQ( TS::PreviewForDomain( F::kMeshPathDomain, true ), TS::Preview::Card );
+    // The mesh path: the ball. Every surface material, a masked one included.
+    EXPECT_EQ( TS::PreviewForDomain( F::kMeshPathDomain ), TS::Preview::Sphere );
 
-    // The volume path: the sky the material authors. The cutout flag must not reach it.
-    EXPECT_EQ( TS::PreviewForDomain( F::kVolumePathDomain, false ), TS::Preview::SkyDome );
-    EXPECT_EQ( TS::PreviewForDomain( F::kVolumePathDomain, true ), TS::Preview::SkyDome );
+    // The volume path: the sky the material authors.
+    EXPECT_EQ( TS::PreviewForDomain( F::kVolumePathDomain ), TS::Preview::SkyDome );
 
     // The terrain path has its own renderer and no thumbnail producer. Named here rather than left to the
     // loop above so that adding one is a deliberate edit of this line.
-    EXPECT_FALSE( TS::PreviewForDomain( F::kTerrainPathDomain, false ).has_value() );
+    EXPECT_FALSE( TS::PreviewForDomain( F::kTerrainPathDomain ).has_value() );
+}
+
+// A MASKED material goes on the ball, like UE's material thumbnail. The rule this replaces flattened any
+// material with AlphaCutoff > 0 onto a camera-facing card, so a grass atlas previewed as a flat rectangle
+// and the mask — which the mesh path honours by discard (StaticMeshPBR.shader) — was never seen on a
+// shape. The material's cutoff is not an input of the routing at all now: the answer is the surface
+// domain's, and the surface domain's answer is the sphere.
+TEST( ThumbnailMaterialDomains, AMaskedSurfaceMaterialPreviewsOnTheSphere )
+{
+    namespace TS = Desert::Editor::ThumbnailSubject;
+    namespace F  = Desert::Core::Formats;
+
+    EXPECT_EQ( TS::PreviewForDomain( F::ShaderDomain::Surface ), TS::Preview::Sphere )
+         << "a surface material, AlphaCutoff > 0 or not, must preview on the sphere cut by its mask";
 }
 
 int main( int argc, char** argv )

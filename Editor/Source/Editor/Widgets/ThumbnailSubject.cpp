@@ -42,11 +42,9 @@ namespace Desert::Editor::ThumbnailSubject
 
         const Core::Formats::ShaderDomain domain = shader->GetProgramMeta().Domain;
 
-        // A cutout material garbles on a sphere: the atlas wraps and the picture becomes one of the ball.
-        // THE ONE STATEMENT OF THAT RULE — it used to be copied into the browser tile, the Details slot
-        // and the static-mesh row, three files deciding one thing.
-        const bool cutout = asset.Data().GetFloat( "AlphaCutoff" ) > 0.0f;
-        if ( const auto how = PreviewForDomain( domain, cutout ) )
+        // The domain alone decides. A masked material is NOT flattened onto a card: it goes on the ball
+        // like any other surface and the mesh path's alpha discard cuts it (StaticMeshPBR.shader).
+        if ( const auto how = PreviewForDomain( domain ) )
             return Common::MakeSuccess( *how );
 
         // Skybox, Terrain, PostProcess, Unspecified. NAMED RATHER THAN DROPPED: until now these reached
