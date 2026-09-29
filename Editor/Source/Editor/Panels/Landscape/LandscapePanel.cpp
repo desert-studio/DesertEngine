@@ -169,6 +169,7 @@ namespace Desert::Editor
         }
         else if ( state.Mode == Core::LandscapeEdMode::Paint )
         {
+            DrawEditLayers();
             DrawPaintSettings();
             DrawTargetLayers();
             DrawBrushSettings();
@@ -177,6 +178,7 @@ namespace Desert::Editor
         {
             DrawToolStrip();
             ImGui::Spacing();
+            DrawEditLayers();
             DrawToolSettings();
             DrawBrushSettings();
         }
@@ -458,6 +460,152 @@ namespace Desert::Editor
         ImGuiUtilities::BeginPropertyRow( "Disable Startup Slowdown" );
         ImGui::Checkbox( "##noSlowdown", &paint.DisableStartupSlowdown );
         ImGuiUtilities::EndPropertyRow();
+    }
+
+    void LandscapePanel::DrawEditLayers()
+    {
+        if ( !ImGuiUtilities::SectionHeader( ICON_MDI_LAYERS_TRIPLE "  Edit Layers", true, "" ) )
+            return;
+        const auto scene = m_Scene.lock();
+        if ( !scene )
+        {
+            ImGui::TextDisabled( "no scene" );
+            return;
+        }
+        auto&      registry  = scene->GetRegistry();
+        const auto landscape = ECS::FirstLandscape( registry );
+        const auto root =
+             landscape ? ECS::FindLandscapeRootEntity( registry, *landscape ) : entt::entity( entt::null );
+        if ( root == entt::null )
+        {
+            ImGui::TextDisabled( "the scene has no loaded landscape" );
+            return;
+        }
+        // A copy: every command below replaces the stack, and the loop must not read a moved vector.
+        const auto stack   = registry.get<ECS::LandscapeComponent>( root ).EditLayers;
+        auto&      editing = Core::LandscapeSculptState::Get().EditingLayer;
+        const auto refused = []( const Common::BoolResultStr& r )
+        {
+            if ( !r.IsSuccess() )
+                ToastManager::Push( r.GetError(), ToastLevel::Error, 6.0f );
+        };
+
+        if ( ImGui::Button( ICON_MDI_PLUS "  Create Layer" ) )
+        {
+            if ( auto added = Commands::AddLandscapeEditLayer( scene ); !added.IsSuccess() )
+                ToastManager::Push( added.GetError(), ToastLevel::Error, 6.0f );
+            return; // the command replaced the stack
+        }
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( "A new empty layer above the selected one; brushes write the selected layer." );
+
+        // Top first, as UE lists them; Layers[0] (merged first) is the bottom row.
+        static char         renameBuffer[128] = {};
+        static Common::UUID renaming          = Common::UUID::Null();
+        static Common::UUID dragging          = Common::UUID::Null();
+        static float        dragHeight        = 1.0f;
+        static float        dragWeight        = 1.0f;
+        for ( size_t row = stack.Layers.size(); row-- > 0; )
+        {
+            const auto& layer    = stack.Layers[row];
+            const bool  selected = editing.IsNull()
+                                        ? row == 0u
+                                        : static_cast<uint64_t>( editing ) == static_cast<uint64_t>( layer.Guid );
+            ImGui::PushID( static_cast<int>( static_cast<uint64_t>( layer.Guid ) & 0x7fffffffu ) );
+
+            if ( ImGui::SmallButton( layer.Visible ? ICON_MDI_EYE : ICON_MDI_EYE_OFF ) )
+            {
+                refused( Commands::SetLandscapeEditLayerVisible( scene, layer.Guid, !layer.Visible ) );
+                ImGui::PopID();
+                return;
+            }
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( layer.Visible ? "Hide: the layer stops contributing" : "Show" );
+            ImGui::SameLine();
+            if ( ImGui::SmallButton( layer.Locked ? ICON_MDI_LOCK : ICON_MDI_LOCK_OPEN_VARIANT ) )
+            {
+                refused( Commands::SetLandscapeEditLayerLocked( scene, layer.Guid, !layer.Locked ) );
+                ImGui::PopID();
+                return;
+            }
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( layer.Locked ? "Unlock" : "Lock: brushes refuse this layer" );
+            ImGui::SameLine();
+
+            const bool isRenaming = static_cast<uint64_t>( renaming ) == static_cast<uint64_t>( layer.Guid );
+            if ( isRenaming )
+            {
+                ImGui::SetNextItemWidth( -ImGui::GetFrameHeight() * 1.5f );
+                if ( ImGui::InputText( "##name", renameBuffer, sizeof( renameBuffer ),
+                                       ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll ) )
+                {
+                    renaming = Common::UUID::Null();
+                    refused( Commands::RenameLandscapeEditLayer( scene, layer.Guid, renameBuffer ) );
+                    ImGui::PopID();
+                    return;
+                }
+                if ( ImGui::IsItemDeactivated() )
+                    renaming = Common::UUID::Null();
+            }
+            else
+            {
+                if ( ImGui::Selectable( layer.Name.c_str(), selected, ImGuiSelectableFlags_AllowDoubleClick,
+                                        ImVec2( -ImGui::GetFrameHeight() * 1.5f, 0.0f ) ) )
+                {
+                    editing = layer.Guid;
+                    if ( ImGui::IsMouseDoubleClicked( ImGuiMouseButton_Left ) )
+                    {
+                        renaming = layer.Guid;
+                        std::snprintf( renameBuffer, sizeof( renameBuffer ), "%s", layer.Name.c_str() );
+                        ImGui::SetKeyboardFocusHere( 0 );
+                    }
+                }
+                if ( ImGui::IsItemHovered() )
+                    ImGui::SetTooltip( "Click: brushes write this layer. Double-click: rename." );
+            }
+            ImGui::SameLine();
+            ImGui::BeginDisabled( stack.Layers.size() == 1u );
+            if ( ImGui::SmallButton( ICON_MDI_DELETE ) )
+            {
+                refused( Commands::RemoveLandscapeEditLayer( scene, layer.Guid ) );
+                ImGui::EndDisabled();
+                ImGui::PopID();
+                return;
+            }
+            ImGui::EndDisabled();
+            if ( ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+                ImGui::SetTooltip( stack.Layers.size() == 1u ? "The last layer stays: a landscape has at least one"
+                                                             : "Delete the layer and its data on every tile" );
+
+            // The alphas: dragged on a copy, committed as ONE undo entry when the drag ends (UE's transaction
+            // per slider interaction), then merged.
+            if ( selected )
+            {
+                const bool held = static_cast<uint64_t>( dragging ) == static_cast<uint64_t>( layer.Guid );
+                float      h    = held ? dragHeight : layer.HeightAlpha;
+                float      w    = held ? dragWeight : layer.WeightAlpha;
+                ImGui::Indent();
+                const bool hChanged = ImGui::SliderFloat( "Heightmap Alpha", &h, -1.0f, 1.0f, "%.2f" );
+                const bool hDone    = ImGui::IsItemDeactivatedAfterEdit();
+                const bool wChanged = ImGui::SliderFloat( "Weightmap Alpha", &w, 0.0f, 1.0f, "%.2f" );
+                const bool wDone    = ImGui::IsItemDeactivatedAfterEdit();
+                ImGui::Unindent();
+                if ( hChanged || wChanged )
+                {
+                    dragging   = layer.Guid;
+                    dragHeight = h;
+                    dragWeight = w;
+                }
+                if ( hDone || wDone )
+                {
+                    dragging = Common::UUID::Null();
+                    refused( Commands::SetLandscapeEditLayerAlpha( scene, layer.Guid, h, w ) );
+                    ImGui::PopID();
+                    return;
+                }
+            }
+            ImGui::PopID();
+        }
     }
 
     void LandscapePanel::DrawTargetLayers()
