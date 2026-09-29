@@ -914,8 +914,11 @@ namespace Desert::Editor
 
             // A collider that disagrees with the mesh it is supposed to wrap is invisible until something
             // walks into thin air — the greybox house shipped with double-size colliders for exactly this
-            // reason (see the world-units commit). Say it here, next to the button that fixes it.
-            if ( !ctx.FieldFilter )
+            // reason (see the world-units commit). Say it here, next to the button that fixes it. A Mesh or
+            // ConvexHull collider is cut from that mesh, so it cannot disagree with it.
+            const bool fromMesh = c.Data.Shape == ::Desert::Physics::ShapeType::Mesh ||
+                                  c.Data.Shape == ::Desert::Physics::ShapeType::ConvexHull;
+            if ( !ctx.FieldFilter && !fromMesh )
             {
                 if ( const auto meshHalf = MeshHalfExtents( en ) )
                 {
