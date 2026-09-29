@@ -746,7 +746,7 @@ TEST( ControlPointerDrag, APlanHoversPressesMovesAndReleasesInImagePixels )
     namespace C = Desert::Editor::Control;
     C::PointerInjection::Reset();
     const C::PointerTargetRect rect{ 100.0f, 50.0f, 400.0f, 300.0f, 7u, 10 };
-    const auto plan = C::PointerDrag::Plan( rect, { 20.0f, 40.0f, 220.0f, 40.0f }, 4, 2.0f );
+    const auto                 plan = C::PointerDrag::Plan( rect, { 20.0f, 40.0f, 220.0f, 40.0f }, 4, 2.0f );
     ASSERT_TRUE( plan.IsSuccess() ) << plan.GetError();
     const C::PointerDrag& drag = plan.GetValue();
     ASSERT_EQ( drag.FrameCount(), 7u );

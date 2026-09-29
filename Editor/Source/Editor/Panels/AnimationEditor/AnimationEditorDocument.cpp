@@ -755,9 +755,9 @@ namespace Desert::Editor
                                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse ) )
         {
             const ImVec2 origin = ImGui::GetCursorScreenPos();
-            Control::PointerInjection::PublishTarget( Control::Subject::Document,
-                                                      { origin.x, origin.y, view.x, view.y,
-                                                        ImGui::GetWindowViewport()->ID, ImGui::GetFrameCount() } );
+            Control::PointerInjection::PublishTarget(
+                 Control::Subject::Document,
+                 { origin.x, origin.y, view.x, view.y, ImGui::GetWindowViewport()->ID, ImGui::GetFrameCount() } );
             if ( !m_Preview || !m_UIHelper )
                 ImGui::TextDisabled( "Starting the preview..." );
             else

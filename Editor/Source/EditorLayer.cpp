@@ -2213,8 +2213,7 @@ namespace Desert::Editor
         // whole subject of the sequence this document exists to prove.
         const bool waitsForAFrame =
              response.Ok() && ( request.Operation == Control::Op::Run || request.Operation == Control::Op::Set ||
-                                request.Operation == Control::Op::Drag ||
-                                Control::IsShot( request.Operation ) );
+                                request.Operation == Control::Op::Drag || Control::IsShot( request.Operation ) );
 
         if ( !waitsForAFrame )
         {

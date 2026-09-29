@@ -270,11 +270,21 @@ TEST( WindowCloseGate, WithoutAnOwnerTheFrameStopsTheRunAndWithOneTheOwnerDecide
     EXPECT_TRUE( gate.StopsNow() );
 
     int asked = 0;
-    gate.Install( [&asked]() { ++asked; return false; } ); // questions raised: Cancel must be possible
+    gate.Install(
+         [&asked]()
+         {
+             ++asked;
+             return false;
+         } ); // questions raised: Cancel must be possible
     EXPECT_FALSE( gate.StopsNow() );
     EXPECT_EQ( asked, 1 );
 
-    gate.Install( [&asked]() { ++asked; return true; } );
+    gate.Install(
+         [&asked]()
+         {
+             ++asked;
+             return true;
+         } );
     EXPECT_TRUE( gate.StopsNow() );
     EXPECT_EQ( asked, 2 );
 

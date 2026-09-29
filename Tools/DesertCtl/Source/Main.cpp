@@ -394,7 +394,7 @@ static int RunTool( int argc, char** argv )
             return kNoEditor;
         }
         const std::string steps = ( rest.size() > 3 ) ? rest[3] : "8";
-        request = R"({"id":1,"op":"drag","value":[)" + from.substr( 1, from.size() - 2 ) + "," +
+        request                 = R"({"id":1,"op":"drag","value":[)" + from.substr( 1, from.size() - 2 ) + "," +
                   to.substr( 1, to.size() - 2 ) + R"(],"steps":)" + steps + SubjectField( subject ) + "}";
     }
     else if ( operation == "quit" )
