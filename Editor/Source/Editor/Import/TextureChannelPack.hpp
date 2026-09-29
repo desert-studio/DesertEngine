@@ -3,6 +3,7 @@
 #include <Editor/Import/MaterialImportContract.hpp>
 
 #include <filesystem>
+#include <string_view>
 
 namespace Desert::Editor
 {
@@ -28,4 +29,9 @@ namespace Desert::Editor
     // source or sources of different sizes, naming the files.
     Common::ResultStr<PackOutcome> PackTextureChannels( const ImportedTextureSlot&   slot,
                                                         const std::filesystem::path& out );
+
+    // The one rule every image DERIVED at import follows (a packed slot, an embedded texture pulled out of a .glb
+    // or .fbx): `bytes` go to `out` only when they differ from the file already there, so an unchanged re-import
+    // keeps the file's bytes, its mtime and (by path) the texture asset's GUID.
+    Common::ResultStr<PackOutcome> WriteDerivedTexture( std::string_view bytes, const std::filesystem::path& out );
 } // namespace Desert::Editor

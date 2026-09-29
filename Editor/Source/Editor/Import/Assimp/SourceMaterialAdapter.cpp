@@ -61,7 +61,13 @@ namespace Desert::Editor
                 entries[std::format( "{}.{}", format, key )] = { value, file };
         };
 
-        const std::optional<std::filesystem::path> baseColour = texture( aiTextureType_DIFFUSE );
+        // An FBX from Maya (Stingray/Standard Surface baseColor) or 3ds Max (Physical base_color_map) states its
+        // albedo in BASE_COLOR, not DIFFUSE; it is the same image to the template (fbx.DiffuseColor). Read only
+        // when no DIFFUSE map is stated: glTF fills both with one image, and two albedo parts would force a pack.
+        const bool fbxBaseColour = format == "fbx" && mat.GetTextureCount( aiTextureType_DIFFUSE ) == 0 &&
+                                   mat.GetTextureCount( aiTextureType_BASE_COLOR ) > 0;
+        const std::optional<std::filesystem::path> baseColour =
+             texture( fbxBaseColour ? aiTextureType_BASE_COLOR : aiTextureType_DIFFUSE );
         read.Alpha = ResolveSourceAlpha( mat, baseColour.value_or( std::filesystem::path{} ) );
 
         if ( format == "fbx" )
