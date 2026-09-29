@@ -133,7 +133,11 @@ def log(data, agent, decision, note=""):
         os.makedirs(STATE_DIR, exist_ok=True)
         with open(os.path.join(STATE_DIR, "log.jsonl"), "a") as f:
             f.write(json.dumps({"t": time.time(), "agent": agent, "type": data.get("agent_type"),
-                                "tool": data.get("tool_name"), "decision": decision, "note": note[:200]}) + "\n")
+                                "tool": data.get("tool_name"), "decision": decision, "note": note[:200],
+                                # the refused call itself, so false refusals can be found (09-29: 13 `cat` refusals, cause unknowable)
+                                "cmd": str((data.get("tool_input") or {}).get("command")
+                                           or (data.get("tool_input") or {}).get("file_path") or "")[:160]
+                                if decision == "deny" else ""}) + "\n")
     except OSError:
         pass
 
