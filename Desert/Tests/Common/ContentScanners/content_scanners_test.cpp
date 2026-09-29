@@ -138,8 +138,10 @@ namespace
            "and therefore before any content exists to enumerate. It answers 'which project am I', not "
            "'what content is there' - and it must not go through a mount, because nothing is mounted yet.",
            "" },
-         { "Editor/Source/Editor/Core/CrashRecovery.cpp", Verdict::NotContent,
-           "the user's own ~/.desertengine session directory. Never packaged, never a project's content.", "" },
+         { "Editor/Source/Editor/Core/AutosavePaths.hpp", Verdict::NotContent,
+           "<Project>/Saved/Autosaves - the editor's machine-local recovery copies, gitignored with the rest of "
+           "Saved/. Never packaged, never a project's content; a packaged game has no autosaves to find.",
+           "" },
          { "Editor/Source/Editor/Core/LayoutManager.cpp", Verdict::NotContent,
            "~/.desertengine/Layouts - one person's saved window layouts, per the config-ownership rule.", "" },
          { "Editor/Source/Editor/Packaging/GamePackager.cpp", Verdict::NotContent,

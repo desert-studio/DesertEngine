@@ -180,12 +180,13 @@ namespace Desert::Scripting
         }
     }
 
-    void ScriptEngine::CallAnimationNotify( uint32_t entity, uint32_t slot, const std::string& name )
+    void ScriptEngine::CallAnimationNotify( uint32_t entity, uint32_t slot, const char* callback,
+                                            const std::string& name )
     {
         sol::environment* env = SlotEnv( m_Impl->Envs, entity, slot, false );
         if ( !env )
             return;
-        sol::protected_function fn = ( *env )["OnAnimationNotify"];
+        const sol::protected_function fn = ( *env )[callback];
         if ( !fn.valid() )
             return;
         m_Impl->CurrentOwner             = Impl::SlotKey( entity, slot ); // Timer.after ownership
@@ -193,7 +194,7 @@ namespace Desert::Scripting
         if ( !r.valid() )
         {
             sol::error err = r;
-            LOG_ERROR( "[Lua] OnAnimationNotify error: {}", err.what() );
+            LOG_ERROR( "[Lua] {} error: {}", callback, err.what() );
         }
     }
 

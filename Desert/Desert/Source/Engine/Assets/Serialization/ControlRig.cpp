@@ -621,6 +621,21 @@ namespace Desert::Assets::Serialization
                     return ok;
                 }
             }
+            if ( control.Color.has_value() )
+            {
+                const glm::vec3& c = *control.Color;
+                for ( int axis = 0; axis < 3; ++axis )
+                {
+                    // A colour outside 0..1 is not brighter, it is a typo: the draw clamps it and the rig
+                    // silently shows a different colour than the file says.
+                    if ( !std::isfinite( c[axis] ) || c[axis] < 0.0F || c[axis] > 1.0F )
+                    {
+                        return Common::MakeFormattedError<bool>( "control '{}': colour component {} is {}, "
+                                                                 "expected a linear value in 0..1",
+                                                                 control.Name, axis, c[axis] );
+                    }
+                }
+            }
         }
 
         for ( const ControlElementData& control : data.Controls )
@@ -848,6 +863,7 @@ namespace Desert::Assets::Serialization
             // unit quaternion), which is exactly the composition BuildFrame performed before this field
             // existed — that equivalence is what lets `kControlRigVersion` stay at 1.
             element.ShapeTransform = ToBoneTransform( file.ShapeTransform.value_or( RigTransformData{} ) );
+            element.Color          = file.Color.value_or( Animation::ControlSideColor( file.Name ) );
             element.Offset         = ToBoneTransform( file.Offset );
             element.Pose           = ToBoneTransform( file.Pose );
             element.Parents.reserve( file.Parents.size() );
@@ -1065,6 +1081,12 @@ namespace Desert::Assets::Serialization
                  shape != RigTransformData{} )
             {
                 file.ShapeTransform = shape;
+            }
+            // Same canonical-absent rule as the shape transform: a control still wearing its side colour
+            // writes no colour, so an untouched rig round-trips byte-identical.
+            if ( control.Color != Animation::ControlSideColor( control.Name ) )
+            {
+                file.Color = control.Color;
             }
             file.Parents.reserve( control.Parents.size() );
 

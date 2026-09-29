@@ -24,6 +24,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <random>
 #include <string>
 #include <tuple>
@@ -113,7 +114,9 @@ namespace
                 const double closestX = std::clamp( x, cell.Cell.X * size, ( cell.Cell.X + 1 ) * size );
                 const double closestZ = std::clamp( z, cell.Cell.Z * size, ( cell.Cell.Z + 1 ) * size );
                 const double reach    = std::hypot( x - closestX, z - closestZ );
-                const double allowed  = static_cast<double>( grid.LoadingRange ) * sources[source].RangeScale;
+                const double allowed =
+                     static_cast<double>( sources[source].LoadingRange.value_or( grid.LoadingRange ) ) *
+                     sources[source].RangeScale;
                 if ( reach <= allowed && ( best.Source == kNoRecord || reach < best.Distance ) )
                     best = WantedCell{ index, reach, source };
             }
@@ -471,6 +474,103 @@ TEST( WorldPartitionStreaming, OneQueryOnAFiftyThousandCellWorldMeasuresAFewDoze
 
     // Five levels, each a circle of 256 m over its own cells: at most 6 × 6 squares per level.
     EXPECT_LE( examined, 5u * 36u );
+}
+
+// ── WP24: a source's own range and priority (ECS::StreamingSourceComponent) ──
+
+namespace
+{
+    StreamingSource WithRange( float x, float z, float loadingRange, int priority = 0 )
+    {
+        StreamingSource source = At( x, z );
+        source.LoadingRange    = loadingRange;
+        source.Priority        = priority;
+        return source;
+    }
+} // namespace
+
+TEST( WorldPartitionStreaming, ASourcesOwnRangeReplacesTheGridsAndIsStillScaled )
+{
+    std::vector<std::tuple<int, int, int>> row;
+    for ( int x = -10; x <= 10; ++x )
+        row.emplace_back( 0, x, 0 );
+    const WorldPartitionPlan       plan     = PlanOf( row );
+    const WorldPartitionSerialized settings = Grid( 12800.0f, 25600.0f );
+
+    // Standing in cell 0: the grid's 256 m reach two cells either side (5 cells); an own 12 800 cm one each
+    // side (3); an own 0 only the cell it stands in.
+    EXPECT_EQ( Query( plan, settings, { At( 6400.0f, 6400.0f ) } ).Cells.size(), 5u );
+    EXPECT_EQ( Query( plan, settings, { WithRange( 6400.0f, 6400.0f, 12800.0f ) } ).Cells.size(), 3u );
+    EXPECT_EQ( Query( plan, settings, { WithRange( 6400.0f, 6400.0f, 0.0f ) } ).Cells.size(), 1u );
+    EXPECT_EQ( Query( plan, settings, { WithRange( 6400.0f, 6400.0f, 64000.0f ) } ).Cells.size(), 11u );
+    // The residency widens a source by RangeScale for its unload band; an override must widen with it.
+    StreamingSource widened = WithRange( 6400.0f, 6400.0f, 12800.0f );
+    widened.RangeScale      = 2.0f;
+    EXPECT_EQ( Query( plan, settings, { widened } ).Cells.size(), 5u );
+    EXPECT_DOUBLE_EQ( SourceRadius( widened, settings.Grids.front() ), 25600.0 );
+    EXPECT_DOUBLE_EQ( SourceRadius( At( 0.0f, 0.0f ), settings.Grids.front() ), 25600.0 );
+
+    // A mixed union agrees with the walk over every cell.
+    ExpectSameAsReference( plan, settings, { WithRange( -64000.0f, 6400.0f, 5000.0f ), At( 70400.0f, 6400.0f ) },
+                           "override union" );
+}
+
+TEST( WorldPartitionStreaming, AnOverrideRangeThatIsNotANonNegativeNumberIsRefusedByName )
+{
+    const WorldPartitionPlan       plan     = PlanOf( { { 0, 0, 0 } } );
+    const WorldPartitionSerialized settings = Grid( 12800.0f, 25600.0f );
+    for ( const float bad : { -1.0f, std::numeric_limits<float>::infinity(), std::nanf( "" ) } )
+    {
+        const auto wish =
+             QueryStreamingCells( plan, settings, std::vector{ At( 0.0f, 0.0f ), WithRange( 0, 0, bad ) } );
+        ASSERT_FALSE( wish.IsSuccess() ) << bad;
+        EXPECT_NE( wish.GetError().find( "streaming source 1 overrides LoadingRange" ), std::string::npos )
+             << wish.GetError();
+    }
+}
+
+TEST( WorldPartitionStreaming, AHigherPrioritySourcesCellsComeFirstAndTheSetDoesNotChange )
+{
+    // Two neighbourhoods far apart: the player's (priority 1) at the far end, a look-ahead (0) near cell 0.
+    std::vector<std::tuple<int, int, int>> row;
+    for ( int x = -2; x <= 12; ++x )
+        row.emplace_back( 0, x, 0 );
+    const WorldPartitionPlan       plan     = PlanOf( row );
+    const WorldPartitionSerialized settings = Grid( 12800.0f, 25600.0f );
+
+    const StreamingSource lookAhead = WithRange( 6400.0f, 6400.0f, 25600.0f, 0 );
+    const StreamingSource player    = WithRange( 134400.0f, 6400.0f, 25600.0f, 1 );
+    const StreamingWish   equal  = Query( plan, settings, { At( 6400.0f, 6400.0f ), At( 134400.0f, 6400.0f ) } );
+    const StreamingWish   ranked = Query( plan, settings, { lookAhead, player } );
+
+    ASSERT_EQ( ranked.Cells.size(), 10u );
+    auto sorted = []( std::vector<std::tuple<int, int, int>> cells )
+    {
+        std::sort( cells.begin(), cells.end() );
+        return cells;
+    };
+    EXPECT_EQ( sorted( Coordinates( plan, ranked ) ), sorted( Coordinates( plan, equal ) ) )
+         << "priority decides the order, never which cells";
+    for ( std::size_t rank = 0; rank < ranked.Cells.size(); ++rank )
+    {
+        EXPECT_EQ( ranked.Cells[rank].Source, rank < 5 ? 1u : 0u ) << "rank " << rank;
+        EXPECT_EQ( ranked.Cells[rank].Priority, rank < 5 ? 1 : 0 ) << "rank " << rank;
+    }
+    // Nearest-first inside each priority: the player's own cell (distance 0) leads.
+    EXPECT_EQ( std::get<1>( Coordinates( plan, ranked ).front() ), 10 );
+    EXPECT_DOUBLE_EQ( ranked.Cells.front().Distance, 0.0 );
+
+    // A cell both want goes to the higher priority, even when the lower one stands nearer.
+    const StreamingSource lowInside  = WithRange( 6400.0f, 6400.0f, 25600.0f, 0 );
+    const StreamingSource highBeside = WithRange( 32000.0f, 6400.0f, 25600.0f, 5 );
+    for ( const WantedCell& wanted : Query( plan, settings, { lowInside, highBeside } ).Cells )
+    {
+        if ( plan.Cells[wanted.Cell].Cell.X == 0 )
+        {
+            EXPECT_EQ( wanted.Source, 1u );
+            EXPECT_EQ( wanted.Priority, 5 );
+        }
+    }
 }
 
 int main( int argc, char** argv )

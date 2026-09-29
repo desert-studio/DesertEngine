@@ -29,11 +29,17 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Rig/ControlHierarchy.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/TrackEditing.cpp",
 
+        -- RotateControlRecorded turns a control through ControlManipulator's RotateControlLocal, and the
+        -- manipulator's translation unit also owns the shape frame, hence the shape library beside it.
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Rig/ControlManipulator.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Rig/ControlShape.cpp",
+
         -- The pose half. Animator.cpp is pure CPU (no Vulkan symbols), and every suite that compiles it
         -- links the retarget/rig/solver layer it owns -- enumerated because premake lists sources
         -- explicitly, so a real-but-unlisted edge fails as an undefined symbol naming a file that is
         -- sitting right there, which reads as a defect in the merge.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/AnimationClip.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/ClipSection.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp",

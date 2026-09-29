@@ -1,7 +1,7 @@
 #include <Engine/Core/Input.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
-#include <GLFW/glfw3.h>
+#include <Engine/Core/Glfw.hpp>
 
 namespace Desert::Input
 {

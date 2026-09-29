@@ -18,6 +18,11 @@
 #include <optional>
 #include <vector>
 
+namespace Desert::Animation
+{
+    class Animator;
+}
+
 namespace Desert::Editor::UI
 {
     class UIHelper;
@@ -32,6 +37,11 @@ namespace Desert::Editor::Render
 namespace Desert::Graphic
 {
     class ImageCube;
+}
+
+namespace Desert::Assets
+{
+    class AnimationAsset;
 }
 
 namespace Desert::Editor
@@ -220,6 +230,35 @@ namespace Desert::Editor
         // the target entity is reused across previews.
         void SetForcedLOD( int lod );
 
+        // Show a SKINNED mesh posed by `clip` (the Animation Editor's preview; null = the bind pose, Persona's
+        // Skeleton and Mesh modes): the target entity gets a
+        // SkinnedMeshComponent and an AnimationComponent whose own clock is stopped (Playing = false), so
+        // the pose is exactly the time the owner last passed to SetAnimationTime — the scene never advances
+        // it, whatever the editor's frame rate. Any other Set*/Clear drops both components again.
+        void SetSkinnedMesh( const Assets::AssetHandle& mesh, const std::vector<Assets::AssetHandle>& materials,
+                             Assets::Asset<Assets::AnimationAsset> clip );
+
+        // Pose the skinned mesh at `seconds` into its clip (Animator::SetTime, applied in Update before the
+        // scene records). A changed time re-renders the pane; the same time does not.
+        void SetAnimationTime( double seconds );
+
+        // The skinned target's animator (nullptr without SetSkinnedMesh), the camera's view-projection and the
+        // target's world transform: what an owner needs to draw bones over the picture Draw() shows. The
+        // pose is the one the last Update rendered.
+        [[nodiscard]] const Animation::Animator* GetAnimator() const;
+        [[nodiscard]] glm::mat4                  GetViewProjection() const;
+        [[nodiscard]] glm::mat4                  GetTargetTransform() const;
+        // The camera's two halves, for a gizmo that takes view and projection apart (ImGuizmo::Manipulate).
+        [[nodiscard]] glm::mat4 GetView() const;
+        [[nodiscard]] glm::mat4 GetProjection() const;
+
+        // THE ANIMATION EDITOR'S POSING. The same animator as GetAnimator(), writable, for an owner that edits
+        // its authoring pose (a bone gizmo, a Details row). While the override is on, every Update re-applies
+        // that authoring pose over the clip's pose at the time and re-renders, so a drag and an Undo of it
+        // both show on the next frame; off, the pose is the clip's again.
+        [[nodiscard]] Animation::Animator* GetAnimatorForAuthoring();
+        void                               SetPoseOverride( bool posed );
+
         // Show a material on a primitive.
         void SetMaterial( const Assets::AssetHandle& material, Shape shape = Shape::Sphere );
 
@@ -402,6 +441,12 @@ namespace Desert::Editor
         // instead of being previewed against a guessed radius.
         bool TryFrameMesh();
 
+        // Remove the skinned preview's components, so one kind of content fills the pane at a time.
+        void DropSkinned();
+        // Put the animator at m_AnimationTime. False while the scene has not built the animator yet (the
+        // first frame after SetSkinnedMesh): the render gate must not settle on the bind pose.
+        bool ApplyAnimationTime();
+
         std::unique_ptr<Graphic::SceneRenderer> m_Renderer;
         // The cubemap domain's draw (see SetCubemapMaterial). Created on first use, source-cleared by
         // every other Set*/Clear so exactly one kind of content fills the pane at a time.
@@ -417,6 +462,9 @@ namespace Desert::Editor
         // Our own camera, driven by the orbit state (not the scene's input-driven EditorCamera).
         std::shared_ptr<::Desert::Core::GameplayCamera> m_Camera;
         ECS::Entity                                     m_Target;
+        Assets::Asset<Assets::AnimationAsset>           m_Clip; // the skinned preview's clip, null otherwise
+        double                                          m_AnimationTime = 0.0;
+        bool m_PoseOverride = false; // the authoring pose replaces the clip's (SetPoseOverride)
         // The three entities the SceneSetup drives. Created once with the scene and then only written to
         // — a floor that is switched off is an entity with no mesh in its slot, not an entity destroyed
         // and rebuilt, because rebuilding it every toggle would churn the mesh service for a checkbox.

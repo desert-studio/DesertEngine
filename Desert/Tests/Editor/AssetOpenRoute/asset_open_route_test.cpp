@@ -155,6 +155,61 @@ TEST_F( AssetOpenRoute, EveryAssetTypeEitherOpensOrIsRefusedByName )
     EXPECT_FALSE( SubjectOpenRequests::HasPending() );
 }
 
+// PERSONA (ANV1f): a skeletal mesh and a skeleton open like any asset — the mesh under the Mesh type, whose
+// registration then builds Persona's Mesh mode because PersonaModeFor says so; a static mesh stays the viewer's.
+namespace
+{
+    Assets::AssetMetadata MetadataAt( const uint64_t handle, const Assets::AssetTypeID type, const char* path )
+    {
+        auto metadata     = Metadata( handle, type );
+        metadata.Filepath = path;
+        return metadata;
+    }
+
+    SubjectEditorRegistry Registering( const std::initializer_list<Assets::AssetTypeID> types )
+    {
+        SubjectEditorRegistry registry;
+        for ( const auto type : types )
+            registry.Register( AssetSubjectType( static_cast<uint32_t>( type ) ),
+                               SubjectEditorRegistry::Registration{ "Any", "A",
+                                                                    []( const SubjectId& ) { return nullptr; },
+                                                                    []( const SubjectId& ) { return true; } } );
+        return registry;
+    }
+} // namespace
+
+TEST_F( AssetOpenRoute, ASkeletalMeshOpensAsItsMeshSubjectInPersonasMeshMode )
+{
+    const auto registry = Registering( { Assets::AssetTypeID::Mesh } );
+    const auto mesh     = MetadataAt( 0x5C1, Assets::AssetTypeID::Mesh, "Characters/SK_Mannequin.skmesh" );
+    const auto subject  = AssetSubjectFor( &mesh, mesh.Handle, registry );
+    ASSERT_TRUE( subject.IsSuccess() ) << subject.GetError();
+    EXPECT_EQ( subject.GetValue(),
+               AssetSubject( mesh.Handle, static_cast<uint32_t>( Assets::AssetTypeID::Mesh ) ) );
+    EXPECT_EQ( PersonaModeFor( mesh ), PersonaMode::Mesh );
+}
+
+TEST_F( AssetOpenRoute, AStaticMeshIsNotPersonas )
+{
+    const auto mesh = MetadataAt( 0x5C2, Assets::AssetTypeID::Mesh, "Props/SM_Crate.stmesh" );
+    EXPECT_EQ( PersonaModeFor( mesh ), std::nullopt );
+    const auto texture = Metadata( 0x5C3, Assets::AssetTypeID::Texture2D );
+    EXPECT_EQ( PersonaModeFor( texture ), std::nullopt );
+}
+
+TEST_F( AssetOpenRoute, ASkeletonOpensInPersonasSkeletonModeAndAClipInItsAnimationMode )
+{
+    const auto registry = Registering( { Assets::AssetTypeID::Skeleton, Assets::AssetTypeID::Animation } );
+    const auto skeleton = MetadataAt( 0x5C4, Assets::AssetTypeID::Skeleton, "Characters/SKEL_Mannequin.skeleton" );
+    const auto clip     = MetadataAt( 0x5C5, Assets::AssetTypeID::Animation, "Characters/Run.anim" );
+    const auto opened   = AssetSubjectFor( &skeleton, skeleton.Handle, registry );
+    ASSERT_TRUE( opened.IsSuccess() ) << opened.GetError();
+    EXPECT_EQ( opened.GetValue(),
+               AssetSubject( skeleton.Handle, static_cast<uint32_t>( Assets::AssetTypeID::Skeleton ) ) );
+    EXPECT_EQ( PersonaModeFor( skeleton ), PersonaMode::Skeleton );
+    EXPECT_EQ( PersonaModeFor( clip ), PersonaMode::Animation );
+}
+
 namespace
 {
     std::string ReadRepoFile( const char* relative )
@@ -195,6 +250,62 @@ TEST( AssetOpenRegister, MatchesTheAssetEditorsEditorLayerRegisters )
 
     EXPECT_FALSE( registered.empty() );
     EXPECT_EQ( registered, opens );
+}
+
+namespace
+{
+    // The EditorLayer member each LoadScene call sits in: the last line before it that opens a member at
+    // namespace indent ("    <ret> EditorLayer::Name(" — four spaces, then not a comment).
+    std::multiset<std::string> LoadSceneCallers( const std::string& layer )
+    {
+        std::multiset<std::string> callers;
+        const std::regex           member( R"(^    (?:[^ /][^(]*)?EditorLayer::(\w+)\()" );
+        const std::regex           call( R"((^|[^:\w])LoadScene\()" );
+        std::istringstream         lines( layer );
+        std::string                line;
+        std::string                current;
+        std::smatch                match;
+        while ( std::getline( lines, line ) )
+        {
+            if ( std::regex_search( line, match, member ) )
+            {
+                current = match[1].str();
+                continue; // the definition line itself ("EditorLayer::LoadScene(") is not a call
+            }
+            const auto first = line.find_first_not_of( ' ' );
+            if ( first != std::string::npos && line.compare( first, 2, "//" ) != 0 &&
+                 std::regex_search( line, call ) )
+                callers.insert( current );
+        }
+        return callers;
+    }
+} // namespace
+
+// ONE PATH TO OPEN A SCENE (BUG-OPEN1). LoadScene replaces the world WITHOUT asking about unsaved edits; the
+// ask lives on SceneOpenRequest (consumed in OnUpdate), which the palette, a drop and the asset browser use.
+// The File -> Open Scene dialog and Recent Scenes called LoadScene directly and discarded edits silently.
+// So LoadScene may be called only from the places that are NOT a user choosing a scene, or that come after
+// the ask. Each row names its reason; a new caller is red here until it goes through SceneOpenRequest.
+TEST( SceneOpenRegister, OnlyTheGatedPlacesCallLoadScene )
+{
+    const std::string layer = ReadRepoFile( "Editor/Source/EditorLayer.cpp" );
+    ASSERT_FALSE( layer.empty() ) << "Editor/Source/EditorLayer.cpp not found from the working directory";
+
+    // clang-format off
+    const std::multiset<std::string> allowed = {
+        "EditorLayer",               // constructor: --scene and the shot's scene, before any edit exists
+        "EditorLayer",
+        "OnUpdate",                  // the SceneOpenRequest consumer, after the unsaved-changes check
+        "DrawRecoveryPopup",         // restoring an autosave the user just chose to recover
+        "DrawConfirmOpenScenePopup", // "Save and open" / "Discard and open" — the ask itself
+        "DrawConfirmOpenScenePopup",
+    };
+    // clang-format on
+    EXPECT_EQ( LoadSceneCallers( layer ), allowed );
+
+    // And the palette's "Open Scene <file>" entries go through the gate rather than around it.
+    const std::regex palette( R"("Open Scene " \+ SceneLabel\( scene \)[^}]*SceneOpenRequest::Request\()" );
+    EXPECT_TRUE( std::regex_search( layer, palette ) );
 }
 
 int main( int argc, char** argv )

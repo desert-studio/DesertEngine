@@ -14,6 +14,10 @@ import re
 import subprocess
 
 OUT = ".claude/CODEMAP.md"
+# CODEMAP_OUT: write a map of THIS tree elsewhere (a task branch's map in its scratch dir, 09-29: agents on continuation
+# branches searched for folders the dev map did not have yet). The hand-written Notes still come from .claude/CODEMAP.md.
+NOTES_FROM = OUT
+OUT = os.environ.get("CODEMAP_OUT", OUT)
 ROOTS = [
     ("Engine", "Desert/Desert/Source/Engine"),
     ("Common", "Desert/Common/Source/Common"),
@@ -59,8 +63,8 @@ def main():
             compiled_by[src].append(proj)
 
     notes = ""
-    if os.path.exists(OUT):
-        old = open(OUT, encoding="utf-8").read()
+    if os.path.exists(NOTES_FROM):
+        old = open(NOTES_FROM, encoding="utf-8").read()
         m = re.search(r"<!-- NOTES -->.*?<!-- /NOTES -->", old, re.S)
         if m:
             notes = m.group(0)

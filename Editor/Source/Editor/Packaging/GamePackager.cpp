@@ -164,7 +164,7 @@ namespace Desert::Editor
         // right key produces a game that reaches "could not be read" on the player's machine instead
         // of failing here where somebody can act on it (DC §1.4).
         // A PARTITIONED WORLD SHIPS CUT INTO ITS CELLS (WP9): the runtime reads its index and always-loaded cell
-        // at the start and every other cell on a worker when the camera wants it (WorldStreamer.hpp), from
+        // at the start and every other cell on a worker when a streaming source wants it (WorldStreamer.hpp), from
         // WorldCells::CookedWorldDirectory of the scene's key. Cooked here, from the scene as it is on disk, with
         // the registry the editor plans with — so the cells are the ones the editor's Play streams. A scene
         // file that states a partition and does not cook fails the package: the game would fail on it too.

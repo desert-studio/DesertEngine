@@ -82,10 +82,10 @@ namespace Desert::Animation
         /**
          * @brief The shapes the engine ships.
          *
-         * Six names over three geometries: a 32-gon in three planes, a unit cube, a unit octahedron, and
-         * the three circles together as a sphere. Chosen because they are what a control rig actually
-         * uses (UE's own defaults are the same family) and stopped there — a seventh shape is content,
-         * and content belongs in a rig asset, not in a header.
+         * Eleven names: a 32-gon in three planes, a unit cube, a unit octahedron, the three circles
+         * together as a sphere, and UE's flat family (Square, Hexagon, Arrow, Arrow4, CircleThick). Chosen
+         * because they are UE's ControlRig default shapes an animator recognises on sight — a further shape
+         * is content, and content belongs in a rig asset, not in a header.
          *
          * ANSWERS A RESULT RATHER THAN A LIBRARY, and the reason is that the alternative was six
          * discarded `Add` results. A built-in table whose registration is thrown away is the "empty

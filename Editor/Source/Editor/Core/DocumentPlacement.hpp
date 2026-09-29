@@ -137,6 +137,27 @@ namespace Desert::Editor::DocumentPlacement
                               "viewport" };
     }
 
+    /**
+     * @brief Where a level TIMELINE (the Sequencer) opens: in the drawer under the level viewport, so the
+     *        viewport stays in sight while the playhead moves — UE docks Sequencer there for that reason.
+     *
+     * @p drawerDockId is the node of the bottom drawer (Assets, Logs, the document well; 0 when none).
+     * A remembered DockNode or Floating placement is the person's own and stands; "beside the scene",
+     * remembered or not, is replaced by the drawer, because a timeline beside the viewport hides the very
+     * thing it animates. No live drawer distinct from the scene's node: the ordinary rule.
+     */
+    [[nodiscard]] inline Resolution ResolveTimeline( const std::string& kind, const Remembered* remembered,
+                                                     const uint32_t drawerDockId, const bool drawerLive,
+                                                     const uint32_t sceneDockId, const bool sceneLive,
+                                                     const bool rememberedLive, const glm::vec2 workPos,
+                                                     const glm::vec2 workSize )
+    {
+        const bool besideScene = remembered == nullptr || remembered->At == Remembered::Where::NextToScene;
+        if ( besideScene && drawerDockId != 0 && drawerLive && drawerDockId != sceneDockId )
+            return { { drawerDockId, glm::vec2( 0.0f ), glm::vec2( 0.0f ) }, {} };
+        return Resolve( kind, remembered, sceneDockId, sceneLive, rememberedLive, workPos, workSize );
+    }
+
     // One imgui.ini value: "next" | "dock <id>" | "float <x> <y> <w> <h>".
     [[nodiscard]] inline std::string Format( const Remembered& r )
     {

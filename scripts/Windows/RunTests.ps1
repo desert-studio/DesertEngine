@@ -89,7 +89,12 @@ param(
     # CANCELLED job reports as neither pass nor fail — it destroys the evidence instead of reporting
     # it. This converts a hang into a red job that names the suite. The ceiling is ~4x the slowest
     # suite measured on CI (CloudField, 5 min 6 s), so it cannot fire on a merely slow run.
-    [int] $TimeoutSeconds = 1200
+    [int] $TimeoutSeconds = 1200,
+
+    # One CI test shard: run only the suites named in this file (written by scripts/CI/TestShards.py
+    # from the manifest), in the file's order. Every name must still be in the manifest, and a name
+    # with no binary behind it is still a failure. Empty = the whole manifest.
+    [string] $ListFile = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -135,6 +140,23 @@ if ($names.Count -eq 0)
 {
     Write-Host "[ERROR] test manifest is empty: $manifest"
     exit 1
+}
+
+if ($ListFile)
+{
+    if (-not (Test-Path -LiteralPath $ListFile))
+    {
+        Write-Host "[ERROR] shard list not found: $ListFile"
+        exit 1
+    }
+    $shard = @(Get-Content -LiteralPath $ListFile | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" })
+    $stray = @($shard | Where-Object { $names -notcontains $_ })
+    if ($shard.Count -eq 0 -or $stray.Count -gt 0)
+    {
+        Write-Host "[ERROR] shard list $ListFile is empty or names suites outside the manifest: $($stray -join ' ')"
+        exit 1
+    }
+    $names = $shard
 }
 
 if (-not (Test-Path -LiteralPath $reportDir)) { New-Item -ItemType Directory -Path $reportDir -Force | Out-Null }

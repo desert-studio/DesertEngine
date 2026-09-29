@@ -145,8 +145,47 @@ namespace Desert::Animation
     // Play / CrossFade
     // ============================================================
 
+    void Animator::RetireNotifyStates()
+    {
+        for ( const auto& state : m_ActiveStates )
+        {
+            m_NotifyEvents.push_back( NotifyEvent{ state.Name, NotifyEventKind::End } );
+        }
+        m_ActiveStates.clear();
+    }
+
+    std::optional<float> Animator::GetCurveValue( const std::string_view name ) const
+    {
+        const auto valueOf = []( const ClipPlayback& playback, std::string_view curveName ) -> std::optional<float>
+        {
+            if ( !playback.IsValid() )
+            {
+                return std::nullopt;
+            }
+            const AnimationCurve* curve = playback.Clip->FindCurve( curveName );
+            if ( curve == nullptr || curve->Keys.empty() )
+            {
+                return std::nullopt;
+            }
+            return curve->Evaluate( playback.Time, playback.Clip->TickRate );
+        };
+
+        const std::optional<float> current = valueOf( m_Current, name );
+        if ( !m_IsBlending )
+        {
+            return current;
+        }
+        const std::optional<float> next = valueOf( m_Next, name );
+        if ( !current && !next )
+        {
+            return std::nullopt;
+        }
+        return glm::mix( current.value_or( 0.0F ), next.value_or( 0.0F ), BlendAlpha() );
+    }
+
     void Animator::Play( const AnimationClip& clip, bool loop )
     {
+        RetireNotifyStates();
         m_Current    = { &clip, FrameTime{}, loop };
         m_Next       = {};
         m_IsBlending = false;
@@ -171,6 +210,7 @@ namespace Desert::Animation
 
     void Animator::Stop()
     {
+        RetireNotifyStates();
         m_Current    = {};
         m_Next       = {};
         m_IsBlending = false;
@@ -212,6 +252,9 @@ namespace Desert::Animation
         // rather than a pose built from a blend that has already been thrown away.
         if ( m_IsBlending && m_Next.IsValid() && BlendAlpha() >= 1.0F )
         {
+            // The outgoing clip's states end here; the incoming clip's begin on its next step, by the
+            // difference of the (now empty) active set against its playhead.
+            RetireNotifyStates();
             m_Current    = m_Next;
             m_Next       = {};
             m_IsBlending = false;
@@ -435,22 +478,14 @@ namespace Desert::Animation
             playback.Time = FrameTime{ duration, 0.0F };
         }
 
-        // Fire the CURRENT clip's notifies whose TICK was crossed this frame (forward playback only). The
-        // covered interval is (previous, now]; on a loop wrap it is (previous, duration) then [0, now].
-        // One frame is assumed not to skip a whole loop, which holds for real playback.
-        if ( &playback == &m_Current && deltaTime > 0.0F && !playback.Clip->Notifies.empty() )
+        // The CURRENT clip's notifies: instant ones crossed this frame fire (forward playback only), and
+        // states Begin / End as the playhead enters / leaves them. The covered interval is (previous, now];
+        // on a loop wrap it is (previous, duration) then [0, now]. One frame is assumed not to skip a whole
+        // loop, which holds for real playback.
+        if ( &playback == &m_Current )
         {
-            const double before = previous.AsTicks();
-            const double after  = playback.Time.AsTicks();
-            for ( const auto& notify : playback.Clip->Notifies )
-            {
-                const auto at   = static_cast<double>( notify.Tick.Value );
-                const bool fire = looped ? ( at > before || at <= after ) : ( at > before && at <= after );
-                if ( fire )
-                {
-                    m_FiredNotifies.push_back( notify.Name );
-                }
-            }
+            StepNotifyStates( playback.Clip->Notifies, m_ActiveStates, previous.AsTicks(), playback.Time.AsTicks(),
+                              deltaTime > 0.0F, looped, m_NotifyEvents );
         }
     }
 
@@ -610,6 +645,7 @@ namespace Desert::Animation
         }
 
         const FrameNumber duration = m_Current.Clip->DurationTicks;
+        const double      before   = m_Current.Time.AsTicks();
         m_Current.Time             = time;
         if ( m_Current.Time.Frame.Value < 0 )
         {
@@ -619,6 +655,10 @@ namespace Desert::Animation
         {
             m_Current.Time = FrameTime{ duration, 0.0F };
         }
+        // A scrub is not playback: instant notifies stay silent, but a state the playhead moved into or out
+        // of — forwards or BACKWARDS — begins or ends, so a script holding a state's effect can release it.
+        StepNotifyStates( m_Current.Clip->Notifies, m_ActiveStates, before, m_Current.Time.AsTicks(), false, false,
+                          m_NotifyEvents );
         EvaluatePipeline();
     }
 

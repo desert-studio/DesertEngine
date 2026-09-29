@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Animation
@@ -283,7 +284,88 @@ namespace Desert::Animation
     {
         std::string Name;
         FrameNumber Tick;
+        // The notify track (row) it is drawn on in the Animation Editor, UE's Notify Tracks. Authoring-only:
+        // playback fires by tick, whatever the row.
+        int32_t Track = 0;
+        // UE's UAnimNotifyState is the same marker with a LENGTH, so it is one field here and not a second
+        // list: 0 is an instant notify (fires once), more is a state active on [Tick, Tick + DurationTicks)
+        // that Begins when playback enters that span and Ends when it leaves it.
+        FrameNumber DurationTicks;
+
+        [[nodiscard]] bool IsState() const
+        {
+            return DurationTicks.Value > 0;
+        }
     };
+
+    /// Whether a notify STATE is active at @p at ticks. Half-open [Tick, Tick + Duration), so the Begin
+    /// tick agrees with NotifyCrossed's (before, after] (a state starting where an instant notify sits
+    /// begins on the frame that notify fires) and a state reaching the clip's end ends when a
+    /// non-looping clip stops there.
+    [[nodiscard]] inline bool NotifyStateActiveAt( const AnimationNotify& notify, const double at )
+    {
+        const auto begin = static_cast<double>( notify.Tick.Value );
+        return notify.IsState() && at >= begin && at < begin + static_cast<double>( notify.DurationTicks.Value );
+    }
+
+    /// What one notify did during a step of playback: UE's Notify (instant) / NotifyBegin / NotifyEnd.
+    enum class NotifyEventKind : uint8_t
+    {
+        Fire,
+        Begin,
+        End,
+    };
+
+    struct NotifyEvent
+    {
+        std::string     Name;
+        NotifyEventKind Kind = NotifyEventKind::Fire;
+
+        bool operator==( const NotifyEvent& ) const = default;
+    };
+
+    /**
+     * @brief Advance a clip's notify states from @p before to @p after ticks and append the events.
+     *
+     * @p active is the list of states active at @p before, BY VALUE (name, tick, duration) and not by
+     * index: an edit to the notify list between two steps then Ends the state that was edited away and
+     * Begins the one that replaced it, instead of an index silently pointing at a different notify.
+     *
+     * Ends come first, then Begins and instant Fires in notify order. With @p forwardPlayback the
+     * (before, after] interval is swept too, so an instant notify fires and a state shorter than the
+     * frame still reports Begin + End; without it (a scrub, reverse playback) only the difference of the
+     * two active sets is reported and instant notifies stay silent — a scrub is not playback.
+     */
+    void StepNotifyStates( const std::vector<AnimationNotify>& notifies, std::vector<AnimationNotify>& active,
+                           double before, double after, bool forwardPlayback, bool looped,
+                           std::vector<NotifyEvent>& out );
+
+    /**
+     * @brief A named float curve carried by a clip: UE's FFloatCurve. The keys are the scalar keys every
+     *        other channel here uses, with their Constant / Linear / Cubic interpolation.
+     */
+    struct AnimationCurve
+    {
+        std::string            Name;
+        std::vector<ScalarKey> Keys; // sorted by tick
+
+        /// The value at @p at. Held flat before the first key and after the last, like UE's default
+        /// extrapolation. A curve with no keys has no value: callers ask the clip, which refuses by name.
+        [[nodiscard]] float Evaluate( FrameTime at, FrameRate tickRate ) const;
+    };
+
+    /**
+     * @brief Whether playback that moved from tick @p before to tick @p after crossed a notify at @p at.
+     *
+     * The covered interval is (before, after]; on a loop wrap it is (before, duration) then [0, after]. One
+     * frame is assumed not to skip a whole loop. ONE RULE, TWO CONSUMERS: the Animator fires by it and the
+     * Animation Editor lights a notify by it, so the marker that flashes is the one a script heard.
+     */
+    [[nodiscard]] inline bool NotifyCrossed( const double at, const double before, const double after,
+                                             const bool looped )
+    {
+        return looped ? ( at > before || at <= after ) : ( at > before && at <= after );
+    }
 
     class AnimationClip
     {
@@ -327,6 +409,16 @@ namespace Desert::Animation
         uint32_t TrackRevision = 0;
 
         std::vector<AnimationNotify> Notifies; // sorted-by-tick markers fired during playback
+
+        /// Anim curves (UE: the clip's float curves), read by name through Animator::GetCurveValue.
+        std::vector<AnimationCurve> Curves;
+
+        [[nodiscard]] const AnimationCurve* FindCurve( std::string_view name ) const
+        {
+            const auto it = std::find_if( Curves.begin(), Curves.end(),
+                                          [name]( const AnimationCurve& curve ) { return curve.Name == name; } );
+            return it != Curves.end() ? &*it : nullptr;
+        }
 
         /**
          * @brief The clip's sections. EMPTY IS LEGAL AND MEANS "one Absolute section at full weight".

@@ -4,6 +4,8 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
+#include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/Entity.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -77,7 +79,8 @@ namespace Desert::Core
     }
 
     Common::ResultStr<std::unique_ptr<WorldStreamer>>
-    WorldStreamer::Begin( Scene& scene, Assets::AssetManager& assets, const std::string& snapshotJson )
+    WorldStreamer::Begin( Scene& scene, Assets::AssetManager& assets, const std::string& snapshotJson,
+                          std::span<const Rules::StreamingSource> instruments )
     {
         using Result       = std::unique_ptr<WorldStreamer>;
         const auto started = std::chrono::steady_clock::now();
@@ -87,17 +90,14 @@ namespace Desert::Core
 
         auto   snapshot = std::make_shared<const SceneSerialized>( std::move( parsed.ExtractValue().Scene ) );
         Result streamer( new WorldStreamer( scene, assets, snapshot->SceneName ) );
-        auto   where = streamer->Source();
-        if ( !where )
-            return Common::MakeError<Result>( where.GetError() );
-        const Rules::StreamingSource source = where.GetValue();
+        std::vector<Rules::StreamingSource> sources = GatherSources( scene, instruments );
         // BEFORE the executor begins: its Begin destroys every unwanted record, and Destroy finds each by id.
         // A record without one is refused by that Begin; the null id here is never looked up.
         streamer->m_RecordIds.reserve( snapshot->Entities.size() );
         for ( const Assets::EntityData& record : snapshot->Entities )
             streamer->m_RecordIds.push_back( record.id.value_or( Common::UUID( 0 ) ) );
-        auto begun = Rules::BeginWorldStreaming( *snapshot, RegistryMeshBounds(), streamer->m_Settings,
-                                                 std::span( &source, 1 ), *streamer );
+        auto begun = Rules::BeginWorldStreaming( *snapshot, RegistryMeshBounds(), streamer->m_Settings, sources,
+                                                 *streamer );
         if ( !begun )
             return Common::MakeError<Result>( "world streaming: " + begun.GetError() );
         if ( !begun.GetValue().has_value() )
@@ -109,8 +109,8 @@ namespace Desert::Core
         if ( !partition.has_value() )
             return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
                                               "': streaming began but the snapshot states no WorldPartition" );
-        streamer->m_Partition  = *partition;
-        streamer->m_LastSource = source;
+        streamer->m_Partition = *partition;
+        streamer->UseSources( std::move( sources ) );
         streamer->m_Snapshot   = snapshot;
         streamer->m_Loader     = std::make_unique<WorldCellLoader>(
              std::make_shared<Rules::MemoryCellSource>( streamer->Executor().Plan(), snapshot->Entities ) );
@@ -158,11 +158,11 @@ namespace Desert::Core
                 return Common::MakeError<Result>( begun.GetError() );
         }
         streamer->m_MostResident = streamer->Executor().LiveRecords();
-        LOG_INFO( "[WorldPartition] '{0}': Play streams {1} record(s); {2} resident at the start around ({3:.0f}, "
-                  "{4:.0f}) cm, the rest destroyed until their cell is wanted ({5:.1f} ms to parse, plan and "
-                  "destroy).",
-                  streamer->m_SceneName, snapshot->Entities.size(), streamer->m_MostResident, source.Position.x,
-                  source.Position.z, MsSince( started ) );
+        LOG_INFO( "[WorldPartition] '{0}': Play streams {1} record(s); {2} resident at the start around {3} "
+                  "streaming source(s), the rest destroyed until their cell is wanted ({4:.1f} ms to parse, plan "
+                  "and destroy).",
+                  streamer->m_SceneName, snapshot->Entities.size(), streamer->m_MostResident,
+                  streamer->m_LastSources.size(), MsSince( started ) );
         // THE PLAY START IS THE LARGEST DEPARTURE OF ALL. The editor had the whole world open; the executor has
         // just destroyed every record outside the resident cells, and what those records drew - built meshes,
         // materials, textures - stayed resident until the first cell happened to leave. Measured (WP14 flight):
@@ -231,28 +231,50 @@ namespace Desert::Core
         return Common::MakeSuccess( std::move( streamer ) );
     }
 
-    Common::ResultStr<Rules::StreamingSource> WorldStreamer::Source() const
+    std::vector<Rules::StreamingSource>
+    WorldStreamer::GatherSources( Scene& scene, std::span<const Rules::StreamingSource> instruments )
     {
-        // The origin is not a stand-in for a missing camera: it would stream the wrong neighbourhood in silence.
-        const std::shared_ptr<Camera> camera = m_Scene->GetActiveCamera();
-        if ( !camera )
-            return Common::MakeError<Rules::StreamingSource>(
-                 "world streaming of '" + m_SceneName + "': the scene has no active camera to stream around" );
-        return Common::MakeSuccess( Rules::StreamingSource{ camera->GetPosition() } );
+        std::vector<Rules::StreamingSource> sources;
+        entt::registry&                     registry = scene.GetRegistry();
+        for ( const auto entity : registry.view<ECS::StreamingSourceComponent>() )
+        {
+            const ECS::StreamingSourceData& data = registry.get<ECS::StreamingSourceComponent>( entity ).Data;
+            if ( !data.Enabled )
+                continue;
+            Rules::StreamingSource source;
+            source.Position = glm::vec3( ECS::Entity( entity, registry ).GetWorldTransform()[3] );
+            if ( data.OverrideLoadingRange )
+                source.LoadingRange = data.LoadingRange;
+            source.Priority = data.Priority;
+            sources.push_back( source );
+        }
+        sources.insert( sources.end(), instruments.begin(), instruments.end() );
+        return sources;
     }
 
-    Common::BoolResultStr WorldStreamer::Tick( double nowSeconds )
+    void WorldStreamer::UseSources( std::vector<Rules::StreamingSource> sources )
     {
-        auto where = Source();
-        if ( !where )
-            return Common::MakeError( where.GetError() );
-        const Rules::StreamingSource source = where.GetValue();
+        if ( sources.empty() && !m_SaidNoSource )
+        {
+            m_SaidNoSource = true;
+            LOG_ERROR( "[WorldPartition] '{0}': Play has no streaming source — no entity has an enabled Streaming "
+                       "Source and the level spawned no pawn — so only the always-loaded part of the world is "
+                       "resident. Give the level a Default Pawn or put a Streaming Source on an entity.",
+                       m_SceneName );
+        }
+        m_LastSources = std::move( sources );
+    }
 
-        m_LastTick   = TickReport{};
-        m_LastSource = source;
+    Common::BoolResultStr WorldStreamer::Tick( double                                  nowSeconds,
+                                               std::span<const Rules::StreamingSource> instruments )
+    {
+        UseSources( GatherSources( *m_Scene, instruments ) );
+        const std::span<const Rules::StreamingSource> sources = m_LastSources;
+
+        m_LastTick = TickReport{};
         // The HLODs switch on the state this very tick leaves, before the frame is drawn.
         auto tick = Rules::TickWithHLODs( Executor(), *m_HLODs, // NOLINT(bugprone-unchecked-optional-access)
-                                          std::span( &source, 1 ), nowSeconds, *this, *this );
+                                          sources, nowSeconds, *this, *this );
         if ( !tick )
             return Common::MakeError( "world streaming of '" + m_SceneName + "': " + tick.GetError() );
 
@@ -262,18 +284,20 @@ namespace Desert::Core
         m_LastTick.LoadsInFlight         = m_Loader->InFlight();
         m_MostResident                   = std::max( m_MostResident, m_LastTick.LiveRecords );
         m_LastTick.Streaming =
-             Rules::AssessStreaming( Executor().Plan(), m_Settings, Executor().State(), std::span( &source, 1 ) );
+             Rules::AssessStreaming( Executor().Plan(), m_Settings, Executor().State(), sources );
         const bool wasWaiting = m_FramesWaiting > 0;
         m_FramesWaiting       = m_LastTick.Streaming.Blocks() ? m_FramesWaiting + 1 : 0;
         if ( m_FramesWaiting == 1 )
         {
-            LOG_INFO( "[WorldPartition] '{0}': the cell under the camera ({1}) is not resident; play waits for it",
+            LOG_INFO( "[WorldPartition] '{0}': the cell under a streaming source ({1}) is not resident; play "
+                      "waits for it",
                       m_SceneName,
                       Rules::DescribeResidencyUnit( Executor().Plan(), m_LastTick.Streaming.UnderSource ) );
         }
         else if ( wasWaiting && m_FramesWaiting == 0 )
         {
-            LOG_INFO( "[WorldPartition] '{0}': the cell under the camera is resident; play resumes", m_SceneName );
+            LOG_INFO( "[WorldPartition] '{0}': the cell under the streaming source is resident; play resumes",
+                      m_SceneName );
         }
         if ( Rules::ReleasesCellAssets( done ) )
         {
