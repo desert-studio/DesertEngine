@@ -178,12 +178,59 @@ namespace Desert::Assets::Serialization
                      "notify '{}' at tick {} states track {}; a notify track is a row index, 0 or more", n.Name,
                      n.Tick, n.Track );
             }
-            clip.Notifies.push_back(
-                 Animation::AnimationNotify{ n.Name, Animation::FrameNumber{ n.Tick }, n.Track } );
+            if ( n.DurationTicks < 0 )
+            {
+                return Common::MakeFormattedError<Animation::AnimationClip>(
+                     "notify '{}' at tick {} states duration {}; a notify state lasts 0 ticks (instant) or more",
+                     n.Name, n.Tick, n.DurationTicks );
+            }
+            clip.Notifies.push_back( Animation::AnimationNotify{ n.Name, Animation::FrameNumber{ n.Tick }, n.Track,
+                                                                 Animation::FrameNumber{ n.DurationTicks } } );
         }
         std::sort( clip.Notifies.begin(), clip.Notifies.end(),
                    []( const Animation::AnimationNotify& a, const Animation::AnimationNotify& b )
                    { return a.Tick < b.Tick; } );
+
+        clip.Curves.reserve( data.Curves.size() );
+        for ( const auto& curve : data.Curves )
+        {
+            if ( curve.Name.empty() )
+            {
+                return Common::MakeFormattedError<Animation::AnimationClip>(
+                     "clip '{}' has an anim curve with no name ({} keys); a curve is read by its name", data.Name,
+                     curve.Keys.size() );
+            }
+            if ( clip.FindCurve( curve.Name ) != nullptr )
+            {
+                return Common::MakeFormattedError<Animation::AnimationClip>(
+                     "clip '{}' states anim curve '{}' twice; GetCurveValue could only ever read one of them",
+                     data.Name, curve.Name );
+            }
+            Animation::AnimationCurve built;
+            built.Name = curve.Name;
+            built.Keys.reserve( curve.Keys.size() );
+            for ( const auto& k : curve.Keys )
+            {
+                if ( k.Shape.Interp < 0 || k.Shape.Interp > static_cast<int>( Animation::KeyInterp::Cubic ) )
+                {
+                    return Common::MakeFormattedError<Animation::AnimationClip>(
+                         "anim curve '{}' key at tick {} states interpolation {}; 0 constant, 1 linear, 2 cubic",
+                         curve.Name, k.Tick, k.Shape.Interp );
+                }
+                Animation::ScalarKey key;
+                key.Tick          = Animation::FrameNumber{ k.Tick };
+                key.Value         = k.Value;
+                key.Interp        = static_cast<Animation::KeyInterp>( k.Shape.Interp );
+                key.Mode          = static_cast<Animation::TangentMode>( k.Shape.Mode );
+                key.ArriveTangent = k.ArriveTangent;
+                key.LeaveTangent  = k.LeaveTangent;
+                built.Keys.push_back( key );
+            }
+            std::stable_sort( built.Keys.begin(), built.Keys.end(),
+                              []( const Animation::ScalarKey& a, const Animation::ScalarKey& b )
+                              { return a.Tick < b.Tick; } );
+            clip.Curves.push_back( std::move( built ) );
+        }
 
         return Common::MakeSuccess( std::move( clip ) );
     }

@@ -137,3 +137,39 @@ TEST_F( NotifyTracks, TheLitNotifyIsTheOneThePlayheadCrossed )
     ASSERT_EQ( lit.size(), 1u );
     EXPECT_EQ( clip.Notifies[lit[0]].Name, "L" );
 }
+
+// ANV3: a notify's length (UE's Notify State) and an anim curve's key are one undo record each.
+TEST_F( NotifyTracks, ANotifyLengthIsOneUndoRecord )
+{
+    AnimationClip clip = ThreeNotifies();
+    ASSERT_TRUE( Desert::Editor::SetNotifyDuration( clip, 0, FrameNumber{ 4800 }, CommandHistory::Get(), {} ) );
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 1u );
+    EXPECT_EQ( clip.Notifies[0].DurationTicks.Value, 4800 );
+    EXPECT_FALSE( Desert::Editor::SetNotifyDuration( clip, 0, FrameNumber{ 4800 }, CommandHistory::Get(), {} ) )
+         << "the same length again is no edit";
+    EXPECT_FALSE( Desert::Editor::SetNotifyDuration( clip, 0, FrameNumber{ -1 }, CommandHistory::Get(), {} ) );
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_EQ( clip.Notifies[0].DurationTicks.Value, 0 );
+}
+
+TEST_F( NotifyTracks, ACurveKeyIsOneUndoRecordAndCreatesTheCurve )
+{
+    AnimationClip clip = ThreeNotifies();
+    using Desert::Animation::KeyInterp;
+    ASSERT_TRUE( Desert::Editor::SetCurveKey( clip, "Blink", FrameNumber{ 2400 }, 1.0F, KeyInterp::Cubic,
+                                              CommandHistory::Get(), {} ) );
+    ASSERT_TRUE( Desert::Editor::SetCurveKey( clip, "Blink", FrameNumber{ 0 }, 0.5F, KeyInterp::Linear,
+                                              CommandHistory::Get(), {} ) );
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 2u );
+    ASSERT_EQ( clip.Curves.size(), 1u );
+    ASSERT_EQ( clip.Curves[0].Keys.size(), 2u );
+    EXPECT_EQ( clip.Curves[0].Keys[0].Tick.Value, 0 ) << "keys are kept in tick order";
+
+    ASSERT_TRUE( Desert::Editor::RemoveCurveKey( clip, "Blink", FrameNumber{ 2400 }, CommandHistory::Get(), {} ) );
+    EXPECT_EQ( clip.Curves[0].Keys.size(), 1u );
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_EQ( clip.Curves[0].Keys.size(), 2u );
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_TRUE( clip.Curves.empty() );
+}
