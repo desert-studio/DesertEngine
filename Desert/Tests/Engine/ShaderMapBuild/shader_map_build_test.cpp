@@ -1,0 +1,164 @@
+// SHC1: the engine's programs are built on the job system at a cold start. What this suite holds is the
+// RELATION between that and the one-at-a-time build the engine did before: for the same requests, the same
+// maps — metadata and every SPIR-V word — at the same index. Each side runs against its own empty derived
+// data cache, so neither reads what the other compiled.
+
+#include <gtest/gtest.h>
+
+#include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderMapBuild.hpp>
+
+#include <Common/Core/JobSystem.hpp>
+
+#include <TestSupport/derived_data_sandbox.hpp>
+
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+
+namespace
+{
+    using Desert::Core::ShaderMapOutcome;
+    using Desert::Core::ShaderMapRequest;
+
+    struct ShaderMapBuildFixture : ::testing::Test
+    {
+        static void SetUpTestSuite()
+        {
+            // Includes resolve against "Resources/Shaders/", relative: run from Editor/ as the editor does.
+            std::filesystem::path here = std::filesystem::current_path();
+            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" );
+                  ++up )
+                here = here.parent_path();
+            ASSERT_TRUE( std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" ) )
+                 << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
+            std::filesystem::current_path( here / "Editor" );
+        }
+    };
+
+    std::string ReadFile( const std::filesystem::path& path )
+    {
+        std::ifstream      in( path, std::ios::binary );
+        std::ostringstream out;
+        out << in.rdbuf();
+        return out.str();
+    }
+
+    // Real engine programs, several directories' worth so the workers genuinely overlap: a list of two would
+    // pass with any ordering bug. Media are left out as BootContent leaves them out — they have no stages.
+    std::vector<ShaderMapRequest> DefaultPassRequests()
+    {
+        std::vector<std::filesystem::path> files;
+        for ( const char* dir : { "FXAA", "Bloom", "Unlit", "SMAA", "Composite", "UI", "Text", "JFA" } )
+        {
+            const auto root = std::filesystem::path( "Resources/Shaders/Programs" ) / dir;
+            if ( !std::filesystem::exists( root ) )
+                continue;
+            for ( const auto& entry : std::filesystem::recursive_directory_iterator( root ) )
+                if ( entry.is_regular_file() && entry.path().extension() == ".shader" )
+                    files.push_back( entry.path() );
+        }
+        std::sort( files.begin(), files.end() );
+
+        std::vector<ShaderMapRequest> requests;
+        for ( const auto& file : files )
+        {
+            std::string source = ReadFile( file );
+            if ( Desert::Core::Preprocess::DShaderParser::MayDeclareMedium( source ) )
+                continue;
+            requests.push_back( { std::move( source ), file, {}, {}, file.stem().string() } );
+        }
+        return requests;
+    }
+
+    // The second round, as BootContent builds it: every named pass of every default program.
+    std::vector<ShaderMapRequest> PassRequests( const std::vector<ShaderMapRequest>& defaults,
+                                                const std::vector<ShaderMapOutcome>& built )
+    {
+        std::vector<ShaderMapRequest> requests;
+        for ( size_t i = 0; i < defaults.size(); ++i )
+            for ( const auto& pass : built[i].Map.Meta.PassNames )
+                requests.push_back(
+                     { defaults[i].Source, defaults[i].Path, pass, {}, defaults[i].Name + "/" + pass } );
+        return requests;
+    }
+
+    std::vector<ShaderMapOutcome> BuildOneAtATime( const std::vector<ShaderMapRequest>& requests )
+    {
+        std::vector<ShaderMapOutcome> outcomes;
+        for ( const auto& request : requests )
+        {
+            auto built = Desert::Core::BuildShaderMap( request );
+            outcomes.push_back( built.IsSuccess() ? ShaderMapOutcome{ std::move( built.GetValue() ), {} }
+                                                  : ShaderMapOutcome{ {}, built.GetError() } );
+        }
+        return outcomes;
+    }
+
+    void ExpectSameAnswers( const std::vector<ShaderMapRequest>& requests,
+                            const std::vector<ShaderMapOutcome>& parallel,
+                            const std::vector<ShaderMapOutcome>& serial )
+    {
+        ASSERT_EQ( parallel.size(), requests.size() );
+        ASSERT_EQ( serial.size(), requests.size() );
+        for ( size_t i = 0; i < requests.size(); ++i )
+        {
+            SCOPED_TRACE( requests[i].Name );
+            EXPECT_EQ( parallel[i].Error, serial[i].Error );
+            EXPECT_TRUE( parallel[i].Error.empty() ) << parallel[i].Error;
+            EXPECT_FALSE( parallel[i].Map.Stages.empty() )
+                 << "a program with no stages compares equal to anything";
+            EXPECT_TRUE( parallel[i].Map == serial[i].Map ) << "the map at index " << i << " differs";
+        }
+    }
+} // namespace
+
+TEST_F( ShaderMapBuildFixture, TheJobSystemBuildGivesTheOneAtATimeAnswerAtTheSameIndex )
+{
+    ASSERT_GT( ::Common::JobSystem::Get().WorkerCount(), 0u ) << "no workers: nothing here runs in parallel";
+
+    const auto defaults = DefaultPassRequests();
+    ASSERT_GE( defaults.size(), 8u ) << "too few programs found for the workers to overlap";
+
+    std::vector<ShaderMapOutcome> parallelDefaults, parallelPasses;
+    std::vector<ShaderMapRequest> passes;
+    {
+        const Desert::TestSupport::DerivedDataSandbox cache( "ShaderMapBuildParallel" );
+        parallelDefaults = Desert::Core::BuildShaderMaps( defaults );
+        passes           = PassRequests( defaults, parallelDefaults );
+        parallelPasses   = Desert::Core::BuildShaderMaps( passes );
+    }
+    std::vector<ShaderMapOutcome> serialDefaults, serialPasses;
+    {
+        const Desert::TestSupport::DerivedDataSandbox cache( "ShaderMapBuildSerial" );
+        serialDefaults = BuildOneAtATime( defaults );
+        serialPasses   = BuildOneAtATime( PassRequests( defaults, serialDefaults ) );
+    }
+
+    ExpectSameAnswers( defaults, parallelDefaults, serialDefaults );
+    EXPECT_FALSE( passes.empty() ) << "no program declared a named pass: the second round went untested";
+    ExpectSameAnswers( passes, parallelPasses, serialPasses );
+}
+
+// The warm half of the same function: a second build of one request reads the map the first one stored, and
+// what it reads is what was compiled — the cold start's workers leave behind exactly what the main thread
+// then loads.
+TEST_F( ShaderMapBuildFixture, AStoredMapReadsBackAsTheMapThatWasBuilt )
+{
+    const auto defaults = DefaultPassRequests();
+    ASSERT_FALSE( defaults.empty() );
+
+    const Desert::TestSupport::DerivedDataSandbox cache( "ShaderMapBuildWarm" );
+    const auto                                    cold = Desert::Core::BuildShaderMaps( defaults );
+    const auto                                    warm = BuildOneAtATime( defaults );
+    ExpectSameAnswers( defaults, cold, warm );
+}
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}

@@ -9,6 +9,7 @@
 #include <Engine/Core/EngineContext.hpp>
 
 #include <Engine/Core/ShaderCompiler/ShaderCompiler.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderMapBuild.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.hpp>
 
@@ -54,58 +55,14 @@ namespace Desert::Graphic::API::Vulkan
         auto asset = m_ShaderAsset.lock();
         if ( !asset ) return Common::MakeError( "Shader asset expired" );
 
-        // THE WARM PATH: the shader map is keyed by the raw text + include files, so a hit is the whole
-        // program — metadata and SPIR-V — without parsing the DShader or preprocessing a stage.
-        const std::string&    content = asset->GetShaderContent();
-        uint64_t              mapKey  = 0;
-        Core::ShaderMapLookup lookup;
-        {
-            const Core::ScopedShaderPhase timer( Core::ShaderPhase::ShaderMap );
-            mapKey = Core::ComputeShaderMapKey( content, m_ShaderPath, m_PassName, Core::SpirvDebugInfoThisBuild(),
-                                                m_Variant );
-            lookup = Core::TryLoadShaderMap( mapKey );
-        }
-        if ( lookup.Map )
-        {
-            Core::CountShaderMapHit();
-            m_ProgramMeta = std::move( lookup.Map->Meta );
-            return BuildFromSpirv( lookup.Map->Stages );
-        }
-        Core::CountShaderMapMiss();
-        if ( !lookup.Rejected.empty() )
-            LOG_WARN( "[ShaderMap] '{}': cached entry rejected, rebuilding it ({})", m_ShaderName,
-                      lookup.Rejected );
-
-        std::unordered_map<Core::Formats::ShaderStage, std::string> stages;
-        {
-            const Core::ScopedShaderPhase timer( Core::ShaderPhase::Preprocess );
-            auto                          preprocessed =
-                 Core::Preprocess::ShaderPreprocess::PreProcessPass( content, m_ShaderPath, m_PassName );
-            m_ProgramMeta = std::move( preprocessed.Meta );
-            stages        = std::move( preprocessed.Stages );
-        }
-        if ( m_ProgramMeta.HasParams() || m_ProgramMeta.State.Topology.has_value() )
-        {
-            LOG_INFO( "Shader '{}': parsed {} param(s) + render-state from shader metadata", m_ShaderName,
-                      m_ProgramMeta.Params.size() );
-        }
-
-        Core::ShaderMap built{ m_ProgramMeta, {} };
-        for ( const auto& [stage, source] : stages )
-        {
-            auto spirvResult =
-                 Core::ShaderCompiler::CompileGLSLToSPIRV( stage, source, m_ShaderPath.string(), m_Variant );
-            if ( !spirvResult.IsSuccess() )
-                return Common::MakeError( spirvResult.GetError() );
-            built.Stages.push_back( { stage, std::move( spirvResult.GetValue() ) } );
-        }
-        std::sort( built.Stages.begin(), built.Stages.end(),
-                   []( const Core::ShaderMapStage& a, const Core::ShaderMapStage& b )
-                   { return static_cast<uint32_t>( a.Stage ) < static_cast<uint32_t>( b.Stage ); } );
-        if ( const auto stored = Core::StoreShaderMap( mapKey, built ); !stored )
-            LOG_WARN( "[ShaderMap] '{}': could not store the shader map {:016x}: {}", m_ShaderName, mapKey,
-                      stored.GetError() );
-        return BuildFromSpirv( built.Stages );
+        // The CPU half (shader map cache, preprocess, compile) is Core::BuildShaderMap, shared with the cold-start
+        // build that runs it on the job system (SHC1); only the device half stays here.
+        auto built = Core::BuildShaderMap(
+             { asset->GetShaderContent(), m_ShaderPath, m_PassName, m_Variant, m_ShaderName } );
+        if ( !built.IsSuccess() )
+            return Common::MakeError( built.GetError() );
+        m_ProgramMeta = std::move( built.GetValue().Meta );
+        return BuildFromSpirv( built.GetValue().Stages );
     }
 
     Common::BoolResultStr VulkanShader::BuildFromSpirv( const std::vector<Core::ShaderMapStage>& stages )
