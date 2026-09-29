@@ -325,7 +325,7 @@ namespace Desert::Editor::MaterialEdit
     /// oversight: a cloud type / layout slot already carries its own empty entry in its combo ("Default
     /// (cumulus congestus)", "None (procedural weather)"), so an arrow would be a second control for the
     /// one action; and a 2D texture slot cannot be UNBOUND at all today — Graphic::DataDrivenMaterial::
-    /// SetTexture refuses a null image and MaterialFactory::ApplyShaderAsset skips handle 0, so erasing the
+    /// SetTexture refuses a null image and Runtime::ApplySurfaceAsset skips handle 0, so erasing the
     /// entry would clear the file and leave the ball still sampling the old texture. A control that changes
     /// the document and not the picture is worse than no control (DC §1.3).
     [[nodiscard]] inline RowReset ResetOfferedFor( const Assets::MaterialData&                 data,

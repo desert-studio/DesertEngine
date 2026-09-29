@@ -12,8 +12,6 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
-#include <Engine/Graphic/Materials/MaterialFactory.hpp>
-#include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
 #include <Engine/Graphic/PipelineCache.hpp>
 #include <Engine/Graphic/PipelineBuilds.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -283,7 +281,7 @@ namespace Desert::Runtime
 
             // Only the shader NAME is snapshotted before the re-parse. A `wasCustom` flag was taken here
             // too and then never read: whether the asset crossed between PBR and data-driven is already
-            // answered below by `classMatches`, which compares the CURRENT `custom` flag against the C++
+            // answered below by `classMatches`, which asks whether every built variant is still the one runtime type a `.demat` builds, against the C++
             // class of each live runtime material — a stronger question, because it also catches a variant
             // built as the wrong class for a reason other than an edit.
             const auto oldShader = asset->GetShaderHandle();
@@ -316,25 +314,17 @@ namespace Desert::Runtime
             // re-apply their overrides.
             const auto variants = materialService->GetBuiltVariants( handle );
 
-            const bool custom       = asset->UsesCustomShader();
-            bool       classMatches = !variants.empty();
+            // Every runtime material a `.demat` builds is a DataDrivenMaterial of its template's cell
+            // (Runtime::CreateSurfaceMaterial); a variant that is not one was not built from this asset.
+            bool classMatches = !variants.empty();
             for ( auto* runtime : variants )
-                classMatches =
-                     classMatches && ( custom ? dynamic_cast<Graphic::DataDrivenMaterial*>( runtime ) != nullptr
-                                              : dynamic_cast<Graphic::MaterialPBR*>( runtime ) != nullptr );
+                classMatches = classMatches && dynamic_cast<Graphic::DataDrivenMaterial*>( runtime ) != nullptr;
             const bool sameShader = classMatches && asset->GetShaderHandle() == oldShader;
 
-            if ( sameShader && !custom )
+            if ( sameShader )
             {
                 for ( auto* runtime : variants )
-                    Graphic::MaterialFactory::ApplyPBRAsset( *static_cast<Graphic::MaterialPBR*>( runtime ),
-                                                             *asset );
-            }
-            else if ( sameShader )
-            {
-                for ( auto* runtime : variants )
-                    Graphic::MaterialFactory::ApplyShaderAsset(
-                         *static_cast<Graphic::DataDrivenMaterial*>( runtime ), *asset );
+                    Runtime::ApplySurfaceAsset( *static_cast<Graphic::DataDrivenMaterial*>( runtime ), *asset );
             }
             else
             {

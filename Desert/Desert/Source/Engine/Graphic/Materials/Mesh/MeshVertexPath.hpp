@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
+#include <string_view>
 
 namespace Desert::Graphic
 {
@@ -176,6 +178,13 @@ namespace Desert::Graphic
     // A hole answers nullptr and the caller must SAY so rather than silently drawing something else —
     // that silence is what defect (2) above was made of.
     const char* MeshShaderFor( MeshVertexPath path, MeshPass pass );
+
+    // The compiled cell of a surface TEMPLATE for (path x pass): the shader a material built from a `.demat`
+    // naming @p templateName is allocated from. A template whose (Static x Forward) cell heads the table
+    // above has the table's row of cells; any other template has only its own (Static x Forward) cell
+    // (a DSL surface carries no skinning, instancing or G-buffer stage). Empty = no such cell; the caller
+    // names the material it refuses. One rule for every template — no class, no role check.
+    std::optional<std::string> SurfaceCellShader( std::string_view templateName, MeshVertexPath path, MeshPass pass );
 
     // The one binding a path adds to the surface's own set, or nothing for a path that adds none.
     // Set 0 binding 1 is the skinned path's `Bones`, binding 17 the instanced path's

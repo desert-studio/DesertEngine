@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Graphic/Materials/SceneResources.hpp>
+
 #include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
 
 #include <Engine/Graphic/Materials/Material.hpp>
@@ -45,13 +47,13 @@ namespace Desert::Graphic
 
         const CloudShadowUniforms data = CloudShadowPackUniforms( cloudShadow );
 
-        if ( auto* ub = material->Get<UniformBufferProperty>( "CloudShadowUB" ) )
+        if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kCloudShadowBlockName ) )
             ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
 
         // The image only when there is one. Binding a null would drop the descriptor's dummy and leave
         // the slot undefined for a shader that is about to be told, by Params.y, not to read it.
         if ( cloudShadow.IsLive() )
-            if ( auto* tex = material->Get<Texture2DProperty>( "u_CloudShadowMap" ) )
+            if ( auto* tex = material->Get<Texture2DProperty>( SceneResources::kCloudShadowMapName ) )
                 tex->SetImage( cloudShadow.Map );
     }
 } // namespace Desert::Graphic

@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
+#include <Engine/Graphic/Materials/SceneResources.hpp>
 
 #include <algorithm>
 #include <format>
@@ -432,6 +433,10 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             out.Samplers.push_back(
                  { resource.name, compiler.get_decoration( resource.id, spv::DecorationBinding ), 0 } );
 
+        for ( const auto* list : { &resources.uniform_buffers, &resources.storage_buffers, &resources.sampled_images } )
+            for ( const auto& resource : *list )
+                out.ResourceNames.push_back( resource.name );
+
         if ( !resources.push_constant_buffers.empty() )
         {
             const auto& res  = resources.push_constant_buffers[0];
@@ -452,6 +457,8 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         for ( const auto& stage : stages )
             reflected.push_back( ReflectMaterialStage( stage.Spirv, stage.Stage ) );
         out.Errors = Core::Formats::ReconcileMaterialLayout( out.Layout, templateName, cellName, reflected );
+        for ( const auto& stage : reflected )
+            out.Layout.SceneReads = out.Layout.SceneReads | SceneResources::Classify( stage.ResourceNames );
         return out;
     }
 

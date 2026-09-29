@@ -3,7 +3,7 @@
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Environment/SkyLook.hpp>
-#include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBRBase.hpp>
+#include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/TextureCubeProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
@@ -31,7 +31,7 @@ namespace Desert::Graphic
     // door — every material in this engine binds by NAME, so one function serves every shader that
     // declares the block, whatever slot number it chose for it.
     //
-    // These bodies used to be static members of MaterialPBRBase taking a MaterialInstance*, which each
+    // These bodies used to be static members of the former PBR base class taking a MaterialInstance*, which each
     // immediately turned into GetParentMaterial(). That signature is what kept them out of reach of the
     // generic (data-driven) mesh path, which draws through a Material with no instance at all — and the
     // consequence was not "generic materials get a bit less". It was that MeshRenderer::DrawGenericMeshes
@@ -48,7 +48,7 @@ namespace Desert::Graphic
     // waiting for the first material without it — and the first material without it is every unlit
     // generic shader the moment it is handed the same snapshot.
     //
-    // The BLOCK LAYOUT and the block NAMES are not restated here; they are MaterialPBRBase's, which is
+    // The BLOCK LAYOUT and the block NAMES are not restated here; they are SceneResources', which is
     // where Desert/Tests/Engine/PBRSceneFrame asserts them against the reflected GLSL. One mirror, so a
     // writer and a test cannot end up describing two different ShadowUBs.
     // ------------------------------------------------------------------------------------------------
@@ -79,7 +79,7 @@ namespace Desert::Graphic
     {
         if ( !material )
             return;
-        if ( auto* ub = material->Get<UniformBufferProperty>( "TimeUB" ) )
+        if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kTimeBlockName ) )
         {
             const glm::vec4 data( seconds, 0.0f, 0.0f, 0.0f );
             const size_t    size = std::min( sizeof( data ), static_cast<size_t>( ub->GetUniform()->GetSize() ) );
@@ -138,13 +138,13 @@ namespace Desert::Graphic
             return;
 
         // The block's layout and its cascade count are NOT restated here. They are one mirror
-        // (MaterialPBRBase::ShadowUBData / ::kMaxCascades), and the reason is the defect shape this whole
+        // (SceneResources::ShadowUBData / ::kMaxCascades), and the reason is the defect shape this whole
         // seam exists to remove: a second declaration of one layout is a disagreement waiting to happen,
         // and Desert/Tests/Engine/PBRSceneFrame asserts that mirror against the reflected GLSL block —
         // an assertion a private copy here would quietly stop covering.
-        constexpr uint32_t kMaxCascades = MaterialPBRBase::kMaxCascades;
+        constexpr uint32_t kMaxCascades = SceneResources::kMaxCascades;
 
-        MaterialPBRBase::ShadowUBData data;
+        SceneResources::ShadowUBData data;
 
         const uint32_t n = numCascades < kMaxCascades ? numCascades : kMaxCascades;
         for ( uint32_t i = 0; i < kMaxCascades; ++i )
@@ -154,7 +154,7 @@ namespace Desert::Graphic
         data.DebugParams       = glm::vec4( showNormals ? 1.0f : 0.0f, lightingDebug ? 1.0f : 0.0f, 0.0f, 0.0f );
         data.CascadeTexelWorld = cascadeWorldPerTexel;
 
-        if ( auto* ub = material->Get<UniformBufferProperty>( MaterialPBRBase::kShadowBlockName ) )
+        if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kShadowBlockName ) )
             ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
 
         // Every cascade map, every frame: descriptors must stay valid for the set being recorded.
@@ -162,7 +162,7 @@ namespace Desert::Graphic
         {
             Image2D* img = ( i < n ) ? cascadeMaps[i] : nullptr;
             if ( img )
-                if ( auto* tex = material->Get<Texture2DProperty>( MaterialPBRBase::kShadowMapNames[i] ) )
+                if ( auto* tex = material->Get<Texture2DProperty>( SceneResources::kShadowMapNames[i] ) )
                     tex->SetImage( img );
         }
     }
@@ -208,12 +208,12 @@ namespace Desert::Graphic
 
         SceneSkyLookBind( material, look );
 
-        if ( auto* tex = material->Get<TextureCubeProperty>( MaterialPBRBase::kEnvIrradianceName ) )
+        if ( auto* tex = material->Get<TextureCubeProperty>( SceneResources::kEnvIrradianceName ) )
             tex->SetTexture( irradiance );
-        if ( auto* tex = material->Get<TextureCubeProperty>( MaterialPBRBase::kEnvSpecularName ) )
+        if ( auto* tex = material->Get<TextureCubeProperty>( SceneResources::kEnvSpecularName ) )
             tex->SetTexture( prefiltered );
         if ( brdfLut )
-            if ( auto* tex = material->Get<Texture2DProperty>( MaterialPBRBase::kBrdfLutName ) )
+            if ( auto* tex = material->Get<Texture2DProperty>( SceneResources::kBrdfLutName ) )
                 tex->SetImage( brdfLut );
     }
 } // namespace Desert::Graphic

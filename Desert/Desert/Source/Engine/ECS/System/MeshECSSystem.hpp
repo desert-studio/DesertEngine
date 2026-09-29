@@ -16,7 +16,8 @@
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Animation/Skeleton.hpp>
-#include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
+#include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
+#include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 
 #include <Engine/Runtime/SelectionContext.hpp>
 
@@ -27,11 +28,14 @@ namespace Desert::ECS
     public:
         explicit MeshECSSystem() : System()
         {
-            // The fallback for a mesh with no material slot at all — one PBR surface per vertex path,
+            // The fallback for a mesh with no material slot at all — the shipped surface template's cell per
+            // vertex path, built like every other surface material (a DataDrivenMaterial of that cell),
             // the same surface on both. They are two objects and not one because a material owns the
             // descriptor sets of ONE shader, and the two paths are two shaders (MeshVertexPath.hpp).
-            m_DefaultMaterial        = Graphic::MaterialPBR::Create( Graphic::MeshVertexPath::Static );
-            m_DefaultSkinnedMaterial = Graphic::MaterialPBR::Create( Graphic::MeshVertexPath::Skinned );
+            m_DefaultMaterial = std::make_shared<Graphic::DataDrivenMaterial>(
+                 Graphic::MeshShaderFor( Graphic::MeshVertexPath::Static, Graphic::MeshPass::Forward ) );
+            m_DefaultSkinnedMaterial = std::make_shared<Graphic::DataDrivenMaterial>(
+                 Graphic::MeshShaderFor( Graphic::MeshVertexPath::Skinned, Graphic::MeshPass::Forward ) );
         }
 
         // Render-data collector (only touches mesh components' runtime caches) — safe to run concurrently with the other collectors.
@@ -592,8 +596,8 @@ namespace Desert::ECS
         }
 
     private:
-        std::shared_ptr<Graphic::MaterialPBR> m_DefaultMaterial;
-        std::shared_ptr<Graphic::MaterialPBR> m_DefaultSkinnedMaterial;
+        std::shared_ptr<Graphic::DataDrivenMaterial> m_DefaultMaterial;
+        std::shared_ptr<Graphic::DataDrivenMaterial> m_DefaultSkinnedMaterial;
         // Gameplay seconds since the scene's systems started (FO-7). Double: a float clock loses the sway's
         // sub-frame steps after a few hours of play; MakeInstanceWind wraps it to the sway period.
         double m_WindSeconds = 0.0;
