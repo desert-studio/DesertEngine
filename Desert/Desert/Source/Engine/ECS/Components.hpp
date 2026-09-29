@@ -19,7 +19,8 @@
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Projection.hpp>
-#include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
+#include <Engine/Graphic/Materials/Material.hpp>
+#include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 
 #include <Engine/Animation/Animator.hpp>
 

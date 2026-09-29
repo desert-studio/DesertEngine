@@ -1,6 +1,6 @@
 // One scene, one lighting payload — asserted as a RELATION between the skinned path and the static one.
 //
-// The defect this suite was written for: SkinnedMaterialPBR::Bind() named the four things a skinned mesh
+// The defect this suite was written for: the old skinned surface class's Bind() named the four things a skinned mesh
 // was thought to need (camera, lights, bones, cloud shadow) and the scene had six. The two it did not
 // name — the shadow cascades and the IBL environment — were written by the static path only, so a
 // skinned mesh was the one class of geometry in the engine that received neither. Nothing crashed and no
@@ -33,7 +33,7 @@
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderMapCache.hpp>
 #include <Engine/Graphic/Materials/Mesh/PBR/PBRSceneFrame.hpp>
-#include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
+#include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/ShaderProtocols/Camera.hpp>
 #include <Engine/Graphic/ShaderProtocols/DirectionLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/Metadata.hpp>
@@ -55,7 +55,8 @@
 #include <vector>
 
 using Desert::Core::Formats::ShaderStage;
-using Desert::Graphic::MaterialPBR;
+using Desert::Graphic::DataDrivenMaterial;
+using Desert::Graphic::Material;
 namespace SceneResources = Desert::Graphic::SceneResources;
 using Desert::Core::Formats::SceneRead;
 using Desert::Graphic::PBRSceneFrame;
@@ -266,17 +267,21 @@ namespace
 // all of them" assertion below stops meaning what it says.
 TEST( PBRSceneFrame, TheSkinnedAndStaticDrawsGoThroughOneBindWithOneArgument )
 {
-    static_assert( std::is_same_v<decltype( MaterialPBR::Create( Desert::Graphic::MeshVertexPath::Static ) ),
-                                  decltype( MaterialPBR::Create( Desert::Graphic::MeshVertexPath::Skinned ) )>,
-                   "a skinned material and a static one must be the same type — one surface, two paths" );
+    // One surface type for every path: the skinned cell and the static cell are both a DataDrivenMaterial,
+    // and neither declares a Bind of its own — the one Bind is Material's, taking the instance
+    // PBRSceneFrame::ApplyTo was applied to. A surface class overriding it is how the skinned path once
+    // received four of the six things a lit draw needs.
+    static_assert( std::is_same_v<decltype( &DataDrivenMaterial::Bind ),
+                                  void ( Material::* )( const Desert::Graphic::MaterialInstance* )>,
+                   "the surface material must not override Bind — one Bind, one argument, every path" );
 
-    // Exactly ONE Bind, taking the instance PBRSceneFrame::ApplyTo was applied to. A second overload
-    // taking a skinned-specific payload is how the cascades and the environment cubes went missing the
-    // first time: it named four of the six things a lit draw needs and nothing could notice.
-    static_assert(
-         std::is_invocable_v<void ( MaterialPBR::* )( const Desert::Graphic::MaterialInstance* ), MaterialPBR&,
-                             const Desert::Graphic::MaterialInstance*>,
-         "MaterialPBR::Bind must take the instance, the same one PBRSceneFrame::ApplyTo was applied to" );
+    // What makes a draw skinned is the VERTEX path's input, not a surface class: the bone palette and this
+    // draw's offset into it are Material's, so any template's skinned cell receives them the same way.
+    static_assert( std::is_same_v<decltype( &Material::UploadSkinnedBones ),
+                                  void ( Material::* )( const glm::mat4*, size_t )>,
+                   "the skinned vertex path's bone upload belongs to Material" );
+    static_assert( std::is_same_v<decltype( &Material::SetSkinnedBoneOffset ), void ( Material::* )( uint32_t )>,
+                   "the skinned vertex path's per-draw bone offset belongs to Material" );
 
     SUCCEED();
 }

@@ -46,8 +46,8 @@
 //
 // The NAMES are what has to match, and they do because every material binds by name — see
 // Graphic::SceneShadowBind, which is the single C++ writer of the block and of all four maps, and
-// MaterialPBRBase::ShadowUBData, whose layout Desert/Tests/Engine/PBRSceneFrame asserts against the
-// reflected GLSL block. The array length above is MaterialPBRBase::kMaxCascades and is not restated
+// SceneResources::ShadowUBData, whose layout Desert/Tests/Engine/PBRSceneFrame asserts against the
+// reflected GLSL block. The array length above is SceneResources::kMaxCascades and is not restated
 // here as a number the includer may pick.
 //
 // CASCADES KEEP STANDARD Z. The rest of the engine is reversed-Z on DEPTH32F, and this text's `ndc.z`

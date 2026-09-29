@@ -21,7 +21,6 @@ namespace Desert::Assets
 
 namespace Desert::Graphic
 {
-    class MaterialPBR;
     class DataDrivenMaterial;
 }
 
@@ -118,8 +117,8 @@ namespace Desert::Runtime
         // Null when the engine has no shader for the requested cell, or when @p built is not service-owned
         // — ask Owns() first if the two need telling apart, because they need different handling and a
         // caller that treats them alike either drops geometry or draws it with the wrong textures.
-        Graphic::MaterialPBR* GetVariant( const Graphic::MaterialPBR* built, Graphic::MeshVertexPath path,
-                                          Graphic::MeshPass pass ) const;
+        Graphic::DataDrivenMaterial* GetVariant( const Graphic::Material* built, Graphic::MeshVertexPath path,
+                                                 Graphic::MeshPass pass ) const;
 
         // Whether this runtime material came from a `.demat` this service holds. FALSE for a material a
         // renderer built for itself — the glass pass, the RSM pass, the instanced batch material, and

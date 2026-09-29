@@ -16,7 +16,9 @@
 #include <Engine/Graphic/Materials/Debug/MaterialOverdraw.hpp>
 #include <Engine/Graphic/Materials/Debug/MaterialOverdrawResolve.hpp>
 #endif
-#include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
+#include <Engine/Graphic/Materials/Material.hpp>
+#include <Engine/Graphic/Materials/SceneResources.hpp>
+#include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Graphic/Materials/Mesh/PBR/PBRSceneFrame.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/MaterialPipelineStates.hpp>
@@ -82,7 +84,7 @@ namespace Desert::Graphic::System
             // The (surface x Skinned) material. It is SHARED with every other entity using the same
             // `.demat`, which is why nothing per-object may be stored on it: the pose below is packed
             // into a per-frame buffer and named by a push constant instead.
-            class Graphic::MaterialPBR* Material = nullptr;
+            class Graphic::DataDrivenMaterial* Material = nullptr;
             // The binding the instance below was selected FROM, carried so that it keeps that instance
             // alive: the entity that authored it can be destroyed between the record and this queue being
             // drawn (A8-3). Holding the binding rather than a second shared_ptr to the instance keeps the
@@ -157,7 +159,7 @@ namespace Desert::Graphic::System
         // HOW MANY ARE ACTUALLY ALLOCATED IS NOT THIS, and the distinction is the whole of the preview
         // shadow budget: the count, the resolution and the distance come from the renderer's own
         // ShadowQuality (SceneRenderer::GetShadowQuality), read once in Initialize. See ShadowCascades.hpp.
-        static constexpr uint32_t kMaxCascades = MaterialPBRBase::kMaxCascades;
+        static constexpr uint32_t kMaxCascades = SceneResources::kMaxCascades;
         static_assert( kMaxCascades == kMaxShadowCascades,
                        "The ShadowUB block's cascade count and the fitter's array bound are the same "
                        "number seen from two sides; a renderer that fitted more than the block can carry "
@@ -426,7 +428,7 @@ namespace Desert::Graphic::System
 
         // Deferred G-buffer geometry pipeline (static): writes Albedo+Metallic / Normal+Roughness into the
         // scene renderer's MRT G-buffer instead of shading. Same vertex layout + material bindings as the
-        // forward static pipeline, so the same StaticMaterialPBR data binds. Null if the shader is missing.
+        // forward static pipeline, so the same static-cell data binds. Null if the shader is missing.
         std::shared_ptr<Shader>           m_StaticGBufferShader;
         std::shared_ptr<GraphicsPipeline> m_StaticGBufferPipeline;
         // (Instanced x GBuffer). The G-buffer pass used to have no instanced cell at all, and the ISM
@@ -447,7 +449,7 @@ namespace Desert::Graphic::System
         // per frame in the glass pass — sharing an opaque material across two passes/frame hangs the GPU.
         // It is (Static x Glass) rather than its own class: what made it different from the opaque
         // material was always the shader, and the shader is what the pair names.
-        std::shared_ptr<MaterialPBR> m_GlassMaterial;
+        std::shared_ptr<DataDrivenMaterial> m_GlassMaterial;
         MaterialInstancePtr          m_GlassInstance;
 
         // Reflective Shadow Map (G-buffer from the sun) — the off-screen bounce source for the RSM GI mode.
@@ -456,7 +458,7 @@ namespace Desert::Graphic::System
         // from cascade 1 in UpdateCascades(), so the pass draws through a STANDARD-Z matrix and needs its
         // own pipeline (m_RSMPipeline) rather than the reversed-Z G-buffer one — see SetupDeferredPass.
         // (Static x GBuffer) — the RSM is literally a G-buffer rasterized from the sun.
-        std::shared_ptr<MaterialPBR>       m_RSMMaterial;
+        std::shared_ptr<DataDrivenMaterial>       m_RSMMaterial;
         MaterialInstancePtr                m_RSMInstance;
         std::shared_ptr<GraphicsPipeline>  m_RSMPipeline;
         glm::mat4                          m_RSMViewProj = glm::mat4( 1.0f );
@@ -466,7 +468,7 @@ namespace Desert::Graphic::System
         // practice only MeshECSSystem's default material, which stands in for a mesh whose slot did not
         // resolve. It has no `.demat`, so it has no sibling in any other pass, and the deferred pass
         // dropped those meshes entirely until this existed. See SetupGBufferPass for why ONE is enough.
-        std::shared_ptr<MaterialPBR> m_GBufferUnownedMaterial;
+        std::shared_ptr<DataDrivenMaterial> m_GBufferUnownedMaterial;
 
         std::shared_ptr<Shader>   m_GeometryShader;
         std::shared_ptr<Shader>   m_InstancedGeometryShader;
@@ -481,13 +483,13 @@ namespace Desert::Graphic::System
         // leaving its colours, tiling-independent, intact — see InstancedRecorder.hpp for the numbers and
         // for why rebinding this one material per batch cannot be the fix. A batch now finds its own
         // (Instanced x pass) sibling through MaterialService; this stays for the one group that has none.
-        std::shared_ptr<Graphic::MaterialPBR> m_StaticInstancedMaterial;
+        std::shared_ptr<Graphic::DataDrivenMaterial> m_StaticInstancedMaterial;
         MaterialInstancePtr                   m_StaticInstancedInstance;
         // The same pair for the G-buffer pass. A material is one shader's descriptor sets plus a payload,
         // so the pass that binds the (Instanced x GBuffer) pipeline has to bind sets allocated from that
         // cell's own reflection -- the same reason m_RSMMaterial and m_GBufferUnownedMaterial exist for
         // the static path.
-        std::shared_ptr<Graphic::MaterialPBR> m_InstancedGBufferMaterial;
+        std::shared_ptr<Graphic::DataDrivenMaterial> m_InstancedGBufferMaterial;
         MaterialInstancePtr                   m_InstancedGBufferInstance;
 
         // ONE MaterialInstance per instanced material the service hands out, kept because an instance is
@@ -497,7 +499,7 @@ namespace Desert::Graphic::System
         // moves: a reloaded `.demat` graveyards every runtime material it built, so an entry surviving
         // that bump is a MaterialInstance holding a parent pointer into a material about to be destroyed.
         // The same stamp MeshECSSystem already rebuilds its cached slots on.
-        std::unordered_map<const Graphic::MaterialPBR*, MaterialInstancePtr> m_InstancedVariantInstances;
+        std::unordered_map<const Graphic::DataDrivenMaterial*, MaterialInstancePtr> m_InstancedVariantInstances;
         uint32_t                                                             m_InstancedVariantStamp = 0;
 
         // Skinned
@@ -665,7 +667,7 @@ namespace Desert::Graphic::System
         // only the last write (VulkanMaterialBackend::ApplyTexture2D reports the swallowed rebind).
         struct InstancedBatchSet
         {
-            Graphic::MaterialPBR*       Mat  = nullptr;
+            Graphic::DataDrivenMaterial*       Mat  = nullptr;
             MaterialInstance*           Inst = nullptr;
             std::vector<glm::mat4>      Transforms;
             std::vector<glm::vec4>      Materials; // Materials[] rows, end to end
@@ -700,7 +702,7 @@ namespace Desert::Graphic::System
 
         // Every skinned pose drawn in one pass, packed end to end; each draw names its slice with a
         // BoneOffset push constant. ONE buffer per material per pass instead of one upload per draw,
-        // which is what makes a shared skinned material correct — see MaterialPBR.hpp.
+        // which is what makes a shared skinned material correct — see Material::SetSkinnedBoneOffset.
         std::vector<glm::mat4>                   m_ScratchBones;
         std::vector<glm::mat4>      m_ScratchInstTransforms; // geometry + shadow instanced SSBOs
         // Per-batch LOD levels and the surviving ISM transforms. Members rather than locals for the

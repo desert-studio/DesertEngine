@@ -36,7 +36,6 @@
 #include <Engine/Graphic/Materials/MaterialBinder.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialShadow.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
-#include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
 
 #include <Common/Core/Constants.hpp>
 
@@ -52,7 +51,6 @@
 #include <vector>
 
 using Desert::Core::Formats::ShaderStage;
-using Desert::Graphic::MaterialPBR;
 using Desert::Graphic::MaterialShadowSkinned;
 using Desert::Graphic::MeshPass;
 using Desert::Graphic::MeshPathOwnBinding;
@@ -714,7 +712,7 @@ TEST_F( ShaderRootFixture, EveryMeshCellDeclaresEachPushFieldTheRendererWritesBy
     };
 
     // The fields each cell's writers name (Material::SetPushMatrix/SetMaterialIndex/SetInstancedWind,
-    // MaterialPBR::Bind, MaterialShadowSkinned::SetBoneOffset). A cell that lost one would silently drop the
+    // Material::SetSkinnedBoneOffset, MaterialShadowSkinned::SetBoneOffset). A cell that lost one would silently drop the
     // write (MaterialBinder: Absent), so the cell must declare it; the layout, not C++, says where it sits.
     const Expectation expectations[] = {
          { MeshVertexPath::Static, MeshPass::Forward, { "Transform", "MaterialIndex" } },

@@ -20,7 +20,7 @@ namespace Desert::Graphic::SceneResources
 {
     // WHAT THE SCENE HANDS A SURFACE, BY NAME — for ANY surface template, not for one C++ material class.
     //
-    // These constants and the table below used to be the static members of MaterialPBRBase, which made
+    // These constants and the table below used to be the static members of the PBR base class, which made
     // "reads the shadow cascades / the IBL environment" something a material got by INHERITING from the
     // PBR class. A template is what reads them, so the template says so: every cell's reconciled layout
     // carries `SceneReads` (Core::Formats::SceneRead), classified from the resources its compiled stages

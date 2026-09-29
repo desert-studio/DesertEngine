@@ -4,7 +4,6 @@
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
-#include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
 #include <Engine/Graphic/MaterialPipelineStates.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -135,7 +134,7 @@ namespace Desert::Runtime
         }
 
         // ONE PATH FOR EVERY TEMPLATE. There used to be a branch here: the template declaring `Role
-        // PBRSurface` was built as the C++ MaterialPBR class and every other one as a DataDrivenMaterial,
+        // PBRSurface` was built as the C++ PBR class and every other one as a DataDrivenMaterial,
         // with two appliers that had to be kept saying the same thing. A material is one template cell's
         // descriptor sets plus a parameter row, whatever the template shades like; the scene's part of the
         // draw is declared by the template's resources (Core::Formats::MaterialLayout::SceneReads), so the
@@ -416,8 +415,8 @@ namespace Desert::Runtime
         return nullptr;
     }
 
-    Graphic::MaterialPBR* MaterialService::GetVariant( const Graphic::MaterialPBR* built,
-                                                       Graphic::MeshVertexPath path, Graphic::MeshPass pass ) const
+    Graphic::DataDrivenMaterial* MaterialService::GetVariant( const Graphic::Material* built,
+                                                              Graphic::MeshVertexPath path, Graphic::MeshPass pass ) const
     {
         if ( !built )
             return nullptr;
@@ -430,7 +429,8 @@ namespace Desert::Runtime
         // the renderer owns whether this draw is instanced. What is NOT the caller's is the asset, and
         // that is the one thing this function supplies — the sibling is the same `.demat`, so it carries
         // the same parameters and the same textures by construction.
-        return dynamic_cast<Graphic::MaterialPBR*>( Get( it->second, path, pass ) );
+        // Every material the service builds is a DataDrivenMaterial (CreateSurfaceMaterial), so the sibling is one.
+        return static_cast<Graphic::DataDrivenMaterial*>( Get( it->second, path, pass ) );
     }
 
     bool MaterialService::Owns( const Graphic::Material* material ) const

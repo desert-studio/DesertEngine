@@ -210,7 +210,7 @@ namespace Desert::Animation
      * @brief THE PIPELINE'S OUTPUT. `component_i * OffsetMatrix_i`, and nothing else reaches the GPU.
      *
      * Kept as a bare matrix array on purpose: every consumer downstream of `Animator::GetPose()` —
-     * `DrawSkinnedMeshCommand`, `MeshRenderer`, `MaterialPBR::UploadBones`, `SkinnedMaterialUB` — forwards
+     * `DrawSkinnedMeshCommand`, `MeshRenderer`, `Material::UploadSkinnedBones`, `SkinnedMaterialUB` — forwards
      * it unchanged into a storage buffer. Introducing the pose types above changed those call sites not at
      * all; it changed what the Animator keeps INSIDE.
      */
