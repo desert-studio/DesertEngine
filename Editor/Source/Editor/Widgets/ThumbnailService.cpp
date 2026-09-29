@@ -132,10 +132,11 @@ namespace Desert::Editor
     {
         const std::string identity = ThumbnailKey::Identity( assetPath );
         const std::string png      = ThumbnailKey::DiskPath( assetPath );
-        if ( ShouldQueue( identity, png, assetPath ) )
+        const std::string source   = ThumbnailFreshness::MeshFreshnessSource( assetPath ).generic_string();
+        if ( ShouldQueue( identity, png, source ) )
         {
             m_Queue.push_back(
-                 { Kind::Mesh, mesh, material, identity, assetPath, png, ThumbnailSubject::Preview::Sphere } );
+                 { Kind::Mesh, mesh, material, identity, source, png, ThumbnailSubject::Preview::Sphere } );
             m_Queued.insert( identity );
         }
         return png;

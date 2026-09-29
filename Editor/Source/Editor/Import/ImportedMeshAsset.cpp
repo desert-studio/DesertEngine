@@ -196,6 +196,11 @@ namespace Desert::Editor
         return present;
     }
 
+    bool ImportedMeshAssetIsCurrent( const std::filesystem::path& source )
+    {
+        return ImportedMeshAssetIsFresh( source ) && ImportedMaterialsPresent( source );
+    }
+
     bool StaticMeshCookAvailable( const std::filesystem::path& cooked, const std::filesystem::path& source )
     {
         std::error_code ec;

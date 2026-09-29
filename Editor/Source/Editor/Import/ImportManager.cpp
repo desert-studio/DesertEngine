@@ -96,7 +96,7 @@ namespace Desert::Editor
         // only an explicit re-import may replace the edit (UE: a changed .fbx is offered for re-import, never
         // re-imported behind the user's back), and that re-import says so (RemoveBesideSourceFile).
         if ( !force &&
-             ( ( ImportedMeshAssetIsFresh( path ) && ImportedMaterialsPresent( path ) ) ||
+             ( ImportedMeshAssetIsCurrent( path ) ||
                Assets::IsEditedImportedMesh( CookPaths::MeshAsset( path ) ) || SkinnedImportIsFresh( path ) ) )
             return CookVerdict::UpToDate;
 
