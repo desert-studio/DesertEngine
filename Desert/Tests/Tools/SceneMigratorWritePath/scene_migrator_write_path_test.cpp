@@ -13,6 +13,7 @@
 // which writing the scene in place would still SUCCEED, so the first test is red against the old
 // code (mutation-checked), not merely untested against it.
 
+#include <format>
 #include <MigratorMain.hpp>
 #include <SceneMigration.hpp>
 #include <SettingsCanonical.hpp>
@@ -157,7 +158,8 @@ TEST( SceneMigratorWritePath, AVersionOneLandscapeTileFailsByPathAndNumberAndIsL
     std::string report;
     std::string errors;
     EXPECT_EQ( RunTool( { "--check", v2.string() }, report, errors ), 0 ) << report << errors;
-    EXPECT_NE( report.find( "ok     " + v2.string() + " — already at tile v3, heights crc " ), std::string::npos )
+    EXPECT_NE( report.find( std::format( "ok     {} — already at tile v3, heights crc ", v2.string() ) ),
+               std::string::npos )
          << report;
 
     // The v1 form: version 1, no weight-count word, fresh checksum.

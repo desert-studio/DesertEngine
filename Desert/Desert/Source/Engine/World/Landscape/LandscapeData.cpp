@@ -692,8 +692,7 @@ namespace Desert::World::Landscape
                          "Landscape tile blob {} {} states a {}-byte name and "
                          "{} weights; {} bytes remain",
                          what, l, nameLength, plane, end - cursor );
-                LandscapeWeightLayer layer{ std::string( reinterpret_cast<const char*>( cursor ), nameLength ),
-                                            {} };
+                LandscapeWeightLayer layer{ std::string( cursor, cursor + nameLength ), {} };
                 cursor += nameLength;
                 layer.Weights.assign( cursor, cursor + plane );
                 cursor += plane;
@@ -843,8 +842,8 @@ namespace Desert::World::Landscape
                  ReadWeightPlanes( cursor, end, plane, std::format( "edit layer {}'s weight layer", l ) );
             if ( !weights )
                 return Common::MakeError<Result>( weights.GetError() );
-            data.Weights = std::move( weights.GetValue() );
-            if ( result.FindEditLayer( data.Layer ) )
+            data.Weights = weights.ExtractValue();
+            if ( result.FindEditLayer( data.Layer ) != nullptr )
                 return Common::MakeFormattedError<Result>( "Landscape tile blob names edit layer {} twice",
                                                            static_cast<uint64_t>( data.Layer ) );
             if ( auto set = result.SetEditLayer( std::move( data ) ); !set )

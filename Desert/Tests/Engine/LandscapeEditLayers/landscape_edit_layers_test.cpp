@@ -283,7 +283,7 @@ TEST( LandscapeEditLayers, ALayeredTileSurvivesTheBlobByteForByte )
     }
 
     // The layers read back merge to the tile that was written.
-    LandscapeTileData merged = std::move( read.GetValue() );
+    LandscapeTileData merged = read.ExtractValue();
     Merge( kTwoLayers, merged, merged.Bounds() );
     EXPECT_EQ( merged.Samples(), tile.Samples() );
     EXPECT_EQ( WeightsOf( merged, "Grass" ), WeightsOf( tile, "Grass" ) );

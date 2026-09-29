@@ -12,11 +12,6 @@ namespace Desert::World::Landscape
 {
     namespace
     {
-        bool SameGuid( const Common::UUID& a, const Common::UUID& b )
-        {
-            return static_cast<uint64_t>( a ) == static_cast<uint64_t>( b );
-        }
-
         /// Whether weight layer @p name is weight-blended; nullopt when @p rules do not name it. The visibility
         /// layer is no root layer but UE's VisibilityLayer, bNoWeightBlend (LandscapePaintStroke::Rule).
         std::optional<bool> IsWeightBlended( std::string_view name, std::span<const LandscapeLayerRule> rules )
