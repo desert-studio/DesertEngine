@@ -42,6 +42,7 @@ namespace Desert::Editor::Tools
         void ServeComponentRequest( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray,
                                     ::Desert::Editor::Core::LandscapeStrokeRequest request );
 
+        std::optional<World::Landscape::LandscapeEditLayerTarget> m_Layer;
         std::optional<ECS::LandscapeEditTarget>                m_Target;
         std::optional<World::Landscape::LandscapeHeightStroke> m_Stroke;
         bool                                                   m_Failed = false;

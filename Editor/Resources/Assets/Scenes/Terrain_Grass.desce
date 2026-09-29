@@ -110,6 +110,16 @@
                 "QuadsPerTile": 255,
                 "SpacingCm": 23.52941131591797,
                 "ZScale": 1.5625,
+                "EditLayers": [
+                    {
+                        "Guid": "4774188636615749681",
+                        "Name": "Base",
+                        "Visible": true,
+                        "Locked": false,
+                        "HeightAlpha": 1.0,
+                        "WeightAlpha": 1.0
+                    }
+                ],
                 "Layers": [
                     {
                         "Guid": "80a31d6cbbb94e2680f8d4fa2d3cc8a9",

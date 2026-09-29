@@ -5403,6 +5403,86 @@ namespace Desert::Editor
                                       paint.Layer = added.GetValue();
                                   return PaletteCommandDone();
                               } } );
+        // Edit Layers (LandscapePanel::DrawEditLayers): every button of a row acts on the EDITING layer here, so a
+        // frame can add a layer, stroke into it and hide it unattended.
+        commands.push_back( { "Landscape", "Create Edit Layer", [this]
+                              {
+                                  auto added = Commands::AddLandscapeEditLayer( m_MainScene );
+                                  return added.IsSuccess() ? PaletteCommandDone()
+                                                           : PaletteCommandOutcome( false, added.GetError() );
+                              } } );
+        {
+            // The editing layer's Guid: null means the stack's bottom layer, as the brushes read it.
+            const auto editingLayer = [this]() -> Common::UUID
+            {
+                const auto& editing = Core::LandscapeSculptState::Get().EditingLayer;
+                if ( !editing.IsNull() || !m_MainScene )
+                    return editing;
+                auto&      registry  = m_MainScene->GetRegistry();
+                const auto landscape = ECS::FirstLandscape( registry );
+                const auto root =
+                     landscape ? ECS::FindLandscapeRootEntity( registry, *landscape ) : entt::entity( entt::null );
+                if ( root == entt::null ||
+                     registry.get<ECS::LandscapeComponent>( root ).EditLayers.Layers.empty() )
+                    return editing;
+                return registry.get<ECS::LandscapeComponent>( root ).EditLayers.Layers.front().Guid;
+            };
+            const auto layerOf = [this]( const Common::UUID& guid ) -> const World::Landscape::LandscapeEditLayer*
+            {
+                auto&      registry  = m_MainScene->GetRegistry();
+                const auto landscape = ECS::FirstLandscape( registry );
+                const auto root =
+                     landscape ? ECS::FindLandscapeRootEntity( registry, *landscape ) : entt::entity( entt::null );
+                return root == entt::null ? nullptr
+                                          : registry.get<ECS::LandscapeComponent>( root ).EditLayers.Find( guid );
+            };
+            const auto outcome = []( const Common::BoolResultStr& r )
+            { return r.IsSuccess() ? PaletteCommandDone() : PaletteCommandOutcome( false, r.GetError() ); };
+            commands.push_back( { "Landscape", "Editing edit layer: toggle visibility",
+                                  [this, editingLayer, layerOf, outcome]
+                                  {
+                                      const auto  guid  = editingLayer();
+                                      const auto* layer = m_MainScene ? layerOf( guid ) : nullptr;
+                                      if ( layer == nullptr )
+                                          return PaletteCommandOutcome( false, "no editing edit layer" );
+                                      return outcome( Commands::SetLandscapeEditLayerVisible( m_MainScene, guid,
+                                                                                              !layer->Visible ) );
+                                  } } );
+            commands.push_back( { "Landscape", "Editing edit layer: toggle lock",
+                                  [this, editingLayer, layerOf, outcome]
+                                  {
+                                      const auto  guid  = editingLayer();
+                                      const auto* layer = m_MainScene ? layerOf( guid ) : nullptr;
+                                      if ( layer == nullptr )
+                                          return PaletteCommandOutcome( false, "no editing edit layer" );
+                                      return outcome( Commands::SetLandscapeEditLayerLocked( m_MainScene, guid,
+                                                                                             !layer->Locked ) );
+                                  } } );
+            commands.push_back(
+                 { "Landscape", "Editing edit layer: delete", [this, editingLayer, outcome]
+                   { return outcome( Commands::RemoveLandscapeEditLayer( m_MainScene, editingLayer() ) ); } } );
+            for ( const float alpha : { 0.0f, 0.5f, 1.0f } )
+                commands.push_back( { "Landscape", std::format( "Editing edit layer: alphas {:.1f}", alpha ),
+                                      [this, editingLayer, outcome, alpha] {
+                                          return outcome( Commands::SetLandscapeEditLayerAlpha(
+                                               m_MainScene, editingLayer(), alpha, alpha ) );
+                                      } } );
+            if ( m_MainScene )
+            {
+                auto&      registry  = m_MainScene->GetRegistry();
+                const auto landscape = ECS::FirstLandscape( registry );
+                const auto root =
+                     landscape ? ECS::FindLandscapeRootEntity( registry, *landscape ) : entt::entity( entt::null );
+                if ( root != entt::null )
+                    for ( const auto& layer : registry.get<ECS::LandscapeComponent>( root ).EditLayers.Layers )
+                        commands.push_back( { "Landscape", std::format( "Edit layer: {}", layer.Name ),
+                                              [guid = layer.Guid]
+                                              {
+                                                  Core::LandscapeSculptState::Get().EditingLayer = guid;
+                                                  return PaletteCommandDone();
+                                              } } );
+            }
+        }
         // The Visibility target (UE's Visibility tool): paint cuts a hole, the lowering stroke (invert) fills it.
         commands.push_back( { "Landscape", "Target layer: Visibility (holes)", []
                               {

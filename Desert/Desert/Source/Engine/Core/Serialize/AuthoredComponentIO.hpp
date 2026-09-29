@@ -210,13 +210,28 @@ namespace Desert::Core::Serialize
     // goes with it so the two halves of one feature are read in one place.
     // `Layers` is not here: it names `.delayerinfo` assets by {Guid, Path}, and resolving a GUID needs the
     // asset manager — the registry's Landscape serializer (ComponentRegistry.cpp) writes and reads it.
+    // `EditLayers` is the stack as [{Guid, Name, Visible, Locked, HeightAlpha, WeightAlpha}], bottom first,
+    // written even when empty (an undo restores the whole block, and an absent key keeps the current value).
     inline Common::Json::Object WriteComponent( const ECS::LandscapeComponent& c )
     {
-        return Common::Json::ObjectBuilder()
-             .Set( "QuadsPerTile", c.QuadsPerTile )
-             .Set( "SpacingCm", c.SpacingCm )
-             .Set( "ZScale", c.ZScale )
-             .Build();
+        Common::Json::Object block = Common::Json::ObjectBuilder()
+                                          .Set( "QuadsPerTile", c.QuadsPerTile )
+                                          .Set( "SpacingCm", c.SpacingCm )
+                                          .Set( "ZScale", c.ZScale )
+                                          .Build();
+        Common::Json::Value::Array layers;
+        layers.reserve( c.EditLayers.Layers.size() );
+        for ( const World::Landscape::LandscapeEditLayer& layer : c.EditLayers.Layers )
+            layers.emplace_back( Common::Json::ObjectBuilder()
+                                      .Set( "Guid", layer.Guid )
+                                      .Set( "Name", layer.Name )
+                                      .Set( "Visible", layer.Visible )
+                                      .Set( "Locked", layer.Locked )
+                                      .Set( "HeightAlpha", layer.HeightAlpha )
+                                      .Set( "WeightAlpha", layer.WeightAlpha )
+                                      .Build() );
+        block["EditLayers"] = Common::Json::Value( std::move( layers ) );
+        return block;
     }
 
     inline void ReadComponent( const Common::Json::Node& from, ECS::LandscapeComponent& c,
@@ -225,6 +240,56 @@ namespace Desert::Core::Serialize
         from.ReadInto( "QuadsPerTile", c.QuadsPerTile, issues );
         from.ReadInto( "SpacingCm", c.SpacingCm, issues );
         from.ReadInto( "ZScale", c.ZScale, issues );
+
+        // The stack is read whole or not at all: a layer with an unreadable field, or a stack that
+        // ValidateLandscapeEditLayerStack refuses (a null or repeated Guid, an alpha out of range), is an issue
+        // at the list's path and the current stack stays — never a stack with the bad layer dropped or clamped.
+        // A landscape has at least its Base layer (UE: every landscape has one edit layer), so a read that
+        // leaves the stack empty - the key absent over an empty stack, or an empty list - is an issue at
+        // `EditLayers`, never a silently made Base.
+        const auto value = from.Find( "EditLayers" );
+        if ( !value )
+        {
+            if ( c.EditLayers.Layers.empty() )
+                issues.push_back( { from.Where().Key( "EditLayers" ).ToString(),
+                                    "the edit layer stack (at least the Base layer)", "absent" } );
+            return; // absent: the stack stays as it is (rule 1)
+        }
+        if ( value->GetKind() != Common::Json::Kind::Array )
+        {
+            issues.push_back( { value->Where().ToString(), "an array of edit layers", "not an array" } );
+            return;
+        }
+        const size_t                              before = issues.size();
+        World::Landscape::LandscapeEditLayerStack read;
+        value->ForEachElement(
+             [&]( std::size_t, const Common::Json::Node& element )
+             {
+                 if ( !element.ExpectKind( Common::Json::Kind::Object, issues ) )
+                     return;
+                 World::Landscape::LandscapeEditLayer layer;
+                 element.ReadInto( "Guid", layer.Guid, issues );
+                 element.ReadInto( "Name", layer.Name, issues );
+                 element.ReadInto( "Visible", layer.Visible, issues );
+                 element.ReadInto( "Locked", layer.Locked, issues );
+                 element.ReadInto( "HeightAlpha", layer.HeightAlpha, issues );
+                 element.ReadInto( "WeightAlpha", layer.WeightAlpha, issues );
+                 read.Layers.push_back( std::move( layer ) );
+             } );
+        if ( issues.size() != before )
+            return;
+        if ( read.Layers.empty() )
+        {
+            issues.push_back(
+                 { value->Where().ToString(), "at least one edit layer (the Base layer)", "an empty list" } );
+            return;
+        }
+        if ( auto valid = World::Landscape::ValidateLandscapeEditLayerStack( read ); !valid )
+        {
+            issues.push_back( { value->Where().ToString(), "a valid edit layer stack", valid.GetError() } );
+            return;
+        }
+        c.EditLayers = std::move( read );
     }
 
     // `Heights` is not written: it is what `HeightFile` decodes to, and the registry's LandscapeTile

@@ -6,34 +6,18 @@
 
 #include <Engine/World/Landscape/LandscapeBrush.hpp>
 #include <Engine/World/Landscape/LandscapeEditCache.hpp>
+#include <Engine/World/Landscape/LandscapeEditLayers.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
 
 namespace Desert::World::Landscape
 {
-    /**
-     * @brief UE's ULandscapeLayerInfoObject reduced to what painting and blending read: the layer's name (the
-     * key a tile's LandscapeWeightLayer carries), its Hardness and bNoWeightBlend.
-     *
-     * UE 5.7 deprecated bNoWeightBlend for BlendMethod (None = not weight-blended); the one bit is what the
-     * card asks for and what both enums reduce to for normalisation, so the bit is kept.
-     */
-    struct LandscapeLayerRule
-    {
-        std::string Name;
-        /// UE: "how much a layer resists being painted over", 0..1, default 0.5. Here: when a painted layer
-        /// takes weight from the others, softer layers give first, in proportion to weight · (1 - Hardness);
-        /// only what they cannot give is then taken from the harder ones, in proportion to what they have left.
-        float Hardness = 0.5f;
-        /// UE: bNoWeightBlend — the layer is neither normalised nor counted in the others' sum.
-        bool NoWeightBlend = false;
-    };
-
     /**
      * @brief Sets layer @p painted to @p value at one sample and renormalises the other weight-blended layers
      * so the weight-blended sum is 255 — UE's weight-adjust (legacy FLandscapeEditDataInterface::SetAlphaData
@@ -89,6 +73,11 @@ namespace Desert::World::Landscape
     public:
         LandscapePaintStroke( const LandscapeRoot& root, LandscapeTileLookup lookup,
                               std::vector<LandscapeLayerRule> rules );
+        /// A stroke that paints edit layer @p layer.Layer (UE: the landscape's editing layer): every step reads
+        /// and writes THAT layer's weights on each tile and re-merges the tile, and Finish records the layer's
+        /// weights, not the merge. The rules are @p layer.Rules. Every tile it touches must carry edit layers.
+        LandscapePaintStroke( const LandscapeRoot& root, LandscapeTileLookup lookup,
+                              LandscapeEditLayerTarget layer );
 
         /// FLandscapeToolStrokePaint::Apply. @p invert is UE's bInvert (Shift): erase instead of paint.
         /// Refuses a target layer the rules do not name, a tile layer the rules do not name, and a tile that
@@ -112,6 +101,8 @@ namespace Desert::World::Landscape
             int32_t                           TileZ = 0;
             std::vector<LandscapeWeightLayer> Original;
             std::vector<float>                Influence; ///< UE's TotalInfluenceMap, per sample of the tile.
+            /// Edit-layer strokes only: the layer's weight planes on this tile, painted as a tile's own are.
+            std::optional<LandscapeTileData> Layer;
         };
 
         TileState&                StateFor( int32_t tileX, int32_t tileZ, const LandscapeTileData& tile );
@@ -121,10 +112,16 @@ namespace Desert::World::Landscape
         LandscapeTileLookup             m_Lookup;
         std::vector<LandscapeLayerRule> m_Rules;
         std::vector<TileState>          m_Tiles;
+        std::optional<LandscapeEditLayerTarget> m_Layer;
     };
 
     /// Writes the Before (undo) or After (redo) layers of @p record back into its tiles. A tile that is not
     /// loaded is refused by name: silently skipping it would leave half a stroke undone.
     Common::BoolResultStr ApplyLandscapePaintRecord( LandscapeTileLookup         lookup,
                                                      const LandscapePaintRecord& record, bool before );
+    /// The same for a record of an edit-layer stroke: the layers go back into edit layer @p layer.Layer's data
+    /// on each tile, which is then re-merged whole.
+    Common::BoolResultStr ApplyLandscapePaintRecord( const LandscapeTileLookup&  lookup,
+                                                     const LandscapePaintRecord& record, bool before,
+                                                     const LandscapeEditLayerTarget& layer );
 } // namespace Desert::World::Landscape

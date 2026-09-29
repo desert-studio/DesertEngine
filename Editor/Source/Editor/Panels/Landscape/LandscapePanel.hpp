@@ -47,6 +47,8 @@ namespace Desert::Editor
         void DrawBrushSettings();
         void DrawPaintSettings();
         void DrawTargetLayers();
+        /// UE's Edit Layers list (Sculpt and Paint): the root's stack top first, the editing layer selected.
+        void DrawEditLayers();
 
         /// The scene the Target Layers list edits (EditorLayer rebinds it to the focused viewport's scene).
         std::weak_ptr<Desert::Core::Scene> m_Scene;

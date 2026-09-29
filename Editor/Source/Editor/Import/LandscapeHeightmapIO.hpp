@@ -119,11 +119,17 @@ namespace Desert::World::Landscape
      * Refuses — writing nothing — a map whose size is not @p rect's (naming both), or a rectangle the edit cache
      * refuses (an unloaded tile, a sample off the landscape). Seam samples are written into every tile that
      * stores them, so the tiles cannot disagree on an edge after an import.
+     *
+     * The map goes into edit layer @p layer.Layer (UE: Import writes the layer being edited), as that layer's
+     * heights relative to mid; the tiles become the stack's merge. The record holds that layer's heights, so
+     * WriteLandscapeHeights with the same @p layer replays it. A locked layer or a tile without edit layers is
+     * refused, writing nothing.
      */
-    Common::ResultStr<LandscapeStrokeRecord> ImportLandscapeHeightmap( const LandscapeRoot&         root,
-                                                                       LandscapeTileLookup          lookup,
-                                                                       const LandscapeSampleBounds& rect,
-                                                                       const LandscapeHeightmap&    map );
+    Common::ResultStr<LandscapeStrokeRecord> ImportLandscapeHeightmap( const LandscapeRoot&            root,
+                                                                       LandscapeTileLookup             lookup,
+                                                                       const LandscapeSampleBounds&    rect,
+                                                                       const LandscapeHeightmap&       map,
+                                                                       const LandscapeEditLayerTarget& layer );
 
     /**
      * @brief UE's New Landscape → Import from File: a new landscape whose tile grid is the map's size.

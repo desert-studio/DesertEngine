@@ -251,6 +251,9 @@ namespace Desert::Editor::Core
         /// UE's New Landscape settings (Manage mode); kept across uses like UE's editor object keeps them.
         World::Landscape::LandscapeGenerateSettings NewLandscape;
         LandscapeStrokeRequest                   Request = LandscapeStrokeRequest::None;
+        /// UE's editing layer: the edit layer every brush writes (ECS::FindLandscapeEditLayerTarget). Null = the
+        /// stack's bottom layer, the one UE edits on a landscape nobody picked a layer on.
+        Common::UUID EditingLayer = Common::UUID::Null();
         /// UE's FLandscapeToolRamp points, in world cm, and which one the mouse holds; applying keeps them, as UE
         /// does until the tool is reset. Placed and dragged in the viewport, drawn by the gizmo overlay.
         World::Landscape::LandscapeRampPoints RampPoints;

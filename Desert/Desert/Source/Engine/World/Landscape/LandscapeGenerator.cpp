@@ -263,6 +263,9 @@ namespace Desert::World::Landscape
              glm::vec3( -static_cast<float>( s.TilesX ) * LandscapeTileExtentCm( out.Root ) * 0.5f, 0.0f,
                         -static_cast<float>( s.TilesZ ) * LandscapeTileExtentCm( out.Root ) * 0.5f );
 
+        const Common::UUID base( kLandscapeBaseEditLayerGuid );
+        out.EditLayers.Layers.push_back( { base, "Base" } );
+
         const uint32_t q       = s.QuadsPerTile;
         const uint32_t samples = LandscapeTileSamples( out.Root );
         out.Tiles.reserve( static_cast<size_t>( s.TilesX ) * static_cast<size_t>( s.TilesZ ) );
@@ -280,12 +283,17 @@ namespace Desert::World::Landscape
                                                       static_cast<size_t>( tx ) * q );
                     std::copy_n( row, samples, values.begin() + static_cast<std::ptrdiff_t>( z * samples ) );
                 }
+                // The Base layer's plane is the tile's samples: at alpha 1 over mid it merges to them exactly.
+                LandscapeEditLayerTileData layer{ base, values, {} };
                 auto tile = LandscapeTileData::FromSamples( samples, samples, std::move( values ) );
                 if ( !tile.IsSuccess() )
-                    return Common::MakeError<LandscapeGenerated>( "new landscape: tile (" + std::to_string( tx ) +
-                                                                  ", " + std::to_string( tz ) +
-                                                                  "): " + tile.GetError() );
-                out.Tiles.push_back( { tx, tz, tile.ExtractValue() } );
+                    return Common::MakeFormattedError<LandscapeGenerated>( "new landscape: tile ({}, {}): {}", tx,
+                                                                           tz, tile.GetError() );
+                LandscapeTileData data = tile.ExtractValue();
+                if ( auto set = data.SetEditLayer( std::move( layer ) ); !set )
+                    return Common::MakeFormattedError<LandscapeGenerated>( "new landscape: tile ({}, {}): {}", tx,
+                                                                           tz, set.GetError() );
+                out.Tiles.push_back( { tx, tz, std::move( data ) } );
                 steps.Advance();
             }
         return Common::MakeSuccess( std::move( out ) );
