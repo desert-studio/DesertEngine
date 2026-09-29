@@ -622,6 +622,9 @@ namespace Desert::Editor
         // Which document window has the keyboard focus, as of the last frame. Drives the radio in
         // Window ▸ Documents and is where Ctrl+Tab starts from.
         SubjectId m_FocusedDocument;
+        // Whether a document window has the keyboard NOW. m_FocusedDocument outlives the focus on purpose, so
+        // Ctrl+S needs this separately to decide between the document's asset and the scene (SaveShortcut.hpp).
+        bool m_DocumentHasFocus = false;
         // Ctrl+Tab holds the ring still. Landing on a document by cycling must NOT reorder the ring, or the
         // second press would come straight back to where the first started; the order is committed once Ctrl
         // is released, which is the behaviour every alt-tab ring has.

@@ -14,6 +14,7 @@
 #include <array>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,7 @@ namespace Desert::Assets
 {
     class AssetManager;
     class AnimationAsset;
+    class SkinnedMeshAsset;
 }
 
 namespace Desert::Editor::UI
@@ -51,7 +53,12 @@ namespace Desert::Editor
      * committed on release. Save writes the `.anim` through SaveClipToFile; the clip is dirty while its
      * notifies differ from the ones last read from or written to the file.
      *
-     * The right-hand column is left for the skeleton tree and bone details.
+     * THE LAYOUT IS UE's PERSONA, in the window's own DockSpace: Asset Details | Skeleton Tree tabs on the left,
+     * the viewport with the transport and timeline in the middle, Details (the selected bone) | Preview Scene
+     * Settings on the right. The layout is built once, when the dock node does not exist yet; after that ImGui's
+     * ini keeps whatever the person made of it. The selected bone is THIS WINDOW's (a preview is not the
+     * scene, so AuthoringContext's bone selection is not touched); it is lit over the picture with its name,
+     * and Show Bones draws every bone as a line to its parent.
      */
     class AnimationEditorDocument final : public AnimationEditorBase
     {
@@ -89,6 +96,15 @@ namespace Desert::Editor
     private:
         void EnsurePreview();
         void DrawOverlay( const glm::vec2& origin ) const;
+        void                      BuildLayout( unsigned int dockId ) const;
+        void                      DrawViewportPanel();
+        void                      DrawSkeletonTree();
+        void                      DrawBoneDetails() const;
+        void                      DrawAssetDetails();
+        void                      DrawPreviewSceneSettings();
+        void                      DrawBones( const glm::vec2& origin, const glm::vec2& size ) const;
+        void                      SetPreviewMesh( size_t candidate );
+        [[nodiscard]] std::string PanelTitle( const char* name ) const;
         void DrawTransport();
         void                DrawTimeline( float width, float height );
         void                DrawNotifyPopups( Animation::AnimationClip& clip );
@@ -125,6 +141,13 @@ namespace Desert::Editor
         int32_t                                 m_PopupTrack   = 0;
         double                                  m_PopupSeconds = 0.0;
         std::array<char, 128>                   m_NameBuffer{};
+        // Every registered skeletal mesh on the clip's rig, sorted by path; the preview shows m_MeshIndex.
+        std::vector<std::pair<std::string, std::shared_ptr<Assets::SkinnedMeshAsset>>> m_MeshCandidates;
+        size_t                                                                         m_MeshIndex = 0;
+        std::optional<uint32_t>                                                        m_SelectedBone;
+        std::vector<bool>                                                              m_CollapsedBones;
+        std::array<char, 64>                                                           m_BoneFilter{};
+        bool                                                                           m_ShowBones = false;
     };
 
     // The `.anim` path opener: find-or-create the AnimationAsset, load it, then open it through the one handle

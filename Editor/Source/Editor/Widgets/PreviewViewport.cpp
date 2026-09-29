@@ -908,6 +908,23 @@ namespace Desert::Editor
         ++m_ContentRevision;
     }
 
+    const Animation::Animator* PreviewViewport::GetAnimator() const
+    {
+        if ( !m_Target || !m_Target.HasComponent<ECS::AnimationComponent>() )
+            return nullptr;
+        return m_Target.GetComponent<ECS::AnimationComponent>().Animator.get();
+    }
+
+    glm::mat4 PreviewViewport::GetViewProjection() const
+    {
+        return m_Camera ? m_Camera->GetProjectionMatrix() * m_Camera->GetViewMatrix() : glm::mat4( 1.0f );
+    }
+
+    glm::mat4 PreviewViewport::GetTargetTransform() const
+    {
+        return m_Target ? m_Target.GetComponent<ECS::TransformComponent>().GetTransform() : glm::mat4( 1.0f );
+    }
+
     void PreviewViewport::SetAnimationTime( const double seconds )
     {
         if ( seconds == m_AnimationTime )
