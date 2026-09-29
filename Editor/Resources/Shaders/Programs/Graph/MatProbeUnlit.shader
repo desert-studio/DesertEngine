@@ -4,7 +4,7 @@ Shader "MatProbeUnlit"
 {
     Domain Surface
 
-    Properties Binding(1)
+    Properties Binding(2)
     {
         Color     TintA ("TintA") = (0.9, 0.12, 0.08, 1.0)
         Color     TintB ("TintB") = (0.08, 0.25, 0.95, 1.0)
@@ -18,24 +18,23 @@ Shader "MatProbeUnlit"
         ZWrite On
     }
 
-    Vertex
-    {
-        #include <Common/GraphVertex.glslh>
-    }
+    ShadingModel Unlit
 
-    Fragment
+    Surface
     {
-        layout( location = 0 ) in vec2 v_UV;
-        layout( location = 0 ) out vec4 o_Color;
-
-        void main()
+        SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
+            const vec2 v_UV = i.UV0;
             vec4 n1 = u_Material.TintA;
             vec4 n2 = u_Material.TintB;
             float n3 = u_Material.Blend;
             vec4 n0 = mix( n1, n2, n3 );
-            vec4 albedo = n0;
-            o_Color = vec4( albedo.rgb + ( vec4( 0.0 ) ).rgb, albedo.a * ( 1.0 ) );
+            const vec4 albedo = n0;
+            SurfaceOutput s = DefaultSurfaceOutput();
+            s.BaseColor = vec3( 0.0 );
+            s.Emissive = albedo.rgb + ( vec4( 0.0 ) ).rgb;
+            s.Opacity = albedo.a * ( 1.0 );
+            return s;
         }
     }
 }

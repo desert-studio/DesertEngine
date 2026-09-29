@@ -12,6 +12,7 @@
 #include <format>
 #include <set>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace SG = Desert::Editor::ShaderGraph;
@@ -62,22 +63,48 @@ namespace
     }
 } // namespace
 
-// The compiler must emit the domain from the document, and the engine parser must read it back.
-TEST( ShaderGraphCompiler, SurfaceEmitsSurfaceDomainAndOneLitPass )
+// A Surface graph is a surface TEMPLATE: one `Surface { EvaluateSurface }` block, no stage of its own, and the
+// engine parser expands it into every cell — so a graph material is drawn skinned and instanced, into the
+// G-buffer and the shadow cascades, without the generator knowing any of them exist.
+TEST( ShaderGraphCompiler, ASurfaceGraphIsATemplateTheParserExpandsIntoEveryCell )
 {
-    const auto compiled = SG::CompileToDShader( SurfaceDoc() );
-    ASSERT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
+    for ( const bool lit : { false, true } )
+    {
+        SG::Document doc    = SurfaceDoc();
+        doc.Lit             = lit;
+        const auto compiled = SG::CompileToDShader( doc );
+        ASSERT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
+        const std::string& src = compiled.GetValue();
 
-    auto parsed = DShaderParser::Parse( compiled.GetValue() );
-    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
-    const auto& p = parsed.GetValue();
+        auto parsed = DShaderParser::Parse( src );
+        ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError() << "\n" << src;
+        const auto& p = parsed.GetValue();
 
-    EXPECT_EQ( p.Name, "TestSurface" );
-    EXPECT_EQ( p.Meta.Domain, ShaderDomain::Surface );
-    EXPECT_TRUE( p.Stages.count( ShaderStage::Vertex ) );
-    EXPECT_TRUE( p.Stages.count( ShaderStage::Fragment ) );
-    // Mesh vertex contract.
-    EXPECT_NE( compiled.GetValue().find( "GraphVertex.glslh" ), std::string::npos );
+        EXPECT_EQ( p.Name, "TestSurface" );
+        EXPECT_EQ( p.Meta.Domain, ShaderDomain::Surface );
+
+        std::vector<std::string> expected;
+        for ( const std::string_view path : Desert::Core::Preprocess::kSurfaceVertexPaths )
+            for ( const std::string_view pass : Desert::Core::Preprocess::kSurfaceCellPasses )
+                expected.push_back( Desert::Core::Preprocess::SurfaceCellName( path, pass ) );
+        EXPECT_EQ( p.Surface.Cells, expected );
+        for ( const std::string& cell : expected )
+        {
+            const auto* pass = p.FindPass( cell );
+            ASSERT_NE( pass, nullptr ) << cell;
+            EXPECT_TRUE( pass->Stages.count( ShaderStage::Vertex ) ) << cell;
+            EXPECT_TRUE( pass->Stages.count( ShaderStage::Fragment ) ) << cell;
+        }
+
+        // The default program is the Static.Forward cell by name, not a pass the generator writes.
+        EXPECT_EQ( p.FindPass( "" ), p.FindPass( std::string( Desert::Core::Preprocess::kSurfaceDefaultCell ) ) );
+
+        // And the generator wrote no vertex stage, no main() and none of the old per-graph contract.
+        EXPECT_EQ( src.find( "main()" ), std::string::npos ) << src;
+        EXPECT_EQ( src.find( "    Vertex\n" ), std::string::npos ) << src;
+        EXPECT_EQ( src.find( "GraphVertex.glslh" ), std::string::npos ) << src;
+        EXPECT_NE( src.find( "SurfaceOutput EvaluateSurface( SurfaceInput i )" ), std::string::npos ) << src;
+    }
 }
 
 // This test used to assert the OPPOSITE — that a Surface graph "carries a shadow/depth variant".
@@ -556,44 +583,118 @@ namespace
     }
 } // namespace
 
-TEST( ShaderGraphCompiler, ALitSurfaceCallsTheSharedModelAndWritesNoFormulaOfItsOwn )
+namespace
 {
-    const auto compiled = SG::CompileToDShader( LitSurfaceDoc() );
+    // The variable the emitter declared for a parameter node, read back off `<type> <var> = u_Material.<name>;`.
+    std::string VariableReading( const std::string& src, const std::string& param )
+    {
+        const size_t at = src.find( std::format( " = u_Material.{};", param ) );
+        if ( at == std::string::npos )
+            return {};
+        const size_t start = src.rfind( ' ', at - 1 ) + 1;
+        return src.substr( start, at - start );
+    }
+} // namespace
+
+// Every output pin of a lit graph lands in its SurfaceOutput field, and only there: the shading is the pass
+// header's (Mesh/Surface/Pass_*.glslh), so a pin the emitter forgot to route would be a pin that does nothing.
+TEST( ShaderGraphCompiler, EveryOutputPinOfALitGraphLandsInItsSurfaceOutputField )
+{
+    SG::Document doc    = LitSurfaceDoc();
+    auto*        output = &doc.Nodes.back();
+    ASSERT_EQ( output->Kind, "SurfaceOutput" );
+    const int outputId = output->Id;
+
+    // pin index -> (parameter name, the SurfaceOutput assignment it must reach)
+    const std::vector<std::tuple<int, std::string, std::string>> routes = {
+         { 1, "GraphEmission", "s.Emissive = ( {} ).rgb;" },
+         { 2, "GraphAlpha", "s.Opacity = albedo.a * ( {} );" },
+         { 3, "GraphMetallic", "s.Metallic = {};" },
+         { 4, "GraphRoughness", "s.Roughness = {};" },
+         { 5, "GraphOcclusion", "s.AmbientOcclusion = {};" },
+    };
+    for ( const auto& [pin, name, assignment] : routes )
+    {
+        auto param      = SG::MakeNode( doc, pin == 1 ? "ColorParam" : "FloatParam" );
+        param.ParamName = name;
+        const auto out  = param.Outputs[0].Id;
+        doc.Nodes.insert( doc.Nodes.end() - 1, std::move( param ) );
+        const auto it = std::find_if( doc.Nodes.begin(), doc.Nodes.end(),
+                                      [&]( const SG::Node& n ) { return n.Id == outputId; } );
+        doc.Links.push_back( { doc.NextId++, out, it->Inputs[pin].Id } );
+    }
+
+    const auto compiled = SG::CompileToDShader( doc );
     ASSERT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
     const std::string& src = compiled.GetValue();
 
-    // The whole model behind one include and one call.
-    EXPECT_NE( src.find( "Common/GraphSurfaceLighting.glslh" ), std::string::npos ) << src;
-    EXPECT_NE( src.find( "ShadeGraphSurface(" ), std::string::npos ) << src;
+    EXPECT_NE( src.find( "s.BaseColor = albedo.rgb;" ), std::string::npos ) << src;
+    for ( const auto& [pin, name, assignment] : routes )
+    {
+        const std::string var = VariableReading( src, name );
+        ASSERT_FALSE( var.empty() ) << name << " was never read\n" << src;
+        EXPECT_NE( src.find( std::vformat( assignment, std::make_format_args( var ) ) ), std::string::npos )
+             << "pin " << pin << " (" << name << ") does not reach its SurfaceOutput field\n"
+             << src;
+    }
 
-    // And not one line of lighting arithmetic left in the generated text. These are the exact three
-    // fragments the old emitter wrote, so this fails if any of them is reintroduced here rather than
-    // fixed in the shared header where every other surface would get it too.
-    EXPECT_EQ( src.find( "vec3( 0.12 )" ), std::string::npos ) << "the flat ambient constant is back";
-    EXPECT_EQ( src.find( "max( dot( N, L ), 0.0 )" ), std::string::npos )
-         << "the graph is computing its own Lambert term again";
-    EXPECT_EQ( src.find( "ColorIntensity" ), std::string::npos )
-         << "the graph is unpacking the light payload itself instead of calling the shared model";
-
-    // The lit vertex contract carries what the model needs: world position and eye position, not only
-    // a normal. A surface that knows only its normal cannot be given a cloud shadow or a point light.
-    EXPECT_NE( src.find( "GRAPH_LIT" ), std::string::npos );
-    EXPECT_NE( src.find( "v_WorldPos" ), std::string::npos );
-    EXPECT_NE( src.find( "v_CameraPos" ), std::string::npos );
-
-    // Unwired, the material attributes fall back to the standard material's schema defaults.
-    EXPECT_NE( src.find( "albedo.rgb, 0.0, 0.5, 1.0" ), std::string::npos ) << src;
+    auto parsed = DShaderParser::Parse( src );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError() << "\n" << src;
 }
 
-TEST( ShaderGraphCompiler, AnUnlitSurfaceIsUntouchedByTheShadingModel )
+// A graph's parameter block and the engine's vertex headers share one descriptor set in every cell; a row block on
+// a binding a vertex path declares (the skinned path's bones) is two GLSL declarations on one descriptor, which
+// nothing reports. Measured against the headers themselves, not against a number written here.
+TEST( ShaderGraphCompiler, TheGraphsParameterBlockIsOnNoBindingAVertexPathOwns )
 {
-    const auto compiled = SG::CompileToDShader( SurfaceDoc() ); // Lit defaults to false
+    const auto compiled = SG::CompileToDShader( SurfaceDoc() ); // one ColorParam -> a row block
+    ASSERT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
+    auto parsed = DShaderParser::Parse( compiled.GetValue() );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    ASSERT_TRUE( parsed.GetValue().Layout.RowBinding.has_value() );
+    const uint32_t row = *parsed.GetValue().Layout.RowBinding;
+
+    for ( const std::string_view path : Desert::Core::Preprocess::kSurfaceVertexPaths )
+    {
+        const std::filesystem::path header = Desert::Tests::ShaderGraph::RepoRoot() / "Editor/Resources/Shaders" /
+                                             Desert::Core::Preprocess::SurfaceVertexInclude( path );
+        const std::string text = Desert::Tests::ShaderGraph::ReadAll( header );
+        ASSERT_FALSE( text.empty() ) << header;
+        EXPECT_EQ( text.find( std::format( "binding = {} ", row ) ), std::string::npos )
+             << "the graph's parameter block is on binding " << row << ", which " << header << " declares";
+        EXPECT_EQ( text.find( std::format( "binding = {})", row ) ), std::string::npos ) << header;
+    }
+}
+
+// The shading model is the pass header's, never the generator's: no include, no call and no formula of its own.
+TEST( ShaderGraphCompiler, ALitSurfaceWritesNoShadingOfItsOwnAndDefaultsToTheStandardSchema )
+{
+    const auto compiled = SG::CompileToDShader( LitSurfaceDoc() );
     ASSERT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
     const std::string& src = compiled.GetValue();
 
     EXPECT_EQ( src.find( "GraphSurfaceLighting" ), std::string::npos ) << src;
     EXPECT_EQ( src.find( "ShadeGraphSurface" ), std::string::npos ) << src;
     EXPECT_EQ( src.find( "GRAPH_LIT" ), std::string::npos ) << src;
+    EXPECT_EQ( src.find( "vec3( 0.12 )" ), std::string::npos ) << "the flat ambient constant is back";
+    EXPECT_EQ( src.find( "dot( N, L )" ), std::string::npos ) << "the graph is computing its own Lambert term";
+
+    // Unwired, the material attributes fall back to the standard material's schema defaults.
+    EXPECT_NE( src.find( "s.Metallic = 0.0;" ), std::string::npos ) << src;
+    EXPECT_NE( src.find( "s.Roughness = 0.5;" ), std::string::npos ) << src;
+    EXPECT_NE( src.find( "s.AmbientOcclusion = 1.0;" ), std::string::npos ) << src;
+}
+
+// Unlit is UE's Unlit: the colour is emitted and nothing is reflected.
+TEST( ShaderGraphCompiler, AnUnlitSurfaceEmitsItsColourAndReflectsNothing )
+{
+    const auto compiled = SG::CompileToDShader( SurfaceDoc() ); // Lit defaults to false
+    ASSERT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
+    const std::string& src = compiled.GetValue();
+
+    EXPECT_NE( src.find( "s.BaseColor = vec3( 0.0 );" ), std::string::npos ) << src;
+    EXPECT_NE( src.find( "s.Emissive = albedo.rgb + (" ), std::string::npos ) << src;
+    EXPECT_EQ( src.find( "s.Metallic" ), std::string::npos ) << src;
 }
 
 TEST( ShaderGraphCompiler, TheSurfaceOutputCarriesTheAttributesTheSharedModelConsumes )
@@ -792,6 +893,32 @@ TEST( ShaderGraphCompiler, EveryGraphCommittedToTheProjectStillCompiles )
     // test is for is that whatever the corpus contains, all of it compiles.
     ASSERT_GT( seen, 0 ) << "no .dgraph was found at all, so this test measured nothing";
     std::printf( "[ShaderGraphCompiler] %d committed .dgraph compiled\n", seen );
+}
+
+// The committed `.shader` beside a graph IS what the engine compiles, so it must be what the graph compiles to
+// today — a stale one is a material drawn by the previous emitter. Only the asset header line is the file's own.
+TEST( ShaderGraphCompiler, EveryCommittedGraphShaderIsWhatItsGraphCompilesToNow )
+{
+    const std::filesystem::path shaders = GraphsDirectory().parent_path().parent_path() / "Shaders/Programs/Graph";
+    int                         seen    = 0;
+    for ( const auto& entry : std::filesystem::directory_iterator( GraphsDirectory() ) )
+    {
+        if ( entry.path().extension() != ".dgraph" )
+            continue;
+        const auto loaded = SG::Deserialize( Desert::Tests::ShaderGraph::ReadAll( entry.path() ) );
+        ASSERT_TRUE( loaded.IsSuccess() ) << entry.path().string();
+        const auto compiled = SG::CompileToDShader( loaded.GetValue().Doc );
+        ASSERT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
+
+        const std::filesystem::path shader = shaders / ( entry.path().stem().string() + ".shader" );
+        const std::string           file   = Desert::Tests::ShaderGraph::ReadAll( shader );
+        ASSERT_FALSE( file.empty() ) << shader;
+        const size_t body = file.find( '\n' ) + 1;
+        ASSERT_TRUE( file.starts_with( "// DesertAsset " ) ) << shader;
+        EXPECT_EQ( file.substr( body ), compiled.GetValue() ) << shader << " is stale against its .dgraph";
+        ++seen;
+    }
+    ASSERT_GT( seen, 0 );
 }
 
 // THE ONE GRAPH THAT MUST NOT COMPILE, and the reason it is HERE rather than in the corpus above.

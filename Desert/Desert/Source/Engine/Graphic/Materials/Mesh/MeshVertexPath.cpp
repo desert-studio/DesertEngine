@@ -1,5 +1,7 @@
 #include "MeshVertexPath.hpp"
 
+#include <string_view>
+
 namespace Desert::Graphic
 {
     namespace
@@ -22,6 +24,16 @@ namespace Desert::Graphic
         };
     } // namespace
 
+    const char* MeshCellFor( MeshVertexPath path, MeshPass pass )
+    {
+        // Read off the one table: the part after "<Template>/" of a StandardSurface entry is the cell.
+        constexpr std::string_view kTemplatePrefix = "StandardSurface/";
+        const char*                program         = MeshShaderFor( path, pass );
+        if ( program == nullptr || !std::string_view( program ).starts_with( kTemplatePrefix ) )
+            return nullptr;
+        return program + kTemplatePrefix.size();
+    }
+
     const char* MeshShaderFor( MeshVertexPath path, MeshPass pass )
     {
         return kMeshShaders[static_cast<uint32_t>( path )][static_cast<uint32_t>( pass )];
@@ -29,7 +41,11 @@ namespace Desert::Graphic
 
     std::optional<std::string> SurfaceCellShader( std::string_view templateName, MeshVertexPath path, MeshPass pass )
     {
-        if ( templateName == MeshShaderFor( MeshVertexPath::Static, MeshPass::Forward ) )
+        // The template that heads the table: its (Static x Forward) program is "<Template>/<that cell>".
+        const std::string_view head    = MeshShaderFor( MeshVertexPath::Static, MeshPass::Forward );
+        const std::string_view defCell = MeshCellFor( MeshVertexPath::Static, MeshPass::Forward );
+        if ( head.size() == templateName.size() + 1 + defCell.size() && head.starts_with( templateName ) &&
+             head[templateName.size()] == '/' && head.ends_with( defCell ) )
         {
             if ( const char* cell = MeshShaderFor( path, pass ) )
                 return std::string( cell );

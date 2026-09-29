@@ -1320,7 +1320,8 @@ namespace Desert::Core::Preprocess
         // the shadow pass's push block and no varyings, so the cell's layout is the shadow shader's.
         std::string AssembleSurfaceCellStage( ShaderStage stage, std::string_view path, std::string_view pass,
                                               const RawBlock& surface, const RawBlock& include,
-                                              const std::string& autoDecls, const bool masked )
+                                              const std::string& autoDecls, const bool masked,
+                                              const SurfaceShadingModel shading )
         {
             const std::string defines = std::format( "#define DESERT_SURFACE_PASS_{} 1\n{}", pass,
                                                      masked ? "#define DESERT_SURFACE_MASKED 1\n" : "" );
@@ -1334,14 +1335,14 @@ namespace Desert::Core::Preprocess
                 // Reflection keeps a declared binding whether or not it is read, so an opaque depth cell must
                 // not declare the surface's bindings at all: the pass header alone, no material declarations.
                 code.Content = std::format( "{}#include <{}>\n#include <{}>\n", defines, kSurfaceTypesInclude,
-                                            SurfacePassInclude( pass ) );
+                                            SurfacePassInclude( pass, shading ) );
                 return AssembleStage( stage, code, include, std::string() );
             }
             else
                 code.Content =
                      std::format( "{}#include <{}>\n#line {}\n{}\n#include <{}>\n", defines, kSurfaceTypesInclude,
                                   surface.StartLine > 0 ? surface.StartLine - 1 : 0, surface.Content,
-                                  SurfacePassInclude( pass ) );
+                                  SurfacePassInclude( pass, shading ) );
             return AssembleStage( stage, code, include, autoDecls );
         }
 
@@ -1407,8 +1408,13 @@ namespace Desert::Core::Preprocess
         return std::format( "Mesh/Surface/Vertex_{}.glslh", path );
     }
 
-    std::string SurfacePassInclude( const std::string_view pass )
+    std::string SurfacePassInclude( const std::string_view pass, const SurfaceShadingModel model )
     {
+        // The shading model picks the pass header, so an Unlit cell does not even NAME the lighting texts (the
+        // include collector is textual: an #ifdef inside one header would still pull them into the key and the
+        // layout). Depth is shading-independent: one header for both models.
+        if ( model == SurfaceShadingModel::Unlit && pass != kSurfaceDepthPass )
+            return std::format( "Mesh/Surface/Pass_{}_Unlit.glslh", pass );
         return std::format( "Mesh/Surface/Pass_{}.glslh", pass );
     }
 
@@ -1417,8 +1423,11 @@ namespace Desert::Core::Preprocess
         std::vector<std::string> includes{ std::string( kSurfaceTypesInclude ) };
         for ( const std::string_view path : kSurfaceVertexPaths )
             includes.push_back( SurfaceVertexInclude( path ) );
-        for ( const std::string_view pass : kSurfaceCellPasses )
-            includes.push_back( SurfacePassInclude( pass ) );
+        for ( const SurfaceShadingModel model : { SurfaceShadingModel::DefaultLit, SurfaceShadingModel::Unlit } )
+            for ( const std::string_view pass : kSurfaceCellPasses )
+                if ( std::string header = SurfacePassInclude( pass, model );
+                     std::find( includes.begin(), includes.end(), header ) == includes.end() )
+                    includes.push_back( std::move( header ) );
         return includes;
     }
 
@@ -1654,6 +1663,20 @@ namespace Desert::Core::Preprocess
                 }
                 surfaceSettingLine = surfaceSettingLine ? surfaceSettingLine : line;
             }
+            else if ( lower == "shadingmodel" )
+            {
+                const std::string v = Lower( ReadIdent( c ) );
+                if ( v == "defaultlit" )
+                    result.Surface.Shading = SurfaceShadingModel::DefaultLit;
+                else if ( v == "unlit" )
+                    result.Surface.Shading = SurfaceShadingModel::Unlit;
+                else
+                {
+                    err = { line, std::format( "unknown ShadingModel '{}' (DefaultLit | Unlit)", v ) };
+                    return fail();
+                }
+                surfaceSettingLine = surfaceSettingLine ? surfaceSettingLine : line;
+            }
             else if ( lower == "pass" )
             {
                 PendingPass pass;
@@ -1754,7 +1777,8 @@ namespace Desert::Core::Preprocess
         }
         else if ( surfaceSettingLine )
         {
-            err = { surfaceSettingLine, "TwoSided and BlendMode shape a Surface block, and this shader has none" };
+            err = { surfaceSettingLine,
+                    "TwoSided, BlendMode and ShadingModel shape a Surface block, and this shader has none" };
             return fail();
         }
 
@@ -1810,7 +1834,8 @@ namespace Desert::Core::Preprocess
                     cell.State = cellState;
                     for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
                         cell.Stages.emplace( stage, AssembleSurfaceCellStage( stage, path, pass, *surfaceBlock,
-                                                                              includeBlock, autoDecls, masked ) );
+                                                                              includeBlock, autoDecls, masked,
+                                                                              result.Surface.Shading ) );
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );
@@ -1828,9 +1853,20 @@ namespace Desert::Core::Preprocess
             result.Meta.PassNames.push_back( pass.Name );
         }
 
+        // A surface template's default program is NAMED, never positional: kSurfaceDefaultCell. A template
+        // whose cell set lost it is refused here by name, rather than having some other cell stand in for it.
+        if ( !result.Surface.Cells.empty() )
+        {
+            const DShaderPass* defaultCell = result.FindPass( std::string( kSurfaceDefaultCell ) );
+            if ( defaultCell == nullptr )
+                return Common::MakeFormattedError<DShaderParseResult>(
+                     "DShader '{}': surface template has no default cell '{}'", result.Name, kSurfaceDefaultCell );
+            result.Meta.State = defaultCell->State;
+            result.Stages     = defaultCell->Stages;
+        }
         // Guarded, because a medium-only shader has no passes at all and `front()` on an empty vector is
         // the kind of crash that reads as a corrupt file rather than as a missing branch.
-        if ( !result.Passes.empty() )
+        else if ( !result.Passes.empty() )
         {
             result.Meta.State = result.Passes.front().State;
             result.Stages     = result.Passes.front().Stages;

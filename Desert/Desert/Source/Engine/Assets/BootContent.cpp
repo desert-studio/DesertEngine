@@ -83,7 +83,9 @@ namespace Desert::Assets
         std::vector<Core::ShaderMapRequest> passes;
         for ( size_t i = 0; i < programs.size(); ++i )
             for ( const auto& pass : programMaps[i].Map.Meta.PassNames )
-                passes.push_back( { programs[i].Source, programs[i].Path, pass, {}, programs[i].Name } );
+                if ( !Core::Preprocess::IsSurfaceDefaultCell(
+                          Core::Preprocess::DShaderParser::MayDeclareSurface( programs[i].Source ), pass ) )
+                    passes.push_back( { programs[i].Source, programs[i].Path, pass, {}, programs[i].Name } );
         Core::BuildShaderMaps( passes );
         const double workersMs =
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - workersStart ).count();

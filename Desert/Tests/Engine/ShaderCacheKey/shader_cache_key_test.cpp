@@ -669,10 +669,10 @@ TEST_F( ShaderRootFixture, TheClosureOfTheFogPassListsEveryHeaderItNames )
 TEST_F( ShaderRootFixture, TheClosureFollowsAHeaderThatIncludesAnother )
 {
     // The TRANSITIVE step, which is what makes the walk worth having over a single grep of the stage
-    // source: NewShaderGraph names Common/GraphVertex.glslh, and only GraphVertex names
-    // Common/CameraUB.glslh. A key that stopped at depth one would not move when CameraUB was edited,
-    // and the machine holding the stale SPIR-V would render differently from the one that had none.
-    const auto path     = ShaderPath( "Graph/NewShaderGraph.shader" );
+    // source: UIMatError's vertex stage names Common/UIVertex.glslh, and only UIVertex names
+    // Common/MaterialTransport.glslh. A key that stopped at depth one would not move when MaterialTransport
+    // was edited, and the machine holding the stale SPIR-V would render differently from the one that had none.
+    const auto path     = ShaderPath( "UI/UIMatError.shader" );
     const auto includes = CollectShaderIncludes( StageSource( path, ShaderStage::Vertex ), path );
 
     const auto contains = [&includes]( const char* name )
@@ -683,8 +683,8 @@ TEST_F( ShaderRootFixture, TheClosureFollowsAHeaderThatIncludesAnother )
         return false;
     };
 
-    EXPECT_TRUE( contains( "GraphVertex.glslh" ) );
-    EXPECT_TRUE( contains( "CameraUB.glslh" ) );
+    EXPECT_TRUE( contains( "UIVertex.glslh" ) );
+    EXPECT_TRUE( contains( "MaterialTransport.glslh" ) );
 }
 
 TEST_F( ShaderRootFixture, TheClosureListsEachFileOnce )
@@ -1142,7 +1142,7 @@ TEST_F( ShaderRootFixture, ALitGraphSurfaceCompilesEverySharedShadingTextTheMesh
     // one into Mesh/ and wires it into StaticMeshPBR only — which is exactly how the graph fell behind the
     // first time.
     const auto mesh  = FragmentIncludes( ShaderPath( "PBR/StandardSurface.shader" ), "Static.Forward" );
-    const auto graph = FragmentIncludes( ShaderPath( "Graph/MatLitConst.shader" ) );
+    const auto graph = FragmentIncludes( ShaderPath( "Graph/MatLitConst.shader" ), "Static.Forward" );
 
     ASSERT_FALSE( mesh.empty() );
     ASSERT_FALSE( graph.empty() );
@@ -1188,7 +1188,7 @@ TEST_F( ShaderRootFixture, TheLitGraphSurfaceIsHANDEDTheSceneITSHADESWITH )
     // Numbers, not names, because that is what a descriptor set is; they are the SAME numbers the four
     // mesh shaders use for the same things, which is a property worth keeping even though every material
     // in this engine binds by name.
-    const auto bindings = GraphicsSetZero( ShaderPath( "Graph/MatLitConst.shader" ) );
+    const auto bindings = GraphicsSetZero( ShaderPath( "Graph/MatLitConst.shader" ), "Static.Forward" );
     ASSERT_FALSE( bindings.empty() );
 
     EXPECT_TRUE( HasBinding( bindings, 8, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // u_EnvSpecularTex
@@ -1199,18 +1199,15 @@ TEST_F( ShaderRootFixture, TheLitGraphSurfaceIsHANDEDTheSceneITSHADESWITH )
     EXPECT_TRUE( HasBinding( bindings, 4, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );          // LightsMetadata
     EXPECT_TRUE( HasBinding( bindings, 6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );          // PointLightsUB
     EXPECT_TRUE( HasBinding( bindings, 16, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // SpotLightsUB
-    EXPECT_TRUE( HasBinding( bindings, 14, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // DirectionLightsUB
+    EXPECT_TRUE( HasBinding( bindings, 3, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );          // DirectionLightsUB
 
-    // The five cascade bindings Д20 added. Two of them are NOT at the mesh shaders' numbers and cannot be:
-    // 14 and 15 hold DirectionLightsUB and TimeUB in a shader-graph layout, which no mesh shader declares.
-    // The NAMES are what the engine binds by, and Tests/Engine/PBRSceneFrame asserts those against the C++
-    // writer for every consumer of the shared text; what is pinned here is that the numbers this layout
-    // chose are the ones it still has.
+    // The five cascade bindings. Since SURF1f a graph surface's forward cell is lit by Mesh/Surface/Pass_Forward.glslh,
+    // so these are the mesh forward layout's numbers (StandardSurface's), not a shader-graph layout of its own.
     EXPECT_TRUE( HasBinding( bindings, 7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );          // ShadowUB
     EXPECT_TRUE( HasBinding( bindings, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // u_ShadowMap0
     EXPECT_TRUE( HasBinding( bindings, 13, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ShadowMap1
-    EXPECT_TRUE( HasBinding( bindings, 22, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ShadowMap2
-    EXPECT_TRUE( HasBinding( bindings, 23, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ShadowMap3
+    EXPECT_TRUE( HasBinding( bindings, 14, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ShadowMap2
+    EXPECT_TRUE( HasBinding( bindings, 15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ShadowMap3
 
     // The graph's own textures start at kGraphTextureBinding (24) and count upward, so none of the slots
     // above can be taken by a Properties block however many textures an artist adds. Distinctness is the
@@ -1436,6 +1433,40 @@ TEST_F( ShaderRootFixture, AnUnlitGraphSurfaceReceivesNoneOfIt )
     const auto bindings = GraphicsSetZero( ShaderPath( "Graph/MatConst.shader" ) );
     EXPECT_FALSE( HasBinding( bindings, 20, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
     EXPECT_FALSE( HasBinding( bindings, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
+}
+
+TEST_F( ShaderRootFixture, TheUnlitTemplateIsASurfaceWhoseCellsReadNoLight )
+{
+    // SURF1f-4: Unlit.shader stopped being a hand-written program and became a surface template with
+    // ShadingModel Unlit, so it exists the one way a surface material exists — as cells. The relation held
+    // here is between its cells and the lit template's: every cell compiles, and not one of them compiles a
+    // shared shading text or binds anything but the material row, the camera and its own albedo slot.
+    const auto path   = ShaderPath( "Unlit/Unlit.shader" );
+    const auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( path ) );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    const auto& cells = parsed.GetValue().Passes;
+    ASSERT_NE(
+         std::find_if( cells.begin(), cells.end(), []( const auto& p ) { return p.Name == "Static.Forward"; } ),
+         cells.end() )
+         << "the Unlit template expanded into no Static.Forward cell";
+
+    for ( const auto& cell : cells )
+    {
+        for ( const auto& include : FragmentIncludes( path, cell.Name ) )
+            EXPECT_FALSE( IsSharedShadingText( include ) )
+                 << "the Unlit cell " << cell.Name << " compiles " << include.filename().string();
+    }
+
+    const auto forward = GraphicsSetZero( path, "Static.Forward" );
+    ASSERT_FALSE( forward.empty() ) << "the Unlit forward cell does not compile";
+    EXPECT_TRUE( HasBinding( forward, 11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) )
+         << "the albedo map is not on the material layout's albedo slot: " << DescribeBindings( forward );
+    for ( const auto& b : forward )
+        EXPECT_TRUE( b.binding == 11 || b.descriptorType != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER )
+             << "the Unlit forward cell samples binding " << b.binding
+             << " (a shadow cascade, IBL or another lighting texture): " << DescribeBindings( forward );
+    EXPECT_LE( forward.size(), 3u ) << "an unlit surface binds more than camera + material row + albedo: "
+                                    << DescribeBindings( forward );
 }
 
 // ---- The terrain's per-draw data rides beside the draw, not in the shared block --------------------

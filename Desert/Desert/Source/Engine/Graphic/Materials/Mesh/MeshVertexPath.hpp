@@ -176,10 +176,16 @@ namespace Desert::Graphic
     // that silence is what defect (2) above was made of.
     const char* MeshShaderFor( MeshVertexPath path, MeshPass pass );
 
+    // The surface CELL a (path x pass) draws with, "<Path>.<Pass>" (DShaderParser's SurfaceCellName), or nullptr
+    // where the pass is not drawn through a surface template's cell (Glass, shadow depth). Template-independent:
+    // the program is "<Template>/<Cell>" for WHICHEVER surface template the material names, so every template's
+    // cells are addressable the same way. MeshShaderFor above is this cell on StandardSurface.
+    const char* MeshCellFor( MeshVertexPath path, MeshPass pass );
+
     // The compiled cell of a surface TEMPLATE for (path x pass): the shader a material built from a `.demat`
-    // naming @p templateName is allocated from. A template whose (Static x Forward) cell heads the table
-    // above has the table's row of cells; any other template has only its own (Static x Forward) cell
-    // (a DSL surface carries no skinning, instancing or G-buffer stage). Empty = no such cell; the caller
+    // naming @p templateName is allocated from. The template whose "<Template>/<MeshCellFor(Static, Forward)>"
+    // heads the table above has the table's row of cells; any other template is drawn by its own default
+    // program only, on the generic path. Empty = no such cell; the caller
     // names the material it refuses. One rule for every template — no class, no role check.
     std::optional<std::string> SurfaceCellShader( std::string_view templateName, MeshVertexPath path, MeshPass pass );
 

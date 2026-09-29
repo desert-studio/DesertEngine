@@ -272,9 +272,8 @@ TEST( SkyLookCensus, EveryProgramThatReadsAnEnvironmentCubeAppliesTheLook )
     // reader of the cubes that nobody listed reddens this before it can ship an unturned reflection, and
     // a row whose file stopped declaring a cube reddens it too, so the list cannot rot into prose.
     const std::set<std::string> registered = {
-         "Common/GraphSurfaceLighting.glslh",         // every lit shader-graph surface
          "Programs/Deferred/DeferredLighting.shader", // the deferred composite's ambient
-         "Mesh/Surface/Pass_Forward.glslh",     // every StandardSurface forward cell, all vertex paths
+         "Mesh/Surface/Pass_Forward.glslh",     // every surface template's forward cell (StandardSurface, graphs)
          "Programs/PBR/StaticMeshGlass.shader", // the reflection at the glass's grazing edge
          "Programs/Preview/CubemapSphere.shader", // the Details panel's ball beside the sliders
          "Programs/Skybox/Skybox.shader",         // the backdrop

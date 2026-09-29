@@ -906,7 +906,10 @@ TEST_F( ShaderRootFixture, AFieldTheCellLacksIsNotWrittenAndAWrongSizeIsRefused 
 // forward pipeline of a G-buffer shader.
 TEST( MeshCellPath, EveryCellOfThePBRTemplateRoutesToThePathItWasAllocatedFor )
 {
-    const char* pbrTemplate = MeshShaderFor( MeshVertexPath::Static, MeshPass::Forward );
+    // The template heading the table: its (Static x Forward) program is "<Template>/<cell>".
+    const std::string head = MeshShaderFor( MeshVertexPath::Static, MeshPass::Forward );
+    const std::string pbrTemplate =
+         head.substr( 0, head.size() - std::string_view( Desert::Graphic::MeshCellFor( MeshVertexPath::Static, MeshPass::Forward ) ).size() - 1 );
     for ( uint32_t p = 0; p < Desert::Graphic::kMeshVertexPathCount; ++p )
         for ( uint32_t s = 0; s < Desert::Graphic::kMeshPassCount; ++s )
         {

@@ -312,8 +312,8 @@ namespace Desert::Graphic::System
             // cull on the wind-widened box for exactly this reason: CollectIsmInstances.) A data-driven material
             // whose vertex stage displaced geometry — a world-position offset, the thing UE hands a "bounds scale"
             // knob for — would be culled on a box it is allowed to leave, and would pop out of existence for
-            // reasons invisible in the scene. The shader graph emits a FRAGMENT body only; its vertex stage is one
-            // shared generated include (Common/GraphVertex.glslh) that transforms a_Position and nothing else, and
+            // reasons invisible in the scene. The shader graph emits a SURFACE function only; its vertex stage is the
+            // engine's Mesh/Surface/Vertex_<Path>.glslh, which transforms a_Position and nothing else, and
             // Desert/Tests/Engine/FrustumCulling asserts that over every Surface-domain shader in the tree. The
             // day a vertex-offset node exists, that census goes red before this does.
             if ( g.Mesh != nullptr &&
