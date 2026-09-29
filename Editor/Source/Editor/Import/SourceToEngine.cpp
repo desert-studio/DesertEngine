@@ -17,6 +17,23 @@ namespace Desert::Editor
         return m;
     }
 
+    Common::Math::AABB SourceToEngineBounds( const Common::Math::AABB&         box,
+                                             const Assets::MeshImportSettings& settings )
+    {
+        const glm::mat4 c = SourceToEngine( settings );
+        glm::vec3       mn( std::numeric_limits<float>::max() );
+        glm::vec3       mx( std::numeric_limits<float>::lowest() );
+        for ( int k = 0; k < 8; ++k )
+        {
+            const glm::vec3 corner =
+                 glm::vec3( c * glm::vec4( ( k & 1 ) ? box.Max.x : box.Min.x, ( k & 2 ) ? box.Max.y : box.Min.y,
+                                           ( k & 4 ) ? box.Max.z : box.Min.z, 1.0f ) );
+            mn = glm::min( mn, corner );
+            mx = glm::max( mx, corner );
+        }
+        return Common::Math::AABB{ mn, mx };
+    }
+
     void ApplySourceToEngine( const Assets::MeshImportSettings& settings, Ser::MeshAssetData* mesh,
                               Ser::SkeletonAssetData* skeleton, std::vector<Ser::AnimationAssetData>& animations )
     {
@@ -57,20 +74,11 @@ namespace Desert::Editor
             }
             for ( auto& sub : mesh->Submeshes )
             {
-                sub.Transform      = conjugate( sub.Transform );
-                const glm::vec3 lo = sub.BoundingBox.Min;
-                const glm::vec3 hi = sub.BoundingBox.Max;
-                glm::vec3       mn( std::numeric_limits<float>::max() );
-                glm::vec3       mx( std::numeric_limits<float>::lowest() );
-                for ( int k = 0; k < 8; ++k )
-                {
-                    const glm::vec3 corner =
-                         point( { ( k & 1 ) ? hi.x : lo.x, ( k & 2 ) ? hi.y : lo.y, ( k & 4 ) ? hi.z : lo.z } );
-                    mn = glm::min( mn, corner );
-                    mx = glm::max( mx, corner );
-                }
-                sub.BoundingBox.Min = mn;
-                sub.BoundingBox.Max = mx;
+                sub.Transform = conjugate( sub.Transform );
+                const Common::Math::AABB moved =
+                     SourceToEngineBounds( { sub.BoundingBox.Min, sub.BoundingBox.Max }, settings );
+                sub.BoundingBox.Min = moved.Min;
+                sub.BoundingBox.Max = moved.Max;
             }
         }
 

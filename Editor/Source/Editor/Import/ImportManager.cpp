@@ -259,12 +259,18 @@ namespace Desert::Editor
         // (skinned, or skeleton + clips only) is the case: the static path never sees the skeleton.
         const bool staticMesh = resolved.Mesh && !resolved.Mesh->IsSkinned;
         // THE RECORD FOR EVERY KIND (RecordImport): the static writer records the import itself; a skinned file,
-        // or one with a skeleton and clips only, is recorded here, with the box before the options move it. A
+        // or one with a skeleton and clips only, is recorded here (the box the options give it). A
         // parse that produced nothing (a failed .blend conversion) is no import and leaves no record.
         if ( !staticMesh )
         {
+            // What the file imports as: a skinned mesh, else the skeleton, else clips only.
+            const Common::Content::ContentKind kind = resolved.Mesh ? Common::Content::ContentKind::SkinnedMesh
+                                                      : resolved.Skeleton
+                                                           ? Common::Content::ContentKind::Skeleton
+                                                           : Common::Content::ContentKind::Animation;
             if ( resolved.Mesh || resolved.Skeleton || !resolved.Animations.empty() )
-                record( RecordImport( sourcePath, resolved.Mesh ? &resolved.Mesh.value() : nullptr, settings ) );
+                record( RecordImport( sourcePath, kind, resolved.Mesh ? &resolved.Mesh.value() : nullptr,
+                                      settings ) );
             ApplySourceToEngine( settings.Mesh, resolved.Mesh ? &resolved.Mesh.value() : nullptr,
                                  resolved.Skeleton ? &resolved.Skeleton.value() : nullptr, resolved.Animations );
         }

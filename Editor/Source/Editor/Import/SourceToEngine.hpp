@@ -1,4 +1,5 @@
 #pragma once
+#include <Common/Core/Math/AABB.hpp>
 
 #include <Engine/Assets/MeshSourceAsset.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
@@ -17,6 +18,12 @@ namespace Desert::Editor
     // resolved the file's own hierarchy into Y-up, so only the scale remains; Z: +Z up becomes +Y up
     // (x, y, z) -> (x, z, -y), a rotation, so winding and handedness are kept. A uniform scale times a rotation.
     glm::mat4 SourceToEngine( const Assets::MeshImportSettings& settings );
+
+    // A source-space box in the engine's space: the box of its eight corners under SourceToEngine(settings). The
+    // box a placed mesh has, whichever side applies the mapping (the deriver for a static mesh, the import for a
+    // skinned one) - what the import record states (ImportRecord.hpp `Bounds`).
+    Common::Math::AABB SourceToEngineBounds( const Common::Math::AABB&         box,
+                                             const Assets::MeshImportSettings& settings );
 
     // THE SAME OPTIONS ON A SKINNED FILE (UE applies FBX Import Options to skeletal meshes, their skeleton and
     // their animations alike). A static mesh keeps its source untransformed and has the mapping applied by the

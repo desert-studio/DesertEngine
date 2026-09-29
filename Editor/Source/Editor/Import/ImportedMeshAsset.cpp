@@ -1,4 +1,5 @@
 #include "ImportedMeshAsset.hpp"
+#include "SourceToEngine.hpp"
 
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 
@@ -281,7 +282,9 @@ namespace Desert::Editor
         const auto settings = Assets::Serialization::ReadImportRecordSettings( source );
         if ( !settings )
             return Common::MakeError<MeshAssetWrite>( settings.GetError() );
-        const auto identity = Assets::Serialization::EnsureImportRecord( source, *bounds, settings.GetValue() );
+        const auto identity = Assets::Serialization::EnsureImportRecord(
+             source, Common::Content::ContentKind::StaticMesh,
+             SourceToEngineBounds( *bounds, settings.GetValue().Mesh ), settings.GetValue() );
         if ( !identity )
             return Common::MakeError<MeshAssetWrite>( identity.GetError() );
 

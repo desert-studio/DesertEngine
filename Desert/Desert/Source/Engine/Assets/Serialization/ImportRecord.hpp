@@ -19,7 +19,8 @@ namespace Desert::Assets::Serialization
     /**
      * @brief The FILE layout's generation, stated under `DIMP`.
      *
-     *   1 - the text asset header (Kind "StaticMesh", the GUID that IS the imported mesh's identity and, through
+     *   1 - the text asset header (Kind "StaticMesh" - or, since THM1l, what the source imports as: see
+     *       IsImportRecordKind - the GUID that IS the imported mesh's identity and, through
      *       HandleForGuid, its handle) and `Source`, the file name of the source the record belongs to (FIX8).
      *       No import settings yet: the importer has none that a user sets per source.
      *   2 - `Bounds`, the imported mesh's box in centimetres (Min/Max), written by every import and re-import
@@ -78,8 +79,16 @@ namespace Desert::Assets::Serialization
         std::optional<std::vector<std::string>> Nodes;
     };
 
+    // THE RECORD STATES WHAT THE SOURCE IMPORTS AS (UE: an imported asset's class - a UStaticMesh, a
+    // USkeletalMesh, a USkeleton or a UAnimSequence - is part of its identity): the header's Kind is StaticMesh
+    // for a static file, SkinnedMesh for a skinned one, Skeleton for a skeleton with clips and no mesh, Animation
+    // for clips only. Only a StaticMesh record stands for a mesh asset with no file of its own (ContentScan).
+    [[nodiscard]] bool IsImportRecordKind( Common::Content::ContentKind kind );
+
     Common::ResultStr<ImportRecordData> ParseImportRecord( const std::string& text );
-    std::string                         WriteImportRecord( const ImportRecordData& data );
+    /// Refused for a @p kind that is not IsImportRecordKind.
+    Common::ResultStr<std::string> WriteImportRecord( const ImportRecordData&      data,
+                                                      Common::Content::ContentKind kind );
 
     /// The GUID @p source's record states. An error naming the record's path when it is missing, unreadable,
     /// of another generation or written for another source - never a GUID made up from the path.
@@ -102,10 +111,13 @@ namespace Desert::Assets::Serialization
     Common::BoolResultStr SetImportRecordNodes( const std::filesystem::path&                   source,
                                                 const std::optional<std::vector<std::string>>& nodes );
 
-    /// ... and its `Settings` rewritten to @p settings, the options this import ran with. Written by EVERY import,
-    /// static or skinned (UE: AssetImportData on every imported asset): a source with a record is not new. A file
-    /// with no mesh (skeleton and clips only) passes no @p bounds, and the record states none.
+    /// ... and its `Settings` rewritten to @p settings, the options this import ran with, and its header's Kind to
+    /// @p kind, what the source imports as (IsImportRecordKind). Written by EVERY import, static or skinned (UE:
+    /// AssetImportData on every imported asset): a source with a record is not new. @p bounds is the imported
+    /// mesh's box in the ENGINE's space, the options applied (SourceToEngineBounds): the box the placed mesh has.
+    /// A file with no mesh (skeleton and clips only) passes no @p bounds, and the record keeps the one it states.
     Common::ResultStr<Common::Content::AssetGuid>
-    EnsureImportRecord( const std::filesystem::path& source, const std::optional<Common::Math::AABB>& bounds,
-                        const Assets::SourceImportSettings& settings );
+    EnsureImportRecord( const std::filesystem::path& source, Common::Content::ContentKind kind,
+                        const std::optional<Common::Math::AABB>& bounds,
+                        const Assets::SourceImportSettings&      settings );
 } // namespace Desert::Assets::Serialization

@@ -146,7 +146,8 @@ TEST( ImportRecord, TheRecordStatesTheImportedBoxAndTheRegistryReadsItWithoutThe
     const auto    expected = Ser::MeshDataBounds( Quad() );
     ASSERT_TRUE( expected.has_value() );
     // A cold DDC: only the record exists - no envelope was ever cached for this source.
-    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, *expected, {} ) );
+    ASSERT_TRUE(
+         Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, *expected, {} ) );
     ASSERT_FALSE( Editor::ImportedMeshAssetIsFresh( project.Source ) ) << "the DDC is not cold";
 
     const auto described =
@@ -192,7 +193,8 @@ TEST( ImportRecord, ASourceWithoutARecordHasNoIdentityAndSaysWhichFileIsMissing 
 TEST( ImportRecord, ARecordCopiedBesideAnotherSourceIsRefusedByName )
 {
     const Project project( "copied" );
-    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, *Ser::MeshDataBounds( Quad() ), {} ) );
+    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh,
+                                          *Ser::MeshDataBounds( Quad() ), {} ) );
     const fs::path other = project.Source.parent_path() / "Tree.fbx";
     std::ofstream( other ) << "tree";
     fs::copy_file( Common::Content::ImportRecordPathFor( project.Source ),
@@ -237,7 +239,8 @@ TEST( ImportRecord, ThePreviewMeshAnImportedMaterialNamesIsTheRecordsGuid )
 {
     const Project project( "preview" );
     ASSERT_FALSE( Editor::PreviewMeshRefFor( project.Source ) ) << "a reference with no record behind it";
-    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, *Ser::MeshDataBounds( Quad() ), {} ) );
+    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh,
+                                          *Ser::MeshDataBounds( Quad() ), {} ) );
     const auto guid = Ser::ReadImportRecordGuid( project.Source );
     ASSERT_TRUE( guid );
     const auto ref = Editor::PreviewMeshRefFor( project.Source );

@@ -36,6 +36,13 @@ namespace Desert::Assets::Serialization
         return Common::MakeSuccess( out );
     }
 
+    bool IsImportRecordKind( const Common::Content::ContentKind kind )
+    {
+        using Common::Content::ContentKind;
+        return kind == ContentKind::StaticMesh || kind == ContentKind::SkinnedMesh ||
+               kind == ContentKind::Skeleton || kind == ContentKind::Animation;
+    }
+
     Common::ResultStr<ImportRecordData> ParseImportRecord( const std::string& text )
     {
         if ( text.empty() )
@@ -46,9 +53,15 @@ namespace Desert::Assets::Serialization
         if ( !parsed )
             return Common::MakeFormattedError<ImportRecordData>( "{}", parsed.GetError() );
         ImportRecordData data = parsed.GetValue();
-        if ( auto header = Assets::CheckStatedHeader( data.Header, Common::Content::ContentKind::StaticMesh,
-                                                      Assets::kImportRecordSchemaTag, kImportRecordVersion,
-                                                      ImportRecordTextSubsystems() );
+        // The kind the header states is checked as every text asset's is, against the kinds a record may state.
+        const auto stated = data.Header ? Common::Content::ContentKindNamed( data.Header->Kind ) : std::nullopt;
+        if ( data.Header && ( !stated || !IsImportRecordKind( *stated ) ) )
+            return Common::MakeFormattedError<ImportRecordData>(
+                 "import record states kind '{}'; a record states StaticMesh, SkinnedMesh, Skeleton or Animation",
+                 data.Header->Kind );
+        if ( auto header = Assets::CheckStatedHeader(
+                  data.Header, stated.value_or( Common::Content::ContentKind::StaticMesh ),
+                  Assets::kImportRecordSchemaTag, kImportRecordVersion, ImportRecordTextSubsystems() );
              !header )
             return Common::MakeFormattedError<ImportRecordData>( "import record {}", header.GetError() );
         if ( data.Source.empty() )
@@ -58,12 +71,15 @@ namespace Desert::Assets::Serialization
         return Common::MakeSuccess( std::move( data ) );
     }
 
-    std::string WriteImportRecord( const ImportRecordData& data )
+    Common::ResultStr<std::string> WriteImportRecord( const ImportRecordData&            data,
+                                                      const Common::Content::ContentKind kind )
     {
+        if ( !IsImportRecordKind( kind ) )
+            return Common::MakeFormattedError<std::string>( "an import record cannot state kind '{}'",
+                                                            Common::Content::KindName( kind ) );
         ImportRecordData out = data;
-        out.Header           = Assets::StampTextHeader( data.Header, Common::Content::ContentKind::StaticMesh,
-                                                        ImportRecordTextSubsystems() );
-        return Common::Json::Write( out );
+        out.Header           = Assets::StampTextHeader( data.Header, kind, ImportRecordTextSubsystems() );
+        return Common::MakeSuccess( Common::Json::Write( out ) );
     }
 
     Common::ResultStr<Common::Content::AssetGuid> ReadImportRecordGuid( const std::filesystem::path& source )
@@ -109,8 +125,9 @@ namespace Desert::Assets::Serialization
     }
 
     Common::ResultStr<Common::Content::AssetGuid>
-    EnsureImportRecord( const std::filesystem::path& source, const std::optional<Common::Math::AABB>& bounds,
-                        const Assets::SourceImportSettings& settings )
+    EnsureImportRecord( const std::filesystem::path& source, const Common::Content::ContentKind kind,
+                        const std::optional<Common::Math::AABB>& bounds,
+                        const Assets::SourceImportSettings&      settings )
     {
         using Common::Content::AssetGuid;
         const std::filesystem::path          record = Common::Content::ImportRecordPathFor( source );
@@ -140,7 +157,8 @@ namespace Desert::Assets::Serialization
             // No box (a file with no mesh: a skeleton and its clips) leaves the stated box as it is.
             const bool sameBox =
                  !box || ( data.Bounds && data.Bounds->Min == box->Min && data.Bounds->Max == box->Max );
-            if ( sameBox && sameSettings )
+            const bool sameKind = data.Header && data.Header->Kind == Common::Content::KindName( kind );
+            if ( sameBox && sameSettings && sameKind )
                 return ReadImportRecordGuid( source );
         }
         else
@@ -148,8 +166,10 @@ namespace Desert::Assets::Serialization
         if ( box )
             data.Bounds = box;
         data.Settings = ImportSettingsToText( settings );
-        if ( auto written = Common::Content::WriteCanonicalJsonFileAtomic( record, WriteImportRecord( data ) );
-             !written )
+        const auto text = WriteImportRecord( data, kind );
+        if ( !text )
+            return Common::MakeFormattedError<AssetGuid>( "'{}': {}", record.string(), text.GetError() );
+        if ( auto written = Common::Content::WriteCanonicalJsonFileAtomic( record, text.GetValue() ); !written )
             return Common::MakeFormattedError<AssetGuid>( "'{}' could not be written: {}", record.string(),
                                                           written.GetError() );
         return ReadImportRecordGuid( source );
@@ -185,8 +205,12 @@ namespace Desert::Assets::Serialization
         if ( out.Nodes == nodes )
             return BOOLSUCCESS;
         out.Nodes = nodes;
-        if ( auto written = Common::Content::WriteCanonicalJsonFileAtomic( record, WriteImportRecord( out ) );
-             !written )
+        // The kind the record states stays (ParseImportRecord checked it is a record kind).
+        const auto kind = Common::Content::ContentKindNamed( out.Header->Kind );
+        const auto text = WriteImportRecord( out, kind.value_or( Common::Content::ContentKind::StaticMesh ) );
+        if ( !text )
+            return Common::MakeFormattedError<bool>( "'{}': {}", record.string(), text.GetError() );
+        if ( auto written = Common::Content::WriteCanonicalJsonFileAtomic( record, text.GetValue() ); !written )
             return Common::MakeFormattedError<bool>( "'{}' could not be written: {}", record.string(),
                                                      written.GetError() );
         return BOOLSUCCESS;
