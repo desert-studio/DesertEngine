@@ -108,6 +108,16 @@ namespace Desert::Geometry
         if ( uvs != nullptr )
             if ( auto r = RequireSet( mesh, *uvs, "UV" ); !r.IsSuccess() )
                 return Common::MakeError<RenderMeshData>( r.GetError() );
+        // The streams beside the vertex (RenderMeshData::Colors / UV1), as the EditMesh core writes them: the
+        // colour layer, and the second UV layer when layer 0 is the drawn one.
+        const DynamicMeshColorOverlay* colors = attributes->PrimaryColors();
+        const DynamicMeshUVOverlay*    uv1    = uvLayer == 0 ? attributes->GetUVLayer( 1 ) : nullptr;
+        if ( colors != nullptr )
+            if ( auto r = RequireSet( mesh, *colors, "colour" ); !r.IsSuccess() )
+                return Common::MakeError<RenderMeshData>( r.GetError() );
+        if ( uv1 != nullptr )
+            if ( auto r = RequireSet( mesh, *uv1, "UV 1" ); !r.IsSuccess() )
+                return Common::MakeError<RenderMeshData>( r.GetError() );
 
         // Triangles grouped by material, ascending triangle ID inside each group.
         const DynamicMeshMaterialAttribute*  materialIds = attributes->GetMaterialID();
@@ -124,8 +134,8 @@ namespace Desert::Geometry
             submesh.IndexOffset  = static_cast<uint32_t>( out.Indices.size() * 3 ); // uint32_t units
             submesh.Transform    = glm::mat4( 1.0f );
 
-            // (vertex, normal, tangent, bitangent, uv element) -> submesh-local render vertex.
-            std::map<std::array<int, 5>, uint32_t> corners;
+            // (vertex, normal, tangent, bitangent, uv, colour, uv1 element) -> submesh-local render vertex.
+            std::map<std::array<int, 7>, uint32_t> corners;
             for ( const int t : triangles )
             {
                 const Index3i  tri = mesh.GetTriangle( t );
@@ -133,6 +143,8 @@ namespace Desert::Geometry
                 const Index3i  et  = tangentSpace ? tangents->GetTriangle( t ) : Index3i::Invalid();
                 const Index3i  eb  = tangentSpace ? bitangents->GetTriangle( t ) : Index3i::Invalid();
                 const Index3i  eu  = ( uvs != nullptr ) ? uvs->GetTriangle( t ) : Index3i::Invalid();
+                const Index3i  ec  = ( colors != nullptr ) ? colors->GetTriangle( t ) : Index3i::Invalid();
+                const Index3i  e1  = ( uv1 != nullptr ) ? uv1->GetTriangle( t ) : Index3i::Invalid();
                 Index          index{};
                 uint32_t*      slots[3] = { &index.V1, &index.V2, &index.V3 };
                 for ( int j = 0; j < 3; ++j )
@@ -140,7 +152,8 @@ namespace Desert::Geometry
                     // Render corner j is mesh corner kRenderCorner[j]: the winding flips back to counter-clockwise
                     // here, and the corners are visited in render order so first-use order is the render order.
                     const int                c = kRenderCorner[j];
-                    const std::array<int, 5> key{ tri[c], en[c], et[c], eb[c], eu[c] };
+                    // A colour or UV1 seam splits the render vertex like a UV 0 seam does.
+                    const std::array<int, 7> key{ tri[c], en[c], et[c], eb[c], eu[c], ec[c], e1[c] };
                     auto                     found = corners.find( key );
                     if ( found == corners.end() )
                     {
@@ -156,6 +169,10 @@ namespace Desert::Geometry
                             vertex.TexCoord = uvs->GetElement( eu[c] );
                         const auto local = static_cast<uint32_t>( out.Vertices.size() - submesh.VertexOffset );
                         out.Vertices.push_back( vertex );
+                        if ( colors != nullptr )
+                            out.Colors.push_back( colors->GetElement( ec[c] ) );
+                        if ( uv1 != nullptr )
+                            out.UV1.push_back( uv1->GetElement( e1[c] ) );
                         out.SourceVertices.push_back( tri[c] );
                         found = corners.emplace( key, local ).first;
                     }

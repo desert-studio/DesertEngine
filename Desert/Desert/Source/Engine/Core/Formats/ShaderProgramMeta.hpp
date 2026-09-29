@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Core/Formats/DefaultTexture.hpp>
+#include <Engine/Core/Formats/SamplerState.hpp>
 #include <Engine/Core/Formats/Shader.hpp>
 
 #include <glm/glm.hpp>
@@ -116,6 +117,11 @@ namespace Desert::Core::Formats
         // Meaningless (and left at White) for a non-texture param; see DefaultTexture.hpp for why the
         // implicit value reproduces the old picture rather than choosing a new one.
         DefaultTextureKind DefaultTexture = DefaultTextureKind::White;
+
+        // The template's sampling state for this Texture2D slot — the DSL `Sampler(Clamp, Clamp, Nearest)`
+        // attribute. A material slot may override it (MaterialAssetRef::Sampler); ResolveSlotSampler picks.
+        // Meaningless for a non-texture param and left at the Repeat/Linear default there.
+        SamplerState Sampler;
 
         bool IsAssetRef() const
         {

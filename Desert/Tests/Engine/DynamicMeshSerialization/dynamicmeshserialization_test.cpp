@@ -153,6 +153,9 @@ namespace
             EXPECT_EQ( a.Submeshes[i].IndexCount, b.Submeshes[i].IndexCount ) << name;
         }
         EXPECT_EQ( a.SubmeshMaterialIds, b.SubmeshMaterialIds ) << name;
+        // The streams beside the vertex come out of both cores alike.
+        EXPECT_TRUE( a.Colors == b.Colors ) << name << ": the colour streams differ";
+        EXPECT_TRUE( a.UV1 == b.UV1 ) << name << ": the UV1 streams differ";
     }
 
     // Per-vertex elements for a new layer: element v = the values of vertex v, every triangle set except
@@ -289,7 +292,9 @@ TEST( DynamicMeshSerialization, BothCoresDrawTheSameMesh )
         ExpectSameRender( mesh.Name, OldRead( mesh.Saved ), NewRead( mesh.Saved, mesh.Name ) );
         drawn += ToRenderMesh( NewRead( mesh.Saved, mesh.Name ) ).IsSuccess();
     }
-    EXPECT_GE( drawn, 3 ); // the scene and two variants draw; the layer-less ones are refused by both alike
+    // The scene and one variant draw. The layer-less ones, and the one whose colour / UV1 layers are only partly
+    // set (a drawn stream has no value for an unset triangle), are refused by both alike.
+    EXPECT_GE( drawn, 2 );
 }
 
 TEST( DynamicMeshSerialization, HolesAreCompactedOnWrite )

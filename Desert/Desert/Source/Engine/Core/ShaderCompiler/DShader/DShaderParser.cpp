@@ -6,6 +6,7 @@
 #include <array>
 #include <cctype>
 #include <charconv>
+#include <format>
 #include <functional>
 #include <regex>
 #include <span>
@@ -360,10 +361,45 @@ namespace Desert::Core::Preprocess
                     if ( !Expect( c, ')', err, "closing Timing" ) )
                         return false;
                 }
+                // THE TEMPLATE'S SAMPLER FOR A TEXTURE SLOT — `Sampler(WrapU, WrapV, Filter)`, unquoted
+                // enumerators (Repeat|Clamp|Mirror, Linear|Nearest) for the same reason as Timing: a misspelling
+                // is a parse error at load, not a free-text field that silently means Repeat.
+                else if ( attr == "sampler" )
+                {
+                    if ( !param.IsTexture || param.IsCubeTexture )
+                    {
+                        err = { c.Line, std::format( "Sampler(...) on '{}', which is not a Texture2D property",
+                                                     param.Name ) };
+                        return false;
+                    }
+                    if ( !Expect( c, '(', err, "after Sampler" ) )
+                        return false;
+                    std::string words[3];
+                    for ( int i = 0; i < 3; ++i )
+                    {
+                        if ( i > 0 && !Expect( c, ',', err, "in Sampler" ) )
+                            return false;
+                        SkipTrivia( c );
+                        words[i] = Lower( ReadIdent( c ) );
+                    }
+                    const auto wrapU  = ParseSamplerWrap( words[0] );
+                    const auto wrapV  = ParseSamplerWrap( words[1] );
+                    const auto filter = ParseSamplerFilter( words[2] );
+                    if ( !wrapU || !wrapV || !filter )
+                    {
+                        err = { c.Line, std::format( "Sampler({}, {}, {}) on '{}': expected (Repeat|Clamp|Mirror, "
+                                                     "Repeat|Clamp|Mirror, Linear|Nearest)",
+                                                     words[0], words[1], words[2], param.Name ) };
+                        return false;
+                    }
+                    param.Sampler = { *wrapU, *wrapV, *filter };
+                    if ( !Expect( c, ')', err, "closing Sampler" ) )
+                        return false;
+                }
                 else
                 {
                     err = { c.Line, "unknown property attribute '" + attr +
-                                         "' (expected Range, Category, Tooltip or Timing)" };
+                                         "' (expected Range, Category, Tooltip, Timing or Sampler)" };
                     return false;
                 }
                 SkipTrivia( c );
@@ -495,15 +531,17 @@ namespace Desert::Core::Preprocess
                                                   [&]( const ShaderParam& p ) { return p.Name == row.Property; } );
                 if ( param == meta.Params.end() )
                 {
-                    err = { pending.Line, "Import maps \"" + row.SourceKey + "\" to '" + row.Property +
-                                               "', which this shader's Properties do not declare" };
+                    err = {
+                         pending.Line,
+                         std::format( "Import maps \"{}\" to '{}', which this shader's Properties do not declare",
+                                      row.SourceKey, row.Property ) };
                     return false;
                 }
                 if ( !row.Channels.empty() && !param->IsTexture )
                 {
-                    err = { pending.Line, "Import maps \"" + row.SourceKey + "\" to '" + row.Property + "." +
-                                               row.Channels + "', but '" + row.Property +
-                                               "' is not a texture: only a texture takes source channels" };
+                    err = { pending.Line, std::format( "Import maps \"{}\" to '{}.{}', but '{}' is not a texture: "
+                                                       "only a texture takes source channels",
+                                                       row.SourceKey, row.Property, row.Channels, row.Property ) };
                     return false;
                 }
             }
@@ -1426,7 +1464,7 @@ namespace Desert::Core::Preprocess
                 const std::string v = Lower( ReadIdent( c ) );
                 if ( v != "surface" )
                 {
-                    err = { line, "unknown Default '" + v + "' (the only one is 'Default Surface')" };
+                    err = { line, std::format( "unknown Default '{}' (the only one is 'Default Surface')", v ) };
                     return fail();
                 }
             }

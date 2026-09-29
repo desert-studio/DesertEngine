@@ -16,7 +16,8 @@ namespace
     ImportTemplate Template( std::string name, bool isDefault, std::vector<std::string> needs,
                              std::vector<std::string> keys )
     {
-        ImportTemplate t{ std::move( name ), {} };
+        ImportTemplate t;
+        t.ShaderName              = std::move( name );
         t.Manifest.DeclaresImport = true;
         t.Manifest.DefaultSurface = isDefault;
         t.Manifest.ImportRequires = std::move( needs );
@@ -25,10 +26,10 @@ namespace
         return t;
     }
 
-    SourceMaterial Material( std::vector<std::string> keys )
+    SourceMaterial Material( const std::vector<std::string>& keys )
     {
         SourceMaterial m{ "Leaves", {} };
-        for ( auto& k : keys )
+        for ( const auto& k : keys )
             m.Entries[k] = {};
         return m;
     }
@@ -66,8 +67,9 @@ TEST( MaterialImportContract, NoTakerIsARefusalNamingMaterialAndFile )
 
 TEST( MaterialImportContract, ATemplateWithoutAnImportBlockTakesNothingEvenIfItIsTheDefault )
 {
-    std::vector<ImportTemplate> onlyDefault = { ImportTemplate{ "StaticMeshPBR", {} } };
-    onlyDefault[0].Manifest.DefaultSurface  = true;
+    std::vector<ImportTemplate> onlyDefault( 1 );
+    onlyDefault[0].ShaderName              = "StaticMeshPBR";
+    onlyDefault[0].Manifest.DefaultSurface = true;
     EXPECT_FALSE( ChooseImportTemplate( Material( {} ), onlyDefault, "a.fbx" ).IsSuccess() );
 }
 
@@ -95,13 +97,15 @@ TEST( MaterialImportContract, TheShippedTemplatesChooseByTheirOwnContracts )
     std::vector<ImportTemplate> shipped;
     for ( const auto& [name, file] : files )
     {
-        std::ifstream in( file );
+        const std::ifstream in( file );
         ASSERT_TRUE( in ) << file << " (run from the tree root)";
         std::stringstream text;
         text << in.rdbuf();
         auto manifest = ReadShaderManifest( text.str() );
         ASSERT_TRUE( manifest.IsSuccess() ) << file << ": " << manifest.GetError();
-        shipped.push_back( { name, manifest.GetValue() } );
+        ImportTemplate& t = shipped.emplace_back();
+        t.ShaderName      = name;
+        t.Manifest        = manifest.GetValue();
     }
     const auto pbr = ChooseImportTemplate(
          Material( { "gltf.baseColorTexture", "gltf.metallicRoughnessTexture" } ), shipped, "a.gltf" );

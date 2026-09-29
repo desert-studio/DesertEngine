@@ -91,17 +91,27 @@ namespace Desert::Editor
             return Common::MakeError<PackOutcome>(
                  std::format( "[Import] slot '{}': cannot encode '{}'", slot.Slot, out.generic_string() ) );
 
+        auto written = WriteDerivedTexture( encoded, out );
+        if ( !written.IsSuccess() )
+            return Common::MakeError<PackOutcome>(
+                 std::format( "[Import] slot '{}': {}", slot.Slot, written.GetError() ) );
+        return written;
+    }
+
+    Common::ResultStr<PackOutcome> WriteDerivedTexture( std::string_view bytes, const std::filesystem::path& out )
+    {
         {
             std::ifstream existing( out, std::ios::binary );
             if ( existing && std::string( std::istreambuf_iterator<char>( existing ),
-                                          std::istreambuf_iterator<char>() ) == encoded )
+                                          std::istreambuf_iterator<char>() ) == bytes )
                 return Common::MakeSuccess( PackOutcome::Unchanged );
         }
         std::ofstream file( out, std::ios::binary | std::ios::trunc );
-        file.write( encoded.data(), static_cast<std::streamsize>( encoded.size() ) );
+        file.write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) );
+        // The verdict is the file's, not the buffer's: close() flushes, and a short write surfaces only there.
+        file.close();
         if ( !file.good() )
-            return Common::MakeError<PackOutcome>(
-                 std::format( "[Import] slot '{}': cannot write '{}'", slot.Slot, out.generic_string() ) );
+            return Common::MakeError<PackOutcome>( std::format( "cannot write '{}'", out.generic_string() ) );
         return Common::MakeSuccess( PackOutcome::Written );
     }
 } // namespace Desert::Editor

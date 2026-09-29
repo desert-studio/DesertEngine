@@ -332,7 +332,7 @@ namespace Desert::Editor
         std::vector<Assets::AssetHandle> MeshOwnSlots( const Assets::AssetHandle& meshHandle )
         {
             auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( meshHandle );
-            if ( !asset )
+            if ( asset == nullptr )
                 return {};
             std::vector<Assets::AssetHandle> slots;
             for ( const auto& external : asset->GetMaterialHandles() )

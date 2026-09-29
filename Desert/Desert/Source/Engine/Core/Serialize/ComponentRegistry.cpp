@@ -1483,8 +1483,8 @@ namespace Desert::Core::Serialize
                                                                      { "shader", "Material.Shader", context } );
                     if ( !name )
                     {
-                        issues.push_back( Common::Json::Issue{ "Material.Shader", "an override template's {Guid, Path}",
-                                                               name.GetError() } );
+                        issues.push_back( Common::Json::Issue{
+                             "Material.Shader", "an override template's {Guid, Path}", name.GetError() } );
                         LOG_ERROR( "[Scene] {} - the entity draws with no shader until it names one",
                                    name.GetError() );
                     }

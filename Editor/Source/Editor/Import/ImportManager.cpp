@@ -417,7 +417,7 @@ namespace Desert::Editor
 
         std::shared_ptr<const std::vector<ImportTemplate>> ImportTemplates()
         {
-            std::scoped_lock lock( s_TemplatesMutex );
+            const std::scoped_lock lock( s_TemplatesMutex );
             return s_Templates;
         }
     } // namespace
@@ -432,16 +432,16 @@ namespace Desert::Editor
             if ( !shader->IsReadyForUse() )
                 continue;
             const std::filesystem::path& file = shader->GetMetadata().Filepath;
-            auto                         read =
-                 ReadImportTemplate( shader->GetShaderContent(),
-                                     "engine:" + std::filesystem::relative( file, resources ).generic_string() );
+            auto                         read = ReadImportTemplate(
+                 shader->GetShaderContent(),
+                 std::format( "engine:{}", std::filesystem::relative( file, resources ).generic_string() ) );
             // A shader the readers refuse cannot take a material, and saying so is the refusal.
             if ( !read )
             {
                 LOG_ERROR( "[Import] {}", read.GetError() );
             }
             else if ( read.GetValue().Manifest.DeclaresImport )
-                templates.push_back( std::move( read.GetValue() ) );
+                templates.push_back( read.ExtractValue() );
         }
         return PublishImportTemplates( std::move( templates ) );
     }
@@ -450,7 +450,7 @@ namespace Desert::Editor
     {
         auto published          = std::make_shared<const std::vector<ImportTemplate>>( std::move( templates ) );
         const std::size_t count = published->size();
-        std::scoped_lock  lock( s_TemplatesMutex );
+        const std::scoped_lock lock( s_TemplatesMutex );
         s_Templates = std::move( published );
         return count;
     }
@@ -525,7 +525,7 @@ namespace Desert::Editor
                                                              material.Name, asset.generic_string(),
                                                              key.IsSuccess() ? "null GUID" : key.GetError() ) );
             data.Textures.push_back( { slot.Slot, Common::Content::AssetGuidToText( key.GetValue().Guid ),
-                                       Common::AssetHandle::StableKeyForPath( asset ) } );
+                                       Common::AssetHandle::StableKeyForPath( asset ), slot.Sampler } );
         }
         data.PreviewMesh = previewMesh;
         data.Header      = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material, material.Guid,

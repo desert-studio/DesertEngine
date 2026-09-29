@@ -189,8 +189,8 @@ namespace Desert::Editor
              Common::DDC::Get( Assets::kMeshSourceDeriver, Assets::MeshSourceDerivedDataKey( hash.GetValue() ) );
         if ( !blob )
             return false;
-        const auto asset = Assets::DecodeMeshSourceAsset(
-             std::span<const std::byte>( reinterpret_cast<const std::byte*>( blob->data() ), blob->size() ) );
+        const auto asset =
+             Assets::DecodeMeshSourceAsset( std::as_bytes( std::span( blob->data(), blob->size() ) ) );
         if ( !asset )
         {
             LOG_ERROR( "[Import] '{}': the cached import envelope does not decode ({}), so it is imported again",

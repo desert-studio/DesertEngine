@@ -2,6 +2,7 @@
 #include "../TextureImporter.hpp"
 #include "SourceAlphaMode.hpp"
 #include "SourceMaterialAdapter.hpp"
+#include "EmbeddedSourceTexture.hpp"
 #include "SourceTexturePath.hpp"
 #include "VertexStreams.hpp"
 
@@ -375,7 +376,6 @@ namespace Desert::Editor
     // Extract every source material into the unified, reflected PBRSurfaceParams (the .demat schema). Recovers
     // NORMAL + OPACITY maps the old MaterialAssetData path silently dropped, and stamps a stable MaterialId.
     static std::vector<ImportedMaterial> ExtractMaterials( const aiScene*               scene,
-                                                           const std::filesystem::path& basePath,
                                                            const std::filesystem::path& sourcePath )
     {
         std::vector<ImportedMaterial> result;
@@ -395,10 +395,23 @@ namespace Desert::Editor
 
             // The source's own dictionary (MAT1b adapters); which template takes it, and which of its keys land
             // where, is decided at SerializeMaterialAsset by the templates' Import rows. Where the texture a
-            // reference names lives: SourceTexturePath.hpp.
-            SourceMaterialRead read  = ReadSourceMaterial( *mat, SourceFormatOf( sourcePath ), out.Name,
-                                                           [&]( const std::string& refText )
-                                                           { return FindSourceTexture( basePath, refText ); } );
+            // reference names lives - on disk beside the source, or embedded in it and derived to a file there:
+            // EmbeddedSourceTexture.hpp.
+            SourceMaterialRead read =
+                 ReadSourceMaterial( *mat, SourceFormatOf( sourcePath ), out.Name,
+                                     [&]( const std::string& refText )
+                                     {
+                                         const auto resolved = ResolveSourceTexture( *scene, sourcePath, refText );
+                                         if ( !resolved.IsSuccess() )
+                                         {
+                                             LOG_ERROR( "{}", resolved.GetError() );
+                                             return std::filesystem::path{};
+                                         }
+                                         if ( resolved.GetValue().Extracted == PackOutcome::Written )
+                                             LOG_INFO( "[Import][Tex] embedded texture '{}' written to '{}'",
+                                                       refText, resolved.GetValue().Path.generic_string() );
+                                         return resolved.GetValue().Path;
+                                     } );
             out.Source               = std::move( read.Material );
             const SourceAlpha& alpha = read.Alpha;
             if ( !alpha.Warning.empty() )
@@ -440,7 +453,7 @@ namespace Desert::Editor
         // Resolve the material's texture references RELATIVE TO THE SOURCE FILE's own folder (how FBX/glTF
         // store them, e.g. Poly Haven's "textures/<name>.jpg" sits next to the .fbx). The old code looked in
         // a hardcoded Resources/Assets/Textures/<stem>/ and never found them.
-        const auto materialData = ExtractMaterials( scene, sourcePath.parent_path(), sourcePath );
+        const auto materialData = ExtractMaterials( scene, sourcePath );
 
         std::unordered_map<std::string, uint32_t> boneMapping;
 

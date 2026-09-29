@@ -26,6 +26,7 @@
 #include <Editor/Import/ImportUnits.hpp>
 
 #include <algorithm>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -530,10 +531,16 @@ TEST( AssimpLibraryPin, GltfColourZeroAndTexcoordOneBecomeTheVertexStreams )
     // Each channel is k / 255, so the RGBA8 stream must hold exactly k.
     const float colours[12] = { 51 / 255.f, 0, 1, 1, 0, 128 / 255.f, 0, 204 / 255.f, 1, 1 / 255.f, 1, 0 };
     std::string bin;
-    bin.append( reinterpret_cast<const char*>( positions ), sizeof( positions ) );
-    bin.append( reinterpret_cast<const char*>( uv0 ), sizeof( uv0 ) );
-    bin.append( reinterpret_cast<const char*>( uv1 ), sizeof( uv1 ) );
-    bin.append( reinterpret_cast<const char*>( colours ), sizeof( colours ) );
+    const auto  appendBytes = [&bin]( const auto& array )
+    {
+        const std::size_t at = bin.size();
+        bin.resize( at + sizeof( array ) );
+        std::memcpy( &bin[at], &array, sizeof( array ) );
+    };
+    appendBytes( positions );
+    appendBytes( uv0 );
+    appendBytes( uv1 );
+    appendBytes( colours );
     std::ofstream( dir / "mock.bin", std::ios::binary ) << bin;
 
     const std::string gltf = R"({
@@ -586,7 +593,7 @@ TEST( AssimpLibraryPin, GltfColourZeroAndTexcoordOneBecomeTheVertexStreams )
     {
         EXPECT_EQ( colourStream[v], expectColour[v] ) << "vertex " << v;
         // U as written; V as assimp hands layer 1 over (its glTF reader may flip V, and does so for UV 0 alike).
-        EXPECT_EQ( uv1Stream[v].x, uv1[2 * v] ) << "vertex " << v;
+        EXPECT_EQ( uv1Stream[v].x, uv1[2 * static_cast<std::size_t>( v )] ) << "vertex " << v;
         EXPECT_EQ( uv1Stream[v].y, carrying.mTextureCoords[1][v].y ) << "vertex " << v;
         // The second mesh states neither stream: white and UV (0, 0), one per vertex.
         EXPECT_EQ( colourStream[3 + v], ( std::array<uint8_t, 4>{ 255, 255, 255, 255 } ) );

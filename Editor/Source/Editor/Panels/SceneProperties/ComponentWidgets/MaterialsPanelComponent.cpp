@@ -47,7 +47,7 @@ namespace Desert::Editor
 {
     namespace ImGui = ::ImGui;
 
-    MaterialComponentWidget::MaterialComponentWidget( const Assets::AssetManager* assetManager )
+    MaterialComponentWidget::MaterialComponentWidget( Assets::AssetManager* assetManager )
          : m_AssetManager( assetManager )
     {
         m_UIHelper = std::make_unique<Editor::UI::UIHelper>();
@@ -326,8 +326,7 @@ namespace Desert::Editor
             }
         }
 
-        auto asset = const_cast<Assets::AssetManager&>( *m_AssetManager )
-                          .CreateAsset<Assets::SurfaceMaterialAsset>( path.generic_string() );
+        auto asset = m_AssetManager->CreateAsset<Assets::SurfaceMaterialAsset>( path.generic_string() );
         if ( !asset )
             return {};
 
@@ -373,8 +372,7 @@ namespace Desert::Editor
             }
         }
 
-        auto asset = const_cast<Assets::AssetManager&>( *m_AssetManager )
-                          .CreateAsset<Assets::SurfaceMaterialAsset>( path.generic_string() );
+        auto asset = m_AssetManager->CreateAsset<Assets::SurfaceMaterialAsset>( path.generic_string() );
         if ( !asset )
             return Common::UUID::Null();
 
@@ -402,8 +400,7 @@ namespace Desert::Editor
 
         auto asset = m_AssetManager->FindByPath<Assets::SurfaceMaterialAsset>( assetPath );
         if ( !asset )
-            asset = const_cast<Assets::AssetManager&>( *m_AssetManager )
-                         .CreateAsset<Assets::SurfaceMaterialAsset>( assetPath );
+            asset = m_AssetManager->CreateAsset<Assets::SurfaceMaterialAsset>( assetPath );
         if ( !asset )
             return;
 
@@ -471,9 +468,9 @@ namespace Desert::Editor
             // (THM1f) Through the resolved-subject form: the only one that carries a PreviewMesh, so a
             // material whose preview is its own mesh is photographed on it rather than refused at dispatch.
             std::string png;
-            if ( m_AssetManager )
+            if ( m_AssetManager != nullptr )
             {
-                auto& manager = const_cast<Assets::AssetManager&>( *m_AssetManager );
+                auto& manager = *m_AssetManager;
                 if ( auto held = manager.FindByPath<Assets::SurfaceMaterialAsset>( path ) )
                     png = ThumbnailService::Get().RequestLoadedMaterial( manager, held, path );
             }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Content/ShaderAssetHeader.hpp>
+#include <Engine/Core/Formats/SamplerState.hpp>
 
 #include <glm/vec4.hpp>
 
@@ -29,6 +30,9 @@ namespace Desert::Editor
     {
         std::optional<glm::vec4>             Value;   // a factor or colour; a scalar sits in .x
         std::optional<std::filesystem::path> Texture; // the source image file the key binds
+        // How the source samples that image (glTF sampler wrapS/wrapT/magFilter; FBX mapping mode); absent when
+        // it states the engine default (Repeat/Repeat/Linear), so a .demat only carries a state that differs.
+        std::optional<::Desert::Core::Formats::SamplerState> Sampler;
     };
 
     struct SourceMaterial
@@ -36,7 +40,7 @@ namespace Desert::Editor
         std::string                                             Name;
         std::map<std::string, SourceMaterialEntry, std::less<>> Entries;
 
-        bool Has( std::string_view key ) const
+        [[nodiscard]] bool Has( std::string_view key ) const
         {
             return Entries.find( key ) != Entries.end();
         }
@@ -75,12 +79,14 @@ namespace Desert::Editor
     {
         std::string                      Slot;
         std::vector<ImportedTexturePart> Parts;
+        // The first part's source sampler (MAT1s); written to the .demat slot as MaterialAssetRef::Sampler.
+        std::optional<::Desert::Core::Formats::SamplerState> Sampler;
         // Every channel the template's rows route into this slot (empty = some row takes the whole image).
         std::string TemplateChannels;
         // The slot binds one source image AS IS only when one image fills every channel the template routes
         // here; otherwise the importer packs the parts into a derived image (a glTF occlusion map that is not
         // the metallic-roughness image, or a metallic-roughness image whose R is not occlusion at all).
-        bool NeedsPacking() const;
+        [[nodiscard]] bool NeedsPacking() const;
     };
     struct TemplateFill
     {

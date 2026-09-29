@@ -120,8 +120,8 @@ namespace Desert::Assets
         return asset != nullptr && asset->GetRole() == Common::Content::kPBRSurfaceRole;
     }
 
-    Common::ResultStr<std::string> FindOverrideShaderNameByRef( const AssetManager& manager, const AssetGuidRef& ref,
-                                                                const AssetRefSite& site )
+    Common::ResultStr<std::string> FindOverrideShaderNameByRef( const AssetManager& manager,
+                                                                const AssetGuidRef& ref, const AssetRefSite& site )
     {
         auto name = FindShaderNameByRef( manager, ref, site );
         if ( !name )

@@ -35,8 +35,8 @@ namespace Desert::Core::Formats
     {
         std::string     Name;
         ShaderValueType Type   = ShaderValueType::Float;
-        uint32_t        Offset = 0; // bytes into the row; slot i sits at kMaterialParamSlotSize * i
-        uint32_t        Size   = 0; // bytes of VALUE; the rest of the slot is the generated padding
+        uint32_t        Offset = 0;      // bytes into the row; slot i sits at kMaterialParamSlotSize * i
+        uint32_t        Size   = 0;      // bytes of VALUE; the rest of the slot is the generated padding
         glm::vec4       Default{ 0.0f }; // the `Properties ... = default` value the row starts from
     };
 
@@ -69,21 +69,21 @@ namespace Desert::Core::Formats
         uint32_t                             PushSize   = 0;
         ShaderStage                          PushStages = ShaderStage::None;
 
-        const MaterialLayoutParam* FindParam( std::string_view name ) const
+        [[nodiscard]] const MaterialLayoutParam* FindParam( std::string_view name ) const
         {
             for ( const auto& p : Params )
                 if ( p.Name == name )
                     return &p;
             return nullptr;
         }
-        const MaterialLayoutTexture* FindTexture( std::string_view name ) const
+        [[nodiscard]] const MaterialLayoutTexture* FindTexture( std::string_view name ) const
         {
             for ( const auto& t : Textures )
                 if ( t.Name == name )
                     return &t;
             return nullptr;
         }
-        const MaterialLayoutPushField* FindPush( std::string_view name ) const
+        [[nodiscard]] const MaterialLayoutPushField* FindPush( std::string_view name ) const
         {
             for ( const auto& f : Push )
                 if ( f.Name == name )
@@ -228,7 +228,7 @@ namespace Desert::Core::Formats
         {
             if ( !stage.PushSize )
                 continue;
-            if ( !pushOwner )
+            if ( pushOwner == nullptr )
             {
                 pushOwner       = &stage;
                 layout.PushSize = *stage.PushSize;
@@ -283,7 +283,7 @@ namespace Desert::Core::Formats
                         for ( const auto& m : stage.RowMembers )
                             if ( m.Name == p.Name )
                                 member = &m;
-                        if ( !member )
+                        if ( member == nullptr )
                             fail( stage.Stage,
                                   std::format( "parameter '{}' is missing from the compiled row", p.Name ) );
                         else if ( member->Offset != p.Offset || member->Size != p.Size )
@@ -292,7 +292,7 @@ namespace Desert::Core::Formats
                                                member->Offset, member->Size, p.Offset, p.Size ) );
                     }
                     for ( const auto& m : stage.RowMembers )
-                        if ( !m.Name.starts_with( "_slotPad" ) && !layout.FindParam( m.Name ) )
+                        if ( !m.Name.starts_with( "_slotPad" ) && layout.FindParam( m.Name ) == nullptr )
                             fail( stage.Stage,
                                   std::format( "the compiled row has '{}', which the template does not declare",
                                                m.Name ) );
@@ -301,7 +301,7 @@ namespace Desert::Core::Formats
 
             // Textures: a generated sampler must sit where the template put it.
             for ( const auto& s : stage.Samplers )
-                if ( const auto* t = layout.FindTexture( s.Name ); t && t->Binding != s.Offset )
+                if ( const auto* t = layout.FindTexture( s.Name ); t != nullptr && t->Binding != s.Offset )
                     fail( stage.Stage, std::format( "texture '{}' compiled at binding {}, the template says {}",
                                                     s.Name, s.Offset, t->Binding ) );
         }

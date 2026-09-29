@@ -53,6 +53,7 @@ namespace Desert::Editor
         if ( best.empty() )
         {
             std::vector<std::string> keys;
+            keys.reserve( material.Entries.size() );
             for ( const auto& entry : material.Entries )
                 keys.push_back( entry.first );
             return Common::MakeError<std::size_t>( std::format(
@@ -66,6 +67,7 @@ namespace Desert::Editor
         if ( std::ranges::count_if( best, isDefault ) == 1 )
             return Common::MakeSuccess( *std::ranges::find_if( best, isDefault ) );
         std::vector<std::string> names;
+        names.reserve( best.size() );
         for ( const std::size_t i : best )
             names.push_back( templates[i].ShaderName );
         return Common::MakeError<std::size_t>( std::format(
@@ -129,7 +131,7 @@ namespace Desert::Editor
             for ( auto& slot : fill.Textures )
                 if ( slot.Slot == property )
                     return slot;
-            ImportedTextureSlot slot{ property, {}, {} };
+            ImportedTextureSlot slot{ property, {}, {}, {} };
             bool                whole = false;
             for ( const auto& row : chosen.Manifest.Import )
                 if ( row.Property == property )
@@ -151,12 +153,20 @@ namespace Desert::Editor
             read.insert( entry->first );
             if ( chosen.TextureProperties.contains( row.Property ) )
             {
-                if ( entry->second.Texture )
-                    slotOf( row.Property ).Parts.push_back( { *entry->second.Texture, row.Channels } );
+                if ( const auto& texture = entry->second.Texture; texture.has_value() )
+                {
+                    ImportedTextureSlot& slot = slotOf( row.Property );
+                    if ( slot.Parts.empty() )
+                        slot.Sampler = entry->second.Sampler;
+                    slot.Parts.push_back( { *texture, row.Channels } );
+                }
             }
-            else if ( entry->second.Value && std::ranges::none_of( fill.Params, [&]( const ImportedParam& p )
-                                                                   { return p.Name == row.Property; } ) )
-                fill.Params.push_back( { row.Property, *entry->second.Value } );
+            else if ( const auto& value = entry->second.Value; value.has_value() )
+            {
+                if ( std::ranges::none_of( fill.Params,
+                                           [&]( const ImportedParam& p ) { return p.Name == row.Property; } ) )
+                    fill.Params.push_back( { row.Property, *value } );
+            }
         }
         for ( const auto& [key, entry] : material.Entries )
             if ( !read.contains( key ) )

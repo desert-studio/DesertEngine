@@ -35,7 +35,7 @@ namespace Desert::Editor
 {
     namespace ImGui = ::ImGui;
 
-    StaticMeshComponentWidget::StaticMeshComponentWidget( const Assets::AssetManager* assetManager,
+    StaticMeshComponentWidget::StaticMeshComponentWidget( Assets::AssetManager*       assetManager,
                                                           const ComponentEditContext* ctx )
          : IComponentWidget( "3D Model" ), m_AssetManager( assetManager ), m_Ctx( ctx )
     {
@@ -220,8 +220,7 @@ namespace Desert::Editor
                     // WHICH PICTURE, from the one place that decides — this file used to hold its own
                     // copy of the cutout rule and to ask nothing at all about the domain. A refusal leaves
                     // `png` empty, which this row already reads as "no rendered thumbnail".
-                    png = ThumbnailService::Get().RequestLoadedMaterial(
-                         const_cast<Assets::AssetManager&>( *m_AssetManager ), mat, source );
+                    png = ThumbnailService::Get().RequestLoadedMaterial( *m_AssetManager, mat, source );
                 }
             }
 

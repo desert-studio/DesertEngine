@@ -104,7 +104,7 @@ namespace
         {
             return m_Meta;
         }
-        const Desert::Core::Formats::MaterialLayout& GetMaterialLayout() const override
+        [[nodiscard]] const Desert::Core::Formats::MaterialLayout& GetMaterialLayout() const override
         {
             return m_Layout;
         }
@@ -120,7 +120,7 @@ namespace
         Desert::Graphic::ShaderVariant           m_Variant;
         Common::Filepath                         m_Path;
         Desert::Core::Formats::ShaderProgramMeta m_Meta;
-        Desert::Core::Formats::MaterialLayout m_Layout;
+        Desert::Core::Formats::MaterialLayout    m_Layout;
     };
 
     // ------------------------------------------------------------------------------------------------

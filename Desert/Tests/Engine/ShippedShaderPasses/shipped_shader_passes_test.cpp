@@ -723,7 +723,7 @@ namespace
             std::istringstream       lines( source.substr( begin, end - begin ) );
             for ( std::string line; std::getline( lines, line ); )
                 if ( std::smatch m;
-                     std::regex_search( line, m, kMember ) && m[1].str().rfind( "_slotPad", 0 ) != 0 )
+                     std::regex_search( line, m, kMember ) && !m[1].str().starts_with( "_slotPad" ) )
                     names.push_back( m[1].str() );
             return names;
         }
@@ -759,13 +759,12 @@ TEST( ShippedShaderPasses, AnAuthoredPBRParamReachesItsBytesInTheRowByManifestNa
     const auto& meta    = parsed->Meta;
     const auto  members = GeneratedRowMembers( *parsed );
 
-    const std::vector<MockParam> demat = { { "EmissiveIntensity", glm::vec4( 7.0f, 0, 0, 0 ) },
-                                           { "UVTiling", glm::vec4( 3.0f, 4.0f, 0, 0 ) },
-                                           { "UVRotation", glm::vec4( 0.5f, 0, 0, 0 ) } };
+    const std::vector<MockParam> demat  = { { "EmissiveIntensity", glm::vec4( 7.0f, 0, 0, 0 ) },
+                                            { "UVTiling", glm::vec4( 3.0f, 4.0f, 0, 0 ) },
+                                            { "UVRotation", glm::vec4( 0.5f, 0, 0, 0 ) } };
     const auto                   layout = Desert::Core::Formats::BuildMaterialLayout( meta );
     const auto                   row    = Desert::Graphic::MaterialBinder::BuildRow( layout, demat );
     ASSERT_EQ( row.size(), members.size() );
-    const auto* bytes = reinterpret_cast<const float*>( row.data() );
 
     // The GPU finds member i at 16*i (ShaderCacheKey holds that against SPIR-V); the value must be there.
     const auto floatAt = [&]( const std::string& name, int component )
@@ -773,7 +772,7 @@ TEST( ShippedShaderPasses, AnAuthoredPBRParamReachesItsBytesInTheRowByManifestNa
         const auto it = std::find( members.begin(), members.end(), name );
         EXPECT_NE( it, members.end() ) << name;
         const auto i = static_cast<size_t>( it - members.begin() );
-        return bytes[i * Desert::Core::Formats::kMaterialParamSlotSize / sizeof( float ) + component];
+        return row.at( i * Desert::Core::Formats::kMaterialParamSlotSize / sizeof( glm::vec4 ) )[component];
     };
     EXPECT_EQ( floatAt( "EmissiveIntensity", 0 ), 7.0f );
     EXPECT_EQ( floatAt( "UVTiling", 0 ), 3.0f );
@@ -817,7 +816,8 @@ TEST( ShippedShaderPasses, EveryPBRTextureSlotIsBoundByManifestNameAndAnEmptyOne
         // Every 2D slot the manifest declares is visited — none skipped, whichever the file mentions.
         size_t declared = 0;
         for ( const auto& p : meta.Params )
-            declared += p.IsTexture && !p.IsCubeTexture && !p.IsAssetRef();
+            if ( p.IsTexture && !p.IsCubeTexture && !p.IsAssetRef() )
+                ++declared;
         EXPECT_EQ( bound.size(), declared ) << name;
 
         ASSERT_EQ( bound.count( "u_ORMTexture" ), 1u ) << name << " declares no ORM slot";
@@ -851,7 +851,8 @@ TEST( ShippedShaderPasses, MeshRendererSlotLookupAgreesWithTheCellLayoutForEvery
         for ( const auto& p : layout.Params )
         {
             const auto slot = Desert::Core::Formats::MaterialParamSlot( meta, p.Name );
-            ASSERT_TRUE( slot.has_value() ) << path << ": " << p.Name;
+            if ( !slot.has_value() )
+                FAIL() << path << ": " << p.Name;
             EXPECT_EQ( *slot * Desert::Core::Formats::kMaterialParamSlotSize, p.Offset ) << path << ": " << p.Name;
             ++checked;
         }

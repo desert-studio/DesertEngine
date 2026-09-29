@@ -239,8 +239,10 @@ TEST( ImportRecord, ASourceWithoutARecordHasNoIdentityAndSaysWhichFileIsMissing 
 TEST( ImportRecord, ARecordCopiedBesideAnotherSourceIsRefusedByName )
 {
     const Project project( "copied" );
-    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh,
-                                          *Ser::MeshDataBounds( Quad() ), {} ) );
+    const auto    bounds = Ser::MeshDataBounds( Quad() );
+    if ( !bounds.has_value() )
+        FAIL() << "the quad has no bounds";
+    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, *bounds, {} ) );
     const fs::path other = project.Source.parent_path() / "Tree.fbx";
     std::ofstream( other ) << "tree";
     fs::copy_file( Common::Content::ImportRecordPathFor( project.Source ),
@@ -285,8 +287,10 @@ TEST( ImportRecord, ThePreviewMeshAnImportedMaterialNamesIsTheRecordsGuid )
 {
     const Project project( "preview" );
     ASSERT_FALSE( Editor::PreviewMeshRefFor( project.Source ) ) << "a reference with no record behind it";
-    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh,
-                                          *Ser::MeshDataBounds( Quad() ), {} ) );
+    const auto bounds = Ser::MeshDataBounds( Quad() );
+    if ( !bounds.has_value() )
+        FAIL() << "the quad has no bounds";
+    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, *bounds, {} ) );
     const auto guid = Ser::ReadImportRecordGuid( project.Source );
     ASSERT_TRUE( guid );
     const auto ref = Editor::PreviewMeshRefFor( project.Source );

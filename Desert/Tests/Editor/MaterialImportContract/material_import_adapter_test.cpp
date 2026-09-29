@@ -9,6 +9,7 @@
 #include <stb_image/stb_image.h>
 #include <stb_image/stb_image_write.h>
 
+#include <Editor/Import/Assimp/EmbeddedSourceTexture.hpp>
 #include <Editor/Import/Assimp/SourceMaterialAdapter.hpp>
 #include <Editor/Import/Assimp/SourceTexturePath.hpp>
 #include <Editor/Import/MaterialImportContract.hpp>
@@ -16,11 +17,15 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
 #include <iterator>
 #include <map>
 #include <cstring>
+#include <format>
 #include <fstream>
+#include <optional>
+#include <vector>
 #include <sstream>
 
 using namespace Desert::Editor;
@@ -40,7 +45,7 @@ namespace
     {
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up, prefix += "../" )
-            if ( std::ifstream probe( prefix + relative ); probe )
+            if ( const std::ifstream probe( prefix + relative ); probe )
             {
                 std::stringstream text;
                 text << probe.rdbuf();
@@ -51,23 +56,27 @@ namespace
 
     ImportTemplate Template( const std::string& file )
     {
-        const auto read = ReadImportTemplate( RepoFile( "Editor/Resources/Shaders/Programs/" + file ), file );
+        const auto read =
+             ReadImportTemplate( RepoFile( std::format( "Editor/Resources/Shaders/Programs/{}", file ) ), file );
         EXPECT_TRUE( read.IsSuccess() ) << ( read.IsSuccess() ? "" : read.GetError() );
         return read.IsSuccess() ? read.GetValue() : ImportTemplate{};
     }
 
     // Images: base.png (albedo + mask), mr.png, occ.png (a DIFFERENT file: the ORM slot must be packed), nrm, emi.
+    // @p samplers: the body of one glTF sampler object; when given, texture 0 (base.png) samples through it.
     fs::path WriteGltf( const std::string& caseName, const std::string& materialBody,
-                        const std::string& extensionsUsed )
+                        const std::string& extensionsUsed, const std::string& samplers = {} )
     {
         const fs::path  dir = fs::temp_directory_path() / "DesertMaterialImportAdapter" / caseName;
         std::error_code ec;
         fs::remove_all( dir, ec );
         fs::create_directories( dir );
         for ( const char* name : { "base.png", "mr.png", "occ.png", "nrm.png", "emi.png" } )
-            std::ofstream( dir / name, std::ios::binary )
-                 .write( reinterpret_cast<const char*>( kPng.data() ),
-                         static_cast<std::streamsize>( kPng.size() ) );
+        {
+            std::ofstream png( dir / name, std::ios::binary );
+            for ( const uint8_t byte : kPng )
+                png.put( static_cast<char>( byte ) );
+        }
         const float       pos[12] = { -0.5f, 0, 0, 0.5f, 0, 0, 0.5f, 1, 0, -0.5f, 1, 0 };
         const float       uv[8]   = { 0, 1, 1, 1, 1, 0, 0, 0 };
         const uint16_t    idx[6]  = { 0, 1, 2, 0, 2, 3 };
@@ -82,7 +91,11 @@ namespace
   "meshes": [ { "primitives": [ { "attributes": { "POSITION": 0, "TEXCOORD_0": 1 }, "indices": 2, "material": 0 } ] } ],
   "materials": [ { "name": "M", )"
              << materialBody << R"( } ],
-  "textures": [ { "source": 0 }, { "source": 1 }, { "source": 2 }, { "source": 3 }, { "source": 4 } ],
+  "samplers": [ )"
+             << ( samplers.empty() ? std::string( "{}" ) : samplers ) << R"( ],
+  "textures": [ { "source": 0)"
+             << ( samplers.empty() ? "" : R"(, "sampler": 0)" )
+             << R"( }, { "source": 1 }, { "source": 2 }, { "source": 3 }, { "source": 4 } ],
   "images": [ { "uri": "base.png" }, { "uri": "mr.png" }, { "uri": "occ.png" }, { "uri": "nrm.png" }, { "uri": "emi.png" } ],
   "buffers": [ { "uri": "m.bin", "byteLength": 92 } ],
   "bufferViews": [ { "buffer": 0, "byteOffset": 0, "byteLength": 48 }, { "buffer": 0, "byteOffset": 48, "byteLength": 32 },
@@ -98,7 +111,7 @@ namespace
     {
         const aiScene* scene = importer.ReadFile( file.string(), aiProcess_Triangulate );
         EXPECT_NE( scene, nullptr ) << importer.GetErrorString();
-        if ( !scene )
+        if ( scene == nullptr )
             return {};
         const aiMaterial& mat = *scene->mMaterials[scene->mMeshes[0]->mMaterialIndex];
         return ReadSourceMaterial( mat, SourceFormatOf( file ), "M", [&]( const std::string& ref )
@@ -204,7 +217,9 @@ TEST( MaterialImportAdapter, AMetallicRoughnessImageAloneIsPackedWithWhiteOcclus
     ASSERT_TRUE( orm->NeedsPacking() ) << "glTF's R of a metallic-roughness image is not occlusion";
     const fs::path packed = PackedTexturePath( *orm );
     ASSERT_TRUE( PackTextureChannels( *orm, packed ).IsSuccess() );
-    int      w = 0, h = 0, n = 0;
+    int      w  = 0;
+    int      h  = 0;
+    int      n  = 0;
     uint8_t* px = stbi_load( packed.string().c_str(), &w, &h, &n, 4 );
     ASSERT_NE( px, nullptr );
     uint8_t* src = stbi_load( ( file.parent_path() / "mr.png" ).string().c_str(), &w, &h, &n, 4 );
@@ -254,7 +269,9 @@ TEST( MaterialImportAdapter, APackedImageIsRebuiltOnlyWhenAnInputChanges )
     EXPECT_EQ( bytes(), firstBytes );
 
     // One input changes (the occlusion image's red): the pack is rebuilt and differs.
-    int      w = 0, h = 0, n = 0;
+    int      w   = 0;
+    int      h   = 0;
+    int      n   = 0;
     uint8_t* occ = stbi_load( ( file.parent_path() / "occ.png" ).string().c_str(), &w, &h, &n, 4 );
     ASSERT_NE( occ, nullptr );
     std::vector<uint8_t> changed( occ, occ + static_cast<std::size_t>( w * h * 4 ) );
@@ -311,7 +328,8 @@ TEST( MaterialImportAdapter, EveryFbxPbrKeyReachesTheOrmTextureAndItsFactors )
         const aiString path( file );
         mat.AddProperty( &path, AI_MATKEY_TEXTURE( type, 0 ) );
     };
-    const ai_real   metallic = 0.7f, roughness = 0.35f;
+    const ai_real   metallic  = 0.7f;
+    const ai_real   roughness = 0.35f;
     const aiColor4D diffuse( 0.5f, 0.25f, 0.125f, 1.0f );
     mat.AddProperty( &diffuse, 1, AI_MATKEY_COLOR_DIFFUSE );
     mat.AddProperty( &metallic, 1, AI_MATKEY_METALLIC_FACTOR );
@@ -355,4 +373,208 @@ TEST( MaterialImportAdapter, EveryFbxPbrKeyReachesTheOrmTextureAndItsFactors )
     EXPECT_NE( std::ranges::find( fill.UnreadKeys, "fbx.GlossinessMap" ), fill.UnreadKeys.end() );
     for ( const char* read : { "fbx.Metalness", "fbx.Roughness", "fbx.AmbientOcclusion" } )
         EXPECT_EQ( std::ranges::find( fill.UnreadKeys, read ), fill.UnreadKeys.end() ) << read;
+}
+
+namespace
+{
+    // A .glb whose one image lives in its BIN chunk (bufferView 3, image/png), as DamagedHelmet.glb ships its
+    // five.
+    fs::path WriteGlbWithEmbeddedPng( const std::string& caseName )
+    {
+        const fs::path  dir = fs::temp_directory_path() / "DesertMaterialImportAdapter" / caseName;
+        std::error_code ec;
+        fs::remove_all( dir, ec );
+        fs::create_directories( dir );
+        const float       pos[12] = { -0.5f, 0, 0, 0.5f, 0, 0, 0.5f, 1, 0, -0.5f, 1, 0 };
+        const float       uv[8]   = { 0, 1, 1, 1, 1, 0, 0, 0 };
+        const uint16_t    idx[6]  = { 0, 1, 2, 0, 2, 3 };
+        std::vector<char> bin( 92 );
+        std::memcpy( bin.data(), pos, 48 );
+        std::memcpy( bin.data() + 48, uv, 32 );
+        std::memcpy( bin.data() + 80, idx, 12 );
+        bin.insert( bin.end(), kPng.begin(), kPng.end() );
+        while ( bin.size() % 4 != 0 )
+            bin.push_back( 0 );
+        std::string json = std::format( R"({{ "asset": {{ "version": "2.0" }},
+  "scene": 0, "scenes": [ {{ "nodes": [ 0 ] }} ], "nodes": [ {{ "mesh": 0 }} ],
+  "meshes": [ {{ "primitives": [ {{ "attributes": {{ "POSITION": 0, "TEXCOORD_0": 1 }}, "indices": 2, "material": 0 }} ] }} ],
+  "materials": [ {{ "name": "M", "pbrMetallicRoughness": {{ "baseColorTexture": {{ "index": 0 }} }} }} ],
+  "textures": [ {{ "source": 0 }} ], "images": [ {{ "bufferView": 3, "mimeType": "image/png" }} ],
+  "buffers": [ {{ "byteLength": {} }} ],
+  "bufferViews": [ {{ "buffer": 0, "byteOffset": 0, "byteLength": 48 }}, {{ "buffer": 0, "byteOffset": 48, "byteLength": 32 }},
+                   {{ "buffer": 0, "byteOffset": 80, "byteLength": 12 }}, {{ "buffer": 0, "byteOffset": 92, "byteLength": {} }} ],
+  "accessors": [
+    {{ "bufferView": 0, "componentType": 5126, "count": 4, "type": "VEC3", "min": [ -0.5, 0, 0 ], "max": [ 0.5, 1, 0 ] }},
+    {{ "bufferView": 1, "componentType": 5126, "count": 4, "type": "VEC2" }},
+    {{ "bufferView": 2, "componentType": 5123, "count": 6, "type": "SCALAR" }} ] }})",
+                                        bin.size(), kPng.size() );
+        while ( json.size() % 4 != 0 )
+            json.push_back( ' ' );
+        const auto u32 = []( std::ofstream& out, uint32_t v )
+        {
+            const auto bytes = std::bit_cast<std::array<char, 4>>( v );
+            out.write( bytes.data(), bytes.size() );
+        };
+        const fs::path file = dir / "helmet.glb";
+        std::ofstream  out( file, std::ios::binary );
+        out.write( "glTF", 4 );
+        u32( out, 2 );
+        u32( out, static_cast<uint32_t>( 12 + 8 + json.size() + 8 + bin.size() ) );
+        u32( out, static_cast<uint32_t>( json.size() ) );
+        u32( out, 0x4E4F534Au ); // JSON
+        out.write( json.data(), static_cast<std::streamsize>( json.size() ) );
+        u32( out, static_cast<uint32_t>( bin.size() ) );
+        u32( out, 0x004E4942u ); // BIN
+        out.write( bin.data(), static_cast<std::streamsize>( bin.size() ) );
+        return file;
+    }
+
+    // Reads the .glb as AssimpImporter does: every reference resolved by ResolveSourceTexture.
+    SourceMaterial ReadResolving( const fs::path& file, Assimp::Importer& importer,
+                                  std::vector<std::optional<PackOutcome>>& extracted )
+    {
+        const aiScene* scene = importer.ReadFile( file.string(), aiProcess_Triangulate );
+        EXPECT_NE( scene, nullptr ) << importer.GetErrorString();
+        if ( scene == nullptr )
+            return {};
+        const aiMaterial& mat = *scene->mMaterials[scene->mMeshes[0]->mMaterialIndex];
+        return ReadSourceMaterial( mat, SourceFormatOf( file ), "M",
+                                   [&]( const std::string& ref )
+                                   {
+                                       const auto resolved = ResolveSourceTexture( *scene, file, ref );
+                                       EXPECT_TRUE( resolved.IsSuccess() )
+                                            << ( resolved.IsSuccess() ? "" : resolved.GetError() );
+                                       if ( !resolved.IsSuccess() )
+                                           return fs::path{};
+                                       extracted.push_back( resolved.GetValue().Extracted );
+                                       return resolved.GetValue().Path;
+                                   } )
+             .Material;
+    }
+} // namespace
+
+TEST( MaterialImportAdapter, AnEmbeddedTextureIsDerivedBesideTheSourceAndRewrittenOnlyWhenItChanges )
+{
+    const fs::path                          file    = WriteGlbWithEmbeddedPng( "embedded" );
+    const fs::path                          derived = file.parent_path() / "helmet_0.png";
+    std::vector<std::optional<PackOutcome>> extracted;
+    Assimp::Importer                        importer;
+    const TemplateFill                      fill =
+         FillFromTemplate( ReadResolving( file, importer, extracted ), Template( "PBR/StaticMeshPBR.shader" ) );
+
+    const ImportedTextureSlot* albedo = Slot( fill, "u_AlbedoTexture" );
+    ASSERT_NE( albedo, nullptr ) << "the embedded base colour did not reach its slot";
+    ASSERT_FALSE( albedo->Parts.empty() );
+    EXPECT_EQ( albedo->Parts.front().Source, derived );
+    ASSERT_FALSE( extracted.empty() );
+    EXPECT_EQ( extracted.front(), PackOutcome::Written );
+    const auto bytes = [&]
+    {
+        std::ifstream in( derived, std::ios::binary );
+        return std::string( std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() );
+    };
+    EXPECT_EQ( bytes(), std::string( kPng.begin(), kPng.end() ) )
+         << "a compressed embedded image is kept byte for byte";
+
+    // A second import of the same source names the same file and leaves it alone.
+    const auto stamp = fs::last_write_time( derived ) - std::chrono::hours( 1 );
+    fs::last_write_time( derived, stamp );
+    extracted.clear();
+    Assimp::Importer   again;
+    const TemplateFill refill =
+         FillFromTemplate( ReadResolving( file, again, extracted ), Template( "PBR/StaticMeshPBR.shader" ) );
+    ASSERT_NE( Slot( refill, "u_AlbedoTexture" ), nullptr );
+    EXPECT_EQ( Slot( refill, "u_AlbedoTexture" )->Parts.front().Source, derived );
+    ASSERT_FALSE( extracted.empty() );
+    EXPECT_EQ( extracted.front(), PackOutcome::Unchanged );
+    EXPECT_EQ( fs::last_write_time( derived ), stamp ) << "an unchanged embedded texture was rewritten";
+}
+
+TEST( MaterialImportAdapter, AnUncompressedEmbeddedTextureIsEncodedToPng )
+{
+    aiTexel   texels[2] = { { 10, 20, 30, 255 }, { 40, 50, 60, 128 } }; // b, g, r, a
+    aiTexture texture;
+    texture.mWidth    = 2;
+    texture.mHeight   = 1;
+    texture.pcData    = texels;
+    aiTexture* list[] = { &texture };
+    aiScene    scene;
+    scene.mNumTextures = 1;
+    scene.mTextures    = list;
+
+    const fs::path  dir = fs::temp_directory_path() / "DesertMaterialImportAdapter" / "embedded-raw";
+    std::error_code ec;
+    fs::remove_all( dir, ec );
+    fs::create_directories( dir );
+    const auto resolved = ResolveSourceTexture( scene, dir / "chair.fbx", "*0" );
+    scene.mTextures     = nullptr; // the scene does not own them
+    scene.mNumTextures  = 0;
+    texture.pcData      = nullptr;
+    ASSERT_TRUE( resolved.IsSuccess() ) << resolved.GetError();
+    EXPECT_EQ( resolved.GetValue().Path, dir / "chair_0.png" );
+    int      w    = 0;
+    int      h    = 0;
+    int      n    = 0;
+    uint8_t* rgba = stbi_load( ( dir / "chair_0.png" ).string().c_str(), &w, &h, &n, 4 );
+    ASSERT_NE( rgba, nullptr );
+    EXPECT_EQ( w, 2 );
+    EXPECT_EQ( h, 1 );
+    const std::vector<uint8_t> got( rgba, rgba + 8 );
+    stbi_image_free( rgba );
+    EXPECT_EQ( got, ( std::vector<uint8_t>{ 30, 20, 10, 255, 60, 50, 40, 128 } ) );
+}
+
+TEST( MaterialImportAdapter, AnFbxBaseColorMapIsTheAlbedoWhenNoDiffuseIsStated )
+{
+    const auto read = []( bool withDiffuse )
+    {
+        aiMaterial     mat;
+        const aiString base( "base.png" );
+        const aiString diffuse( "diffuse.png" );
+        mat.AddProperty( &base, AI_MATKEY_TEXTURE( aiTextureType_BASE_COLOR, 0 ) );
+        if ( withDiffuse )
+            mat.AddProperty( &diffuse, AI_MATKEY_TEXTURE( aiTextureType_DIFFUSE, 0 ) );
+        return FillFromTemplate( ReadSourceMaterial( mat, SourceFormatOf( "chair.fbx" ), "M",
+                                                     []( const std::string& ref ) { return fs::path( ref ); } )
+                                      .Material,
+                                 Template( "PBR/StaticMeshPBR.shader" ) );
+    };
+    const TemplateFill onlyBase = read( false );
+    ASSERT_NE( Slot( onlyBase, "u_AlbedoTexture" ), nullptr ) << "an FBX base_color_map was dropped";
+    EXPECT_EQ( Slot( onlyBase, "u_AlbedoTexture" )->Parts.front().Source, fs::path( "base.png" ) );
+    const TemplateFill both = read( true );
+    ASSERT_NE( Slot( both, "u_AlbedoTexture" ), nullptr );
+    ASSERT_EQ( Slot( both, "u_AlbedoTexture" )->Parts.size(), 1u );
+    EXPECT_EQ( Slot( both, "u_AlbedoTexture" )->Parts.front().Source, fs::path( "diffuse.png" ) );
+}
+
+// MAT1s: the glTF sampler of a texture (wrapS/wrapT/magFilter) rides on its key to the template's slot, and a
+// texture with no sampler states none (the engine default is not written into every imported .demat).
+TEST( MaterialImportAdapter, AGltfSamplerReachesItsSlotAndADefaultOneStatesNothing )
+{
+    const fs::path       file = WriteGltf( "sampler", kFullMaterial, kFullExtensions,
+                                           R"({ "wrapS": 33071, "wrapT": 33648, "magFilter": 9728 })" );
+    Assimp::Importer     importer;
+    const SourceMaterial source = Read( file, importer );
+
+    using Desert::Core::Formats::SamplerFilter;
+    using Desert::Core::Formats::SamplerState;
+    using Desert::Core::Formats::SamplerWrap;
+    const SamplerState expected{ SamplerWrap::Clamp, SamplerWrap::Mirror, SamplerFilter::Nearest };
+
+    const auto base = source.Entries.find( "gltf.baseColorTexture" );
+    ASSERT_NE( base, source.Entries.end() );
+    ASSERT_TRUE( base->second.Sampler.has_value() ) << "the source sampler was not read";
+    EXPECT_EQ( base->second.Sampler, std::optional<SamplerState>( expected ) );
+
+    const std::vector<ImportTemplate> templates = { Template( "PBR/StaticMeshPBR.shader" ) };
+    const TemplateFill                fill      = FillFromTemplate( source, templates[0] );
+    const ImportedTextureSlot*        albedo    = Slot( fill, "u_AlbedoTexture" );
+    ASSERT_NE( albedo, nullptr );
+    ASSERT_TRUE( albedo->Sampler.has_value() ) << "the sampler did not reach the slot";
+    EXPECT_EQ( albedo->Sampler, std::optional<SamplerState>( expected ) );
+
+    const ImportedTextureSlot* normal = Slot( fill, "u_NormalTexture" );
+    ASSERT_NE( normal, nullptr );
+    EXPECT_FALSE( normal->Sampler.has_value() ) << "a texture with no glTF sampler states the default: nothing";
 }

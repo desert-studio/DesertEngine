@@ -185,7 +185,7 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             // Populate fields once; multi-stage shaders call ReflectStage() per stage, avoid duplicates.
             if ( ub.Fields.empty() )
             {
-                for ( uint32_t i = 0; i < (uint32_t)structType.member_types.size(); ++i )
+                for ( uint32_t i = 0; i < static_cast<uint32_t>( structType.member_types.size() ); ++i )
                 {
                     ShaderResources::ShaderLayout::ShaderFieldLayout field;
                     field.Name   = compiler.get_member_name( resource.base_type_id, i );
@@ -319,7 +319,7 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         {
             const auto&    res          = resources.push_constant_buffers[0];
             auto&          type         = compiler.get_type( res.base_type_id );
-            const uint32_t declaredSize = (uint32_t)compiler.get_declared_struct_size( type );
+            const auto     declaredSize = static_cast<uint32_t>( compiler.get_declared_struct_size( type ) );
             if ( !data.PushConstantRanges )
             {
                 ShaderResources::ShaderLayout::PushConstantRange range;
@@ -402,10 +402,10 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         const auto membersOf = [&]( const spirv_cross::SPIRType& structType, spirv_cross::TypeID typeId )
         {
             std::vector<Core::Formats::ReflectedLayoutMember> members;
-            for ( uint32_t i = 0; i < (uint32_t)structType.member_types.size(); ++i )
-                members.push_back( { compiler.get_member_name( typeId, i ),
-                                     compiler.type_struct_member_offset( structType, i ),
-                                     (uint32_t)compiler.get_declared_struct_member_size( structType, i ) } );
+            for ( uint32_t i = 0; i < static_cast<uint32_t>( structType.member_types.size() ); ++i )
+                members.push_back(
+                     { compiler.get_member_name( typeId, i ), compiler.type_struct_member_offset( structType, i ),
+                       static_cast<uint32_t>( compiler.get_declared_struct_member_size( structType, i ) ) } );
             return members;
         };
 
@@ -436,7 +436,7 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         {
             const auto& res  = resources.push_constant_buffers[0];
             const auto& type = compiler.get_type( res.base_type_id );
-            out.PushSize     = (uint32_t)compiler.get_declared_struct_size( type );
+            out.PushSize     = static_cast<uint32_t>( compiler.get_declared_struct_size( type ) );
             out.PushMembers  = membersOf( type, res.base_type_id );
         }
         return out;

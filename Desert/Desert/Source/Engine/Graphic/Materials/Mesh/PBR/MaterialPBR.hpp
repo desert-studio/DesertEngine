@@ -66,11 +66,11 @@ namespace Desert::Graphic
         // DataDrivenMaterial uses (Core/Formats/MaterialParamRow.hpp). MaterialFactory builds the row from the
         // asset's persisted params; the renderer copies it (plus instance overrides, by name) into
         // `Materials[]`. Every PBR pass declares the one layout, so a forward row feeds GBuffer/glass as is.
-        const Core::Formats::ShaderProgramMeta& GetSchema() const
+        [[nodiscard]] const Core::Formats::ShaderProgramMeta& GetSchema() const
         {
             return m_Schema;
         }
-        const Core::Formats::MaterialParamRow& GetParamRow() const
+        [[nodiscard]] const Core::Formats::MaterialParamRow& GetParamRow() const
         {
             return m_Row;
         }

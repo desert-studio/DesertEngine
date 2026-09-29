@@ -55,7 +55,7 @@ namespace Desert::Graphic::API::Vulkan
             return m_ProgramMeta;
         }
 
-        virtual const Core::Formats::MaterialLayout& GetMaterialLayout() const override
+        [[nodiscard]] const Core::Formats::MaterialLayout& GetMaterialLayout() const override
         {
             return m_MaterialLayout;
         }
