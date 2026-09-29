@@ -12,6 +12,7 @@
 #include <Engine/Graphic/VisibilityCulling.hpp>
 // MeshShaderFor / MeshVertexPath / MeshPass — the (path x pass) table this file asks for its pipelines.
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
+#include <Engine/Graphic/Materials/Mesh/MeshVertexLayout.hpp>
 #include <Engine/Graphic/Materials/Mesh/InstancedRecorder.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/Units.hpp>
@@ -662,11 +663,7 @@ namespace Desert::Graphic::System
         spec.DebugName         = "GenericMesh_" + shader->GetName();
         spec.Shader            = shader;
         spec.Framebuffer       = target;
-        spec.Layout            = VertexBufferLayout{ { Graphic::ShaderDataType::Float3, "a_Position" },
-                                                     { Graphic::ShaderDataType::Float3, "a_Normal" },
-                                                     { Graphic::ShaderDataType::Float3, "a_Tangent" },
-                                                     { Graphic::ShaderDataType::Float3, "a_Bitangent" },
-                                                     { Graphic::ShaderDataType::Float2, "a_TextureCoord" } };
+        spec.Layout            = MeshVertexLayout( MeshVertexPath::Static );
         spec.UseLoadRenderPass = useLoadPass; // deferred manual pass begins with LOAD
         ApplyShaderRenderState( spec, shader->GetProgramMeta().State );
         return spec;
@@ -1637,11 +1634,7 @@ namespace Desert::Graphic::System
         GraphicsPipelineSpecification spec;
         spec.DebugName = "StaticMeshGeometry";
 
-        spec.Layout = { { Graphic::ShaderDataType::Float3, "a_Position" },
-                        { Graphic::ShaderDataType::Float3, "a_Normal" },
-                        { Graphic::ShaderDataType::Float3, "a_Tangent" },
-                        { Graphic::ShaderDataType::Float3, "a_Bitangent" },
-                        { Graphic::ShaderDataType::Float2, "a_TextureCoord" } };
+        spec.Layout = MeshVertexLayout( MeshVertexPath::Static );
 
         spec.DepthCompareOp = DepthCompare::CloserOrEqual;
         spec.CullMode       = CullMode::Back;
@@ -1685,11 +1678,7 @@ namespace Desert::Graphic::System
         {
             GraphicsPipelineSpecification ispec;
             ispec.DebugName      = "StaticMeshGeometryInstanced";
-            ispec.Layout         = { { Graphic::ShaderDataType::Float3, "a_Position" },
-                                     { Graphic::ShaderDataType::Float3, "a_Normal" },
-                                     { Graphic::ShaderDataType::Float3, "a_Tangent" },
-                                     { Graphic::ShaderDataType::Float3, "a_Bitangent" },
-                                     { Graphic::ShaderDataType::Float2, "a_TextureCoord" } };
+            ispec.Layout              = MeshVertexLayout( MeshVertexPath::Instanced );
             ispec.DepthCompareOp      = DepthCompare::CloserOrEqual;
             ispec.CullMode       = CullMode::Back;
             ispec.Shader         = m_InstancedGeometryShader;
@@ -1717,11 +1706,7 @@ namespace Desert::Graphic::System
 
         GraphicsPipelineSpecification spec;
         spec.DebugName      = "StaticMeshGBuffer";
-        spec.Layout         = { { Graphic::ShaderDataType::Float3, "a_Position" },
-                                { Graphic::ShaderDataType::Float3, "a_Normal" },
-                                { Graphic::ShaderDataType::Float3, "a_Tangent" },
-                                { Graphic::ShaderDataType::Float3, "a_Bitangent" },
-                                { Graphic::ShaderDataType::Float2, "a_TextureCoord" } };
+        spec.Layout         = MeshVertexLayout( MeshVertexPath::Static );
         spec.DepthCompareOp = DepthCompare::CloserOrEqual;
         spec.CullMode       = CullMode::Back;
         spec.Shader         = m_StaticGBufferShader;
@@ -1794,11 +1779,7 @@ namespace Desert::Graphic::System
         {
             GraphicsPipelineSpecification ispec;
             ispec.DebugName      = "StaticMeshGBufferInstanced";
-            ispec.Layout         = { { Graphic::ShaderDataType::Float3, "a_Position" },
-                                     { Graphic::ShaderDataType::Float3, "a_Normal" },
-                                     { Graphic::ShaderDataType::Float3, "a_Tangent" },
-                                     { Graphic::ShaderDataType::Float3, "a_Bitangent" },
-                                     { Graphic::ShaderDataType::Float2, "a_TextureCoord" } };
+            ispec.Layout         = MeshVertexLayout( MeshVertexPath::Instanced );
             ispec.DepthCompareOp = DepthCompare::CloserOrEqual;
             ispec.CullMode       = CullMode::Back;
             ispec.Shader         = m_InstancedGBufferShader;
@@ -1844,11 +1825,7 @@ namespace Desert::Graphic::System
 
         GraphicsPipelineSpecification spec;
         spec.DebugName         = "StaticMeshGlass";
-        spec.Layout            = { { Graphic::ShaderDataType::Float3, "a_Position" },
-                                   { Graphic::ShaderDataType::Float3, "a_Normal" },
-                                   { Graphic::ShaderDataType::Float3, "a_Tangent" },
-                                   { Graphic::ShaderDataType::Float3, "a_Bitangent" },
-                                   { Graphic::ShaderDataType::Float2, "a_TextureCoord" } };
+        spec.Layout            = MeshVertexLayout( MeshVertexPath::Static );
         spec.Shader            = m_StaticGlassShader;
         spec.Framebuffer       = target;
         spec.DepthCompareOp    = DepthCompare::CloserOrEqual;
@@ -1892,13 +1869,7 @@ namespace Desert::Graphic::System
         GraphicsPipelineSpecification spec;
         spec.DebugName = "SkinnedMeshGeometry";
 
-        spec.Layout = { { Graphic::ShaderDataType::Float3, "a_Position" },
-                        { Graphic::ShaderDataType::Float3, "a_Normal" },
-                        { Graphic::ShaderDataType::Float3, "a_Tangent" },
-                        { Graphic::ShaderDataType::Float3, "a_Bitangent" },
-                        { Graphic::ShaderDataType::Float2, "a_TextureCoord" },
-                        { Graphic::ShaderDataType::Int4, "a_BoneIndices" },
-                        { Graphic::ShaderDataType::Float4, "a_BoneWeights" } };
+        spec.Layout = MeshVertexLayout( MeshVertexPath::Skinned );
 
         spec.DepthCompareOp = DepthCompare::CloserOrEqual;
         spec.CullMode       = CullMode::Back;
@@ -1940,11 +1911,7 @@ namespace Desert::Graphic::System
 
         GraphicsPipelineSpecification spec;
         spec.DebugName = "SilhouettePipeline";
-        spec.Layout    = { { Graphic::ShaderDataType::Float3, "a_Position" },
-                           { Graphic::ShaderDataType::Float3, "a_Normal" },
-                           { Graphic::ShaderDataType::Float3, "a_Tangent" },
-                           { Graphic::ShaderDataType::Float3, "a_Bitangent" },
-                           { Graphic::ShaderDataType::Float2, "a_TextureCoord" } };
+        spec.Layout    = MeshVertexLayout( MeshVertexPath::Static );
 
         spec.DepthTestEnabled   = false;
         spec.DepthWriteEnabled  = false;
@@ -1971,13 +1938,7 @@ namespace Desert::Graphic::System
         {
             GraphicsPipelineSpecification sspec = spec;
             sspec.DebugName = "SilhouetteSkinnedPipeline";
-            sspec.Layout    = { { Graphic::ShaderDataType::Float3, "a_Position" },
-                                { Graphic::ShaderDataType::Float3, "a_Normal" },
-                                { Graphic::ShaderDataType::Float3, "a_Tangent" },
-                                { Graphic::ShaderDataType::Float3, "a_Bitangent" },
-                                { Graphic::ShaderDataType::Float2, "a_TextureCoord" },
-                                { Graphic::ShaderDataType::Int4, "a_BoneIndices" },
-                                { Graphic::ShaderDataType::Float4, "a_BoneWeights" } };
+            sspec.Layout                        = MeshVertexLayout( MeshVertexPath::Skinned );
             sspec.Shader            = m_SilhouetteSkinnedShader;
             // Optional variant: a refusal costs the outline on skinned meshes, not the pass.
             if ( const auto skinnedSilhouette = GraphicsPipeline::Create( sspec ) )
@@ -2069,11 +2030,7 @@ namespace Desert::Graphic::System
 
         GraphicsPipelineSpecification spec;
         spec.DebugName = "ShadowPipeline";
-        spec.Layout    = { { Graphic::ShaderDataType::Float3, "a_Position" },
-                           { Graphic::ShaderDataType::Float3, "a_Normal" },
-                           { Graphic::ShaderDataType::Float3, "a_Tangent" },
-                           { Graphic::ShaderDataType::Float3, "a_Bitangent" },
-                           { Graphic::ShaderDataType::Float2, "a_TextureCoord" } };
+        spec.Layout            = MeshVertexLayout( MeshVertexPath::Static );
         spec.DepthTestEnabled  = true;
         spec.DepthWriteEnabled = true;
         // STANDARD-Z, AND THE ONLY PASS IN THE ENGINE THAT IS. Everything else renders reversed-Z
@@ -2134,13 +2091,7 @@ namespace Desert::Graphic::System
         {
             GraphicsPipelineSpecification sspec = spec;
             sspec.DebugName                     = "ShadowPipelineSkinned";
-            sspec.Layout                        = { { Graphic::ShaderDataType::Float3, "a_Position" },
-                                                    { Graphic::ShaderDataType::Float3, "a_Normal" },
-                                                    { Graphic::ShaderDataType::Float3, "a_Tangent" },
-                                                    { Graphic::ShaderDataType::Float3, "a_Bitangent" },
-                                                    { Graphic::ShaderDataType::Float2, "a_TextureCoord" },
-                                                    { Graphic::ShaderDataType::Int4, "a_BoneIndices" },
-                                                    { Graphic::ShaderDataType::Float4, "a_BoneWeights" } };
+            sspec.Layout                        = MeshVertexLayout( MeshVertexPath::Skinned );
             sspec.Shader                        = m_ShadowSkinnedShader;
             if ( const auto skinnedShadow = GraphicsPipeline::Create( sspec ) )
             {
@@ -2648,11 +2599,7 @@ namespace Desert::Graphic::System
         // depth test — every fragment (even occluded ones) must count, which is exactly what overdraw measures.
         GraphicsPipelineSpecification spec;
         spec.DebugName           = "OverdrawPipeline";
-        spec.Layout              = { { Graphic::ShaderDataType::Float3, "a_Position" },
-                                     { Graphic::ShaderDataType::Float3, "a_Normal" },
-                                     { Graphic::ShaderDataType::Float3, "a_Tangent" },
-                                     { Graphic::ShaderDataType::Float3, "a_Bitangent" },
-                                     { Graphic::ShaderDataType::Float2, "a_TextureCoord" } };
+        spec.Layout              = MeshVertexLayout( MeshVertexPath::Static );
         spec.Shader              = m_OverdrawShader;
         spec.Framebuffer         = m_OverdrawFB;
         spec.DepthTestEnabled    = false;
