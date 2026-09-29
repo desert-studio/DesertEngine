@@ -11,21 +11,18 @@ Shader "MatConst"
         ZWrite On
     }
 
-    Vertex
+    Surface
     {
-        #include <Common/GraphVertex.glslh>
-    }
-
-    Fragment
-    {
-        layout( location = 0 ) in vec2 v_UV;
-        layout( location = 0 ) out vec4 o_Color;
-
-        void main()
+        SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
+            const vec2 v_UV = i.UV0;
             vec4 n0 = vec4( 0.95, 0.55, 0.1, 1.0 );
-            vec4 albedo = n0;
-            o_Color = vec4( albedo.rgb + ( vec4( 0.0 ) ).rgb, albedo.a * ( 1.0 ) );
+            const vec4 albedo = n0;
+            SurfaceOutput s = DefaultSurfaceOutput();
+            s.BaseColor = vec3( 0.0 );
+            s.Emissive = albedo.rgb + ( vec4( 0.0 ) ).rgb;
+            s.Opacity = albedo.a * ( 1.0 );
+            return s;
         }
     }
 }

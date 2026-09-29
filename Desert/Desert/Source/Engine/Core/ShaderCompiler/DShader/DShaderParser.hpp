@@ -80,6 +80,9 @@ namespace Desert::Core::Preprocess
     inline constexpr std::array<std::string_view, 3> kSurfaceVertexPaths = { "Static", "Instanced", "Skinned" };
     inline constexpr std::array<std::string_view, 3> kSurfaceCellPasses  = { "Forward", "GBuffer", "ShadowDepth" };
     inline constexpr std::string_view                kSurfaceTypesInclude = "Mesh/Surface/SurfaceTypes.glslh";
+    // A template has no program of its own besides its cells, so its DEFAULT program (the empty pass name,
+    // what the boot content compiles and what a lookup by shader name returns) is this one cell, by name.
+    inline constexpr std::string_view kSurfaceDefaultCell = "Static.Forward";
 
     enum class SurfaceBlendMode
     {
@@ -119,6 +122,8 @@ namespace Desert::Core::Preprocess
         // nullptr when the pass doesn't exist. Empty name = the default pass.
         const DShaderPass* FindPass( const std::string& name ) const
         {
+            if ( name.empty() && !Surface.Cells.empty() )
+                return FindPass( std::string( kSurfaceDefaultCell ) );
             for ( const auto& p : Passes )
                 if ( p.Name == name )
                     return &p;

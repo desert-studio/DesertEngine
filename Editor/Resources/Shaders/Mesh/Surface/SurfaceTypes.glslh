@@ -19,6 +19,7 @@ struct SurfaceOutput
     float Metallic;
     float Roughness;
     vec3  Emissive;
+    float AmbientOcclusion; // 1 = unoccluded; scales the ambient term only
     float Opacity; // read only by BlendMode Masked, against u_Material.OpacityMaskClipValue
 };
 
@@ -30,6 +31,7 @@ SurfaceOutput DefaultSurfaceOutput()
     s.Metallic  = 0.0;
     s.Roughness = 0.5;
     s.Emissive  = vec3( 0.0 );
+    s.AmbientOcclusion = 1.0;
     s.Opacity   = 1.0;
     return s;
 }
