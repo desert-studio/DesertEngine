@@ -468,8 +468,18 @@ TEST( RendererSceneLifetime, ParticlesAndCloudWindReadNoClockOfTheirOwn )
                  << ": whatever it integrates then differs between two runs of one capture.";
     }
 
-    // The particle step IS the frame's step.
-    const std::string renderer = StripComments( EngineSource( "Graphic/SceneRenderer.cpp" ) );
+    // The particle step IS the frame's step. SceneRenderer::OnUpdate adds its passes through the AddFrame<Pass>
+    // members in SceneRendererFrame*.cpp, so the renderer is SceneRenderer.cpp and those files together.
+    std::string renderer;
+    for ( const char* part :
+          { "Graphic/SceneRenderer.cpp", "Graphic/SceneRendererFrameMesh.cpp",
+            "Graphic/SceneRendererFrameDeferred.cpp", "Graphic/SceneRendererFrameAtmosphere.cpp",
+            "Graphic/SceneRendererFramePostFX.cpp" } )
+    {
+        const std::string text = EngineSource( part );
+        ASSERT_FALSE( text.empty() ) << part << " is gone";
+        renderer += StripComments( text );
+    }
     EXPECT_NE( renderer.find( "->SimulateInFrame( sceneRenderInfo.Timestep.GetSeconds() )" ), std::string::npos )
          << "SceneRenderer no longer hands the particles the frame's timestep.";
 
