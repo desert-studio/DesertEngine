@@ -161,8 +161,7 @@ TEST( ThumbnailFormats, EveryEngineAssetFormatIsTypedByTheBrowser )
              << "the engine asset kind " << spec.Name << " ('" << spec.Extension
              << "') is in no row of FileType.hpp's kFileExtensions, so the browser draws it as Unknown with "
                 "a grey glyph. Type it there (and give its kind a ThumbnailProducers row).";
-        EXPECT_TRUE( TP::ProducerOfPath( std::string( "Assets/x" ) + std::string( spec.Extension ) )
-                          .has_value() )
+        EXPECT_TRUE( TP::ProducerOfPath( std::string( "Assets/x" ) + std::string( spec.Extension ) ).has_value() )
              << spec.Name << ": typed, but its kind has no producer row";
     }
 }

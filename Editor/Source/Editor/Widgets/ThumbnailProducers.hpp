@@ -60,22 +60,25 @@ namespace Desert::Editor::ThumbnailProducers
          Row{ FileType::LandscapeLayerInfo, Producer::TypeIcon, "a layer's settings; UE draws its colour swatch" },
          Row{ FileType::ImportSettings, Producer::TypeIcon, "import settings text beside a source file" },
          Row{ FileType::SkinnedMesh, Producer::NotYetProduced, "UE (USkeletalMesh): the mesh in its bind pose" },
-         Row{ FileType::Skeleton, Producer::NotYetProduced, "UE (USkeleton): its PreviewSkeletalMesh in the bind pose" },
+         Row{ FileType::Skeleton, Producer::NotYetProduced,
+              "UE (USkeleton): its PreviewSkeletalMesh in the bind pose" },
          Row{ FileType::Animation, Producer::NotYetProduced,
               "UE (UAnimSequence): its skeleton's preview mesh at the clip's middle" },
          Row{ FileType::ControlRig, Producer::TypeIcon, "UE draws a rig with its class icon" },
          Row{ FileType::AnimGraph, Producer::TypeIcon, "UE draws an AnimBlueprint with its class icon" },
-         Row{ FileType::Retarget, Producer::TypeIcon, "a retarget document: two skeletons' mapping, no appearance" },
+         Row{ FileType::Retarget, Producer::TypeIcon,
+              "a retarget document: two skeletons' mapping, no appearance" },
          Row{ FileType::FoliageType, Producer::NotYetProduced, "UE (UFoliageType): its mesh rendered" },
          Row{ FileType::StringTable, Producer::TypeIcon, "UE draws a StringTable with its class icon" },
-         Row{ FileType::CookedWorld, Producer::TypeIcon, "cooked streaming data, not authored; nothing to picture" },
+         Row{ FileType::CookedWorld, Producer::TypeIcon,
+              "cooked streaming data, not authored; nothing to picture" },
     };
 
     /// The kinds UE photographs that this editor still draws as an icon. Pinned by name so closing one is
     /// an edit here and in the table, and opening a new one is not free.
     inline constexpr std::array kNotYetProduced = { FileType::Scene,       FileType::Prefab,   FileType::Audio,
-                                                   FileType::SkinnedMesh, FileType::Skeleton, FileType::Animation,
-                                                   FileType::FoliageType };
+                                                    FileType::SkinnedMesh, FileType::Skeleton, FileType::Animation,
+                                                    FileType::FoliageType };
 
     /// The row's producer, or nullopt for a kind with no row — a census failure, never a default.
     [[nodiscard]] constexpr std::optional<Producer> ProducerOf( FileType type )
