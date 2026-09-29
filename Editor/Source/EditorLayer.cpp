@@ -6904,7 +6904,8 @@ namespace Desert::Editor
                 const glm::vec2 workSize( work->WorkSize.x, work->WorkSize.y );
                 // The drawer is wherever the Assets browser is docked today, read back like the scene's node.
                 ImGuiID drawerDockId = 0;
-                if ( const ::ImGuiWindow* assets = ImGui::FindWindowByName( PanelDisplayTitle( "Assets" ).c_str() ) )
+                if ( const ::ImGuiWindow* assets =
+                          ImGui::FindWindowByName( PanelDisplayTitle( "Assets" ).c_str() ) )
                     drawerDockId = assets->DockId;
                 const bool drawerLive = drawerDockId != 0 && ImGui::DockBuilderGetNode( drawerDockId ) != nullptr;
                 const DocumentPlacement::Resolution resolved =

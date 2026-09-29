@@ -66,7 +66,8 @@ TEST( DocumentPlacement, ATimelineOpensInTheDrawerUnderTheViewportNotBesideIt )
     constexpr uint32_t kScene  = 0x10u;
     constexpr uint32_t kDrawer = 0x20u;
 
-    const auto fresh = ResolveTimeline( "Sequencer", nullptr, kDrawer, true, kScene, true, false, kWorkPos, kWorkSize );
+    const auto fresh =
+         ResolveTimeline( "Sequencer", nullptr, kDrawer, true, kScene, true, false, kWorkPos, kWorkSize );
     EXPECT_EQ( fresh.Place.DockId, kDrawer ) << "first opening: the drawer";
     EXPECT_TRUE( fresh.Report.empty() );
 

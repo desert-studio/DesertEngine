@@ -280,7 +280,7 @@ namespace Desert::Editor
         CommandHistory::Get().PushCommand(
              std::make_unique<ControlPoseCommand>( hierarchy, control, before, after ) );
         ControlEdit& last = LastControlEditSlot();
-        last              = ControlEdit{ last.Generation + 1, hierarchy, control, CommandHistory::Get().Revision() };
+        last = ControlEdit{ last.Generation + 1, hierarchy, control, CommandHistory::Get().Revision() };
         return Common::MakeSuccess( 1U );
     }
 
@@ -645,10 +645,10 @@ namespace Desert::Editor
         // The release frame is the only one on which `Observe` writes the clip, so it is the only one that
         // needs the transaction. Opened here, not on the rising edge: during the gesture the CONTROL moves
         // and the clip does not, and the control's own undo entry is `ControlGizmoGesture`'s.
-        const bool release  = m_Held && !gesture;
-        m_Held              = gesture;
-        const bool joinable = release && m_JoinRevision.has_value() &&
-                              *m_JoinRevision == CommandHistory::Get().Revision();
+        const bool release = m_Held && !gesture;
+        m_Held             = gesture;
+        const bool joinable =
+             release && m_JoinRevision.has_value() && *m_JoinRevision == CommandHistory::Get().Revision();
         if ( release )
         {
             m_JoinRevision.reset();
