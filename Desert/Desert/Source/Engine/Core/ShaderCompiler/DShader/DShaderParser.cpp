@@ -1278,20 +1278,31 @@ namespace Desert::Core::Preprocess
         // One stage of one surface CELL. The vertex stage is the path's engine header alone (a surface
         // function does not move vertices yet); the fragment stage is the author's surface function between
         // the shared types and the pass's engine header, which owns main(). `#line` puts glslang's errors in
-        // the surface function on the .shader's own lines.
+        // the surface function on the .shader's own lines. BOTH stages see which pass and blend mode the cell
+        // is (DESERT_SURFACE_PASS_<Pass>, DESERT_SURFACE_MASKED): an opaque depth cell's vertex header declares
+        // the shadow pass's push block and no varyings, so the cell's layout is the shadow shader's.
         std::string AssembleSurfaceCellStage( ShaderStage stage, std::string_view path, std::string_view pass,
                                               const RawBlock& surface, const RawBlock& include,
                                               const std::string& autoDecls, const bool masked )
         {
-            RawBlock code;
+            const std::string defines = std::format( "#define DESERT_SURFACE_PASS_{} 1\n{}", pass,
+                                                     masked ? "#define DESERT_SURFACE_MASKED 1\n" : "" );
+            RawBlock          code;
             code.StartLine = 1;
             if ( stage == ShaderStage::Vertex )
-                code.Content = std::format( "#include <{}>\n#include <{}>\n", kSurfaceTypesInclude,
+                code.Content = std::format( "{}#include <{}>\n#include <{}>\n", defines, kSurfaceTypesInclude,
                                             SurfaceVertexInclude( path ) );
+            else if ( pass == kSurfaceDepthPass && !masked )
+            {
+                // Reflection keeps a declared binding whether or not it is read, so an opaque depth cell must
+                // not declare the surface's bindings at all: the pass header alone, no material declarations.
+                code.Content = std::format( "{}#include <{}>\n#include <{}>\n", defines, kSurfaceTypesInclude,
+                                            SurfacePassInclude( pass ) );
+                return AssembleStage( stage, code, include, std::string() );
+            }
             else
                 code.Content =
-                     std::format( "{}#include <{}>\n#line {}\n{}\n#include <{}>\n",
-                                  masked ? "#define DESERT_SURFACE_MASKED 1\n" : "", kSurfaceTypesInclude,
+                     std::format( "{}#include <{}>\n#line {}\n{}\n#include <{}>\n", defines, kSurfaceTypesInclude,
                                   surface.StartLine > 0 ? surface.StartLine - 1 : 0, surface.Content,
                                   SurfacePassInclude( pass ) );
             return AssembleStage( stage, code, include, autoDecls );

@@ -297,14 +297,11 @@ TEST( ShippedShaderPasses, AGeneratedMaterialRowAlwaysArrivesWithThePushConstant
          "MatProbe.shader",
          "MatProbeUnlit.shader",
          "NewShaderGraph.shader",
-         // MAT1a: the six mesh PBR passes read the one generated row the renderer writes per object (their
-         // hand-written GpuMaterial block and its ReadBuffer were deleted).
-         "SkinnedMeshPBR.shader",
-         "StaticMeshGBuffer.shader",
-         "StaticMeshGBuffer_Instanced.shader",
+         // MAT1a: the mesh PBR programs read the one generated row the renderer writes per object (their
+         // hand-written GpuMaterial block and its ReadBuffer were deleted). SURF1c: StandardSurface is the
+         // template whose cells replaced the five forward/G-buffer programs.
+         "StandardSurface.shader",
          "StaticMeshGlass.shader",
-         "StaticMeshPBR.shader",
-         "StaticMeshPBR_Instanced.shader",
          "Terrain.shader",
          // LS-5: the terrain's deferred twin carries Terrain.shader's Properties block — the same row, written
          // by the TerrainRenderer into whichever of the two the render path draws with.
@@ -697,9 +694,8 @@ int main( int argc, char** argv )
 // same numeric params in the same order, or a GBuffer draw reads roughness where the forward wrote metallic.
 namespace
 {
-    const std::vector<std::string> kPBRPasses = { "StaticMeshPBR",     "StaticMeshPBR_Instanced",
-                                                  "StaticMeshGBuffer", "StaticMeshGBuffer_Instanced",
-                                                  "SkinnedMeshPBR",    "StaticMeshGlass" };
+    // StandardSurface is one template (its cells share its one Properties block); glass is its own program.
+    const std::vector<std::string> kPBRPasses = { "StandardSurface", "StaticMeshGlass" };
 
     const DShaderParseResult* ShippedByName( const std::string& name )
     {
@@ -739,10 +735,10 @@ namespace
 
 TEST( ShippedShaderPasses, EveryPBRPassDeclaresTheOneRowLayout )
 {
-    const auto* forward = ShippedByName( "StaticMeshPBR" );
+    const auto* forward = ShippedByName( "StandardSurface" );
     ASSERT_NE( forward, nullptr );
     const auto layout = GeneratedRowMembers( *forward );
-    ASSERT_FALSE( layout.empty() ) << "StaticMeshPBR generates no Materials[] row";
+    ASSERT_FALSE( layout.empty() ) << "StandardSurface generates no Materials[] row";
     for ( const auto& name : kPBRPasses )
     {
         const auto* parsed = ShippedByName( name );
@@ -754,7 +750,7 @@ TEST( ShippedShaderPasses, EveryPBRPassDeclaresTheOneRowLayout )
 
 TEST( ShippedShaderPasses, AnAuthoredPBRParamReachesItsBytesInTheRowByManifestName )
 {
-    const auto* parsed = ShippedByName( "StaticMeshPBR" );
+    const auto* parsed = ShippedByName( "StandardSurface" );
     ASSERT_NE( parsed, nullptr );
     const auto& meta    = parsed->Meta;
     const auto  members = GeneratedRowMembers( *parsed );
@@ -792,7 +788,7 @@ TEST( ShippedShaderPasses, EveryPBRTextureSlotIsBoundByManifestNameAndAnEmptyOne
     constexpr uint64_t                    kORMHandle = 0x0123456789ABCDEFull;
     const std::map<std::string, uint64_t> demat = { { "u_ORMTexture", kORMHandle } }; // the file names one map
 
-    for ( const char* name : { "StaticMeshPBR", "StaticMeshGBuffer" } )
+    for ( const char* name : { "StandardSurface" } )
     {
         const auto* parsed = ShippedByName( name );
         ASSERT_NE( parsed, nullptr ) << name;

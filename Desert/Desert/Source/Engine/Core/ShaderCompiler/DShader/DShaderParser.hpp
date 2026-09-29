@@ -83,6 +83,9 @@ namespace Desert::Core::Preprocess
     // A template has no program of its own besides its cells, so its DEFAULT program (the empty pass name,
     // what the boot content compiles and what a lookup by shader name returns) is this one cell, by name.
     inline constexpr std::string_view kSurfaceDefaultCell = "Static.Forward";
+    // The pass whose opaque cells never evaluate the surface: their fragment stage is the pass header alone (no
+    // surface function, no material row, no push block), so the cell's layout is the shadow shader's.
+    inline constexpr std::string_view kSurfaceDepthPass = "ShadowDepth";
 
     enum class SurfaceBlendMode
     {

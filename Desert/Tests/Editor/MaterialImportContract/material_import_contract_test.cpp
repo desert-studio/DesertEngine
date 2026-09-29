@@ -90,7 +90,7 @@ TEST( MaterialImportContract, ATieIsBrokenOnlyByDefaultSurface )
 TEST( MaterialImportContract, TheShippedTemplatesChooseByTheirOwnContracts )
 {
     const std::vector<std::pair<std::string, std::string>> files = {
-         { "StaticMeshPBR", "Editor/Resources/Shaders/Programs/PBR/StaticMeshPBR.shader" },
+         { "StandardSurface", "Editor/Resources/Shaders/Programs/PBR/StandardSurface.shader" },
          { "Unlit", "Editor/Resources/Shaders/Programs/Unlit/Unlit.shader" } };
     std::vector<ImportTemplate> shipped;
     for ( const auto& [name, file] : files )
@@ -106,7 +106,7 @@ TEST( MaterialImportContract, TheShippedTemplatesChooseByTheirOwnContracts )
     const auto pbr = ChooseImportTemplate(
          Material( { "gltf.baseColorTexture", "gltf.metallicRoughnessTexture" } ), shipped, "a.gltf" );
     ASSERT_TRUE( pbr.IsSuccess() ) << pbr.GetError();
-    EXPECT_EQ( shipped[pbr.GetValue()].ShaderName, "StaticMeshPBR" );
+    EXPECT_EQ( shipped[pbr.GetValue()].ShaderName, "StandardSurface" );
 
     const auto unlit = ChooseImportTemplate( Material( { "gltf.KHR_materials_unlit", "gltf.baseColorTexture" } ),
                                              shipped, "a.gltf" );
@@ -115,7 +115,7 @@ TEST( MaterialImportContract, TheShippedTemplatesChooseByTheirOwnContracts )
 
     const auto fbx = ChooseImportTemplate( Material( { "fbx.DiffuseColor" } ), shipped, "a.fbx" );
     ASSERT_TRUE( fbx.IsSuccess() ) << fbx.GetError();
-    EXPECT_EQ( shipped[fbx.GetValue()].ShaderName, "StaticMeshPBR" );
+    EXPECT_EQ( shipped[fbx.GetValue()].ShaderName, "StandardSurface" );
 }
 
 int main( int argc, char** argv )

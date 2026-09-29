@@ -171,7 +171,7 @@ TEST( EngineShaderByGuid, EveryCommittedMaterialResolvesItsShaderByGuid )
     ASSERT_TRUE( debugColor ) << debugColor.GetError();
     const auto byDefault = Desert::Assets::FindDefaultSurfaceTemplate( manager, "", "" );
     ASSERT_TRUE( byDefault ) << byDefault.GetError();
-    EXPECT_EQ( byDefault.GetValue(), pbr.GetValue() ) << "StaticMeshPBR.shader declares `Default Surface`";
+    EXPECT_EQ( byDefault.GetValue(), pbr.GetValue() ) << "StandardSurface.shader declares `Default Surface`";
 }
 
 namespace
@@ -323,10 +323,6 @@ namespace
     };
 
     constexpr AllowedTemplateName kAllowedTemplateNames[] = {
-         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "StaticMeshPBR",
-           "ShaderService compile key of the batched PBR backend's geometry program (MAT1a-T1 owns it)" },
-         { "Desert/Desert/Source/Engine/Graphic/Materials/Mesh/MeshVertexPath.cpp", "StaticMeshPBR",
-           "ShaderService compile-key table of the PBR backend's per-pass programs (MAT1a-T1 owns it)" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "DefaultSurface",
            "compile key of the renderer's fallback surface program (MAT1a-T1 owns it)" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.cpp", "Terrain",
@@ -405,7 +401,7 @@ TEST( EngineShaderByGuid, NoDecisionNamesATemplate )
     const std::filesystem::path repo      = editorDir.parent_path();
     const auto                  stems     = TemplateStems( editorDir / "Resources" / "Shaders" );
     ASSERT_GE( stems.size(), 3u ) << "the template census found too few templates to mean anything";
-    for ( const char* expected : { "Unlit", "StaticMeshPBR", "Terrain" } )
+    for ( const char* expected : { "Unlit", "StandardSurface", "Terrain" } )
         EXPECT_NE( std::find( stems.begin(), stems.end(), expected ), stems.end() ) << expected;
 
     std::vector<std::string> offenders;

@@ -1,12 +1,29 @@
-// Surface cell vertex path: skinned mesh, this draw's bones from BoneMatrices[BoneOffset...] (binding 1).
-#include <Common/CameraUB.glslh>
-#include <Common/MaterialTransport.glslh>
-
+// Surface cell vertex path: skinned mesh, this draw's bones from BoneMatrices[BoneOffset...] (binding 1) — the
+// vertex stage of Programs/PBR/SkinnedMeshPBR.shader and, for the depth cell of an opaque template,
+// Programs/Shadow/Shadow_Skinned.shader.
 layout( location = 0 ) in vec3 a_Position;
 layout( location = 1 ) in vec3 a_Normal;
+layout( location = 2 ) in vec3 a_Tangent;
+layout( location = 3 ) in vec3 a_Bitangent;
 layout( location = 4 ) in vec2 a_TextureCoord;
 layout( location = 5 ) in ivec4 a_BoneIndices;
 layout( location = 6 ) in vec4 a_BoneWeights;
+
+#include <Common/CameraUB.glslh>
+
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+#include <Common/MaterialTransport.glslh>
+DESERT_SURFACE_VARYINGS( out )
+#else
+// The shadow pass's own block: BoneOffset right after the transform (Shadow_Skinned.shader, offset 64), where
+// MaterialTransport keeps it at 68 behind MaterialIndex.
+layout( push_constant ) uniform constants
+{
+    mat4 Transform;
+    uint BoneOffset;
+}
+m_PushConstants;
+#endif
 
 layout( std430, binding = 1 ) readonly buffer Bones
 {
@@ -14,19 +31,27 @@ layout( std430, binding = 1 ) readonly buffer Bones
 }
 bones;
 
-DESERT_SURFACE_VARYINGS( out )
-
 void main()
 {
+    // int, not uint: a_BoneIndices is ivec4 and GLSL will not mix the two silently.
     const int  b    = int( m_PushConstants.BoneOffset );
     const mat4 skin = bones.BoneMatrices[b + a_BoneIndices.x] * a_BoneWeights.x +
                       bones.BoneMatrices[b + a_BoneIndices.y] * a_BoneWeights.y +
                       bones.BoneMatrices[b + a_BoneIndices.z] * a_BoneWeights.z +
                       bones.BoneMatrices[b + a_BoneIndices.w] * a_BoneWeights.w;
-    const mat4 world        = m_PushConstants.Transform * skin;
-    const vec4 worldPos     = world * vec4( a_Position, 1.0 );
-    v_Surface.WorldPosition = worldPos.xyz;
-    v_Surface.Normal        = normalize( transpose( inverse( mat3( world ) ) ) * a_Normal );
-    v_Surface.UV0           = vec2( a_TextureCoord.x, 1.0 - a_TextureCoord.y );
-    gl_Position             = cameraUB.Projection * cameraUB.View * worldPos;
+    const mat4 model    = m_PushConstants.Transform;
+    const vec4 worldPos = model * ( skin * vec4( a_Position, 1.0 ) );
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+    const mat3 normalMatrix  = transpose( inverse( mat3( model ) ) );
+    const mat3 skin3         = mat3( skin );
+    const vec3 T             = normalize( normalMatrix * ( skin3 * a_Tangent ) );
+    const vec3 B             = normalize( normalMatrix * ( skin3 * a_Bitangent ) );
+    const vec3 N             = normalize( normalMatrix * ( skin3 * a_Normal ) );
+    v_Surface.WorldPosition  = worldPos.xyz;
+    v_Surface.Normal         = N;
+    v_Surface.UV0            = vec2( a_TextureCoord.x, 1.0 - a_TextureCoord.y );
+    v_Surface.TBN            = mat3( T, B, N );
+    v_Surface.CameraPosition = cameraUB.CameraPos;
+#endif
+    gl_Position = cameraUB.Projection * cameraUB.View * worldPos;
 }

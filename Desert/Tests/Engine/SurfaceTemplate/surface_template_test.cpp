@@ -13,9 +13,11 @@
 
 #include <TestSupport/derived_data_sandbox.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -182,7 +184,7 @@ TEST_F( SurfaceTemplateFixture, EditingAnyCellHeaderMovesTheKeyOfEveryCell )
     std::filesystem::create_directories( shaders / "Mesh" );
     std::filesystem::copy( s_EditorDir / "Resources/Shaders/Common", shaders / "Common",
                            std::filesystem::copy_options::recursive );
-    std::filesystem::copy( s_EditorDir / "Resources/Shaders/Mesh/Surface", shaders / "Mesh" / "Surface",
+    std::filesystem::copy( s_EditorDir / "Resources/Shaders/Mesh", shaders / "Mesh",
                            std::filesystem::copy_options::recursive );
 
     const auto previous = std::filesystem::current_path();
@@ -213,6 +215,93 @@ TEST_F( SurfaceTemplateFixture, EditingAnyCellHeaderMovesTheKeyOfEveryCell )
 
     std::filesystem::current_path( previous );
     std::filesystem::remove_all( root );
+}
+
+namespace
+{
+    // THE STANDARD SURFACE, as shipped: the template whose cells replaced StaticMeshPBR(_Instanced),
+    // StaticMeshGBuffer(_Instanced) and SkinnedMeshPBR (SURF1c). SURF1b held each cell to the program it
+    // replaced by reflection before those programs were deleted; what remains checkable against a shipped
+    // program is the shadow-depth cells, whose Shadow* programs are still drawn with (SURF1d).
+    std::string StandardSurfaceText()
+    {
+        std::ifstream in( s_EditorDir / "Resources/Shaders/Programs/PBR/StandardSurface.shader", std::ios::binary );
+        return std::string( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+    }
+
+    // What a pipeline built from a program has to agree with: every descriptor (set, binding, type, count,
+    // stages), the push range, and every stage's input and output locations — one line each, sorted, so a
+    // mismatch names itself.
+    std::vector<std::string> DescribeProgramLayout( const std::vector<Desert::Core::ShaderMapStage>& stages )
+    {
+        namespace Refl = Desert::Graphic::API::Vulkan::ShaderReflection;
+        Desert::Graphic::API::Vulkan::ShaderResource::ReflectionData data;
+        std::vector<std::string>                                     lines;
+        for ( const auto& stage : stages )
+        {
+            for ( const auto& refused : Refl::ReflectStage( stage.Spirv, stage.Stage, data ) )
+                lines.push_back( "refused: " + refused );
+            const char*           name = Desert::Core::Formats::MaterialLayoutStageName( stage.Stage );
+            spirv_cross::Compiler compiler( stage.Spirv );
+            const auto            resources = compiler.get_shader_resources();
+            for ( const auto& input : resources.stage_inputs )
+                lines.push_back( std::format( "{} in location {}", name,
+                                              compiler.get_decoration( input.id, spv::DecorationLocation ) ) );
+            for ( const auto& output : resources.stage_outputs )
+                lines.push_back( std::format( "{} out location {}", name,
+                                              compiler.get_decoration( output.id, spv::DecorationLocation ) ) );
+        }
+        for ( const auto& [set, descriptors] : data.ShaderDescriptorSets )
+            for ( const auto& b : Refl::BuildLayoutBindings( descriptors ) )
+                lines.push_back( std::format( "set {} binding {} type {} count {} stages {:#x}", set, b.binding,
+                                              static_cast<int>( b.descriptorType ), b.descriptorCount,
+                                              b.stageFlags ) );
+        if ( data.PushConstantRanges )
+            lines.push_back( std::format( "push {} bytes, stages {:#x}", data.PushConstantRanges->Size,
+                                          static_cast<uint32_t>( data.PushConstantRanges->ShaderStage ) ) );
+        std::sort( lines.begin(), lines.end() );
+        return lines;
+    }
+} // namespace
+
+TEST_F( SurfaceTemplateFixture, EveryStandardSurfaceCellLoadsAndTheDepthCellsBindWhereShadowBinds )
+{
+    const Desert::TestSupport::DerivedDataSandbox cache( "SurfaceTemplateStandard" );
+    const std::string                             text = StandardSurfaceText();
+    ASSERT_FALSE( text.empty() ) << "StandardSurface.shader is missing";
+
+    // The shadow-depth cells still have a program they will replace; every other cell has none left.
+    const std::map<std::string, const char*> shadow = {
+         { "Static.ShadowDepth", "Shadow/Shadow.shader" },
+         { "Instanced.ShadowDepth", "Shadow/Shadow_Instanced.shader" },
+         { "Skinned.ShadowDepth", "Shadow/Shadow_Skinned.shader" },
+    };
+    for ( const std::string& cell : ExpectedCells() )
+    {
+        const auto builtCell = Desert::Core::BuildShaderMap(
+             { text, "Resources/Shaders/Programs/PBR/StandardSurface.shader", cell, {},
+               std::format( "StandardSurface/{}", cell ) } );
+        ASSERT_TRUE( builtCell.IsSuccess() ) << "cell '" << cell << "': " << builtCell.GetError();
+
+        // THE LOAD PATH: VulkanShader refuses a cell on any reconcile error.
+        const auto reconciled = Desert::Graphic::API::Vulkan::ShaderReflection::ReconcileCellLayout(
+             builtCell.GetValue().Meta, builtCell.GetValue().Stages, "StandardSurface", cell );
+        for ( const auto& error : reconciled.Errors )
+            ADD_FAILURE() << error;
+
+        const auto shipped = shadow.find( cell );
+        if ( shipped == shadow.end() )
+            continue;
+        const std::filesystem::path path = std::filesystem::path( "Resources/Shaders/Programs" ) / shipped->second;
+        std::ifstream               in( path, std::ios::binary );
+        const std::string source( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+        ASSERT_FALSE( source.empty() ) << path;
+        const auto builtShipped = Desert::Core::BuildShaderMap( { source, path, "", {}, shipped->second } );
+        ASSERT_TRUE( builtShipped.IsSuccess() ) << shipped->second << ": " << builtShipped.GetError();
+        EXPECT_EQ( DescribeProgramLayout( builtCell.GetValue().Stages ),
+                   DescribeProgramLayout( builtShipped.GetValue().Stages ) )
+             << "cell " << cell << " would not bind where " << shipped->second << " bound";
+    }
 }
 
 int main( int argc, char** argv )
