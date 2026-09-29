@@ -165,7 +165,8 @@ namespace Desert::Editor::Control
 
         [[nodiscard]] static uint32_t ViewportId() noexcept
         {
-            return State().Drag ? State().Drag->ViewportId() : 0;
+            const auto& drag = State().Drag;
+            return drag.has_value() ? drag->ViewportId() : 0;
         }
 
         [[nodiscard]] static bool Playing() noexcept
