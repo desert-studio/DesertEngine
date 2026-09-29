@@ -51,8 +51,8 @@ namespace Desert::Assets
     //
     // A material is a shader + parameter values, nothing else (Unity model). The shader's schema
     // (declared in the .shader file) defines which params exist, their types, ranges and UI; this
-    // struct only stores the values by name. The optimized PBR backend consumes a typed VIEW of
-    // these values (PBRSurfaceParams) — an implementation detail, not part of the protocol.
+    // struct only stores the values by name; the renderer binds them through the template's MaterialLayout
+    // (MaterialBinder), which also answers the default of every parameter the material does not state.
     struct MaterialData
     {
         // First member: the text header (kind Material, GUID, MATL schema version). Stamped and checked

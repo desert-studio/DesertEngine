@@ -63,7 +63,7 @@ namespace Desert::Editor::MeshDnD
         }
 
         // Create + register a freshly-imported mesh's materials so their stable external id
-        // (PBRSurfaceParams::MaterialId, baked into each submesh) resolves in MaterialService THIS session.
+        // (the ImportedMaterial GUID, baked into each submesh) resolves in MaterialService THIS session.
         // Without this the materials would only register when something next names them and a
         // just-imported mesh shows "Unassigned material slot". Import writes them as editable content at
         // CookPaths::MaterialFolder(source) (see ImportManager::SerializeMaterialAsset).

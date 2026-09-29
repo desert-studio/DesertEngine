@@ -28,14 +28,6 @@ namespace Desert::ECS
     public:
         explicit MeshECSSystem() : System()
         {
-            // The fallback for a mesh with no material slot at all — the shipped surface template's cell per
-            // vertex path, built like every other surface material (a DataDrivenMaterial of that cell),
-            // the same surface on both. They are two objects and not one because a material owns the
-            // descriptor sets of ONE shader, and the two paths are two shaders (MeshVertexPath.hpp).
-            m_DefaultMaterial = std::make_shared<Graphic::DataDrivenMaterial>(
-                 Graphic::MeshShaderFor( Graphic::MeshVertexPath::Static, Graphic::MeshPass::Forward ) );
-            m_DefaultSkinnedMaterial = std::make_shared<Graphic::DataDrivenMaterial>(
-                 Graphic::MeshShaderFor( Graphic::MeshVertexPath::Skinned, Graphic::MeshPass::Forward ) );
         }
 
         // Render-data collector (only touches mesh components' runtime caches) — safe to run concurrently with the other collectors.
@@ -151,7 +143,7 @@ namespace Desert::ECS
                              if ( mesh.MaterialSlots.empty() )
                              {
                                  // Use persistent system default material template
-                                 mesh.RuntimeMaterialInstances.push_back( m_DefaultMaterial->CreateInstance() );
+                                 mesh.RuntimeMaterialInstances.push_back( DefaultInstance( Graphic::MeshVertexPath::Static ) );
                              }
                              else
                              {
@@ -163,7 +155,7 @@ namespace Desert::ECS
                                      auto inst = Runtime::ResourceRegistry::GetMaterialService()
                                                       ->CreateRuntimeInstance( assetHandle );
                                      mesh.RuntimeMaterialInstances.push_back(
-                                          inst ? std::move( inst ) : m_DefaultMaterial->CreateInstance() );
+                                          inst ? std::move( inst ) : DefaultInstance( Graphic::MeshVertexPath::Static ) );
                                  }
                              }
 
@@ -404,14 +396,14 @@ namespace Desert::ECS
                          {
                              ism.RuntimeMaterialInstances.clear();
                              if ( ism.MaterialSlots.empty() )
-                                 ism.RuntimeMaterialInstances.push_back( m_DefaultMaterial->CreateInstance() );
+                                 ism.RuntimeMaterialInstances.push_back( DefaultInstance( Graphic::MeshVertexPath::Static ) );
                              else
                                  for ( const auto& h : ism.MaterialSlots )
                                  {
                                      auto inst = Runtime::ResourceRegistry::GetMaterialService()
                                                       ->CreateRuntimeInstance( h );
                                      ism.RuntimeMaterialInstances.push_back(
-                                          inst ? std::move( inst ) : m_DefaultMaterial->CreateInstance() );
+                                          inst ? std::move( inst ) : DefaultInstance( Graphic::MeshVertexPath::Static ) );
                                  }
                          }
                          if ( ism.RuntimeMaterialInstances.empty() )
@@ -515,7 +507,7 @@ namespace Desert::ECS
                              mesh.RuntimeMaterialInstances.clear();
                              if ( mesh.MaterialSlots.empty() )
                                  mesh.RuntimeMaterialInstances.push_back(
-                                      m_DefaultSkinnedMaterial->CreateInstance() );
+                                      DefaultInstance( Graphic::MeshVertexPath::Skinned ) );
                              else
                                  for ( const auto& h : mesh.MaterialSlots )
                                  {
@@ -529,7 +521,7 @@ namespace Desert::ECS
                                                h, Graphic::MeshVertexPath::Skinned );
                                      mesh.RuntimeMaterialInstances.push_back(
                                           inst ? std::move( inst )
-                                               : m_DefaultSkinnedMaterial->CreateInstance() );
+                                               : DefaultInstance( Graphic::MeshVertexPath::Skinned ) );
                                  }
                          }
                          if ( mesh.RuntimeMaterialInstances.empty() )
@@ -601,8 +593,33 @@ namespace Desert::ECS
         }
 
     private:
+        // The fallback for a mesh with no material slot at all — the DEFAULT SURFACE template's cell per vertex
+        // path (found by that role, MaterialService::DefaultSurfaceShader), built like every other surface
+        // material (a DataDrivenMaterial of that cell). Two objects and not one because a material owns the
+        // descriptor sets of ONE shader, and the two paths are two shaders (MeshVertexPath.hpp). Built on first
+        // use: the template registry is the asset manager's, which exists after the systems do.
+        Graphic::MaterialInstancePtr DefaultInstance( Graphic::MeshVertexPath path )
+        {
+            auto& material = path == Graphic::MeshVertexPath::Skinned ? m_DefaultSkinnedMaterial : m_DefaultMaterial;
+            if ( !material )
+            {
+                const auto shader = Runtime::ResourceRegistry::GetMaterialService()->DefaultSurfaceShader(
+                     path, Graphic::MeshPass::Forward );
+                if ( !shader )
+                {
+                    if ( !m_DefaultRefusalLogged )
+                        LOG_ERROR( "[MeshECSSystem] a mesh with no material draws nothing: {}", shader.GetError() );
+                    m_DefaultRefusalLogged = true;
+                    return nullptr;
+                }
+                material = std::make_shared<Graphic::DataDrivenMaterial>( shader.GetValue() );
+            }
+            return material->CreateInstance();
+        }
+
         std::shared_ptr<Graphic::DataDrivenMaterial> m_DefaultMaterial;
         std::shared_ptr<Graphic::DataDrivenMaterial> m_DefaultSkinnedMaterial;
+        bool                                         m_DefaultRefusalLogged = false;
         // Gameplay seconds since the scene's systems started (FO-7). Double: a float clock loses the sway's
         // sub-frame steps after a few hours of play; MakeInstanceWind wraps it to the sway period.
         double m_WindSeconds = 0.0;

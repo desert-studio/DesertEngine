@@ -27,7 +27,7 @@ namespace Desert::Graphic
 namespace Desert::Runtime
 {
     // THE ONE WAY A `.demat` BECOMES A RUNTIME MATERIAL, for one (vertex path x pass) cell of its template
-    // (Graphic::SurfaceCellShader). Every template, the shipped lit surface included, is built the same way:
+    // (Graphic::MeshShaderFor). Every template, the shipped lit surface included, is built the same way:
     // a DataDrivenMaterial of that cell, its row and textures applied from the asset. Null when the asset
     // has no template or the template has no such cell — logged with the material's name.
     std::shared_ptr<Graphic::DataDrivenMaterial> CreateSurfaceMaterial( const Assets::MaterialAsset* asset,
@@ -69,6 +69,19 @@ namespace Desert::Runtime
         /// The manager on-demand discovery creates `.demat` shells in (AL1-4): a handle nobody registered is
         /// found by its content-registry row on first use. Bound by ResourceRegistry::BindOnDemandAssets.
         void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
+
+        /// THE TEMPLATE THE RENDERER'S OWN DRAWS USE, found BY ROLE and never by a name: the project's `.deproj`
+        /// DefaultSurfaceTemplate when it states one, else the one loaded shader declaring `Default Surface`
+        /// (Assets::FindDefaultSurfaceTemplate). Answers its compile key (the name ShaderService registers its
+        /// cells under). Refused with the registry's reason when none or several declare it, or when no asset
+        /// manager is bound yet.
+        [[nodiscard]] Common::ResultStr<std::string> DefaultSurfaceTemplate() const;
+
+        /// The (path x pass) shader of the default surface template (MeshShaderFor on DefaultSurfaceTemplate),
+        /// for a draw that has no material of its own: a slotless mesh, the renderer's pipeline layouts, the
+        /// shadow casters. Refused naming the pair when the table has a hole there.
+        [[nodiscard]] Common::ResultStr<std::string> DefaultSurfaceShader( Graphic::MeshVertexPath path,
+                                                                           Graphic::MeshPass       pass ) const;
 
         /// ONE ROW OF A CLOSURE (AL1-8b, plan §2.4(b)): start the worker read of the `.demat` @p handle names
         /// (discovered from its registry row if nobody registered it) and append the loader handle to wait on
