@@ -799,7 +799,7 @@ namespace Desert::Editor
         // hidden main window and closes the splash. Until then the splash is the only window.
         void RevealWhenReady();
         // THUMB2: before the hand-over, upload the opening folder's cached thumbnails as workers finish
-        // them, and hold the hand-over for them within Splash::kThumbnailUploadBudgetMs.
+        // them, and hold the hand-over until they are all up (no time bound, THM1n).
         void UploadSplashThumbnails();
         bool m_ThumbnailsHoldReveal = false;
         // THUMB3: the open scene's materials — their cached pictures decoded, the missing ones captured on the

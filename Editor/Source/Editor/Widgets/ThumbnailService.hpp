@@ -5,11 +5,14 @@
 #include <Editor/Widgets/ThumbnailEncode.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 
+#include <Engine/Assets/AssetRootPin.hpp>
+
 #include <Common/Core/ResultStr.hpp>
 
 #include <chrono>
 #include <filesystem>
 #include <future>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -220,6 +223,16 @@ namespace Desert::Editor
         bool ShouldQueue( const std::string& identity, const std::string& png, const std::string& source );
         // Identities WarmMaterial queued; an entry leaves with its m_Queued one (settled, failed or skipped).
         std::unordered_set<std::string> m_SceneWarm;
+
+        // THE SUBJECT OF A QUEUED CAPTURE IS HELD RESIDENT, as UE's thumbnail renderer holds the object it
+        // photographs (THM1n). A request names handles, and the eviction sweep that follows a scene load
+        // releases every asset no scene names — which is every folder tile and a warmed mesh the scene does
+        // not place: base/base_basic_pbr/base_basic_shaded were resolved on the splash, dropped by the sweep
+        // ("Dropped 3 built mesh(es)") and then refused at dispatch as "not built in the MeshService", for
+        // the rest of the session. One set of pins per identity, from the moment it is queued until it leaves
+        // m_Queued (settled, failed, skipped or invalidated) — reconciled by HoldSubjects.
+        std::unordered_map<std::string, std::vector<std::unique_ptr<Assets::AssetRootPin>>> m_Held;
+        void                                                                                HoldSubjects();
         // The one queue-front insertion both Warm* entry points share.
         void Warm( Request req );
 

@@ -50,20 +50,14 @@ namespace Desert::Editor::Splash
         return !s.HasSplash || s.Revealed;
     }
 
-    /// How long the hand-over may wait for the opening folder's CACHED thumbnails once everything else is
-    /// ready (THUMB2). The pictures are decoded on workers from the splash's first settle frame and uploaded
-    /// as they land, so on a warm disk cache they are done before the settle is; this bound is only for a
-    /// cold file cache or a folder of hundreds, where the browser drawing icons for a few frames beats a
-    /// splash nobody can explain.
-    inline constexpr double kThumbnailUploadBudgetMs = 250.0;
-
-    /// Whether the thumbnails still hold the hand-over. `pending` = pictures of the opening folder still
-    /// waiting for or on a worker (a missing or stale picture is not counted: that is a capture, and
-    /// ThumbnailCaptureAllowed keeps captures after the hand-over); `msSinceOtherwiseReady` = how long every
-    /// other condition of MayReveal has held.
-    [[nodiscard]] constexpr bool ThumbnailsHoldReveal( std::size_t pending, double msSinceOtherwiseReady )
+    /// Whether the opening folder's CACHED thumbnails still hold the hand-over (THUMB2). NO TIME BOUND (owner,
+    /// THM1n): the window is handed over when the pictures the browser shows are on the GPU. `pending` =
+    /// pictures still waiting for or on a worker decode; a decode that fails leaves the count
+    /// (ThumbnailPrefetch settles it), so this cannot wait on nothing. The 250 ms budget that stood here
+    /// handed over a browser of icons on a cold file cache — a window that is not ready, shown as if it were.
+    [[nodiscard]] constexpr bool ThumbnailsHoldReveal( std::size_t pending )
     {
-        return pending > 0 && msSinceOtherwiseReady < kThumbnailUploadBudgetMs;
+        return pending > 0;
     }
 
     /// THE ONE EXCEPTION TO ThumbnailCaptureAllowed (THUMB3, THM1m): the materials and meshes the open scene

@@ -443,24 +443,24 @@ namespace Desert::Editor
         {
             if ( entry == nullptr || !entry->IsFile || entry->Hidden )
                 continue;
-            switch ( entry->Type )
+            using ThumbnailProducers::Producer;
+            switch ( ThumbnailProducers::ProducerOf( entry->Type ).value_or( Producer::TypeIcon ) )
             {
-                case FileType::Texture:
+                case Producer::Decoded:
                     items.push_back( { entry->AssetPath, {} } );
                     break;
-                case FileType::Material:
-                case FileType::Cloud:
-                case FileType::UITheme:
-                case FileType::Cubemap:
+                case Producer::RenderedMaterial:
+                case Producer::Painted:
                     items.push_back( { ThumbnailPngFor( entry->AssetPath ), entry->AssetPath } );
                     break;
-                case FileType::Model:
+                case Producer::RenderedMesh:
                 {
                     const std::string cooked = CookPaths::MeshAsset( entry->AssetPath ).generic_string();
                     items.push_back( { ThumbnailKey::DiskPath( cooked ), cooked } );
                     break;
                 }
-                default:
+                case Producer::NotYetProduced:
+                case Producer::TypeIcon:
                     break;
             }
         }
@@ -506,9 +506,10 @@ namespace Desert::Editor
             {
                 if ( entry == nullptr || !entry->IsFile || entry->Hidden || m_FailedThumbs.count( entry->AssetPath ) )
                     continue;
-                if ( entry->Type == FileType::Material )
+                const auto producer = ThumbnailProducers::ProducerOf( entry->Type );
+                if ( producer == ThumbnailProducers::Producer::RenderedMaterial )
                     folder.push_back( { entry->AssetPath, WarmKind::Material } );
-                else if ( entry->Type == FileType::Model )
+                else if ( producer == ThumbnailProducers::Producer::RenderedMesh )
                     folder.push_back( { entry->AssetPath, WarmKind::Mesh } );
             }
         }
@@ -1806,6 +1807,29 @@ namespace Desert::Editor
         }
     }
 
+    bool FileExplorerPanel::DrawThumbnailFor( DirectoryInformation* entry, const ImVec2& size )
+    {
+        using ThumbnailProducers::Producer;
+        const std::optional<Producer> producer = ThumbnailProducers::ProducerOf( entry->Type );
+        if ( !producer )
+            return false; // a kind with no row: ThumbnailProducers' census names it
+        switch ( *producer )
+        {
+            case Producer::Decoded:
+                return DrawTextureThumbnail( entry, size );
+            case Producer::RenderedMaterial:
+                return DrawRenderedMaterialThumbnail( entry, size );
+            case Producer::RenderedMesh:
+                return DrawRenderedMeshThumbnail( entry, size );
+            case Producer::Painted:
+                return DrawPaintedThumbnail( entry, size );
+            case Producer::NotYetProduced:
+            case Producer::TypeIcon:
+                return false;
+        }
+        return false;
+    }
+
     bool FileExplorerPanel::DrawTextureThumbnail( DirectoryInformation* entry, const ImVec2& size )
     {
         if ( !m_UIHelper || !m_Thumbnails )
@@ -2529,16 +2553,7 @@ namespace Desert::Editor
 
             // Texture/material/model -> live thumbnail; everything else -> a big coloured type icon. The
             // thumbnail/icon IS the hoverable/selectable/draggable item.
-            const bool drewThumb =
-                 entry->IsFile &&
-                 ( ( entry->Type == FileType::Texture && DrawTextureThumbnail( entry, ImVec2( thumb, thumb ) ) ) ||
-                   ( entry->Type == FileType::Material &&
-                     DrawRenderedMaterialThumbnail( entry, ImVec2( thumb, thumb ) ) ) ||
-                   ( entry->Type == FileType::Model &&
-                     DrawRenderedMeshThumbnail( entry, ImVec2( thumb, thumb ) ) ) ||
-                   ( ( entry->Type == FileType::Cloud || entry->Type == FileType::UITheme ||
-                       entry->Type == FileType::Cubemap ) &&
-                     DrawPaintedThumbnail( entry, ImVec2( thumb, thumb ) ) ) );
+            const bool drewThumb = entry->IsFile && DrawThumbnailFor( entry, ImVec2( thumb, thumb ) );
             if ( !drewThumb )
             {
                 const ImVec4 col = entry->IsFile ? entry->FileTypeColour : ImVec4( 0.95f, 0.82f, 0.42f, 1.0f );
@@ -2818,16 +2833,7 @@ namespace Desert::Editor
         ImGui::SetNextWindowSize( ImVec2( placed.Width, placed.Height ) );
         ImGui::BeginTooltip();
 
-        bool drewThumb = false;
-        if ( entry->Type == FileType::Texture )
-            drewThumb = DrawTextureThumbnail( entry, thumbSize );
-        else if ( entry->Type == FileType::Material )
-            drewThumb = DrawRenderedMaterialThumbnail( entry, thumbSize );
-        else if ( entry->Type == FileType::Model )
-            drewThumb = DrawRenderedMeshThumbnail( entry, thumbSize );
-        else if ( entry->Type == FileType::Cloud || entry->Type == FileType::UITheme ||
-                  entry->Type == FileType::Cubemap )
-            drewThumb = DrawPaintedThumbnail( entry, thumbSize );
+        const bool drewThumb = DrawThumbnailFor( entry, thumbSize );
         if ( !drewThumb )
         {
             const char*  icon   = IconForType( entry->Type );

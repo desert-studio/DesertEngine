@@ -8136,23 +8136,11 @@ namespace Desert::Editor
         const double waitedMs =
              std::chrono::duration<double, std::milli>( now - *m_RevealOtherwiseReadySince ).count();
         const bool wasHolding  = m_ThumbnailsHoldReveal;
-        m_ThumbnailsHoldReveal = Splash::ThumbnailsHoldReveal( pending, waitedMs ) ||
-                                 Splash::SceneCapturesHoldReveal( warmPending );
-        if ( warmPending > 0 && wasHolding && !m_ThumbnailsHoldReveal )
+        m_ThumbnailsHoldReveal =
+             Splash::ThumbnailsHoldReveal( pending ) || Splash::SceneCapturesHoldReveal( warmPending );
+        if ( wasHolding && !m_ThumbnailsHoldReveal )
         {
-            LOG_WARN( "[Thumbnails] the hand-over waited {:.0f} ms for the scene's captures and {} are left; "
-                      "they are first in the queue after it",
-                      waitedMs, warmPending );
-        }
-        if ( pending > 0 && !m_ThumbnailsHoldReveal )
-        {
-            LOG_WARN( "[Thumbnails] the hand-over waited {:.0f} ms for the opening folder's cached thumbnails "
-                      "and {} are still decoding; they arrive after it",
-                      waitedMs, pending );
-        }
-        else if ( pending == 0 && wasHolding && !m_ThumbnailsHoldReveal )
-        {
-            LOG_INFO( "[Thumbnails] the opening folder's cached thumbnails held the hand-over {:.0f} ms",
+            LOG_INFO( "[Thumbnails] the opening folder's and the scene's pictures held the hand-over {:.0f} ms",
                       waitedMs );
         }
     }

@@ -88,9 +88,9 @@ TEST( SplashRevealGate, ACachedThumbnailIsDecodedBeforeTheHandOverAndACaptureIsN
     EXPECT_TRUE( Splash::ThumbnailCaptureAllowed( headless ) );
 }
 
-// THUMB2: the opening folder's CACHED thumbnails hold the hand-over, but only within a budget, and never for a
-// capture — capture stays behind the hand-over whatever the upload pass is doing.
-TEST( SplashRevealGate, TheOpeningFolderThumbnailsHoldTheHandOverWithinABudget )
+// THUMB2/THM1n: the opening folder's CACHED thumbnails hold the hand-over until they are up — no time bound —
+// and never open the capture gate: capture stays behind the hand-over whatever the upload pass is doing.
+TEST( SplashRevealGate, TheOpeningFolderThumbnailsHoldTheHandOverUntilTheyAreUp )
 {
     Splash::RevealState s;
     s.HasSplash           = true;
@@ -101,10 +101,8 @@ TEST( SplashRevealGate, TheOpeningFolderThumbnailsHoldTheHandOverWithinABudget )
     s.ThumbnailsUploading = false;
     EXPECT_TRUE( Splash::MayReveal( s ) );
 
-    EXPECT_TRUE( Splash::ThumbnailsHoldReveal( 3, 0.0 ) );
-    EXPECT_FALSE( Splash::ThumbnailsHoldReveal( 3, Splash::kThumbnailUploadBudgetMs ) )
-         << "a slow disk must not hold the splash past the budget";
-    EXPECT_FALSE( Splash::ThumbnailsHoldReveal( 0, 0.0 ) ) << "nothing pending must not hold the splash";
+    EXPECT_TRUE( Splash::ThumbnailsHoldReveal( 3 ) ) << "a picture still decoding holds the splash, however long";
+    EXPECT_FALSE( Splash::ThumbnailsHoldReveal( 0 ) ) << "nothing pending must not hold the splash";
 }
 
 // THUMB3: the splash may capture the open scene's materials, once the start-up stages are done and the

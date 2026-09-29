@@ -90,6 +90,7 @@ namespace Desert::Editor
             m_Queue.push_back( { Kind::Material, material, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
                                  identity, assetPath, png, how } );
             m_Queued.insert( identity );
+            HoldSubjects();
         }
         return png;
     }
@@ -107,6 +108,7 @@ namespace Desert::Editor
             req.PreviewMesh = material.PreviewMesh;
             m_Queue.push_back( req );
             m_Queued.insert( identity );
+            HoldSubjects();
         }
         return png;
     }
@@ -174,6 +176,24 @@ namespace Desert::Editor
         m_Queued.insert( req.Identity );
         m_SceneWarm.insert( req.Identity );
         m_Queue.insert( firstCold, std::move( req ) );
+        HoldSubjects();
+    }
+
+    void ThumbnailService::HoldSubjects()
+    {
+        std::erase_if( m_Held, [this]( const auto& held ) { return !m_Queued.contains( held.first ); } );
+        for ( const Request& req : m_Queue )
+        {
+            if ( m_Held.contains( req.Identity ) )
+                continue;
+            auto& pins = m_Held[req.Identity];
+            for ( const Assets::AssetHandle& handle : { req.Handle, req.Material, req.PreviewMesh } )
+            {
+                if ( static_cast<uint64_t>( handle ) != 0 )
+                    pins.push_back( std::make_unique<Assets::AssetRootPin>(
+                         handle, "a thumbnail of '" + req.Source + "' is queued for capture" ) );
+            }
+        }
     }
 
     std::size_t ThumbnailService::SceneWarmPending() const
@@ -194,6 +214,7 @@ namespace Desert::Editor
             m_Queue.push_back(
                  { Kind::Mesh, mesh, material, identity, source, png, ThumbnailSubject::Preview::Sphere } );
             m_Queued.insert( identity );
+            HoldSubjects();
         }
         return png;
     }
@@ -259,6 +280,7 @@ namespace Desert::Editor
         // reported as "never completed" by the give-up path if the service were ever ticked again.
         m_Queue.clear();
         m_Queued.clear();
+        m_Held.clear();
         m_SceneWarm.clear();
         m_Capture.Reset();
         m_InFlightTicks = 0;
@@ -385,6 +407,8 @@ namespace Desert::Editor
 
     void ThumbnailService::TickCapture( const ThumbnailWarmup::CaptureScope scope )
     {
+        // Pins of what left the queue since the last frame are released here (and new requests pinned).
+        HoldSubjects();
         // The slot-free half runs FIRST and unconditionally: every early return below is a statement
         // about a renderer, and a paint has no renderer to be blocked by. Putting it after them is how a
         // cloud thumbnail would come to depend on whether a mesh was being photographed.
