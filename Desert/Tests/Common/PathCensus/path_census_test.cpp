@@ -225,16 +225,16 @@ TEST( PathCensus, TheInverseRecoversTheRootEveryRowWasDerivedFrom )
 }
 
 // THE LAST OCCURRENCE WINS, and the case that made it matter: this repository's scenes live flat in
-// Scenes/ with ONE subdirectory, Autosave/, and the tool is pointed at both. A first-occurrence rule
-// would resolve a checkout that itself sits under a folder called Scenes against the wrong ancestor and
-// write the migrated material into a developer's home directory.
+// Scenes/ with subdirectories (Levels/, per-feature folders), and the tool is pointed at all of them. A
+// first-occurrence rule would resolve a checkout that itself sits under a folder called Scenes against the wrong
+// ancestor and write the migrated material into a developer's home directory.
 //
 // No ProjectRootGuard here or below, and that is the point being made: the inverse reads the census row
 // and the path handed to it, never the open project — which is what lets a tool ask about a file that
 // belongs to a tree the process has not opened.
 TEST( PathCensus, TheInverseResolvesAgainstTheNearestFolderOfThatName )
 {
-    const fs::path nested = "/home/me/Scenes/proj/Editor/Resources/Assets/Scenes/Autosave/x.desce";
+    const fs::path nested = "/home/me/Scenes/proj/Editor/Resources/Assets/Scenes/Levels/x.desce";
     const auto     root   = Path::RootForContentPath( Path::ContentDir::Scene, nested );
 
     ASSERT_TRUE( root.has_value() );

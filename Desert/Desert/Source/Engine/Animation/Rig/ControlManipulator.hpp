@@ -138,6 +138,31 @@ namespace Desert::Animation
      * the library does not have must not look identical to a control the rigger chose not to draw: the
      * animator's only symptom would be a control they cannot grab, with nothing on screen to explain it.
      */
+    /// How one control is stroked this frame: its authored colour with the interaction state laid OVER it.
+    struct ControlStroke
+    {
+        glm::vec4 Color     = glm::vec4( 1.0F );
+        float     Thickness = 1.0F; ///< pixels
+    };
+
+    /**
+     * @brief UE's state rule: hover lightens toward white, selection is fully bright and drawn thicker.
+     *
+     * The authored colour is never replaced, only lifted, so a selected left control is still blue —
+     * which side the animator grabbed stays readable at the moment it matters most.
+     */
+    [[nodiscard]] ControlStroke StrokeForControl( const glm::vec3& authored, bool hovered, bool selected );
+
+    /**
+     * @brief Turns a control's pose by @p degrees about its OWN local axis @p axis (0 = X, 1 = Y, 2 = Z).
+     *
+     * UE's local-space rotate gizmo as arithmetic: the pose rotation is post-multiplied, so the turn is
+     * about the control's axis and its translation does not change. The one write is `SetPose`, so drives
+     * see it on the next evaluation exactly as they see a drag.
+     */
+    [[nodiscard]] Common::BoolResultStr RotateControlLocal( ControlHierarchy& hierarchy, uint32_t control,
+                                                            int axis, float degrees );
+
     struct ManipulatorFrame
     {
         std::vector<ControlShapeDraw> Shapes;

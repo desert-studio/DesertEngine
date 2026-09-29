@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Editor/Core/Commands/PoseEditTransaction.hpp>
 #include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
@@ -201,6 +202,10 @@ namespace Desert::Editor
         // the entry is volatile, so DropVolatile takes it on the very selection change the UUID existed
         // to notice.
         Animation::BoneTransform m_ControlPoseAtGrab;
+
+        // The axis gizmo's press-drag-release on the selected control (W translate / E rotate): one undo
+        // entry per gesture, measured in ClipEditUndo rather than promised here.
+        ControlGizmoGesture m_ControlGizmo;
 
         // Reused between frames so a steady state allocates nothing after the first — the frame builder
         // takes it as an output parameter for that reason.

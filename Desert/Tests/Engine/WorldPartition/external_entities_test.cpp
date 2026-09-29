@@ -142,8 +142,7 @@ TEST( ExternalEntities, SplitThenJoinIsTheIdentityOverTheCorpus )
     for ( const auto& entry :
           std::filesystem::recursive_directory_iterator( root + "Editor/Resources/Assets/Scenes" ) )
     {
-        if ( !entry.is_regular_file() || entry.path().extension() != ".desce" ||
-             entry.path().generic_string().find( "/Autosave/" ) != std::string::npos )
+        if ( !entry.is_regular_file() || entry.path().extension() != ".desce" )
             continue;
         const TextDocument original = Doc( ReadAll( entry.path() ) );
         auto               split    = EE::Split( original, entry.path().string() );

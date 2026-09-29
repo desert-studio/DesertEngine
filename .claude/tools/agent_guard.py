@@ -52,6 +52,7 @@ GIT_COMMIT = re.compile(r"\bgit\b[^;&|]*\bcommit\b")
 CODE_FILE = re.compile(r"\.(cpp|hpp|h|glslh|shader|mm)\b")
 CODE_READ = re.compile(r"(^|[;&|(]\s*)(cat|head|tail|sed|grep|awk|less|more)\s")
 MAX_READ_LINES = 150
+WORKTREE = re.compile(r"(/Users/[^\s\"']+/DesertEngine-[A-Za-z0-9]+)(?:/|\b)")
 EDITOR_RUN = re.compile(r"Bin/(Debug|Release)/(Editor|Runtime)\b")
 # Owner 2026-09-29: an agent never waits for CI — the idle cache expires and the whole context is written again
 # (CI12: 1.5 of 3.2 M units). Push, report the run id, the lead watches it from a background shell for free.
@@ -88,11 +89,12 @@ CHEAT_SHEET = """[agent_guard] РАЗРЕШЁННЫЕ ФОРМЫ (каждый �
 - CI не ждёшь: push → id прогона в отчёт → конец. Лимит 60 вызовов без продлений: остаток — REMAINDER.md в скретче."""
 
 
-def map_digest():
+def map_digest(map_path=None, tree=None):
     """CODEMAP's index (every '## ' heading with its line number) and its hand-written Notes section."""
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    map_path = map_path or os.path.join(root, ".claude", "CODEMAP.md")
     try:
-        lines = open(os.path.join(root, ".claude", "CODEMAP.md"), encoding="utf-8").read().split("\n")
+        lines = open(map_path, encoding="utf-8").read().split("\n")
     except OSError:
         return "[agent_guard] .claude/CODEMAP.md is missing — tell the lead; do not search the tree instead."
     index = [f"{i + 1}: {l}" for i, l in enumerate(lines) if l.startswith("## ")]
@@ -103,6 +105,10 @@ def map_digest():
             continue
         if inside and l.strip():
             notes.append(l)
+    if tree:
+        return (f"[agent_guard] КАРТА ТВОЕЙ ВЕТКИ (дерево {tree}) построена заново: {map_path} — в ней и новые папки "
+                f"задачи. Читай СВОЙ раздел диапазоном: sed -n 'A,Bp' {map_path}. Разделы (строка: заголовок):\n" +
+                "\n".join(index))
     return ("[agent_guard] КАРТА ПРОЕКТА (.claude/CODEMAP.md). Разделы (строка: заголовок):\n" + "\n".join(index) +
             "\nЗаметки карты:\n" + "\n".join(notes[:40]) +
             "\nПрочитай СВОЙ раздел: sed -n 'A,Bp' .claude/CODEMAP.md (A..B — от его заголовка до следующего) и строку "
@@ -336,6 +342,22 @@ def main():
             emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": map_digest()}})
             sys.exit(0)
         pin = data.get("tool_input") or {}
+        # Owner 2026-09-29 («может агент автоматически будет её строить?»): the injected map is dev's, and a task
+        # branch's new folders are not in it (the night's continuation agents searched 30-46 % for them). The first
+        # call that names a worktree (/…/DesertEngine-<X>/) builds THAT tree's map (0.3 s, no tokens) and points to it.
+        if not state.get("branch_map"):
+            tm = WORKTREE.search(pin.get("command", "") or pin.get("file_path", "") or "")
+            if tm and os.path.isdir(tm.group(1)):
+                out = os.path.join(STATE_DIR, "maps", agent + "-CODEMAP.md")
+                os.makedirs(os.path.dirname(out), exist_ok=True)
+                gen = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gen_codemap.py")
+                subprocess.run([sys.executable, gen], cwd=tm.group(1), env=dict(os.environ, CODEMAP_OUT=out),
+                               capture_output=True, timeout=30)
+                state["branch_map"] = out
+                save_state(state, path)
+                if os.path.exists(out):
+                    emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
+                          map_digest(out, tm.group(1))}})
         if data.get("tool_name") == "Bash" and pin.get("run_in_background"):
             # Any background job, not only build_quiet.sh: T6c5 ran suite.sh in the background and went idle.
             emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":

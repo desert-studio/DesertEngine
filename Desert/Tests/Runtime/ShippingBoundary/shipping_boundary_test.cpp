@@ -730,7 +730,10 @@ TEST( ShippingBoundary, TheBoundaryIsCheckedByCIAndNotOnlyByHand )
 
     // The job blocks, so a row can say WHICH platform carries it. Two-space indent is the job level.
     const size_t macosAt   = ci.find( "\n  macos:" );
-    const size_t windowsAt = ci.find( "\n  windows:" );
+    // Windows is three jobs since CI12 (windows-debug / windows-release / windows-shipping, so that each
+    // configuration's test shards wait for their own build); the section from the first of them on is
+    // "the Windows job" for this census.
+    const size_t windowsAt = ci.find( "\n  windows-" );
     ASSERT_NE( macosAt, std::string::npos ) << "ci.yml no longer has a macos job";
     ASSERT_NE( windowsAt, std::string::npos ) << "ci.yml no longer has a windows job";
     ASSERT_LT( macosAt, windowsAt ) << "the macos job must precede the windows job for this census to "
@@ -741,7 +744,10 @@ TEST( ShippingBoundary, TheBoundaryIsCheckedByCIAndNotOnlyByHand )
     // THE MATRIX LINE AND NOT THE JOB, because the job text contains the word either way: the guard on
     // the test step is spelled `matrix.config != 'Shipping'` and would keep a bare find() green on a job
     // that had stopped building the configuration entirely.
-    const std::string windowsMatrix = MatrixConfigs( windowsJob );
+    std::string windowsMatrix;
+    for ( size_t at = windowsJob.find( "config: [" ); at != std::string::npos;
+          at        = windowsJob.find( "config: [", at + 1 ) )
+        windowsMatrix += MatrixConfigs( windowsJob.substr( at ) ) + " ";
     EXPECT_NE( windowsMatrix.find( "Shipping" ), std::string::npos )
          << "the Windows job's matrix is [" << windowsMatrix
          << "] — it no longer builds the Shipping configuration. Windows is the platform the game ships "
@@ -805,10 +811,21 @@ TEST( ShippingBoundary, TheTestProjectsAreRemovedFromTheShippingConfiguration )
 
     const std::string ci = StripYamlComments( Read( root / ".github/workflows/ci.yml" ) );
     ASSERT_FALSE( ci.empty() );
-    EXPECT_GE( CountOf( ci, "if: matrix.config != 'Shipping'" ), 2u )
-         << "both `Run tests` steps must be guarded — the Shipping build creates no "
-            "build/Bin/Tests/Shipping at all, so those steps have nothing to run. Unguarded they go red "
-            "on a missing directory and a missing run_tests.bat, which is a whole CI leg spent saying so.";
+    EXPECT_GE( CountOf( ci, "if: matrix.config != 'Shipping'" ), 1u )
+         << "the macOS `Run tests` step must be guarded — the Shipping build creates no "
+            "build/Bin/Tests/Shipping at all, so the step has nothing to run. Unguarded it goes red on a "
+            "missing directory, which is a whole CI leg spent saying so.";
+
+    // Windows (CI12): the build job plans and uploads test shards only when `matrix.shards > 0`, and the
+    // Shipping job plans zero, so no shard job ever looks for build/Bin/Tests/Shipping.
+    const size_t shippingAt = ci.find( "\n  windows-shipping:" );
+    ASSERT_NE( shippingAt, std::string::npos ) << "ci.yml no longer has a windows-shipping job";
+    const size_t shippingEnd = ci.find( "\n  windows-", shippingAt + 1 );
+    EXPECT_NE( ci.substr( shippingAt, shippingEnd - shippingAt ).find( "shards: [0]" ), std::string::npos )
+         << "the Windows Shipping job plans test shards, but Shipping builds no test binaries to put in them";
+    EXPECT_GE( CountOf( ci, "if: matrix.shards > 0" ), 3u )
+         << "the Windows build steps that plan and upload the test bundle must be guarded by the shard "
+            "count, or the Shipping job goes red on a missing build/Bin/Tests/Shipping.";
 }
 
 // ── EVERY PROJECT THAT SHIPS LINKS ITS LIBRARIES IN THE SHIPPING CONFIGURATION ──────────────────────

@@ -11,7 +11,8 @@
 // ── THE RULE ──────────────────────────────────────────────────────────────────────────────────────
 //
 // A cell of level L is wanted when the distance from a source to the cell's SQUARE (CellSize·2^L wide)
-// is at most its grid's LoadingRange times the source's RangeScale. The square and not its centre: a
+// is at most the source's radius: its own LoadingRange when it states one, else the grid's, times its
+// RangeScale (SourceRadius). The square and not its centre: a
 // high-level cell is wide precisely because it holds something wide, and that something may reach right
 // up to the source while the centre is kilometres away. Every level of a grid shares the grid's range,
 // which is the pattern of UE's spatial hash (a grid has one loading range and its levels are the same
@@ -25,7 +26,9 @@
 // ── THE ORDER ─────────────────────────────────────────────────────────────────────────────────────
 //
 // Always-loaded composites come first and always, sources or not: they are the part of the world that
-// holds for every camera position. Cells follow nearest-first, by the distance to the NEAREST source;
+// holds for every camera position. Cells follow by PRIORITY first — a cell carries the highest Priority
+// of the sources that want it, and higher is loaded sooner (UE's EStreamingSourcePriority: the player
+// before a cinematic's look-ahead) — then nearest-first, by the distance to the NEAREST of those sources;
 // equal distances fall back to the plan's own cell order (level, X, Z), so the result never depends on
 // the order sources were listed in or on a container's iteration order. A source standing inside a cell
 // puts that cell, and every coarser cell above it, at distance zero — the finer one first.
@@ -50,27 +53,44 @@
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
 
 namespace Desert::Core::Rules
 {
-    // A POINT THE WORLD LOADS AROUND: a camera, a player, a cinematic's target. World units (cm); Y is
-    // carried because that is what a caller has, and ignored.
+    // A POINT THE WORLD LOADS AROUND: a player's pawn, a cinematic's target, an instrument's camera — in
+    // Play never the view by itself (ECS::StreamingSourceComponent is what makes an entity one). World
+    // units (cm); Y is carried because that is what a caller has, and ignored.
     struct StreamingSource
     {
         glm::vec3 Position{ 0.0f };
-        // Multiplies the grid's LoadingRange for this source only — UE's per-source shape scale. 1 is the
-        // grid's own range; 0 loads only the cells the source stands in.
+        // Multiplies the loading range for this source only — UE's per-source shape scale. 1 is the range
+        // itself; 0 loads only the cells the source stands in. The residency layer widens it for its
+        // unload band, which is why an override below is scaled too.
         float RangeScale = 1.0f;
+        // This source's own loading range in cm instead of the grid's (UE's FStreamingSourceShape with
+        // bUseGridLoadingRange off). nullopt = the grid's LoadingRange.
+        std::optional<float> LoadingRange;
+        // Higher loads first; see THE ORDER. It never changes WHICH cells are wanted.
+        int Priority = 0;
     };
+
+    // The radius a source loads within on @p grid, cm.
+    [[nodiscard]] inline double SourceRadius( const StreamingSource&              source,
+                                              const WorldPartitionGridSerialized& grid )
+    {
+        const float range = source.LoadingRange.value_or( grid.LoadingRange );
+        return static_cast<double>( range ) * static_cast<double>( source.RangeScale );
+    }
 
     struct WantedCell
     {
         std::size_t Cell     = kNoRecord; // index into WorldPartitionPlan::Cells
-        double      Distance = 0.0;       // from the nearest source to the cell's square, cm; 0 inside it
+        double      Distance = 0.0; // from the nearest wanting source of Priority to the square, cm; 0 inside
         std::size_t Source   = kNoRecord; // that source; the lowest index when two are equally near
+        int         Priority = 0;         // the highest Priority among the sources that want the cell
     };
 
     struct StreamingWish
@@ -155,6 +175,14 @@ namespace Desert::Core::Rules
                      ") and RangeScale " + std::to_string( source.RangeScale ) +
                      "; a position must be finite and a scale finite and non-negative" );
             }
+            if ( source.LoadingRange.has_value() &&
+                 ( !std::isfinite( *source.LoadingRange ) || *source.LoadingRange < 0.0f ) )
+            {
+                return Common::MakeError<StreamingWish>(
+                     "QueryStreamingCells: streaming source " + std::to_string( index ) +
+                     " overrides LoadingRange with " + std::to_string( *source.LoadingRange ) +
+                     " cm; a range must be finite and non-negative" );
+            }
         }
 
         StreamingWish wish;
@@ -195,8 +223,8 @@ namespace Desert::Core::Rules
         {
             const auto   x = static_cast<double>( sources[sourceIndex].Position.x );
             const auto   z = static_cast<double>( sources[sourceIndex].Position.z );
-            const double radius =
-                 static_cast<double>( grid.LoadingRange ) * static_cast<double>( sources[sourceIndex].RangeScale );
+            const double radius   = SourceRadius( sources[sourceIndex], grid );
+            const int    priority = sources[sourceIndex].Priority;
 
             for ( int level = 0; level <= lastLevel; ++level )
             {
@@ -211,7 +239,7 @@ namespace Desert::Core::Rules
                     ++wish.CellsExamined;
                     const double distance = DistanceToCellSquare( x, z, plan.Cells[cellIndex].Cell, size );
                     if ( distance <= radius )
-                        hits.push_back( WantedCell{ cellIndex, distance, sourceIndex } );
+                        hits.push_back( WantedCell{ cellIndex, distance, sourceIndex, priority } );
                 };
 
                 const Detail::AxisSpan alongX = Detail::CellsAlong( x, radius, size );
@@ -241,12 +269,15 @@ namespace Desert::Core::Rules
             }
         }
 
-        // Union over sources: each cell once, at its nearest source (the lowest index among equals).
+        // Union over sources: each cell once, at its highest-priority source and, among those, the nearest
+        // (the lowest index among equals).
         std::sort( hits.begin(), hits.end(),
                    []( const WantedCell& a, const WantedCell& b )
                    {
                        if ( a.Cell != b.Cell )
                            return a.Cell < b.Cell;
+                       if ( a.Priority != b.Priority )
+                           return a.Priority > b.Priority;
                        if ( a.Distance != b.Distance )
                            return a.Distance < b.Distance;
                        return a.Source < b.Source;
@@ -257,6 +288,8 @@ namespace Desert::Core::Rules
         std::sort( hits.begin(), hits.end(),
                    []( const WantedCell& a, const WantedCell& b )
                    {
+                       if ( a.Priority != b.Priority )
+                           return a.Priority > b.Priority;
                        if ( a.Distance != b.Distance )
                            return a.Distance < b.Distance;
                        return a.Cell < b.Cell;
