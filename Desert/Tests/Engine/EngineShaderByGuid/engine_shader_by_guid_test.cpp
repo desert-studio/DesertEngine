@@ -26,6 +26,7 @@
 #include <filesystem>
 #include <fstream>
 #include <format>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -147,7 +148,7 @@ TEST( EngineShaderByGuid, EveryCommittedMaterialResolvesItsShaderByGuid )
         {
             // An instance's template is its parent's; anything else must name one (there is no default).
             if ( !data.InstanceParentId().has_value() )
-                unresolved.push_back( materialPath.string() + ": names no surface template" );
+                unresolved.push_back( std::format( "{}: names no surface template", materialPath.string() ) );
             continue;
         }
 
@@ -198,8 +199,8 @@ namespace
     fs::path WriteMockShader( const fs::path& dir, const std::string& name, const std::string& guid,
                               const std::string& manifest )
     {
-        const fs::path path = dir / ( name + ".shader" );
-        std::ofstream( path ) << "// DesertAsset {\"Kind\":\"Shader\",\"Guid\":\"" << guid
+        const fs::path path = dir / std::format( "{}.shader", name );
+        std::ofstream( path ) << R"(// DesertAsset {"Kind":"Shader","Guid":")" << guid
                               << "\",\"Versions\":{\"SHDR\":1},\"Dependencies\":[]}\nShader \"" << name
                               << "\"\n{\n    Domain Surface\n"
                               << manifest << "}\n";
@@ -390,7 +391,8 @@ TEST( EngineShaderByGuid, AComponentShaderNamingThePBRSurfaceTemplateIsRefused )
     const auto refused = Desert::Assets::FindOverrideShaderNameByRef(
          manager, { kMockGuidA, "Resources/Shaders/MockPBR.shader" }, site );
     ASSERT_FALSE( refused ) << "the PBRSurface template was accepted as an override";
-    EXPECT_NE( refused.GetError().find( "Resources/Shaders/MockPBR.shader" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "Resources/Shaders/MockPBR.shader" ), std::string::npos )
+         << refused.GetError();
     EXPECT_NE( refused.GetError().find( "Entities[id=1]" ), std::string::npos ) << refused.GetError();
 
     const auto kept = Desert::Assets::FindOverrideShaderNameByRef(
@@ -432,7 +434,7 @@ TEST( EngineShaderByGuid, NoDecisionNamesATemplate )
                     continue;
                 for ( const auto& stem : stems )
                 {
-                    if ( line.find( "\"" + stem + "\"" ) == std::string::npos )
+                    if ( line.find( std::format( "\"{}\"", stem ) ) == std::string::npos )
                         continue;
                     const bool allowed = std::any_of(
                          std::begin( kAllowedTemplateNames ), std::end( kAllowedTemplateNames ),
@@ -445,7 +447,7 @@ TEST( EngineShaderByGuid, NoDecisionNamesATemplate )
     }
     std::string list;
     for ( const auto& o : offenders )
-        list += o + "\n";
+        std::format_to( std::back_inserter( list ), "{}\n", o );
     EXPECT_TRUE( offenders.empty() ) << "a template chosen by name (use its handle / role, or allow-list it by "
                                         "file with a reason):\n"
                                      << list;

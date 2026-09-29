@@ -759,9 +759,9 @@ TEST( ShippedShaderPasses, AnAuthoredPBRParamReachesItsBytesInTheRowByManifestNa
     const auto& meta    = parsed->Meta;
     const auto  members = GeneratedRowMembers( *parsed );
 
-    const std::vector<MockParam> demat = { { "EmissiveIntensity", glm::vec4( 7.0f, 0, 0, 0 ) },
-                                           { "UVTiling", glm::vec4( 3.0f, 4.0f, 0, 0 ) },
-                                           { "UVRotation", glm::vec4( 0.5f, 0, 0, 0 ) } };
+    const std::vector<MockParam> demat  = { { "EmissiveIntensity", glm::vec4( 7.0f, 0, 0, 0 ) },
+                                            { "UVTiling", glm::vec4( 3.0f, 4.0f, 0, 0 ) },
+                                            { "UVRotation", glm::vec4( 0.5f, 0, 0, 0 ) } };
     const auto                   layout = Desert::Core::Formats::BuildMaterialLayout( meta );
     const auto                   row    = Desert::Graphic::MaterialBinder::BuildRow( layout, demat );
     ASSERT_EQ( row.size(), members.size() );

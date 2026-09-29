@@ -181,8 +181,8 @@ namespace Desert::Assets
             // a file that does neither is refused by path rather than drawn as a guessed surface.
             if ( !parsed.GetValue().Shader.has_value() && !parsed.GetValue().InstanceParentId().has_value() )
                 return Common::MakeFormattedError<bool>(
-                     "material '{}' names no surface template: a material states \"Shader\": {{\"Guid\", "
-                     "\"Path\"}} (an instance states its \"Parent\"); there is no default template",
+                     "material '{}' names no surface template: a material states its Shader (Guid and Path; an "
+                     "instance states its Parent); there is no default template",
                      m_Metadata.Filepath.generic_string() );
             m_Data                         = parsed.GetValue();
             m_RunningOnSubstitutedDefaults = false; // a reload that parses clears a previous failure

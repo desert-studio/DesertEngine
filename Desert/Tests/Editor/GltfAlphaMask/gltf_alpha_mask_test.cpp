@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -61,9 +62,9 @@ namespace
         std::memcpy( bin.data() + 80, idx, 12 );
         std::ofstream( dir / "card.bin", std::ios::binary )
              .write( bin.data(), static_cast<std::streamsize>( bin.size() ) );
-        std::ofstream( dir / "card.png", std::ios::binary )
-             .write( reinterpret_cast<const char*>( kCardPng.data() ),
-                     static_cast<std::streamsize>( kCardPng.size() ) );
+        std::ofstream cardPng( dir / "card.png", std::ios::binary );
+        for ( const uint8_t byte : kCardPng )
+            cardPng.put( static_cast<char>( byte ) );
 
         const std::string gltf = R"({
   "asset": { "version": "2.0" },
@@ -90,7 +91,7 @@ namespace
         Assimp::Importer Importer;
         const aiScene*   Scene = nullptr;
         // assimp's glTF reader appends a default material of its own; the card's is the one its mesh names.
-        const aiMaterial& Material() const
+        [[nodiscard]] const aiMaterial& Material() const
         {
             return *Scene->mMaterials[Scene->mMeshes[0]->mMaterialIndex];
         }
@@ -183,11 +184,13 @@ TEST( GltfAlphaMask, ACutOutOverABaseColourWithoutAlphaIsImportedOpaqueAndSaysSo
         SCOPED_TRACE( mode );
         Imported                    card;
         const std::filesystem::path file =
-             WriteCard( std::string( "rgb-" ) + mode, std::string( R"("alphaMode": ")" ) + mode + R"(",)" );
+             WriteCard( std::format( "rgb-{}", mode ), std::format( R"("alphaMode": "{}",)", mode ) );
         const std::filesystem::path png = file.parent_path() / "card.png";
-        std::ofstream( png, std::ios::binary | std::ios::trunc )
-             .write( reinterpret_cast<const char*>( kRgbCardPng.data() ),
-                     static_cast<std::streamsize>( kRgbCardPng.size() ) );
+        {
+            std::ofstream out( png, std::ios::binary | std::ios::trunc );
+            for ( const uint8_t byte : kRgbCardPng )
+                out.put( static_cast<char>( byte ) );
+        }
         Import( card, file );
         if ( HasFatalFailure() )
             return;
@@ -214,7 +217,7 @@ TEST( GltfAlphaMask, AWindowsSeparatedTextureReferenceFindsTheFile )
     std::ofstream( root / "a" / "textures" / "x.jpg" ) << "x";
 
     const fs::path base  = root / "a" / "b" / "mesh";
-    const fs::path found = Desert::Editor::FindSourceTexture( base, "..\\..\\textures\\x.jpg" );
+    const fs::path found = Desert::Editor::FindSourceTexture( base, R"(..\..\textures\x.jpg)" );
     EXPECT_EQ( found.lexically_normal(), ( root / "a" / "textures" / "x.jpg" ).lexically_normal() );
     fs::remove_all( root );
 }

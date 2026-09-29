@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <format>
 #include <span>
 #include <string>
 #include <string_view>
@@ -182,8 +183,9 @@ namespace Desert::Assets
                                             material.PreviewMesh->Path };
             if ( material.PreviewMesh->Guid.empty() )
                 return Common::MakeError<MaterialData>(
-                     "[Material] '" + std::string( source ) + "': PreviewMesh states no GUID (path '" +
-                     material.PreviewMesh->Path + "'); leave PreviewMesh out for the sphere" );
+                     std::format( "[Material] '{}': PreviewMesh states no GUID (path '{}'); leave PreviewMesh out "
+                                  "for the sphere",
+                                  source, material.PreviewMesh->Path ) );
             if ( const auto ok = Detail::CheckStatedRef( source, "preview mesh", meshRef, deps ); !ok )
                 return Common::MakeError<MaterialData>( ok.GetError() );
         }

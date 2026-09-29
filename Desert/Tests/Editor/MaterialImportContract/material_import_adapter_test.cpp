@@ -20,6 +20,7 @@
 #include <iterator>
 #include <map>
 #include <cstring>
+#include <format>
 #include <fstream>
 #include <sstream>
 
@@ -40,7 +41,7 @@ namespace
     {
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up, prefix += "../" )
-            if ( std::ifstream probe( prefix + relative ); probe )
+            if ( const std::ifstream probe( prefix + relative ); probe )
             {
                 std::stringstream text;
                 text << probe.rdbuf();
@@ -51,7 +52,8 @@ namespace
 
     ImportTemplate Template( const std::string& file )
     {
-        const auto read = ReadImportTemplate( RepoFile( "Editor/Resources/Shaders/Programs/" + file ), file );
+        const auto read =
+             ReadImportTemplate( RepoFile( std::format( "Editor/Resources/Shaders/Programs/{}", file ) ), file );
         EXPECT_TRUE( read.IsSuccess() ) << ( read.IsSuccess() ? "" : read.GetError() );
         return read.IsSuccess() ? read.GetValue() : ImportTemplate{};
     }
@@ -65,9 +67,11 @@ namespace
         fs::remove_all( dir, ec );
         fs::create_directories( dir );
         for ( const char* name : { "base.png", "mr.png", "occ.png", "nrm.png", "emi.png" } )
-            std::ofstream( dir / name, std::ios::binary )
-                 .write( reinterpret_cast<const char*>( kPng.data() ),
-                         static_cast<std::streamsize>( kPng.size() ) );
+        {
+            std::ofstream png( dir / name, std::ios::binary );
+            for ( const uint8_t byte : kPng )
+                png.put( static_cast<char>( byte ) );
+        }
         const float       pos[12] = { -0.5f, 0, 0, 0.5f, 0, 0, 0.5f, 1, 0, -0.5f, 1, 0 };
         const float       uv[8]   = { 0, 1, 1, 1, 1, 0, 0, 0 };
         const uint16_t    idx[6]  = { 0, 1, 2, 0, 2, 3 };
@@ -98,7 +102,7 @@ namespace
     {
         const aiScene* scene = importer.ReadFile( file.string(), aiProcess_Triangulate );
         EXPECT_NE( scene, nullptr ) << importer.GetErrorString();
-        if ( !scene )
+        if ( scene == nullptr )
             return {};
         const aiMaterial& mat = *scene->mMaterials[scene->mMeshes[0]->mMaterialIndex];
         return ReadSourceMaterial( mat, SourceFormatOf( file ), "M", [&]( const std::string& ref )
@@ -204,7 +208,9 @@ TEST( MaterialImportAdapter, AMetallicRoughnessImageAloneIsPackedWithWhiteOcclus
     ASSERT_TRUE( orm->NeedsPacking() ) << "glTF's R of a metallic-roughness image is not occlusion";
     const fs::path packed = PackedTexturePath( *orm );
     ASSERT_TRUE( PackTextureChannels( *orm, packed ).IsSuccess() );
-    int      w = 0, h = 0, n = 0;
+    int      w  = 0;
+    int      h  = 0;
+    int      n  = 0;
     uint8_t* px = stbi_load( packed.string().c_str(), &w, &h, &n, 4 );
     ASSERT_NE( px, nullptr );
     uint8_t* src = stbi_load( ( file.parent_path() / "mr.png" ).string().c_str(), &w, &h, &n, 4 );
@@ -254,7 +260,9 @@ TEST( MaterialImportAdapter, APackedImageIsRebuiltOnlyWhenAnInputChanges )
     EXPECT_EQ( bytes(), firstBytes );
 
     // One input changes (the occlusion image's red): the pack is rebuilt and differs.
-    int      w = 0, h = 0, n = 0;
+    int      w   = 0;
+    int      h   = 0;
+    int      n   = 0;
     uint8_t* occ = stbi_load( ( file.parent_path() / "occ.png" ).string().c_str(), &w, &h, &n, 4 );
     ASSERT_NE( occ, nullptr );
     std::vector<uint8_t> changed( occ, occ + static_cast<std::size_t>( w * h * 4 ) );
@@ -311,7 +319,8 @@ TEST( MaterialImportAdapter, EveryFbxPbrKeyReachesTheOrmTextureAndItsFactors )
         const aiString path( file );
         mat.AddProperty( &path, AI_MATKEY_TEXTURE( type, 0 ) );
     };
-    const ai_real   metallic = 0.7f, roughness = 0.35f;
+    const ai_real   metallic  = 0.7f;
+    const ai_real   roughness = 0.35f;
     const aiColor4D diffuse( 0.5f, 0.25f, 0.125f, 1.0f );
     mat.AddProperty( &diffuse, 1, AI_MATKEY_COLOR_DIFFUSE );
     mat.AddProperty( &metallic, 1, AI_MATKEY_METALLIC_FACTOR );

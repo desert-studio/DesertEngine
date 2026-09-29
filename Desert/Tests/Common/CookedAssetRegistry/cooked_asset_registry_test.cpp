@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iterator>
 #include <optional>
@@ -282,7 +283,7 @@ TEST( CookedAssetRegistry, AMalformedBoundsColumnIsRefused )
     const std::string one  = "3f800000";
     const std::string nan  = "7fc00000";
     const auto        row  = []( const std::string& bounds )
-    { return "DesertAssetRegistry 6\n9 StaticMesh - - - " + bounds + " - assets:Meshes/M.stmesh\n"; };
+    { return std::format( "DesertAssetRegistry 6\n9 StaticMesh - - - {} - assets:Meshes/M.stmesh\n", bounds ); };
 
     ASSERT_TRUE(
          AssetRegistry::Parse( row( zero + "," + zero + "," + zero + "," + one + "," + one + "," + one ) ) );
@@ -650,7 +651,7 @@ TEST( CookedAssetRegistry, TheRoleTagCarriesAShadersManifestRoleThroughAWriteAnd
 TEST( CookedAssetRegistry, AMalformedTagsColumnIsRefused )
 {
     const auto row = []( const std::string& tags )
-    { return "DesertAssetRegistry 6\n9 UITheme - - - - " + tags + " assets:UI/Themes/T.detheme\n"; };
+    { return std::format( "DesertAssetRegistry 6\n9 UITheme - - - - {} assets:UI/Themes/T.detheme\n", tags ); };
     ASSERT_TRUE( AssetRegistry::Parse( row( "Name=T" ) ) );
     EXPECT_FALSE( AssetRegistry::Parse( row( "Colour=Red" ) ) ) << "an unknown tag was skipped, not refused";
     EXPECT_FALSE( AssetRegistry::Parse( row( "Name=" ) ) ) << "an empty name is `-`, never `Name=`";

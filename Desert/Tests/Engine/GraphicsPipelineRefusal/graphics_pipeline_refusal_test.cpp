@@ -135,7 +135,7 @@ namespace
         Desert::Graphic::ShaderVariant           m_Variant;
         Common::Filepath                         m_Path;
         Desert::Core::Formats::ShaderProgramMeta m_Meta;
-        Desert::Core::Formats::MaterialLayout m_Layout;
+        Desert::Core::Formats::MaterialLayout    m_Layout;
     };
 
     /// A Framebuffer that exists and answers nothing. The rule may only ask whether it is THERE — a

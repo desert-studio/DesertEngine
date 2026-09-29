@@ -325,7 +325,7 @@ namespace Desert::Editor
 
         std::shared_ptr<const std::vector<ImportTemplate>> ImportTemplates()
         {
-            std::scoped_lock lock( s_TemplatesMutex );
+            const std::scoped_lock lock( s_TemplatesMutex );
             return s_Templates;
         }
     } // namespace
@@ -340,19 +340,19 @@ namespace Desert::Editor
             if ( !shader->IsReadyForUse() )
                 continue;
             const std::filesystem::path& file = shader->GetMetadata().Filepath;
-            auto                         read =
-                 ReadImportTemplate( shader->GetShaderContent(),
-                                     "engine:" + std::filesystem::relative( file, resources ).generic_string() );
+            auto                         read = ReadImportTemplate(
+                 shader->GetShaderContent(),
+                 std::format( "engine:{}", std::filesystem::relative( file, resources ).generic_string() ) );
             // A shader the readers refuse cannot take a material, and saying so is the refusal.
             if ( !read )
             {
                 LOG_ERROR( "[Import] {}", read.GetError() );
             }
             else if ( read.GetValue().Manifest.DeclaresImport )
-                templates->push_back( std::move( read.GetValue() ) );
+                templates->push_back( read.ExtractValue() );
         }
-        const std::size_t count = templates->size();
-        std::scoped_lock  lock( s_TemplatesMutex );
+        const std::size_t      count = templates->size();
+        const std::scoped_lock lock( s_TemplatesMutex );
         s_Templates = std::move( templates );
         return count;
     }

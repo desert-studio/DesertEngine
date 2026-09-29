@@ -35,8 +35,8 @@ namespace Desert::Core::Formats
     {
         std::string     Name;
         ShaderValueType Type   = ShaderValueType::Float;
-        uint32_t        Offset = 0; // bytes into the row; slot i sits at kMaterialParamSlotSize * i
-        uint32_t        Size   = 0; // bytes of VALUE; the rest of the slot is the generated padding
+        uint32_t        Offset = 0;      // bytes into the row; slot i sits at kMaterialParamSlotSize * i
+        uint32_t        Size   = 0;      // bytes of VALUE; the rest of the slot is the generated padding
         glm::vec4       Default{ 0.0f }; // the `Properties ... = default` value the row starts from
     };
 

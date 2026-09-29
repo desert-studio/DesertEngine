@@ -120,7 +120,7 @@ namespace
         Desert::Graphic::ShaderVariant           m_Variant;
         Common::Filepath                         m_Path;
         Desert::Core::Formats::ShaderProgramMeta m_Meta;
-        Desert::Core::Formats::MaterialLayout m_Layout;
+        Desert::Core::Formats::MaterialLayout    m_Layout;
     };
 
     // ------------------------------------------------------------------------------------------------

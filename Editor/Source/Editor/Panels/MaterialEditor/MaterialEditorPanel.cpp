@@ -51,6 +51,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <filesystem>
+#include <format>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -1063,14 +1064,12 @@ namespace Desert::Editor
                                 DomainName( domain ) );
         }
 
-        // The rows are the loaded shader ASSETS — a row is picked by its handle, the name is its label.
-        // Sorted by label, because the manager walks an unordered_map: without this the same project shows
-        // the same shaders in a different order every run, and the entry under the cursor moves between
-        // sessions.
+        // The rows are the registry's shader ROWS (ContentRegistry::Rows, not the loaded objects) — a row is
+        // picked by its handle, the name is its label. Sorted by label so the entry under the cursor stays put
+        // between sessions.
         std::vector<std::pair<std::string, Common::AssetHandle>> rows;
-        if ( m_AssetManager != nullptr )
-            for ( const auto& [handle, shaderAsset] : m_AssetManager->FindAllByType<Assets::ShaderAsset>() )
-                rows.emplace_back( shaderAsset->GetMetadata().Filepath.stem().string(), handle );
+        for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Shader ) )
+            rows.emplace_back( row.Path.stem().string(), row.Handle );
         std::sort( rows.begin(), rows.end(), []( const auto& a, const auto& b ) { return a.first < b.first; } );
 
         bool shaderChanged = false;
@@ -2209,7 +2208,7 @@ namespace Desert::Editor
         {
             auto&             data  = m_WorkingCopy->Data();
             const std::string label = data.PreviewMesh ? data.PreviewMesh->Path : std::string( "<sphere>" );
-            ImGui::Button( ( label + "##thumbnail_mesh" ).c_str(), ImVec2( -FLT_MIN, 0.0f ) );
+            ImGui::Button( std::format( "{}##thumbnail_mesh", label ).c_str(), ImVec2( -FLT_MIN, 0.0f ) );
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip( "Drop an imported static mesh: the material's thumbnail is taken on it." );
             if ( ImGui::BeginDragDropTarget() )

@@ -6,6 +6,7 @@
 #include <array>
 #include <cctype>
 #include <charconv>
+#include <format>
 #include <functional>
 #include <regex>
 #include <span>
@@ -495,15 +496,17 @@ namespace Desert::Core::Preprocess
                                                   [&]( const ShaderParam& p ) { return p.Name == row.Property; } );
                 if ( param == meta.Params.end() )
                 {
-                    err = { pending.Line, "Import maps \"" + row.SourceKey + "\" to '" + row.Property +
-                                               "', which this shader's Properties do not declare" };
+                    err = {
+                         pending.Line,
+                         std::format( "Import maps \"{}\" to '{}', which this shader's Properties do not declare",
+                                      row.SourceKey, row.Property ) };
                     return false;
                 }
                 if ( !row.Channels.empty() && !param->IsTexture )
                 {
-                    err = { pending.Line, "Import maps \"" + row.SourceKey + "\" to '" + row.Property + "." +
-                                               row.Channels + "', but '" + row.Property +
-                                               "' is not a texture: only a texture takes source channels" };
+                    err = { pending.Line, std::format( "Import maps \"{}\" to '{}.{}', but '{}' is not a texture: "
+                                                       "only a texture takes source channels",
+                                                       row.SourceKey, row.Property, row.Channels, row.Property ) };
                     return false;
                 }
             }
@@ -1426,7 +1429,7 @@ namespace Desert::Core::Preprocess
                 const std::string v = Lower( ReadIdent( c ) );
                 if ( v != "surface" )
                 {
-                    err = { line, "unknown Default '" + v + "' (the only one is 'Default Surface')" };
+                    err = { line, std::format( "unknown Default '{}' (the only one is 'Default Surface')", v ) };
                     return fail();
                 }
             }
