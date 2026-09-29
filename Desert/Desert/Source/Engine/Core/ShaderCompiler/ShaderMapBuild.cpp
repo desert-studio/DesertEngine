@@ -9,74 +9,111 @@
 #include <Common/Core/JobSystem.hpp>
 
 #include <algorithm>
+#include <unordered_map>
 
 namespace Desert::Core
 {
-    Common::ResultStr<ShaderMap> BuildShaderMap( const ShaderMapRequest& request )
+    namespace
     {
-        // THE WARM PATH: the shader map is keyed by the raw text + include files, so a hit is the whole
-        // program — metadata and SPIR-V — without parsing the DShader or preprocessing a stage.
-        uint64_t        mapKey = 0;
-        ShaderMapLookup lookup;
+        uint64_t MapKeyOf( const ShaderMapRequest& request )
         {
             const ScopedShaderPhase timer( ShaderPhase::ShaderMap );
-            mapKey = ComputeShaderMapKey( request.Source, request.Path, request.PassName,
-                                          SpirvDebugInfoThisBuild(), request.Variant );
-            lookup = TryLoadShaderMap( mapKey );
+            return ComputeShaderMapKey( request.Source, request.Path, request.PassName, SpirvDebugInfoThisBuild(),
+                                        request.Variant );
         }
-        if ( lookup.Map )
-        {
-            CountShaderMapHit();
-            return Common::MakeSuccess( std::move( *lookup.Map ) );
-        }
-        CountShaderMapMiss();
-        if ( !lookup.Rejected.empty() )
-            LOG_WARN( "[ShaderMap] '{}': cached entry rejected, rebuilding it ({})", request.Name,
-                      lookup.Rejected );
 
-        ShaderMap                                             built;
-        std::unordered_map<Formats::ShaderStage, std::string> stages;
+        Common::ResultStr<ShaderMap> BuildShaderMapUnderKey( const ShaderMapRequest& request,
+                                                             const uint64_t          mapKey )
         {
-            const ScopedShaderPhase timer( ShaderPhase::Preprocess );
-            auto                    preprocessed =
-                 Preprocess::ShaderPreprocess::PreProcessPass( request.Source, request.Path, request.PassName );
-            built.Meta = std::move( preprocessed.Meta );
-            stages     = std::move( preprocessed.Stages );
-        }
-        if ( built.Meta.HasParams() || built.Meta.State.Topology.has_value() )
-            LOG_INFO( "Shader '{}': parsed {} param(s) + render-state from shader metadata", request.Name,
-                      built.Meta.Params.size() );
+            // THE WARM PATH: the shader map is keyed by the raw text + include files, so a hit is the whole
+            // program — metadata and SPIR-V — without parsing the DShader or preprocessing a stage.
+            ShaderMapLookup lookup;
+            {
+                const ScopedShaderPhase timer( ShaderPhase::ShaderMap );
+                lookup = TryLoadShaderMap( mapKey );
+            }
+            if ( lookup.Map )
+            {
+                CountShaderMapHit();
+                return Common::MakeSuccess( std::move( *lookup.Map ) );
+            }
+            CountShaderMapMiss();
+            if ( !lookup.Rejected.empty() )
+                LOG_WARN( "[ShaderMap] '{}': cached entry rejected, rebuilding it ({})", request.Name,
+                          lookup.Rejected );
 
-        for ( const auto& [stage, source] : stages )
-        {
-            auto spirvResult =
-                 ShaderCompiler::CompileGLSLToSPIRV( stage, source, request.Path.string(), request.Variant );
-            if ( !spirvResult.IsSuccess() )
-                return Common::MakeError<ShaderMap>( spirvResult.GetError() );
-            built.Stages.push_back( { stage, std::move( spirvResult.GetValue() ) } );
+            ShaderMap                                             built;
+            std::unordered_map<Formats::ShaderStage, std::string> stages;
+            {
+                const ScopedShaderPhase timer( ShaderPhase::Preprocess );
+                auto preprocessed = Preprocess::ShaderPreprocess::PreProcessPass( request.Source, request.Path,
+                                                                                  request.PassName );
+                built.Meta        = std::move( preprocessed.Meta );
+                stages            = std::move( preprocessed.Stages );
+            }
+            if ( built.Meta.HasParams() || built.Meta.State.Topology.has_value() )
+                LOG_INFO( "Shader '{}': parsed {} param(s) + render-state from shader metadata", request.Name,
+                          built.Meta.Params.size() );
+
+            for ( const auto& [stage, source] : stages )
+            {
+                auto spirvResult =
+                     ShaderCompiler::CompileGLSLToSPIRV( stage, source, request.Path.string(), request.Variant );
+                if ( !spirvResult.IsSuccess() )
+                    return Common::MakeError<ShaderMap>( spirvResult.GetError() );
+                built.Stages.push_back( { stage, spirvResult.GetValue() } );
+            }
+            std::sort( built.Stages.begin(), built.Stages.end(),
+                       []( const ShaderMapStage& a, const ShaderMapStage& b )
+                       { return static_cast<uint32_t>( a.Stage ) < static_cast<uint32_t>( b.Stage ); } );
+            if ( const auto stored = StoreShaderMap( mapKey, built ); !stored )
+                LOG_WARN( "[ShaderMap] '{}': could not store the shader map {:016x}: {}", request.Name, mapKey,
+                          stored.GetError() );
+            return Common::MakeSuccess( std::move( built ) );
         }
-        std::sort( built.Stages.begin(), built.Stages.end(), []( const ShaderMapStage& a, const ShaderMapStage& b )
-                   { return static_cast<uint32_t>( a.Stage ) < static_cast<uint32_t>( b.Stage ); } );
-        if ( const auto stored = StoreShaderMap( mapKey, built ); !stored )
-            LOG_WARN( "[ShaderMap] '{}': could not store the shader map {:016x}: {}", request.Name, mapKey,
-                      stored.GetError() );
-        return Common::MakeSuccess( std::move( built ) );
+    } // namespace
+
+    Common::ResultStr<ShaderMap> BuildShaderMap( const ShaderMapRequest& request )
+    {
+        return BuildShaderMapUnderKey( request, MapKeyOf( request ) );
     }
 
     std::vector<ShaderMapOutcome> BuildShaderMaps( const std::span<const ShaderMapRequest> requests )
     {
+        auto& jobs = ::Common::JobSystem::Get();
+
+        // ONE BUILD PER MAP KEY. Two requests under one key are one artifact (without debug info the key does
+        // not name the file, so two files with the same text are one key): built by two workers at once they
+        // would both write that key's one <file>.tmp. The first index builds, the others copy its answer.
+        std::vector<uint64_t> keys( requests.size() );
+        jobs.ParallelFor( requests.size(), [&]( const size_t i ) { keys[i] = MapKeyOf( requests[i] ); } );
+        std::vector<size_t>                  builders; // indices that build, in request order
+        std::vector<size_t>                  builderOf( requests.size() );
+        std::unordered_map<uint64_t, size_t> firstIndexOfKey;
+        for ( size_t i = 0; i < requests.size(); ++i )
+        {
+            const auto [first, inserted] = firstIndexOfKey.try_emplace( keys[i], i );
+            builderOf[i]                 = first->second;
+            if ( inserted )
+                builders.push_back( i );
+        }
+
         std::vector<ShaderMapOutcome> outcomes( requests.size() );
         // One program per claim: a program is milliseconds of shaderc, far above the cost of a claim, and
         // programs differ in cost by 10x, so small claims keep every worker busy to the end.
-        ::Common::JobSystem::Get().ParallelFor( requests.size(),
-                                                [&]( const size_t i )
-                                                {
-                                                    auto built = BuildShaderMap( requests[i] );
-                                                    if ( built.IsSuccess() )
-                                                        outcomes[i].Map = std::move( built.GetValue() );
-                                                    else
-                                                        outcomes[i].Error = built.GetError();
-                                                } );
+        jobs.ParallelFor( builders.size(),
+                          [&]( const size_t b )
+                          {
+                              const size_t i     = builders[b];
+                              auto         built = BuildShaderMapUnderKey( requests[i], keys[i] );
+                              if ( built.IsSuccess() )
+                                  outcomes[i].Map = built.GetValue();
+                              else
+                                  outcomes[i].Error = built.GetError();
+                          } );
+        for ( size_t i = 0; i < requests.size(); ++i )
+            if ( builderOf[i] != i )
+                outcomes[i] = outcomes[builderOf[i]];
         return outcomes;
     }
 } // namespace Desert::Core

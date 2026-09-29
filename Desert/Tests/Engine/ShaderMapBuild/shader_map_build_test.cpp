@@ -6,7 +6,9 @@
 #include <gtest/gtest.h>
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderCompiler.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderMapBuild.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 
 #include <Common/Core/JobSystem.hpp>
 
@@ -42,7 +44,7 @@ namespace
 
     std::string ReadFile( const std::filesystem::path& path )
     {
-        std::ifstream      in( path, std::ios::binary );
+        const std::ifstream in( path, std::ios::binary );
         std::ostringstream out;
         out << in.rdbuf();
         return out.str();
@@ -98,7 +100,8 @@ namespace
 }}
 )",
                                                     name, n );
-            const auto path = std::filesystem::path( "Resources/Shaders/Programs/Test" ) / ( name + ".shader" );
+            const auto        path =
+                 std::filesystem::path( "Resources/Shaders/Programs/Test" ) / std::format( "{}.shader", name );
             requests.push_back( { std::move( source ), path, {}, {}, name } );
         }
         return requests;
@@ -111,8 +114,11 @@ namespace
         std::vector<ShaderMapRequest> requests;
         for ( size_t i = 0; i < defaults.size(); ++i )
             for ( const auto& pass : built[i].Map.Meta.PassNames )
-                requests.push_back(
-                     { defaults[i].Source, defaults[i].Path, pass, {}, defaults[i].Name + "/" + pass } );
+                requests.push_back( { defaults[i].Source,
+                                      defaults[i].Path,
+                                      pass,
+                                      {},
+                                      std::format( "{}/{}", defaults[i].Name, pass ) } );
         return requests;
     }
 
@@ -122,7 +128,7 @@ namespace
         for ( const auto& request : requests )
         {
             auto built = Desert::Core::BuildShaderMap( request );
-            outcomes.push_back( built.IsSuccess() ? ShaderMapOutcome{ std::move( built.GetValue() ), {} }
+            outcomes.push_back( built.IsSuccess() ? ShaderMapOutcome{ built.GetValue(), {} }
                                                   : ShaderMapOutcome{ {}, built.GetError() } );
         }
         return outcomes;
@@ -153,7 +159,8 @@ TEST_F( ShaderMapBuildFixture, TheJobSystemBuildGivesTheOneAtATimeAnswerAtTheSam
     const auto defaults = DefaultPassRequests();
     ASSERT_GE( defaults.size(), 8u ) << "too few programs found for the workers to overlap";
 
-    std::vector<ShaderMapOutcome> parallelDefaults, parallelPasses;
+    std::vector<ShaderMapOutcome> parallelDefaults;
+    std::vector<ShaderMapOutcome> parallelPasses;
     std::vector<ShaderMapRequest> passes;
     {
         const Desert::TestSupport::DerivedDataSandbox cache( "ShaderMapBuildParallel" );
@@ -161,7 +168,8 @@ TEST_F( ShaderMapBuildFixture, TheJobSystemBuildGivesTheOneAtATimeAnswerAtTheSam
         passes           = PassRequests( defaults, parallelDefaults );
         parallelPasses   = Desert::Core::BuildShaderMaps( passes );
     }
-    std::vector<ShaderMapOutcome> serialDefaults, serialPasses;
+    std::vector<ShaderMapOutcome> serialDefaults;
+    std::vector<ShaderMapOutcome> serialPasses;
     {
         const Desert::TestSupport::DerivedDataSandbox cache( "ShaderMapBuildSerial" );
         serialDefaults = BuildOneAtATime( defaults );
@@ -185,6 +193,82 @@ TEST_F( ShaderMapBuildFixture, AStoredMapReadsBackAsTheMapThatWasBuilt )
     const auto                                    cold = Desert::Core::BuildShaderMaps( defaults );
     const auto                                    warm = BuildOneAtATime( defaults );
     ExpectSameAnswers( defaults, cold, warm );
+}
+
+// ONE ARTIFACT, ONE WRITER (SHC1d). Twins — the same text in several files — share one map key (the map key does
+// not name the file), so a job-system build that let every twin build would have several workers writing that
+// key's one <file>.tmp. The first twin builds; every twin gets its answer, at its own index.
+TEST_F( ShaderMapBuildFixture, TwinProgramsAreBuiltOnceAndAnsweredAtEveryIndex )
+{
+    const std::string             source = R"(Shader "Twin"
+{
+    Vertex   { void main() { gl_Position = vec4( 7.0 ); } }
+    Fragment { layout( location = 0 ) out vec4 c; void main() { c = vec4( 0.5, 7.0, 0.0, 1.0 ); } }
+}
+)";
+    std::vector<ShaderMapRequest> twins;
+    for ( int n = 0; n < 8; ++n )
+    {
+        const std::string name = std::format( "Twin{}", n );
+        twins.push_back(
+             { source,
+               std::filesystem::path( "Resources/Shaders/Programs/Test" ) / std::format( "{}.shader", name ),
+               {},
+               {},
+               name } );
+    }
+
+    const Desert::TestSupport::DerivedDataSandbox cache( "ShaderMapBuildTwins" );
+    const auto                                    before   = Desert::Core::ReadShaderCacheCounts();
+    const auto                                    outcomes = Desert::Core::BuildShaderMaps( twins );
+    const auto                                    after    = Desert::Core::ReadShaderCacheCounts();
+
+    EXPECT_EQ( after.MapMisses - before.MapMisses, 1u ) << "each twin built its own map: one key, several writers";
+    EXPECT_EQ( after.StoreFailures - before.StoreFailures, 0u );
+    ASSERT_EQ( outcomes.size(), twins.size() );
+    for ( size_t i = 0; i < twins.size(); ++i )
+    {
+        SCOPED_TRACE( twins[i].Name );
+        EXPECT_TRUE( outcomes[i].Error.empty() ) << outcomes[i].Error;
+        EXPECT_FALSE( outcomes[i].Map.Stages.empty() );
+        EXPECT_TRUE( outcomes[i].Map == outcomes[0].Map );
+    }
+}
+
+// The same below the map, under the profile without debug info (a Release build's): one stage text in eight files
+// is one SPIR-V key whatever the programs around it, so compiling it on eight workers at once is ONE compile and
+// one store; the other seven wait for that answer instead of writing the same <file>.tmp.
+TEST_F( ShaderMapBuildFixture, OneStageTextInEightFilesIsOneCompileWithoutDebugInfo )
+{
+    const std::string source = "#version 450\nvoid main() { gl_Position = vec4( 11.0 ); }\n";
+    constexpr size_t  kFiles = 8;
+
+    const Desert::TestSupport::DerivedDataSandbox cache( "ShaderMapBuildStageTwins" );
+    std::vector<std::vector<uint32_t>>            binaries( kFiles );
+    std::vector<std::string>                      errors( kFiles );
+    const auto                                    before = Desert::Core::ReadShaderCacheCounts();
+    ::Common::JobSystem::Get().ParallelFor(
+         kFiles,
+         [&]( const size_t i )
+         {
+             auto compiled = Desert::Core::ShaderCompiler::CompileGLSLToSPIRVForProfile(
+                  Desert::Core::Formats::ShaderStage::Vertex, source,
+                  std::format( "Resources/Shaders/Programs/Test/StageTwin{}.shader", i ), false );
+             if ( compiled.IsSuccess() )
+                 binaries[i] = compiled.GetValue();
+             else
+                 errors[i] = compiled.GetError();
+         } );
+    const auto after = Desert::Core::ReadShaderCacheCounts();
+
+    EXPECT_EQ( after.Compiled - before.Compiled, 1u ) << "one key compiled by several workers at once";
+    EXPECT_EQ( after.StoreFailures - before.StoreFailures, 0u );
+    for ( size_t i = 0; i < kFiles; ++i )
+    {
+        EXPECT_TRUE( errors[i].empty() ) << errors[i];
+        EXPECT_FALSE( binaries[i].empty() );
+        EXPECT_EQ( binaries[i], binaries[0] ) << "file " << i;
+    }
 }
 
 int main( int argc, char** argv )

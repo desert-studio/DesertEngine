@@ -61,7 +61,7 @@ namespace Desert::Graphic::API::Vulkan
              { asset->GetShaderContent(), m_ShaderPath, m_PassName, m_Variant, m_ShaderName } );
         if ( !built.IsSuccess() )
             return Common::MakeError( built.GetError() );
-        m_ProgramMeta = std::move( built.GetValue().Meta );
+        m_ProgramMeta = built.GetValue().Meta;
         return BuildFromSpirv( built.GetValue().Stages );
     }
 
