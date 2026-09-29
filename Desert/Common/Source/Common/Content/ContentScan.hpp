@@ -62,7 +62,8 @@ namespace Common::Content
         // package and fails at load, never hides it).
         std::string DisplayName;
         bool        Skinned = false;
-        // AssetRegistryEntry::RigSignature: a skeleton's stated signature, a skinned mesh header's rig.
+        // AssetRegistryEntry::RigSignature: a skeleton's stated signature, a skinned mesh header's rig, a clip's
+        // stated SkeletonSignature.
         uint64_t RigSignature = 0;
     };
 

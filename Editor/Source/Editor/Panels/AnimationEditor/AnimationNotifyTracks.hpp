@@ -100,6 +100,10 @@ namespace Desert::Editor
         {
             return m_Label;
         }
+        [[nodiscard]] const void* EditedObject() const override
+        {
+            return m_Clip;
+        }
 
     private:
         bool Set( const std::vector<Animation::AnimationNotify>& notifies )
@@ -159,6 +163,79 @@ namespace Desert::Editor
         return ApplyNotifyEdit( clip, std::move( edited ), "Set Notify Duration", history, changed );
     }
 
+    /// Two curve lists hold the same authored keys (name, tick, value, interpolation, tangents).
+    [[nodiscard]] inline bool SameCurves( const std::vector<Animation::AnimationCurve>& a,
+                                          const std::vector<Animation::AnimationCurve>& b )
+    {
+        const auto sameKey = []( const Animation::ScalarKey& x, const Animation::ScalarKey& y )
+        {
+            return x.Tick == y.Tick && x.Value == y.Value && x.Interp == y.Interp && x.Mode == y.Mode &&
+                   x.ArriveTangent == y.ArriveTangent && x.LeaveTangent == y.LeaveTangent;
+        };
+        return std::ranges::equal( a, b,
+                                   [&sameKey]( const Animation::AnimationCurve& x, const Animation::AnimationCurve& y )
+                                   { return x.Name == y.Name && std::ranges::equal( x.Keys, y.Keys, sameKey ); } );
+    }
+
+    /// Two notify lists are the same authoring: name, tick, track AND length (a Notify State's span).
+    [[nodiscard]] inline bool SameNotifies( const std::vector<Animation::AnimationNotify>& a,
+                                            const std::vector<Animation::AnimationNotify>& b )
+    {
+        return std::ranges::equal( a, b,
+                                   []( const Animation::AnimationNotify& x, const Animation::AnimationNotify& y )
+                                   {
+                                       return x.Name == y.Name && x.Tick.Value == y.Tick.Value &&
+                                              x.Track == y.Track && x.DurationTicks.Value == y.DurationTicks.Value;
+                                   } );
+    }
+
+    /**
+     * @brief Whether the Animation Editor's clip differs from what its FILE holds: the rule behind "Save*".
+     *
+     * The comparison is against a clip read from the file, never against a snapshot the window took of the
+     * asset: the asset outlives the window, so a snapshot taken at reopen would call an unsaved edit clean
+     * (ANV1c3: close with Save*, reopen, "Save" — and the edit still in memory). Everything the editor can
+     * author counts: notifies (with their state length) and anim curves.
+     */
+    [[nodiscard]] inline bool ClipDiffersFromFile( const Animation::AnimationClip& inMemory,
+                                                   const Animation::AnimationClip& onDisk )
+    {
+        return !SameNotifies( inMemory.Notifies, onDisk.Notifies ) || !SameCurves( inMemory.Curves, onDisk.Curves );
+    }
+
+    /// Which edge of a Notify State's bar a drag holds.
+    enum class NotifyStateEdge : uint8_t
+    {
+        Begin,
+        End
+    };
+
+    /**
+     * @brief Where a drag of a Notify State's @p edge to @p tick leaves the notify (UE: dragging a state's
+     *        ends). The opposite edge stays put; the span keeps at least one tick and stays inside
+     *        [0, @p clipDuration]. The document commits the result as ONE edit on release.
+     */
+    [[nodiscard]] inline Animation::AnimationNotify DragNotifyStateEdge( Animation::AnimationNotify     notify,
+                                                                         const NotifyStateEdge          edge,
+                                                                         const Animation::FrameNumber   tick,
+                                                                         const Animation::FrameNumber   clipDuration )
+    {
+        const int64_t begin = notify.Tick.Value;
+        const int64_t end   = begin + std::max<int64_t>( notify.DurationTicks.Value, 1 );
+        if ( edge == NotifyStateEdge::End )
+        {
+            const int64_t newEnd  = std::clamp<int64_t>( tick.Value, begin + 1, std::max<int64_t>( clipDuration.Value, begin + 1 ) );
+            notify.DurationTicks.Value = static_cast<decltype( notify.DurationTicks.Value )>( newEnd - begin );
+        }
+        else
+        {
+            const int64_t newBegin     = std::clamp<int64_t>( tick.Value, 0, end - 1 );
+            notify.Tick.Value          = static_cast<decltype( notify.Tick.Value )>( newBegin );
+            notify.DurationTicks.Value = static_cast<decltype( notify.DurationTicks.Value )>( end - newBegin );
+        }
+        return notify;
+    }
+
     /// One undo record for an anim-curve edit: the clip's whole curve list before and after.
     class CurveEditCommand final : public ICommand
     {
@@ -182,6 +259,10 @@ namespace Desert::Editor
         [[nodiscard]] std::string GetLabel() const override
         {
             return m_Label;
+        }
+        [[nodiscard]] const void* EditedObject() const override
+        {
+            return m_Clip;
         }
 
     private:
@@ -215,14 +296,7 @@ namespace Desert::Editor
             std::ranges::stable_sort( curve.Keys, {}, []( const Animation::ScalarKey& k ) { return k.Tick; } );
             Animation::AutoSetTangents( curve.Keys, clip.TickRate );
         }
-        const auto sameKey = []( const Animation::ScalarKey& a, const Animation::ScalarKey& b )
-        {
-            return a.Tick == b.Tick && a.Value == b.Value && a.Interp == b.Interp && a.Mode == b.Mode &&
-                   a.ArriveTangent == b.ArriveTangent && a.LeaveTangent == b.LeaveTangent;
-        };
-        const auto same = [&sameKey]( const Animation::AnimationCurve& a, const Animation::AnimationCurve& b )
-        { return a.Name == b.Name && std::ranges::equal( a.Keys, b.Keys, sameKey ); };
-        if ( std::ranges::equal( edited, clip.Curves, same ) )
+        if ( SameCurves( edited, clip.Curves ) )
             return false;
         std::vector<Animation::AnimationCurve> before = clip.Curves;
         clip.Curves                                   = edited;

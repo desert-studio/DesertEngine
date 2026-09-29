@@ -30,6 +30,14 @@ namespace Desert::Editor
             return false;
         }
 
+        // The object this record writes through a raw pointer when it is NOT a scene entity (an asset's payload
+        // an asset editor edits), or null. CommandHistory::DropFor forgets every record of one subject when
+        // its editor closes: the history is process-wide and outlives the window, the payload need not.
+        [[nodiscard]] virtual const void* EditedObject() const
+        {
+            return nullptr;
+        }
+
         // Short human-readable name for the History panel (e.g. "Move", "Rename", "Delete").
         virtual std::string GetLabel() const
         {
@@ -147,6 +155,22 @@ namespace Desert::Editor
             auto drop = []( std::vector<std::unique_ptr<ICommand>>& stack )
             {
                 std::erase_if( stack, []( const std::unique_ptr<ICommand>& c ) { return c->IsVolatile(); } );
+            };
+            drop( m_Undo );
+            drop( m_Redo );
+        }
+
+        // Forgets every record (undo and redo) that writes into @p object. An asset editor calls it when it
+        // closes: UE's transactions keep their object alive; ours hold a raw pointer into a payload the asset
+        // manager may evict once the window's root pin is gone, so the records go with the window.
+        void DropFor( const void* object )
+        {
+            if ( object == nullptr )
+                return;
+            auto drop = [object]( std::vector<std::unique_ptr<ICommand>>& stack )
+            {
+                std::erase_if( stack, [object]( const std::unique_ptr<ICommand>& c )
+                               { return c->EditedObject() == object; } );
             };
             drop( m_Undo );
             drop( m_Redo );

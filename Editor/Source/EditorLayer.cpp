@@ -715,7 +715,7 @@ namespace Desert::Editor
                  *window,
                  // The same ordered close the control channel's `quit` takes: Run() leaves its loop, every
                  // layer is detached, the device goes idle. Two ways to end a session would drift.
-                 [this]() { m_Application->Close( 0 ); } );
+                 [this]() { RequestEditorExit(); } );
         }
 
         // 1. Create ImGui Context first
@@ -984,7 +984,8 @@ namespace Desert::Editor
                            [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
                            {
                                return std::make_unique<Editor::AnimationEditorDocument>(
-                                    Assets::AssetHandle( subject.Owner ), m_AssetManager.get() );
+                                    Assets::AssetHandle( subject.Owner ), m_AssetManager.get(),
+                                    &m_SubjectEditors );
                            },
                            [this]( const SubjectId& subject )
                            {
@@ -3498,6 +3499,164 @@ namespace Desert::Editor
             m_DocumentsToClose.push_back( PendingDocumentClose{ subject, std::move( reason ) } );
     }
 
+    void EditorLayer::AskDocumentClose( const SubjectId& subject, std::string reason )
+    {
+        const ISubjectDocument* document = m_OpenDocuments.Find( subject );
+        if ( !document )
+            return;
+
+        const bool dirty = document->GetDiskState() == ISubjectDocument::DiskState::Dirty;
+        if ( !CloseAsksFirst( dirty, /*closedByThePerson=*/true ) )
+        {
+            RequestDocumentClose( subject, std::move( reason ) );
+            return;
+        }
+
+        const auto asked =
+             std::find_if( m_CloseQuestions.begin(), m_CloseQuestions.end(),
+                           [&subject]( const PendingDocumentClose& p ) { return p.Subject == subject; } );
+        if ( asked == m_CloseQuestions.end() )
+            m_CloseQuestions.push_back( PendingDocumentClose{ subject, std::move( reason ) } );
+    }
+
+    namespace
+    {
+        constexpr std::string_view kEditorExitReason = "the editor is closing";
+
+        [[nodiscard]] std::string_view CloseChoiceName( const UnsavedCloseChoice choice )
+        {
+            switch ( choice )
+            {
+                case UnsavedCloseChoice::Save:
+                    return "saved first";
+                case UnsavedCloseChoice::Discard:
+                    return "changes discarded";
+                case UnsavedCloseChoice::Cancel:
+                    return "cancelled";
+            }
+            return "?";
+        }
+    } // namespace
+
+    bool EditorLayer::AnswerCloseQuestion( const SubjectId& subject, const UnsavedCloseChoice choice )
+    {
+        const auto asked =
+             std::find_if( m_CloseQuestions.begin(), m_CloseQuestions.end(),
+                           [&subject]( const PendingDocumentClose& p ) { return p.Subject == subject; } );
+        if ( asked == m_CloseQuestions.end() )
+            return false;
+        PendingDocumentClose question = std::move( *asked );
+        m_CloseQuestions.erase( asked );
+
+        ISubjectDocument* document = m_OpenDocuments.Find( subject );
+        if ( !document )
+            return false; // closed some other way while the question was up: nothing left to answer for
+
+        bool saved = false;
+        if ( choice == UnsavedCloseChoice::Save )
+            saved = document->SaveDocument();
+        else if ( choice == UnsavedCloseChoice::Discard && !document->DiscardEdits() )
+        {
+            // Closing drops what memory holds anyway; the line only says the document had no discard step.
+            LOG_INFO( "'{}': closing without saving, the document has no edits of its own to discard",
+                      document->GetName() );
+        }
+
+        const bool closes = CloseAfterAnswer( choice, saved );
+        if ( closes )
+        {
+            RequestDocumentClose( subject,
+                                  question.Reason + " (" + std::string( CloseChoiceName( choice ) ) + ")" );
+        }
+        else
+        {
+            if ( choice == UnsavedCloseChoice::Save )
+            {
+                LOG_WARN( "'{}' stays open: Save wrote no file, so closing would lose its edits",
+                          document->GetName() );
+            }
+            // A kept document keeps the editor open too, and the rest of the exit's questions go with it.
+            if ( m_ExitAfterCloseQuestions )
+            {
+                m_ExitAfterCloseQuestions = false;
+                std::erase_if( m_CloseQuestions,
+                               []( const PendingDocumentClose& p ) { return p.Reason == kEditorExitReason; } );
+            }
+        }
+
+        if ( m_ExitAfterCloseQuestions && m_CloseQuestions.empty() )
+            m_Application->Close( 0 );
+        return closes;
+    }
+
+    void EditorLayer::RequestEditorExit()
+    {
+        for ( const auto& document : m_OpenDocuments )
+        {
+            if ( !CloseAsksFirst( document->GetDiskState() == ISubjectDocument::DiskState::Dirty,
+                                  /*closedByThePerson=*/true ) )
+                continue;
+            const SubjectId subject = document->Subject();
+            const bool      asked =
+                 std::any_of( m_CloseQuestions.begin(), m_CloseQuestions.end(),
+                              [&subject]( const PendingDocumentClose& p ) { return p.Subject == subject; } );
+            if ( !asked )
+                m_CloseQuestions.push_back( PendingDocumentClose{ subject, std::string( kEditorExitReason ) } );
+        }
+
+        if ( m_CloseQuestions.empty() )
+        {
+            m_Application->Close( 0 );
+            return;
+        }
+        m_ExitAfterCloseQuestions = true;
+    }
+
+    void EditorLayer::DrawCloseQuestionPopup()
+    {
+        namespace ImGui = ::ImGui;
+
+        if ( m_CloseQuestions.empty() )
+            return;
+        const SubjectId         subject  = m_CloseQuestions.front().Subject;
+        const ISubjectDocument* document = m_OpenDocuments.Find( subject );
+        if ( !document )
+        {
+            m_CloseQuestions.erase( m_CloseQuestions.begin() );
+            return;
+        }
+
+        constexpr const char* kTitle = "Save Changes?###UnsavedClose";
+        if ( !ImGui::IsPopupOpen( kTitle ) )
+            ImGui::OpenPopup( kTitle );
+        ImGui::SetNextWindowPos( ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing,
+                                 ImVec2( 0.5f, 0.5f ) );
+        if ( !ImGui::BeginPopupModal( kTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize ) )
+            return;
+
+        const std::string name = DocumentDisplayName( document->GetName() );
+        ImGui::Text( "Save changes to %s before closing?", name.c_str() );
+        ImGui::TextDisabled( "Don't Save puts the file's content back; nothing is written." );
+        ImGui::Spacing();
+
+        std::optional<UnsavedCloseChoice> choice;
+        if ( ImGui::Button( "Save", ImVec2( 110.0f, 0.0f ) ) )
+            choice = UnsavedCloseChoice::Save;
+        ImGui::SameLine();
+        if ( ImGui::Button( "Don't Save", ImVec2( 110.0f, 0.0f ) ) )
+            choice = UnsavedCloseChoice::Discard;
+        ImGui::SameLine();
+        if ( ImGui::Button( "Cancel", ImVec2( 110.0f, 0.0f ) ) || ImGui::IsKeyPressed( ImGuiKey_Escape ) )
+            choice = UnsavedCloseChoice::Cancel;
+
+        if ( choice )
+        {
+            ImGui::CloseCurrentPopup();
+            (void)AnswerCloseQuestion( subject, *choice );
+        }
+        ImGui::EndPopup();
+    }
+
     void EditorLayer::RequestCloseAllDocuments()
     {
         // Collected first and requested after, rather than requested while iterating: RequestDocumentClose
@@ -3509,7 +3668,7 @@ namespace Desert::Editor
             subjects.push_back( document->Subject() );
 
         for ( const SubjectId& subject : subjects )
-            RequestDocumentClose( subject, "Close All Documents" );
+            AskDocumentClose( subject, "Close All Documents" );
     }
 
     void EditorLayer::CloseDocumentsWhoseSubjectIsGone()
@@ -3901,6 +4060,8 @@ namespace Desert::Editor
         {
             // Reserve the bottom status-bar height so the DockSpace fills only the area between the toolbar
             // and the status bar (a full-height DockSpace(0,0) would sit under the status bar).
+            // UE's major tabs: "Scene | <asset>" above everything, each asset editor owning the whole area.
+            DrawMajorTabStrip();
             const float statusBarHeight = ::ImGui::GetFrameHeight() + 4.0f;
             ImVec2      dockSize        = ::ImGui::GetContentRegionAvail();
             dockSize.y                  = ( dockSize.y > statusBarHeight ) ? dockSize.y - statusBarHeight : 0.0f;
@@ -3950,7 +4111,17 @@ namespace Desert::Editor
                  ::ImGui::DockBuilderGetNode( dockspace_id ) == nullptr || m_ResetDefaultLayout;
             m_ResetDefaultLayout = false;
 
-            ::ImGui::DockSpace( dockspace_id, dockSize, dockspace_flags );
+            // While an asset editor's major tab is in front the level's dockspace is KEPT ALIVE but not shown:
+            // its windows are not submitted (the panel loop skips them), and KeepAliveOnly keeps them docked
+            // where they were, so the Scene tab brings the level layout back untouched.
+            const ImVec2 dockOrigin = ::ImGui::GetCursorScreenPos();
+            m_MajorTabOrigin        = glm::vec2( dockOrigin.x, dockOrigin.y );
+            m_MajorTabSize          = glm::vec2( dockSize.x, dockSize.y );
+            ::ImGui::DockSpace( dockspace_id, dockSize,
+                                MajorTabActive() ? dockspace_flags | ImGuiDockNodeFlags_KeepAliveOnly
+                                                 : dockspace_flags );
+            if ( MajorTabActive() )
+                ::ImGui::Dummy( dockSize );
 
             if ( buildDefaultLayout )
             {
@@ -4071,7 +4242,7 @@ namespace Desert::Editor
         // well now, so there is no floating window to step down-right from the last one.
         for ( const auto& panel : m_Panels )
         {
-            if ( !panel->GetVisibility() )
+            if ( !panel->GetVisibility() || MajorTabActive() )
             {
                 continue;
             }
@@ -4142,7 +4313,8 @@ namespace Desert::Editor
 
         // The well BEFORE the documents: it reads back the dock node id the documents are about to be
         // docked into, and a document opened this frame would otherwise float once and settle next frame.
-        DrawDocumentWell();
+        if ( !MajorTabActive() )
+            DrawDocumentWell();
         DrawDocuments();
 
         // EVERY VIEW HAS NOW HAD ITS TURN — the tool panels above (the Clouds window is one of them) and
@@ -4150,7 +4322,8 @@ namespace Desert::Editor
         // why the run of undrawn frames is closed at this point and not inside either draw loop.
         m_OpenDocuments.EndFrame();
 
-        DrawProfilerWindow();
+        if ( !MajorTabActive() )
+            DrawProfilerWindow();
 
         DrawStatusBar();
 
@@ -4158,6 +4331,7 @@ namespace Desert::Editor
         DrawRecoveryPopup();
         DrawLayoutSavePopup();
         DrawOpenRefusedPopup();
+        DrawCloseQuestionPopup();
 
         // Transient bottom-right notifications (save/import/validation). Drawn last so they float on top.
         Editor::ToastManager::Get().Draw();
@@ -4442,10 +4616,27 @@ namespace Desert::Editor
             commands.push_back( { "Document", "Close " + DocumentDisplayName( document->GetName() ),
                                   [this, subject]
                                   {
-                                      RequestDocumentClose( subject, "closed from the command "
-                                                                     "palette" );
+                                      AskDocumentClose( subject, "closed from the command "
+                                                                 "palette" );
                                       return PaletteCommandDone();
                                   } } );
+            // The Don't Save answer as one command, for runs that cannot click a modal: raises the question
+            // if nothing has yet, then answers it through the same path the button takes.
+            commands.push_back(
+                 { "Document", DocumentDisplayName( document->GetName() ) + ": Close Discard", [this, subject]
+                   {
+                       if ( !m_OpenDocuments.Find( subject ) )
+                           return Common::MakeError<bool>( "the document to close is no longer "
+                                                           "open." );
+                       const bool asked = std::any_of( m_CloseQuestions.begin(), m_CloseQuestions.end(),
+                                                       [&subject]( const PendingDocumentClose& p )
+                                                       { return p.Subject == subject; } );
+                       if ( !asked )
+                           m_CloseQuestions.push_back( PendingDocumentClose{
+                                subject, "closed from the command palette without saving" } );
+                       (void)AnswerCloseQuestion( subject, UnsavedCloseChoice::Discard );
+                       return PaletteCommandDone();
+                   } } );
         }
 
         // Ctrl+Tab, as a command. The key is bound in OnUIRender and a key is not available to a
@@ -6871,7 +7062,53 @@ namespace Desert::Editor
         // Requested after the loop: RequestDocumentClose only queues, but collecting first keeps the rule
         // that nothing mutates a container while it is being walked.
         for ( const SubjectId& subject : closeRequests )
-            RequestDocumentClose( subject, "closed from the Documents index" );
+            AskDocumentClose( subject, "closed from the Documents index" );
+    }
+
+    void EditorLayer::DrawMajorTabStrip()
+    {
+        namespace ImGui = ::ImGui;
+
+        const auto isOpen = [this]( const SubjectId& subject )
+        {
+            return std::any_of( m_OpenDocuments.begin(), m_OpenDocuments.end(),
+                                [&]( const auto& open ) { return open->Subject() == subject; } );
+        };
+        if ( MajorTabActive() && !isOpen( m_ActiveMajorTab ) )
+            m_ActiveMajorTab = SubjectId{};
+        std::erase_if( m_SeenMajorTabs, [&]( const SubjectId& seen ) { return !isOpen( seen ); } );
+
+        std::vector<ISubjectDocument*> majors;
+        for ( const auto& document : m_OpenDocuments )
+            if ( document->OpensAsMajorTab() )
+                majors.push_back( document.get() );
+        // No strip while only the level is open, as UE shows none without an asset editor.
+        if ( majors.empty() || !ImGui::BeginTabBar( "##majortabs", ImGuiTabBarFlags_Reorderable ) )
+            return;
+
+        SubjectId              selected;
+        std::vector<SubjectId> closeRequests;
+        if ( ImGui::BeginTabItem( ICON_MDI_MONITOR " Scene###majorscene" ) )
+            ImGui::EndTabItem();
+        for ( ISubjectDocument* document : majors )
+        {
+            // A tab seen for the first time comes to the front: opening an asset editor shows it, as in UE.
+            const bool       fresh = m_SeenMajorTabs.insert( document->Subject() ).second;
+            const bool       asked = !m_FocusPanel.empty() && document->GetName() == m_FocusPanel;
+            bool             open  = true;
+            const ImGuiTabItemFlags flags = fresh || asked ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+            if ( ImGui::BeginTabItem( DocumentDisplayTitle( *document ).c_str(), &open, flags ) )
+            {
+                selected = document->Subject();
+                ImGui::EndTabItem();
+            }
+            if ( !open )
+                closeRequests.push_back( document->Subject() );
+        }
+        ImGui::EndTabBar();
+        m_ActiveMajorTab = selected;
+        for ( const SubjectId& subject : closeRequests )
+            AskDocumentClose( subject, "you closed the tab" );
     }
 
     void EditorLayer::DrawDocuments()
@@ -6902,12 +7139,23 @@ namespace Desert::Editor
         {
             const SubjectId   subject = document->Subject();
             const std::string kind    = DocumentKindKey( subject );
+            // A major-tab document is drawn only while its tab is in front, and then it is the only one: the
+            // level's documents live in the level's dockspace, which is hidden behind it.
+            const bool major = document->OpensAsMajorTab();
+            if ( MajorTabActive() ? subject != m_ActiveMajorTab : major )
+                continue;
+            if ( major )
+            {
+                ImGui::SetNextWindowPos( ImVec2( m_MajorTabOrigin.x, m_MajorTabOrigin.y ), ImGuiCond_Always );
+                ImGui::SetNextWindowSize( ImVec2( m_MajorTabSize.x, m_MajorTabSize.y ), ImGuiCond_Always );
+                m_PlacedDocuments.insert( subject );
+            }
 
             // PLACED ONCE, ON THE FRAME THE WINDOW FIRST EXISTS, the way Unreal opens an asset editor: where
             // this kind was last put, else as a tab beside the level viewport (Editor/Core/DocumentPlacement.hpp).
             // ImGuiCond_Always for that one frame, because the window's own imgui.ini entry would otherwise
             // put it back wherever an older layout left it (the small floating window ME1c removed).
-            const bool placing = !m_PlacedDocuments.contains( subject );
+            const bool placing = !major && !m_PlacedDocuments.contains( subject );
             if ( placing )
             {
                 const auto  it             = m_RememberedPlacement.find( kind );
@@ -6964,11 +7212,16 @@ namespace Desert::Editor
             // them was visible, and the three that were not were also holding renderer slots for it. The
             // content is skipped, which is ImGui's own idiom, and the frames off screen are counted so the
             // slot can go back (ReleaseSlotsOfHiddenDocuments).
-            const bool visible = ImGui::Begin( DocumentDisplayTitle( *document ).c_str(), &open );
+            // A major tab's close box is its tab in the strip (DrawMajorTabStrip); the window is the area.
+            constexpr ImGuiWindowFlags kMajorFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                                                     ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings |
+                                                     ImGuiWindowFlags_NoBringToFrontOnFocus;
+            const bool visible = ImGui::Begin( DocumentDisplayTitle( *document ).c_str(), major ? nullptr : &open,
+                                               major ? kMajorFlags : ImGuiWindowFlags_None );
             ImGui::PopStyleVar();
             // OBSERVED from the second frame on: wherever the person has put the window is what the next
             // opening of this kind gets. The first frame is skipped because the placement is still landing.
-            if ( !placing )
+            if ( !placing && !major )
             {
                 const ImVec2                        pos  = ImGui::GetWindowPos();
                 const ImVec2                        size = ImGui::GetWindowSize();
@@ -7024,7 +7277,7 @@ namespace Desert::Editor
         }
 
         for ( const SubjectId& subject : closeRequests )
-            RequestDocumentClose( subject, "you closed the window" );
+            AskDocumentClose( subject, "you closed the window" );
     }
 
     void EditorLayer::DrawOpenRefusedPopup()
@@ -7326,7 +7579,7 @@ namespace Desert::Editor
         // been the only way out of the editor other than killing the process. Same ordered close as the
         // title bar's x and the control channel's `quit`.
         if ( ImGui::MenuItem( "Exit" ) )
-            m_Application->Close( 0 );
+            RequestEditorExit();
 
         ImGui::EndMenu();
     }
@@ -9651,7 +9904,7 @@ namespace Desert::Editor
                 RequestCloseAllDocuments();
 
             for ( const SubjectId& subject : closeRequests )
-                RequestDocumentClose( subject, "closed from Window \xe2\x96\xb8 Documents" );
+                AskDocumentClose( subject, "closed from Window \xe2\x96\xb8 Documents" );
         }
 
         // NO "SAVE ALL" HERE, AND ITS ABSENCE IS DELIBERATE.

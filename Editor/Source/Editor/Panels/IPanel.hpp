@@ -324,6 +324,14 @@ namespace Desert::Editor
             return false;
         }
 
+        // UE's MAJOR TAB: an asset editor that owns the whole editor area while it is in front ("Scene |
+        // <asset>" above everything), instead of a tab beside the level viewport. The level's panels are not
+        // drawn while it is. Off by default: a document opts in (the Animation Editor does).
+        [[nodiscard]] virtual bool OpensAsMajorTab() const
+        {
+            return false;
+        }
+
         // Put that preview at @p viewpoint. Only called when HasPreview(); the default does nothing
         // because a document without a preview is never asked.
         virtual void SetPreviewViewpoint( const PreviewViewpoint& /*viewpoint*/ )
