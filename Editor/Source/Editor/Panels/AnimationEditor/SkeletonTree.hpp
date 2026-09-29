@@ -41,7 +41,7 @@ namespace Desert::Editor
             return true;
         const auto lower = []( const char c )
         { return static_cast<char>( std::tolower( static_cast<unsigned char>( c ) ) ); };
-        const auto* const it =
+        const auto it =
              std::search( name.begin(), name.end(), filter.begin(), filter.end(),
                           [&]( const char a, const char b ) { return lower( a ) == lower( b ); } );
         return it != name.end();
