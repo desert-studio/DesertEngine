@@ -19,6 +19,11 @@ Debug+Release and runs the full test suite on every push.
 Before touching a subsystem, read its neighbours — match the surrounding altitude, naming, and
 error style. This skill tells you *how the engine is built* so you extend it, not fork its style.
 
+## A R C H I T E C T U R E FIRST (owner, 2026-09-29)
+
+Start every change from how the system is structured CORRECTLY (UE's pattern or better) and build that. No time budgets, reduced
+scopes, guesses or bridges as the design; measurements only prove the design works. See desert-engine-contract §00.
+
 ## Engine Architect Manifest
 
 The mindset for every non-trivial change. This is *how to think*; the sections below are *what the
