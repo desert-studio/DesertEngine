@@ -2047,7 +2047,8 @@ namespace Desert::Editor
         if ( const auto it = m_MeshSourceOf.find( entry.AssetPath );
              it != m_MeshSourceOf.end() && !ec && it->second.Written == written )
             return it->second.Source;
-        const auto source = ThumbnailFoliage::ReadMeshSource( entry.AssetPath, Common::Constants::Path::ASSETS_PATH );
+        const auto source =
+             ThumbnailFoliage::ReadMeshSource( entry.AssetPath, Common::Constants::Path::ASSETS_PATH );
         if ( !source )
         {
             LOG_WARN( "[Thumbnail] '{}': {}", entry.AssetPath, source.GetError() );
