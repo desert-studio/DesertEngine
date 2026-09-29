@@ -1,4 +1,5 @@
 #include <Engine/Graphic/Materials/MaterialFactory.hpp>
+#include <Engine/Graphic/Materials/MaterialBinder.hpp>
 #include <Engine/Graphic/Shader.hpp>
 
 #include <Engine/Assets/Mapper.hpp>
@@ -82,7 +83,7 @@ namespace Desert::Graphic
         material.Data() = Assets::PBRSurfaceParams::FromMaterialData( asset.Data() );
         // What the shader reads: the generic row, by name from the asset's params (the schema's defaults
         // for anything the file does not mention) — the same builder DataDrivenMaterial's row comes from.
-        material.SetParamRow( Core::Formats::BuildMaterialParamRow( material.GetSchema(), asset.Data().Params ) );
+        material.SetParamRow( MaterialBinder::BuildRow( material.GetMaterialLayout(), asset.Data().Params ) );
 
         BindManifestTextures( material.GetSchema(), asset, asset.GetShaderName(),
                               [&material]( const std::string& name, Graphic::Image2D* image )

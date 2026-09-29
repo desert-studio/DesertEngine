@@ -21,12 +21,20 @@ namespace Desert::Graphic
                 return true;
             case MaterialBinder::PushWrite::SizeMismatch:
                 LOG_ERROR( "Material '{}': push field '{}' is {} bytes in the shader, {} written; not written",
-                           m_MaterialExecutor->GetDebugName(), field, layout.FindPush( field )->Size, size );
+                           m_MaterialExecutor->GetDubugName(), field, layout.FindPush( field )->Size, size );
                 return false;
             case MaterialBinder::PushWrite::Absent:
                 return false;
         }
         return false;
+    }
+
+    const Core::Formats::MaterialLayout& Material::GetMaterialLayout() const
+    {
+        static const Core::Formats::MaterialLayout kNoLayout;
+        if ( !m_MaterialExecutor || !m_MaterialExecutor->GetShader() )
+            return kNoLayout;
+        return m_MaterialExecutor->GetShader()->GetMaterialLayout();
     }
 
     void Material::SetMaterialIndex( uint32_t index )

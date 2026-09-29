@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Materials/Material.hpp>
+#include <Engine/Graphic/Materials/MaterialBinder.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -13,8 +14,8 @@ namespace Desert::Graphic
     class Image2D;
 
     // Generic, data-driven material built from ANY shader by name — no per-shader C++ class. Parameters
-    // come from the shader's `Properties` schema (UI metadata + defaults + declaration ORDER), and the
-    // order is the whole mapping: parameter i is slot i of the row the shader reads. This is what makes
+    // come from the shader's `Properties` schema (UI metadata + defaults), and the cell's MaterialLayout
+    // (MaterialBinder) says where each lands in the row the shader reads. This is what makes
     // arbitrary shaders assignable with dynamic params.
     //
     // WHAT THIS CLASS NO LONGER IS. It used to write its parameters into a per-material `uniform
@@ -38,7 +39,6 @@ namespace Desert::Graphic
             if ( auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( shaderName ) )
                 m_Schema = shader->GetProgramMeta();
 
-            m_Row.resize( Core::Formats::MaterialParamSlotCount( m_Schema ) );
             ApplyDefaults();
         }
 
@@ -61,10 +61,10 @@ namespace Desert::Graphic
         // Write a scalar/vector param by name. The whole slot is written whatever the parameter's
         // declared width: the components past it are the generated struct's own padding, so there is
         // nothing there to damage, and the alternative — a per-type byte count — is a second statement of
-        // a layout that MaterialParamRow.hpp deliberately has only one of.
+        // a layout that the cell's MaterialLayout deliberately has only one of.
         bool SetParam( const std::string& name, const glm::vec4& value )
         {
-            return Core::Formats::SetMaterialParam( m_Schema, m_Row, name, value );
+            return MaterialBinder::WriteRowParam( GetMaterialLayout(), m_Row, name, value );
         }
 
         // The name the override producers use. Identical to SetParam now — it was a separate entry point
@@ -102,10 +102,10 @@ namespace Desert::Graphic
             return false;
         }
 
-        // Seed every numeric param with its `Properties ... = default` value.
+        // Seed every numeric param with its `Properties ... = default` value, at the cell layout's offset.
         void ApplyDefaults()
         {
-            m_Row = Core::Formats::MaterialParamDefaultRow( m_Schema );
+            m_Row = MaterialBinder::DefaultRow( GetMaterialLayout() );
         }
 
     private:

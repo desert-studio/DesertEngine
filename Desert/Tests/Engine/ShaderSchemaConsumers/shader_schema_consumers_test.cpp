@@ -336,7 +336,7 @@ namespace
          { "ShaderParam", "IsCubeTexture", kParamRow, nullptr },
          { "ShaderParam", "Min", kMatEdit, nullptr },
          { "ShaderParam", "Max", kMatEdit, nullptr },
-         { "ShaderParam", "Default", kParamRow, nullptr },
+         { "ShaderParam", "Default", "Desert/Desert/Source/Engine/Core/Formats/MaterialLayout.hpp", nullptr },
 
          // The row this suite was born from. Read since М9 by Material::BindSchemaDefaultTexture, which
          // is what makes an empty texture slot expressible at all.

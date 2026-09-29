@@ -1,5 +1,6 @@
 #include "MaterialPBR.hpp"
 
+#include <Engine/Graphic/Materials/MaterialBinder.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/ShaderProtocols/SkinnedMaterialUB.hpp>
 #include <Engine/Graphic/Shader.hpp>
@@ -34,7 +35,7 @@ namespace Desert::Graphic
     {
         if ( auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( shaderName ) )
             m_Schema = shader->GetProgramMeta();
-        m_Row = Core::Formats::MaterialParamDefaultRow( m_Schema );
+        m_Row = MaterialBinder::DefaultRow( GetMaterialLayout() );
     }
 
     void MaterialPBR::UploadBones( const glm::mat4* matrices, size_t count )
