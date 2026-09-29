@@ -19,6 +19,7 @@
 
 #include <Editor/Core/ControlNudgeRequest.hpp>
 #include <Editor/Core/Commands/PoseEditTransaction.hpp>
+#include <ImGuizmo.h>
 #include <Engine/ECS/System/SystemRules.hpp>
 
 #include <algorithm>
@@ -392,6 +393,51 @@ namespace Desert::Editor
                 drawList->AddText( ImVec2( shape.Origin.Pixel.x + 8.0f, shape.Origin.Pixel.y - 6.0f ), colour,
                                    hierarchy.Get( shape.Control ).Name.c_str() );
             }
+        }
+
+        // THE AXIS GIZMO ON THE SELECTED CONTROL, as UE's Control Rig draws it: W translates, E rotates (the
+        // context's ControlRotate, which the panel's radio buttons also write). Drawn only while no shape drag
+        // is in progress — two manipulators writing one control in one frame have no defined winner. The
+        // gesture records ONE undo entry per press-drag-release (ControlGizmoGesture), and it steps BEFORE this
+        // frame's write so the rising edge captures the pose the gesture started from.
+        if ( chosen < hierarchy.Size() && !m_ControlDrag.Active() )
+        {
+            ImGuizmo::SetOrthographic( false );
+            ImGuizmo::SetDrawlist();
+            ImGuizmo::SetRect( xpos, ypos, width, height );
+
+            const glm::mat4 cameraView = camera->GetViewMatrix();
+            const glm::mat4 cameraProj = camera->GetProjectionMatrix();
+            glm::mat4       gizmoWorld = entityWorld * hierarchy.GetGlobalTransform( chosen );
+            const auto      operation  = authoring.ControlRotate() ? ImGuizmo::ROTATE : ImGuizmo::TRANSLATE;
+            const bool      changed    = ImGuizmo::Manipulate( &cameraView[0][0], &cameraProj[0][0], operation,
+                                                               ImGuizmo::LOCAL, &gizmoWorld[0][0] );
+            const bool      held       = ImGuizmo::IsUsing();
+
+            if ( const auto recorded = m_ControlGizmo.Step( &hierarchy, chosen, held ); !recorded.IsSuccess() )
+            {
+                LOG_WARN( "[Animation] the control gizmo gesture was not recorded for undo: {}",
+                          recorded.GetError() );
+            }
+            if ( changed && held )
+            {
+                if ( const auto written =
+                          hierarchy.SetGlobalTransform( chosen, glm::inverse( entityWorld ) * gizmoWorld );
+                     !written )
+                {
+                    LOG_WARN( "[Animation] the control gizmo was refused: {}", written.GetError() );
+                }
+            }
+            if ( held || ImGuizmo::IsOver() )
+            {
+                // The gizmo owns the pointer: no shape pick or scene pick underneath it.
+                m_LightIconHovered = true;
+                return;
+            }
+        }
+        else if ( m_ControlGizmo.Active() )
+        {
+            m_ControlGizmo.Abandon();
         }
 
         if ( !ImGui::IsWindowHovered( ImGuiHoveredFlags_AllowWhenBlockedByActiveItem ) )

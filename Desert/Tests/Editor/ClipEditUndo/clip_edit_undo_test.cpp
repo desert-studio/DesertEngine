@@ -25,10 +25,12 @@
 #include <Engine/Animation/ClipSection.hpp>
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Rig/ControlKeyer.hpp>
+#include <Engine/Animation/Rig/ControlRigStage.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Animation/TrackEditing.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <gtest/gtest.h>
 
@@ -950,6 +952,143 @@ TEST( ControlDragUndo, TheEntryIsVolatileAndNamesAControlThatMustStillExist )
     // holding an out-of-range index would crash the first Ctrl+Z after it.
     EXPECT_FALSE( Desert::Editor::RecordControlDrag( &rig, 99U, before ).IsSuccess() );
     EXPECT_FALSE( Desert::Editor::RecordControlDrag( nullptr, control, before ).IsSuccess() );
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 0U );
+    CommandHistory::Get().Clear();
+}
+
+// ── THE PALETTE'S TURN REACHES THE BONE, AND THE GIZMO'S GESTURE IS ONE STEP (ANV2a) ────────────────────
+//
+// "Rotate selected Z +45" is only worth anything if the BONE turns: a control that rotates on screen while
+// the skeleton ignores it is the "silently does nothing" shape. So the assertion is on the bone the drive
+// names, read out of ControlRigStage::Evaluate, and the undo is asserted on that same bone.
+
+namespace
+{
+    namespace DA = Desert::Animation;
+
+    // 1 unit = 1 cm. Root -> Arm, both binds rotated so the bone's local space differs from component space.
+    DA::Skeleton MakeTwoBoneArm()
+    {
+        std::vector<DA::BoneInfo> bones( 2 );
+        bones[0].Name = "Root";
+        bones[0].LocalBindTransform =
+             glm::translate( glm::mat4( 1.0F ), glm::vec3( 0.0F, 100.0F, 0.0F ) ) *
+             glm::rotate( glm::mat4( 1.0F ), glm::radians( 20.0F ), glm::vec3( 0, 0, 1 ) );
+        bones[1].Name         = "Arm";
+        bones[1].ParentBoneID = 0U;
+        bones[1].LocalBindTransform =
+             glm::translate( glm::mat4( 1.0F ), glm::vec3( 30.0F, 0.0F, 0.0F ) ) *
+             glm::rotate( glm::mat4( 1.0F ), glm::radians( -10.0F ), glm::vec3( 1, 0, 0 ) );
+        DA::Skeleton skeleton( std::move( bones ) );
+        skeleton.RecomputeOffsetMatrices();
+        return skeleton;
+    }
+
+    // The Arm bone's local rotation after one evaluation of the stage over the bind pose.
+    glm::quat ArmAfterRig( DA::ControlRigStage& stage, const DA::Skeleton& skeleton )
+    {
+        auto bind = DA::LocalPose::FromBindPose( skeleton );
+        EXPECT_TRUE( bind.IsSuccess() );
+        DA::LocalPose     pose = std::move( bind.GetValue() );
+        DA::ComponentPose component( skeleton, pose );
+        const auto        evaluated = stage.Evaluate( skeleton, pose, component );
+        EXPECT_TRUE( evaluated.IsSuccess() ) << evaluated.GetError();
+        return pose[1].Rotation;
+    }
+} // namespace
+
+TEST( ControlRotateUndo, RotatingTheSelectedControlTurnsItsDrivenBoneAndOneUndoTurnsItBack )
+{
+    CommandHistory::Get().Clear();
+    const DA::Skeleton skeleton = MakeTwoBoneArm();
+
+    DA::ControlRigStage stage;
+    DA::ControlElement  elbow;
+    elbow.Name             = "Elbow_CTRL";
+    elbow.ShapeName        = "CircleXY";
+    elbow.Pose.Translation = glm::vec3( 25.0F, 110.0F, 4.0F );
+    elbow.Pose.Rotation    = glm::quat( glm::vec3( 0.2F, 0.0F, 0.3F ) );
+    elbow.Parents.push_back( DA::ControlSpace{ DA::ControlSpaceKind::Component, 0, 1.0F } );
+    const auto added = stage.GetHierarchy().Add( elbow );
+    ASSERT_TRUE( added.IsSuccess() ) << added.GetError();
+    const uint32_t control = added.GetValue();
+    const auto     drives  = stage.SetDrives( skeleton, { DA::ControlBoneDrive{ control, 1U } } );
+    ASSERT_TRUE( drives.IsSuccess() ) << drives.GetError();
+
+    const glm::quat before = ArmAfterRig( stage, skeleton );
+
+    const auto turned = Desert::Editor::RotateControlRecorded( &stage.GetHierarchy(), control, 2, 45.0F );
+    ASSERT_TRUE( turned.IsSuccess() ) << turned.GetError();
+    EXPECT_EQ( turned.GetValue(), 1U );
+    ASSERT_EQ( CommandHistory::Get().UndoStack().size(), 1U ) << "one turn must be exactly one undo step";
+
+    // THE BONE turned, by the stated 45 degrees: the control is in component space and the bone's local is
+    // parent^-1 * control, so before^-1 * after is the control's own local Z turn whatever the parent is.
+    const glm::quat after = ArmAfterRig( stage, skeleton );
+    EXPECT_NEAR( glm::degrees( glm::angle( glm::inverse( before ) * after ) ), 45.0F, 0.05F );
+
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    const glm::quat undone = ArmAfterRig( stage, skeleton );
+    EXPECT_LT( glm::degrees( glm::angle( glm::inverse( before ) * undone ) ), 0.05F )
+         << "undo must put the BONE back, not only the control";
+
+    EXPECT_FALSE( Desert::Editor::RotateControlRecorded( &stage.GetHierarchy(), 7U, 2, 45.0F ).IsSuccess() );
+    EXPECT_FALSE( Desert::Editor::RotateControlRecorded( nullptr, control, 2, 45.0F ).IsSuccess() );
+    CommandHistory::Get().Clear();
+}
+
+TEST( ControlGizmoGestureUndo, APressDragReleaseIsOneEntryHoweverManyFramesItMoved )
+{
+    CommandHistory::Get().Clear();
+    uint32_t control = 0;
+    auto     rig     = MakeRig( control );
+    ASSERT_NE( control, DA::ControlHierarchy::INVALID );
+    const BoneTransform grabbed = rig.Get( control ).Pose;
+
+    Desert::Editor::ControlGizmoGesture gesture;
+    // Forty held frames, each writing the control the way ImGuizmo's Manipulate does.
+    for ( int frame = 0; frame < 40; ++frame )
+    {
+        const auto step = gesture.Step( &rig, control, true );
+        ASSERT_TRUE( step.IsSuccess() ) << step.GetError();
+        EXPECT_EQ( step.GetValue(), 0U );
+        BoneTransform moved = rig.Get( control ).Pose;
+        moved.Translation += glm::vec3( 0.5F, 0.0F, 0.0F );
+        ASSERT_TRUE( rig.SetPose( control, moved ).IsSuccess() );
+    }
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 0U ) << "nothing is recorded while the gizmo is held";
+
+    const auto released = gesture.Step( &rig, control, false );
+    ASSERT_TRUE( released.IsSuccess() ) << released.GetError();
+    EXPECT_EQ( released.GetValue(), 1U );
+    ASSERT_EQ( CommandHistory::Get().UndoStack().size(), 1U );
+    EXPECT_FALSE( gesture.Active() );
+
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_TRUE( SameStoredValue( grabbed, rig.Get( control ).Pose ) ) << "one undo returns the whole gesture";
+
+    // A press and release that moved nothing is not an undo step.
+    CommandHistory::Get().Clear();
+    ASSERT_TRUE( gesture.Step( &rig, control, true ).IsSuccess() );
+    const auto still = gesture.Step( &rig, control, false );
+    ASSERT_TRUE( still.IsSuccess() );
+    EXPECT_EQ( still.GetValue(), 0U );
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 0U );
+    CommandHistory::Get().Clear();
+}
+
+TEST( ControlGizmoGestureUndo, AGestureWhoseControlChangedBeforeTheReleaseIsAbandonedNotRecorded )
+{
+    CommandHistory::Get().Clear();
+    uint32_t control = 0;
+    auto     rig     = MakeRig( control );
+    ASSERT_NE( control, DA::ControlHierarchy::INVALID );
+
+    Desert::Editor::ControlGizmoGesture gesture;
+    ASSERT_TRUE( gesture.Step( &rig, control, true ).IsSuccess() );
+    ASSERT_TRUE( rig.SetPose( control, Displaced() ).IsSuccess() );
+    EXPECT_FALSE( gesture.Step( &rig, control + 1U, false ).IsSuccess() );
+    EXPECT_FALSE( gesture.Active() );
     EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 0U );
     CommandHistory::Get().Clear();
 }

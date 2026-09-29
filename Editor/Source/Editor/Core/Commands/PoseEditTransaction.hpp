@@ -260,6 +260,56 @@ namespace Desert::Editor
                                                                  const Animation::BoneTransform& before );
 
     /**
+     * @brief Turn a control about one of its LOCAL axes (Animation::RotateControlLocal) and record the turn as
+     *        exactly one undo entry.
+     *
+     * The palette's "Control Rig / Rotate selected <axis> <deg>" is this call. It lives here and not inside
+     * EditorLayer so that "one entry per turn" is measured by a suite (ClipEditUndo) instead of asserted by a
+     * comment in a file no suite compiles.
+     *
+     * @return entries pushed (1; 0 only for a zero-degree turn, which moved nothing).
+     */
+    [[nodiscard]] Common::ResultStr<uint32_t> RotateControlRecorded( Animation::ControlHierarchy* hierarchy,
+                                                                     uint32_t control, int axis, float degrees );
+
+    /**
+     * @brief The viewport axis gizmo's gesture boundary: ONE undo entry per press-drag-release.
+     *
+     * ImGuizmo reports only "held this frame", and every held frame writes the control. Recording per frame
+     * would make one drag forty undo steps; recording nothing would make it none. This remembers the pose at
+     * the rising edge and records it against the control's pose at the falling edge — the same pairing the
+     * shape drag uses (RecordControlDrag), held by value.
+     *
+     * A gesture whose rig or control changed underneath it (selection moved, rig rebuilt) is ABANDONED on
+     * release rather than recorded: an entry addressed into a different rig is worth less than no entry.
+     */
+    class ControlGizmoGesture
+    {
+    public:
+        /// Call once per frame after the gizmo reported whether it is held and BEFORE this frame's write is
+        /// applied, so the rising edge captures the pose the gesture started from.
+        /// @return entries pushed this frame: 1 on the release of a gesture that moved the control, else 0.
+        [[nodiscard]] Common::ResultStr<uint32_t> Step( Animation::ControlHierarchy* hierarchy, uint32_t control,
+                                                        bool held );
+
+        [[nodiscard]] bool Active() const noexcept
+        {
+            return m_Active;
+        }
+
+        void Abandon() noexcept
+        {
+            m_Active = false;
+        }
+
+    private:
+        bool                         m_Active    = false;
+        Animation::ControlHierarchy* m_Hierarchy = nullptr;
+        uint32_t                     m_Control   = Animation::ControlHierarchy::INVALID;
+        Animation::BoneTransform     m_Before;
+    };
+
+    /**
      * @brief The interaction boundary, and the only thing that decides what "one undo step" means.
      *
      * TWO DRIVERS, BECAUSE THE TREE HAS TWO KINDS OF EDGE, and mixing them is how a transaction gets

@@ -4220,15 +4220,11 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "the selected control {} is not in a rig of {} controls",
                                                      *control, hierarchy.Size() );
         }
-        const Animation::BoneTransform before = hierarchy.Get( *control ).Pose;
-        if ( auto turned = Animation::RotateControlLocal( hierarchy, *control, axis, degrees ); !turned )
+        // One call for the turn AND its undo entry, so the one-entry rule is the suite's (ClipEditUndo) to
+        // measure.
+        if ( auto turned = RotateControlRecorded( &hierarchy, *control, axis, degrees ); !turned.IsSuccess() )
         {
-            return turned;
-        }
-        if ( auto recorded = RecordControlDrag( &hierarchy, *control, before ); !recorded.IsSuccess() )
-        {
-            return Common::MakeFormattedError<bool>( "the rotation was not recorded for undo: {}",
-                                                     recorded.GetError() );
+            return Common::MakeError<bool>( turned.GetError() );
         }
         return Common::MakeSuccess( true );
     }

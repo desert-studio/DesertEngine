@@ -3,6 +3,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/Rig/ControlManipulator.hpp>
 
 #include <algorithm>
 #include <utility>
@@ -269,6 +270,55 @@ namespace Desert::Editor
         CommandHistory::Get().PushCommand(
              std::make_unique<ControlPoseCommand>( hierarchy, control, before, after ) );
         return Common::MakeSuccess( 1U );
+    }
+
+    Common::ResultStr<uint32_t> RotateControlRecorded( Animation::ControlHierarchy* hierarchy, uint32_t control,
+                                                       int axis, float degrees )
+    {
+        if ( hierarchy == nullptr || control >= hierarchy->Size() )
+        {
+            return Common::MakeFormattedError<uint32_t>( "cannot rotate control {} of a rig with {} of them",
+                                                         control, hierarchy != nullptr ? hierarchy->Size() : 0U );
+        }
+        const Animation::BoneTransform before = hierarchy->Get( control ).Pose;
+        if ( auto turned = Animation::RotateControlLocal( *hierarchy, control, axis, degrees ); !turned )
+        {
+            return Common::MakeError<uint32_t>( turned.GetError() );
+        }
+        return RecordControlDrag( hierarchy, control, before );
+    }
+
+    Common::ResultStr<uint32_t> ControlGizmoGesture::Step( Animation::ControlHierarchy* hierarchy,
+                                                           uint32_t control, bool held )
+    {
+        if ( held && !m_Active )
+        {
+            if ( hierarchy == nullptr || control >= hierarchy->Size() )
+            {
+                return Common::MakeFormattedError<uint32_t>(
+                     "a gizmo gesture cannot start on control {} of a rig with {} of them", control,
+                     hierarchy != nullptr ? hierarchy->Size() : 0U );
+            }
+            m_Active    = true;
+            m_Hierarchy = hierarchy;
+            m_Control   = control;
+            m_Before    = hierarchy->Get( control ).Pose;
+            return Common::MakeSuccess( 0U );
+        }
+        if ( held || !m_Active )
+        {
+            return Common::MakeSuccess( 0U );
+        }
+
+        m_Active = false;
+        if ( hierarchy != m_Hierarchy || control != m_Control )
+        {
+            return Common::MakeFormattedError<uint32_t>(
+                 "the gizmo gesture on control {} was abandoned: the rig or the selection changed before the "
+                 "release (now control {})",
+                 m_Control, control );
+        }
+        return RecordControlDrag( hierarchy, control, m_Before );
     }
 
     // ── PoseEditTransaction ──────────────────────────────────────────────────────────────────────────
