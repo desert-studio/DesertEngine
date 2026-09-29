@@ -1752,7 +1752,7 @@ namespace Desert::Editor
                 // Handle 0 is an empty slot, not a lost asset.
                 const auto  handle = static_cast<uint64_t>( slots[i] );
                 const auto* meta   = m_Assets != nullptr ? m_Assets->FindMetadataByHandle( slots[i] ) : nullptr;
-                std::string name = std::format( "{:016x} (not registered)", handle );
+                std::string name   = std::format( "{:016x} (not registered)", handle );
                 if ( meta != nullptr )
                     name = meta->Filepath.filename().string();
                 else if ( handle == 0 )
