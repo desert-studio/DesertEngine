@@ -93,7 +93,7 @@ CHEAT_SHEET = """[agent_guard] А Р Х И Т Е К Т У Р А ПЕРВОЙ (в
 - чтение кода: grep -n <шаблон> <известный файл> → sed -n 'A,Bp' <файл> (≤150 строк) или Read(offset, limit≤150). НЕ cat / Read целиком.
 - тесты ПИШЕШЬ и КОМПИЛИРУЕШЬ, НЕ запускаешь (сюиты/tidy/склейки/handoff — только тимлид, 09-30); в REMAINDER «Сюиты для тимлида: …» + мутации. Сдача: последний коммит с темой «wip: …» → git push (полный handoff_check гоняет тимлид; не-wip без .cache/handoff/<HEAD>.ok хук откажет).
 - dev вливается только scripts/Dev/merge_dev.sh; сцены — scripts/Dev/migrate.sh; редактор — через run_capped.
-- сборка: build_quiet.sh в фоне + build_wait.sh; одна make на машине, -j≤4; sleep ≤ 270 с.
+- сборка: ОДИН раз в конце — build_quiet.sh в фоне + build_wait.sh (общий пул сборок машины, очереди нет); sleep ≤ 270 с.
 - формат диффа: /opt/homebrew/opt/llvm@18/bin/git-clang-format --binary /opt/homebrew/opt/llvm@18/bin/clang-format <база> (git-clang-format из PATH — v22, падает на -list-ignored; clang-format -i по файлу целиком НЕ запускать).
 - долгое (> 4 мин: мигратор, сборка) — run_in_background + ~/.claude/tools/wait_bg.sh <output-файл> (≤ 4 мин за вызов); timeout > 280 с — отказ, ход в ожидании уведомления не заканчивать.
 - CI не ждёшь: push → id прогона в отчёт → конец. Лимит 60 вызовов без продлений: остаток — REMAINDER.md в скретче."""
@@ -308,6 +308,8 @@ def self_check():
         "whole-file Read": {"tool_name": "Read", "tool_input": {"file_path": "/x/Desert/X.cpp"}},
         "edit .claude": {"tool_name": "Edit", "tool_input": {"file_path": "/x/.claude/tools/agent_guard.py"}},
         "push without handoff": {"tool_name": "Bash", "tool_input": {"command": "git -C " + os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + " push origin nothing-selfcheck"}},
+        "agent runs a suite": {"tool_name": "Bash", "tool_input": {"command": "bash scripts/Dev/suite.sh X"}},
+        "agent runs tidy": {"tool_name": "Bash", "tool_input": {"command": "bash scripts/CI/CheckTidy.sh abc"}},
         "merge dev by hand": {"tool_name": "Bash", "tool_input": {"command": "git merge origin/dev"}},
         "call longer than the cache": {"tool_name": "Bash", "tool_input": {"command": "scripts/Dev/suite.sh X",
                                                                            "timeout": 600000}},
