@@ -53,6 +53,8 @@ namespace
                       "  state [section ...]           read the editor's state as JSON (default: all)\n"
                       "  shot-window <file.png>        capture the WHOLE editor, interface included\n"
                       "  shot-viewport <file.png>      capture the 3D viewport only, no interface\n"
+                      "  drag <x,y> <x,y> [steps]      press, move and release the left mouse over the\n"
+                      "                                subject's image (pixels), through ImGui's input\n"
                       "  quit [code]                   end the session with that exit status\n"
                       "\n"
                       "  --wait <seconds>  wait for the socket to appear before connecting; an editor\n"
@@ -67,7 +69,8 @@ namespace
                       "                    the camera is placed without a capture flag; 'modeling' --\n"
                       "                    the Modeling panel's values; 'selection' -- the one selected\n"
                       "                    entity's Translation (cm), Rotation (radians) and Scale, set\n"
-                      "                    as one undo step, like a Details edit.\n"
+                      "                    as one undo step, like a Details edit. 'drag' aims at\n"
+                      "                    'document' (the Animation window's preview) or 'viewport'.\n"
                       "\n"
                       "Exit status: 0 the editor did it, 1 it refused (reason on stderr), 2 unreachable.\n" );
     }

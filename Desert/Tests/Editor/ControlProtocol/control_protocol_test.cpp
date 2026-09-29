@@ -169,6 +169,8 @@ TEST( ControlProtocol, EveryKnownOperationParses )
             line += R"(,"property":"RoughnessFactor","value":[0.25])";
         if ( IsShot( spec.Operation ) )
             line += R"(,"path":"/tmp/shot.png")";
+        if ( spec.Operation == Op::Drag )
+            line += R"(,"subject":"viewport","value":[1,2,3,4])";
         line += "}";
 
         const Request request = ParseOk( line );
@@ -719,12 +721,6 @@ TEST( ControlProtocol, ASelectionWriteRefusesAnUnknownFieldAWrongCountAndANaN )
     EXPECT_FALSE( WriteSelectionTransform( before, kSelectionScale, { 1.0f, std::nanf( "" ), 1.0f } ) );
 }
 
-int main( int argc, char** argv )
-{
-    ::testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
-}
-
 // ANV4: a drag is parsed with its four numbers and its subject, and refused without them.
 TEST( ControlPointerDrag, TheRequestCarriesFourNumbersStepsAndAnImageSubject )
 {
@@ -787,4 +783,10 @@ TEST( ControlPointerDrag, ATargetOlderThanOneFrameIsNotAimedAt )
     EXPECT_TRUE( C::PointerInjection::FreshTarget( C::Subject::Document, 6 ).has_value() );
     EXPECT_FALSE( C::PointerInjection::FreshTarget( C::Subject::Document, 7 ).has_value() );
     EXPECT_FALSE( C::PointerInjection::FreshTarget( C::Subject::Viewport, 5 ).has_value() );
+}
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }
