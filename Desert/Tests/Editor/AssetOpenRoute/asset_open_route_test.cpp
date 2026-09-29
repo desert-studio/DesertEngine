@@ -197,6 +197,62 @@ TEST( AssetOpenRegister, MatchesTheAssetEditorsEditorLayerRegisters )
     EXPECT_EQ( registered, opens );
 }
 
+namespace
+{
+    // The EditorLayer member each LoadScene call sits in: the last line before it that opens a member at
+    // namespace indent ("    <ret> EditorLayer::Name(" — four spaces, then not a comment).
+    std::multiset<std::string> LoadSceneCallers( const std::string& layer )
+    {
+        std::multiset<std::string> callers;
+        const std::regex           member( R"(^    (?:[^ /][^(]*)?EditorLayer::(\w+)\()" );
+        const std::regex           call( R"((^|[^:\w])LoadScene\()" );
+        std::istringstream         lines( layer );
+        std::string                line;
+        std::string                current;
+        std::smatch                match;
+        while ( std::getline( lines, line ) )
+        {
+            if ( std::regex_search( line, match, member ) )
+            {
+                current = match[1].str();
+                continue; // the definition line itself ("EditorLayer::LoadScene(") is not a call
+            }
+            const auto first = line.find_first_not_of( ' ' );
+            if ( first != std::string::npos && line.compare( first, 2, "//" ) != 0 &&
+                 std::regex_search( line, call ) )
+                callers.insert( current );
+        }
+        return callers;
+    }
+} // namespace
+
+// ONE PATH TO OPEN A SCENE (BUG-OPEN1). LoadScene replaces the world WITHOUT asking about unsaved edits; the
+// ask lives on SceneOpenRequest (consumed in OnUpdate), which the palette, a drop and the asset browser use.
+// The File -> Open Scene dialog and Recent Scenes called LoadScene directly and discarded edits silently.
+// So LoadScene may be called only from the places that are NOT a user choosing a scene, or that come after
+// the ask. Each row names its reason; a new caller is red here until it goes through SceneOpenRequest.
+TEST( SceneOpenRegister, OnlyTheGatedPlacesCallLoadScene )
+{
+    const std::string layer = ReadRepoFile( "Editor/Source/EditorLayer.cpp" );
+    ASSERT_FALSE( layer.empty() ) << "Editor/Source/EditorLayer.cpp not found from the working directory";
+
+    // clang-format off
+    const std::multiset<std::string> allowed = {
+        "EditorLayer",               // constructor: --scene and the shot's scene, before any edit exists
+        "EditorLayer",
+        "OnUpdate",                  // the SceneOpenRequest consumer, after the unsaved-changes check
+        "DrawRecoveryPopup",         // restoring an autosave the user just chose to recover
+        "DrawConfirmOpenScenePopup", // "Save and open" / "Discard and open" — the ask itself
+        "DrawConfirmOpenScenePopup",
+    };
+    // clang-format on
+    EXPECT_EQ( LoadSceneCallers( layer ), allowed );
+
+    // And the palette's "Open Scene <file>" entries go through the gate rather than around it.
+    const std::regex palette( R"("Open Scene " \+ SceneLabel\( scene \)[^}]*SceneOpenRequest::Request\()" );
+    EXPECT_TRUE( std::regex_search( layer, palette ) );
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
