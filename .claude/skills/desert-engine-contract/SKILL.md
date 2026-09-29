@@ -170,6 +170,23 @@ most expensive defects in this project all shipped built, tested and unseen.
    is never a pass. A macOS build runs it for you at the end unless you pass `--no-analyze`; CI runs
    it as its own job. Changed lines and not the tree, for the same reason the formatter works that
    way: `.clang-tidy` reports five figures of diagnostics over the workspace as it stands.
+3b. **How CheckTidy is run (owner, 2026-09-29 — measured, not taste).** One CheckTidy run takes
+   4+ minutes and they queue one after another on the machine; an agent that waits on it lets its
+   prompt cache expire and pays to re-read its whole context (L11c: 1.04 M units for 15 tidy lines,
+   247 k of them re-reading; ANV4f: 200 k). So:
+   - **The author runs it ONCE, before pushing**, together with `scripts/CI/CheckGluedText.sh`, on
+     the changed lines against the merge-base — **in the background**, doing other work meanwhile;
+     never a wait loop, never a second run "to confirm". The findings get fixed in the same commit.
+   - **A tidy-fix task gets the findings list (file:line + rule) and does NOT run CheckTidy at all.**
+     It fixes exactly those lines, runs the affected suite, formats the diff, commits. The re-check is
+     the hand-off's (`handoff_check.sh`), which runs tidy anyway. (M22c under this rule: 0 re-read.)
+   - **A tail of ≤ 25 mechanical findings after hand-off is fixed by the lead directly**, not by a new
+     agent: a separate agent for 20 lines cost 0.4 M and still skipped a file.
+   - Tidy on a **header alone** does not work (`'optional' file not found`); headers are checked
+     through a unit that includes them — that is what CheckTidy does, so don't improvise.
+   - After a **mutation** check, delete the suite's objects
+     (`build/Tests/Intermediates/Debug/Debug/<Suite>/*.o`) before the final run: a restored source
+     can leave the mutated object in place and turn the hand-off red (ANV4f, PreviewInput).
 4. No new TODOs, stubs or dead parameters.
 5. Tests on the pure logic, written and passing — **all suites, not the matching one**, and frames
    if the render changed. See `desert-engine-verify`.
