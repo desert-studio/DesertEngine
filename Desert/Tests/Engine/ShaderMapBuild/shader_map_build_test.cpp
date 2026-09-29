@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -70,6 +71,35 @@ namespace
             if ( Desert::Core::Preprocess::DShaderParser::MayDeclareMedium( source ) )
                 continue;
             requests.push_back( { std::move( source ), file, {}, {}, file.stem().string() } );
+        }
+
+        // No shipped shader may declare a named pass (ShippedShaderPasses holds that), so the second round
+        // — BootContent's per-pass build — has nothing to chew on in the engine's own folders. These
+        // programs give it several passes each, enough for the workers to overlap on that round too.
+        for ( int n = 0; n < 4; ++n )
+        {
+            const std::string name   = std::format( "MultiPass{}", n );
+            std::string       source = std::format( R"(Shader "{0}"
+{{
+    Vertex   {{ void main() {{ gl_Position = vec4( {1}.0 ); }} }}
+    Fragment {{ layout( location = 0 ) out vec4 c; void main() {{ c = vec4( {1}.0 ); }} }}
+
+    Pass "Shadow"
+    {{
+        Vertex   {{ void main() {{ gl_Position = vec4( {1}.5 ); }} }}
+        Fragment {{ layout( location = 0 ) out vec4 c; void main() {{ c = vec4( 0.25 ); }} }}
+    }}
+
+    Pass "Outline"
+    {{
+        Vertex   {{ void main() {{ gl_Position = vec4( 2.0 ); }} }}
+        Fragment {{ layout( location = 0 ) out vec4 c; void main() {{ c = vec4( {1}.0, 1.0, 0.0, 1.0 ); }} }}
+    }}
+}}
+)",
+                                                    name, n );
+            const auto path = std::filesystem::path( "Resources/Shaders/Programs/Test" ) / ( name + ".shader" );
+            requests.push_back( { std::move( source ), path, {}, {}, name } );
         }
         return requests;
     }
