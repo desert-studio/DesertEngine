@@ -16,6 +16,7 @@
 
 #include <cmath>
 #include <memory>
+#include <numbers>
 #include <string>
 #include <vector>
 
@@ -53,8 +54,10 @@ namespace
     std::vector<glm::vec3> CubeCorners( float half )
     {
         std::vector<glm::vec3> corners;
+        corners.reserve( 8 );
         for ( int i = 0; i < 8; ++i )
-            corners.emplace_back( ( i & 1 ) ? half : -half, ( i & 2 ) ? half : -half, ( i & 4 ) ? half : -half );
+            corners.emplace_back( ( i & 1 ) != 0 ? half : -half, ( i & 2 ) != 0 ? half : -half,
+                                  ( i & 4 ) != 0 ? half : -half );
         return corners;
     }
 
@@ -147,7 +150,7 @@ TEST( MeshCollision, ConvexHullOfADenseCloudIsSimplifiedNotRefused )
     for ( int i = 0; i < 40; ++i )
         for ( int j = 0; j < 50; ++j )
         {
-            const float theta = 3.14159265f * ( static_cast<float>( i ) + 0.5f ) / 40.0f;
+            const float theta = std::numbers::pi_v<float> * ( static_cast<float>( i ) + 0.5f ) / 40.0f;
             const float phi   = 6.2831853f * static_cast<float>( j ) / 50.0f;
             cloud.emplace_back( 100.0f * std::sin( theta ) * std::cos( phi ), 100.0f * std::cos( theta ),
                                 100.0f * std::sin( theta ) * std::sin( phi ) );
@@ -171,11 +174,14 @@ TEST( MeshCollision, RayMeetsTheTriangleItIsAimedAt )
 
     const auto hit = world.Physics.CastRay( { 400.0f, 1000.0f, 200.0f }, { 0.0f, -1.0f, 0.0f }, 5000.0f );
     ASSERT_TRUE( hit.has_value() );
+    // clang-tidy 18 does not see gtest's ASSERT as the check it is.
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_EQ( hit->Body, body.GetValue() );
     EXPECT_NEAR( hit->Point.y, 200.0f, 0.05f );
     EXPECT_NEAR( hit->Distance, 800.0f, 0.05f );
     const glm::vec3 normal = glm::normalize( glm::vec3( -0.5f, 1.0f, 0.0f ) );
     EXPECT_GT( glm::dot( hit->Normal, normal ), 0.999f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
 
     // Outside the triangle (x + z > 1000) there is nothing to meet.
     EXPECT_FALSE(
@@ -256,7 +262,7 @@ namespace
         static int dummy = 0;
         // The pointer is never dereferenced: PickColliderMeshSource only asks whether it is set.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        return std::shared_ptr<DynamicMesh>( std::shared_ptr<void>(), reinterpret_cast<DynamicMesh*>( &dummy ) );
+        return { std::shared_ptr<void>(), reinterpret_cast<DynamicMesh*>( &dummy ) };
     }
 
     // A unit cube (half extent 0.5), as the primitive factory makes it: the entity's scale gives it its size.

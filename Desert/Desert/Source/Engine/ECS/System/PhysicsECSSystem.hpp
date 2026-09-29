@@ -54,7 +54,7 @@ namespace Desert::ECS
         {
         }
 
-        void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer&,
+        void Update( entt::registry&         registry, Graphic::Render::RenderCommandBuffer&,
                      const Common::Timestep& ts ) override
         {
             using SceneState = Core::Scene::SceneState;
@@ -82,7 +82,7 @@ namespace Desert::ECS
 
             if ( !m_World )
             {
-                m_World = std::make_unique<Physics::PhysicsWorld>();
+                m_World          = std::make_unique<Physics::PhysicsWorld>();
                 m_AppliedGravity = m_Scene ? m_Scene->GetSettings().Gravity : Core::SceneSettings{}.Gravity;
                 m_World->Init( m_AppliedGravity );
                 m_Lifetime  = std::make_unique<PhysicsBodyLifetime>( *m_World );
@@ -141,9 +141,12 @@ namespace Desert::ECS
                 glm::mat3       basis( world ); // strip scale so quat_cast gives a clean rotation
                 const glm::vec3 worldScale( glm::length( basis[0] ), glm::length( basis[1] ),
                                             glm::length( basis[2] ) );
-                if ( glm::length( basis[0] ) > 1e-6f ) basis[0] = glm::normalize( basis[0] );
-                if ( glm::length( basis[1] ) > 1e-6f ) basis[1] = glm::normalize( basis[1] );
-                if ( glm::length( basis[2] ) > 1e-6f ) basis[2] = glm::normalize( basis[2] );
+                if ( glm::length( basis[0] ) > 1e-6f )
+                    basis[0] = glm::normalize( basis[0] );
+                if ( glm::length( basis[1] ) > 1e-6f )
+                    basis[1] = glm::normalize( basis[1] );
+                if ( glm::length( basis[2] ) > 1e-6f )
+                    basis[2] = glm::normalize( basis[2] );
                 desc.Rotation = glm::quat_cast( basis );
 
                 std::optional<ColliderMesh> colliderMesh;
@@ -157,7 +160,7 @@ namespace Desert::ECS
                     }
                     if ( !gathered.GetValue() )
                         continue; // the mesh asset is still loading: try again next frame
-                    colliderMesh     = std::move( *gathered.GetValue() );
+                    colliderMesh     = *gathered.GetValue();
                     desc.MeshPoints  = colliderMesh->Points;
                     desc.MeshIndices = colliderMesh->Indices;
                 }
@@ -181,12 +184,12 @@ namespace Desert::ECS
                 const auto& transform = characters.get<TransformComponent>( entity );
 
                 Physics::CharacterDesc desc;
-                desc.Radius      = cc.Data.Radius;
-                desc.HalfHeight  = glm::max( ( cc.Data.Height - 2.0f * cc.Data.Radius ) * 0.5f, 0.01f );
-                desc.Position    = transform.Translation; // capsule center
-                desc.MaxSlopeDeg = cc.Data.MaxSlopeDeg;
-                cc.RuntimeCharacter   = m_World->CreateCharacter( desc );
-                cc.VerticalVelocity   = 0.0f;
+                desc.Radius         = cc.Data.Radius;
+                desc.HalfHeight     = glm::max( ( cc.Data.Height - 2.0f * cc.Data.Radius ) * 0.5f, 0.01f );
+                desc.Position       = transform.Translation; // capsule center
+                desc.MaxSlopeDeg    = cc.Data.MaxSlopeDeg;
+                cc.RuntimeCharacter = m_World->CreateCharacter( desc );
+                cc.VerticalVelocity = 0.0f;
             }
 
             if ( !playing )
@@ -312,8 +315,14 @@ namespace Desert::ECS
                          mesh.RuntimeMesh->GetVertices(), mesh.RuntimeMesh->GetIndices(), scale ) ) );
                 case ColliderMeshSource::Primitive:
                 {
+                    // PickColliderMeshSource only returns Primitive when mesh.Primitive.has_value(); re-checked
+                    // here so the access below is never through an empty optional (tidy can't see across the
+                    // call).
+                    if ( !mesh.Primitive.has_value() )
+                        return Common::MakeError<Result>(
+                             "primitive collider mesh source picked without a primitive" );
                     const DynamicMesh* shared = Geometry::PrimitiveMeshFactory::GetShared( *mesh.Primitive );
-                    if ( !shared )
+                    if ( shared == nullptr )
                         return Common::MakeError<Result>( std::format( "primitive {} has no shared mesh",
                                                                        static_cast<int>( *mesh.Primitive ) ) );
                     return Common::MakeSuccess(
@@ -322,13 +331,13 @@ namespace Desert::ECS
                 case ColliderMeshSource::Asset:
                 {
                     const auto* service = Runtime::ResourceRegistry::GetMeshService();
-                    if ( !service )
+                    if ( service == nullptr )
                         return Common::MakeError<Result>( "no mesh service to read the collider's mesh from" );
                     const Assets::MeshAsset* asset = service->GetAsset( mesh.MeshHandle );
-                    if ( !asset )
+                    if ( asset == nullptr )
                         return Common::MakeSuccess( Result{} );
                     const auto* staticAsset = dynamic_cast<const Assets::StaticMeshAsset*>( asset );
-                    if ( !staticAsset )
+                    if ( staticAsset == nullptr )
                         return Common::MakeError<Result>(
                              "the StaticMesh's asset is skinned: a skinned mesh has no rest "
                              "collision, use a Box/Sphere/Capsule" );

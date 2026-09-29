@@ -918,7 +918,7 @@ namespace Desert::Editor
             // ConvexHull collider is cut from that mesh, so it cannot disagree with it.
             const bool fromMesh = c.Data.Shape == ::Desert::Physics::ShapeType::Mesh ||
                                   c.Data.Shape == ::Desert::Physics::ShapeType::ConvexHull;
-            if ( !ctx.FieldFilter && !fromMesh )
+            if ( ctx.FieldFilter == nullptr && !fromMesh )
             {
                 if ( const auto meshHalf = MeshHalfExtents( en ) )
                 {
