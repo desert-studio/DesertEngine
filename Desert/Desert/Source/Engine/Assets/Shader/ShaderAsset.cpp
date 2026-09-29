@@ -131,7 +131,7 @@ namespace Desert::Assets
                                                          Common::Content::HandleForGuid( guid.GetValue() ) ) ) ) )
             return Common::MakeError<std::string>(
                  std::format( "{} on {}: '{}' (GUID {}) is the PBRSurface template, which overrides nothing - the "
-                              "mesh draws its material slots; SceneMigrator v41 removes the key",
+                              "mesh draws its material slots; remove the key from the file",
                               site.Field, site.Context, ref.Path, ref.Guid ) );
         return name;
     }

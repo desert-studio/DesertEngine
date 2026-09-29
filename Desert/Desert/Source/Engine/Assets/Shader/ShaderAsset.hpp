@@ -80,7 +80,7 @@ namespace Desert::Assets
 
     // A MaterialComponent's Shader: the compile key of an OVERRIDE template. FindShaderNameByRef's refusals, and
     // a reference naming the `Role PBRSurface` template, which overrides nothing (the mesh draws its material
-    // slots; SceneMigrator v41 removed every such key from the files), refused by `site` with the path it states.
+    // slots; the corpus holds no such key), refused by `site` with the path it states.
     [[nodiscard]] Common::ResultStr<std::string>
     FindOverrideShaderNameByRef( const AssetManager& manager, const AssetGuidRef& ref, const AssetRefSite& site );
 

@@ -62,9 +62,7 @@ namespace Desert::Core
     // MigrateUndeclaredKeysV38ToV39), and the corpus is the saver's canonical text.
     // v40 (SPAWN1): Camera.IsMainCamera is Camera.AutoActivateForPlayer, default false; only a scene's sole
     // camera keeps it set (Tools/SceneMigrator, MigratePlayerViewFlagV39ToV40).
-    // v41 (MAT1g): a Material block's Shader names an override only; one naming the `Role PBRSurface`
-    // template is gone from the files (Tools/SceneMigrator, MigratePBRSurfaceShaderV40ToV41) and refused on load.
-    inline constexpr int kSceneVersion = 41;
+    inline constexpr int kSceneVersion = 40;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

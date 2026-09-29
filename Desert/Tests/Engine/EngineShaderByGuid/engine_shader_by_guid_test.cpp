@@ -331,6 +331,11 @@ namespace
            "compile key of the renderer's fallback surface program (MAT1a-T1 owns it)" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.cpp", "Terrain",
            "compile key of the terrain renderer's own program, not a material's template" },
+         { "Desert/Common/Source/Common/Content/ShaderAssetHeader.hpp", "Terrain",
+           "the ROLE's spelling (`Role Terrain`, kTerrainRole), which shares the word with the template" },
+         { "Desert/Desert/Source/Engine/Graphic/Clouds/CloudMaterialValues.hpp", "CloudRaymarch",
+           "compile key of the cloud renderer's own program, whose Properties block is the cloud material "
+           "schema" },
          { "Desert/Desert/Source/Engine/ECS/System/TextECSSystem.hpp", "TextSDF",
            "compile key of the text system's own program, not a material's template" },
          { "Desert/Desert/Source/Engine/Core/Formats/ShaderProgramMeta.hpp", "Terrain",
@@ -370,7 +375,7 @@ namespace
     }
 } // namespace
 
-// A MaterialComponent's Shader names an override only (MAT1g, scene v41): the PBRSurface template is refused
+// A MaterialComponent's Shader names an override only (MAT1g): the PBRSurface template is refused
 // with the path the reference states - not dropped, not substituted - and any other template resolves.
 TEST( EngineShaderByGuid, AComponentShaderNamingThePBRSurfaceTemplateIsRefused )
 {
