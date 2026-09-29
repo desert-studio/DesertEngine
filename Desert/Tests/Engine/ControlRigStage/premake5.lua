@@ -19,6 +19,7 @@ project(test_name)
         -- T5.5: the stage now owns a forwards solve, so the walk links with the stage that runs it.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Rig/RigGraph.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/AnimationClip.cpp",
         -- The section blend the Animator samples through (AnimationClip::SampleTrack). A header-inline
         -- call into a .cpp nobody linked is a LINK error and not a silent wrong answer, which is why
         -- ApplySection lives in a translation unit rather than in the header beside its caller.

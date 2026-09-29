@@ -509,7 +509,7 @@ TEST( AnimatorBlending, ANotifyFiresExactlyOncePerPassOverItsTime )
     for ( int step = 0; step < 20; ++step ) // 20 x 0.1 s = 2 s over a 1 s clip
     {
         animator.Update( Timestep( 0.1F ) );
-        fired += static_cast<int>( animator.ConsumeNotifies().size() );
+        fired += static_cast<int>( animator.ConsumeNotifyEvents().size() );
     }
     EXPECT_EQ( fired, 1 ) << "a marker at 0.5 s fired " << fired << " times in one non-looping pass";
 }
@@ -536,11 +536,11 @@ TEST( AnimatorBlending, ALoopingClipFiresItsNotifyOncePerLap )
     for ( int step = 0; step < 30; ++step ) // 3.0 s => three laps
     {
         animator.Update( Timestep( 0.1F ) );
-        for ( const auto& name : animator.ConsumeNotifies() )
+        for ( const auto& name : animator.ConsumeNotifyEvents() )
         {
-            if ( name == "MidStep" )
+            if ( name.Name == "MidStep" )
                 ++mid;
-            else if ( name == "LateStep" )
+            else if ( name.Name == "LateStep" )
                 ++late;
         }
     }
@@ -563,7 +563,7 @@ TEST( AnimatorBlending, ScrubbingDoesNotFireNotifies )
     animator.Play( clip, false );
     animator.SetTime( 0.9F ); // the Sequencer dragging the playhead past the marker
 
-    EXPECT_TRUE( animator.ConsumeNotifies().empty() )
+    EXPECT_TRUE( animator.ConsumeNotifyEvents().empty() )
          << "dragging the playhead fired gameplay events; scrubbing a timeline would spawn footstep VFX";
 }
 
@@ -571,4 +571,175 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// ── ANV3: notify states (UE's UAnimNotifyState) and anim curves (UE's FFloatCurve) ───────────────────
+
+namespace
+{
+    Animation::FrameNumber At( double seconds )
+    {
+        return NearestTick( SecondsToFrameTime( seconds, PROJECT_TICK_RATE ) );
+    }
+
+    AnimationNotify State( const char* name, double from, double to )
+    {
+        AnimationNotify notify{ name, At( from ) };
+        notify.DurationTicks = Animation::FrameNumber{ At( to ).Value - At( from ).Value };
+        return notify;
+    }
+
+    int Count( const std::vector<Animation::NotifyEvent>& events, const char* name,
+               Animation::NotifyEventKind kind )
+    {
+        return static_cast<int>(
+             std::count( events.begin(), events.end(), Animation::NotifyEvent{ name, kind } ) );
+    }
+
+    using Kind = Animation::NotifyEventKind;
+} // namespace
+
+TEST( AnimatorBlending, ANotifyStateBeginsAndEndsOnceOnAForwardPass )
+{
+    const Skeleton skeleton = MakeRig();
+    Animator       animator( skeleton );
+    AnimationClip  clip =
+         StaticClip( "Swing", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+    clip.Notifies.push_back( State( "Trail", 0.25, 0.65 ) );
+    animator.Play( clip, /*loop=*/false );
+
+    std::vector<Animation::NotifyEvent> events;
+    for ( int step = 0; step < 20; ++step )
+    {
+        animator.Update( Timestep( 0.1F ) );
+        if ( step == 4 ) // t = 0.5: inside the state
+        {
+            ASSERT_EQ( animator.GetActiveNotifyStates().size(), 1u );
+            EXPECT_EQ( animator.GetActiveNotifyStates()[0].Name, "Trail" );
+        }
+        const auto frame = animator.ConsumeNotifyEvents();
+        events.insert( events.end(), frame.begin(), frame.end() );
+    }
+    EXPECT_EQ( events,
+               ( std::vector<Animation::NotifyEvent>{ { "Trail", Kind::Begin }, { "Trail", Kind::End } } ) );
+    EXPECT_TRUE( animator.GetActiveNotifyStates().empty() );
+}
+
+TEST( AnimatorBlending, ANotifyStateBeginsAndEndsOncePerLapOfALoop )
+{
+    const Skeleton skeleton = MakeRig();
+    Animator       animator( skeleton );
+    AnimationClip  clip =
+         StaticClip( "Run", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+    // One state from the clip's first tick, one up to its last: the two halves a loop wrap touches.
+    clip.Notifies.push_back( State( "Early", 0.0, 0.2 ) );
+    clip.Notifies.push_back( State( "Late", 0.8, 1.0 ) );
+    animator.Play( clip, /*loop=*/true );
+
+    std::vector<Animation::NotifyEvent> events;
+    for ( int step = 0; step < 25; ++step ) // 2.5 s: laps at 0, 1, 2
+    {
+        animator.Update( Timestep( 0.1F ) );
+        const auto frame = animator.ConsumeNotifyEvents();
+        events.insert( events.end(), frame.begin(), frame.end() );
+    }
+    EXPECT_EQ( Count( events, "Early", Kind::Begin ), 3 );
+    EXPECT_EQ( Count( events, "Early", Kind::End ), 3 );
+    EXPECT_EQ( Count( events, "Late", Kind::Begin ), 2 );
+    EXPECT_EQ( Count( events, "Late", Kind::End ), 2 ) << "the state reaching the clip's end must End on the wrap";
+}
+
+TEST( AnimatorBlending, AScrubBackwardsEndsAStateAndFiresNoInstantNotify )
+{
+    const Skeleton skeleton = MakeRig();
+    Animator       animator( skeleton );
+    AnimationClip  clip =
+         StaticClip( "Swing", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+    clip.Notifies.push_back( State( "Trail", 0.3, 0.6 ) );
+    clip.Notifies.push_back( AnimationNotify{ "Hit", At( 0.45 ) } );
+    animator.Play( clip, /*loop=*/false );
+
+    animator.SetTime( 0.5F );
+    EXPECT_EQ( animator.ConsumeNotifyEvents(),
+               ( std::vector<Animation::NotifyEvent>{ { "Trail", Kind::Begin } } ) );
+    animator.SetTime( 0.1F ); // backwards, out of the state
+    EXPECT_EQ( animator.ConsumeNotifyEvents(), ( std::vector<Animation::NotifyEvent>{ { "Trail", Kind::End } } ) );
+    animator.SetTime( 0.9F ); // forwards over the whole state and the marker: a scrub is not playback
+    EXPECT_TRUE( animator.ConsumeNotifyEvents().empty() );
+    animator.SetTime( 0.4F ); // backwards, into the state
+    EXPECT_EQ( animator.ConsumeNotifyEvents(),
+               ( std::vector<Animation::NotifyEvent>{ { "Trail", Kind::Begin } } ) );
+}
+
+TEST( AnimatorBlending, AStateShorterThanTheFrameStillBeginsAndEnds )
+{
+    const Skeleton skeleton = MakeRig();
+    Animator       animator( skeleton );
+    AnimationClip  clip =
+         StaticClip( "Swing", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+    clip.Notifies.push_back( State( "Blip", 0.33, 0.36 ) );
+    animator.Play( clip, /*loop=*/false );
+
+    std::vector<Animation::NotifyEvent> events;
+    for ( int step = 0; step < 10; ++step )
+    {
+        animator.Update( Timestep( 0.1F ) );
+        const auto frame = animator.ConsumeNotifyEvents();
+        events.insert( events.end(), frame.begin(), frame.end() );
+    }
+    EXPECT_EQ( events, ( std::vector<Animation::NotifyEvent>{ { "Blip", Kind::Begin }, { "Blip", Kind::End } } ) );
+}
+
+TEST( AnimatorBlending, PlayingAnotherClipEndsTheActiveStates )
+{
+    const Skeleton skeleton = MakeRig();
+    Animator       animator( skeleton );
+    AnimationClip  clip =
+         StaticClip( "Swing", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+    clip.Notifies.push_back( State( "Trail", 0.0, 0.9 ) );
+    const AnimationClip other = StaticClip( "Idle", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
+    animator.Play( clip, false );
+    animator.Update( Timestep( 0.1F ) );
+    EXPECT_EQ( animator.ConsumeNotifyEvents(),
+               ( std::vector<Animation::NotifyEvent>{ { "Trail", Kind::Begin } } ) );
+    animator.Play( other, false );
+    EXPECT_EQ( animator.ConsumeNotifyEvents(), ( std::vector<Animation::NotifyEvent>{ { "Trail", Kind::End } } ) );
+}
+
+TEST( AnimatorBlending, ACurveIsSampledBetweenKeysByTheLaterKeysInterpolation )
+{
+    const Skeleton skeleton = MakeRig();
+    Animator       animator( skeleton );
+    AnimationClip  clip =
+         StaticClip( "Blink", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+
+    const auto curve = []( const char* name, Animation::KeyInterp interp )
+    {
+        Animation::AnimationCurve out{ name, {} };
+        Animation::ScalarKey      first;
+        first.Tick  = At( 0.0 );
+        first.Value = 0.0F;
+        Animation::ScalarKey last;
+        last.Tick   = At( 1.0 );
+        last.Value  = 10.0F;
+        last.Interp = interp;
+        out.Keys    = { first, last };
+        Animation::AutoSetTangents( out.Keys, PROJECT_TICK_RATE ); // end keys are flat
+        return out;
+    };
+    clip.Curves.push_back( curve( "Linear", Animation::KeyInterp::Linear ) );
+    clip.Curves.push_back( curve( "Constant", Animation::KeyInterp::Constant ) );
+    clip.Curves.push_back( curve( "Cubic", Animation::KeyInterp::Cubic ) );
+    animator.Play( clip, false );
+    animator.SetTime( 0.25F );
+
+    ASSERT_TRUE( animator.GetCurveValue( "Linear" ).has_value() );
+    EXPECT_NEAR( *animator.GetCurveValue( "Linear" ), 2.5F, 1e-4F );
+    EXPECT_NEAR( *animator.GetCurveValue( "Constant" ), 0.0F, 1e-6F ) << "constant holds the previous key";
+    // Flat tangents at both ends: the cubic is the smoothstep 10 * (3t^2 - 2t^3) at t = 0.25.
+    EXPECT_NEAR( *animator.GetCurveValue( "Cubic" ), 1.5625F, 1e-3F );
+    EXPECT_FALSE( animator.GetCurveValue( "Missing" ).has_value() ) << "no curve is not the value 0";
+
+    animator.SetTime( 1.0F );
+    EXPECT_NEAR( *animator.GetCurveValue( "Constant" ), 10.0F, 1e-6F );
 }

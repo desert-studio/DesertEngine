@@ -128,7 +128,10 @@ namespace Desert::Editor
     {
         SortNotifies( edited );
         const auto same = []( const Animation::AnimationNotify& a, const Animation::AnimationNotify& b )
-        { return a.Name == b.Name && a.Tick.Value == b.Tick.Value && a.Track == b.Track; };
+        {
+            return a.Name == b.Name && a.Tick.Value == b.Tick.Value && a.Track == b.Track &&
+                   a.DurationTicks.Value == b.DurationTicks.Value;
+        };
         if ( std::ranges::equal( edited, clip.Notifies, same ) )
             return false;
         std::vector<Animation::AnimationNotify> before = clip.Notifies;
@@ -138,5 +141,139 @@ namespace Desert::Editor
         if ( changed )
             changed();
         return true;
+    }
+
+    /**
+     * @brief Give notify @p index a length (UE: a Notify State) or take it away (0 = instant), as ONE undo
+     *        record. A drag of a state's end handle is one call on release, like a move.
+     * @return false, and no record, for an index out of range, a negative length or no change.
+     */
+    inline bool SetNotifyDuration( Animation::AnimationClip& clip, const size_t index,
+                                   const Animation::FrameNumber duration, CommandHistory& history,
+                                   const std::function<void()>& changed )
+    {
+        if ( index >= clip.Notifies.size() || duration.Value < 0 )
+            return false;
+        std::vector<Animation::AnimationNotify> edited = clip.Notifies;
+        edited[index].DurationTicks                    = duration;
+        return ApplyNotifyEdit( clip, std::move( edited ), "Set Notify Duration", history, changed );
+    }
+
+    /// One undo record for an anim-curve edit: the clip's whole curve list before and after.
+    class CurveEditCommand final : public ICommand
+    {
+    public:
+        CurveEditCommand( Animation::AnimationClip* clip, std::vector<Animation::AnimationCurve> before,
+                          std::vector<Animation::AnimationCurve> after, std::string label,
+                          std::function<void()> changed )
+             : m_Clip( clip ), m_Before( std::move( before ) ), m_After( std::move( after ) ),
+               m_Label( std::move( label ) ), m_Changed( std::move( changed ) )
+        {
+        }
+
+        bool Undo() override
+        {
+            return Set( m_Before );
+        }
+        bool Redo() override
+        {
+            return Set( m_After );
+        }
+        [[nodiscard]] std::string GetLabel() const override
+        {
+            return m_Label;
+        }
+
+    private:
+        bool Set( const std::vector<Animation::AnimationCurve>& curves )
+        {
+            if ( m_Clip == nullptr )
+                return false;
+            m_Clip->Curves = curves;
+            if ( m_Changed )
+                m_Changed();
+            return true;
+        }
+
+        Animation::AnimationClip*              m_Clip;
+        std::vector<Animation::AnimationCurve> m_Before;
+        std::vector<Animation::AnimationCurve> m_After;
+        std::string                            m_Label;
+        std::function<void()>                  m_Changed;
+    };
+
+    /**
+     * @brief Replace @p clip's anim curves with @p edited as ONE undo record. Keys are sorted by tick and
+     *        the Auto tangents recomputed here, so every edit leaves a curve the Animator can sample.
+     * @return false, and no record, when the edit changes nothing.
+     */
+    inline bool ApplyCurveEdit( Animation::AnimationClip& clip, std::vector<Animation::AnimationCurve> edited,
+                                std::string label, CommandHistory& history, const std::function<void()>& changed )
+    {
+        for ( auto& curve : edited )
+        {
+            std::ranges::stable_sort( curve.Keys, {}, []( const Animation::ScalarKey& k ) { return k.Tick; } );
+            Animation::AutoSetTangents( curve.Keys, clip.TickRate );
+        }
+        const auto sameKey = []( const Animation::ScalarKey& a, const Animation::ScalarKey& b )
+        {
+            return a.Tick == b.Tick && a.Value == b.Value && a.Interp == b.Interp && a.Mode == b.Mode &&
+                   a.ArriveTangent == b.ArriveTangent && a.LeaveTangent == b.LeaveTangent;
+        };
+        const auto same = [&sameKey]( const Animation::AnimationCurve& a, const Animation::AnimationCurve& b )
+        { return a.Name == b.Name && std::ranges::equal( a.Keys, b.Keys, sameKey ); };
+        if ( std::ranges::equal( edited, clip.Curves, same ) )
+            return false;
+        std::vector<Animation::AnimationCurve> before = clip.Curves;
+        clip.Curves                                   = edited;
+        history.PushCommand( std::make_unique<CurveEditCommand>( &clip, std::move( before ), std::move( edited ),
+                                                                 std::move( label ), changed ) );
+        if ( changed )
+            changed();
+        return true;
+    }
+
+    /**
+     * @brief Key anim curve @p name at @p tick (replacing a key already on that tick; creating the curve
+     *        when the clip has none of that name), as ONE undo record.
+     */
+    inline bool SetCurveKey( Animation::AnimationClip& clip, const std::string& name,
+                             const Animation::FrameNumber tick, const float value,
+                             const Animation::KeyInterp interp, CommandHistory& history,
+                             const std::function<void()>& changed )
+    {
+        if ( name.empty() )
+            return false;
+        std::vector<Animation::AnimationCurve> edited = clip.Curves;
+        auto curve = std::ranges::find( edited, name, &Animation::AnimationCurve::Name );
+        if ( curve == edited.end() )
+        {
+            edited.push_back( Animation::AnimationCurve{ name, {} } );
+            curve = edited.end() - 1;
+        }
+        auto key = std::ranges::find( curve->Keys, tick, &Animation::ScalarKey::Tick );
+        if ( key == curve->Keys.end() )
+        {
+            Animation::ScalarKey added;
+            added.Tick = tick;
+            curve->Keys.push_back( added );
+            key = curve->Keys.end() - 1;
+        }
+        key->Value  = value;
+        key->Interp = interp;
+        return ApplyCurveEdit( clip, std::move( edited ), "Set Curve Key", history, changed );
+    }
+
+    /// Remove the key of anim curve @p name at @p tick, as ONE undo record; false when there is none.
+    inline bool RemoveCurveKey( Animation::AnimationClip& clip, const std::string& name,
+                                const Animation::FrameNumber tick, CommandHistory& history,
+                                const std::function<void()>& changed )
+    {
+        std::vector<Animation::AnimationCurve> edited = clip.Curves;
+        const auto curve = std::ranges::find( edited, name, &Animation::AnimationCurve::Name );
+        if ( curve == edited.end() || std::erase_if( curve->Keys, [tick]( const Animation::ScalarKey& k )
+                                                     { return k.Tick == tick; } ) == 0 )
+            return false;
+        return ApplyCurveEdit( clip, std::move( edited ), "Remove Curve Key", history, changed );
     }
 } // namespace Desert::Editor

@@ -371,9 +371,10 @@ namespace Desert::ECS
         // two clips with different root motion means — and that question belongs with the locomotion work,
         // not with a checkbox nobody wired.
 
-        // Notify names fired by the Animator THIS frame (crossed clip markers). Filled by AnimationECSSystem,
-        // drained + dispatched to the entity's scripts (OnAnimationNotify) by ScriptSystem. Transient.
-        std::vector<std::string> PendingNotifies;
+        // Notify events of the Animator THIS frame (instant markers crossed, notify states begun / ended).
+        // Filled by AnimationECSSystem, drained + dispatched to the entity's scripts (OnAnimationNotify /
+        // OnAnimationNotifyBegin / OnAnimationNotifyEnd) by ScriptSystem. Transient.
+        std::vector<Animation::NotifyEvent> PendingNotifies;
 
         /**
          * @brief The `.danimgraph` this entity plays — a data-driven state machine that PICKS the clip

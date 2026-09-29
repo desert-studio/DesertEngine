@@ -103,10 +103,14 @@ TEST( AnimationClipFormat, AssetFieldCensus )
     // read under, which is report 05 §938's "from day one".
     // T7e (generation 4): `Version` moves into the text asset `Header`, beside the clip's GUID.
     EXPECT_EQ( FieldNames<Ser::AnimationAssetData>(),
-               ( std::vector<std::string>{ "Channels", "DisplayRate", "DurationTicks", "Header", "Name",
+               ( std::vector<std::string>{ "Channels", "Curves", "DisplayRate", "DurationTicks", "Header", "Name",
                                            "Notifies", "Sections", "SkeletonSignature", "TickRate" } ) );
     // ANV1b: a notify states the Animation Editor row it is drawn on (UE's Notify Tracks).
-    EXPECT_EQ( FieldNames<Ser::NotifyData>(), ( std::vector<std::string>{ "Name", "Tick", "Track" } ) );
+    // ANV3: and its length — a notify with one is UE's Notify State.
+    EXPECT_EQ( FieldNames<Ser::NotifyData>(),
+               ( std::vector<std::string>{ "DurationTicks", "Name", "Tick", "Track" } ) );
+    // ANV3: an anim curve is a name and the scalar keys a section weight already stores.
+    EXPECT_EQ( FieldNames<Ser::CurveData>(), ( std::vector<std::string>{ "Keys", "Name" } ) );
     EXPECT_EQ( FieldNames<Ser::FrameRateData>(), ( std::vector<std::string>{ "Denominator", "Numerator" } ) );
     EXPECT_EQ( FieldNames<Ser::SectionData>(),
                ( std::vector<std::string>{ "Blend", "EndTick", "Name", "StartTick", "Tracks", "Weight" } ) );
@@ -753,4 +757,61 @@ TEST( AnimationClipFormat, AScaleKeysSHAPEAndTANGENTSSurviveARoundTrip )
     EXPECT_EQ( static_cast<int>( loaded.Mode ), 1 );
     EXPECT_FLOAT_EQ( loaded.ArriveTangent.x, 0.25f );
     EXPECT_FLOAT_EQ( loaded.LeaveTangent.x, -0.75f );
+}
+
+// ANV3: a notify state's length and an anim curve's keys survive the file, the build and the write back —
+// one clip through JSON text, not two structs compared field by field.
+TEST( AnimationClipFormat, NotifyStatesAndCurvesSurviveTheFileRoundTrip )
+{
+    Ser::AnimationAssetData data;
+    data.Name          = "Curved";
+    data.DurationTicks = 24000;
+    data.Notifies      = { { "Trail", 4800, 1, 7200 }, { "Hit", 2400, 0, 0 } };
+    Ser::CurveData blink;
+    blink.Name  = "Blink";
+    blink.Keys  = { { 0, 0.0f, Ser::KeyShape{ 1, 0, 0.0f, 0.0f }, 0.0f, 0.0f },
+                    { 12000, 1.0f, Ser::KeyShape{ 2, 1, 0.0f, 0.0f }, 0.5f, -0.25f },
+                    { 24000, 0.0f, Ser::KeyShape{ 0, 0, 0.0f, 0.0f }, 0.0f, 0.0f } };
+    data.Curves = { blink };
+
+    const auto read = rfl::json::read<Ser::AnimationAssetData>( rfl::json::write( data ) );
+    ASSERT_TRUE( read ) << read.error().what();
+    const auto built = Ser::BuildClipFromAssetData( read.value() );
+    ASSERT_TRUE( built ) << built.GetError();
+    const auto& clip = built.GetValue();
+    ASSERT_EQ( clip.Notifies.size(), 2u );
+    EXPECT_EQ( clip.Notifies[1].Name, "Trail" );
+    EXPECT_EQ( clip.Notifies[1].DurationTicks.Value, 7200 );
+    EXPECT_TRUE( clip.Notifies[1].IsState() );
+    EXPECT_FALSE( clip.Notifies[0].IsState() );
+    const auto* curve = clip.FindCurve( "Blink" );
+    ASSERT_NE( curve, nullptr );
+    ASSERT_EQ( curve->Keys.size(), 3u );
+    EXPECT_EQ( curve->Keys[1].Interp, Desert::Animation::KeyInterp::Cubic );
+    EXPECT_EQ( curve->Keys[1].Mode, Desert::Animation::TangentMode::User );
+    EXPECT_EQ( curve->Keys[2].Interp, Desert::Animation::KeyInterp::Constant );
+
+    const auto back = Ser::BuildAssetDataFromClip( clip );
+    ASSERT_EQ( back.Curves.size(), 1u );
+    EXPECT_EQ( rfl::json::write( back.Curves[0] ), rfl::json::write( blink ) );
+    ASSERT_EQ( back.Notifies.size(), 2u );
+    EXPECT_EQ( back.Notifies[1].DurationTicks, 7200 );
+}
+
+TEST( AnimationClipFormat, ANegativeNotifyLengthAndATwiceNamedCurveAreRefusedByName )
+{
+    Ser::AnimationAssetData data;
+    data.Name           = "Broken";
+    data.Notifies       = { { "Trail", 4800, 0, -1 } };
+    const auto negative = Ser::BuildClipFromAssetData( data );
+    ASSERT_FALSE( negative );
+    EXPECT_NE( negative.GetError().find( "Trail" ), std::string::npos ) << negative.GetError();
+
+    data.Notifies.clear();
+    Ser::CurveData twice;
+    twice.Name           = "Blink";
+    data.Curves          = { twice, twice };
+    const auto duplicate = Ser::BuildClipFromAssetData( data );
+    ASSERT_FALSE( duplicate );
+    EXPECT_NE( duplicate.GetError().find( "Blink" ), std::string::npos ) << duplicate.GetError();
 }

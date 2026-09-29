@@ -1087,6 +1087,16 @@ namespace Desert::Tests::PointerCensus
         { "Editor/Source/Editor/Packaging/PackagedContentTrees.hpp",
           "PackagedTree", "EditorOnlySubtree", Guard::StaticStorage,
           "a string literal (Editor, Gizmo) or nullptr, held by the PackagedContentTrees() table entry" },
+        { "Editor/Source/Editor/Panels/AnimationEditor/AnimationNotifyTracks.hpp",
+          "NotifyEditCommand", "m_Clip", Guard::Debt,
+          "the Animation Editor document's clip; the record sits in the process-wide CommandHistory, which "
+          "nothing clears when the document closes, so an Undo after closing writes through a dead clip",
+          "ANV1c" },
+        { "Editor/Source/Editor/Panels/AnimationEditor/AnimationNotifyTracks.hpp",
+          "CurveEditCommand", "m_Clip", Guard::Debt,
+          "the same clip and the same history as NotifyEditCommand::m_Clip, with the same hole: closing the "
+          "document must drop its records (or the records must name the clip by asset, not address)",
+          "ANV1c" },
         { "Editor/Source/Editor/Panels/Animation/AnimGraphPanel.hpp",
           "AnimGraphPanel", "kComponentTypeName", Guard::StaticStorage,
           "a string literal, held by a constexpr/static table entry" },
