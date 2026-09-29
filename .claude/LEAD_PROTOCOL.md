@@ -25,6 +25,7 @@
   (2) только если чисто и не sparse — switch + premake с проверкой rc. НИКОГДА `switch -f` (снёс 625 правок laneWP); `DesertEngine-CIA` — sparse, агентам не давать.
 - **Цепочка = интеграционная ветка** (int/mat, int/surf, int/thm): куски вливаются в неё, конфликты — тимлид/агент-фиксер, один handoff на цепочку.
   Первый handoff цепочки даёт ~6 красных сюит и ~90 строк tidy — планировать 2–3 фикс-агента основной моделью.
+- **Статистика идей процесса (владелец 09-30):** на запуск `~/.claude/tools/process_event.py launch <код> <id> <теги>` (live-only/plan-executor/pipeline/after=<код>/iface/lead-checks/compile-once/pool/wave=<имя>), на приём `done|wip`, также code-ready, handoff-start/end, merged-dev; раз в 3–4 приёма `process_event.py report` → вывод владельцу цифрами (работает идея или нет).
 - **Приём:** ledger.py; «stopped with background work» → TaskStop сразу; остаток — свежий агент с REMAINDER + картой.
 - **Токены:** волна 9 агентов = 9,7k/вызов, expiry 0,1 % — параллель не удорожает вызов; ограничивают диск (≥ 6 ГБ свободно) и make. Главный рычаг — доля wip-сдач.
 - **Передача сессии:** handover в память ВТОРОЙ строкой MEMORY.md (после «Архитектура первой»): что идёт (дерево/ветка/агент), ветки к слиянию, очередь, решения
