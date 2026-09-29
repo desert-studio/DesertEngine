@@ -3,6 +3,7 @@
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
 #include <Engine/ECS/System/LandscapeCollision.hpp>
+#include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -11,13 +12,24 @@
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
+#include <Engine/Geometry/DynamicMesh.hpp>
+#include <Engine/Geometry/PrimitiveMeshFactory.hpp>
+
+#include <Common/Core/Logger.hpp>
 
 #include <Common/Core/KeyCodes.hpp>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <format>
 #include <memory>
+#include <optional>
+#include <unordered_set>
+#include <string>
+#include <vector>
 
 namespace Desert::ECS
 {
@@ -42,7 +54,7 @@ namespace Desert::ECS
         {
         }
 
-        void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer&,
+        void Update( entt::registry&         registry, Graphic::Render::RenderCommandBuffer&,
                      const Common::Timestep& ts ) override
         {
             using SceneState = Core::Scene::SceneState;
@@ -58,6 +70,7 @@ namespace Desert::ECS
                 if ( m_World )
                 {
                     m_Lifetime.reset(); // stop releasing into a world that is about to stop existing
+                    m_RefusedColliders.clear();
                     m_Landscape.reset();
                     m_World->Shutdown();
                     m_World.reset();
@@ -69,7 +82,7 @@ namespace Desert::ECS
 
             if ( !m_World )
             {
-                m_World = std::make_unique<Physics::PhysicsWorld>();
+                m_World          = std::make_unique<Physics::PhysicsWorld>();
                 m_AppliedGravity = m_Scene ? m_Scene->GetSettings().Gravity : Core::SceneSettings{}.Gravity;
                 m_World->Init( m_AppliedGravity );
                 m_Lifetime  = std::make_unique<PhysicsBodyLifetime>( *m_World );
@@ -95,7 +108,7 @@ namespace Desert::ECS
             for ( auto entity : bodies )
             {
                 auto& rb = bodies.get<RigidBodyComponent>( entity );
-                if ( rb.RuntimeBody != Physics::kInvalidBody )
+                if ( rb.RuntimeBody != Physics::kInvalidBody || m_RefusedColliders.contains( entity ) )
                     continue;
 
                 const auto& transform = bodies.get<TransformComponent>( entity );
@@ -125,13 +138,40 @@ namespace Desert::ECS
                         world = registry.get<TransformComponent>( cur ).GetTransform() * world;
                 }
                 desc.Position = glm::vec3( world[3] );
-                glm::mat3 basis( world ); // strip scale so quat_cast gives a clean rotation
-                if ( glm::length( basis[0] ) > 1e-6f ) basis[0] = glm::normalize( basis[0] );
-                if ( glm::length( basis[1] ) > 1e-6f ) basis[1] = glm::normalize( basis[1] );
-                if ( glm::length( basis[2] ) > 1e-6f ) basis[2] = glm::normalize( basis[2] );
+                glm::mat3       basis( world ); // strip scale so quat_cast gives a clean rotation
+                const glm::vec3 worldScale( glm::length( basis[0] ), glm::length( basis[1] ),
+                                            glm::length( basis[2] ) );
+                if ( glm::length( basis[0] ) > 1e-6f )
+                    basis[0] = glm::normalize( basis[0] );
+                if ( glm::length( basis[1] ) > 1e-6f )
+                    basis[1] = glm::normalize( basis[1] );
+                if ( glm::length( basis[2] ) > 1e-6f )
+                    basis[2] = glm::normalize( basis[2] );
                 desc.Rotation = glm::quat_cast( basis );
 
-                rb.RuntimeBody = m_World->CreateBody( desc );
+                std::optional<ColliderMesh> colliderMesh;
+                if ( desc.Shape == Physics::ShapeType::Mesh || desc.Shape == Physics::ShapeType::ConvexHull )
+                {
+                    auto gathered = GatherColliderMesh( registry, entity, worldScale );
+                    if ( !gathered.IsSuccess() )
+                    {
+                        RefuseCollider( entity, gathered.GetError() );
+                        continue;
+                    }
+                    if ( !gathered.GetValue() )
+                        continue; // the mesh asset is still loading: try again next frame
+                    colliderMesh     = *gathered.GetValue();
+                    desc.MeshPoints  = colliderMesh->Points;
+                    desc.MeshIndices = colliderMesh->Indices;
+                }
+
+                auto created = m_World->CreateBody( desc );
+                if ( !created.IsSuccess() )
+                {
+                    RefuseCollider( entity, created.GetError() );
+                    continue;
+                }
+                rb.RuntimeBody = created.GetValue();
             }
 
             // Create a Jolt CharacterVirtual for any character entity that doesn't have one (authored pose).
@@ -144,12 +184,12 @@ namespace Desert::ECS
                 const auto& transform = characters.get<TransformComponent>( entity );
 
                 Physics::CharacterDesc desc;
-                desc.Radius      = cc.Data.Radius;
-                desc.HalfHeight  = glm::max( ( cc.Data.Height - 2.0f * cc.Data.Radius ) * 0.5f, 0.01f );
-                desc.Position    = transform.Translation; // capsule center
-                desc.MaxSlopeDeg = cc.Data.MaxSlopeDeg;
-                cc.RuntimeCharacter   = m_World->CreateCharacter( desc );
-                cc.VerticalVelocity   = 0.0f;
+                desc.Radius         = cc.Data.Radius;
+                desc.HalfHeight     = glm::max( ( cc.Data.Height - 2.0f * cc.Data.Radius ) * 0.5f, 0.01f );
+                desc.Position       = transform.Translation; // capsule center
+                desc.MaxSlopeDeg    = cc.Data.MaxSlopeDeg;
+                cc.RuntimeCharacter = m_World->CreateCharacter( desc );
+                cc.VerticalVelocity = 0.0f;
             }
 
             if ( !playing )
@@ -258,6 +298,65 @@ namespace Desert::ECS
         }
 
     private:
+        // nullopt = the asset is still loading; an error = there is nothing to build from.
+        static Common::ResultStr<std::optional<ColliderMesh>>
+        GatherColliderMesh( entt::registry& registry, entt::entity entity, const glm::vec3& scale )
+        {
+            using Result = std::optional<ColliderMesh>;
+            if ( !registry.has<StaticMeshComponent>( entity ) )
+                return Common::MakeError<Result>(
+                     "the collider builds from its entity's StaticMesh, and there is none" );
+            const auto& mesh = registry.get<StaticMeshComponent>( entity );
+
+            switch ( PickColliderMeshSource( mesh ) )
+            {
+                case ColliderMeshSource::RuntimeMesh:
+                    return Common::MakeSuccess( Result( BuildColliderMesh(
+                         mesh.RuntimeMesh->GetVertices(), mesh.RuntimeMesh->GetIndices(), scale ) ) );
+                case ColliderMeshSource::Primitive:
+                {
+                    // PickColliderMeshSource only returns Primitive when mesh.Primitive.has_value(); re-checked
+                    // here so the access below is never through an empty optional (tidy can't see across the
+                    // call).
+                    if ( !mesh.Primitive.has_value() )
+                        return Common::MakeError<Result>(
+                             "primitive collider mesh source picked without a primitive" );
+                    const DynamicMesh* shared = Geometry::PrimitiveMeshFactory::GetShared( *mesh.Primitive );
+                    if ( shared == nullptr )
+                        return Common::MakeError<Result>( std::format( "primitive {} has no shared mesh",
+                                                                       static_cast<int>( *mesh.Primitive ) ) );
+                    return Common::MakeSuccess(
+                         Result( BuildColliderMesh( shared->GetVertices(), shared->GetIndices(), scale ) ) );
+                }
+                case ColliderMeshSource::Asset:
+                {
+                    const auto* service = Runtime::ResourceRegistry::GetMeshService();
+                    if ( service == nullptr )
+                        return Common::MakeError<Result>( "no mesh service to read the collider's mesh from" );
+                    const Assets::MeshAsset* asset = service->GetAsset( mesh.MeshHandle );
+                    if ( asset == nullptr )
+                        return Common::MakeSuccess( Result{} );
+                    const auto* staticAsset = dynamic_cast<const Assets::StaticMeshAsset*>( asset );
+                    if ( staticAsset == nullptr )
+                        return Common::MakeError<Result>(
+                             "the StaticMesh's asset is skinned: a skinned mesh has no rest "
+                             "collision, use a Box/Sphere/Capsule" );
+                    return Common::MakeSuccess( Result(
+                         BuildColliderMesh( staticAsset->GetVertices(), staticAsset->GetIndices(), scale ) ) );
+                }
+                case ColliderMeshSource::None:
+                    break;
+            }
+            return Common::MakeError<Result>( "the entity's StaticMesh has no mesh assigned" );
+        }
+
+        // Said once per entity per Play: a refused collider would otherwise be retried, and logged, every frame.
+        void RefuseCollider( entt::entity entity, const std::string& reason )
+        {
+            m_RefusedColliders.insert( entity );
+            LOG_ERROR( "[Physics] entity {} has no body: {}", static_cast<uint32_t>( entity ), reason );
+        }
+
         Core::Scene*                           m_Scene = nullptr;
         std::unique_ptr<Physics::PhysicsWorld> m_World;
         // Declared AFTER m_World so it is destroyed first: it releases into the world, never the other way.
@@ -266,5 +365,7 @@ namespace Desert::ECS
         std::unique_ptr<LandscapeCollision> m_Landscape;
         // Last value handed to the world, so a change in SceneSettings can be noticed without asking Jolt.
         float m_AppliedGravity = 0.0f;
+        // Entities whose collider was refused during this Play; cleared with the world.
+        std::unordered_set<entt::entity> m_RefusedColliders;
     };
 } // namespace Desert::ECS

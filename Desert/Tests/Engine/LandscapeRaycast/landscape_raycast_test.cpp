@@ -511,7 +511,8 @@ TEST( LandscapeCollision, ABallRollsAcrossTheSeamsWithoutSinkingOrHopping )
     ball.Mass        = 10.0f;
     ball.Restitution = 0.0f;
     ball.Position    = glm::vec3( startX, startY, startZ );
-    const auto body  = jolt.World.CreateBody( ball );
+    const auto created = jolt.World.CreateBody( ball );
+    const auto body    = created.GetValue();
     ASSERT_NE( body, Physics::kInvalidBody );
     jolt.World.SetLinearVelocity( body, glm::vec3( 250.0f, 0.0f, -150.0f ) );
 
@@ -559,7 +560,8 @@ TEST( LandscapeCollision, ABallOverTheFourTileCornerOfHillsStaysAbove )
     ball.Type   = Physics::BodyType::Dynamic;
     ball.Position =
          glm::vec3( seamX - 500.0f, *land.Height( seamX - 500.0f, seamZ - 450.0f ) + 200.0f, seamZ - 450.0f );
-    const auto body = jolt.World.CreateBody( ball );
+    const auto created = jolt.World.CreateBody( ball );
+    const auto body    = created.GetValue();
     jolt.World.SetLinearVelocity( body, glm::vec3( 400.0f, 0.0f, 360.0f ) );
 
     float worstSink = 0.0f;

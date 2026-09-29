@@ -73,6 +73,10 @@ namespace Desert::Editor
                     std::snprintf( buf, sizeof( buf ), "Capsule - radius %.1f cm, half height %.1f cm", c.Radius,
                                    c.HalfHeight );
                     break;
+                case Physics::ShapeType::Mesh:
+                    return "Mesh - the mesh's own triangles (static bodies only)";
+                case Physics::ShapeType::ConvexHull:
+                    return "Convex hull of the mesh";
                 case Physics::ShapeType::Box:
                 default:
                     std::snprintf( buf, sizeof( buf ), "Box - %.1f x %.1f x %.1f cm", c.HalfExtents.x * 2.0f,

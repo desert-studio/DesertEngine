@@ -167,6 +167,10 @@ namespace Desert::Editor::Render
                     AddCircle( outLines, center, axisY, axisZ, r );
                     break;
                 }
+                case Physics::ShapeType::Mesh:
+                case Physics::ShapeType::ConvexHull:
+                    // Built from the entity's own mesh, which is already drawn: an outline would repeat it.
+                    break;
                 case Physics::ShapeType::Capsule:
                 {
                     // Jolt capsule: axis along local Y; HalfHeight is the CYLINDER half-length,
