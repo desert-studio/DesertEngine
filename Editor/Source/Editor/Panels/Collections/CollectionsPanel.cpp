@@ -19,6 +19,7 @@
 #include <Editor/Import/MeshDnD.hpp>
 #include <Editor/Import/MeshMaterial.hpp>
 #include <Editor/Import/ImportManager.hpp>
+#include <Editor/Import/TextureChannelPack.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
@@ -218,10 +219,30 @@ namespace Desert::Editor
                 // because nothing re-cooks them.
                 const Assets::AssetHandle albedo    = resolveTex( mat.Albedo );
                 const Assets::AssetHandle normal    = resolveTex( mat.Normal );
-                const Assets::AssetHandle roughness = resolveTex( mat.Roughness );
-                const Assets::AssetHandle metallic  = resolveTex( mat.Metallic );
-                const Assets::AssetHandle ao        = resolveTex( mat.AO );
                 const Assets::AssetHandle opacity   = resolveTex( mat.Opacity );
+
+                // ONE ORM SLOT (MAT1a): the PBR templates read occlusion, roughness and metal from u_ORMTexture
+                // (.r / .g / .b). A collection names the three as separate images, so they are packed into one
+                // derived texture beside them — the importer's own packer, so the name, the GUID (kept by path)
+                // and the "unchanged inputs are not rewritten" rule are the ones a mesh import gets.
+                ImportedTextureSlot orm{ .Slot = "u_ORMTexture", .Parts = {}, .TemplateChannels = "rgb" };
+                for ( const auto& [source, channel] :
+                      { std::pair{ &mat.AO, "r" }, std::pair{ &mat.Roughness, "g" },
+                        std::pair{ &mat.Metallic, "b" } } )
+                    if ( *source && !( *source )->empty() )
+                        orm.Parts.push_back( { std::filesystem::path( **source ), channel } );
+                Assets::AssetHandle ormTexture = Common::UUID::Null();
+                if ( !orm.Parts.empty() )
+                {
+                    const std::filesystem::path packedPath = PackedTexturePath( orm );
+                    if ( const auto packed = PackTextureChannels( orm, packedPath ); packed )
+                        ormTexture = resolveTex( packedPath.generic_string() );
+                    else
+                    {
+                        LOG_ERROR( "[Collections] material '{}': {}; its ORM slot stays empty", mat.Name,
+                                   packed.GetError() );
+                    }
+                }
 
                 const std::string key = "meshes/" + SanitizeName( mat.Name ) +
                                         std::string( Common::Constants::Extensions::MATERIAL_EXTENSION );
@@ -238,10 +259,12 @@ namespace Desert::Editor
                 Assets::PBRSurfaceParams p;
                 p.AlbedoTexture    = albedo;
                 p.NormalTexture    = normal;
-                p.RoughnessTexture = roughness;
-                p.MetallicTexture  = metallic;
-                p.AOTexture        = ao;
                 p.OpacityTexture   = opacity;
+                // The map is the value (factor x map, glTF's rule): a stated map runs at factor 1.
+                if ( mat.Roughness )
+                    p.RoughnessFactor = 1.0f;
+                if ( mat.Metallic )
+                    p.MetallicFactor = 1.0f;
                 p.AlphaCutoff      = mat.AlphaCutoff.value_or( mat.Opacity ? 0.5f : 0.0f );
 
                 Assets::MaterialData data = p.ToMaterialData();
@@ -262,9 +285,7 @@ namespace Desert::Editor
                 };
                 stateTexture( "u_AlbedoTexture", albedo );
                 stateTexture( "u_NormalTexture", normal );
-                stateTexture( "u_RoughnessTexture", roughness );
-                stateTexture( "u_MetallicTexture", metallic );
-                stateTexture( "u_AOTexture", ao );
+                stateTexture( "u_ORMTexture", ormTexture );
                 stateTexture( "u_OpacityTexture", opacity );
                 data.Header = header;
                 data        = Assets::StampMaterialHeader( std::move( data ) );
@@ -636,7 +657,8 @@ namespace Desert::Editor
         // capture keep showing the old shape, and — because ThumbnailService used to ask the same
         // impoverished question — never get a new one (Editor/Widgets/ThumbnailFreshness.hpp).
         if ( m_UIHelper && m_Thumbs &&
-             ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( pngPath, cookedStr ) ) ==
+             ThumbnailFreshness::Judge(
+                  ThumbnailFreshness::Observe( pngPath, ThumbnailFreshness::MeshFreshnessSource( cookedStr ) ) ) ==
                   ThumbnailFreshness::Verdict::Show )
         {
             if ( auto image = m_Thumbs->Get( pngPath ) )

@@ -27,6 +27,7 @@
 
 #include <Editor/Widgets/CloudThumbnail.hpp>
 #include <Editor/Widgets/ThumbnailFormats.hpp>
+#include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailSubject.hpp>
 
 #include <gtest/gtest.h>
@@ -552,7 +553,7 @@ TEST( ThumbnailMaterialDomains, APictureExistsForExactlyTheDomainsADrawPathCanEx
     for ( const F::ShaderDomain domain : kAllDomains )
     {
         const bool drawable = F::DrawnByMeshPath( domain ) || F::DrawnByVolumePath( domain );
-        EXPECT_EQ( TS::PreviewForDomain( domain, false ).has_value(), drawable )
+        EXPECT_EQ( TS::PreviewForDomain( domain ).has_value(), drawable )
              << "domain " << F::ShaderDomainName( domain )
              << ": the thumbnail router and the draw paths disagree about whether this can be drawn at "
                 "all. Either a capture is queued that MeshRenderer will refuse (and its empty frame "
@@ -566,22 +567,74 @@ TEST( ThumbnailMaterialDomains, EachDrawableDomainGetsThePictureItsOwnPathProduc
     namespace TS = Desert::Editor::ThumbnailSubject;
     namespace F  = Desert::Core::Formats;
 
-    // The mesh path: a ball, or the camera-facing card a cutout needs. The cutout choice is INSIDE the
-    // mesh path and nowhere else — a medium has no alpha-tested silhouette to flatten.
-    EXPECT_EQ( TS::PreviewForDomain( F::kMeshPathDomain, false ), TS::Preview::Sphere );
-    EXPECT_EQ( TS::PreviewForDomain( F::kMeshPathDomain, true ), TS::Preview::Card );
+    // The mesh path: the ball. Every surface material, a masked one included.
+    EXPECT_EQ( TS::PreviewForDomain( F::kMeshPathDomain ), TS::Preview::Sphere );
 
-    // The volume path: the sky the material authors. The cutout flag must not reach it.
-    EXPECT_EQ( TS::PreviewForDomain( F::kVolumePathDomain, false ), TS::Preview::SkyDome );
-    EXPECT_EQ( TS::PreviewForDomain( F::kVolumePathDomain, true ), TS::Preview::SkyDome );
+    // The volume path: the sky the material authors.
+    EXPECT_EQ( TS::PreviewForDomain( F::kVolumePathDomain ), TS::Preview::SkyDome );
 
     // The terrain path has its own renderer and no thumbnail producer. Named here rather than left to the
     // loop above so that adding one is a deliberate edit of this line.
-    EXPECT_FALSE( TS::PreviewForDomain( F::kTerrainPathDomain, false ).has_value() );
+    EXPECT_FALSE( TS::PreviewForDomain( F::kTerrainPathDomain ).has_value() );
+}
+
+// A MASKED material goes on the ball, like UE's material thumbnail. The rule this replaces flattened any
+// material with AlphaCutoff > 0 onto a camera-facing card, so a grass atlas previewed as a flat rectangle
+// and the mask — which the mesh path honours by discard (StaticMeshPBR.shader) — was never seen on a
+// shape. The material's cutoff is not an input of the routing at all now: the answer is the surface
+// domain's, and the surface domain's answer is the sphere.
+TEST( ThumbnailMaterialDomains, AMaskedSurfaceMaterialPreviewsOnTheSphere )
+{
+    namespace TS = Desert::Editor::ThumbnailSubject;
+    namespace F  = Desert::Core::Formats;
+
+    EXPECT_EQ( TS::PreviewForDomain( F::ShaderDomain::Surface ), TS::Preview::Sphere )
+         << "a surface material, AlphaCutoff > 0 or not, must preview on the sphere cut by its mask";
 }
 
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// THM1a4: an imported mesh has no `.stmesh` on disk (AF4h), so a picture judged against that path could never be
+// fresh - its hash was nullopt and every session re-rendered it. The raw source beside it is the freshness source;
+// a hand-authored `.stmesh` on disk is its own.
+TEST( ThumbnailFormats, AnImportedMeshPictureIsJudgedAgainstItsSourceAndStaysFreshAcrossSessions )
+{
+    namespace fs        = std::filesystem;
+    namespace TF        = Desert::Editor::ThumbnailFreshness;
+    const fs::path  dir = fs::temp_directory_path() / "desert_thm1a5_mesh_freshness";
+    std::error_code ec;
+    fs::remove_all( dir, ec );
+    fs::create_directories( dir, ec );
+    const fs::path cooked = dir / "grass.stmesh";
+    const fs::path source = dir / "grass.fbx";
+    const fs::path png    = dir / "grass.png";
+    std::ofstream( source, std::ios::binary ) << "fbx bytes";
+    std::ofstream( png, std::ios::binary ) << "png bytes";
+
+    ASSERT_EQ( TF::MeshFreshnessSource( cooked ), source ) << "no .stmesh on disk: the source beside it decides";
+    const auto hash = TF::ContentHash( TF::MeshFreshnessSource( cooked ) );
+    ASSERT_TRUE( hash.has_value() ) << "an imported mesh's picture could never be recorded as fresh";
+    ASSERT_TRUE( TF::Record( png, *hash ).IsSuccess() );
+    EXPECT_EQ( TF::Judge( TF::Observe( png, TF::MeshFreshnessSource( cooked ) ) ), TF::Verdict::Show )
+         << "the next session re-renders a picture of an unchanged mesh";
+
+    // A hand-authored `.stmesh` on disk is its own freshness source.
+    std::ofstream( cooked, std::ios::binary ) << "stmesh bytes";
+    EXPECT_EQ( TF::MeshFreshnessSource( cooked ), cooked );
+    fs::remove_all( dir, ec );
+}
+
+// THM1e: A SURFACE MATERIAL NAMING A PREVIEW MESH IS PHOTOGRAPHED ON IT (UE's ThumbnailInfo); without one, the
+// sphere; a Volume material stays the sky whatever it names - the mesh path would refuse it.
+TEST( ThumbnailSubject, APreviewMeshRoutesASurfaceMaterialToTheMeshAndNothingElse )
+{
+    namespace TS = Desert::Editor::ThumbnailSubject;
+    namespace F  = Desert::Core::Formats;
+    EXPECT_EQ( TS::PreviewForMaterial( F::kMeshPathDomain, true ), TS::Preview::Mesh );
+    EXPECT_EQ( TS::PreviewForMaterial( F::kMeshPathDomain, false ), TS::Preview::Sphere );
+    EXPECT_EQ( TS::PreviewForMaterial( F::kVolumePathDomain, true ), TS::Preview::SkyDome );
 }

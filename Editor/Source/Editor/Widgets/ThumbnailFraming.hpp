@@ -159,26 +159,4 @@ namespace Desert::Editor::ThumbnailFraming
         placement.Translation = axisPoint - center * placement.Scale;
         return placement;
     }
-
-    /**
-     * @brief Yaw about Y that turns a +Z-facing card toward the eye.
-     *
-     * The flat preview (cutout/foliage materials, which garble when wrapped on a sphere) is a plane whose
-     * default normal is +Z, kept UPRIGHT — a grass card grows along +Y — so only the yaw is free.
-     *
-     * Here for the same reason PlaceInView is: the version this replaces read a hardcoded camera position
-     * (`glm::vec3 camPos( -4.33f, 6.12f, -4.33f )`) as its fallback, one of the two stale constants behind
-     * Д30, and it yawed toward the WORLD ORIGIN rather than toward the subject — correct only while the
-     * subject happened to be at the origin, which is exactly what PlaceInView stopped doing. Taking both
-     * points as arguments makes the rule statable and testable; no asset in the project currently sets
-     * AlphaCutoff, so this path has no frame to be verified by and its correctness rests on the assertion.
-     *
-     * @param eye     the camera's world position.
-     * @param subject where the card was actually placed (NOT assumed to be the origin).
-     */
-    inline float FacingYaw( const glm::vec3& eye, const glm::vec3& subject )
-    {
-        const glm::vec3 toEye = eye - subject;
-        return std::atan2( toEye.x, toEye.z );
-    }
 } // namespace Desert::Editor::ThumbnailFraming

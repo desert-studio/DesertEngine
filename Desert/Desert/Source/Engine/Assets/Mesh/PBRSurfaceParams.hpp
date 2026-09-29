@@ -30,13 +30,15 @@ namespace Desert::Assets
 
         AssetHandle AlbedoTexture{ 0ULL };
         AssetHandle NormalTexture{ 0ULL };
-        AssetHandle MetallicTexture{ 0ULL };
-        AssetHandle RoughnessTexture{ 0ULL };
-        AssetHandle AOTexture{ 0ULL };
         AssetHandle EmissiveTexture{ 0ULL };
         AssetHandle OpacityTexture{ 0ULL };
 
         std::optional<glm::vec2> UVTiling;
+
+        // THE MASK HAS ONE SOURCE (UE Interchange's glTF rule: OpacityMask = BaseColor.a unless the material
+        // names a mask of its own): a bound OpacityTexture is read by its red channel, and without one the PBR
+        // passes read the albedo texture's ALPHA (glTF `alphaMode: MASK` keeps it there). The choice is made in
+        // the shader from the slot itself (an empty slot is the 1x1 default), so no field here restates it.
 
         static PBRSurfaceParams FromMaterialData( const MaterialData& m )
         {
@@ -56,9 +58,6 @@ namespace Desert::Assets
 
             p.AlbedoTexture    = AssetHandle( m.GetTexture( "u_AlbedoTexture" ) );
             p.NormalTexture    = AssetHandle( m.GetTexture( "u_NormalTexture" ) );
-            p.MetallicTexture  = AssetHandle( m.GetTexture( "u_MetallicTexture" ) );
-            p.RoughnessTexture = AssetHandle( m.GetTexture( "u_RoughnessTexture" ) );
-            p.AOTexture        = AssetHandle( m.GetTexture( "u_AOTexture" ) );
             p.EmissiveTexture  = AssetHandle( m.GetTexture( "u_EmissiveTexture" ) );
             p.OpacityTexture   = AssetHandle( m.GetTexture( "u_OpacityTexture" ) );
 

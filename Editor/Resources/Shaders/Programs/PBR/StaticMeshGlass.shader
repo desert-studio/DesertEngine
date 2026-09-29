@@ -27,6 +27,9 @@ Shader "StaticMeshGlass"
         Float       UVRotation ("UV Rotation", Range(-3.14159,3.14159), Category("Surface")) = 0
         Float       NormalScale ("Normal Scale", Range(0,4), Category("Surface")) = 1
         Float       OcclusionStrength ("Occlusion Strength", Range(0,1), Category("Surface")) = 1
+        // Which channel of u_OpacityTexture is the mask: 0 = R of a separate opacity map, 3 = A (the importer binds the
+        // albedo texture itself there for a glTF MASK). Stated, never guessed from the bound texture's size.
+        Float       OpacityChannel ("Opacity Channel", Range(0,3), Category("Surface")) = 0
         // Material half of the sun-shadow receive decision; the renderer also zeroes it for a mesh whose
         // Receive Shadows toggle is off, so a surface skips the sun shadow when EITHER says so.
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
@@ -38,9 +41,6 @@ Shader "StaticMeshGlass"
         // written down so the guard is a fast path rather than the only thing standing between an empty
         // slot and a wrong normal.
         Texture2D   u_NormalTexture ("Normal Map", Category("Textures")) = "normal"
-        Texture2D   u_MetallicTexture ("Metallic Map", Category("Textures"))
-        Texture2D   u_RoughnessTexture ("Roughness Map", Category("Textures"))
-        Texture2D   u_AOTexture ("AO Map", Category("Textures"))
     }
 
     Vertex

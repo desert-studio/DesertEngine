@@ -824,6 +824,9 @@ namespace Desert::Editor
         // The splash's close button, pressed during this one long call, stops it between programs.
         Assets::CompileEngineShaders( m_AssetManager, SplashItems(),
                                       [this]() { return m_Splash && m_Splash->CloseRequested(); } );
+        // The imported materials choose among these shaders' Import blocks; every cook below comes after.
+        LOG_INFO( "[Import] {} import template(s) published from the loaded shaders",
+                  ImportManager::PublishImportTemplates( *m_AssetManager ) );
 
         BuildSceneSystems( *m_MainScene );
 

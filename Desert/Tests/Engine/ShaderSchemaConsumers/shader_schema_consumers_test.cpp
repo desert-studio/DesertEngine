@@ -862,11 +862,9 @@ TEST( ShaderSchemaConsumers, EveryTexturePropertyHasASamplerToBindTo )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    // The known drift, with the reason and the owner. The PBR passes sample the packed u_ORMTexture and
-    // u_EmissiveTexture (MAT1a-T2); the three separate maps below are still what the mesh importer and the
-    // Collections panel write, and packing them into the ORM slot at import is MAT1b's, which deletes them.
-    static const std::set<std::string> knownUnsampled = { "u_MetallicTexture", "u_RoughnessTexture",
-                                                          "u_AOTexture" };
+    // The known drift, with the reason and the owner. Empty since MAT1b: the importer packs glTF's
+    // metallic-roughness and occlusion into u_ORMTexture, and the three separate map slots are gone.
+    static const std::set<std::string> knownUnsampled = {};
     std::set<std::string>              seenUnsampled;
 
     const fs::path shadersDir = fs::path( root ) / "Editor" / "Resources" / "Shaders";

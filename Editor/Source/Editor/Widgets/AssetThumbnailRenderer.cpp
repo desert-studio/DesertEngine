@@ -472,11 +472,10 @@ namespace Desert::Editor
         else
         {
             // Material preview. Geometry is built once and reused; clearing the runtime instances forces a
-            // rebuild against the current material handle. Foliage/cutout materials (a grass-card atlas) wrap
-            // and garble on a sphere, so those preview on a flat PLANE turned to face the fixed camera.
+            // rebuild against the current material handle. Always the sphere: a masked material is cut by
+            // the mesh path's alpha discard, so its blades show against the backdrop.
             smc.MeshHandle    = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
-            const bool flat   = m_PendingPreview == ThumbnailSubject::Preview::Card;
-            smc.Primitive     = flat ? Geometry::PrimitiveType::Plane : Geometry::PrimitiveType::Sphere;
+            smc.Primitive     = Geometry::PrimitiveType::Sphere;
             smc.MaterialSlots = { m_PendingHandle };
             smc.RuntimeMaterialInstances.clear();
             ECS::ClearEditableMesh( smc ); // drop any previously-built primitive so the type change rebuilds
@@ -501,17 +500,6 @@ namespace Desert::Editor
                 }
             }
             FitTarget( matCenter, matExtent );
-
-            if ( flat )
-            {
-                // Turn the card to face the camera. Through ThumbnailFraming::FacingYaw, which takes BOTH
-                // points as arguments — the card is no longer at the world origin, and the eye is no longer
-                // a constant anyone may write down here.
-                auto& tc = m_Target.GetComponent<ECS::TransformComponent>();
-                if ( auto cam = m_Scene->GetMainCamera().lock() )
-                    tc.Rotation = glm::vec3(
-                         0.0f, ThumbnailFraming::FacingYaw( cam->GetPosition(), tc.Translation ), 0.0f );
-            }
         }
     }
 

@@ -24,6 +24,9 @@ Shader "StaticMeshGBuffer"
         Float       UVRotation ("UV Rotation", Range(-3.14159,3.14159), Category("Surface")) = 0
         Float       NormalScale ("Normal Scale", Range(0,4), Category("Surface")) = 1
         Float       OcclusionStrength ("Occlusion Strength", Range(0,1), Category("Surface")) = 1
+        // Which channel of u_OpacityTexture is the mask: 0 = R of a separate opacity map, 3 = A (the importer binds the
+        // albedo texture itself there for a glTF MASK). Stated, never guessed from the bound texture's size.
+        Float       OpacityChannel ("Opacity Channel", Range(0,3), Category("Surface")) = 0
         // Material half of the sun-shadow receive decision; the renderer also zeroes it for a mesh whose
         // Receive Shadows toggle is off, so a surface skips the sun shadow when EITHER says so.
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
@@ -39,9 +42,6 @@ Shader "StaticMeshGBuffer"
         Texture2D   u_OpacityTexture ("Opacity Map", Category("Textures"))
         // Packed glTF-style: R = occlusion, G = roughness, B = metallic, each multiplying its factor; white when empty.
         Texture2D   u_ORMTexture ("ORM Map", Category("Textures"))
-        Texture2D   u_MetallicTexture ("Metallic Map", Category("Textures"))
-        Texture2D   u_RoughnessTexture ("Roughness Map", Category("Textures"))
-        Texture2D   u_AOTexture ("AO Map", Category("Textures"))
         Texture2D   u_EmissiveTexture ("Emissive Map", Category("Textures"))
     }
 
@@ -152,7 +152,9 @@ Shader "StaticMeshGBuffer"
         	vec2 uv = PBRTransformUV(PBRSelectUV(inVertex.Texcoord, inVertex.Texcoord, 0), u_Material.UVOffset, tiling, u_Material.UVRotation);
 
         	float alphaCutoff = u_Material.AlphaCutoff;
-        	if (alphaCutoff > 0.0 && texture(u_OpacityTexture, uv).r < alphaCutoff)
+        	// The ONE mask source: the channel OpacityChannel names of u_OpacityTexture (an empty slot is white, so no cut).
+        	float mask = texture(u_OpacityTexture, uv)[int(u_Material.OpacityChannel)];
+        	if (alphaCutoff > 0.0 && mask < alphaCutoff)
         		discard;
 
         	// No vertex-colour input in this vertex layout: the vertex colour is white.
