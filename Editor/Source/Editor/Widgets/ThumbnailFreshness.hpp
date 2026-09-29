@@ -124,6 +124,28 @@ namespace Desert::Editor::ThumbnailFreshness
             return table;
         }
 
+        /// Memoised under @p key (several values read from ONE file: one per mesh an import record states an
+        /// orbit for), invalidated by @p file's (size, modtime).
+        template <typename ReadFn>
+        std::optional<uint64_t> MemoisedAs( const std::filesystem::path& file, const std::string& key,
+                                            ReadFn&& read )
+        {
+            std::error_code sizeEc;
+            std::error_code stampEc;
+            const uintmax_t size  = std::filesystem::file_size( file, sizeEc );
+            const auto      stamp = std::filesystem::last_write_time( file, stampEc );
+            if ( sizeEc || stampEc )
+                return std::nullopt;
+
+            MemoTable&            table = Memos();
+            const std::lock_guard lock( table.Mutex );
+            Memo&                 entry = table.Entries[key];
+            if ( entry.Value && entry.Size == size && entry.Stamp == stamp )
+                return entry.Value;
+            entry = { size, stamp, read( file ) };
+            return entry.Value;
+        }
+
         template <typename ReadFn>
         std::optional<uint64_t> Memoised( const std::filesystem::path& file, ReadFn&& read )
         {
@@ -198,6 +220,21 @@ namespace Desert::Editor::ThumbnailFreshness
         return Detail::Memoised( source, Detail::HashFile );
     }
 
+    /**
+     * @brief THE PICTURE DEPENDS ON THE ASSET AND ON HOW IT IS PHOTOGRAPHED (UE: the asset's ThumbnailInfo). An
+     * asset whose ThumbnailInfo lives in ANOTHER file than its bytes (an imported mesh: the import record) is
+     * judged against both, so an edit of the record re-shoots the picture. @p info empty = the default info,
+     * which leaves the source's hash as it is: every picture taken before a record stated an orbit stays fresh.
+     */
+    [[nodiscard]] inline std::optional<uint64_t> WithInfo( std::optional<uint64_t> source,
+                                                           std::optional<uint64_t> info )
+    {
+        if ( !source || !info )
+            return source;
+        std::array<uint64_t, 2> both{ *source, *info };
+        return Common::Utils::PakContentHash( both.data(), sizeof( both ) );
+    }
+
     /// THE FILE A MESH PICTURE IS JUDGED AGAINST, for the mesh asset path @p cooked (the picture's identity):
     /// @p cooked itself when it is on disk (a hand-authored `.stmesh`), else the raw source beside it. An
     /// import since AF4h never writes @p cooked (its envelope is in the DDC, keyed by the source's bytes), so
@@ -236,17 +273,27 @@ namespace Desert::Editor::ThumbnailFreshness
     }
 
     /// Ask the filesystem the three questions Judge needs. Separate from Judge so the DECISION stays pure.
-    [[nodiscard]] inline Observation Observe( const std::filesystem::path& png,
-                                              const std::filesystem::path& source )
+    /// Observe against a hash the caller computed: a picture that also depends on info kept in another file
+    /// (WithInfo; an imported mesh's orbit, MeshThumbnailFreshness).
+    [[nodiscard]] inline Observation Observe( const std::filesystem::path& png, std::optional<uint64_t> current )
     {
         Observation     seen;
         std::error_code existsEc;
         seen.PngExists = std::filesystem::exists( png, existsEc ) && !existsEc;
         if ( !seen.PngExists )
             return seen;
-        seen.Current  = ContentHash( source );
+        seen.Current  = current;
         seen.Recorded = Detail::Memoised( RecordPath( png ), Detail::ParseRecord );
         return seen;
+    }
+
+    [[nodiscard]] inline Observation Observe( const std::filesystem::path& png,
+                                              const std::filesystem::path& source )
+    {
+        std::error_code existsEc;
+        if ( !std::filesystem::exists( png, existsEc ) || existsEc )
+            return Observation{};
+        return Observe( png, ContentHash( source ) );
     }
 
     /// The PNG's modification time, absent when there is no file. What "the capture wrote it" is measured by.
@@ -297,9 +344,15 @@ namespace Desert::Editor::ThumbnailFreshness
         /// The renderer accepted a capture of `source` into `png`. Hash and stamp are taken NOW.
         void Begin( std::string identity, std::filesystem::path png, const std::filesystem::path& source )
         {
+            Begin( std::move( identity ), std::move( png ), ContentHash( source ) );
+        }
+
+        /// The same, for a picture judged against a hash the caller computed (Observe's second form).
+        void Begin( std::string identity, std::filesystem::path png, std::optional<uint64_t> sourceHash )
+        {
             m_Identity   = std::move( identity );
             m_PngBefore  = Stamp( png );
-            m_SourceHash = ContentHash( source );
+            m_SourceHash = sourceHash;
             m_Png        = std::move( png );
             m_GaveUp     = false;
         }

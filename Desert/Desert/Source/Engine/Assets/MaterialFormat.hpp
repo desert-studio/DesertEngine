@@ -16,6 +16,8 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <span>
 #include <string>
 #include <string_view>
@@ -197,5 +199,24 @@ namespace Desert::Assets
             }
         }
         return Common::MakeSuccess( parsed.ExtractValue() );
+    }
+    // EDIT THUMBNAIL'S ONE WRITER FOR A MATERIAL (UE: the material's ThumbnailInfo): the .demat at @p file read,
+    // its Thumbnail replaced by @p info (MaterialData::SetThumbnail) and written back atomically; untouched when
+    // the info is what it states already. A refusal naming the file when it is unreadable or not a material.
+    [[nodiscard]] inline Common::ResultStr<bool> SetMaterialFileThumbnail( const std::filesystem::path& file,
+                                                                           const ThumbnailInfo&         info )
+    {
+        std::ifstream in( file, std::ios::binary );
+        if ( !in )
+            return Common::MakeError<bool>( "[Material] '" + file.generic_string() + "' cannot be opened" );
+        const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+        auto              parsed = ParseMaterialJson( file.generic_string(), text );
+        if ( !parsed )
+            return Common::MakeError<bool>( parsed.GetError() );
+        MaterialData material = parsed.GetValue();
+        if ( material.ThumbnailOrDefault() == info )
+            return Common::MakeSuccess( true );
+        material.SetThumbnail( info );
+        return WriteMaterialFile( file, material );
     }
 } // namespace Desert::Assets

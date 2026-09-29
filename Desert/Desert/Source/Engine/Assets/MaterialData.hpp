@@ -82,6 +82,16 @@ namespace Desert::Assets
             return Thumbnail.value_or( ThumbnailInfo{} );
         }
 
+        /// The one spelling of an edit of the info: the default info is written as no key (a stated default
+        /// would give one picture two spellings).
+        void SetThumbnail( const ThumbnailInfo& info )
+        {
+            if ( info == ThumbnailInfo{} )
+                Thumbnail.reset();
+            else
+                Thumbnail = info;
+        }
+
         // MATERIAL INSTANCE (UE model): when set, this asset is a CHILD of the material whose header GUID this
         // names (32 hex digits, AssetGuidToText), and Params/Textures hold ONLY the overridden values - the
         // shader and every non-overridden parameter come from the parent chain. The same GUID is the header's

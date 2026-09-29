@@ -27,6 +27,7 @@
 #include <cstdio>
 #include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
+#include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Editor/Widgets/ThumbnailSubject.hpp>
@@ -494,7 +495,7 @@ namespace Desert::Editor
             {
                 const std::string cooked = CookPaths::MeshAsset( item.Path ).generic_string();
                 return ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
-                     ThumbnailKey::DiskPath( cooked ), ThumbnailFreshness::MeshFreshnessSource( cooked ) ) );
+                     ThumbnailKey::DiskPath( cooked ), MeshThumbnailFreshness( cooked ) ) );
             }
             return ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( ThumbnailPngFor( item.Path ), item.Path ) );
         };
@@ -1956,9 +1957,9 @@ namespace Desert::Editor
         const std::string pngPath = ThumbnailKey::DiskPath( cookedStr );
 
         // Same shared rule as the material grid above (Editor/Widgets/ThumbnailFreshness.hpp).
-        const bool haveFresh = ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
-                                    pngPath, ThumbnailFreshness::MeshFreshnessSource( cookedStr ) ) ) ==
-                               ThumbnailFreshness::Verdict::Show;
+        const bool haveFresh =
+             ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
+                  pngPath, MeshThumbnailFreshness( cookedStr ) ) ) == ThumbnailFreshness::Verdict::Show;
         if ( !haveFresh )
             m_Thumbnails->Invalidate( pngPath );
         if ( haveFresh )

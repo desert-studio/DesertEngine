@@ -102,6 +102,13 @@ namespace Desert::Assets::Serialization
     Common::ResultStr<ThumbnailOrbit> ReadImportRecordThumbnail( const std::filesystem::path& source,
                                                                  const std::string&           meshFile );
 
+    /// Rewrites the orbit @p source's record states for the mesh asset named @p meshFile (UE: Edit Thumbnail
+    /// writes the asset's ThumbnailInfo). The default orbit removes the entry (the default is written as no key),
+    /// the last removal the whole `Thumbnail` key. The record must exist; written only when the orbit changes. An
+    /// error for an orbit IsValidThumbnailOrbit refuses.
+    Common::BoolResultStr SetImportRecordThumbnail( const std::filesystem::path& source,
+                                                    const std::string& meshFile, const ThumbnailOrbit& orbit );
+
     Common::ResultStr<Common::Content::AssetGuid> EnsureImportRecord( const std::filesystem::path& source,
                                                                       const Common::Math::AABB&    bounds );
 } // namespace Desert::Assets::Serialization

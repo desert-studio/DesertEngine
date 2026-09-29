@@ -51,17 +51,22 @@ namespace Desert::Editor
     }
 
     bool ThumbnailService::ShouldQueue( const std::string& identity, const std::string& png,
-                                        const std::string& source )
+                                        std::optional<uint64_t> current )
     {
         if ( identity.empty() )
             return false;
         if ( m_Failed.count( identity ) || m_Queued.count( identity ) )
             return false;
 
-        return NeedsCapture( png, source );
+        return NeedsCapture( png, current );
     }
 
-    bool ThumbnailService::NeedsCapture( const std::string& png, const std::string& source )
+    std::optional<uint64_t> ThumbnailService::SourceHash( Kind type, const std::string& source )
+    {
+        return type == Kind::Mesh ? MeshThumbnailFreshness( source ) : ThumbnailFreshness::ContentHash( source );
+    }
+
+    bool ThumbnailService::NeedsCapture( const std::string& png, std::optional<uint64_t> current )
     {
         // THROUGH THE SHARED RULE, and this is the whole of M8's defect. This used to be
         // `exists(png) -> nothing to do`, with a comment saying staleness was "the caller's call via
@@ -73,7 +78,7 @@ namespace Desert::Editor
         // the Details slot showing a flat colour swatch, across a restart, with the PNG's modification time
         // unchanged and no capture ever logged. Invalidate() cannot rescue it either — it clears the two
         // process-local sets and the file it would have to look past is still there.
-        return ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( png, source ) ) ==
+        return ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( png, current ) ) ==
                ThumbnailFreshness::Verdict::Capture;
     }
 
@@ -86,7 +91,7 @@ namespace Desert::Editor
         // that never drains and a thumbnail that never refreshes.
         const std::string identity = ThumbnailKey::Identity( assetPath );
         const std::string png      = ThumbnailKey::DiskPath( assetPath );
-        if ( ShouldQueue( identity, png, assetPath ) )
+        if ( ShouldQueue( identity, png, ThumbnailFreshness::ContentHash( assetPath ) ) )
         {
             m_Queue.push_back( { Kind::Material, material, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
                                  identity, assetPath, png, how } );
@@ -101,7 +106,7 @@ namespace Desert::Editor
     {
         const std::string identity = ThumbnailKey::Identity( assetPath );
         const std::string png      = ThumbnailKey::DiskPath( assetPath );
-        if ( ShouldQueue( identity, png, assetPath ) )
+        if ( ShouldQueue( identity, png, ThumbnailFreshness::ContentHash( assetPath ) ) )
         {
             Request req{ Kind::Material, material.Handle, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
                          identity,       assetPath,       png,
@@ -124,7 +129,7 @@ namespace Desert::Editor
         const std::string png      = ThumbnailKey::DiskPath( assetPath );
         if ( m_Failed.count( identity ) )
             return std::string();
-        if ( !ShouldQueue( identity, png, assetPath ) )
+        if ( !ShouldQueue( identity, png, ThumbnailFreshness::ContentHash( assetPath ) ) )
             return png;
         const auto resolved = ThumbnailSubject::ResolveLoadedMaterial( manager, asset, assetPath );
         if ( !resolved )
@@ -188,7 +193,7 @@ namespace Desert::Editor
             m_SceneWarm.insert( moved.Identity );
             return;
         }
-        if ( !ShouldQueue( req.Identity, req.Png, req.Source ) )
+        if ( !ShouldQueue( req.Identity, req.Png, SourceHash( req.Type, req.Source ) ) )
             return;
         m_Queued.insert( req.Identity );
         m_SceneWarm.insert( req.Identity );
@@ -228,7 +233,7 @@ namespace Desert::Editor
         const std::string source   = ThumbnailFreshness::MeshFreshnessSource( assetPath ).generic_string();
         if ( m_Failed.count( identity ) )
             return std::string();
-        if ( ShouldQueue( identity, png, source ) )
+        if ( ShouldQueue( identity, png, SourceHash( Kind::Mesh, source ) ) )
         {
             // THE ORBIT FROM THE MESH'S PACKAGE (its import record), read only when a capture is owed.
             const auto orbit = MeshThumbnailOrbit( source );
@@ -255,7 +260,7 @@ namespace Desert::Editor
         // depend on who drew it.
         const std::string identity = ThumbnailKey::Identity( assetPath );
         const std::string png      = ThumbnailKey::DiskPath( assetPath );
-        if ( ShouldQueue( identity, png, assetPath ) )
+        if ( ShouldQueue( identity, png, ThumbnailFreshness::ContentHash( assetPath ) ) )
         {
             m_PaintQueue.push_back( { identity, assetPath, png } );
             m_Queued.insert( identity );
@@ -397,7 +402,9 @@ namespace Desert::Editor
         // Drop anything the queue no longer owes, exactly as the capture path does and for the same
         // reason: two panels can name one asset, and a request can sit here while the other one's paint
         // lands.
-        while ( !m_PaintQueue.empty() && !NeedsCapture( m_PaintQueue.front().Png, m_PaintQueue.front().Source ) )
+        while ( !m_PaintQueue.empty() &&
+                !NeedsCapture( m_PaintQueue.front().Png,
+                               ThumbnailFreshness::ContentHash( m_PaintQueue.front().Source ) ) )
         {
             m_Queued.erase( m_PaintQueue.front().Identity );
             m_PaintQueue.erase( m_PaintQueue.begin() );
@@ -570,7 +577,8 @@ namespace Desert::Editor
         // captured through another entry (two panels showing one material), or the panel that asked may
         // have called Invalidate() and asked again, leaving a duplicate behind it. Dispatching those would
         // re-render a picture that is already correct, at full cost, one after another.
-        while ( !m_Queue.empty() && !NeedsCapture( m_Queue.front().Png, m_Queue.front().Source ) )
+        while ( !m_Queue.empty() &&
+                !NeedsCapture( m_Queue.front().Png, SourceHash( m_Queue.front().Type, m_Queue.front().Source ) ) )
         {
             m_Queued.erase( m_Queue.front().Identity );
             m_Queue.erase( m_Queue.begin() );
@@ -627,7 +635,7 @@ namespace Desert::Editor
             return;
         }
 
-        m_Capture.Begin( req.Identity, req.Png, req.Source );
+        m_Capture.Begin( req.Identity, req.Png, SourceHash( req.Type, req.Source ) );
         m_InFlightTicks = 0;
         if ( !m_RunBegan )
             m_RunBegan = std::chrono::steady_clock::now();

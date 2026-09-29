@@ -13,6 +13,7 @@
 
 #include <Editor/Core/AssetReferences.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
+#include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
 #include <Editor/Import/CookPaths.hpp>
@@ -657,9 +658,8 @@ namespace Desert::Editor
         // capture keep showing the old shape, and — because ThumbnailService used to ask the same
         // impoverished question — never get a new one (Editor/Widgets/ThumbnailFreshness.hpp).
         if ( m_UIHelper && m_Thumbs &&
-             ThumbnailFreshness::Judge(
-                  ThumbnailFreshness::Observe( pngPath, ThumbnailFreshness::MeshFreshnessSource( cookedStr ) ) ) ==
-                  ThumbnailFreshness::Verdict::Show )
+             ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
+                  pngPath, MeshThumbnailFreshness( cookedStr ) ) ) == ThumbnailFreshness::Verdict::Show )
         {
             if ( auto image = m_Thumbs->Get( pngPath ) )
             {

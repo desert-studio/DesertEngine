@@ -82,6 +82,25 @@ namespace Desert::Editor
     [[nodiscard]] Common::ResultStr<Assets::ThumbnailOrbit>
     MeshThumbnailOrbit( const std::filesystem::path& meshFile );
 
+    // THE HOME OF @p meshFile's orbit: the raw source whose import record states it (the source itself for a
+    // combined mesh, the source whose `Nodes` wrote a node `.stmesh`); nullopt for a mesh no import wrote. The
+    // node lookup is remembered per process (a browser asks per visible tile per frame) and re-done when that
+    // record is gone.
+    [[nodiscard]] Common::ResultStr<std::optional<std::filesystem::path>>
+    MeshThumbnailHome( const std::filesystem::path& meshFile );
+
+    // EDIT THUMBNAIL'S ONE WRITER FOR A MESH (UE: FAssetThumbnail edit writes USceneThumbnailInfo): @p orbit into
+    // the record MeshThumbnailHome names, keyed like MeshThumbnailOrbit reads it; the default orbit removes the
+    // entry. An error for a mesh with no import record (nowhere to state it) or an orbit the record refuses.
+    [[nodiscard]] Common::BoolResultStr SetMeshThumbnailOrbit( const std::filesystem::path&  meshFile,
+                                                               const Assets::ThumbnailOrbit& orbit );
+
+    // WHAT A MESH PICTURE IS JUDGED AGAINST (ThumbnailFreshness::WithInfo): the bytes of
+    // ThumbnailFreshness::MeshFreshnessSource( @p cooked ) and the orbit its record states, so an edit of the
+    // orbit re-shoots it. A default orbit leaves the bytes' hash alone. Empty when the file or the record is
+    // unreadable.
+    [[nodiscard]] std::optional<uint64_t> MeshThumbnailFreshness( const std::filesystem::path& cooked );
+
     // What a re-import does to the file at CookPaths::MeshAsset( @p source ): removes it. Either a legacy file
     // from a build before AF4h (never read, removed silently) or an EDITED import (Assets::IsEditedImportedMesh,
     // P9b) - UE's re-import replaces the asset's source model, and so does this one: the edit is lost, with a

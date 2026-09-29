@@ -182,4 +182,36 @@ namespace Desert::Assets::Serialization
                                                      written.GetError() );
         return BOOLSUCCESS;
     }
+    Common::BoolResultStr SetImportRecordThumbnail( const std::filesystem::path& source,
+                                                    const std::string& meshFile, const ThumbnailOrbit& orbit )
+    {
+        if ( !IsValidThumbnailOrbit( orbit ) )
+            return Common::MakeFormattedError<bool>(
+                 "the Thumbnail orbit for '{}' is not finite or zooms to -1 or in", meshFile );
+        const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
+        auto                        data   = ReadImportRecord( source );
+        if ( !data )
+            return Common::MakeError<bool>( data.GetError() );
+        if ( !data.GetValue() )
+            return Common::MakeFormattedError<bool>( "'{}' does not exist, so the orbit of '{}' has no home",
+                                                     record.string(), meshFile );
+        ImportRecordData                      out = *data.GetValue();
+        std::map<std::string, ThumbnailOrbit> entries =
+             out.Thumbnail.value_or( std::map<std::string, ThumbnailOrbit>{} );
+        if ( orbit == ThumbnailOrbit{} )
+            entries.erase( meshFile );
+        else
+            entries[meshFile] = orbit;
+        std::optional<std::map<std::string, ThumbnailOrbit>> next;
+        if ( !entries.empty() )
+            next = std::move( entries );
+        if ( out.Thumbnail == next )
+            return BOOLSUCCESS;
+        out.Thumbnail = std::move( next );
+        if ( auto written = Common::Content::WriteCanonicalJsonFileAtomic( record, WriteImportRecord( out ) );
+             !written )
+            return Common::MakeFormattedError<bool>( "'{}' could not be written: {}", record.string(),
+                                                     written.GetError() );
+        return BOOLSUCCESS;
+    }
 } // namespace Desert::Assets::Serialization

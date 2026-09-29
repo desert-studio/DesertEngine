@@ -2205,12 +2205,38 @@ namespace Desert::Editor
         // THE THUMBNAIL'S MESH, SAVED WITH THE MATERIAL (UE ThumbnailInfo): MaterialData::PreviewMesh. Unlike the
         // pane's mesh above (this session's view only), this one is authored — the browser, Details and every
         // later session photograph the material on it. Only authored here: an import writes none (the ball).
-        if ( m_WorkingCopy && ImGui::CollapsingHeader( "Thumbnail Mesh", ImGuiTreeNodeFlags_DefaultOpen ) )
+        // UE's material "Thumbnail" category: Primitive Type, Preview Mesh and the orbit, all in
+        // MaterialData::Thumbnail (SetThumbnail: the default info is written as no key). Saved with the material;
+        // the saved .demat's bytes re-shoot the picture (ThumbnailFreshness).
+        if ( m_WorkingCopy && ImGui::CollapsingHeader( "Thumbnail", ImGuiTreeNodeFlags_DefaultOpen ) )
         {
-            auto&             data  = m_WorkingCopy->Data();
-            const std::string label = data.ThumbnailOrDefault().PreviewMesh
-                                           ? data.ThumbnailOrDefault().PreviewMesh->Path
-                                           : std::string( "<sphere>" );
+            auto& data = m_WorkingCopy->Data();
+            {
+                Assets::ThumbnailInfo info    = data.ThumbnailOrDefault();
+                bool                  changed = false;
+                if ( ImGui::BeginCombo( "Primitive##thumbnail_primitive",
+                                        std::string( Assets::ThumbnailPrimitiveName( info.Primitive ) ).c_str() ) )
+                {
+                    for ( const Assets::ThumbnailPrimitive primitive :
+                          { Assets::ThumbnailPrimitive::Sphere, Assets::ThumbnailPrimitive::Cube,
+                            Assets::ThumbnailPrimitive::Plane, Assets::ThumbnailPrimitive::Cylinder } )
+                        if ( ImGui::Selectable( std::string( Assets::ThumbnailPrimitiveName( primitive ) ).c_str(),
+                                                primitive == info.Primitive ) )
+                        {
+                            info.Primitive = primitive;
+                            changed        = true;
+                        }
+                    ImGui::EndCombo();
+                }
+                changed |= ImGui::DragFloat( "Pitch##thumbnail_pitch", &info.Orbit.Pitch, 0.5f, -89.0f, 89.0f );
+                changed |= ImGui::DragFloat( "Yaw##thumbnail_yaw", &info.Orbit.Yaw, 0.5f, -180.0f, 180.0f );
+                changed |= ImGui::DragFloat( "Zoom##thumbnail_zoom", &info.Orbit.Zoom, 0.01f, -0.9f, 4.0f );
+                if ( changed && Assets::IsValidThumbnailOrbit( info.Orbit ) )
+                    data.SetThumbnail( info );
+            }
+            const std::string label = data.ThumbnailOrDefault().PreviewMesh const std::string label =
+                 data.ThumbnailOrDefault().PreviewMesh ? data.ThumbnailOrDefault().PreviewMesh->Path
+                                                       : std::string( "<sphere>" );
             ImGui::Button( ( label + "##thumbnail_mesh" ).c_str(), ImVec2( -FLT_MIN, 0.0f ) );
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip( "Drop an imported static mesh: the material's thumbnail is taken on it." );
@@ -2227,7 +2253,7 @@ namespace Desert::Editor
                         {
                             Assets::ThumbnailInfo info = data.ThumbnailOrDefault();
                             info.PreviewMesh           = ref.GetValue();
-                            data.Thumbnail             = info;
+                            data.SetThumbnail( info );
                         }
                         else
                             LOG_WARN( "[MaterialEditor] '{}' cannot be the thumbnail mesh: {}", path,
@@ -2242,7 +2268,7 @@ namespace Desert::Editor
             {
                 Assets::ThumbnailInfo info = data.ThumbnailOrDefault();
                 info.PreviewMesh.reset();
-                data.Thumbnail = info;
+                data.SetThumbnail( info );
             }
             ImGui::EndDisabled();
         }

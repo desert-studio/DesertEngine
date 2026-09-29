@@ -223,7 +223,7 @@ namespace Desert::Editor
 
         // Shared by both Request* entry points: decides whether the work is needed at all. Takes the
         // asset's IDENTITY (ThumbnailKey::Identity), never a raw path — the sets below are keyed on it.
-        bool ShouldQueue( const std::string& identity, const std::string& png, const std::string& source );
+        bool ShouldQueue( const std::string& identity, const std::string& png, std::optional<uint64_t> current );
         // Identities WarmMaterial queued; an entry leaves with its m_Queued one (settled, failed or skipped).
         std::unordered_set<std::string> m_SceneWarm;
 
@@ -241,7 +241,11 @@ namespace Desert::Editor
 
         // The identity-free half of the question: is the PICTURE on disk missing or out of date? Split out
         // because dispatch asks it a second time, when the dedup sets deliberately still hold the entry.
-        static bool NeedsCapture( const std::string& png, const std::string& source );
+        static bool NeedsCapture( const std::string& png, std::optional<uint64_t> current );
+
+        // WHAT A PICTURE OF @p source IS JUDGED AGAINST: the file's bytes, and for a mesh also the orbit its
+        // import record states (MeshThumbnailFreshness) - an edit of the record re-shoots it (UE: Edit Thumbnail).
+        static std::optional<uint64_t> SourceHash( Kind type, const std::string& source );
 
         /**
          * @brief Build the renderer — but only if a background job is entitled to a slot right now.

@@ -15,6 +15,7 @@
 #include <Editor/Core/MeshResolve.hpp>
 #include <Editor/Widgets/PreviewViewport.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
+#include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Editor/Widgets/ThumbnailSubject.hpp>
@@ -232,8 +233,7 @@ namespace Desert::Editor
                 // request above has already queued the replacement, so the decoded copy is dropped here —
                 // otherwise this cache would keep handing back the OLD render after the new one lands.
                 if ( ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
-                          png, ThumbnailFreshness::MeshFreshnessSource( source ) ) ) ==
-                     ThumbnailFreshness::Verdict::Show )
+                          png, MeshThumbnailFreshness( source ) ) ) == ThumbnailFreshness::Verdict::Show )
                     thumb = s_Thumbnails.Get( png );
                 else
                     s_Thumbnails.Invalidate( png );

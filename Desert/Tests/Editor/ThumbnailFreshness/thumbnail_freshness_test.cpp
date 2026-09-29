@@ -266,3 +266,23 @@ TEST( ThumbnailFreshness, AnUntouchedOldPictureIsNotCertifiedByACapture )
     EXPECT_FALSE( fs::exists( ThumbnailFreshness::RecordPath( png ) ) );
     EXPECT_FALSE( capture.Settle().has_value() ) << "a settled capture must not settle twice";
 }
+
+// THE PICTURE DEPENDS ON HOW IT IS PHOTOGRAPHED (THM1l-c3): an info kept in another file than the asset's bytes
+// (an imported mesh's orbit in its import record) moves the hash the picture is judged against; the default
+// info leaves it alone, so every picture recorded before an orbit was stated stays fresh.
+TEST( ThumbnailFreshness, AnEditOfTheThumbnailInfoIsCaptured )
+{
+    const std::optional<uint64_t> bytes = 0x1234u;
+    EXPECT_EQ( ThumbnailFreshness::WithInfo( bytes, std::nullopt ), bytes );
+    const auto a = ThumbnailFreshness::WithInfo( bytes, 7u );
+    const auto b = ThumbnailFreshness::WithInfo( bytes, 8u );
+    ASSERT_TRUE( a && b );
+    EXPECT_NE( *a, *bytes );
+    EXPECT_NE( *a, *b );
+    EXPECT_FALSE( ThumbnailFreshness::WithInfo( std::nullopt, 7u ) ) << "an unreadable source stays unreadable";
+
+    ThumbnailFreshness::Observation seen{ true, a, b };
+    EXPECT_EQ( ThumbnailFreshness::Judge( seen ), ThumbnailFreshness::Verdict::Capture );
+    seen.Current = a;
+    EXPECT_EQ( ThumbnailFreshness::Judge( seen ), ThumbnailFreshness::Verdict::Show );
+}
