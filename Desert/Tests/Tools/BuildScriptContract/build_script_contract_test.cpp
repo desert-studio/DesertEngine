@@ -4,7 +4,7 @@
 // different files, which is this project's most expensive defect shape: both sides look right on
 // their own, so a unit test of either passes.
 //
-// The five relations (the fifth, GLFW's one include door, is described at its test), and the live defect each of
+// The five relations (the fifth, GLFW's two include doors, is described at its test), and the live defect each of
 // them was written from:
 //
 //   1. A script path named in prose must exist. README.md:14 invoked
@@ -375,31 +375,53 @@ TEST( BuildScriptContract, BaseSceneClosureCoversWhatTheSceneNames )
     }
 }
 
-// ── 5. GLFW HAS ONE DOOR, AND IT PUTS VULKAN FIRST ──────────────────────────────────────────────
+// ── 5. GLFW HAS TWO DOORS, AND THE VULKAN ONE DECLARES WHAT IT SERVES ────────────────────────────
 //
 // glfw3.h declares glfwCreateWindowSurface only if a Vulkan header was included BEFORE its first
 // inclusion in the translation unit; the include guard ignores every later GLFW_INCLUDE_VULKAN. Under
 // the MSVC unity build a translation unit is a group of sources, so one bare <GLFW/glfw3.h> anywhere
 // in Desert can end up ahead of VulkanSwapChain.cpp. SPAWN1 added one source, the groups shifted, and
 // every Windows job failed with 'glfwCreateWindowSurface': identifier not found while macOS stayed
-// green. The relation pinned: no engine, editor or runtime source names <GLFW/glfw3.h> except the
-// entry header, and the entry header includes Vulkan before it.
-TEST( BuildScriptContract, GlfwIsIncludedOnlyThroughItsEntryHeader )
+// green. MSVC1 then put Vulkan into the only door, and every tool and suite that reaches Window.hpp
+// through Components.hpp without a Vulkan include directory (WorldGen, SceneMigrator, the clang-tidy
+// header pass) failed on 'vulkan/vulkan.h' file not found.
+//
+// The relations pinned: (a) no engine, editor or runtime source names <GLFW/glfw3.h> except Glfw.hpp;
+// (b) Glfw.hpp does not need Vulkan; (c) GlfwVulkan.hpp includes Vulkan and declares
+// glfwCreateWindowSurface itself, so the declaration no longer depends on inclusion order; (d) every
+// source that calls glfwCreateWindowSurface names GlfwVulkan.hpp itself.
+TEST( BuildScriptContract, GlfwIsIncludedOnlyThroughItsEntryHeaders )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "could not locate the repository root";
 
-    const std::string entry     = "Desert/Desert/Source/Engine/Core/Glfw.hpp";
-    const std::string entryText = ReadFile( root + entry );
-    ASSERT_FALSE( entryText.empty() ) << entry << " is missing";
-    const auto vulkanAt = entryText.find( "#include <vulkan/vulkan.h>" );
-    const auto glfwAt   = entryText.find( "#include <GLFW/glfw3.h>" );
-    ASSERT_NE( vulkanAt, std::string::npos ) << entry << " must include <vulkan/vulkan.h>";
-    ASSERT_NE( glfwAt, std::string::npos ) << entry << " must include <GLFW/glfw3.h>";
-    EXPECT_LT( vulkanAt, glfwAt ) << entry << " must include Vulkan before GLFW";
+    const std::string plain       = "Desert/Desert/Source/Engine/Core/Glfw.hpp";
+    const std::string vulkan      = "Desert/Desert/Source/Engine/Core/GlfwVulkan.hpp";
+    const std::string plainText   = ReadFile( root + plain );
+    const std::string vulkanText  = ReadFile( root + vulkan );
+    const std::string surfaceCall = "glfwCreateWindowSurface(";
+    ASSERT_FALSE( plainText.empty() ) << plain << " is missing";
+    ASSERT_FALSE( vulkanText.empty() ) << vulkan << " is missing";
+
+    EXPECT_NE( plainText.find( "#include <GLFW/glfw3.h>" ), std::string::npos ) << plain << " must include GLFW";
+    EXPECT_EQ( plainText.find( "vulkan.h" ), std::string::npos )
+         << plain << " must not need the Vulkan SDK: it is reached from Components.hpp by Vulkan-free projects";
+    EXPECT_EQ( plainText.find( "GLFW_INCLUDE_VULKAN" ), std::string::npos )
+         << plain << " must not ask GLFW to include Vulkan";
+
+    const auto vulkanAt = vulkanText.find( "#include <vulkan/vulkan.h>" );
+    const auto doorAt   = vulkanText.find( "#include <Engine/Core/Glfw.hpp>" );
+    const auto declAt   = vulkanText.find( "GLFWAPI VkResult glfwCreateWindowSurface(" );
+    ASSERT_NE( vulkanAt, std::string::npos ) << vulkan << " must include <vulkan/vulkan.h>";
+    ASSERT_NE( doorAt, std::string::npos ) << vulkan << " must reach GLFW through " << plain;
+    ASSERT_NE( declAt, std::string::npos ) << vulkan << " must declare glfwCreateWindowSurface itself";
+    EXPECT_LT( vulkanAt, declAt ) << vulkan << " must include Vulkan before its declaration";
+    EXPECT_LT( doorAt, declAt ) << vulkan << " must include GLFW (for GLFWAPI) before its declaration";
 
     std::vector<std::string> bare;
+    std::vector<std::string> undeclared;
     std::size_t              scanned = 0;
+    std::size_t              callers = 0;
     for ( const char* dir : { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source" } )
     {
         for ( const auto& e : fs::recursive_directory_iterator( root + dir ) )
@@ -409,19 +431,33 @@ TEST( BuildScriptContract, GlfwIsIncludedOnlyThroughItsEntryHeader )
                 continue;
             const std::string rel = fs::relative( e.path(), root ).generic_string();
             ++scanned;
-            if ( rel == entry )
+            if ( rel == plain || rel == vulkan )
                 continue;
-            if ( ReadFile( e.path().string() ).find( "<GLFW/glfw3.h>" ) != std::string::npos )
+            const std::string text = ReadFile( e.path().string() );
+            if ( text.find( "<GLFW/glfw3.h>" ) != std::string::npos )
                 bare.push_back( rel );
+            if ( text.find( surfaceCall ) != std::string::npos )
+            {
+                ++callers;
+                if ( text.find( "#include <Engine/Core/GlfwVulkan.hpp>" ) == std::string::npos )
+                    undeclared.push_back( rel );
+            }
         }
     }
     EXPECT_GT( scanned, 100U ) << "the walk found almost no sources; the roots moved";
+    EXPECT_GT( callers, 0U ) << "nothing calls " << surfaceCall << " any more; the relation guards nothing";
 
     std::ostringstream report;
     for ( const auto& b : bare )
         report << "\n  " << b;
     EXPECT_TRUE( bare.empty() ) << "sources including <GLFW/glfw3.h> instead of <Engine/Core/Glfw.hpp>:"
                                 << report.str();
+
+    std::ostringstream callReport;
+    for ( const auto& u : undeclared )
+        callReport << "\n  " << u;
+    EXPECT_TRUE( undeclared.empty() ) << "sources calling glfwCreateWindowSurface without naming "
+                                      << "<Engine/Core/GlfwVulkan.hpp>:" << callReport.str();
 }
 
 int main( int argc, char** argv )

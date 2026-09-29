@@ -1,21 +1,11 @@
 #pragma once
 
-// THE ONE DOOR TO GLFW. Every engine, editor and runtime source reaches GLFW through this header and
-// never through <GLFW/glfw3.h> directly (BuildScriptContract.GlfwIsIncludedOnlyThroughItsEntryHeader).
+// THE DOOR TO GLFW. Every engine, editor and runtime source reaches GLFW through this header (or, for
+// the Vulkan entry points, through Engine/Core/GlfwVulkan.hpp) and never through <GLFW/glfw3.h>
+// directly (BuildScriptContract.GlfwIsIncludedOnlyThroughItsEntryHeaders).
 //
-// glfw3.h decides ONCE, at its first inclusion in a translation unit, whether to declare its Vulkan
-// entry points (glfwCreateWindowSurface, glfwGetRequiredInstanceExtensions, ...): only if a Vulkan
-// header is already in. Its include guard makes every later inclusion a no-op, so a later
-// `#define GLFW_INCLUDE_VULKAN` changes nothing. That made the declaration depend on which file was
-// compiled FIRST in the translation unit -- and under the MSVC unity build a translation unit is a
-// group of sources. SPAWN1 added one source to Desert, the groups shifted, VulkanSwapChain.cpp landed
-// after a source that included glfw3.h bare, and every Windows job failed with
-// 'glfwCreateWindowSurface': identifier not found. macOS (no unity) compiled it.
-//
-// Vulkan first, then GLFW: the answer no longer depends on inclusion order.
-#include <vulkan/vulkan.h>
-
-#ifndef GLFW_INCLUDE_VULKAN
-#define GLFW_INCLUDE_VULKAN
-#endif
+// This door does NOT pull in Vulkan: it is reached from Window.hpp -> Application.hpp -> Camera.hpp ->
+// Components.hpp, i.e. from tools and suites (WorldGen, SceneMigrator, clang-tidy's header pass) that
+// have no Vulkan SDK include directory. Whether glfw3.h declared its Vulkan entry points is therefore
+// order-dependent here, and nothing that includes only this header may call them.
 #include <GLFW/glfw3.h>
