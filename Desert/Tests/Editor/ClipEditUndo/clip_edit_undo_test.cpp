@@ -1410,3 +1410,24 @@ TEST_F( ClipEditUndo, KeyBoneRefusesABoneOutsideTheSkeletonAndAnOpenInteraction 
     rig.m_Transaction.Cancel();
     EXPECT_TRUE( CommandHistory::Get().UndoStack().empty() );
 }
+
+TEST_F( ClipEditUndo, DroppingAPreviewAnimatorsRecordsKeepsEveryOtherRecord )
+{
+    // The Animation Editor rebuilds its preview animator with the mesh: its pose records must go (they write
+    // through the dead pointer), while an unrelated record of the same history stays undoable.
+    Rig   rig( MakeClipWithInteriorKeys(), AutoChangeMode::All );
+    float value    = 1.0f;
+    float oldValue = 0.0f;
+    CommandHistory::Get().Push( &value, &oldValue, &value, sizeof( value ) );
+    ASSERT_TRUE( Desert::Editor::KeyBonePose( rig.m_Transaction, &rig.m_Animator, &rig.m_Clip, kChild,
+                                              FrameNumber{ kDisplayFrameTicks * 5 } )
+                      .IsSuccess() );
+    ASSERT_EQ( CommandHistory::Get().UndoStack().size(), 2U );
+
+    const Animator other( rig.m_Animator.GetSkeleton() );
+    EXPECT_EQ( Desert::Editor::DropPoseRecordsFor( &other ), 0U ) << "another animator's records are not these";
+    EXPECT_EQ( Desert::Editor::DropPoseRecordsFor( &rig.m_Animator ), 1U );
+    ASSERT_EQ( CommandHistory::Get().UndoStack().size(), 1U ) << "the unrelated record survives";
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_EQ( value, 0.0f );
+}

@@ -174,6 +174,12 @@ namespace Desert::Editor
 
         std::string GetLabel() const override;
 
+        /// The animator whose authoring pose Undo/Redo write: `DropPoseRecordsFor` matches on it.
+        [[nodiscard]] const Animation::Animator* PosedAnimator() const
+        {
+            return m_Animator;
+        }
+
         /// For the suite: how much this entry is actually carrying. A transaction that pushed an entry
         /// holding nothing would satisfy every count-based assertion while undoing nothing.
         [[nodiscard]] size_t ChangedBones() const
@@ -434,6 +440,16 @@ namespace Desert::Editor
      * @return undo entries pushed (1, or 0 when the clip already held exactly this key). Refuses a null
      *         animator or clip, a bone outside the skeleton, a non-finite pose and a transaction already open.
      */
+    /**
+     * @brief Forget every pose record that writes into @p animator, which is about to be destroyed.
+     *
+     * The Animation Editor's preview builds its animator with the mesh and loses it with the preview, while
+     * the clip lives on: `DropFor(&clip)` would also take the notify and curve records, which stay valid.
+     * A "+ Key" record goes too - it restores the pose and the tracks as ONE step, and half of it would point
+     * at freed memory. @return how many records were dropped.
+     */
+    size_t DropPoseRecordsFor( const Animation::Animator* animator );
+
     [[nodiscard]] Common::ResultStr<uint32_t> KeyBonePose( PoseEditTransaction&      transaction,
                                                            Animation::Animator*      animator,
                                                            Animation::AnimationClip* clip, uint32_t bone,

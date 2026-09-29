@@ -247,6 +247,16 @@ namespace Desert::Editor
         [[nodiscard]] const Animation::Animator* GetAnimator() const;
         [[nodiscard]] glm::mat4                  GetViewProjection() const;
         [[nodiscard]] glm::mat4                  GetTargetTransform() const;
+        // The camera's two halves, for a gizmo that takes view and projection apart (ImGuizmo::Manipulate).
+        [[nodiscard]] glm::mat4 GetView() const;
+        [[nodiscard]] glm::mat4 GetProjection() const;
+
+        // THE ANIMATION EDITOR'S POSING. The same animator as GetAnimator(), writable, for an owner that edits
+        // its authoring pose (a bone gizmo, a Details row). While the override is on, every Update re-applies
+        // that authoring pose over the clip's pose at the time and re-renders, so a drag and an Undo of it
+        // both show on the next frame; off, the pose is the clip's again.
+        [[nodiscard]] Animation::Animator* GetAnimatorForAuthoring();
+        void                               SetPoseOverride( bool posed );
 
         // Show a material on a primitive.
         void SetMaterial( const Assets::AssetHandle& material, Shape shape = Shape::Sphere );
@@ -453,6 +463,7 @@ namespace Desert::Editor
         ECS::Entity                                     m_Target;
         Assets::Asset<Assets::AnimationAsset>           m_Clip; // the skinned preview's clip, null otherwise
         double                                          m_AnimationTime = 0.0;
+        bool m_PoseOverride = false; // the authoring pose replaces the clip's (SetPoseOverride)
         // The three entities the SceneSetup drives. Created once with the scene and then only written to
         // — a floor that is switched off is an entity with no mesh in its slot, not an entity destroyed
         // and rebuilt, because rebuilding it every toggle would churn the mesh service for a checkbox.

@@ -816,4 +816,16 @@ namespace Desert::Editor
         }
         return transaction.End();
     }
+
+    size_t DropPoseRecordsFor( const Animation::Animator* animator )
+    {
+        if ( animator == nullptr )
+            return 0;
+        return CommandHistory::Get().DropIf(
+             [animator]( const ICommand& command )
+             {
+                 const auto* pose = dynamic_cast<const ClipPoseCommand*>( &command );
+                 return pose != nullptr && pose->PosedAnimator() == animator;
+             } );
+    }
 } // namespace Desert::Editor
