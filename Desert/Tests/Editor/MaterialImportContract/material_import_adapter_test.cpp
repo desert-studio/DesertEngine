@@ -203,7 +203,10 @@ TEST( MaterialImportAdapter, EveryGltfKeyReachesItsPropertyOrSlot )
 
     // What the template does not read is named, not dropped silently.
     EXPECT_NE( std::ranges::find( fill.UnreadKeys, "gltf.KHR_materials_clearcoat" ), fill.UnreadKeys.end() );
-    EXPECT_NE( std::ranges::find( fill.UnreadKeys, "gltf.doubleSided" ), fill.UnreadKeys.end() );
+    // doubleSided is the MATERIAL's TwoSided (a Cull None permutation), read under every template — not a
+    // parameter and not an unread key.
+    EXPECT_TRUE( fill.TwoSided );
+    EXPECT_EQ( std::ranges::find( fill.UnreadKeys, "gltf.doubleSided" ), fill.UnreadKeys.end() );
 }
 
 TEST( MaterialImportAdapter, AMetallicRoughnessImageAloneIsPackedWithWhiteOcclusion )

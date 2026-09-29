@@ -36,10 +36,13 @@
 #include <Engine/Graphic/Materials/MaterialBinder.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialShadow.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
+#include <Engine/Graphic/Materials/Mesh/MeshVertexLayout.hpp>
+#include <Engine/Geometry/MeshTypes.hpp>
 
 #include <Common/Core/Constants.hpp>
 
 #include <shaderc/shaderc.hpp>
+#include <spirv_cross/spirv_cross.hpp>
 
 #include <algorithm>
 #include <cstring>
@@ -937,6 +940,134 @@ TEST( MeshCellPath, ADSLSurfacesOwnCellIsNoCellOfTheTableAndGoesGeneric )
     EXPECT_FALSE( Desert::Graphic::SurfaceCellShader( dslTemplate, MeshVertexPath::Skinned, MeshPass::Forward ) );
     EXPECT_FALSE( Desert::Graphic::SurfaceCellShader( dslTemplate, MeshVertexPath::Static, MeshPass::GBuffer ) );
     EXPECT_FALSE( Desert::Graphic::MeshCellPath( "" ).has_value() );
+}
+
+// ---- The vertex input: one home, both halves ---------------------------------------------------------
+
+// MeshVertexLayout (the C++ half, what the pipeline's vertex-input state is built from) against every mesh
+// cell's REFLECTED vertex stage (the GLSL half): each input a stage declares is fed by the element the layout
+// puts at that location, of the same shape — binding 0 at 0..N-1, the optional streams from
+// kMeshVertexStreamFirstLocation on. And the lit cells of every path read the streams: vertex colour at 7,
+// UV1 at 8, which is what SurfaceInput.VertexColor / UV1 come from.
+TEST_F( ShaderRootFixture, EveryMeshCellsVertexInputsAreTheOneLayoutsElements )
+{
+    for ( const auto path : kAllPaths )
+    {
+        const auto layout = Desert::Graphic::MeshVertexLayout( path );
+        ASSERT_TRUE( layout.HasStreams() ) << MeshVertexPathName( path );
+        EXPECT_EQ( layout.GetStreamFirstLocation(), 7u );
+        EXPECT_EQ( layout.GetStreamStride(), sizeof( Desert::MeshVertexStreams ) )
+             << "the streams' stride is the packed vertex the mesh uploads";
+
+        for ( const auto pass : { MeshPass::Forward, MeshPass::GBuffer, MeshPass::Glass, MeshPass::ShadowDepth } )
+        {
+            const char* name = MeshShaderFor( path, pass );
+            if ( !name )
+                continue;
+            const auto spirv = CompileStage( StageSource( name, ShaderStage::Vertex ), ShaderFileFor( name ),
+                                             shaderc_vertex_shader );
+            ASSERT_FALSE( spirv.empty() ) << name;
+
+            spirv_cross::Compiler reflected( spirv );
+            std::set<uint32_t>    locations;
+            for ( const auto& input : reflected.get_shader_resources().stage_inputs )
+            {
+                const uint32_t location = reflected.get_decoration( input.id, spv::DecorationLocation );
+                locations.insert( location );
+                const auto& type = reflected.get_type( input.base_type_id );
+
+                const Desert::Graphic::VertexBufferElement* element = nullptr;
+                if ( location < layout.GetElementCount() )
+                    element = &layout.GetElements()[location];
+                else if ( location >= layout.GetStreamFirstLocation() &&
+                          location - layout.GetStreamFirstLocation() < layout.GetStreamElements().size() )
+                    element = &layout.GetStreamElements()[location - layout.GetStreamFirstLocation()];
+
+                ASSERT_NE( element, nullptr )
+                     << name << " reads location " << location << " (" << input.name << ") that MeshVertexLayout("
+                     << MeshVertexPathName( path ) << ") does not feed";
+                EXPECT_EQ( element->Type == Desert::Graphic::ShaderDataType::UNorm8x4 ? 4u : element->Size / 4u,
+                           type.vecsize )
+                     << name << " location " << location;
+                const bool integer = type.basetype == spirv_cross::SPIRType::Int;
+                EXPECT_EQ( integer, element->Type == Desert::Graphic::ShaderDataType::Int4 )
+                     << name << " location " << location;
+            }
+
+            if ( pass == MeshPass::Forward || pass == MeshPass::GBuffer )
+            {
+                if ( std::string_view( name ).find( '/' ) == std::string_view::npos )
+                    continue; // a program of its own, not a surface cell
+                EXPECT_TRUE( locations.contains( 7 ) ) << name << " does not read the vertex colour stream";
+                EXPECT_TRUE( locations.contains( 8 ) ) << name << " does not read the UV1 stream";
+            }
+        }
+    }
+}
+
+// Every mesh pipeline MeshRenderer builds takes its vertex input from the one home: a layout spelled out
+// in the renderer again is the eleven hand copies that stood there, one of which would miss the streams.
+TEST_F( ShaderRootFixture, MeshRendererSpellsNoVertexLayoutOfItsOwn )
+{
+    const auto source = ReadFile( "../Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
+    ASSERT_FALSE( source.empty() );
+    EXPECT_EQ( source.find( "ShaderDataType::" ), std::string::npos )
+         << "MeshRenderer.cpp builds a vertex layout by hand; take MeshVertexLayout( path )";
+    EXPECT_NE( source.find( "MeshVertexLayout(" ), std::string::npos );
+}
+
+// A mesh with neither Colors nor UV1 uploads no stream buffer: it binds the one shared default buffer, which
+// is white and (0,0) in every vertex — the format's meaning, not a fallback.
+TEST( MeshVertexStreamsFormat, AMeshWithoutStreamsUploadsNoneAndTheDefaultIsWhite )
+{
+    EXPECT_TRUE( Desert::PackMeshVertexStreams( {}, {}, 24 ).empty() );
+
+    const Desert::MeshVertexStreams defaults{};
+    EXPECT_EQ( defaults.Color, ( std::array<uint8_t, 4>{ 255, 255, 255, 255 } ) );
+    EXPECT_EQ( defaults.UV1, glm::vec2( 0.0f ) );
+
+    const auto onlyUV1 = Desert::PackMeshVertexStreams( {}, { glm::vec2( 0.25f, 0.5f ) }, 2 );
+    ASSERT_EQ( onlyUV1.size(), 2u );
+    EXPECT_EQ( onlyUV1[0].Color, defaults.Color ) << "an absent colour stream is white in every vertex";
+    EXPECT_EQ( onlyUV1[0].UV1, glm::vec2( 0.25f, 0.5f ) );
+}
+
+// SURF1e-d: no stride-0 binding (portability devices refuse it: vertexAttributeAccessBeyondStride = false). A
+// mesh without streams binds the shared default buffer at the layout's stream stride, so that buffer holds at
+// least as many stream vertices as the mesh has vertices — on every vertex path, for small and large meshes,
+// and it only grows as bigger meshes are drawn.
+TEST( MeshVertexStreamsFormat, AMeshWithoutStreamsBindsADefaultAtLeastAsLongAsItsVerticesAtANonZeroStride )
+{
+    using namespace Desert::Graphic;
+    for ( const auto path : { MeshVertexPath::Static, MeshVertexPath::Skinned } )
+    {
+        const VertexBufferLayout layout = MeshVertexLayout( path );
+        ASSERT_NE( layout.GetStride(), 0u );
+        uint32_t capacity = 0;
+        for ( const uint64_t vertices : { 3ull, 4096ull, 4097ull, 100000ull, 24ull, 1500000ull } )
+        {
+            const auto binding = DefaultVertexStreamsFor( layout, vertices * layout.GetStride(), capacity );
+            EXPECT_NE( binding.Stride, 0u ) << "a stride-0 binding is refused on portability devices";
+            EXPECT_EQ( binding.Stride, sizeof( Desert::MeshVertexStreams ) );
+            EXPECT_GE( binding.Capacity, vertices ) << "the default must cover every vertex the mesh reads";
+            EXPECT_GE( binding.Capacity, capacity ) << "the shared buffer grows, never shrinks";
+            capacity = binding.Capacity;
+        }
+    }
+}
+
+// The backend keeps ONE pipeline per layout: no stride-0 twin and no per-mesh variant choice at bind time.
+TEST_F( ShaderRootFixture, TheBackendBuildsNoStrideZeroTwin )
+{
+    for ( const char* file : { "../Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanPipeline.hpp",
+                               "../Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanPipeline.cpp",
+                               "../Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.hpp" } )
+    {
+        const auto source = ReadFile( file );
+        ASSERT_FALSE( source.empty() ) << file;
+        EXPECT_EQ( source.find( "NoStreams" ), std::string::npos ) << file;
+        EXPECT_EQ( source.find( "meshHasStreams" ), std::string::npos ) << file;
+    }
 }
 
 int main( int argc, char** argv )

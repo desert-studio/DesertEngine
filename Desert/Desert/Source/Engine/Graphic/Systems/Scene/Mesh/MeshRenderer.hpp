@@ -268,6 +268,13 @@ namespace Desert::Graphic::System
 #endif
         }
 
+        // A TWO-SIDED MATERIAL'S PIPELINE (UE: TwoSided is a PSO permutation, not a shader input): the pass's
+        // pipeline with CullMode None, from the shared cache, remembered per source pipeline. A one-sided draw, or a
+        // pipeline that already culls nothing, answers @p pipeline itself. Null = the permutation was refused
+        // (logged once per pipeline); the caller does not draw that object culled instead.
+        [[nodiscard]] GraphicsPipeline* CullPermutation( GraphicsPipeline* pipeline, bool twoSided );
+        std::unordered_map<const GraphicsPipeline*, std::shared_ptr<GraphicsPipeline>> m_TwoSidedPipelines;
+
         [[nodiscard]] GraphicsPipeline* WireframePipelineOr( GraphicsPipeline* fallback ) const
         {
 #if DESERT_DEV_INSTRUMENTS

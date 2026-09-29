@@ -102,6 +102,13 @@ namespace Desert::Runtime
         const auto& data = asset.Data();
         for ( const auto& p : data.Params )
             material.SetParamRaw( p.Name, p.Value );
+        // The template's `Surface { TwoSided }` is the material's DEFAULT (UE: the parent material's TwoSided);
+        // the asset states it only to override. The parser publishes it as the default cell's Cull None
+        // (DShaderParser: Meta.State = the default cell's state), so every draw path — including the batched
+        // static one, whose pipeline is built from the pass shader and not from the template's cells — reaches
+        // it through the same CullPermutation.
+        const bool templateTwoSided = material.GetSchema().State.Cull == Core::Formats::StateCull::None;
+        material.SetTwoSided( data.TwoSided.value_or( templateTwoSided ) );
 
         // `MaterialData::Textures` holds the sampler slots only since MATL 3 (the cloud material's asset
         // slots have a list of their own), but the SHADER SCHEMA still says what each name is: a `Texture2D`
@@ -515,8 +522,13 @@ namespace Desert::Runtime
 
         auto instance = base->CreateInstance();
         for ( auto it = chain.rbegin(); it != chain.rend(); ++it )
+        {
             for ( const auto& p : ( *it )->Data().Params )
                 instance->SetParamFromVec4( p.Name, p.Value );
+            // The childmost instance that states TwoSided wins, as its parameters do.
+            if ( ( *it )->Data().TwoSided.has_value() )
+                instance->SetTwoSidedOverride( ( *it )->Data().TwoSided );
+        }
         return instance;
     }
 

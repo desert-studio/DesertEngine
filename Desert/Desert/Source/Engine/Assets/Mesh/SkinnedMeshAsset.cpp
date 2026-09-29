@@ -127,6 +127,7 @@ namespace Desert::Assets
         m_MorphTargets.reserve( data.MorphTargets.size() );
         for ( const auto& mt : data.MorphTargets )
             m_MorphTargets.push_back( MorphTarget{ mt.Name, mt.DeltaPositions, mt.DeltaNormals } );
+        m_VertexStreams = PackMeshVertexStreams( data.Colors, data.UV1, m_Vertices.size() );
 
         // StaticMeshAsset::Load has always ended this way; this one never did, so IsReadyForUse stayed false
         // for the whole session and every `if (!IsReadyForUse()) Load()` in the engine re-read and re-parsed
@@ -148,6 +149,8 @@ namespace Desert::Assets
         m_Indices.shrink_to_fit();
         m_Submeshes.shrink_to_fit();
         m_MorphTargets.shrink_to_fit();
+        m_VertexStreams.clear();
+        m_VertexStreams.shrink_to_fit();
         m_MaterialAssetHandles.shrink_to_fit();
 
         // THE RIG SIGNATURE AND ITS DEPENDENCY GO WITH THE PAYLOAD. `ResolveDependencies` matches a

@@ -200,7 +200,8 @@ namespace Desert::Editor
 
         const std::vector<SkinnedVertex> skinned = Geometry::AutoSkinVertices( vertices, rigBones );
 
-        auto skinnedMesh = std::make_shared<SkinnedMesh>( skinned, indices, submeshes, skeleton.get() );
+        auto skinnedMesh = std::make_shared<SkinnedMesh>( skinned, indices, submeshes, skeleton.get(),
+                                                          meshAsset->GetVertexStreams() );
 
         // Swap the component. Materials are left to the default skinned PBR material (a static PBR instance is
         // bound to the wrong vertex/pipeline layout) — the user re-assigns skinned materials afterward.

@@ -12,7 +12,8 @@ layout( location = 3 ) out vec4 oGBufferEmissive; // Emissive.rgb (HDR; the defe
 void main()
 {
     const SurfaceInput i =
-         DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN );
+         DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
+                              v_Surface.VertexColor );
     const SurfaceOutput s = EvaluateSurface( i );
     DESERT_SURFACE_CLIP( s );
     oGBufferA        = vec4( s.BaseColor, s.Metallic );

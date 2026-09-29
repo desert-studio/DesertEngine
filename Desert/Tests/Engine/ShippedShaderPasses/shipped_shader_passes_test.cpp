@@ -691,6 +691,29 @@ TEST( ShippedShaderPasses, SomeShippedSceneActuallyDrawsABoundNormalMap )
         std::cout << "[  CENSUS  ] a shipped scene draws " << row << "\n";
 }
 
+// Every vertex-path header of a surface cell (Mesh/Surface/Vertex_<Path>.glslh — one per MeshVertexPath)
+// declares the two optional streams at the locations MeshVertexLayout.hpp feeds them from, and hands them
+// to the pass through the varyings: a new path written without them would give its materials no
+// VertexColor / UV1 while the pipeline still binds the buffer. The reflected relation, location by location,
+// is Desert/Tests/Engine/MeshVertexPath's EveryMeshCellsVertexInputsAreTheOneLayoutsElements.
+TEST( ShippedShaderPasses, EverySurfaceVertexPathDeclaresTheColourAndUV1Streams )
+{
+    size_t vertexHeaders = 0;
+    for ( const auto& file : ShippedIncludes() )
+    {
+        if ( file.parent_path().filename() != "Surface" || !file.filename().string().starts_with( "Vertex_" ) )
+            continue;
+        ++vertexHeaders;
+        const std::string source = ReadFile( file );
+        EXPECT_NE( source.find( "layout( location = 7 ) in vec4 a_Color;" ), std::string::npos ) << file;
+        EXPECT_NE( source.find( "layout( location = 8 ) in vec2 a_TexCoord1;" ), std::string::npos ) << file;
+        EXPECT_NE( source.find( "v_Surface.VertexColor" ), std::string::npos ) << file;
+        EXPECT_NE( source.find( "v_Surface.UV1" ), std::string::npos ) << file;
+    }
+    EXPECT_EQ( vertexHeaders, Desert::Graphic::kMeshVertexPathCount )
+         << "one Mesh/Surface/Vertex_<Path>.glslh per MeshVertexPath";
+}
+
 TEST( ShippedShaderPasses, NoShippedShaderTranslatesItsOwnProse )
 {
     int filesWithProseKeywords = 0;

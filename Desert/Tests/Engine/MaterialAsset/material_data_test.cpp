@@ -316,3 +316,21 @@ TEST( MaterialData, ASlotSamplerOverridesTheTemplateAndAnUnstatedSlotKeepsTheTem
          << "no state: the template's";
     EXPECT_EQ( r.SlotSampler( "u_Unnamed", templateDefault ), templateDefault ) << "no slot: the template's";
 }
+
+// SURF1e: TwoSided is the MATERIAL's (UE UMaterial::TwoSided) and is optional — unstated means "the template's",
+// so a written false must read back as a stated false (an override), never as absent.
+TEST( MaterialData, TwoSidedRoundTripsAndAnUnstatedOneStaysUnstated )
+{
+    for ( const std::optional<bool> stated : { std::optional<bool>{ true }, std::optional<bool>{ false },
+                                               std::optional<bool>{} } )
+    {
+        Desert::Assets::MaterialData m;
+        m.TwoSided      = stated;
+        const auto text = Desert::Assets::WriteMaterialJson( m );
+        ASSERT_TRUE( text ) << text.GetError();
+        EXPECT_EQ( text.GetValue().find( "TwoSided" ) != std::string::npos, stated.has_value() );
+        const auto back = Desert::Assets::ParseMaterialJson( "t.demat", text.GetValue() );
+        ASSERT_TRUE( back ) << back.GetError();
+        EXPECT_EQ( back.GetValue().TwoSided, stated );
+    }
+}
