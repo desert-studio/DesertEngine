@@ -211,10 +211,6 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "'{}' material adoption refused: {}", sourcePath.string(),
                                                      adopted.GetError() );
 
-        // The node meshes a split import wrote (their reference, their geometry), in node order.
-        std::optional<std::vector<NodeMesh>>                                                      splitKeeper;
-        std::vector<std::pair<Assets::AssetGuidRef, const Assets::Serialization::MeshAssetData*>> nodeMeshes;
-
         if ( resolved.Mesh && resolved.Mesh->IsSkinned )
             record( SerializeMeshAsset( resolved.Mesh.value(), sourcePath ) );
         else if ( resolved.Mesh )
@@ -225,63 +221,26 @@ namespace Desert::Editor
             named.reserve( resolved.Materials.size() );
             for ( const auto& material : resolved.Materials )
                 named.push_back( { material.Name, material.Guid } );
-            if ( const auto written = WriteImportedMeshAsset( resolved.Mesh.value(), named, sourcePath );
-                 !written )
+            // COMBINE MESHES OFF (UE's default): every mesh-bearing node becomes its own static mesh and NO
+            // combined one is written (NodeMeshSplit.hpp WriteStaticMeshImport); a single-node source, or Combine
+            // Meshes on, is the one combined mesh.
+            auto written =
+                 WriteStaticMeshImport( resolved.Mesh.value(), resolved.SubmeshNodes, named, sourcePath );
+            if ( !written )
                 record( Common::MakeError<bool>( written.GetError() ) );
-            // COMBINE MESHES OFF (UE's default): every mesh-bearing node also becomes its own static mesh
-            // (NodeMeshSplit.hpp). A single-node source is its combined mesh already, so nothing is split.
-            auto split = NodeMeshesOfImport( resolved.Mesh.value(), resolved.SubmeshNodes, sourcePath );
-            if ( !split )
-                record( Common::MakeError<bool>( split.GetError() ) );
             else
             {
-                splitKeeper = split.ExtractValue();
-                for ( const NodeMesh& node : *splitKeeper )
-                {
-                    auto written = WriteNodeMeshAsset( node, named, sourcePath );
-                    if ( !written )
-                    {
-                        record( Common::MakeError<bool>( written.GetError() ) );
-                        continue;
-                    }
-                    Assets::ContentRegistry::NoteFile( written.GetValue() );
-                    std::error_code ec;
-                    const auto      located = std::filesystem::proximate( written.GetValue(), ec );
-                    nodeMeshes.push_back(
-                         { Assets::AssetGuidRef{
-                                Common::Content::AssetGuidToText( NodeMeshGuid( sourcePath, node.Node ) ),
-                                ( ec ? written.GetValue() : located ).generic_string() },
-                           &node.Mesh } );
-                }
+                for ( const auto& [node, path] : written.GetValue() )
+                    Assets::ContentRegistry::NoteFile( path );
             }
         }
 
-        // THE MATERIALS AFTER THE MESH: a static mesh's import record (its GUID) exists only once the mesh is
-        // written, and each material names that mesh as its PreviewMesh - the tuft a grass atlas was authored
-        // for, which its thumbnail then draws (ThumbnailSubject::Preview::Mesh). A skinned mesh is not drawn
-        // by the mesh path, so its materials name none and keep the sphere.
-        std::optional<Assets::AssetGuidRef> previewMesh;
-        if ( resolved.Mesh && !resolved.Mesh->IsSkinned )
-        {
-            if ( auto ref = PreviewMeshRefFor( sourcePath ) )
-                previewMesh = ref.GetValue();
-            else
-                record( Common::MakeError<bool>( ref.GetError() ) );
-        }
+        // NO PREVIEW MESH FROM THE IMPORT (owner, THM1j): an imported material's thumbnail is the ball, as in UE,
+        // masked materials included (the mesh path's alpha discard cuts the ball). PreviewMesh stays the manual
+        // "Thumbnail Mesh" setting of the Material Editor; the pack's tufts are shown by the node meshes' own
+        // thumbnails.
         for ( const auto& material : resolved.Materials )
-        {
-            // Split by node: the material's Preview Mesh is the first node mesh that carries it (UE's
-            // "preview mesh" of an imported material is likewise the mesh it came in with).
-            std::optional<Assets::AssetGuidRef> preview = previewMesh;
-            for ( const auto& [ref, mesh] : nodeMeshes )
-                if ( std::ranges::any_of( mesh->Submeshes,
-                                          [&]( const auto& sub ) { return sub.MaterialGuid == material.Guid; } ) )
-                {
-                    preview = ref;
-                    break;
-                }
-            record( SerializeMaterialAsset( material, sourcePath, preview ) );
-        }
+            record( SerializeMaterialAsset( material, sourcePath, std::nullopt ) );
 
         if ( resolved.Skeleton )
             record( SerializeSkeletonAsset( resolved.Skeleton.value(), sourcePath ) );

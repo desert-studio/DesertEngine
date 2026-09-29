@@ -65,4 +65,14 @@ namespace Desert::Editor
     [[nodiscard]] Common::ResultStr<std::filesystem::path>
     WriteNodeMeshAsset( const NodeMesh& node, std::span<const Assets::MeshMaterialSlot> named,
                         const std::filesystem::path& source );
+
+    // THE STATIC MESH IMPORT'S WRITE, BOTH MODES (THM1j; UE: UFbxStaticMeshImportData::bCombineMeshes). The record
+    // first (identity, box). Split (Combine Meshes off, more than one node): each node's mesh beside the source
+    // and the node names in the record - and NO combined mesh, exactly as UE imports no combined asset then.
+    // Combined: the one mesh (WriteImportedMeshAsset) and no node list. Returns the node meshes written (empty
+    // when combined); the first failure otherwise, after every node was attempted.
+    [[nodiscard]] Common::ResultStr<std::vector<std::pair<NodeMesh, std::filesystem::path>>>
+    WriteStaticMeshImport( const Assets::Serialization::MeshAssetData& imported,
+                           std::span<const std::string>                submeshNodes,
+                           std::span<const Assets::MeshMaterialSlot> named, const std::filesystem::path& source );
 } // namespace Desert::Editor

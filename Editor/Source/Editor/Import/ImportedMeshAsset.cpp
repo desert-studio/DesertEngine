@@ -4,6 +4,7 @@
 
 #include "CookPaths.hpp"
 #include "MaterialAdoption.hpp"
+#include "NodeMeshSplit.hpp"
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Logger.hpp>
@@ -210,8 +211,44 @@ namespace Desert::Editor
         return present;
     }
 
+    namespace
+    {
+        // A SPLIT IMPORT'S "UP TO DATE" (THM1j): every node mesh the record names is on disk, states the
+        // source's current bytes, and every material it slots has its .demat. There is no combined envelope to
+        // ask: a split import writes none. A deleted node mesh re-imports the source, as a deleted .demat does.
+        bool SplitImportIsCurrent( const std::filesystem::path& source, const std::vector<std::string>& nodes )
+        {
+            const auto hash = Assets::HashMeshSourceFile( source );
+            if ( !hash )
+                return false;
+            for ( const std::string& node : nodes )
+            {
+                const std::filesystem::path path  = NodeMeshAssetPath( source, node );
+                const auto                  asset = Assets::LoadMeshSourceAsset( path );
+                if ( !asset )
+                {
+                    LOG_WARN( "[Import] '{}': node mesh '{}' does not load ({}), so the source is imported again",
+                              source.generic_string(), path.generic_string(), asset.GetError() );
+                    return false;
+                }
+                if ( asset.GetValue().Import.SourceHash != hash.GetValue() )
+                    return false;
+                for ( const auto& slot : asset.GetValue().Source.MaterialSlots )
+                {
+                    std::error_code ec;
+                    if ( !std::filesystem::exists( MaterialAdoption::MaterialAssetPath( source, slot.Name ), ec ) )
+                        return false;
+                }
+            }
+            return true;
+        }
+    } // namespace
+
     bool ImportedMeshAssetIsCurrent( const std::filesystem::path& source )
     {
+        if ( const auto record = Assets::Serialization::ReadImportRecord( source );
+             record && record.GetValue() && record.GetValue()->Nodes )
+            return SplitImportIsCurrent( source, *record.GetValue()->Nodes );
         return ImportedMeshAssetIsFresh( source ) && ImportedMaterialsPresent( source );
     }
 

@@ -179,4 +179,50 @@ namespace Desert::Editor
                                                        written.GetError() );
         return Common::MakeSuccess( path );
     }
+
+    Common::ResultStr<std::vector<std::pair<NodeMesh, std::filesystem::path>>>
+    WriteStaticMeshImport( const Ser::MeshAssetData& imported, std::span<const std::string> submeshNodes,
+                           std::span<const Assets::MeshMaterialSlot> named, const std::filesystem::path& source )
+    {
+        using Result   = std::vector<std::pair<NodeMesh, std::filesystem::path>>;
+        const auto box = Ser::MeshDataBounds( imported );
+        if ( !box )
+            return Common::MakeFormattedError<Result>( "'{}': the import has no submesh, so no box",
+                                                       source.string() );
+        if ( auto identity = Ser::EnsureImportRecord( source, *box ); !identity )
+            return Common::MakeError<Result>( identity.GetError() );
+
+        auto split = NodeMeshesOfImport( imported, submeshNodes, source );
+        if ( !split )
+            return Common::MakeError<Result>( split.GetError() );
+        if ( split.GetValue().empty() )
+        {
+            if ( auto written = WriteImportedMeshAsset( imported, named, source ); !written )
+                return Common::MakeError<Result>( written.GetError() );
+            if ( auto cleared = Ser::SetImportRecordNodes( source, std::nullopt ); !cleared )
+                return Common::MakeError<Result>( cleared.GetError() );
+            return Common::MakeSuccess( Result{} );
+        }
+
+        Result                   out;
+        std::vector<std::string> names;
+        std::string              firstFailure;
+        for ( NodeMesh& node : split.ExtractValue() )
+        {
+            auto written = WriteNodeMeshAsset( node, named, source );
+            if ( !written )
+            {
+                if ( firstFailure.empty() )
+                    firstFailure = written.GetError();
+                continue;
+            }
+            names.push_back( node.Node );
+            out.emplace_back( std::move( node ), written.ExtractValue() );
+        }
+        if ( auto recorded = Ser::SetImportRecordNodes( source, names ); !recorded && firstFailure.empty() )
+            firstFailure = recorded.GetError();
+        if ( !firstFailure.empty() )
+            return Common::MakeError<Result>( firstFailure );
+        return Common::MakeSuccess( std::move( out ) );
+    }
 } // namespace Desert::Editor

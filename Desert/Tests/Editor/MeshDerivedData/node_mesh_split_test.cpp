@@ -6,6 +6,9 @@
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
+#include <Editor/Import/CookPaths.hpp>
+#include <Editor/Import/ImportedMeshAsset.hpp>
+#include <Editor/Import/MaterialAdoption.hpp>
 #include <Editor/Import/NodeMeshSplit.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
@@ -199,4 +202,41 @@ TEST( NodeMeshSplit, ASingleNodeIsNotSplitAndAMismatchIsRefused )
     const auto [data, nodes] = project.Import( { "TuftA", "TuftB" } );
     const std::vector<std::string> short1{ "TuftA" };
     EXPECT_FALSE( Editor::SplitStaticMeshByNode( data, short1 ).IsSuccess() );
+}
+
+// THM1j: a split import writes NO combined mesh (UE imports none with Combine Meshes off); its record names the
+// node meshes and its freshness is theirs. Combine Meshes on writes the combined mesh and no node list.
+TEST( NodeMeshSplit, ASplitImportWritesNoCombinedMesh )
+{
+    const GrassProject project;
+    const auto [data, nodes] = project.Import( { "TuftA", "TuftB", "TuftC" } );
+    const fs::path material  = Editor::MaterialAdoption::MaterialAssetPath( project.Source, "GrassAtlas" );
+    fs::create_directories( material.parent_path() );
+    std::ofstream( material ) << "{}";
+
+    auto split = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source );
+    ASSERT_TRUE( split.IsSuccess() ) << split.GetError();
+    ASSERT_EQ( split.GetValue().size(), 3u );
+    EXPECT_FALSE( Editor::ImportedMeshAssetIsFresh( project.Source ) ) << "a split import wrote the combined mesh";
+    EXPECT_FALSE( fs::exists( Editor::CookPaths::MeshAsset( project.Source ) ) );
+    const auto record = Ser::ReadImportRecord( project.Source );
+    ASSERT_TRUE( record.IsSuccess() && record.GetValue() && record.GetValue()->Nodes );
+    EXPECT_EQ( record.GetValue()->Nodes->size(), 3u );
+    EXPECT_TRUE( Editor::ImportedMeshAssetIsCurrent( project.Source ) ) << "the node meshes are the import";
+
+    fs::remove( split.GetValue()[1].second );
+    EXPECT_FALSE( Editor::ImportedMeshAssetIsCurrent( project.Source ) ) << "a deleted node mesh re-imports";
+
+    // Combine Meshes on: the one combined mesh, the node list cleared.
+    Ser::ImportRecordData on = *record.GetValue();
+    on.CombineMeshes         = true;
+    std::ofstream( Common::Content::ImportRecordPathFor( project.Source ), std::ios::binary | std::ios::trunc )
+         << Ser::WriteImportRecord( on );
+    auto combined = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source );
+    ASSERT_TRUE( combined.IsSuccess() ) << combined.GetError();
+    EXPECT_TRUE( combined.GetValue().empty() );
+    EXPECT_TRUE( Editor::ImportedMeshAssetIsFresh( project.Source ) );
+    const auto after = Ser::ReadImportRecord( project.Source );
+    ASSERT_TRUE( after.IsSuccess() && after.GetValue() );
+    EXPECT_FALSE( after.GetValue()->Nodes.has_value() );
 }
