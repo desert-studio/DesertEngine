@@ -318,7 +318,7 @@ TEST( BuildScriptContract, BothPackagersShipEveryEngineResourceTree )
     ASSERT_FALSE( bat.empty() );
 
     // Read the list each script's loop actually walks. Matching on the built path would prove nothing:
-    // both scripts assemble it from a variable, so "Editor/Resources/Shaders" appears in neither.
+    // both scripts assemble it from a variable, so "Engine/Content/Shaders" appears in neither.
     const std::vector<std::string> shTrees  = WordsBetween( sh, "for tree in ", "; do" );
     const std::vector<std::string> batTrees = WordsBetween( bat, "for %%T in (", ")" );
 

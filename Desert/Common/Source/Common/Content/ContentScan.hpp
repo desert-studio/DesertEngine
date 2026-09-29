@@ -74,7 +74,7 @@ namespace Common::Content
     // sorted (std::map) so two scans of one tree produce one order.
     //
     // THE WORKING DIRECTORY MATTERS AND THAT IS NOT THIS FUNCTION'S TO FIX. Engine resource roots —
-    // `Resources/Shaders/` — are never remapped by a project (Constants.hpp says so beside them), so
+    // `Engine/Content/Shaders/` — are never remapped by a project (Constants.hpp says so beside them), so
     // they resolve against the process's working directory, and both hosts `cd` into the directory
     // that holds them before starting. A caller standing somewhere else finds no shaders. Callers that
     // can be run from anywhere check `SHADERDIR_PATH` themselves and refuse; see AssetRegistryTool.

@@ -20,7 +20,7 @@
 // its row is current (same size and modification time), exactly as in the editor; a mesh's box comes from
 // its 64-byte header.
 //
-// RUN IT FROM THE DIRECTORY THE ENGINE RUNS FROM — the one that holds `Resources/`. Engine resource
+// RUN IT FROM THE DIRECTORY THE ENGINE RUNS FROM — a checkout's `Editor/` (engine root `..`). Engine resource
 // roots are never remapped by a project and so resolve against the working directory; the tool refuses
 // rather than silently cooking a registry with no shaders in it.
 
@@ -78,18 +78,18 @@ namespace
         //
         // `SetProjectRoot` moves every PROJECT root and leaves the ENGINE resource roots alone, by
         // design (Constants.hpp: "Engine resources are never remapped"). Those are relative paths —
-        // `Resources/Shaders/` — so they resolve against the process's working directory, and both
-        // hosts `cd` into the directory that holds them before starting (scripts/MacOS/RunEditor.sh).
-        // A cook run from anywhere else finds no shaders, writes a registry with 76 rows missing, and
-        // exits 0: a silent partial answer about the one file the whole boot now depends on. Measured
-        // while building this — the first cook produced 171 rows instead of 247.
+        // `../Engine/Content/Shaders/` from a checkout's Editor/ — so they resolve against the process's working
+        // directory, and both hosts `cd` into the directory that holds them before starting
+        // (scripts/MacOS/RunEditor.sh). A cook run from anywhere else finds no shaders, writes a registry with 76
+        // rows missing, and exits 0: a silent partial answer about the one file the whole boot now depends on.
+        // Measured while building this — the first cook produced 171 rows instead of 247.
         std::error_code shaderEc;
         if ( !fs::is_directory( Common::Constants::Path::SHADERDIR_PATH, shaderEc ) )
         {
             return Common::MakeFormattedError<fs::path>(
                  "'{}' does not exist from the current directory. Engine resources are never remapped by "
                  "the project, so they resolve against the WORKING DIRECTORY — run this tool from the "
-                 "same directory the editor runs from (the one that holds Resources/), or the registry "
+                 "same directory the editor runs from (a checkout's Editor/), or the registry "
                  "would be written without a single shader row",
                  Common::Constants::Path::SHADERDIR_PATH.string() );
         }

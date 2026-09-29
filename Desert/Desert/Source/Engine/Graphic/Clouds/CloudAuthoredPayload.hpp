@@ -20,7 +20,7 @@ namespace Desert::Graphic
      * @brief The GPU side of the seam's AUTHORED producer: the hero clouds of a frame, and the ONE place
      *        an entity's transform becomes an instance.
      *
-     * The GLSL half of this layout is the block in Editor/Resources/Shaders/Common/CloudAuthored.glslh,
+     * The GLSL half of this layout is the block in Engine/Content/Shaders/Common/CloudAuthored.glslh,
      * member for member and in this order. The static_asserts below make a divergence a build error
      * instead of a frame in which a hero cloud is read from the wrong bytes — which does not look like a
      * bug, it looks like the cloud being in the wrong place.

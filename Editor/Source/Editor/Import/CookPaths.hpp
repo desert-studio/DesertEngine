@@ -35,7 +35,7 @@ namespace Desert::Editor::CookPaths
     // A MESH'S IDENTITY, WITH ITS DIRECTORY IN IT: the source path relative to Resources/Assets/Meshes,
     // extension dropped — "Props/base" for Assets/Meshes/Props/base.fbx. A source ANYWHERE ELSE under
     // content (e.g. a character pack in Resources/Assets/Collections/<pack>/) is taken relative to Assets/
-    // (then Resources/) instead, so two packs never share an identity through a shared "../".
+    // (then Engine/Content/) instead, so two packs never share an identity through a shared "../".
     //
     // The importer used to identify a source by `stem()` alone, i.e. by "base", with the directory thrown
     // away entirely. Two meshes with the same file name in different folders were then the SAME asset as
@@ -69,7 +69,7 @@ namespace Desert::Editor::CookPaths
                 rel = relAssets;
             else
             {
-                const fs::path relRes = fs::relative( source, Common::Constants::Path::RESOURCE_PATH, ec );
+                const fs::path relRes = fs::relative( source, Common::Constants::Path::ENGINE_CONTENT_PATH, ec );
                 if ( !relRes.empty() && relRes.begin()->string() != ".." )
                     rel = relRes;
             }

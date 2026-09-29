@@ -74,7 +74,7 @@ done
 # out fresh too, which is why no CI artifact ever carried one and why this could stay invisible: it
 # only ever affected a drop packaged on a developer's own machine, which is the one a developer
 # hands to somebody.
-for tree in Branding Shaders Fonts Icons Splash; do
+for tree in Branding Splash; do
     if [ ! -d "$ROOT/Editor/Resources/$tree" ]; then
         echo "Package.sh: engine resource tree Editor/Resources/$tree is missing" >&2
         exit 1
@@ -82,6 +82,16 @@ for tree in Branding Shaders Fonts Icons Splash; do
     mkdir -p "$OUT/Resources/$tree"
     rsync -a --exclude='.DS_Store' --exclude='Thumbs.db' --exclude='.git*' \
         "$ROOT/Editor/Resources/$tree/" "$OUT/Resources/$tree/"
+done
+# The engine's content and the editor's own (Common/Core/Constants.hpp SetEngineRoot): the drop is its own
+# engine root, so both land beside the binaries at the same relative path a checkout keeps them at.
+for content in Engine/Content Editor/Content; do
+    if [ ! -d "$ROOT/$content" ]; then
+        echo "Package.sh: content tree $content is missing" >&2
+        exit 1
+    fi
+    mkdir -p "$OUT/$content"
+    rsync -a --exclude='.DS_Store' --exclude='Thumbs.db' --exclude='.git*' "$ROOT/$content/" "$OUT/$content/"
 done
 
 # The descriptor, verbatim: the drop's Resources/Assets sits exactly where the dev tree's does, so

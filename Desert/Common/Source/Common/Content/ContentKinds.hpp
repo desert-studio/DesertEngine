@@ -95,6 +95,10 @@ namespace Common::Content
         // shows the name without loading the asset; the loader reads the same member through its own struct,
         // and the PickerRegistryRows suite holds the two equal over the corpus.
         std::string_view DisplayNameMember = {};
+        // A second tree the kind is ALSO enumerated from: Editor/Content's twin of Root (the Shader row: the
+        // editor passes' programs under Editor/Content/Shaders). Null for every other kind. The packager's
+        // census never names it, so what lives there is gathered by the editor and shipped by nobody.
+        const std::filesystem::path* EditorRoot = nullptr;
 
         // A kind with no root and no extension is one a file can only STATE in its header, never be
         // found as by the directory walk: a redirector (AF10b) sits at the old path under the moved
@@ -129,7 +133,7 @@ namespace Common::Content
              // subfolders and editor-created files both land there, in the unified .demat format.
              /* Material             */ { "Material", E::MATERIAL_EXTENSION, &P::MATERIAL_PATH },
              /* Skybox               */ { "Skybox", ".detex", &P::SKYBOX_PATH },
-             /* Shader               */ { "Shader", ".shader", &P::SHADERDIR_PATH },
+             /* Shader               */ { "Shader", ".shader", &P::SHADERDIR_PATH, {}, &P::EDITOR_SHADERDIR_PATH },
              // The four cloud kinds. CloudNoiseVolume's root is `Clouds/` itself, which CONTAINS the
              // other three roots — that is not a mistake to tidy up: the extension is what separates
              // them, and narrowing this root would change which files the engine finds.

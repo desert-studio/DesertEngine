@@ -33,12 +33,86 @@ namespace Common::Constants
         // REVISIT CONDITION: the day a project genuinely needs to rename or relocate one of these
         // folders, that folder's census row grows a .deproj override — not before.
 
-        // --- Engine / editor resources (SHARED, never remapped) ---
-        inline const std::filesystem::path RESOURCE_PATH  = "Resources/";
-        inline const std::filesystem::path SHADERDIR_PATH = "Resources/Shaders/";
-        inline const std::filesystem::path FONTS_PATH     = "Resources/Fonts/";
-        // Built-in vector icons (.svg, imported into SDF at first use — see Runtime::IconService).
-        inline const std::filesystem::path ICONS_PATH = "Resources/Icons/";
+        // --- Engine and editor content (never remapped by a PROJECT; hung off the ENGINE root) ---
+        //
+        // UE's split (FPaths::EngineContentDir / the editor's own content): `Engine/Content/` is what a
+        // game ships — shaders, fonts, the game UI's vector icons — and `Editor/Content/` is what only the
+        // editor reads (its own passes' shaders, the viewport's gizmo billboards). The packager's census
+        // (Editor/Packaging/PackagedContentTrees.hpp) names Engine/Content trees only, so an editor-only
+        // file is left out of a package by WHERE it lives, not by a list of names.
+        //
+        // ONE place resolves both: SetEngineRoot. The default is the checkout as seen from `Editor/` —
+        // the directory every run script and every test suite works from — and a process that starts
+        // anywhere else (a downloaded drop, an IDE launch, the packaged game) names its engine root
+        // explicitly before anything reads a shader (Engine/Project/StartupLayout: ResolveEngineRoot).
+        enum class EngineContentDir : std::size_t
+        {
+            EngineContent, // <root>/Engine/Content/
+            Shaders,       // <root>/Engine/Content/Shaders/
+            Fonts,         // <root>/Engine/Content/Fonts/
+            Icons, // <root>/Engine/Content/Icons/ — built-in vector icons (.svg, see Runtime::IconService)
+            EditorContent, // <root>/Editor/Content/
+            EditorShaders, // <root>/Editor/Content/Shaders/
+            EditorIcons,   // <root>/Editor/Content/Icons/
+            COUNT
+        };
+        inline constexpr std::size_t ENGINE_CONTENT_DIR_COUNT =
+             static_cast<std::size_t>( EngineContentDir::COUNT );
+
+        // The relative spelling of each row under the engine root — the one table both the derivation and
+        // the census tests read.
+        inline constexpr std::array<std::string_view, ENGINE_CONTENT_DIR_COUNT> ENGINE_CONTENT_DIRS = {
+             "Engine/Content/", "Engine/Content/Shaders/", "Engine/Content/Fonts/", "Engine/Content/Icons/",
+             "Editor/Content/", "Editor/Content/Shaders/", "Editor/Content/Icons/",
+        };
+
+        // The engine root a checkout's `Editor/` sees.
+        inline constexpr std::string_view CHECKOUT_ENGINE_ROOT_FROM_EDITOR = "..";
+
+        namespace Detail
+        {
+            inline std::array<std::filesystem::path, ENGINE_CONTENT_DIR_COUNT>
+            DeriveEngineDirs( const std::filesystem::path& engineRoot )
+            {
+                std::array<std::filesystem::path, ENGINE_CONTENT_DIR_COUNT> dirs;
+                for ( std::size_t i = 0; i < ENGINE_CONTENT_DIR_COUNT; ++i )
+                    dirs[i] = ( engineRoot / std::filesystem::path( ENGINE_CONTENT_DIRS[i] ) ).lexically_normal();
+                return dirs;
+            }
+
+            inline std::filesystem::path s_EngineRoot{ CHECKOUT_ENGINE_ROOT_FROM_EDITOR };
+            inline std::array<std::filesystem::path, ENGINE_CONTENT_DIR_COUNT> s_EngineDirs =
+                 DeriveEngineDirs( s_EngineRoot );
+        } // namespace Detail
+
+        // Where an engine/editor content directory currently is. Stable storage, as Dir() below: tables
+        // holding `const std::filesystem::path*` follow SetEngineRoot for free.
+        inline const std::filesystem::path& EngineDir( EngineContentDir d ) noexcept
+        {
+            return Detail::s_EngineDirs[static_cast<std::size_t>( d )];
+        }
+
+        inline const std::filesystem::path& EngineRoot() noexcept
+        {
+            return Detail::s_EngineRoot;
+        }
+
+        // Points every engine/editor content path at <engineRoot>/{Engine,Editor}/Content/. Lexical only:
+        // the packaged game's engine content lives in its archive, not on disk, so the existence check
+        // belongs to the caller that knows which of the two it is (ResolveEngineRoot for a disk layout).
+        inline void SetEngineRoot( const std::filesystem::path& engineRoot )
+        {
+            Detail::s_EngineRoot = engineRoot;
+            Detail::s_EngineDirs = Detail::DeriveEngineDirs( engineRoot );
+        }
+
+        inline const std::filesystem::path& ENGINE_CONTENT_PATH   = EngineDir( EngineContentDir::EngineContent );
+        inline const std::filesystem::path& SHADERDIR_PATH        = EngineDir( EngineContentDir::Shaders );
+        inline const std::filesystem::path& FONTS_PATH            = EngineDir( EngineContentDir::Fonts );
+        inline const std::filesystem::path& ICONS_PATH            = EngineDir( EngineContentDir::Icons );
+        inline const std::filesystem::path& EDITOR_CONTENT_PATH   = EngineDir( EngineContentDir::EditorContent );
+        inline const std::filesystem::path& EDITOR_SHADERDIR_PATH = EngineDir( EngineContentDir::EditorShaders );
+        inline const std::filesystem::path& EDITOR_ICONS_PATH     = EngineDir( EngineContentDir::EditorIcons );
 
         // --- The census of project-derived directories ---
 

@@ -140,7 +140,7 @@ REM unfiltered copy carried them. A FRESH CHECKOUT holds zero — Finder is what
 REM never saw one, and looking there says the hazard does not exist. Windows contributes Thumbs.db and
 REM desktop.ini the same way.
 REM ---------------------------------------------------------------------------
-for %%T in (Branding Shaders Fonts Icons Splash) do (
+for %%T in (Branding Splash) do (
     if not exist "%ROOT%\Editor\Resources\%%T" (
         echo Package.bat: engine resource tree Editor\Resources\%%T is missing 1>&2
         exit /b 1
@@ -150,6 +150,20 @@ for %%T in (Branding Shaders Fonts Icons Splash) do (
     REM robocopy uses exit codes 0-7 for success; anything >= 8 is a real failure.
     if !ERRORLEVEL! GEQ 8 (
         echo Package.bat: copying Resources\%%T failed 1>&2
+        exit /b 1
+    )
+)
+REM The engine's content and the editor's own (Common/Core/Constants.hpp SetEngineRoot): the drop is its own
+REM engine root, so both land beside the binaries at the same relative path a checkout keeps them at.
+for %%C in (Engine\Content Editor\Content) do (
+    if not exist "%ROOT%\%%C" (
+        echo Package.bat: content tree %%C is missing 1>&2
+        exit /b 1
+    )
+    robocopy "%ROOT%\%%C" "%OUT%\%%C" /E /NFL /NDL /NJH /NJS /NP ^
+        /XF .DS_Store Thumbs.db desktop.ini /XD __MACOSX .git >NUL
+    if !ERRORLEVEL! GEQ 8 (
+        echo Package.bat: copying %%C failed 1>&2
         exit /b 1
     )
 )

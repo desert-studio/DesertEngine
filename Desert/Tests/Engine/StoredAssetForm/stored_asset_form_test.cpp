@@ -107,7 +107,7 @@ TEST( StoredAssetForm, ATaggedKeyIsWrittenVerbatimAndIsTheOnlyFormThatCanNameBot
 {
     const OpenProject open( kProject );
 
-    // An engine texture lives under RESOURCE_PATH, outside the assets root. That is why the texture slot
+    // An engine texture lives under ENGINE_CONTENT_PATH, outside the assets root. That is why the texture slot
     // stores the tag: relative-to-the-assets-root gives a `..` chain for such a file and falls back to the
     // absolute spelling, i.e. to a developer's home directory in a committed scene.
     EXPECT_EQ( RenderStoredForm( StoredAssetForm::StableKey, "engine:Textures/T_Probe.tex" ),
@@ -147,7 +147,8 @@ TEST( StoredAssetForm, AFileOutsideTheAssetsRootKeepsItsOwnSpellingInsteadOfEsca
     // all, both take the path rather than a `..` chain.
     const std::string engine = RenderStoredForm( StoredAssetForm::AssetsRelative, "engine:Volumes/B.dcmv" );
     EXPECT_EQ( engine.rfind( "..", 0 ), std::string::npos ) << engine;
-    EXPECT_EQ( engine, ( Common::Constants::Path::RESOURCE_PATH / "Volumes/B.dcmv" ).lexically_normal().string() );
+    EXPECT_EQ( engine,
+               ( Common::Constants::Path::ENGINE_CONTENT_PATH / "Volumes/B.dcmv" ).lexically_normal().string() );
 
     const std::string outside = RenderStoredForm( StoredAssetForm::AssetsRelative, "/elsewhere/X.demat" );
     EXPECT_EQ( outside, "/elsewhere/X.demat" );

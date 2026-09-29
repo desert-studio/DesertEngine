@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Common/CloudField.glslh AS C++, together with the two headers it
+// Compiles Engine/Content/Shaders/Common/CloudField.glslh AS C++, together with the two headers it
 // requires: Common/CloudNoise.glslh (the noise it is fed) and Common/CloudGeometry.glslh (the types and
 // the units it shares).
 //

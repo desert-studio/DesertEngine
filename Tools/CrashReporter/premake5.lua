@@ -50,16 +50,16 @@ project "DesertCrashReporter"
     }
 
     -- THE FONTS TRAVEL WITH THE BINARY. The reporter resolves them from ITS OWN directory
-    -- (Main.cpp ReporterDirectory + "Resources/Fonts"), not from a working directory, because the
+    -- (Main.cpp ReporterDirectory + "Engine/Content/Fonts"), not from a working directory, because the
     -- handler starts it with whatever cwd the crashed process happened to have. Copying them here is
     -- what makes that path true for a developer build as well as a packaged one; a font that is
     -- missing is reported in the window rather than swapped for the ImGui default.
     postbuildcommands {
-        "{MKDIR} %{cfg.targetdir}/Resources/Fonts",
-        "{COPYFILE} %{_MAIN_SCRIPT_DIR}/Editor/Resources/Fonts/Roboto-Regular.ttf %{cfg.targetdir}/Resources/Fonts/",
-        "{COPYFILE} %{_MAIN_SCRIPT_DIR}/Editor/Resources/Fonts/Roboto-Bold.ttf %{cfg.targetdir}/Resources/Fonts/",
-        "{COPYFILE} %{_MAIN_SCRIPT_DIR}/Editor/Resources/Fonts/RobotoMono-Regular.ttf %{cfg.targetdir}/Resources/Fonts/",
-        "{COPYFILE} %{_MAIN_SCRIPT_DIR}/Editor/Resources/Fonts/fontawesome-webfont.ttf %{cfg.targetdir}/Resources/Fonts/",
+        "{MKDIR} %{cfg.targetdir}/Engine/Content/Fonts",
+        "{COPYFILE} %{_MAIN_SCRIPT_DIR}/Engine/Content/Fonts/Roboto-Regular.ttf %{cfg.targetdir}/Engine/Content/Fonts/",
+        "{COPYFILE} %{_MAIN_SCRIPT_DIR}/Engine/Content/Fonts/Roboto-Bold.ttf %{cfg.targetdir}/Engine/Content/Fonts/",
+        "{COPYFILE} %{_MAIN_SCRIPT_DIR}/Engine/Content/Fonts/RobotoMono-Regular.ttf %{cfg.targetdir}/Engine/Content/Fonts/",
+        "{COPYFILE} %{_MAIN_SCRIPT_DIR}/Engine/Content/Fonts/fontawesome-webfont.ttf %{cfg.targetdir}/Engine/Content/Fonts/",
     }
 
     filter "configurations:Debug"

@@ -24,7 +24,7 @@ namespace Desert::Graphic
      * be multiplied into a buffer the CPU packs.
      *
      * ONE IMPLEMENTATION. This is not a C++ port of the transmittance LUT's march — the .cpp compiles
-     * Editor/Resources/Shaders/Common/SkyMedium.glslh, the exact text SkyTransmittanceLut.shader
+     * Engine/Content/Shaders/Common/SkyMedium.glslh, the exact text SkyTransmittanceLut.shader
      * compiles as GLSL, including the payload packing that feeds it. The SkyMedium tests assert that
      * this value and the LUT's own texel agree, which is only a meaningful assertion because the two
      * cannot be edited apart.

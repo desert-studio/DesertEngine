@@ -27,7 +27,7 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
         -- The SHADER ROOT, so Common/SkyPanorama.glslh compiles as C++ (SkyPanoramaReference.hpp) --
         -- the same text the two bake programs compile as GLSL.
-        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Engine/Content/Shaders",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

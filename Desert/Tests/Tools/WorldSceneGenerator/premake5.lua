@@ -35,7 +35,7 @@ project(test_name)
 
     includedirs {
         -- LandscapeData.cpp compiles Shaders/Common/LandscapeHeight.glslh as C++.
-        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Engine/Content/Shaders",
         "%{_MAIN_SCRIPT_DIR}/Tools/WorldGen/Source",
         "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",

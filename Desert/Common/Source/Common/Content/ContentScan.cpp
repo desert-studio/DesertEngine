@@ -182,10 +182,15 @@ namespace Common::Content
         {
             const auto            kind = static_cast<ContentKind>( i );
             const ContentKindSpec spec = KindSpec( kind );
-            if ( spec.Extension != extension || !IsUnder( file, *spec.Root ) )
+            if ( spec.Extension != extension )
+                continue;
+            const std::filesystem::path* root = IsUnder( file, *spec.Root ) ? spec.Root : nullptr;
+            if ( root == nullptr && spec.EditorRoot != nullptr && IsUnder( file, *spec.EditorRoot ) )
+                root = spec.EditorRoot;
+            if ( root == nullptr )
                 continue;
 
-            const std::size_t rootLength = spec.Root->generic_string().size();
+            const std::size_t rootLength = root->generic_string().size();
             if ( !best || rootLength > bestRootLength )
             {
                 best           = kind;
@@ -407,8 +412,12 @@ namespace Common::Content
                 // that also sees what a mounted `.dpak` holds — a packaged game's content directories do
                 // not exist on disk at all. The font and icon services each hand-rolled the disk half once,
                 // and a packaged game scanned nothing.
-                for ( const std::filesystem::path& candidate :
-                      Utils::FileSystem::ListFilesRecursive( *spec.Root ) )
+                std::vector<std::filesystem::path> files = Utils::FileSystem::ListFilesRecursive( *spec.Root );
+                if ( spec.EditorRoot != nullptr )
+                    for ( std::filesystem::path& editorFile :
+                          Utils::FileSystem::ListFilesRecursive( *spec.EditorRoot ) )
+                        files.push_back( std::move( editorFile ) );
+                for ( const std::filesystem::path& candidate : files )
                 {
                     // Kinds may share an extension under nested roots (Texture/Skybox): a file belongs to the
                     // kind whose root is the LONGEST that contains it, never to whichever row was walked first.

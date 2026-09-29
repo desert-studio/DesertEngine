@@ -56,7 +56,7 @@ namespace
         return out.str();
     }
 
-    // Every .shader under Editor/Resources/Shaders/Programs, parsed ONCE and sorted, so a failure names
+    // Every .shader under Engine/Content/Shaders/Programs, parsed ONCE and sorted, so a failure names
     // the same file on every machine and the whole suite pays for one walk rather than one per test
     // (assembling a stage un-sugars every line, which is not free over seventy-odd files). The root is
     // found by walking up from the test binary in build/Bin/Tests/<config>, as Tests/Engine/ShaderCacheKey
@@ -66,12 +66,11 @@ namespace
         static const std::vector<ParsedShader> shaders = []() -> std::vector<ParsedShader>
         {
             std::filesystem::path here = std::filesystem::current_path();
-            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" );
-                  ++up )
+            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Engine" / "Content" / "Shaders" ); ++up )
                 here = here.parent_path();
 
             std::vector<std::filesystem::path> files;
-            const auto                         root = here / "Editor" / "Resources" / "Shaders" / "Programs";
+            const auto                         root = here / "Engine" / "Content" / "Shaders" / "Programs";
             if ( std::filesystem::exists( root ) )
                 for ( const auto& entry : std::filesystem::recursive_directory_iterator( root ) )
                     if ( entry.is_regular_file() && entry.path().extension() == ".shader" )
@@ -403,12 +402,11 @@ namespace
         static const std::vector<std::filesystem::path> files = []()
         {
             std::filesystem::path here = std::filesystem::current_path();
-            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" );
-                  ++up )
+            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Engine" / "Content" / "Shaders" ); ++up )
                 here = here.parent_path();
 
             std::vector<std::filesystem::path> out;
-            const auto                         root = here / "Editor" / "Resources" / "Shaders";
+            const auto                         root = here / "Engine" / "Content" / "Shaders";
             if ( std::filesystem::exists( root ) )
                 for ( const auto& entry : std::filesystem::recursive_directory_iterator( root ) )
                     if ( entry.is_regular_file() && entry.path().extension() == ".glslh" )

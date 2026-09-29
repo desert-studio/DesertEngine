@@ -63,7 +63,7 @@ namespace Desert::Graphic::System
         if ( !fogShader )
         {
             LOG_ERROR( "[HeightFog] Compute shader '{}' is not registered. Expected "
-                       "Editor/Resources/Shaders/Programs/Fog/{}.shader.",
+                       "Engine/Content/Shaders/Programs/Fog/{}.shader.",
                        kFogShaderName, kFogShaderName );
             return false;
         }

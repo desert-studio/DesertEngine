@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Common/LensFlare.glslh AS C++.
+// Compiles Engine/Content/Shaders/Common/LensFlare.glslh AS C++.
 //
 // Not a port and not a paraphrase — the same text, the same file, that
 // Programs/LensFlare/LensFlareFeatures.shader compiles as GLSL. A rendered frame says the flare LOOKS

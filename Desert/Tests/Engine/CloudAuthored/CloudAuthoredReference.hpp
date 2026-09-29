@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Common/CloudAuthored.glslh and Common/CloudField.glslh AS C++,
+// Compiles Engine/Content/Shaders/Common/CloudAuthored.glslh and Common/CloudField.glslh AS C++,
 // together with the two headers they require, and feeds the seam a REAL sculpted body: the very voxels
 // Assets::GenerateCloudModellingVolume writes into a `.dcmv`, read through a trilinear filter that
 // reproduces the sampler the device creates.

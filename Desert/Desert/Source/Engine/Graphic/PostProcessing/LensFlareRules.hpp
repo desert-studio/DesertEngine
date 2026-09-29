@@ -6,7 +6,7 @@ namespace Desert::Graphic
 {
     // How strongly the lens flare is added back in — the CPU half of the effect, in a header the tests
     // can compile without a renderer. The screen PLACEMENT of every feature is the GPU's half and lives
-    // in Editor/Resources/Shaders/Common/LensFlare.glslh, which the same test suite compiles as C++.
+    // in Engine/Content/Shaders/Common/LensFlare.glslh, which the same test suite compiles as C++.
     //
     // This is one multiply, and it is a named function on purpose. "The flare paints when the sun is
     // behind the camera" is the way this effect goes wrong, and the only thing standing between the

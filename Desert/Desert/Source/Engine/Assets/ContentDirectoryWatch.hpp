@@ -67,6 +67,8 @@ namespace Desert::Assets
             {
                 if ( !spec.StatedOnly() && !spec.Root->empty() )
                     roots.insert( spec.Root->lexically_normal() );
+                if ( spec.EditorRoot != nullptr && !spec.EditorRoot->empty() )
+                    roots.insert( spec.EditorRoot->lexically_normal() );
             }
             return roots;
         }

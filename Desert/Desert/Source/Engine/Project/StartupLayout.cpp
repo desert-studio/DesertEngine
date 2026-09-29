@@ -1,5 +1,7 @@
 #include "StartupLayout.hpp"
 
+#include <Common/Core/Constants.hpp>
+
 #include <algorithm>
 #include <cctype>
 #include <string>
@@ -152,41 +154,63 @@ namespace Desert::Project
         ResourceRootLookup lookup;
 
         std::error_code ec;
-        const fs::path  marker = fs::path( "Resources" ) / "Shaders";
+        // The marker is the shader tree, not Engine/Content: an empty Content directory would satisfy the
+        // weaker test and then fail 43 shaders later, with a message about a shader rather than a layout.
+        const fs::path marker = fs::path( Common::Constants::Path::ENGINE_CONTENT_DIRS[static_cast<std::size_t>(
+             Common::Constants::Path::EngineContentDir::Shaders )] );
+        const auto     absoluteOf = []( const fs::path& p )
+        {
+            std::error_code absError;
+            const fs::path  resolved = fs::absolute( p, absError );
+            return ( absError ? p : resolved ).lexically_normal().string();
+        };
 
+        // A checkout's Editor/ (every run script): the engine root is its parent; nothing moves.
+        if ( workingDirectory.filename() == "Editor" &&
+             fs::is_directory( workingDirectory.parent_path() / marker, ec ) )
+        {
+            lookup.EngineRoot = absoluteOf( workingDirectory.parent_path() );
+            return lookup;
+        }
+        // A drop started from its own folder: binaries and Engine/Content side by side; nothing moves.
         if ( fs::is_directory( workingDirectory / marker, ec ) )
-            return lookup; // nothing moves - this is every existing launch
+        {
+            lookup.EngineRoot = absoluteOf( workingDirectory );
+            return lookup;
+        }
 
         if ( !executableDirectory.empty() && fs::is_directory( executableDirectory / marker, ec ) )
         {
             lookup.WorkingDirectory = executableDirectory.string();
+            lookup.EngineRoot       = absoluteOf( executableDirectory );
             return lookup;
         }
 
         // THE CHECKOUT THIS BINARY WAS BUILT IN, by the same shape DeriveEngineRoot demands - `Bin/<config>`
         // directly under `build/` - and nothing looser: a binary merely three directories under some
-        // Editor/ is not that editor's build.
+        // checkout is not that checkout's build.
         if ( !executableDirectory.empty() )
         {
             const fs::path binDirectory   = executableDirectory.parent_path();
             const fs::path buildDirectory = binDirectory.parent_path();
-            const fs::path checkoutEditor = buildDirectory.parent_path() / "Editor";
+            const fs::path checkout       = buildDirectory.parent_path();
             if ( binDirectory.filename() == "Bin" && buildDirectory.filename() == "build" &&
-                 fs::is_directory( checkoutEditor / marker, ec ) )
+                 fs::is_directory( checkout / marker, ec ) )
             {
-                lookup.WorkingDirectory = checkoutEditor.string();
+                lookup.WorkingDirectory = ( checkout / "Editor" ).string();
+                lookup.EngineRoot       = absoluteOf( checkout );
                 lookup.FromCheckout     = true;
                 return lookup;
             }
         }
 
         lookup.Explanation =
-             fmt::format( "the engine resources are missing: no 'Resources/Shaders' under the working "
-                          "directory '{}', and none beside the executable ('{}'). A packaged build keeps "
-                          "Resources/ next to its binaries and a checkout keeps it in Editor/; without it "
-                          "there are no shaders, no fonts and no icons, so this stops here rather than "
-                          "opening a window that can draw nothing.",
-                          workingDirectory.string(),
+             fmt::format( "the engine content is missing: no '{}' under the working directory '{}' (or its "
+                          "parent, for a checkout's Editor/), and none beside the executable ('{}'). A "
+                          "packaged build keeps Engine/Content next to its binaries and a checkout keeps it at "
+                          "its root; without it there are no shaders, no fonts and no icons, so this stops "
+                          "here rather than opening a window that can draw nothing.",
+                          marker.generic_string(), workingDirectory.string(),
                           executableDirectory.empty() ? std::string( "unknown" ) : executableDirectory.string() );
         return lookup;
     }

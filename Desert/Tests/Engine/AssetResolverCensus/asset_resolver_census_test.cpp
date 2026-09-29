@@ -215,7 +215,7 @@ TEST( AssetResolverCensus, AnUnknownAssetTypeIsRefusedRatherThanTreatedAsAMesh )
 // row is `<root>/<relative part>` where the root comes from the open `.deproj`, and `SetProjectRoot`
 // rewrites all of them at once. The engine trees do not move: they sit beside the binary, they are the
 // same for every project this editor opens, and the packager ships them under their own dev-time
-// relative paths precisely because nothing ever remaps them. A row for `Resources/Fonts/` would have to
+// relative paths precisely because nothing ever remaps them. A row for `Engine/Content/Fonts/` would have to
 // name a THIRD root that the derivation does not have and that no `.deproj` can supply, and `DirRoot`
 // has exactly two values on purpose.
 //
@@ -233,7 +233,7 @@ TEST( AssetResolverCensus, TheEngineResourceTreesAreDeliberatelyNotProjectCensus
         const std::filesystem::path& row = P::Dir( static_cast<P::ContentDir>( i ) );
         EXPECT_NE( &row, &P::FONTS_PATH ) << "FONTS_PATH became census row " << i;
         EXPECT_NE( &row, &P::ICONS_PATH ) << "ICONS_PATH became census row " << i;
-        EXPECT_NE( &row, &P::RESOURCE_PATH ) << "RESOURCE_PATH became census row " << i;
+        EXPECT_NE( &row, &P::ENGINE_CONTENT_PATH ) << "ENGINE_CONTENT_PATH became census row " << i;
         EXPECT_NE( &row, &P::SHADERDIR_PATH ) << "SHADERDIR_PATH became census row " << i;
     }
 

@@ -8,7 +8,7 @@ project(test_name)
     targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
-    -- One unit under test, GPU-free: Editor/Resources/Shaders/Common/SkyScattering.glslh — the Phase 2
+    -- One unit under test, GPU-free: Engine/Content/Shaders/Common/SkyScattering.glslh — the Phase 2
     -- single-scattering integrator, the Sky-View LUT's horizon-warped parameterisation and the sun disc
     -- (Hillaire 2020) — compiled AS C++ through SkyScatteringReference.hpp together with the
     -- SkyMedium.glslh it builds on. That is why the SHADER ROOT is on the include path: the test drives
@@ -21,7 +21,7 @@ project(test_name)
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Engine/Content/Shaders",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

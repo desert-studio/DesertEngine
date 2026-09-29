@@ -107,15 +107,14 @@ namespace
              R"(    const fs::path corpus = "Editor/Resources/Assets/Prefabs/UI_Card.deprefab";)" ) );
         EXPECT_TRUE(
              ReadsRepositoryRelative( R"(std::ifstream in( "Desert/Desert/Source/Engine/Core/Scene.cpp" );)" ) );
-        EXPECT_TRUE(
-             ReadsRepositoryRelative( R"(ASSERT_TRUE( fs::exists( "Editor/Resources/Fonts/R.ttf" ) );)" ) );
+        EXPECT_TRUE( ReadsRepositoryRelative( R"(ASSERT_TRUE( fs::exists( "Engine/Content/Fonts/R.ttf" ) );)" ) );
         EXPECT_TRUE(
              ReadsRepositoryRelative( R"(for ( auto& e : fs::recursive_directory_iterator( "Tools/X" ) ))" ) );
         EXPECT_TRUE( ReadsRepositoryRelative( R"(const auto p = std::filesystem::path( "scripts/CI/x.sh" );)" ) );
         EXPECT_TRUE(
              ReadsRepositoryRelative( R"(std::filesystem::copy_file( relative, file, options, copied );)" ) );
         EXPECT_FALSE( ReadsRepositoryRelative( R"(std::filesystem::copy_file( root / relative, file );)" ) );
-        EXPECT_FALSE( ReadsRepositoryRelative( R"(const fs::path f = root / "Editor/Resources/Fonts/R.ttf";)" ) );
+        EXPECT_FALSE( ReadsRepositoryRelative( R"(const fs::path f = root / "Engine/Content/Fonts/R.ttf";)" ) );
         EXPECT_FALSE(
              ReadsRepositoryRelative( R"(std::ifstream in( RepoRoot() + "Editor/Source/EditorLayer.cpp" );)" ) );
         EXPECT_FALSE( ReadsRepositoryRelative( R"(if ( rel.starts_with( "Desert/Tests/" ) ))" ) );

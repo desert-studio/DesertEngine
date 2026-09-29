@@ -9,7 +9,7 @@ project(test_name)
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- Two units under test, both GPU-free:
-    --   * Editor/Resources/Shaders/Common/SkyMedium.glslh — the physical atmosphere's medium sampling,
+    --   * Engine/Content/Shaders/Common/SkyMedium.glslh — the physical atmosphere's medium sampling,
     --     phase functions, ray/sphere distances, LUT parameterisations and the transmittance integrator
     --     (Hillaire 2020) — compiled AS C++ through SkyMediumReference.hpp. That is why the SHADER ROOT
     --     is on the include path: the test drives the exact text both LUT compute passes compile.
@@ -29,7 +29,7 @@ project(test_name)
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Engine/Content/Shaders",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

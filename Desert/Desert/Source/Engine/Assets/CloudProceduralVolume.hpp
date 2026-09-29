@@ -67,7 +67,7 @@ namespace Desert::Assets
     /// names.
     ///
     /// ONLY THE HEIGHT IS MIRRORED, by CLOUD_PROCEDURAL_VOLUME_HEIGHT in
-    /// Editor/Resources/Shaders/Common/CloudField.glslh, and Desert/Tests/Engine/CloudField asserts the two
+    /// Engine/Content/Shaders/Common/CloudField.glslh, and Desert/Tests/Engine/CloudField asserts the two
     /// agree — that suite compiles the header as C++, which is where the comparison can be made. The width
     /// and the depth are NOT mirrored and must not be: the horizontal mapping is
     /// `(world - origin) * invRegionSize`, which is already in texture units.

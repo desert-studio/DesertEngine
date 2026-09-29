@@ -9,7 +9,7 @@ project(test_name)
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- One unit under test, GPU-free:
-    --   * Editor/Resources/Shaders/Common/CloudNoise.glslh — the periodic hash, the improved-Perlin
+    --   * Engine/Content/Shaders/Common/CloudNoise.glslh — the periodic hash, the improved-Perlin
     --     lattice, the Alligator basis and the remap — compiled AS C++ through CloudNoiseReference.hpp.
     --     ("The fractal sum" stood here and named nothing: every channel is ONE octave, which is the
     --     finding Р10 measured and the reason its own test asserts the saturation.) That
@@ -23,7 +23,7 @@ project(test_name)
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Engine/Content/Shaders",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

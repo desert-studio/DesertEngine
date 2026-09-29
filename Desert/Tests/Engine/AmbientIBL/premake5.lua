@@ -8,7 +8,7 @@ project(test_name)
     targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
-    -- One unit under test: Editor/Resources/Shaders/Mesh/AmbientIBL.glslh — the split-sum ambient that
+    -- One unit under test: Engine/Content/Shaders/Mesh/AmbientIBL.glslh — the split-sum ambient that
     -- BOTH render paths compile, driven here AS C++ through AmbientIBLReference.hpp. That is why the
     -- SHADER ROOT is on the include path; the test evaluates the exact text the GPU runs, not a port.
     -- Nothing to link — no renderer, no Vulkan.
@@ -19,7 +19,7 @@ project(test_name)
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Engine/Content/Shaders",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

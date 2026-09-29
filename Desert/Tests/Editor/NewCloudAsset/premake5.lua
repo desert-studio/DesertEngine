@@ -34,12 +34,12 @@ project(test_name)
     }
 
     -- The SHADER ROOT is on the path because CloudNoiseVolumeGenerator.cpp compiles
-    -- Editor/Resources/Shaders/Common/CloudNoise.glslh AS C++ — the same arithmetic the march runs.
+    -- Engine/Content/Shaders/Common/CloudNoise.glslh AS C++ — the same arithmetic the march runs.
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source", -- <Editor/Panels/FileExplorer/NewCloudAsset.hpp>
-        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Engine/Content/Shaders",
     }
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- the `.decloudtype` is rfl::json

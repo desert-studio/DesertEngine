@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Common/ViewRay.glslh AS C++.
+// Compiles Engine/Content/Shaders/Common/ViewRay.glslh AS C++.
 //
 // Not a port and not a paraphrase — the same text, the same file, that the Skybox and ProceduralSky
 // vertex stages compile as GLSL. The property under test is one a frame can only show by accident: the

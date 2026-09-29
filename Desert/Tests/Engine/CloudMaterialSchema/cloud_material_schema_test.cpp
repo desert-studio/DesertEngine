@@ -106,7 +106,7 @@ namespace
     {
         static const ShaderProgramMeta meta = []
         {
-            const std::string path = RepoRoot() + "Editor/Resources/Shaders/Programs/Clouds/CloudRaymarch.shader";
+            const std::string path   = RepoRoot() + "Engine/Content/Shaders/Programs/Clouds/CloudRaymarch.shader";
             const std::string source = ReadAll( path );
             EXPECT_FALSE( source.empty() ) << path << " is unreadable";
 

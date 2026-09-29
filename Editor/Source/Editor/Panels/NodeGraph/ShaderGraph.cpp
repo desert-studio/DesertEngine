@@ -1383,7 +1383,7 @@ namespace Desert::Editor::ShaderGraph
         out << "    State\n    {\n        Cull Back\n        ZTest LEqual\n        ZWrite On\n    }\n\n";
 
         // NO GLSL boilerplate lives in this compiler: the vertex contract and the engine-filled UB
-        // declarations are shared .glslh includes (Resources/Shaders/Common/), configured with
+        // declarations are shared .glslh includes (Engine/Content/Shaders/Common/), configured with
         // defines — hand-written shaders reuse the same files. The generated file only contains the
         // structure and the graph's own fragment expressions.
         out << "    Vertex\n    {\n";

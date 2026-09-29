@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Mesh/DirectLighting.glslh AS C++.
+// Compiles Engine/Content/Shaders/Mesh/DirectLighting.glslh AS C++.
 //
 // Not a port and not a paraphrase — the same text, the same file, that StaticMeshPBR.shader,
 // StaticMeshPBR_Instanced.shader, SkinnedMeshPBR.shader, Deferred/DeferredLighting.shader,

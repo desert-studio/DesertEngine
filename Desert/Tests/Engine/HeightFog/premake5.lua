@@ -9,7 +9,7 @@ project(test_name)
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- Two units under test, both GPU-free:
-    --   * Editor/Resources/Shaders/Common/HeightFog.glslh — the closed-form exponential height-fog
+    --   * Engine/Content/Shaders/Common/HeightFog.glslh — the closed-form exponential height-fog
     --     integral, the falloff Taylor branch, start/cutoff handling, the max-opacity clamp and the
     --     directional lobe — compiled AS C++ through HeightFogReference.hpp and pinned against a
     --     brute-force numeric integration of the same medium. That is why the SHADER ROOT is on the
@@ -24,7 +24,7 @@ project(test_name)
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Engine/Content/Shaders",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

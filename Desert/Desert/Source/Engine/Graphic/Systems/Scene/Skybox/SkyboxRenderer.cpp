@@ -129,7 +129,7 @@ namespace Desert::Graphic::System
                 if ( !shader )
                 {
                     LOG_ERROR( "[SkyAtmosphere] Compute shader '{}' is not registered — expected "
-                               "Editor/Resources/Shaders/Programs/Sky/{}.shader. The physical "
+                               "Engine/Content/Shaders/Programs/Sky/{}.shader. The physical "
                                "atmosphere's LUTs will not be built for this view.",
                                name, name );
                     return nullptr;

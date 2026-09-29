@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Common/CloudNoise.glslh AS C++, the same arrangement
+// Compiles Engine/Content/Shaders/Common/CloudNoise.glslh AS C++, the same arrangement
 // Desert/Tests/Engine/CloudNoise uses and for the same reason.
 //
 // WHY THIS SUITE NEEDS IT AT ALL, given the CloudNoise suite already drives these functions. Because the

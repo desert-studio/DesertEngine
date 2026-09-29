@@ -62,7 +62,7 @@ namespace
         static const std::vector<ShaderParam> s_Params = []
         {
             const auto source =
-                 ReadAll( RepoRoot() / "Editor/Resources/Shaders/Programs/Clouds/CloudRaymarch.shader" );
+                 ReadAll( RepoRoot() / "Engine/Content/Shaders/Programs/Clouds/CloudRaymarch.shader" );
             const auto parsed = DShaderParser::Parse( source );
             EXPECT_TRUE( parsed.IsSuccess() )
                  << "the shipped cloud material shader did not parse, so nothing below means anything: "
@@ -1049,7 +1049,7 @@ namespace
     /// The medium default's members of @p receiver that NO other file in the shader tree reads.
     std::set<std::string> MediumOnlyMembers( const std::string& receiver )
     {
-        const std::filesystem::path shaders = RepoRoot() / "Editor/Resources/Shaders";
+        const std::filesystem::path shaders = RepoRoot() / "Engine/Content/Shaders";
         const std::filesystem::path medium  = shaders / "Common/CloudMediumDefault.glslh";
 
         std::set<std::string> mine = MembersRead( ReadAll( medium ), receiver );
@@ -1084,7 +1084,7 @@ namespace
     std::string CloudGraphSampleBody()
     {
         const std::string header =
-             ReadAll( RepoRoot() / "Editor/Resources/Shaders/Common/CloudMediumDefault.glslh" );
+             ReadAll( RepoRoot() / "Engine/Content/Shaders/Common/CloudMediumDefault.glslh" );
         const std::size_t open = header.find( "struct CloudGraphSample" );
         if ( open == std::string::npos )
             return {};
@@ -1532,7 +1532,7 @@ namespace
     // the view march's own calls and make this derivation meaningless.
     std::string ShadowMarchText()
     {
-        const std::filesystem::path shaders = RepoRoot() / "Editor/Resources/Shaders";
+        const std::filesystem::path shaders = RepoRoot() / "Engine/Content/Shaders";
 
         const std::string field    = StripComments( ReadAll( shaders / "Common/CloudField.glslh" ) );
         const std::size_t sunMarch = field.find( "float CloudLightOpticalDepth(" );

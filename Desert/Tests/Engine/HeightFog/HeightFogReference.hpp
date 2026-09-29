@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Common/HeightFog.glslh AS C++.
+// Compiles Engine/Content/Shaders/Common/HeightFog.glslh AS C++.
 //
 // Not a port and not a paraphrase — the same text, the same file, that Programs/Fog/HeightFog.shader
 // compiles as GLSL. A rendered frame says the fog LOOKS right; only this says the integral IS the

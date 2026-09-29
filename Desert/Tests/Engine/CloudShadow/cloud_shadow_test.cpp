@@ -908,7 +908,7 @@ namespace
     {
         // The test binary lives in build/Bin/Tests/<config>; walk up to the repository root.
         std::filesystem::path root = std::filesystem::current_path();
-        for ( int up = 0; up < 8 && !std::filesystem::exists( root / "Editor" / "Resources" / "Shaders" ); ++up )
+        for ( int up = 0; up < 8 && !std::filesystem::exists( root / "Engine" / "Content" / "Shaders" ); ++up )
             root = root.parent_path();
         return root;
     }
@@ -942,10 +942,10 @@ namespace
 TEST( CloudShadowReceiver, EverySunLitShaderReachesTheOneSharedFactor )
 {
     const std::filesystem::path root = RepositoryRoot();
-    ASSERT_TRUE( std::filesystem::exists( root / "Editor" / "Resources" / "Shaders" ) )
-         << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
+    ASSERT_TRUE( std::filesystem::exists( root / "Engine" / "Content" / "Shaders" ) )
+         << "could not find Engine/Content/Shaders above " << std::filesystem::current_path();
 
-    const std::filesystem::path shaders = root / "Editor" / "Resources" / "Shaders";
+    const std::filesystem::path shaders = root / "Engine" / "Content" / "Shaders";
 
     // Every shader in the tree that shades a surface with the DIRECTIONAL light, and therefore every
     // shader a cloud must be able to stand in front of. The G-buffer pass is here for a different reason
@@ -991,7 +991,7 @@ TEST( CloudShadowReceiver, NoShaderReconstructsTheShadowForItself )
     // appear in exactly TWO files of code in the whole shader tree — the receiver that consumes the map
     // and the producer that fills it — and nowhere else. One shader assembling them itself is how this
     // subsystem came to have a single consumer in the first place.
-    const std::filesystem::path shaders = RepositoryRoot() / "Editor" / "Resources" / "Shaders";
+    const std::filesystem::path shaders = RepositoryRoot() / "Engine" / "Content" / "Shaders";
     ASSERT_TRUE( std::filesystem::exists( shaders ) );
 
     int receivers = 0;

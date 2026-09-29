@@ -88,7 +88,7 @@ namespace
     }
 
     // Opens the sandbox project the way the editor opens it, WORKING DIRECTORY included: engine
-    // resource roots are never remapped by a project, so `Resources/Shaders/` resolves against the
+    // resource roots are never remapped by a project, so `Engine/Content/Shaders/` resolves against the
     // process's cwd and both hosts `cd` into the directory that holds it. A census that did not would
     // walk no shaders at all and still report itself green.
     class SandboxProject
@@ -134,14 +134,14 @@ namespace
     };
 
     // Every regular file under the two roots a stable key can be minted from (AssetHandle::ContentRoots():
-    // ASSETS_PATH, and RESOURCE_PATH with the shader, font and icon trees). This is the same universe the
+    // ASSETS_PATH, and ENGINE_CONTENT_PATH with the shader, font and icon trees). This is the same universe the
     // packager packs.
     std::vector<fs::path> WalkContentTree()
     {
         std::vector<fs::path> files;
         std::set<fs::path>    seen;
         for ( const fs::path* root :
-              { &Common::Constants::Path::ASSETS_PATH, &Common::Constants::Path::RESOURCE_PATH } )
+              { &Common::Constants::Path::ASSETS_PATH, &Common::Constants::Path::ENGINE_CONTENT_PATH } )
         {
             std::error_code ec;
             if ( !fs::exists( *root, ec ) )

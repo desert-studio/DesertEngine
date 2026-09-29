@@ -21,7 +21,7 @@ namespace Desert::Editor
     // The relation this list carries is asserted by Desert/Tests/Editor/PackagedContent: every root
     // the font/icon services scan (Engine/Runtime/Services/ServiceScanRoots.hpp) must be a tree in
     // this census, and every never-remapped resource tree's PakKey must be the tree's own relative
-    // path — that equality is what makes a runtime lookup of e.g. "Resources/Fonts/Roboto.ttf"
+    // path — that equality is what makes a runtime lookup of e.g. "Engine/Content/Fonts/Roboto.ttf"
     // resolve to the archive key the packager wrote.
     struct PackagedTree
     {
@@ -29,12 +29,7 @@ namespace Desert::Editor
         const char*                  PakKey; // archive key prefix the tree's files are stored under
         // The project's asset tree: raw mesh sources are dropped and every texture asset is staged in its
         // cooked form (StageCookedTextureAsset) -- the editor-only sources stay on the packaging machine.
-        bool                         StripRawMeshSources;
-        // A subtree the EDITOR alone reads, never staged (owner 2026-09-28: a package is built from the project
-        // and the engine's runtime content, never from editor resources). nullptr = the whole tree ships.
-        // THE marker of an editor-only resource: a file is editor-only by WHERE it lives, not by a list of
-        // names, so a new editor shader or icon is excluded by being put in the right folder.
-        const char* EditorOnlySubtree = nullptr;
+        bool StripRawMeshSources;
     };
 
     // AssetsRoot the regenerated .deproj declares. Opening it in the packaged game remaps ASSETS_PATH
@@ -50,41 +45,40 @@ namespace Desert::Editor
              // Project assets, raw mesh sources stripped — the runtime reads cooked meshes only.
              { &P::ASSETS_PATH, kPackagedAssetsRoot, /*StripRawMeshSources=*/true },
              { &P::COOKED_PATH, "Cooked", false },
-             // Engine resources are never remapped, so their keys ARE their dev-time relative paths.
-             // Shaders/Editor holds the programs only editor passes draw with (Grid: EditorGridPass) — editor
-             // only.
-             { &P::SHADERDIR_PATH, "Resources/Shaders", false, "Editor" },
-             { &P::FONTS_PATH, "Resources/Fonts", false },
-             // Icons/Gizmo is the viewport's light/camera billboards (Editor/Core/GizmoIconSet.hpp) — editor only.
-             { &P::ICONS_PATH, "Resources/Icons", false, "Gizmo" },
+             // Engine content (Engine/Content, owner 2026-09-28: a package is built from the project and the
+             // engine's runtime content, never from editor content). Keyed by its path under the engine root,
+             // so the packaged game — whose engine root is its own folder — reads the same relative spelling.
+             // Editor/Content (the editor passes' shaders, the gizmo billboards) is NOT a row: no tree here
+             // knows it, so nothing stages, cooks or registers it for a package.
+             { &P::SHADERDIR_PATH, "Engine/Content/Shaders", false },
+             { &P::FONTS_PATH, "Engine/Content/Fonts", false },
+             { &P::ICONS_PATH, "Engine/Content/Icons", false },
         } };
     }
 
-    // Whether @p file lies in a census tree's editor-only subtree. Read by the stager (never copied into the
-    // cooked tree), the shader cook (never compiled for a package) and the shipped registry (no row names
-    // it) — one predicate, so the three cannot disagree about what "editor-only" means.
-    inline bool IsEditorOnlyResource( const std::filesystem::path& file )
+    // Whether @p file lies inside one of the census trees above — the only content a package can carry. Read by
+    // the stager, the shader cook and the shipped registry, so the three cannot disagree about what ships: a file
+    // outside every tree (Editor/Content above all) is left out by where it lives, not by a list of names.
+    inline bool IsInPackagedTree( const std::filesystem::path& file )
     {
         const std::filesystem::path normal = file.lexically_normal();
         return std::ranges::any_of( PackagedContentTrees(),
                                     [&]( const PackagedTree& tree )
                                     {
-                                        if ( tree.EditorOnlySubtree == nullptr )
-                                            return false;
                                         const std::filesystem::path rel =
                                              normal.lexically_relative( tree.Tree->lexically_normal() );
-                                        return !rel.empty() && *rel.begin() == tree.EditorOnlySubtree;
+                                        return !rel.empty() && *rel.begin() != "..";
                                     } );
     }
 
     // Whether a package whose runtime is (not) built with DESERT_DEV_INSTRUMENTS leaves @p file out: every
-    // editor-only resource, and — for a Shipping runtime only — the shader programs nothing but the
+    // file outside every census tree, and — for a Shipping runtime only — the shader programs nothing but the
     // developer-instrument pipelines load (Common/Core/DeveloperOnlyShaders.hpp). The stager, the shader
     // cook and the shipped registry all ask this one predicate, so the archive, its SPIR-V cook and the rows
     // the runtime binds cannot disagree about which programs a configuration carries.
     inline bool IsLeftOutOfPackage( const std::filesystem::path& file, bool developerInstruments )
     {
-        if ( IsEditorOnlyResource( file ) )
+        if ( !IsInPackagedTree( file ) )
             return true;
         return !developerInstruments && file.extension() == ".shader" &&
                Common::IsDeveloperOnlyShaderProgram( file.stem().string() );

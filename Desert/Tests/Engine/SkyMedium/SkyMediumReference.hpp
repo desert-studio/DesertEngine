@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Common/SkyMedium.glslh AS C++.
+// Compiles Engine/Content/Shaders/Common/SkyMedium.glslh AS C++.
 //
 // Not a port and not a paraphrase — the same text, the same file, that SkyTransmittanceLut.shader and
 // SkyMultiScatterLut.shader compile as GLSL. Vulkan does not run in every development environment, so a

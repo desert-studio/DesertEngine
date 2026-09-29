@@ -349,7 +349,7 @@ TEST( DepthConvention, TheFrustumAcceptsTheVisibleRangeAndRejectsOutsideIt )
 // THE BACKGROUND RAY. Reconstructing it is an agreement with the projection above: the sky passes
 // hand `WorldViewRay` a clip z of 1.0, which is the NEAR plane only because this engine is reversed-Z.
 //
-// The three tests below are on Editor/Resources/Shaders/Common/ViewRay.glslh compiled AS C++ (see
+// The three tests below are on Engine/Content/Shaders/Common/ViewRay.glslh compiled AS C++ (see
 // ViewRayReference.hpp), so they are statements about the text the GPU runs.
 //
 // WHY THEY EXIST. The HDR skybox reconstructed its ray as `inverse( Projection * View ) * clip` and

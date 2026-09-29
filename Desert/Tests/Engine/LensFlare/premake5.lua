@@ -9,7 +9,7 @@ project(test_name)
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- Two header-only units, no renderer and no GPU:
-    --   Editor/Resources/Shaders/Common/LensFlare.glslh, compiled AS C++ through LensFlareReference.hpp
+    --   Engine/Content/Shaders/Common/LensFlare.glslh, compiled AS C++ through LensFlareReference.hpp
     --     (which is why the shader root is on the include path below);
     --   Engine/Graphic/PostProcessing/LensFlareRules.hpp and LightShaftRules.hpp, the CPU half.
     files {
@@ -19,7 +19,7 @@ project(test_name)
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Engine/Content/Shaders",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

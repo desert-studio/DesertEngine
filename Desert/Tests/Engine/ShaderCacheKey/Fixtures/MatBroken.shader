@@ -5,11 +5,11 @@
 // TheBrokenShaderFixtureStillDoesNotCompile is the test that holds it — repairing this file turns that
 // test RED, which is the point of keeping it rather than deleting it.
 //
-// WHY IT IS HERE AND NOT UNDER Editor/Resources/Shaders (Г20). It used to ship among the project's own
+// WHY IT IS HERE AND NOT UNDER Engine/Content/Shaders (Г20). It used to ship among the project's own
 // shaders, so AssetPreloader compiled it at EVERY editor start and printed two errors into every clean
 // log — the shaderc diagnostic and ShaderService's refusal. An error that is always there means
 // nothing, and a real broken shader was indistinguishable from it. A fixture has to be reachable by a
-// TEST, not by everyone who opens the editor; Editor/Resources/Shaders is the project's content, not a
+// TEST, not by everyone who opens the editor; Engine/Content/Shaders is the project's content, not a
 // test corpus.
 //
 // IT WAS ALREADY A FOSSIL when it moved. Its header said "GENERATED ... edit the .dgraph", and

@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Common/CloudLighting.glslh AS C++.
+// Compiles Engine/Content/Shaders/Common/CloudLighting.glslh AS C++.
 //
 // Same arrangement as Desert/Tests/Engine/CloudNoise/CloudNoiseReference.hpp, and for the same reason:
 // what is asserted below is asserted about the text the march compiles, not about a CPU restatement of

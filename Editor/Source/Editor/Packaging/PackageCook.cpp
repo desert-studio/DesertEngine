@@ -176,7 +176,7 @@ namespace Desert::Editor
                 {
                     if ( p.extension() != ".svg" ) // IconService::EnsurePreloaded's own filter
                         continue;
-                    if ( IsEditorOnlyResource( p ) ) // not in the package, so not baked for it
+                    if ( !IsInPackagedTree( p ) ) // not in the package, so not baked for it
                         continue;
 
                     const auto svgRead = Common::Utils::FileSystem::ReadByteFileContent( p );

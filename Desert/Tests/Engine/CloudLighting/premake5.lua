@@ -9,7 +9,7 @@ project(test_name)
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- One unit under test, GPU-free:
-    --   * Editor/Resources/Shaders/Common/CloudLighting.glslh — the Henyey-Greenstein phase, Beer's law,
+    --   * Engine/Content/Shaders/Common/CloudLighting.glslh — the Henyey-Greenstein phase, Beer's law,
     --     the energy-conserving integral of one step and the profile-driven ambient occlusion — compiled
     --     AS C++ through CloudLightingReference.hpp. That is why the SHADER ROOT is on the include path:
     --     the test drives the exact text the cloud passes compile, so a passing test is a statement about
@@ -25,7 +25,7 @@ project(test_name)
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Engine/Content/Shaders",
     }
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- reached through the cloud component's headers

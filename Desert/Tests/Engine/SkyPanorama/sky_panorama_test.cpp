@@ -72,7 +72,7 @@ namespace
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up )
         {
-            std::ifstream probe( prefix + "Editor/Resources/Shaders/Common/SkyPanorama.glslh" );
+            std::ifstream probe( prefix + "Engine/Content/Shaders/Common/SkyPanorama.glslh" );
             if ( probe )
                 return prefix;
             prefix += "../";
@@ -233,9 +233,9 @@ TEST( SkyPanoramaCensus, BothBakeProgramsReadThePanoramaBareThroughTheSharedText
         const char* Why;
     };
     const Program programs[] = {
-         { "Editor/Resources/Shaders/Programs/Compute/PanoramaToCubemap.shader",
+         { "Engine/Content/Shaders/Programs/Compute/PanoramaToCubemap.shader",
            "writes the radiance cube the background is drawn from and the prefilter convolves" },
-         { "Editor/Resources/Shaders/Programs/Compute/DiffuseIrradiance.shader",
+         { "Engine/Content/Shaders/Programs/Compute/DiffuseIrradiance.shader",
            "integrates the same panorama into the cube every lit surface reads" },
     };
 
@@ -287,7 +287,7 @@ TEST( SkyLookCensus, EveryProgramThatReadsAnEnvironmentCubeAppliesTheLook )
     static const std::regex kEnvCube(
          R"(samplerCube\s+(u_EnvSpecularTex|u_EnvIrradianceTex|samplerCubeMap|u_CubeMap)\b)" );
 
-    const std::string     shaders = root + "Editor/Resources/Shaders/";
+    const std::string     shaders = root + "Engine/Content/Shaders/";
     std::set<std::string> found;
     for ( const auto& entry : std::filesystem::recursive_directory_iterator( shaders ) )
     {
@@ -339,8 +339,7 @@ TEST( SkyPanoramaCensus, TheSkyboxProgramHasNoBrightnessOfItsOwn )
     // SkyLookUB, the same block and the same call every lit surface uses; a second multiplier here would
     // make the backdrop brighter than the light it casts, which nothing in a frame distinguishes from a
     // deliberate look.
-    const std::string code =
-         CodeOnly( ReadFile( root + "Editor/Resources/Shaders/Programs/Skybox/Skybox.shader" ) );
+    const std::string code = CodeOnly( ReadFile( root + "Engine/Content/Shaders/Programs/Skybox/Skybox.shader" ) );
     ASSERT_FALSE( code.empty() );
 
     EXPECT_EQ( code.find( "SkyboxParamsUB" ), std::string::npos )

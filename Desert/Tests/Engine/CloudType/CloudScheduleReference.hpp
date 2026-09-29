@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Common/CloudGeometry.glslh AS C++, so that this suite — which owns
+// Compiles Engine/Content/Shaders/Common/CloudGeometry.glslh AS C++, so that this suite — which owns
 // the shipped `.decloudtype` library — can hold that library against the march's OWN step schedule
 // rather than against a copy of its numbers.
 //

@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Mesh/PBRFunctions.glslh and Mesh/DirectLighting.glslh AS C++.
+// Compiles Engine/Content/Shaders/Mesh/PBRFunctions.glslh and Mesh/DirectLighting.glslh AS C++.
 //
 // Not a port and not a paraphrase — the same two files the deferred composite and every forward mesh
 // shader compile as GLSL. The suite beside this header asks whether two surfaces standing symmetrically

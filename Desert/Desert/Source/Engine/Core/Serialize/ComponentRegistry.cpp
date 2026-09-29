@@ -68,7 +68,7 @@ namespace Desert::Core::Serialize
         // WHY THAT WAS WRONG, and it is the same sentence I9 removed from the script slot. A packaged
         // game remaps ASSETS_PATH to <package>/Assets/, so a path written from the development tree
         // names a directory that does not exist there. It survived until now only because every font
-        // and icon this repository ships names the ENGINE trees Resources/Fonts and Resources/Icons,
+        // and icon this repository ships names the ENGINE trees Engine/Content/Fonts and Engine/Content/Icons,
         // which the packager stores under their own dev-time relative paths and SetProjectRoot never
         // remaps. Both scan roots also accept the PROJECT'S OWN assets tree
         // (Runtime/Services/ServiceScanRoots.hpp), and a `.ttf` or `.svg` dropped in from there took

@@ -1,7 +1,7 @@
 // The physical atmosphere's medium, phases and LUT parameterisations, tested against the relations
 // that make the Phase 2 sky possible — not against hand-picked spot values.
 //
-// The functions under test are Editor/Resources/Shaders/Common/SkyMedium.glslh compiled as C++
+// The functions under test are Engine/Content/Shaders/Common/SkyMedium.glslh compiled as C++
 // (SkyMediumReference.hpp), i.e. the exact text the SkyTransmittanceLut / SkyMultiScatterLut compute
 // passes run on the GPU. What is pinned, and why:
 //

@@ -9,7 +9,7 @@ project(test_name)
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- Two units under test, both GPU-free:
-    --   * Editor/Resources/Shaders/Common/CloudAuthored.glslh and Common/CloudField.glslh — the authored
+    --   * Engine/Content/Shaders/Common/CloudAuthored.glslh and Common/CloudField.glslh — the authored
     --     producer's addressing, the union and the cutout — compiled AS C++ through
     --     CloudAuthoredReference.hpp, which is why the SHADER ROOT is on the include path.
     --   * Engine/Assets/CloudModellingVolume.cpp — the container and the smooth-min bake. The suite bakes
@@ -34,7 +34,7 @@ project(test_name)
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Engine/Content/Shaders",
     }
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- the cloud type's file format is rfl::json

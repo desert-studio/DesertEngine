@@ -20,7 +20,7 @@ namespace Desert::Runtime
     inline std::array<const std::filesystem::path*, 2> FontScanRoots()
     {
         // This project's Assets tree (drop a .ttf into the project) plus the shared engine
-        // Resources/Fonts built-ins (Roboto, Noto, ...).
+        // Engine/Content/Fonts built-ins (Roboto, Noto, ...).
         return { &Common::Constants::Path::ASSETS_PATH, &Common::Constants::Path::FONTS_PATH };
     }
 

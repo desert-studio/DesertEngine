@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Common/CloudNoise.glslh AS C++.
+// Compiles Engine/Content/Shaders/Common/CloudNoise.glslh AS C++.
 //
 // Not a port and not a paraphrase — the same text, the same file, that the cloud passes compile as GLSL.
 // A rendered frame says the noise LOOKS like cloud; only this says it TILES, that its hash avalanches,

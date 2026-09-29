@@ -30,7 +30,7 @@ namespace Desert::Core::Serialize
     // root's tag, e.g. `assets:Textures/T_Checker.detex`. Not the raw filepath, which is ABSOLUTE with a
     // project open and so writes a developer's home directory into a committed file; and not simply
     // relative to the assets root the way a material's path is, because an engine texture lives under
-    // RESOURCE_PATH, which is not inside the assets root in a project, where that reduction yields `../...`
+    // ENGINE_CONTENT_PATH, which is not inside the assets root in a project, where that reduction yields `../...`
     // and falls back to absolute anyway. The tag is the bit no plain path can carry.
     //
     // A handle the cooked asset registry has no row for returns "" and LOGS why (DC §1.4): the slot is

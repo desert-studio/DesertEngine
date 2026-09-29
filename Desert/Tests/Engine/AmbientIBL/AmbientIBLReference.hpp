@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Mesh/AmbientIBL.glslh AS C++.
+// Compiles Engine/Content/Shaders/Mesh/AmbientIBL.glslh AS C++.
 //
 // Not a port and not a paraphrase — the same text, the same file, that StaticMeshPBR.shader,
 // StaticMeshPBR_Instanced.shader, SkinnedMeshPBR.shader and Deferred/DeferredLighting.shader compile as

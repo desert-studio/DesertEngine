@@ -38,7 +38,7 @@ namespace Desert::Runtime
                 continue; // "" means the built-in face, by choice — not a failure to resolve
 
             // TWO ROOTS, IN A FIXED ORDER, AND THAT IS NOT AMBIGUITY. FontService::AvailableFonts already
-            // scans both — the project's assets tree AND the engine's shared Resources/Fonts — so a theme
+            // scans both — the project's assets tree AND the engine's shared Engine/Content/Fonts — so a theme
             // that could only name one of them would be unable to name half the faces the font picker
             // offers. Project content wins, so a project may shadow a shipped face by shipping its own.
             const std::filesystem::path named( font.Asset );

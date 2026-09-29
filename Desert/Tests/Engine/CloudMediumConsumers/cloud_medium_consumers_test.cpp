@@ -95,7 +95,7 @@ namespace
 // ── THE CENSUS ─────────────────────────────────────────────────────────────────────────────────────────
 TEST( CloudMediumConsumers, EveryProgramThatSamplesTheCloudFieldIsOneOfTheFourKnownOnes )
 {
-    const std::filesystem::path shaders  = RepoRoot() / "Editor/Resources/Shaders";
+    const std::filesystem::path shaders  = RepoRoot() / "Engine/Content/Shaders";
     const std::set<std::string> programs = ShaderFiles( shaders / "Programs", ".shader" );
     ASSERT_FALSE( programs.empty() ) << "the shader tree was not found, so this census counted nothing";
 
@@ -160,7 +160,7 @@ TEST( CloudMediumConsumers, EveryProgramThatSamplesTheCloudFieldIsOneOfTheFourKn
 // could grow.
 TEST( CloudMediumConsumers, EveryMediumEntryPointIsDefinedOnceAndInTheSubstitutableFile )
 {
-    const std::filesystem::path shaders = RepoRoot() / "Editor/Resources/Shaders";
+    const std::filesystem::path shaders = RepoRoot() / "Engine/Content/Shaders";
     const std::set<std::string> headers = ShaderFiles( shaders, ".glslh" );
     ASSERT_FALSE( headers.empty() ) << "the shared shader headers were not found";
 
@@ -393,7 +393,7 @@ namespace
 
 TEST( CloudMediumConsumers, EverySlotOfTheParameterBlockIsReadOrHasARowSayingWhyNot )
 {
-    const std::filesystem::path    shaders   = RepoRoot() / "Editor/Resources/Shaders";
+    const std::filesystem::path    shaders   = RepoRoot() / "Engine/Content/Shaders";
     const std::string              blockCode = CodeOnly( ReadAll( shaders / "Common/CloudParams.glslh" ) );
     const std::vector<BlockMember> members   = ParseBlock( blockCode );
     ASSERT_FALSE( members.empty() ) << "the parameter block could not be read, so this census counted nothing";
@@ -534,7 +534,7 @@ TEST( CloudMediumConsumers, EverySlotOfTheParameterBlockIsReadOrHasARowSayingWhy
 
 TEST( CloudMediumConsumers, EveryFieldParameterIsWrittenByTheOnePlaceThatBuildsThem )
 {
-    const std::filesystem::path shaders = RepoRoot() / "Editor/Resources/Shaders";
+    const std::filesystem::path shaders = RepoRoot() / "Engine/Content/Shaders";
     const std::string           field   = CodeOnly( ReadAll( shaders / "Common/CloudField.glslh" ) );
     const std::string           params  = CodeOnly( ReadAll( shaders / "Common/CloudParams.glslh" ) );
     ASSERT_FALSE( field.empty() ) << "Common/CloudField.glslh was not found";
@@ -593,7 +593,7 @@ TEST( CloudMediumConsumers, EveryFieldParameterIsWrittenByTheOnePlaceThatBuildsT
 
 TEST( CloudMediumConsumers, TheShadowRayContextsAreTheThreeMarchesThatIntegrateOpticalDepth )
 {
-    const std::filesystem::path shaders = RepoRoot() / "Editor/Resources/Shaders";
+    const std::filesystem::path shaders = RepoRoot() / "Engine/Content/Shaders";
 
     // The safe polarity, at the one place it is decided.
     const std::string params = CodeOnly( ReadAll( shaders / "Common/CloudParams.glslh" ) );

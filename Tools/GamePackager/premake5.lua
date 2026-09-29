@@ -62,7 +62,7 @@ project "GamePackager"
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/include", -- <stb_image/stb_image.h>, for the texture cook
         -- <Common/LandscapeHeight.glslh>: LandscapeData.cpp decodes heights with the shader's own maths.
-        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Engine/Content/Shaders",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

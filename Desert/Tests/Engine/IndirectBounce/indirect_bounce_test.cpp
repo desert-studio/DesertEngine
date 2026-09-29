@@ -113,9 +113,9 @@ namespace
     {
         // The test binary lives in build/Bin/Tests/<config>; walk up to the repository root.
         std::filesystem::path root = std::filesystem::current_path();
-        for ( int up = 0; up < 8 && !std::filesystem::exists( root / "Editor" / "Resources" / "Shaders" ); ++up )
+        for ( int up = 0; up < 8 && !std::filesystem::exists( root / "Engine" / "Content" / "Shaders" ); ++up )
             root = root.parent_path();
-        return root / "Editor" / "Resources" / "Shaders";
+        return root / "Engine" / "Content" / "Shaders";
     }
 
     std::string Read( const std::filesystem::path& file )
@@ -411,7 +411,7 @@ TEST( IndirectBounce, TheDeferredGIGatherReachesTheOneSharedBRDFToo )
 {
     const std::filesystem::path root = ShaderRoot();
     ASSERT_TRUE( std::filesystem::exists( root ) )
-         << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
+         << "could not find Engine/Content/Shaders above " << std::filesystem::current_path();
 
     const std::string gather = Read( root / "Programs" / "Deferred" / "DeferredLighting.shader" );
     ASSERT_FALSE( gather.empty() );

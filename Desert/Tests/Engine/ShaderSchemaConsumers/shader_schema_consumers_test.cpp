@@ -642,7 +642,7 @@ namespace
     std::vector<fs::path> ShippedShaders( const std::string& root )
     {
         std::vector<fs::path> out;
-        const fs::path        dir = fs::path( root ) / "Editor" / "Resources" / "Shaders";
+        const fs::path        dir = fs::path( root ) / "Engine" / "Content" / "Shaders";
         if ( !fs::exists( dir ) )
             return out;
 
@@ -826,7 +826,7 @@ TEST( ShaderSchemaConsumers, TheSamplerSearchFollowsIncludes )
     // own text declares none of its fragment samplers, and its expansion declares them.
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const fs::path shadersDir = fs::path( root ) / "Editor" / "Resources" / "Shaders";
+    const fs::path shadersDir = fs::path( root ) / "Engine" / "Content" / "Shaders";
     const fs::path terrain    = shadersDir / "Programs" / "Terrain" / "Terrain.shader";
     ASSERT_TRUE( fs::exists( terrain ) );
 
@@ -864,7 +864,7 @@ TEST( ShaderSchemaConsumers, EveryTexturePropertyHasASamplerToBindTo )
                                                           "u_EmissiveTexture" };
     std::set<std::string>              seenUnsampled;
 
-    const fs::path shadersDir = fs::path( root ) / "Editor" / "Resources" / "Shaders";
+    const fs::path shadersDir = fs::path( root ) / "Engine" / "Content" / "Shaders";
     for ( const auto& file : ShippedShaders( root ) )
     {
         // Comments stripped: a `.shader` explains its own bindings in prose, and "declares no sampler2D"

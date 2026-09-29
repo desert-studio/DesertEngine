@@ -2691,7 +2691,7 @@ namespace Desert::ECS
         // re-hashed it at load — the three service registries (FontService / IconService / VideoService)
         // are path-keyed through AssetHandle::FromCookedPath, so a scene could not store a handle for
         // them. They were safe for every value this repository ships (all 5 fonts and all 8 icons named
-        // the ENGINE trees Resources/Fonts and Resources/Icons, which SetProjectRoot never remaps) and
+        // the ENGINE trees Engine/Content/Fonts and Engine/Content/Icons, which SetProjectRoot never remaps) and
         // broken for anything dropped in from the project's own assets tree, which both scan roots
         // accept. They are root-tagged keys now too, at scene v17, through one pair of functions in
         // Core/Serialize/ComponentRegistry.cpp. Every reference a `.desce` carries is now either an

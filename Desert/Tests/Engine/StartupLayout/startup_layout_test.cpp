@@ -85,9 +85,9 @@ namespace
         Touch( drop / "Runtime" );
         Touch( drop / "Desert.deproj" );
         std::error_code ec;
-        fs::create_directories( drop / "Resources" / "Shaders", ec );
-        fs::create_directories( drop / "Resources" / "Fonts", ec );
-        fs::create_directories( drop / "Resources" / "Icons", ec );
+        fs::create_directories( drop / "Engine" / "Content" / "Shaders", ec );
+        fs::create_directories( drop / "Engine" / "Content" / "Fonts", ec );
+        fs::create_directories( drop / "Engine" / "Content" / "Icons", ec );
         return drop;
     }
 } // namespace
@@ -292,8 +292,8 @@ TEST( StartupLayout, AWorkingDirectoryThatAlreadyHoldsTheResourcesIsLeftAlone )
     // "do not move" can then only come from the working directory being asked FIRST.
     const fs::path  root = MakeCheckout( "cwd_has_resources" );
     std::error_code ec;
-    fs::create_directories( root / "Editor" / "Resources" / "Shaders", ec );
-    fs::create_directories( root / "build" / "Bin" / "Release" / "Resources" / "Shaders", ec );
+    fs::create_directories( root / "Engine" / "Content" / "Shaders", ec );
+    fs::create_directories( root / "build" / "Bin" / "Release" / "Engine" / "Content" / "Shaders", ec );
 
     const auto lookup = ResolveResourceRoot( root / "Editor", root / "build" / "Bin" / "Release" );
     EXPECT_TRUE( lookup.WorkingDirectory.empty() )
@@ -405,7 +405,7 @@ TEST( StartupLayout, ABinaryStartedWhereItWasBuiltWorksFromItsCheckoutsEditor )
     // directory is the solution root, the binary is in build/Bin/<config>. Measured on Windows
     // 2026-09-24 - the editor refused with "no Resources/Shaders" and nothing on screen said why.
     const fs::path root = MakeCheckout( "started_where_built" );
-    fs::create_directories( root / "Editor" / "Resources" / "Shaders" );
+    fs::create_directories( root / "Engine" / "Content" / "Shaders" );
     const fs::path bin = root / "build" / "Bin" / "Debug";
     fs::create_directories( bin );
 
@@ -417,6 +417,6 @@ TEST( StartupLayout, ABinaryStartedWhereItWasBuiltWorksFromItsCheckoutsEditor )
     // ...and only by that shape: Bin/<config> outside build/ is not the checkout's build output.
     const fs::path notBuild = root / "dist" / "Bin" / "Debug";
     fs::create_directories( notBuild );
-    fs::create_directories( root / "dist" / "Editor" / "Resources" / "Shaders" );
+    fs::create_directories( root / "dist" / "Engine" / "Content" / "Shaders" );
     EXPECT_FALSE( ResolveResourceRoot( root / "dist", notBuild ).FromCheckout );
 }

@@ -404,3 +404,47 @@ int main( int argc, char** argv )
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
+
+// PRJ1a: engine and editor content live under Engine/Content and Editor/Content, reached through
+// Common::Constants::Path (SetEngineRoot) — never through a working-directory literal. One census over the
+// product's sources: a spelling of the old tree in code is a path the engine root cannot move.
+TEST( PathCensus, NoSourceSpellsTheOldResourceTrees )
+{
+    const auto root = RepoRoot();
+    ASSERT_TRUE( root.has_value() );
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access): the ASSERT above returns on nullopt
+    const fs::path& repo = root.value();
+
+    // Assembled, so this file does not match itself.
+    const std::string                old     = std::string( "Resources" ) + "/";
+    const std::array<std::string, 3> needles = { old + "Shaders", old + "Fonts", old + "Icons" };
+    const std::set<std::string>      exts    = { ".cpp", ".hpp", ".h", ".inl", ".lua" };
+    std::size_t                      scanned = 0;
+    for ( const char* top :
+          { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source", "Tools" } )
+    {
+        std::error_code ec;
+        for ( auto it = fs::recursive_directory_iterator( repo / top, ec );
+              !ec && it != fs::recursive_directory_iterator(); it.increment( ec ) )
+        {
+            if ( !it->is_regular_file() || exts.count( it->path().extension().string() ) == 0 )
+                continue;
+            std::ifstream      in( it->path(), std::ios::binary );
+            std::ostringstream text;
+            text << in.rdbuf();
+            ++scanned;
+            for ( const std::string& needle : needles )
+                EXPECT_EQ( text.str().find( needle ), std::string::npos )
+                     << it->path().lexically_relative( repo ).generic_string() << " spells '" << needle
+                     << "' — engine content is Common::Constants::Path::SHADERDIR_PATH/FONTS_PATH/ICONS_PATH";
+        }
+    }
+    EXPECT_GT( scanned, 500u ) << "the census read almost nothing under " << repo.generic_string();
+    // The one derivation: every engine content path hangs off the engine root.
+    for ( std::size_t i = 0; i < Common::Constants::Path::ENGINE_CONTENT_DIR_COUNT; ++i )
+        EXPECT_EQ(
+             Common::Constants::Path::EngineDir( static_cast<Common::Constants::Path::EngineContentDir>( i ) ),
+             ( Common::Constants::Path::EngineRoot() /
+               std::filesystem::path( Common::Constants::Path::ENGINE_CONTENT_DIRS[i] ) )
+                  .lexically_normal() );
+}

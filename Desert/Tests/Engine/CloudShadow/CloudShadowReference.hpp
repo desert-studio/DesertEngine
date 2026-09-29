@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Common/CloudShadowMap.glslh AS C++ — both halves of it.
+// Compiles Engine/Content/Shaders/Common/CloudShadowMap.glslh AS C++ — both halves of it.
 //
 // Same arrangement, and for the same reason, as CloudGeometryReference.hpp: the text under test is the
 // text the two cloud passes compile, not a CPU paraphrase of it. Here it buys something extra, because

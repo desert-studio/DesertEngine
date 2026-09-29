@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Common/SdfText.glslh AS C++ — the exact text both text shaders
+// Compiles Engine/Content/Shaders/Common/SdfText.glslh AS C++ — the exact text both text shaders
 // compile as GLSL (Programs/UI/UIText.shader and Programs/Text/TextSDF.shader).
 //
 // This is what makes the corner and minification claims testable at all. The interesting half of this

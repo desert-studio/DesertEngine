@@ -28,7 +28,7 @@ project(test_name)
         -- The SHADER ROOT, so Common/ViewRay.glslh can be compiled as C++ by ViewRayReference.hpp: the
         -- background-ray tests below drive the exact text the sky passes compile, which is what makes a
         -- pass a statement about the code the GPU runs rather than about a copy of it.
-        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Engine/Content/Shaders",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

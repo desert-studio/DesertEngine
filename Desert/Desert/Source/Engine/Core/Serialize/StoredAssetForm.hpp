@@ -17,7 +17,7 @@ namespace Desert::Core::Serialize
     {
         // `assets:Textures/T.tex` — the tagged stable key, verbatim. The only form that can name a
         // file under EITHER content root, which is why the texture slot and the three service types
-        // use it: an engine texture lives under RESOURCE_PATH, outside the assets root, where a
+        // use it: an engine texture lives under ENGINE_CONTENT_PATH, outside the assets root, where a
         // path made relative to the assets root comes out as a `..` chain and falls back to the
         // absolute spelling, i.e. to a developer's home directory in a committed file.
         StableKey,

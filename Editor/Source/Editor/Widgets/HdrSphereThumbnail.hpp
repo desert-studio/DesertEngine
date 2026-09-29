@@ -67,7 +67,7 @@ namespace Desert::Editor::HdrSphereThumbnail
     [[nodiscard]] glm::vec3 CameraDirection( const SphereView& view );
 
     /// The engine's direction -> equirectangular UV: `PanoramaSampleUV` from
-    /// Editor/Resources/Shaders/Common/SkyPanorama.glslh, compiled here as C++ — the same text the
+    /// Engine/Content/Shaders/Common/SkyPanorama.glslh, compiled here as C++ — the same text the
     /// PanoramaToCubemap bake reads the file with, so the ball and the skybox cannot disagree about which
     /// texel a direction is. u runs around the horizon, v = 0 is straight up (+Y).
     [[nodiscard]] glm::vec2 DirectionToUv( const glm::vec3& direction );

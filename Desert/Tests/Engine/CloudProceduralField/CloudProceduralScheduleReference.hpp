@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Common/CloudGeometry.glslh AS C++, so that this suite holds the
+// Compiles Engine/Content/Shaders/Common/CloudGeometry.glslh AS C++, so that this suite holds the
 // PROCEDURAL GENERATOR against the march's own step schedule rather than against a copy of its numbers.
 //
 // WHY THE GENERATOR NEEDS THE SCHEDULE. What the generator places in the sky and what the march can find

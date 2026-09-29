@@ -9,7 +9,7 @@ project(test_name)
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- Two units under test and no engine between them: the shipped shader maths
-    -- (Editor/Resources/Shaders/Mesh/{PBRFunctions,DirectLighting}.glslh, driven AS C++ through
+    -- (Engine/Content/Shaders/Mesh/{PBRFunctions,DirectLighting}.glslh, driven AS C++ through
     -- CornellSymmetryReference.hpp — which is why the SHADER ROOT is on the include path), and the
     -- shipped ASSETS (Editor/Resources/Assets/{Scenes/CornellDemo.desce,Materials/CB_*.demat}), read
     -- straight off disk as JSON. The relation the suite asserts holds between those two and nothing
@@ -21,7 +21,7 @@ project(test_name)
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Engine/Content/Shaders",
     }
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",  -- rfl, under Common::Json

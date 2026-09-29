@@ -1539,7 +1539,7 @@ TEST( SettingConsumers, TheShaderClampsTheShadowRayAtTheSameCeilingTheSliderOffe
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
 
-    const std::string path   = root + "Editor/Resources/Shaders/Programs/Clouds/CloudRaymarch.shader";
+    const std::string path   = root + "Engine/Content/Shaders/Programs/Clouds/CloudRaymarch.shader";
     const std::string source = ReadFile( path );
     ASSERT_FALSE( source.empty() ) << path << " is missing or empty";
 
@@ -1570,7 +1570,7 @@ TEST( SettingConsumers, TheScatteringSeriesClampsItsOctavesAtTheSameCeilingTheSl
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
 
-    const std::string path   = root + "Editor/Resources/Shaders/Common/CloudLighting.glslh";
+    const std::string path   = root + "Engine/Content/Shaders/Common/CloudLighting.glslh";
     const std::string source = ReadFile( path );
     ASSERT_FALSE( source.empty() ) << path << " is missing or empty";
 

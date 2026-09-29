@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Common/CloudGeometry.glslh AS C++.
+// Compiles Engine/Content/Shaders/Common/CloudGeometry.glslh AS C++.
 //
 // Same arrangement, and for the same reason, as Desert/Tests/Engine/CloudNoise/CloudNoiseReference.hpp:
 // the text under test is the text the cloud passes compile, not a CPU paraphrase of it. A paraphrase

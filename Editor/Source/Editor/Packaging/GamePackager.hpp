@@ -82,7 +82,7 @@ namespace Desert::Editor
     // failure would be unable to package such a project at all, and the person who has to fix the asset
     // would lose the build they were about to test it in.
     //
-    // (This paragraph used to rest its case on ONE example, `Resources/Shaders/Programs/Graph/
+    // (This paragraph used to rest its case on ONE example, `Engine/Content/Shaders/Programs/Graph/
     // MatBroken.shader`, which this repository shipped on purpose. Г20 moved that fixture into
     // Desert/Tests/Engine/ShaderCacheKey/Fixtures — it was compiled at every editor start and printed
     // two errors into every clean log, which is a cost the argument never needed. The argument is about

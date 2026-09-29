@@ -52,8 +52,8 @@ for binary in "$EDITOR_BIN" "$CTL"; do
 done
 
 # The project path is resolved against the CALLER's directory and the editor is then run from the
-# project's own folder — `Resources/Shaders` is relative and is the one content root that is not remapped
-# by ProjectContext, so a run from anywhere else loads no shaders at all.
+# project's own folder — a checkout's Editor/, whose parent is the engine root (Engine/Content) that
+# StartupLayout's ResolveResourceRoot finds from there.
 PROJECT_ABS="$(cd "$(dirname "$PROJECT")" && pwd)/$(basename "$PROJECT")"
 PROJECT_DIR="$(dirname "$PROJECT_ABS")"
 

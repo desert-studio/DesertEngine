@@ -17,7 +17,7 @@ namespace Desert::ECS
     // UVolumetricCloudComponent carries — tracing budgets, pass routing and world integration — and one
     // `Material` handle, which is the same split UE ships: not one property below describes the cloud's
     // shape, colour, density, phase or weather. All of that is the schema of the Volume-domain shader
-    // (Editor/Resources/Shaders/Programs/Clouds/CloudRaymarch.shader, Properties block), authored in a
+    // (Engine/Content/Shaders/Programs/Clouds/CloudRaymarch.shader, Properties block), authored in a
     // `.demat` and resolved by the renderer through Runtime::MaterialService. An EMPTY material slot is
     // the schema's own defaults — a scene must not depend on a file being present.
     //
@@ -284,8 +284,8 @@ namespace Desert::ECS
         // 0.022 and 0.012. A scene authored against the flat frame may want its exposure looked at once.
         //
         // Read by Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.cpp, which decides whether
-        // to dispatch Editor/Resources/Shaders/Programs/Clouds/CloudSkyOcclusionVolume.shader, and by
-        // Editor/Resources/Shaders/Programs/Clouds/CloudRaymarch.shader through CloudPush::Frame.
+        // to dispatch Engine/Content/Shaders/Programs/Clouds/CloudSkyOcclusionVolume.shader, and by
+        // Engine/Content/Shaders/Programs/Clouds/CloudRaymarch.shader through CloudPush::Frame.
         bool SkyOcclusionVolume = true;
 
         PROPERTY( DisplayName( "Per Sample Atmosphere Transmittance" ), Category( "Lighting" ),
@@ -316,8 +316,8 @@ namespace Desert::ECS
         //
         // Read by Engine/Graphic/Clouds/CloudPayload.hpp, which chooses which of the two illuminances the
         // parameter block carries, and applied by BOTH marches of the field: the screen march
-        // (Editor/Resources/Shaders/Programs/Clouds/CloudRaymarch.shader, through CloudPush::Frame) and
-        // the environment bake (Editor/Resources/Shaders/Programs/Compute/BakeProceduralSky.shader,
+        // (Engine/Content/Shaders/Programs/Clouds/CloudRaymarch.shader, through CloudPush::Frame) and
+        // the environment bake (Engine/Content/Shaders/Programs/Compute/BakeProceduralSky.shader,
         // through CloudBakeBinding::PerSampleSunTransmittance). Both, because they share the ONE packed
         // block: a bake that did not apply the transmittance would light the IBL panorama with the sun's
         // outer-space illuminance and nothing else.
@@ -424,7 +424,7 @@ namespace Desert::ECS
         // ---- Shadows --------------------------------------------------------------------------------
         //
         // THE LAYER SHADING THE WORLD UNDER IT, through the map described in
-        // Editor/Resources/Shaders/Common/CloudShadowMap.glslh. Two fields and no more, and the two that
+        // Engine/Content/Shaders/Common/CloudShadowMap.glslh. Two fields and no more, and the two that
         // are absent are absent for a stated reason:
         //
         //   * THE MAP'S EXTENT AND RESOLUTION are engine constants, like the step schedule and for the

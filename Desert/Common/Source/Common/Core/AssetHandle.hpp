@@ -67,7 +67,7 @@ namespace Common
         // The roots an asset can live under, each with the TAG its relative paths are hashed behind.
         //
         // Why a TAG and not the bare relative path: `Resources/Assets/Fonts/X.ttf` (project content) and
-        // `Resources/Fonts/X.ttf` (an engine resource) both reduce to `Fonts/X.ttf`, so without a tag a
+        // `Engine/Content/Fonts/X.ttf` (an engine resource) both reduce to `Fonts/X.ttf`, so without a tag a
         // content asset and an engine resource that happen to sit at mirrored offsets would share one
         // handle. The tag is part of the hashed key, never of any path on disk.
         //
@@ -75,7 +75,7 @@ namespace Common
         // project (Constants::Path::SetProjectRoot rewrites it); engine resources never do. The project's
         // Cooked/ tree is NOT a root: it holds generated intermediates only, and no asset is authored or
         // gathered there (AF8b). Longest match wins, which is what makes the default sandbox layout — where
-        // ASSETS_PATH (`Resources/Assets/`) is NESTED INSIDE RESOURCE_PATH (`Resources/`) — resolve to
+        // ASSETS_PATH (`Resources/Assets/`) sat NESTED INSIDE the old engine root (`Resources/`) — resolve to
         // `assets` rather than to `engine`, without the answer depending on the order of this array.
         struct PathRoot
         {
@@ -87,11 +87,14 @@ namespace Common
         // the moment the inverse below appeared that would have made two lists of roots that must agree
         // with nothing checking that they do — the defect shape this file's own comments are about. A
         // root added here reaches the writer and the reader in the same edit.
-        static const std::array<PathRoot, 2>& ContentRoots() noexcept
+        static const std::array<PathRoot, 3>& ContentRoots() noexcept
         {
-            static const std::array<PathRoot, 2> roots = {
+            // Editor/Content is a root of its own: the editor's passes load their shaders by handle like any
+            // engine program, and no package ever carries one (PackagedContentTrees.hpp).
+            static const std::array<PathRoot, 3> roots = {
                  PathRoot{ &Constants::Path::ASSETS_PATH, "assets" },
-                 PathRoot{ &Constants::Path::RESOURCE_PATH, "engine" },
+                 PathRoot{ &Constants::Path::ENGINE_CONTENT_PATH, "engine" },
+                 PathRoot{ &Constants::Path::EDITOR_CONTENT_PATH, "editor" },
             };
             return roots;
         }
@@ -129,7 +132,7 @@ namespace Common
         // would have to guess about the other.
         static std::string_view EngineTag() noexcept
         {
-            return TagForRoot( Constants::Path::RESOURCE_PATH );
+            return TagForRoot( Constants::Path::ENGINE_CONTENT_PATH );
         }
 
         // Builds the stable key a path-derived handle is hashed from: the path RELATIVE to whichever
@@ -166,8 +169,8 @@ namespace Common
 
             // Absolute forms are used ONLY to decide which root contains the path. Comparing the two
             // spellings directly cannot work: with a project open the roots are absolute while callers
-            // still pass working-directory-relative strings (shaders always do — SHADERDIR_PATH is const
-            // and is never remapped), and with no project open it is the other way round.
+            // still pass working-directory-relative strings (shaders always do — SHADERDIR_PATH follows
+            // the engine root, never a project), and with no project open it is the other way round.
             //
             // A path that is ALREADY absolute skips fs::absolute, which consults the working directory.
             // Worth having and not worth much: measured over a 2000-asset dedup scan it took 56.9 s to
@@ -242,8 +245,8 @@ namespace Common
         // sent to another machine, and StableKeyForPath is already the engine's one answer to "where is
         // this asset in the project". Storing that answer is only useful if it can be read back, and no
         // plain relative path can do the job for every asset class: a material lives under ASSETS_PATH
-        // while an engine font lives under RESOURCE_PATH, which CONTAINS it in the sandbox and is a
-        // sibling of it in a project, so no one relative spelling names both. The tag is what carries the
+        // while an engine font lives under ENGINE_CONTENT_PATH, a sibling of the assets tree in the sandbox
+        // and in a project alike, so no one relative spelling names both. The tag is what carries the
         // missing bit, and it is a bit no path can carry.
         //
         // A string with no known tag is returned unchanged. That covers three real cases and is not a

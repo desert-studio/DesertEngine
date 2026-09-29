@@ -25,7 +25,7 @@ namespace Desert::Graphic
      * orthographic map aimed down the sun's own direction, whose every texel holds
      * `(frontDepthKm, meanExtinctionPerKm, maxOpticalDepth)` — the triple that reconstructs a correct
      * transmittance for a receiver at ANY depth along that texel's ray with one fetch. The encoding, the
-     * reconstruction and the march that fills it are all in Editor/Resources/Shaders/Common/
+     * reconstruction and the march that fills it are all in Engine/Content/Shaders/Common/
      * CloudShadowMap.glslh, which is compiled both as GLSL (by the producer and by the deferred lighting
      * pass) and as C++ (by Desert/Tests/Engine/CloudShadow).
      *

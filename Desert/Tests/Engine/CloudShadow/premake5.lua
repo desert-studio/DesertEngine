@@ -9,7 +9,7 @@ project(test_name)
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- TWO units under test, and the point of the suite is the relation BETWEEN them, GPU-free:
-    --   * Editor/Resources/Shaders/Common/CloudShadowMap.glslh — the triple's encode, its reconstruction
+    --   * Engine/Content/Shaders/Common/CloudShadowMap.glslh — the triple's encode, its reconstruction
     --     and the march that fills it — compiled AS C++ through CloudShadowReference.hpp, together with
     --     Common/CloudGeometry.glslh for the shell the ray crosses. That is why the SHADER ROOT is on the
     --     include path: the test drives the exact text the two cloud passes compile.
@@ -24,7 +24,7 @@ project(test_name)
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Engine/Content/Shaders",
     }
     externalincludedirs {
         -- CloudShadowPayload.hpp -> CloudPayload.hpp -> VolumetricCloudComponent.hpp, which reaches the

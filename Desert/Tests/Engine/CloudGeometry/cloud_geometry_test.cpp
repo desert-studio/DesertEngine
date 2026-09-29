@@ -78,7 +78,7 @@ namespace
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up )
         {
-            std::ifstream probe( prefix + "Editor/Resources/Shaders/Common/CloudParams.glslh" );
+            std::ifstream probe( prefix + "Engine/Content/Shaders/Common/CloudParams.glslh" );
             if ( probe )
                 return prefix;
             prefix += "../";
@@ -468,7 +468,7 @@ TEST( CloudGeometrySteps, TheScheduleIsDeclaredWhereItIsConsumedAndNowhereElse )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "repository root not found - run from the workspace root";
 
-    const std::string params = ReadFile( root + "Editor/Resources/Shaders/Common/CloudParams.glslh" );
+    const std::string params = ReadFile( root + "Engine/Content/Shaders/Common/CloudParams.glslh" );
     ASSERT_FALSE( params.empty() ) << "Common/CloudParams.glslh could not be read";
 
     EXPECT_EQ( params.find( "#define CLOUD_MIN_STEPS" ), std::string::npos )
@@ -477,7 +477,7 @@ TEST( CloudGeometrySteps, TheScheduleIsDeclaredWhereItIsConsumedAndNowhereElse )
     EXPECT_EQ( params.find( "#define CLOUD_DISTANCE_TO_MAX_STEPS_KM" ), std::string::npos )
          << "CLOUD_DISTANCE_TO_MAX_STEPS_KM is declared in CloudParams.glslh again";
 
-    const std::string geometry = ReadFile( root + "Editor/Resources/Shaders/Common/CloudGeometry.glslh" );
+    const std::string geometry = ReadFile( root + "Engine/Content/Shaders/Common/CloudGeometry.glslh" );
     ASSERT_FALSE( geometry.empty() ) << "Common/CloudGeometry.glslh could not be read";
 
     EXPECT_FLOAT_EQ( static_cast<float>( ParseDefine( geometry, "CLOUD_MIN_STEPS" ) ), CLOUD_MIN_STEPS );
@@ -677,7 +677,7 @@ TEST( CloudGeometryTwoTier, TheMarchRunsTheseConstantsAndNotACopyOfThem )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "repository root not found - run from the workspace root";
 
-    const std::string march = ReadFile( root + "Editor/Resources/Shaders/Programs/Clouds/CloudRaymarch.shader" );
+    const std::string march = ReadFile( root + "Engine/Content/Shaders/Programs/Clouds/CloudRaymarch.shader" );
     ASSERT_FALSE( march.empty() ) << "CloudRaymarch.shader could not be read";
 
     EXPECT_NE( march.find( "CloudCoarseStepKm(" ), std::string::npos )
@@ -715,8 +715,7 @@ TEST( CloudGeometryTwoTier, TheMarchRunsTheseConstantsAndNotACopyOfThem )
     // THE SAME TEXT, IN THE OTHER PASS THAT MARCHES THIS FIELD. Both light the field from ONE packed
     // block, and PerSampleAtmosphereTransmittance changes what that block's SunColour MEANS. A bake that
     // does not apply the transmittance would light the IBL panorama with the sun as seen from space.
-    const std::string bake =
-         ReadFile( root + "Editor/Resources/Shaders/Programs/Compute/BakeProceduralSky.shader" );
+    const std::string bake = ReadFile( root + "Engine/Content/Shaders/Programs/Compute/BakeProceduralSky.shader" );
     ASSERT_FALSE( bake.empty() ) << "BakeProceduralSky.shader could not be read";
 
     EXPECT_NE( bake.find( "SkySunAtAltitude(" ), std::string::npos )

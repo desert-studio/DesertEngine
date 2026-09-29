@@ -12,7 +12,7 @@ namespace Desert::Graphic
     // THE sky parameter block, byte for byte. One layout serves three consumers: the sky graphics pass, the
     // IBL bake compute dispatch.
     //
-    // The GLSL side of this layout is `SkyPacked` in Editor/Resources/Shaders/Common/Atmosphere.glslh, and
+    // The GLSL side of this layout is `SkyPacked` in Engine/Content/Shaders/Common/Atmosphere.glslh, and
     // no shader reads a field of it directly — they call the unpack helpers there. That is the point: the
     // layout below can be reordered or extended without any consumer changing a line, as long as the two
     // sides move together. SKY_PACKED_VEC4_COUNT there and kSkyPackedVec4Count here are the tie, and the

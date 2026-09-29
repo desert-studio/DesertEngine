@@ -14,7 +14,7 @@ namespace Desert::Graphic
      * RGBA16F field over the SAME region the procedural modelling volume covers, whose every texel holds
      * the diffuse (cosine-weighted hemispherical) transmittance of all the cloud above that column at that
      * altitude. It is the quantity `CloudAmbientOcclusion` cannot express — Р0's ranked #1 and #2,
-     * Docs/Clouds/DIAGNOSIS_CARTOON.md §1 — and Editor/Resources/Shaders/Common/CloudLighting.glslh owns
+     * Docs/Clouds/DIAGNOSIS_CARTOON.md §1 — and Engine/Content/Shaders/Common/CloudLighting.glslh owns
      * both the maths and the addressing.
      *
      * THE CONSTANTS BELOW ARE MIRRORS, on exactly the terms Graphic::CloudShadowPayload states for its

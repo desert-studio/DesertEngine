@@ -309,7 +309,7 @@ namespace
     {
         static const ShaderProgramMeta meta = []
         {
-            const std::string  path = RepoRoot() + "Editor/Resources/Shaders/Programs/Clouds/CloudRaymarch.shader";
+            const std::string  path = RepoRoot() + "Engine/Content/Shaders/Programs/Clouds/CloudRaymarch.shader";
             std::ifstream      in( path, std::ios::binary );
             std::ostringstream buffer;
             buffer << in.rdbuf();

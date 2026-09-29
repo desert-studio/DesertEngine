@@ -7,7 +7,7 @@ namespace Desert::Graphic
 {
     namespace
     {
-        // Editor/Resources/Shaders/Common/SkyMedium.glslh, COMPILED AS C++ — the same text, the same
+        // Engine/Content/Shaders/Common/SkyMedium.glslh, COMPILED AS C++ — the same text, the same
         // file, that SkyTransmittanceLut.shader compiles as GLSL. This is the arrangement the
         // SkyMedium test reference established, used here in the engine for the first
         // time and for the same reason: the sun light's colour and the transmittance LUT's texels are

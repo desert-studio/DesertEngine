@@ -13,7 +13,7 @@ namespace Desert::Graphic
     /**
      * The GPU side of ExponentialHeightFogData, and the ONLY place the component is turned into bytes.
      *
-     * The GLSL half of this layout is the block in Editor/Resources/Shaders/Common/FogParams.glslh,
+     * The GLSL half of this layout is the block in Engine/Content/Shaders/Common/FogParams.glslh,
      * member for member and in this order. The static_asserts below make a divergence a build error
      * instead of a frame in which every parameter after the inserted one is read from the wrong offset.
      *

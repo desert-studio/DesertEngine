@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Common/SkyScattering.glslh AS C++, on top of the
+// Compiles Engine/Content/Shaders/Common/SkyScattering.glslh AS C++, on top of the
 // Common/SkyMedium.glslh it builds on.
 //
 // Not a port and not a paraphrase — the same text, the same files, that SkyViewLut.shader,

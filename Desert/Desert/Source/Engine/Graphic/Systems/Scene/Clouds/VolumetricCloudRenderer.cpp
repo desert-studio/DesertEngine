@@ -660,7 +660,7 @@ namespace Desert::Graphic::System
                 if ( !shipped )
                 {
                     LOG_ERROR( "[Clouds] Compute shader '{}' is not registered. Expected "
-                               "Editor/Resources/Shaders/Programs/Clouds/{}.shader.",
+                               "Engine/Content/Shaders/Programs/Clouds/{}.shader.",
                                name, name );
                 }
                 return shipped;
@@ -788,7 +788,7 @@ namespace Desert::Graphic::System
         if ( !resolveShader )
         {
             LOG_ERROR( "[Clouds] Compute shader '{}' is not registered. Expected "
-                       "Editor/Resources/Shaders/Programs/Clouds/{}.shader.",
+                       "Engine/Content/Shaders/Programs/Clouds/{}.shader.",
                        kResolveShaderName, kResolveShaderName );
             return false;
         }

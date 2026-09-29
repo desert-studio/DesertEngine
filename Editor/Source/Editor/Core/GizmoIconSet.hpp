@@ -17,7 +17,7 @@
 // a file on disk and every .svg in the directory has a row, so artwork and code cannot drift apart
 // silently. Swapping the picture later is a file replacement, not a rename through call sites.
 //
-// The artwork is Phosphor duotone (MIT; see Resources/Icons/Gizmo/NOTICE.md for why that set). Duotone
+// The artwork is Phosphor duotone (MIT; see Editor/Content/Icons/Gizmo/NOTICE.md for why that set). Duotone
 // is the load-bearing property: `Vector::BakeIconSdf` emits one SDF layer per colour run and
 // `Runtime::IconService` keeps each layer's authored RGBA, so a two-tone icon reaches the viewport as
 // two tinted draws of one atlas and stays vector-crisp at any billboard size.
@@ -57,7 +57,7 @@ namespace Desert::Editor
     struct GizmoIconRow
     {
         GizmoIcon   Role;
-        const char* File; // basename under Resources/Icons/Gizmo/
+        const char* File;  // basename under Editor/Content/Icons/Gizmo/
         const char* Label; // what a person calls this marker, for logs and the census's failure text
     };
 
@@ -93,7 +93,7 @@ namespace Desert::Editor
         return kGizmoIcons[static_cast<size_t>( role )];
     }
 
-    // The one subdirectory of Resources/Icons/ the gizmo set lives in.
+    // The one subdirectory of Editor/Content/Icons/ the gizmo set lives in (editor-only content: never packaged).
     inline constexpr const char* kGizmoIconDir = "Gizmo";
 
     // Where the artwork lives, relative to the working directory the engine resolves Resources/ against.
@@ -105,7 +105,8 @@ namespace Desert::Editor
     // asserts IDENTITY with what the editor loads instead of comparing two strings that agree today.
     [[nodiscard]] inline std::filesystem::path GizmoIconPath( GizmoIcon role )
     {
-        return Common::Constants::Path::ICONS_PATH / kGizmoIconDir / kGizmoIcons[static_cast<size_t>( role )].File;
+        return Common::Constants::Path::EDITOR_ICONS_PATH / kGizmoIconDir /
+               kGizmoIcons[static_cast<size_t>( role )].File;
     }
 
     // The baked icon, imported on first use through Runtime::IconService (which owns the atlas every

@@ -163,13 +163,13 @@ TEST( MaterialDocumentOpen, TheEditorsOwnRouteResolvesAnEngineShaderByGuid )
     // wherever the project file sits (build/Projects since BLD1), so it cannot name the tree.
     std::filesystem::path editorDir;
     for ( std::filesystem::path prefix = "."; editorDir.empty() && prefix.string().size() < 20; prefix /= ".." )
-        if ( std::filesystem::exists( prefix / "Editor" / "Resources" / "Shaders" ) )
+        if ( std::filesystem::exists( prefix / "Engine" / "Content" / "Shaders" ) )
             editorDir = std::filesystem::weakly_canonical( prefix / "Editor" );
     const std::filesystem::path material =
          editorDir / "Resources" / "Assets" / "Materials" / "M_CubemapCheck.demat";
     ASSERT_TRUE( std::filesystem::exists( material ) ) << material.string();
 
-    // `Common::Constants::Path::RESOURCE_PATH` is a literal relative to the working directory and is
+    // `Common::Constants::Path::ENGINE_CONTENT_PATH` is a literal relative to the working directory and is
     // deliberately never remapped, so a test that wants the real engine content must sit in Editor/.
     struct WorkingDirectoryGuard
     {

@@ -9,7 +9,7 @@ project(test_name)
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- One unit under test, GPU-free:
-    --   * Editor/Resources/Shaders/Common/CloudGeometry.glslh — the sphere intersection, the shell
+    --   * Engine/Content/Shaders/Common/CloudGeometry.glslh — the sphere intersection, the shell
     --     segment, the height fraction and the step schedule — compiled AS C++ through
     --     CloudGeometryReference.hpp. That is why the SHADER ROOT is on the include path: the test drives
     --     the exact text the cloud passes compile, so a passing test is a statement about the code the GPU
@@ -23,7 +23,7 @@ project(test_name)
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Engine/Content/Shaders",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

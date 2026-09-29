@@ -760,7 +760,7 @@ namespace Desert::Editor
         ::ImGui::CreateContext();
 
         // 2. Initialize Editor Resources (Adds fonts to the atlas)
-        Editor::EditorResources::Initialize( UI::kIconFontFile.string() );
+        Editor::EditorResources::Initialize( UI::IconFontFile().string() );
 
         // 3. Initialize Engine ImGui Layer (Initializes backend and uploads fonts)
         m_ImGuiLayer = ImGui::ImGuiLayer::Create();

@@ -2,7 +2,7 @@
 // disc — tested against the relations that make the physical sky trustworthy, not hand-picked spot
 // values.
 //
-// The functions under test are Editor/Resources/Shaders/Common/SkyScattering.glslh compiled as C++
+// The functions under test are Engine/Content/Shaders/Common/SkyScattering.glslh compiled as C++
 // (SkyScatteringReference.hpp), i.e. the exact text the SkyViewLut / BakeProceduralSky /
 // ProceduralSky shaders run on the GPU. What is pinned, and why:
 //

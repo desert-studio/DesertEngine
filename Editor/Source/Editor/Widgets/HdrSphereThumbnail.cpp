@@ -31,8 +31,8 @@ namespace Desert::Editor::HdrSphereThumbnail
         using glm::atan;
         using glm::clamp;
         DESERT_GLSL_AS_CPP_BEGIN
-#include "../../../Resources/Shaders/Common/SkyPanorama.glslh"
-#include "../../../Resources/Shaders/Common/TonemapACES.glslh"
+#include "../../../../Engine/Content/Shaders/Common/SkyPanorama.glslh"
+#include "../../../../Engine/Content/Shaders/Common/TonemapACES.glslh"
         DESERT_GLSL_AS_CPP_END
 
         glm::vec3 Texel( const EquirectMap& map, uint32_t x, uint32_t y )

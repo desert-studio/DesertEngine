@@ -52,7 +52,7 @@ namespace
 
     // Opens the sandbox project the way the editor opens it, INCLUDING the working directory. Engine
     // resource roots are never remapped by a project (Constants.hpp says so beside them), so
-    // `Resources/Shaders/` resolves against the process's working directory and both hosts `cd` into
+    // `Engine/Content/Shaders/` resolves against the process's working directory and both hosts `cd` into
     // the directory that holds it before starting. A gate that did not would find no shaders and
     // certify a registry that is missing 76 rows.
     class SandboxProject

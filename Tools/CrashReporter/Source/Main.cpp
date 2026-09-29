@@ -79,7 +79,7 @@ namespace
     constexpr float kResizeBorder     = 6.0f;
 
     // FontAwesome 4 codepoints, spelled as UTF-8 so no extra header is needed.
-    // fontawesome-webfont.ttf is the FA4 face in Editor/Resources/Fonts.
+    // fontawesome-webfont.ttf is the FA4 face in Engine/Content/Fonts.
     constexpr const char* kIconBug      = "\xef\x86\x88"; // f188 bug
     constexpr const char* kIconInfo     = "\xef\x81\x9a"; // f05a info-circle
     constexpr const char* kIconComment  = "\xef\x81\xb5"; // f075 comment
@@ -800,7 +800,7 @@ int main( int inArgc, char** inArgv )
     io.LogFilename = nullptr;
 
     ApplyStyle( dpiScale );
-    const Fonts fonts = BuildFonts( besideUs / "Resources" / "Fonts", dpiScale );
+    const Fonts fonts = BuildFonts( besideUs / "Engine" / "Content" / "Fonts", dpiScale );
 
     ImGui_ImplGlfw_InitForOpenGL( window, true );
     ImGui_ImplOpenGL3_Init( "#version 130" );

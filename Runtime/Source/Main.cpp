@@ -22,6 +22,7 @@
 // is the editor's and the developer's door, never a shipped one, and it overrides the discovery above.
 // Launch via scripts/MacOS/RunRuntime.sh.
 
+#include <Common/Core/Constants.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include <Engine/Desert.hpp>
 #include <Engine/EntryPoint.hpp>
@@ -204,6 +205,19 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     const auto content = Desert::Player::MountPackagedContent( baseDir, exePath.stem().string() );
     if ( content.ExitCode != Desert::Player::kContentOk )
         FailStartup( content.Message, content.ExitCode );
+
+    // THE ENGINE ROOT, before anything reads a shader. A package's engine content is in its archive under
+    // Engine/Content/, keyed relative to the package folder — so the package folder IS the engine root. A dev
+    // run from a checkout's Editor/ project has it on disk one level up.
+    {
+        const fs::path  marker = Common::Constants::Path::ENGINE_CONTENT_DIRS[static_cast<std::size_t>(
+             Common::Constants::Path::EngineContentDir::Shaders )];
+        std::error_code markerError;
+        const bool      checkoutProject = baseDir.filename() == "Editor" &&
+                                     !fs::is_directory( baseDir / marker, markerError ) &&
+                                     fs::is_directory( baseDir.parent_path() / marker, markerError );
+        Common::Constants::Path::SetEngineRoot( checkoutProject ? baseDir.parent_path() : baseDir );
+    }
 
 #if DESERT_DEV_INSTRUMENTS
     // @early: the archive is mounted, the descriptor is not read — the report must land under the

@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Mesh/IndirectBounce.glslh AS C++.
+// Compiles Engine/Content/Shaders/Mesh/IndirectBounce.glslh AS C++.
 //
 // Not a port and not a paraphrase — the same text, the same file, that
 // Programs/Deferred/DeferredLighting.shader compiles as GLSL for its screen-space GI gather. That

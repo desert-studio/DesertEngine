@@ -277,7 +277,7 @@ namespace Desert::Assets
     inline constexpr uint32_t kCloudModellingSubsystemTag = Common::Content::FourCC( "DCMV" );
 
     /// The volume's shape, FIXED BY THE FORMAT. Mirrored by CLOUD_MODELLING_VOLUME_WIDTH and its two
-    /// siblings in Editor/Resources/Shaders/Common/CloudAuthored.glslh, which needs them as compile-time
+    /// siblings in Engine/Content/Shaders/Common/CloudAuthored.glslh, which needs them as compile-time
     /// numbers to pull a fetch in by half a texel; Desert/Tests/Engine/CloudAuthored asserts the two
     /// statements agree.
     ///

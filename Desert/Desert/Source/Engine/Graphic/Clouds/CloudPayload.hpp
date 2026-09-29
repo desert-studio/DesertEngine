@@ -20,7 +20,7 @@ namespace Desert::Graphic
     /**
      * The GPU side of VolumetricCloudData, and the ONLY place the component is turned into bytes.
      *
-     * The GLSL half of this layout is the block in Editor/Resources/Shaders/Common/CloudParams.glslh,
+     * The GLSL half of this layout is the block in Engine/Content/Shaders/Common/CloudParams.glslh,
      * member for member and in this order. The static_asserts below make a divergence a build error
      * instead of a frame in which every parameter after the inserted one is read from the wrong offset —
      * which does not look like a bug, it looks like the clouds being badly tuned.

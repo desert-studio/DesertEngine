@@ -30,7 +30,7 @@ namespace Desert::Editor
     // ── THE SHADER GRAPH OF ONE `.dgraph`: A DOCUMENT, AND U7-2's REFUSAL IS SPENT ────────────────────
     //
     // An interactive node canvas (imgui-node-editor) over ONE `ShaderGraphAsset` that COMPILES to a Desert
-    // Shader Language file. Compile writes Resources/Shaders/Programs/Graph/<Name>.shader and registers it
+    // Shader Language file. Compile writes Engine/Content/Shaders/Programs/Graph/<Name>.shader and registers it
     // with the ShaderService, so the shader immediately appears in the material shader picker; recompiles
     // of an already registered graph go through the normal shader hot-reload.
     //

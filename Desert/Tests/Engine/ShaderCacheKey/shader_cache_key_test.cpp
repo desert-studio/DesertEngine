@@ -67,7 +67,7 @@ using namespace Desert::Graphic::API::Vulkan;
 namespace
 {
     // The engine resolves `#include <...>` against Common::Constants::Path::SHADERDIR_PATH, which is
-    // relative ("Resources/Shaders/"). The editor runs with its own directory as the working one; the
+    // relative ("../Engine/Content/Shaders/"). The editor runs with its own directory as the working one; the
     // test does the same so the include walk resolves the same files the runtime would.
     struct ShaderRootFixture : ::testing::Test
     {
@@ -75,13 +75,12 @@ namespace
         {
             // The test binary lives in build/Bin/Tests/<config>; the shader root is Editor/Resources.
             std::filesystem::path here = std::filesystem::current_path();
-            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" );
-                  ++up )
+            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Engine" / "Content" / "Shaders" ); ++up )
                 here = here.parent_path();
 
             s_RepoRoot = here;
-            ASSERT_TRUE( std::filesystem::exists( s_RepoRoot / "Editor" / "Resources" / "Shaders" ) )
-                 << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
+            ASSERT_TRUE( std::filesystem::exists( s_RepoRoot / "Engine" / "Content" / "Shaders" ) )
+                 << "could not find Engine/Content/Shaders above " << std::filesystem::current_path();
 
             std::filesystem::current_path( s_RepoRoot / "Editor" );
         }
@@ -101,7 +100,7 @@ namespace
 
     std::filesystem::path ShaderPath( const char* relative )
     {
-        return std::filesystem::path( "Resources/Shaders/Programs" ) / relative;
+        return std::filesystem::path( "../Engine/Content/Shaders/Programs" ) / relative;
     }
 
     // The assembled GLSL of one stage, straight out of the engine's own DSL parser — the same string
@@ -284,7 +283,7 @@ namespace
     struct ScopedHeader
     {
         explicit ScopedHeader( std::string body )
-             : Path( std::filesystem::path( "Resources/Shaders/Common" ) / "CacheKeyTestScratch.glslh" )
+             : Path( std::filesystem::path( "../Engine/Content/Shaders/Common" ) / "CacheKeyTestScratch.glslh" )
         {
             Write( std::move( body ) );
         }
@@ -1089,7 +1088,7 @@ namespace
     // Is @p include one of the engine's SHARED SHADING TEXTS — the files whose whole purpose is that
     // every shader that shades a surface compiles the same one?
     //
-    // DERIVED, not typed. Everything under Resources/Shaders/Mesh is such a text by construction: that
+    // DERIVED, not typed. Everything under Engine/Content/Shaders/Mesh is such a text by construction: that
     // directory holds the ambient (AmbientIBL.glslh), the direct-light BRDF (DirectLighting.glslh), the
     // two punctual light models and the BRDF pieces they share, and nothing else has ever been put there.
     // Common/CloudShadowReceiver.glslh is named on top because it is the same kind of file and lives in
@@ -1223,7 +1222,7 @@ namespace
     std::vector<std::filesystem::path> ShadersWithAGeneratedMaterialRow()
     {
         std::vector<std::filesystem::path> out;
-        const auto                         root = std::filesystem::path( "Resources/Shaders/Programs" );
+        const auto                         root = std::filesystem::path( "../Engine/Content/Shaders/Programs" );
         if ( !std::filesystem::exists( root ) )
             return out;
 
@@ -1907,7 +1906,7 @@ namespace
     std::vector<std::filesystem::path> ShippedShaderFiles()
     {
         std::vector<std::filesystem::path> files;
-        const std::filesystem::path        root = "Resources/Shaders";
+        const std::filesystem::path        root = "../Engine/Content/Shaders";
         if ( std::filesystem::exists( root ) )
             for ( const auto& entry : std::filesystem::recursive_directory_iterator( root ) )
                 if ( entry.is_regular_file() && entry.path().extension() == ".shader" )
@@ -1921,11 +1920,11 @@ TEST_F( ShaderRootFixture, NoShippedShaderClaimsOneDescriptorSlotTwice )
 {
     const auto files = ShippedShaderFiles();
     ASSERT_GE( files.size(), 60u ) << "found " << files.size()
-                                   << " shipped shaders under Resources/Shaders — the walk found"
+                                   << " shipped shaders under Engine/Content/Shaders — the walk found"
                                       " nothing to examine, so a green result would mean nothing";
 
     // THERE IS NO EXCEPTION ANY MORE (Г20). This census used to skip one file —
-    // Resources/Shaders/Programs/Graph/MatBroken.shader, a shader deliberately kept broken — and skipping
+    // Engine/Content/Shaders/Programs/Graph/MatBroken.shader, a shader deliberately kept broken — and skipping
     // it was the smaller half of the cost: `AssetPreloader` compiles every `.shader` under this same root
     // at every editor start, so that fixture printed two errors into every clean log, for ever. An error
     // that is always present distinguishes nothing, and a genuinely broken shader was indistinguishable
@@ -2044,7 +2043,7 @@ TEST_F( ShaderRootFixture, NoShippedProgramDeclaresABindingInTheGraphsReservedWi
 {
     const auto files = ShippedShaderFiles();
     ASSERT_GE( files.size(), 60u ) << "found " << files.size()
-                                   << " shipped shaders under Resources/Shaders — the walk found nothing"
+                                   << " shipped shaders under Engine/Content/Shaders — the walk found nothing"
                                       " to examine, so a green result would mean nothing";
 
     // Reported on success as well as on failure: the distance between the two is the headroom the next
@@ -2452,7 +2451,7 @@ TEST_F( ShaderRootFixture, EveryShippedProgramsMetadataIsTheSameAfterTheShaderMa
     namespace PP    = Desert::Core::Preprocess;
     size_t programs = 0;
     for ( const auto& entry :
-          std::filesystem::recursive_directory_iterator( s_RepoRoot / "Editor" / "Resources" / "Shaders" ) )
+          std::filesystem::recursive_directory_iterator( s_RepoRoot / "Engine" / "Content" / "Shaders" ) )
     {
         if ( entry.path().extension() != ".shader" )
             continue;
@@ -2614,7 +2613,7 @@ TEST_F( ShaderRootFixture, EveryShippedShaderStageCompilesAndReflects )
     namespace Preprocess = Desert::Core::Preprocess;
     size_t      files = 0, stages = 0;
     std::string failures;
-    for ( const auto& entry : std::filesystem::recursive_directory_iterator( "Resources/Shaders" ) )
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( "../Engine/Content/Shaders" ) )
     {
         if ( entry.path().extension() != ".shader" )
             continue;
@@ -2651,7 +2650,7 @@ TEST_F( ShaderRootFixture, EveryShippedShaderStageCompilesAndReflects )
         }
     }
     std::cout << std::format( "[corpus] {} shader files, {} stages compiled and reflected\n", files, stages );
-    EXPECT_GT( files, 50u ) << "the corpus walk found almost nothing under Resources/Shaders";
+    EXPECT_GT( files, 50u ) << "the corpus walk found almost nothing under Engine/Content/Shaders";
     EXPECT_TRUE( failures.empty() ) << failures;
 }
 

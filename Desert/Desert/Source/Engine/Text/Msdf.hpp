@@ -102,6 +102,6 @@ namespace Desert::Text::Msdf
     void GenerateSDF( std::vector<float>& outR, int width, int height, const Shape& shape, double rangeTexels );
 
     // There is deliberately NO Median() here. The one definition of "what the three channels mean" is
-    // Editor/Resources/Shaders/Common/SdfText.glslh, which the shaders compile as GLSL and the tests
+    // Engine/Content/Shaders/Common/SdfText.glslh, which the shaders compile as GLSL and the tests
     // compile as C++ — a second copy in this header would be a copy the GPU never runs.
 } // namespace Desert::Text::Msdf

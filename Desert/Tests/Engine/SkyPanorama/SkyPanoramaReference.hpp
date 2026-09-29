@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Common/SkyPanorama.glslh and Common/SkyLook.glslh AS C++.
+// Compiles Engine/Content/Shaders/Common/SkyPanorama.glslh and Common/SkyLook.glslh AS C++.
 //
 // Not a port and not a paraphrase — the same text, the same files, that the two bake programs and every
 // reader of the environment cubes compile as GLSL. The arrangement is the house one for a shader-maths reference

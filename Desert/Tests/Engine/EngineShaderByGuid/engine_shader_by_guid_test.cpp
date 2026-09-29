@@ -1,6 +1,6 @@
 // RED-THEN-GREEN over every committed `.demat`: each one that names a shader must resolve it by GUID,
 // no matter which content root the shader sits under. MS1 fixes a defect where a shader rooted at
-// `engine:` (Editor/Resources/Shaders/...) never resolved, and the failure read back as an EMPTY name —
+// `engine:` (Engine/Content/Shaders/...) never resolved, and the failure read back as an EMPTY name —
 // `SurfaceMaterialAsset::ResolveShader` cleared `m_ShaderName` on the refusal and left it that way, so
 // the Material Editor and the thumbnail sweep both printed "shader '' is not registered/loaded" with no
 // GUID or path in sight. See MaterialEditorPanel::DrawnShaderName and ThumbnailSubject::PreviewRouteFor.
@@ -38,13 +38,13 @@ namespace
         // wherever the project file sits (build/Projects since BLD1), so it cannot name the tree.
         std::filesystem::path prefix = ".";
         for ( int up = 0; up < 6; ++up, prefix /= ".." )
-            if ( std::filesystem::exists( prefix / "Editor" / "Resources" / "Shaders" ) )
+            if ( std::filesystem::exists( prefix / "Engine" / "Content" / "Shaders" ) )
                 return std::filesystem::weakly_canonical( prefix / "Editor" );
         return {};
     }
 
     // Changes the process's working directory to `Editor/` for the lifetime of the guard and restores it
-    // after — `Common::Constants::Path::RESOURCE_PATH` ("Resources/") is a literal relative to the
+    // after — `Common::Constants::Path::ENGINE_CONTENT_PATH` ("Resources/") is a literal relative to the
     // working directory and is deliberately never remapped by a project (StartupLayout.hpp), so it is
     // the ONE thing a test that wants the real engine content has to set up itself.
     class WorkingDirectoryGuard
@@ -91,7 +91,7 @@ namespace
 TEST( EngineShaderByGuid, EveryCommittedMaterialResolvesItsShaderByGuid )
 {
     const std::filesystem::path editorDir = EditorDirectory();
-    ASSERT_TRUE( std::filesystem::exists( editorDir / "Resources" / "Shaders" ) )
+    ASSERT_TRUE( std::filesystem::exists( editorDir / "Engine" / "Content" / "Shaders" ) )
          << "expected the real engine content at '" << editorDir.string() << "'";
 
     const WorkingDirectoryGuard cwdGuard( editorDir );
@@ -102,7 +102,7 @@ TEST( EngineShaderByGuid, EveryCommittedMaterialResolvesItsShaderByGuid )
     Desert::Assets::AssetManager manager;
 
     // Every `.shader` under every content root (project AND engine — ContentKindSpec::Shader's root is
-    // SHADERDIR_PATH, "Resources/Shaders/") becomes a ShaderAsset, exactly as
+    // SHADERDIR_PATH, "../Engine/Content/Shaders/") becomes a ShaderAsset, exactly as
     // AssetPreloader::PreloadShaders does at boot, and strictly BEFORE any material is loaded — shaders
     // must exist first (AssetPreloader.cpp, EditorLayer.cpp's own comment says so).
     std::size_t shaderCount = 0;

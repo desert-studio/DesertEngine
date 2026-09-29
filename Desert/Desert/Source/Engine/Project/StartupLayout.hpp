@@ -10,8 +10,8 @@ namespace Desert::Project
     // ── WHAT A PROGRAM ALREADY KNOWS, IT MUST NOT ASK FOR ────────────────────────────────────────
     //
     // THE DEFECT, reported from a downloaded CI artifact (DesertEngine-Windows-Release, unzipped,
-    // Editor.exe double-clicked). The drop is COMPLETE — the binaries, `Resources/Shaders|Fonts|
-    // Icons` and `Desert.deproj` all sit in one directory (scripts/MacOS/Package.sh) — and the
+    // Editor.exe double-clicked). The drop is COMPLETE — the binaries, `Engine/Content/{Shaders,Fonts,
+    // Icons}` and `Desert.deproj` all sit in one directory (scripts/MacOS/Package.sh) — and the
     // editor still printed two demands:
     //
     //     [Engine] DESERT_ROOT is not set ... start the Editor through scripts/Windows/RunEditor.bat
@@ -94,7 +94,7 @@ namespace Desert::Project
     // an ancestor. A second place to look is a second rule, and two rules disagree eventually.
     [[nodiscard]] Common::ResultStr<std::string> ProjectBesideExecutable( const std::filesystem::path& directory );
 
-    // ── 3. WHERE `Resources/` IS ─────────────────────────────────────────────────────────────────
+    // ── 3. WHERE `Engine/Content/` IS ─────────────────────────────────────────────────────────────────
 
     struct ResourceRootLookup
     {
@@ -106,26 +106,26 @@ namespace Desert::Project
         // Visual Studio does whenever its per-user debugger settings are not the generated ones.
         // Its project then sits in that directory too.
         bool FromCheckout = false;
+        // Absolute: the directory holding Engine/Content (and, in a checkout, Editor/Content) — what the
+        // caller hands Common::Constants::Path::SetEngineRoot before anything reads a shader. Empty exactly
+        // when Explanation is not.
+        std::string EngineRoot;
         // Non-empty when NEITHER candidate holds the engine resources: names the tree and both
         // places that were looked at. The caller stops on this.
         std::string Explanation;
     };
 
-    // The engine resolves every engine resource as a path RELATIVE TO THE WORKING DIRECTORY —
-    // `Resources/Shaders/`, `Resources/Fonts/`, `Resources/Icons/` are literals in
-    // Common/Core/Constants.hpp and are never remapped by opening a project. So "where are the
-    // resources" is answered by naming a directory to work FROM.
+    // Where the engine content is, and which directory to work FROM. Engine content hangs off the ENGINE
+    // ROOT (Common/Core/Constants.hpp SetEngineRoot): a checkout's root, or a drop's own folder. The working
+    // directory still matters for what is spelled relative to it (a run script's `--project Desert.deproj`).
     //
-    // THE WORKING DIRECTORY WINS WHEN IT HAS THEM, and that ordering is what keeps every existing
-    // launch byte-identical: `scripts/*/RunEditor.*` change into `Editor/`, which holds
-    // `Resources/Shaders`, so this returns "" and nothing moves. The executable's own directory is
-    // the FALLBACK, and it is only ever taken in a situation that used to be a failure — a working
-    // directory with no engine resources under it could not render a frame. Nothing that worked
-    // before changes; something that could not start now can.
+    // THE WORKING DIRECTORY WINS WHEN IT HAS THEM — a checkout's Editor/ (every `scripts/*/RunEditor.*`)
+    // or a drop started from its own folder — and nothing moves. The executable's own directory, then the
+    // checkout it was built in, are taken only where the working directory could not render a frame.
     //
-    // `Resources/Shaders` rather than `Resources` is the marker on purpose: an empty `Resources`
-    // directory would satisfy the weaker test and then fail 43 shaders later, with a message about
-    // a shader rather than about a layout.
+    // The shader tree rather than Engine/Content is the marker on purpose: an empty directory would
+    // satisfy the weaker test and then fail 43 shaders later, with a message about a shader rather than
+    // about a layout.
     [[nodiscard]] ResourceRootLookup ResolveResourceRoot( const std::filesystem::path& workingDirectory,
                                                           const std::filesystem::path& executableDirectory );
 } // namespace Desert::Project

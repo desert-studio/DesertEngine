@@ -1,6 +1,6 @@
 # Gizmo icons — Phosphor Icons, duotone weight
 
-Ten SVGs under `Editor/Resources/Icons/Gizmo/`, taken from
+Ten SVGs under `Editor/Content/Icons/Gizmo/`, taken from
 [phosphor-icons/core](https://github.com/phosphor-icons/core), **MIT © Phosphor Icons**
 (full text beside this file).
 

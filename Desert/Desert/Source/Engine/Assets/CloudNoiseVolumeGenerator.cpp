@@ -13,7 +13,7 @@ namespace Desert::Assets
 {
     namespace
     {
-        // Editor/Resources/Shaders/Common/CloudNoise.glslh, COMPILED AS C++ — the same text, the same file,
+        // Engine/Content/Shaders/Common/CloudNoise.glslh, COMPILED AS C++ — the same text, the same file,
         // that Desert/Tests/Engine/CloudNoise drives. This is the SECOND engine translation unit to use the
         // arrangement Graphic::SkyGroundTransmittance established, and for a stronger reason than the
         // first: since the volume became an asset there is no GPU evaluation of these functions at all, so

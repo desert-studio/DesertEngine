@@ -9,7 +9,7 @@ project(test_name)
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- One unit under test, GPU-free:
-    --   * Editor/Resources/Shaders/Common/CloudField.glslh — the vertical profile, the coverage mapping
+    --   * Engine/Content/Shaders/Common/CloudField.glslh — the vertical profile, the coverage mapping
     --     and the depth-weighted erosion — compiled AS C++ through CloudFieldReference.hpp, fed by the
     --     same noise functions Programs/Clouds/CloudNoiseBake.shader bakes into the volume the march
     --     samples. That is why the SHADER ROOT is on the include path: the test drives the exact text the
@@ -35,7 +35,7 @@ project(test_name)
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Engine/Content/Shaders",
     }
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- the type's file format is rfl::json

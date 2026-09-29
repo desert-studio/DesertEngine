@@ -41,7 +41,7 @@ project "Desert"
         -- and the transmittance LUT's texels come from one text (the arrangement the test references
         -- established). Nothing else in the engine may include a `.glslh` — the rest of the shader
         -- contract travels as payload structs with static_asserted offsets.
-        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Engine/Content/Shaders",
     }
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/pl_mpeg/include",

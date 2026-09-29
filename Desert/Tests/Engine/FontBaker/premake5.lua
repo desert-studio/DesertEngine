@@ -21,7 +21,7 @@ project(test_name)
         -- The shader root, because SdfTextReference.hpp compiles Common/SdfText.glslh AS C++: the
         -- median and the screen-space ramp under test are the text the fragment shaders run, not a
         -- second copy of them that could agree with itself while the GPU does something else.
-        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Engine/Content/Shaders",
     }
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/include",      -- <stb_truetype/stb_truetype.h>

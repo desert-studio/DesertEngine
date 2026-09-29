@@ -69,7 +69,7 @@ namespace
     std::filesystem::path ShaderFileFor( const char* shaderName )
     {
         const std::string           name( shaderName );
-        const std::filesystem::path programs( "Resources/Shaders/Programs" );
+        const std::filesystem::path programs( "../Engine/Content/Shaders/Programs" );
         for ( const char* dir : { "PBR", "Shadow", "Silhouette" } )
         {
             const auto candidate = programs / dir / ( name + ".shader" );
@@ -209,12 +209,11 @@ namespace
         static void SetUpTestSuite()
         {
             std::filesystem::path here = std::filesystem::current_path();
-            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" );
-                  ++up )
+            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Engine" / "Content" / "Shaders" ); ++up )
                 here = here.parent_path();
 
-            ASSERT_TRUE( std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" ) )
-                 << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
+            ASSERT_TRUE( std::filesystem::exists( here / "Engine" / "Content" / "Shaders" ) )
+                 << "could not find Engine/Content/Shaders above " << std::filesystem::current_path();
 
             std::filesystem::current_path( here / "Editor" );
         }

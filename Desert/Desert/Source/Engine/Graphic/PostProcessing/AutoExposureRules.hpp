@@ -44,7 +44,7 @@ namespace Desert::Graphic
     };
 
     // The luminance ceiling the procedural sky clamps its output to — mirrored from
-    // Editor/Resources/Shaders/Programs/ProceduralSky/ProceduralSky.shader's kSkyLuminanceClamp. The
+    // Engine/Content/Shaders/Programs/ProceduralSky/ProceduralSky.shader's kSkyLuminanceClamp. The
     // mirror is the point: the test that pins it fails the moment either side moves alone.
     inline constexpr float kSkyLuminanceClamp = 1000.0f;
 

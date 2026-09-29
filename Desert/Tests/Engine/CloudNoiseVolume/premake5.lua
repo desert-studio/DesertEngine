@@ -11,7 +11,7 @@ project(test_name)
     -- Two units under test, and the point of the suite is the RELATION between them:
     --   * Engine/Assets/CloudNoiseVolume.cpp — the .dcnv container: encode, decode, and every refusal;
     --   * Engine/Assets/CloudNoiseVolumeGenerator.cpp — the offline bake, which itself compiles
-    --     Editor/Resources/Shaders/Common/CloudNoise.glslh AS C++.
+    --     Engine/Content/Shaders/Common/CloudNoise.glslh AS C++.
     -- The test compiles that same .glslh a second time (through CloudNoiseVolumeReference.hpp) so it can
     -- ask "what should voxel (x,y,z) hold" and compare it against what the generator actually wrote. That
     -- is why the SHADER ROOT is on the include path.
@@ -28,7 +28,7 @@ project(test_name)
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Engine/Content/Shaders",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

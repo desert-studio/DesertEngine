@@ -326,7 +326,7 @@ TEST( FrustumCulling, NoSurfaceShaderMovesAVertexOffItsAuthoredBounds )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const fs::path shaderRoot = root / "Editor" / "Resources" / "Shaders";
+    const fs::path shaderRoot = root / "Engine" / "Content" / "Shaders";
     ASSERT_TRUE( fs::exists( shaderRoot ) );
 
     // Whitespace removed, so the assertion is about the EXPRESSION and not about formatting — a

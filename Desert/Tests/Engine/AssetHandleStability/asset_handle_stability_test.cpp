@@ -696,7 +696,8 @@ TEST( AssetHandleStability, EveryRootsKeyExpandsBackToThePathItCameFrom )
 
     // Engine resources come back too, and they must not follow the project: the same key under a
     // different project has to expand to the same file.
-    const std::string shaderKey = Common::AssetHandle::StableKeyForPath( "Resources/Shaders/Programs/PBR.shader" );
+    const std::string shaderKey =
+         Common::AssetHandle::StableKeyForPath( "../Engine/Content/Shaders/Programs/PBR.shader" );
     EXPECT_EQ( shaderKey, "engine:Shaders/Programs/PBR.shader" );
     const std::filesystem::path underOneProject = Common::AssetHandle::PathForStableKey( shaderKey );
     Common::Constants::Path::SetProjectRoot( "/opt/ci/checkout/Other", "Assets" );
@@ -750,7 +751,7 @@ TEST( AssetHandleStability, TwoRootsThatShareAPrefixDoNotSwapKeysOnExpansion )
     // The companion: an inverse that ignored the tag and joined everything to one root would satisfy the
     // round trip for whichever root it picked and quietly move every other asset. Under the DEFAULT
     // sandbox this is not hypothetical — ASSETS_PATH (`Resources/Assets/`) is nested inside
-    // RESOURCE_PATH (`Resources/`), and the two tags must still land in different places.
+    // ENGINE_CONTENT_PATH (`Resources/`), and the two tags must still land in different places.
     ProjectRootGuard guard;
     Common::Constants::Path::ResetToSandbox();
 
@@ -796,32 +797,32 @@ TEST( AssetHandleStability, TheEngineTwinOfAnAssetIsNotTheSameAsset )
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
 
     EXPECT_NE( HandleValue( "/ann/work/Game/Content/Textures/T.tex" ),
-               HandleValue( Common::Constants::Path::RESOURCE_PATH / "Textures/T.tex" ) )
+               HandleValue( Common::Constants::Path::ENGINE_CONTENT_PATH / "Textures/T.tex" ) )
          << "a project asset and an engine resource at mirrored offsets collided onto one handle";
 }
 
 TEST( AssetHandleStability, EngineResourcesAreKeyedOnTheirOwnRootAndDoNotMoveWithTheProject )
 {
-    // Shaders live under RESOURCE_PATH, which is const and is never remapped, so their identity must not
+    // Shaders live under ENGINE_CONTENT_PATH, which is const and is never remapped, so their identity must not
     // change when a project is opened or swapped. This is the one asset family whose handle was already
     // portable before this change, and it has to stay that way.
     ProjectRootGuard guard;
 
-    const uint64_t beforeAnyProject = HandleValue( "Resources/Shaders/Programs/PBR.shader" );
-    EXPECT_EQ( Common::AssetHandle::StableKeyForPath( "Resources/Shaders/Programs/PBR.shader" ),
+    const uint64_t beforeAnyProject = HandleValue( "../Engine/Content/Shaders/Programs/PBR.shader" );
+    EXPECT_EQ( Common::AssetHandle::StableKeyForPath( "../Engine/Content/Shaders/Programs/PBR.shader" ),
                "engine:Shaders/Programs/PBR.shader" );
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
-    EXPECT_EQ( HandleValue( "Resources/Shaders/Programs/PBR.shader" ), beforeAnyProject )
+    EXPECT_EQ( HandleValue( "../Engine/Content/Shaders/Programs/PBR.shader" ), beforeAnyProject )
          << "opening a project moved the shaders, which are not project content";
 
     Common::Constants::Path::SetProjectRoot( "/opt/ci/checkout/Other", "Assets" );
-    EXPECT_EQ( HandleValue( "Resources/Shaders/Programs/PBR.shader" ), beforeAnyProject );
+    EXPECT_EQ( HandleValue( "../Engine/Content/Shaders/Programs/PBR.shader" ), beforeAnyProject );
 }
 
 TEST( AssetHandleStability, TheDefaultSandboxNestsAssetsInsideResourcesAndAssetsStillWins )
 {
-    // With no project open ASSETS_PATH is `Resources/Assets/` -- INSIDE RESOURCE_PATH (`Resources/`).
+    // With no project open ASSETS_PATH is `Resources/Assets/` -- INSIDE ENGINE_CONTENT_PATH (`Resources/`).
     // Both roots contain the file, so the answer must not depend on which one the code happens to test
     // first. Longest match is what makes that true, and this is the case that proves it.
     ProjectRootGuard guard;
@@ -1808,16 +1809,16 @@ TEST( ShaderAssetIdentity, EveryCommittedGraphShaderKeepsItsGuidOnRecompile )
     std::filesystem::path graphShaders;
     for ( auto at = std::filesystem::current_path(); !at.empty(); at = at.parent_path() )
     {
-        if ( std::filesystem::is_directory( at / "Editor/Resources/Shaders/Programs/Graph" ) )
+        if ( std::filesystem::is_directory( at / "Engine/Content/Shaders/Programs/Graph" ) )
         {
-            graphShaders = at / "Editor/Resources/Shaders/Programs/Graph";
+            graphShaders = at / "Engine/Content/Shaders/Programs/Graph";
             break;
         }
         if ( at == at.parent_path() )
             break;
     }
     ASSERT_FALSE( graphShaders.empty() )
-         << "no Editor/Resources/Shaders/Programs/Graph above " << std::filesystem::current_path();
+         << "no Engine/Content/Shaders/Programs/Graph above " << std::filesystem::current_path();
     int seen = 0;
     for ( const auto& entry : std::filesystem::directory_iterator( graphShaders ) )
     {

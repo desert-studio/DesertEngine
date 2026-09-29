@@ -62,19 +62,18 @@ using namespace Desert::Graphic::API::Vulkan;
 namespace
 {
     // The engine resolves `#include <...>` against Common::Constants::Path::SHADERDIR_PATH, which is
-    // relative ("Resources/Shaders/"). The editor runs with its own directory as the working one; the
+    // relative ("../Engine/Content/Shaders/"). The editor runs with its own directory as the working one; the
     // test does the same so the include walk resolves the same files the runtime would.
     struct ShaderRootFixture : ::testing::Test
     {
         static void SetUpTestSuite()
         {
             std::filesystem::path here = std::filesystem::current_path();
-            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" );
-                  ++up )
+            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Engine" / "Content" / "Shaders" ); ++up )
                 here = here.parent_path();
 
-            ASSERT_TRUE( std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" ) )
-                 << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
+            ASSERT_TRUE( std::filesystem::exists( here / "Engine" / "Content" / "Shaders" ) )
+                 << "could not find Engine/Content/Shaders above " << std::filesystem::current_path();
 
             std::filesystem::current_path( here / "Editor" );
         }
@@ -90,7 +89,7 @@ namespace
 
     std::filesystem::path ShaderPath( const char* relative )
     {
-        return std::filesystem::path( "Resources/Shaders/Programs" ) / relative;
+        return std::filesystem::path( "../Engine/Content/Shaders/Programs" ) / relative;
     }
 
     // The assembled GLSL of one stage, straight out of the engine's own DSL parser.
@@ -420,7 +419,8 @@ namespace
     std::vector<std::filesystem::path> ShadersCompiling( const char* header )
     {
         std::vector<std::filesystem::path> consumers;
-        for ( const auto& entry : std::filesystem::recursive_directory_iterator( "Resources/Shaders/Programs" ) )
+        for ( const auto& entry :
+              std::filesystem::recursive_directory_iterator( "../Engine/Content/Shaders/Programs" ) )
         {
             if ( !entry.is_regular_file() || entry.path().extension() != ".shader" )
                 continue;

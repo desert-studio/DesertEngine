@@ -110,7 +110,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // ── WHERE THIS PROCESS IS, AND WHAT THAT ANSWERS ────────────────────────────────────────────────
     //
     // A DOWNLOADED BUILD MUST START BY BEING DOUBLE-CLICKED. It did not: the CI artifact is COMPLETE
-    // — binaries, `Resources/{Shaders,Fonts,Icons}` and `Desert.deproj` in one directory — and the
+    // — binaries, `Engine/Content/{Shaders,Fonts,Icons}` and `Desert.deproj` in one directory — and the
     // editor still demanded `DESERT_ROOT` (naming a run script that is not in the drop) and
     // `--project` (for a descriptor lying beside the executable). Both demands were for facts
     // derivable from the one thing every process has for free: its own image path.
@@ -123,8 +123,8 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
 
     bool startedInCheckout = false;
 
-    // 1. THE ENGINE RESOURCES, BEFORE ANYTHING READS ONE. Every engine resource is a path relative
-    //    to the WORKING DIRECTORY (Common::Constants::Path), so this either leaves the working
+    // 1. THE ENGINE CONTENT, BEFORE ANYTHING READS ONE. Every engine content path hangs off the engine
+    //    root (Common::Constants::Path::SetEngineRoot), named here explicitly; this either leaves the working
     //    directory alone — which is what every `scripts/*/RunEditor.*` launch gets, because it has
     //    already changed into `Editor/` — or moves to the executable's own folder, which is the drop.
     {
@@ -139,6 +139,8 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
             Desert::Editor::RefuseToStart( 1, "[Engine] " + resources.Explanation );
         }
         startedInCheckout = resources.FromCheckout;
+        // THE ONE PLACE this process names its engine root; every shader, font and icon path hangs off it.
+        Common::Constants::Path::SetEngineRoot( resources.EngineRoot );
         if ( !resources.WorkingDirectory.empty() )
         {
             // Absolute FIRST. The caller's `--project` (and anything else spelled relatively) was

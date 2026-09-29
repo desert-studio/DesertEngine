@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Common/CloudAerial.glslh AS C++ — the cloud half of the aerial
+// Compiles Engine/Content/Shaders/Common/CloudAerial.glslh AS C++ — the cloud half of the aerial
 // perspective, the same text Programs/Clouds/CloudRaymarch.shader and Programs/Compute/
 // BakeProceduralSky.shader compile as GLSL.
 //
