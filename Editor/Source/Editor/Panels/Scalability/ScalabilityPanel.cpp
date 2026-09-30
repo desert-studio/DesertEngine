@@ -28,59 +28,40 @@ namespace Desert::Editor
     {
         if ( Utils::ImGuiUtilities::SectionHeader( "Anti-Aliasing" ) )
         {
-            // TWO CONTROLS OVER ONE OWNER, AND THAT IS WHAT К3 CHANGED HERE.
-            //
-            // This started as ONE combo with four entries — None / FXAA / SMAA / MSAA — over two pieces of
-            // state with different owners: SceneSettings::AA travelled with the level, MSAASamples was
-            // this machine's. Picking MSAA wrote BOTH (`s.AA = None` and `prefs.MSAASamples = 4`), which
-            // §4.2 forbids: one user action, one value, two places to store it. К2 split it into two
-            // controls labelled "(scene)" and "(this machine)", which stopped the cross-write and left the
-            // real problem standing — half of one question stored in a file that travels to everybody, so
-            // a machine that could not afford SMAA had to commit a change to fix it.
-            //
-            // Both halves are the machine's now, in one file that BOTH the editor and the packaged game
-            // read. They are still two controls because they are still two things: MSAA resolves geometry
-            // edges inside the pipeline and post AA filters the resolved image, so both can be on.
+            // ONE METHOD (AA1, UE's r.AntiAliasingMethod + r.MSAACount): None / FXAA / SMAA / MSAA are
+            // alternatives, and the sample count is a second control shown only under MSAA — a count that
+            // moves nothing in the current method would be a dead setting. Every change applies on the next
+            // frame: SceneRenderer recreates its target at the new count, so there is no restart note.
             auto&     quality = Common::Settings::MachineSettings::Get();
             const int maxMsaa = Graphic::RenderConfig::MaxMSAASamples.load();
 
-            const char* modes[] = { "None", "FXAA", "SMAA" };
-            int         current = static_cast<int>( quality.AA );
-            if ( ImGui::Combo( "Post AA (this machine)", &current, modes, IM_ARRAYSIZE( modes ) ) )
+            const char* methods[] = { "None", "FXAA", "SMAA", "MSAA" };
+            int         current   = static_cast<int>( quality.AAMethod );
+            if ( ImGui::Combo( "Anti-Aliasing Method", &current, methods, IM_ARRAYSIZE( methods ) ) )
             {
-                quality.AA = static_cast<Common::Settings::AntiAliasingMode>( current );
+                quality.AAMethod = static_cast<Common::Settings::AntiAliasingMethod>( current );
                 Common::Settings::MachineSettings::Save();
             }
-            Utils::ImGuiUtilities::Tooltip(
-                 "A post-process pass on the finished image; applies immediately. Belongs to this "
-                 "machine, not to the scene — TAA/DLSS need motion vectors (deferred)." );
+            Utils::ImGuiUtilities::Tooltip( "FXAA and SMAA filter the finished image; MSAA renders the scene at "
+                                            "several samples per pixel. Applies on the next frame." );
 
-            const char* msaaLevels[] = { "Off", "2x", "4x", "8x" };
-            const int   msaaValues[] = { 1, 2, 4, 8 };
-            int         msaaIdx      = 0;
-            for ( int v = 0; v < IM_ARRAYSIZE( msaaValues ); ++v )
-                if ( msaaValues[v] == quality.MSAASamples )
-                    msaaIdx = v;
-            if ( ImGui::Combo( "MSAA (this machine)", &msaaIdx, msaaLevels, IM_ARRAYSIZE( msaaLevels ) ) )
+            if ( quality.AAMethod == Common::Settings::AntiAliasingMethod::MSAA )
             {
-                quality.MSAASamples = std::min( msaaValues[msaaIdx], maxMsaa );
-                Common::Settings::MachineSettings::Save();
+                const char* levels[] = { "2x", "4x", "8x" };
+                const int   values[] = { 2, 4, 8 };
+                int         count    = 0; // the entries this device can run
+                int         selected = 0;
+                for ( int i = 0; i < IM_ARRAYSIZE( values ) && values[i] <= maxMsaa; ++i, ++count )
+                    if ( values[i] == quality.MSAASamples )
+                        selected = i;
+                if ( count == 0 )
+                    ImGui::TextDisabled( "This device has no multisampling (max %dx).", maxMsaa );
+                else if ( ImGui::Combo( "Samples", &selected, levels, count ) )
+                {
+                    quality.MSAASamples = values[selected];
+                    Common::Settings::MachineSettings::Save();
+                }
             }
-            Utils::ImGuiUtilities::Tooltip(
-                 "Hardware multisampling. The pipelines bake their sample count at startup, so it costs a "
-                 "restart and belongs to the machine that pays for it." );
-            ImGui::TextDisabled( "Device max: %dx. Both may be on — MSAA resolves edges, post AA filters\n"
-                                 "the resolved image.",
-                                 maxMsaa );
-
-            // MSAA bakes into the pipelines at startup — flag any pending change loudly.
-            const int active = Graphic::RenderConfig::MSAASamplesActive.load();
-            if ( quality.MSAASamples != active )
-                ImGui::TextColored( ImVec4( 1.0f, 0.75f, 0.2f, 1.0f ),
-                                    "Restart the editor to apply MSAA (now: %s, selected: %s).",
-                                    active > 1 ? std::format( "{}x", active ).c_str() : "off",
-                                    quality.MSAASamples > 1 ? std::format( "{}x", quality.MSAASamples ).c_str()
-                                                            : "off" );
         }
 
         if ( Utils::ImGuiUtilities::SectionHeader( "Textures" ) )

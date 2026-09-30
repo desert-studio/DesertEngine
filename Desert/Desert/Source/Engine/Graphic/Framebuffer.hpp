@@ -110,6 +110,10 @@ namespace Desert::Graphic
         // VulkanFramebuffer::Resize.
         virtual Common::BoolResultStr Resize( uint32_t width, uint32_t height ) = 0;
 
+        // The sample count of every attachment (MSAA). Recreates the attachments exactly as Resize does; the
+        // caller has let the frames in flight finish, as it does for Resize. Same count: nothing happens.
+        virtual Common::BoolResultStr SetSamples( uint32_t samples ) = 0;
+
         virtual uint32_t GetFramebufferWidth() const  = 0;
         virtual uint32_t GetFramebufferHeight() const = 0;
 

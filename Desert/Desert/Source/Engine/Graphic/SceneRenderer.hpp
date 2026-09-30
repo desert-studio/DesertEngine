@@ -552,6 +552,11 @@ namespace Desert::Graphic
         void AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameDepthResolve( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures );
+
+        // The scene sample count the device can run for `requested` (the method's effective count).
+        static uint32_t SupportedSceneSamples( int requested );
+        // Recreates the scene target at `samples` when it differs (an anti-aliasing change), next frame.
+        void ApplySceneSampleCount( uint32_t samples );
         void AddFrameSSAO( RDG::Builder& graph, FrameTextures& textures,
                            const std::vector<RDG::TextureRef>& gbuffer, const glm::mat4& viewProj,
                            const glm::vec4& cameraPos, const std::shared_ptr<FrameValues>& values,
@@ -613,7 +618,7 @@ namespace Desert::Graphic
         ShaderProtocols::SpotLight      m_SpotLight;
 
         // Selected post-process anti-aliasing technique, taken from m_Quality each BeginScene.
-        Common::Settings::AntiAliasingMode m_AAMode       = Common::Settings::AntiAliasingMode::FXAA;
+        Common::Settings::AntiAliasingMethod m_AAMode       = Common::Settings::AntiAliasingMethod::FXAA;
         bool                               m_BloomEnabled = false;
 
         // Lens flare, refreshed from SceneSettings each BeginScene. The tint is held apart from the rest

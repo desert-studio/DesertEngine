@@ -151,6 +151,11 @@ namespace Desert::Graphic::API::Vulkan
         // The in-graph writer above, bound as the backend's RecordingListener.
         void SetGraphRecordingTarget( VkCommandBuffer commandBuffer );
 
+        // The compatibility key of the render pass this API opened on m_CurrentCommandBuffer (BeginRenderPass /
+        // BeginSwapChainRenderPass), empty between passes. BindGraphicsPipeline resolves the pipeline against it,
+        // or against the graph backend's open pass when the draw is recorded inside one.
+        std::optional<RdgRenderPassKey> m_OpenRenderPass;
+
         /// Debug names already reported by BindGraphicsPipeline. Written only from the render thread's
         /// recording path, which is the only caller of every submit entry point above.
         std::unordered_set<std::string> m_WarnedUnbuiltPipelines;

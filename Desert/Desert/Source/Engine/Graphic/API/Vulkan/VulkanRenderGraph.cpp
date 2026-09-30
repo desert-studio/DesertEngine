@@ -262,6 +262,15 @@ namespace Desert::Graphic::API::Vulkan
         return key;
     }
 
+    RdgRenderPassKey RdgCompatibilityKey( const RdgRenderPassKey& key )
+    {
+        std::vector<VkFormat> colourFormats;
+        for ( const RdgAttachmentKey& colour : key.Colours )
+            colourFormats.push_back( colour.Format );
+        return RdgCompatibleRenderPassKey( colourFormats, key.Depth ? key.Depth->Format : VK_FORMAT_UNDEFINED,
+                                           key.Depth && key.HasStencil, std::max( 1u, key.Samples ) );
+    }
+
     Common::ResultStr<VkRenderPass> CreateRdgRenderPass( VkDevice device, const RdgRenderPassKey& key )
     {
         const VkSampleCountFlagBits samples = static_cast<VkSampleCountFlagBits>( std::max( 1u, key.Samples ) );
@@ -1310,7 +1319,7 @@ namespace Desert::Graphic::API::Vulkan
         begin.clearValueCount = static_cast<uint32_t>( clears.size() );
         begin.pClearValues    = clears.data();
         vkCmdBeginRenderPass( m_CommandBuffer, &begin, VK_SUBPASS_CONTENTS_INLINE );
-        m_RenderPassOpen = true;
+        m_OpenRenderPass = RdgCompatibilityKey( key );
 
         // The whole target: what nearly every pass wants, set once here instead of in every exec lambda. The
         // engine's convention (VulkanRendererAPI::SetViewportAndScissor): negative height, so +Y is up and the
@@ -1330,7 +1339,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanRdgBackend::EndRenderPass()
     {
         vkCmdEndRenderPass( m_CommandBuffer );
-        m_RenderPassOpen = false;
+        m_OpenRenderPass.reset();
     }
 
     Common::BoolResultStr VulkanRdgBackend::EndGraph( std::span<const RDG::Barrier> finalBarriers )
@@ -1343,7 +1352,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRdgBackend::AbandonGraph()
     {
-        if ( m_RenderPassOpen )
+        if ( m_OpenRenderPass )
             EndRenderPass();
         while ( !m_ProfilerScopes.empty() )
             EndPass( RDG::CompiledPass{} );
@@ -1378,7 +1387,7 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanRdgBackend::EndPipeSegment( const RDG::PipeSegment& segment )
     {
-        if ( m_RenderPassOpen )
+        if ( m_OpenRenderPass )
             return Common::MakeError( "a render pass is open across a segment boundary" );
         Common::ResultStr<VkCommandBuffer> next = m_Segments.EndSegment( segment, *m_Queues );
         SetRecording( next ? next.GetValue() : VK_NULL_HANDLE );

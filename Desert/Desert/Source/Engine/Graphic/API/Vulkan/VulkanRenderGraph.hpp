@@ -86,6 +86,9 @@ namespace Desert::Graphic::API::Vulkan
     // against it draws inside every render pass the backend builds for the same formats.
     RdgRenderPassKey RdgCompatibleRenderPassKey( const std::vector<VkFormat>& colourFormats, VkFormat depthFormat,
                                                  bool depthHasStencil, uint32_t samples );
+    // The render-pass-compatibility class of a pass (Vulkan: formats and sample counts; load/store, layouts and,
+    // for a single subpass, resolve attachments do not count). A graphics pipeline's variant is cached under it.
+    RdgRenderPassKey RdgCompatibilityKey( const RdgRenderPassKey& key );
     // THE render pass builder: the backend's cached passes and the pipelines' canonical passes come from it.
     Common::ResultStr<VkRenderPass> CreateRdgRenderPass( VkDevice device, const RdgRenderPassKey& key );
 
@@ -377,6 +380,14 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr EndGraph( std::span<const RDG::Barrier> finalBarriers ) override;
         void                  AbandonGraph() override;
 
+        // The compatibility key of the render pass this backend has open on its command buffer, empty between
+        // passes. Pipelines bound by an exec lambda are resolved against it
+        // (VulkanRendererAPI::BindGraphicsPipeline).
+        const std::optional<RdgRenderPassKey>& GetOpenRenderPass() const
+        {
+            return m_OpenRenderPass;
+        }
+
         std::shared_ptr<RDG::IPhysicalTexture> GetPhysicalTexture( uint32_t resource ) const override;
         std::shared_ptr<RDG::IPhysicalBuffer>  GetPhysicalBuffer( uint32_t resource ) const override;
 
@@ -440,7 +451,7 @@ namespace Desert::Graphic::API::Vulkan
 #if DESERT_DEV_INSTRUMENTS
         std::vector<std::unique_ptr<Common::Profiling::ScopedTimer>> m_CpuScopes; // CPU row of the same pass
 #endif
-        bool                                     m_RenderPassOpen = false;
+        std::optional<RdgRenderPassKey>          m_OpenRenderPass;
         std::map<RdgRenderPassKey, VkRenderPass> m_RenderPasses;
         std::vector<FramebufferEntry>            m_Framebuffers;
     };

@@ -19,6 +19,11 @@ namespace Desert::Graphic::API::Vulkan
     class VulkanSwapChain final : public SwapChain
     {
     public:
+        VkSampleCountFlagBits GetMSAASamples() const
+        {
+            return m_MSAASamples;
+        }
+
         VulkanSwapChain( const GLFWwindow* window );
         ~VulkanSwapChain() override;
 

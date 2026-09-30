@@ -48,15 +48,17 @@ namespace Common::Settings
     // back. Desert/Tests/Engine/ConfigOwnership asserts the relation directly: turning the machine down
     // does not change a byte of any scene file.
 
-    // Post-process anti-aliasing. Deliberately no MSAA entry: MSAA is the sample count of the
-    // framebuffer (MSAASamples below), it resolves geometry edges inside the pipeline, and the post
-    // filters the resolved image. Both can be on at once — they are not alternatives, and the combo that
-    // pretended they were is what made one user action write two different stores.
-    enum class AntiAliasingMode : int
+    // THE anti-aliasing method — one choice, mutually exclusive (UE's r.AntiAliasingMethod). MSAA is a
+    // method like the others: its sample count is MachineSettings::MSAASamples (UE's r.MSAACount) and is
+    // meaningful only under MSAA; every other method renders one sample. So "MSAA 4x plus SMAA" cannot be
+    // expressed, and every value applies on the next frame (SceneRenderer recreates its framebuffers when the
+    // effective sample count changes).
+    enum class AntiAliasingMethod : int
     {
         None = 0,
         FXAA,
         SMAA,
+        MSAA,
     };
 
     // Global texture sampler filter. Live: SceneRenderer pushes it into Graphic::RenderConfig and the
@@ -92,22 +94,12 @@ namespace Common::Settings
 
     struct MachineSettings
     {
-        // MSAA sample count for the scene's composite framebuffer (1 = off, 2/4/8). Read ONCE, at
-        // SceneRenderer::Init, because the pipelines bake their sample count — so a change applies at the
-        // next start and the editor says so. Clamped there to the device's own ceiling
-        // (Graphic::RenderConfig::MaxMSAASamples).
-        //
-        // IT CAME FROM editor.json, AND THAT MOVE IS HALF OF WHY THIS FILE EXISTS. It was per-machine and
-        // correctly so, but it was per-machine in a file only the EDITOR opens: the packaged game ran
-        // MSAA nailed to 1 with no reader and no dial. ConfigOwnership recorded that consequence against
-        // К3 from the other direction, and it is the same consequence as the five fields that came out of
-        // the level file. Its key is retired from editor.json by name
-        // (Editor::EditorPreferences::MigrateLoaded).
-        int MSAASamples = 1;
+        // The anti-aliasing method. Applies on the next frame, no restart.
+        AntiAliasingMethod AAMethod = AntiAliasingMethod::FXAA;
 
-        // Post-process AA. Was Core::SceneSettings::AA, so it travelled with the level: a machine that
-        // could not afford SMAA had to edit a file that goes to everybody.
-        AntiAliasingMode AA = AntiAliasingMode::FXAA;
+        // MSAA sample count (2/4/8) — read ONLY when AAMethod is MSAA; see EffectiveMSAASamples. Clamped to
+        // the device's ceiling (Graphic::RenderConfig::MaxMSAASamples) by the renderer that applies it.
+        int MSAASamples = 4;
 
         // Distance-based mesh level of detail. LOD0 (near) is byte-identical geometry, so off vs on only
         // changes what is drawn far from the camera — fidelity, not authoring.
@@ -138,8 +130,8 @@ namespace Common::Settings
         // lesson a second time.
         //
         // It is not a compatibility shim and it does not keep legacy alive (contract §4). A key this
-        // project DELETES on purpose is retired by name, not left unknown — nothing has been retired
-        // from this file yet, because it is new.
+        // project DELETES on purpose is retired by name, not left unknown: `AA` (post AA before the one
+        // AAMethod), see MigrateRetiredKeys.
         Json::CarriedKeys UnknownKeys;
 
         // THE LIVE STATE. Everything that consumes one of these reads it from here; nothing keeps a copy
@@ -152,8 +144,6 @@ namespace Common::Settings
         // machine has never chosen anything, so the defaults above stand and nothing is written; a file
         // that exists and cannot be read or parsed is reported and the defaults stand.
         //
-        // Called once per process, before any SceneRenderer is constructed — MSAASamples is baked at
-        // Init and a late load would apply one start behind.
         static void Load( const std::filesystem::path& file );
 
         // The path Load() was given, or an empty path when this process never called it.
@@ -167,6 +157,23 @@ namespace Common::Settings
         // owns are picked up (see UnknownKeys). Refuses, loudly, when Load() was never called — a store
         // with no path is not a store, and guessing one would be the silent fallback §1.4 forbids.
         static bool Save();
+
+        // The sample count the scene framebuffers must have for this method: MSAASamples under MSAA, 1
+        // under every other method. Not clamped to the device — the renderer does that.
+        int EffectiveMSAASamples() const;
+
+        // The post-process AA pass this method runs after tonemapping (None for None and MSAA).
+        AntiAliasingMethod PostProcessAA() const;
+
+        // THE MIGRATION OF THE RETIRED SCHEMA, applied by Load() and by the re-read before every Save().
+        // The old file stored two independent keys, `AA` (None/FXAA/SMAA post filter) and `MSAASamples`
+        // (1 = off). `rawJson` is the text `settings` was read from. When it holds the retired `AA` key:
+        //   * AAMethod present too (an older build re-saved a new file) -> AAMethod wins;
+        //   * otherwise MSAASamples > 1 -> Method MSAA with that count (the post filter is dropped), else
+        //     Method = AA and MSAASamples = 4 (the default count for when MSAA is picked later).
+        // `AA` is removed from UnknownKeys either way, so the next save writes only the new keys. Returns
+        // whether the retired key was found.
+        static bool MigrateRetiredKeys( MachineSettings& settings, std::string_view rawJson );
     };
     DESERT_JSON_STRUCT( MachineSettings, "MachineSettings", 1 )
     DESERT_JSON_LENIENT( MachineSettings,
