@@ -241,7 +241,7 @@ namespace Desert::Editor
         auto ext = path.extension().string();
         std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
         if ( !m_Importers.contains( ext ) )
-            return { CookVerdict::NotCookable, {} };
+            return { CookVerdict::NotCookable, {}, {}, {} };
         return ImportParsed( path, settings );
     }
 
@@ -267,7 +267,7 @@ namespace Desert::Editor
         // JobSystem workers) and drag-and-drop. Widening it into a result would oblige every one of
         // those to grow an answer nobody is waiting for. What Д31-D asked for is that a cooked file
         // that was never written stops being INDISTINGUISHABLE from one that was; it now is.
-        ImportOutcome outcome{ CookVerdict::Cooked, {} };
+        ImportOutcome outcome{ CookVerdict::Cooked, {}, {}, {} };
         if ( const auto cooked = CreateAssetsFromImport( result, path, settings, outcome ); !cooked )
         {
             LOG_ERROR( "[Import] '{}' was parsed but its cooked output is incomplete: {}", path.string(),
@@ -421,7 +421,7 @@ namespace Desert::Editor
                 {
                     skeleton = serialized.GetValue();
                     written.WrittenSkeletons.push_back( ownSkeleton );
-                    record( BOOLSUCCESS );
+                    record( Common::MakeSuccess( true ) );
                 }
                 else
                     record( Common::MakeError<bool>( serialized.GetError() ) );
