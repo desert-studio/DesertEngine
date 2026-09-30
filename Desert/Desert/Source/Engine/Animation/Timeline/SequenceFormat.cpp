@@ -369,8 +369,9 @@ namespace Desert::Animation::Timeline
             }
             section.Blend = static_cast<SectionBlendType>( data.Blend );
 
-            const int contents = int( data.Channel.has_value() ) + int( data.Animation.has_value() ) +
-                                 int( data.CameraCut.has_value() );
+            const int contents = static_cast<int>( data.Channel.has_value() ) +
+                                 static_cast<int>( data.Animation.has_value() ) +
+                                 static_cast<int>( data.CameraCut.has_value() );
             if ( contents != 1 )
             {
                 return Common::MakeFormattedError<Section>(
@@ -383,7 +384,7 @@ namespace Desert::Animation::Timeline
                 {
                     return Common::MakeError<Section>( channel.GetError() );
                 }
-                section.Content = std::move( channel.GetValue() );
+                section.Content = channel.ExtractValue();
             }
             else if ( data.Animation )
             {
@@ -396,7 +397,7 @@ namespace Desert::Animation::Timeline
                      AnimationSectionContent{ clip.GetValue(), FrameNumber{ data.Animation->StartOffset },
                                               data.Animation->PlayRate, data.Animation->Loop };
             }
-            else
+            else if ( data.CameraCut ) // the count above leaves this the only one present
             {
                 auto camera = GuidFromText( data.CameraCut->Camera, false );
                 if ( !camera )
@@ -472,7 +473,7 @@ namespace Desert::Animation::Timeline
                         return Common::MakeFormattedError<Sequence>( "track {} '{}' section {}: {}", t,
                                                                      in.Property, s, section.GetError() );
                     }
-                    track.Sections.push_back( std::move( section.GetValue() ) );
+                    track.Sections.push_back( section.ExtractValue() );
                 }
                 sequence.Tracks.push_back( std::move( track ) );
             }
@@ -526,6 +527,9 @@ namespace Desert::Animation::Timeline
 
     Common::ResultStr<Sequence> ReadSequence( const std::span<const uint8_t> bytes )
     {
+        // The one byte-to-character view of the file: char may alias any object, so reading uint8_t storage
+        // through it is defined; no cast-free spelling of a string_view over uint8_t exists.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
         const std::string_view text( reinterpret_cast<const char*>( bytes.data() ), bytes.size() );
         auto                   parsed = Common::Json::Read<SequenceData>( text );
         if ( !parsed )

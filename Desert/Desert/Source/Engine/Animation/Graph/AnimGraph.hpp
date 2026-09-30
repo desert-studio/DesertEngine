@@ -412,8 +412,9 @@ namespace Desert::Animation::Graph
         /// Enters every state machine node's entry state (entry, or the first state if it names none).
         void EnterMachines();
 
-        /// One tick of the state machine node at `node`.
-        Result UpdateMachine( int node, float normalizedTime );
+        /// One tick of the state machine node at `node`; `machine` is its payload, bound by the caller after
+        /// checking it is present.
+        Result UpdateMachine( int node, const StateMachine& machine, float normalizedTime );
 
         [[nodiscard]] const State* StateOf( int node, int state ) const;
 

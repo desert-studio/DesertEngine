@@ -433,7 +433,7 @@ namespace Desert::Animation
 
         /// PoseStage::Graph — evaluates the pose graph; its base source reads `pose` (the Source stage's), every
         /// other source samples its own clip. NOT const for EvaluateSource's reason.
-        void EvaluateGraph( LocalPose& pose );
+        void EvaluateGraph( PoseGraphState& state, LocalPose& pose );
         /// Sizes m_LinkedSources to m_LinkedLayers after a link or unlink.
         void RebuildLinkedClocks();
 

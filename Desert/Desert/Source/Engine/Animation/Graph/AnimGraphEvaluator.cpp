@@ -27,12 +27,13 @@ namespace Desert::Animation::Graph
         m_Runs.assign( m_Graph.Nodes.size(), MachineRun{} );
         for ( size_t n = 0; n < m_Graph.Nodes.size(); ++n )
         {
-            const auto& machine = m_Graph.Nodes[n].Machine;
-            if ( !machine || machine->States.empty() )
+            const auto& slot = m_Graph.Nodes[n].Machine;
+            if ( !slot || slot->States.empty() )
                 continue;
-            int entry = -1;
-            for ( size_t i = 0; i < machine->States.size(); ++i )
-                if ( machine->States[i].Name == machine->Entry )
+            const StateMachine& machine = *slot;
+            int                 entry   = -1;
+            for ( size_t i = 0; i < machine.States.size(); ++i )
+                if ( machine.States[i].Name == machine.Entry )
                     entry = static_cast<int>( i );
             m_Runs[n].Current = entry < 0 ? 0 : entry; // no entry / a missing one -> the first state
         }
@@ -153,7 +154,7 @@ namespace Desert::Animation::Graph
             m_StructureError = plan.GetError();
             return;
         }
-        m_Plan = std::move( plan.GetValue() );
+        m_Plan = plan.ExtractValue();
         if ( const PoseNode* base = BaseSourceNode( m_Graph );
              base != nullptr && static_cast<PoseNodeKind>( base->Kind ) == PoseNodeKind::StateMachine )
             m_Output = static_cast<int>( base - m_Graph.Nodes.data() );
@@ -226,23 +227,23 @@ namespace Desert::Animation::Graph
         Result output;
         for ( const int node : m_Plan )
         {
-            if ( static_cast<PoseNodeKind>( m_Graph.Nodes[static_cast<size_t>( node )].Kind ) !=
-                 PoseNodeKind::StateMachine )
+            const PoseNode& poseNode = m_Graph.Nodes[static_cast<size_t>( node )];
+            if ( static_cast<PoseNodeKind>( poseNode.Kind ) != PoseNodeKind::StateMachine || !poseNode.Machine )
                 continue;
             // Exit time is measured on the clip Output Pose shows, so only the machine there is given it;
             // a machine further up the graph has no clip time the caller knows.
-            const Result result = UpdateMachine( node, node == m_Output ? normalizedTime : 0.0f );
+            const Result result =
+                 UpdateMachine( node, *poseNode.Machine, node == m_Output ? normalizedTime : 0.0f );
             if ( node == m_Output )
                 output = result;
         }
         return output;
     }
 
-    Evaluator::Result Evaluator::UpdateMachine( int node, float normalizedTime )
+    Evaluator::Result Evaluator::UpdateMachine( int node, const StateMachine& machine, float normalizedTime )
     {
         Result      result;
-        MachineRun& run     = m_Runs[static_cast<size_t>( node )];
-        const auto& machine = *m_Graph.Nodes[static_cast<size_t>( node )].Machine;
+        MachineRun& run = m_Runs[static_cast<size_t>( node )];
 
         result.Current = StateOf( node, run.Current );
         if ( !result.Current )

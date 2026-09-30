@@ -123,26 +123,14 @@ namespace Desert::Animation
 
         [[nodiscard]] bool PartHasKeys( const TransformChannel& channel, TrackChannel part )
         {
-            for ( const FloatChannel* component : ComponentsOf( channel, part ) )
-            {
-                if ( !component->Keys.empty() )
-                {
-                    return true;
-                }
-            }
-            return false;
+            return std::ranges::any_of( ComponentsOf( channel, part ),
+                                        []( const FloatChannel* component ) { return !component->Keys.empty(); } );
         }
 
         [[nodiscard]] bool PartHasKeyOn( TransformChannel& channel, TrackChannel part, FrameNumber tick )
         {
-            for ( FloatChannel* component : ComponentsOf( channel, part ) )
-            {
-                if ( KeyOn( *component, tick ) != nullptr )
-                {
-                    return true;
-                }
-            }
-            return false;
+            return std::ranges::any_of( ComponentsOf( channel, part ), [tick]( FloatChannel* component )
+                                        { return KeyOn( *component, tick ) != nullptr; } );
         }
 
         [[nodiscard]] TransformChannel* TransformOf( Timeline::Section& section )

@@ -134,16 +134,40 @@ namespace Desert::Animation::Graph
         return graph;
     }
 
+    namespace
+    {
+        /// One body for both constnesses: `GraphT` is `AnimGraph` or `const AnimGraph`, and the node handed
+        /// back carries the same constness as the graph it was found in.
+        template <typename GraphT>
+        auto* FindNodeIn( GraphT& graph, std::string_view name )
+        {
+            const auto it = std::find_if( graph.Nodes.begin(), graph.Nodes.end(),
+                                          [name]( const PoseNode& node ) { return node.Name == name; } );
+            return it == graph.Nodes.end() ? nullptr : &*it;
+        }
+
+        /// The state machine at the base source, if that source is one; same constness rule as FindNodeIn.
+        /// The walk runs on the const view and the node is re-addressed by index in `graph` itself.
+        template <typename GraphT>
+        auto* OutputMachineIn( GraphT& graph )
+        {
+            using MachinePtr       = decltype( &*graph.Nodes.front().Machine );
+            const PoseNode* source = BaseSourceNode( std::as_const( graph ) );
+            if ( source == nullptr || static_cast<PoseNodeKind>( source->Kind ) != PoseNodeKind::StateMachine )
+                return MachinePtr{};
+            auto& machine = graph.Nodes[static_cast<size_t>( source - graph.Nodes.data() )].Machine;
+            return machine ? &*machine : MachinePtr{};
+        }
+    } // namespace
+
     const PoseNode* FindNode( const AnimGraph& graph, std::string_view name )
     {
-        const auto it = std::find_if( graph.Nodes.begin(), graph.Nodes.end(),
-                                      [name]( const PoseNode& node ) { return node.Name == name; } );
-        return it == graph.Nodes.end() ? nullptr : &*it;
+        return FindNodeIn( graph, name );
     }
 
     PoseNode* FindNode( AnimGraph& graph, std::string_view name )
     {
-        return const_cast<PoseNode*>( FindNode( std::as_const( graph ), name ) );
+        return FindNodeIn( graph, name );
     }
 
     const PoseNode* BaseSourceNode( const AnimGraph& graph )
@@ -164,16 +188,12 @@ namespace Desert::Animation::Graph
 
     const StateMachine* OutputMachine( const AnimGraph& graph )
     {
-        const PoseNode* source = BaseSourceNode( graph );
-        if ( source == nullptr || static_cast<PoseNodeKind>( source->Kind ) != PoseNodeKind::StateMachine ||
-             !source->Machine )
-            return nullptr;
-        return &*source->Machine;
+        return OutputMachineIn( graph );
     }
 
     StateMachine* OutputMachine( AnimGraph& graph )
     {
-        return const_cast<StateMachine*>( OutputMachine( std::as_const( graph ) ) );
+        return OutputMachineIn( graph );
     }
 
     namespace
@@ -228,6 +248,10 @@ namespace Desert::Animation::Graph
             return {};
         }
 
+        /// The node part of PlanPoseGraph (everything but the host's Layers check). A layer graph is planned
+        /// through this directly, so LayersError and PlanPoseGraph do not call each other.
+        Common::ResultStr<std::vector<int>> PlanNodes( const AnimGraph& graph, GraphScope scope );
+
         /// The graph's `Layers`: declarations sound, every implemented layer graph plannable, of a declared
         /// layer, once, and an implemented interface implemented whole.
         std::string LayersError( const AnimGraph& graph )
@@ -271,12 +295,13 @@ namespace Desert::Animation::Graph
                          layers.Implemented[j].Layer == layer.Layer )
                         return std::format( "AnimGraph '{}' implements layer '{}.{}' twice", graph.Name,
                                             layer.Interface, layer.Layer );
-                if ( auto plan = PlanPoseGraph( LayerGraphAsGraph( graph, layer ), GraphScope::Layer ); !plan )
+                if ( auto plan = PlanNodes( LayerGraphAsGraph( graph, layer ), GraphScope::Layer ); !plan )
                     return plan.GetError();
             }
             // A layer that reaches itself through the graph's own implementations evaluates forever once
             // the graph is linked; refused here, by name (the cross-graph case is LinkedLayerTable::Link's).
             std::vector<LayerCalls> own;
+            own.reserve( layers.Implemented.size() );
             for ( const AnimLayerGraph& layer : layers.Implemented )
                 own.push_back( { layer.Interface, layer.Layer, CalledLayers( layer.Nodes ) } );
             if ( std::string cycle = LayerCycle( own ); !cycle.empty() )
@@ -451,90 +476,101 @@ namespace Desert::Animation::Graph
 
     Common::ResultStr<std::vector<int>> PlanPoseGraph( const AnimGraph& graph, GraphScope scope )
     {
-        using Plan = std::vector<int>;
-
         if ( scope == GraphScope::Host )
-            if ( std::string error = LayersError( graph ); !error.empty() )
-                return Common::MakeError<Plan>( std::move( error ) );
-
-        for ( size_t i = 0; i < graph.Nodes.size(); ++i )
-        {
-            if ( std::string error = NodeError( graph, graph.Nodes[i], scope ); !error.empty() )
-                return Common::MakeError<Plan>( std::move( error ) );
-            for ( size_t j = 0; j < i; ++j )
-                if ( graph.Nodes[j].Name == graph.Nodes[i].Name )
-                    return Common::MakeError<Plan>(
-                         std::format( "AnimGraph '{}' has two pose nodes called '{}'; a wire to that name would "
-                                      "mean either",
-                                      graph.Name, graph.Nodes[i].Name ) );
-        }
-
-        const auto indexOf = [&graph]( std::string_view name ) -> int
-        {
-            for ( size_t i = 0; i < graph.Nodes.size(); ++i )
-                if ( graph.Nodes[i].Name == name )
-                    return static_cast<int>( i );
-            return -1;
-        };
-
-        const int output = indexOf( graph.OutputPose );
-        if ( output < 0 )
-            return Common::MakeError<Plan>(
-                 graph.OutputPose.empty()
-                      ? std::format( "AnimGraph '{}' has nothing wired into Output Pose", graph.Name )
-                      : std::format( "AnimGraph '{}' wires node '{}' into Output Pose, and has no such node",
-                                     graph.Name, graph.OutputPose ) );
-
-        // Depth-first from the output through the Pose pins, post-order: a node is placed after every node
-        // wired into it. `path` is the chain being walked; meeting a node on it again is a cycle.
-        enum class Mark : uint8_t
-        {
-            Unvisited,
-            OnPath,
-            Placed
-        };
-        std::vector<Mark> marks( graph.Nodes.size(), Mark::Unvisited );
-        std::vector<int>  path;
-        Plan              plan;
-        std::string       error;
-
-        const auto visit = [&]( const auto& self, int node ) -> bool
-        {
-            marks[node] = Mark::OnPath;
-            path.push_back( node );
-            for ( const std::string& wired : graph.Nodes[node].PoseInputs )
-            {
-                const int input = indexOf( wired );
-                if ( input < 0 )
-                {
-                    error = std::format( "AnimGraph '{}': node '{}' has a Pose pin wired to '{}', and the graph "
-                                         "has no such node",
-                                         graph.Name, graph.Nodes[node].Name, wired );
-                    return false;
-                }
-                if ( marks[input] == Mark::OnPath )
-                {
-                    std::string loop;
-                    const auto  from = std::find( path.begin(), path.end(), input );
-                    for ( auto it = from; it != path.end(); ++it )
-                        loop += std::format( "{} -> ", graph.Nodes[*it].Name );
-                    loop += graph.Nodes[input].Name;
-                    error = std::format( "AnimGraph '{}' has a cycle in its pose graph: {}. A pose graph "
-                                         "evaluates each node after its inputs, and a loop has no first node",
-                                         graph.Name, loop );
-                    return false;
-                }
-                if ( marks[input] == Mark::Unvisited && !self( self, input ) )
-                    return false;
-            }
-            path.pop_back();
-            marks[node] = Mark::Placed;
-            plan.push_back( node );
-            return true;
-        };
-
-        if ( !visit( visit, output ) )
-            return Common::MakeError<Plan>( std::move( error ) );
-        return Common::MakeSuccess( std::move( plan ) );
+            if ( const std::string error = LayersError( graph ); !error.empty() )
+                return Common::MakeError<std::vector<int>>( error );
+        return PlanNodes( graph, scope );
     }
+
+    namespace
+    {
+        Common::ResultStr<std::vector<int>> PlanNodes( const AnimGraph& graph, GraphScope scope )
+        {
+            using Plan = std::vector<int>;
+
+            for ( size_t i = 0; i < graph.Nodes.size(); ++i )
+            {
+                if ( const std::string error = NodeError( graph, graph.Nodes[i], scope ); !error.empty() )
+                    return Common::MakeError<Plan>( error );
+                for ( size_t j = 0; j < i; ++j )
+                    if ( graph.Nodes[j].Name == graph.Nodes[i].Name )
+                        return Common::MakeError<Plan>( std::format(
+                             "AnimGraph '{}' has two pose nodes called '{}'; a wire to that name would "
+                             "mean either",
+                             graph.Name, graph.Nodes[i].Name ) );
+            }
+
+            const auto indexOf = [&graph]( std::string_view name ) -> int
+            {
+                for ( size_t i = 0; i < graph.Nodes.size(); ++i )
+                    if ( graph.Nodes[i].Name == name )
+                        return static_cast<int>( i );
+                return -1;
+            };
+
+            const int output = indexOf( graph.OutputPose );
+            if ( output < 0 )
+                return Common::MakeError<Plan>(
+                     graph.OutputPose.empty()
+                          ? std::format( "AnimGraph '{}' has nothing wired into Output Pose", graph.Name )
+                          : std::format( "AnimGraph '{}' wires node '{}' into Output Pose, and has no such node",
+                                         graph.Name, graph.OutputPose ) );
+
+            // Depth-first from the output through the Pose pins, post-order: a node is placed after every node
+            // wired into it. `path` is the chain being walked; meeting a node on it again is a cycle.
+            enum class Mark : uint8_t
+            {
+                Unvisited,
+                OnPath,
+                Placed
+            };
+            std::vector<Mark> marks( graph.Nodes.size(), Mark::Unvisited );
+            std::vector<int>  path;
+            Plan              plan;
+            std::string       error;
+
+            // Recursion is the shape of the problem: a depth-first walk over the pose DAG, its depth bounded by
+            // the node count, since a node already on `path` ends the walk as a cycle instead of descending.
+            // NOLINTNEXTLINE(misc-no-recursion)
+            const auto visit = [&]( const auto& self, int node ) -> bool
+            {
+                marks[node] = Mark::OnPath;
+                path.push_back( node );
+                for ( const std::string& wired : graph.Nodes[node].PoseInputs )
+                {
+                    const int input = indexOf( wired );
+                    if ( input < 0 )
+                    {
+                        error =
+                             std::format( "AnimGraph '{}': node '{}' has a Pose pin wired to '{}', and the graph "
+                                          "has no such node",
+                                          graph.Name, graph.Nodes[node].Name, wired );
+                        return false;
+                    }
+                    if ( marks[input] == Mark::OnPath )
+                    {
+                        std::string loop;
+                        const auto  from = std::find( path.begin(), path.end(), input );
+                        for ( auto it = from; it != path.end(); ++it )
+                            loop += std::format( "{} -> ", graph.Nodes[*it].Name );
+                        loop += graph.Nodes[input].Name;
+                        error = std::format( "AnimGraph '{}' has a cycle in its pose graph: {}. A pose graph "
+                                             "evaluates each node after its inputs, and a loop has no first node",
+                                             graph.Name, loop );
+                        return false;
+                    }
+                    if ( marks[input] == Mark::Unvisited && !self( self, input ) )
+                        return false;
+                }
+                path.pop_back();
+                marks[node] = Mark::Placed;
+                plan.push_back( node );
+                return true;
+            };
+
+            if ( !visit( visit, output ) )
+                return Common::MakeError<Plan>( error );
+            return Common::MakeSuccess( std::move( plan ) );
+        }
+    } // namespace
 } // namespace Desert::Animation::Graph
