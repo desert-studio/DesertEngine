@@ -56,6 +56,11 @@ namespace
             return true;
         }
 
+        [[nodiscard]] const std::string& Name() const
+        {
+            return m_Name;
+        }
+
         bool ClaimsPreview = false;
         bool ClaimsKey     = false;
         bool ClaimsClick   = false;
@@ -296,7 +301,7 @@ TEST( EventRouting, ANodeTakenOutOfTheTreeHearsNothing )
 
     for ( const std::string& line : f.log )
         EXPECT_EQ( line.rfind( "panel.", 0 ), std::string::npos ) << line;
-    EXPECT_EQ( taken->Name, "panel" );
+    EXPECT_EQ( taken->Name(), "panel" );
 }
 
 TEST( EventRouting, ADestroyedObjectHearsNothingAndLeavesNoDanglingReference )
