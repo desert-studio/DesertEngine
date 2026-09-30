@@ -167,7 +167,7 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
-    VulkanVertexBuffer::VulkanVertexBuffer( void* data, uint32_t size,
+    VulkanVertexBuffer::VulkanVertexBuffer( const void* data, uint32_t size,
                                             BufferUsage usage /*= BufferUsage::Static */ )
          : m_Size( size ), m_Usage( usage )
     {

@@ -25,7 +25,9 @@ project "DShaderTool"
         externalincludedirs { path }
     end
 
-    links { "Common" }
+    -- ReflectCpp: DShaderParser reads the shader's AF1 envelope through Common::ShaderAssetHeader, whose
+    -- JSON header Common's TextAssetHeader parses through rfl::json (reflect-cpp + its bundled yyjson).
+    links { "Common", "ReflectCpp" }
 
     filter "configurations:Debug"
         symbols "On"

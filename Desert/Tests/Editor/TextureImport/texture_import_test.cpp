@@ -48,6 +48,7 @@
 #include <stb_image/stb_image.h>
 
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>

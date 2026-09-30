@@ -7,7 +7,7 @@ namespace Desert::Graphic
 {
 
     std::shared_ptr<Desert::Graphic::VertexBuffer>
-    VertexBuffer::Create( void* data, uint32_t size, BufferUsage usage /*= BufferUsage::Static */ )
+    VertexBuffer::Create( const void* data, uint32_t size, BufferUsage usage /*= BufferUsage::Static */ )
     {
         switch ( RendererAPI::GetAPIType() )
         {

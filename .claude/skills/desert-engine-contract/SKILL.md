@@ -184,9 +184,10 @@ most expensive defects in this project all shipped built, tested and unseen.
    4+ minutes and they queue one after another on the machine; an agent that waits on it lets its
    prompt cache expire and pays to re-read its whole context (L11c: 1.04 M units for 15 tidy lines,
    247 k of them re-reading; ANV4f: 200 k). So:
-   - **The author runs it ONCE, before pushing**, together with `scripts/CI/CheckGluedText.sh`, on
-     the changed lines against the merge-base — **in the background**, doing other work meanwhile;
-     never a wait loop, never a second run "to confirm". The findings get fixed in the same commit.
+   - **Owner, 2026-09-30: suites, mutations, CheckTidy, CheckGluedText and the hand-off are run ONLY by the lead, ONCE, at
+     the end — on the integration branch before it goes to `dev`** (it may hold several features). An agent never runs
+     them (the guard refuses): it compiles its targets once at the end and lists "suites for the lead" and 2–3 mutations
+     (file:line → change → the test that must turn red) in its REMAINDER. Live checks stay with separate check-only agents.
    - **A tidy-fix task gets the findings list (file:line + rule) and does NOT run CheckTidy at all.**
      It fixes exactly those lines, runs the affected suite, formats the diff, commits. The re-check is
      the hand-off's (`handoff_check.sh`), which runs tidy anyway. (M22c under this rule: 0 re-read.)
