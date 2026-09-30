@@ -213,8 +213,9 @@ namespace Desert::Graphic::RDG
         }
 
         // ── 1+2. Producer edges and culling (FlushCullStack) ──────────────────────────────────────────
-        // Roots: NeverCull passes and passes that write an external or extracted resource. A pass lives
-        // if a living pass consumes a subresource it was the last to write before that consumer.
+        // Roots: NeverCull passes and passes that write an externally visible (external or extracted)
+        // subresource; every pass when culling is off. A pass lives if a living pass consumes a subresource
+        // it was the last to write before that consumer. The full definition is at Builder::Compile.
         std::vector<bool> alive( passCount, false );
         {
             std::vector<std::vector<uint32_t>> producers( passCount );
@@ -222,7 +223,7 @@ namespace Desert::Graphic::RDG
             std::vector<uint32_t>              stack;
             for ( uint32_t p = 0; p < passCount; ++p )
             {
-                bool root = HasFlag( m_Passes[p].Flags, PassFlags::NeverCull );
+                bool root = !m_PassCulling || HasFlag( m_Passes[p].Flags, PassFlags::NeverCull );
                 for ( const RdgSubUse& use : passUses[p] )
                 {
                     if ( use.Consumes && lastWriter[use.Sub] >= 0 &&
@@ -259,12 +260,16 @@ namespace Desert::Graphic::RDG
 
         CompileResult         result;
         std::vector<uint32_t> executed;
+        result.PassCulling = m_PassCulling;
         for ( uint32_t p = 0; p < passCount; ++p )
         {
             if ( alive[p] )
+            {
                 executed.push_back( p );
-            else
-                result.CulledPasses.push_back( p );
+                continue;
+            }
+            result.CulledPasses.push_back( p );
+            result.CulledPassNames.push_back( m_Passes[p].Name );
         }
         const uint32_t executedCount = static_cast<uint32_t>( executed.size() );
 
@@ -312,11 +317,13 @@ namespace Desert::Graphic::RDG
                 if ( lifetimeOf[use.Resource] < 0 )
                 {
                     lifetimeOf[use.Resource] = static_cast<int32_t>( result.Lifetimes.size() );
-                    result.Lifetimes.push_back( { use.Resource, position, position } );
+                    result.Lifetimes.push_back(
+                         { use.Resource, position, position, executed[position], executed[position] } );
                     result.Usages.push_back( { use.Resource, 0 } );
                 }
                 const size_t index                   = static_cast<size_t>( lifetimeOf[use.Resource] );
                 result.Lifetimes[index].LastPosition = position;
+                result.Lifetimes[index].LastPass     = executed[position];
                 result.Usages[index].AccessMask |= use.AccessMask;
             }
         }

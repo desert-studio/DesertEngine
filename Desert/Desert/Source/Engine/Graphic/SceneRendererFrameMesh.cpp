@@ -133,7 +133,8 @@ namespace Desert::Graphic
         // neither clearing the other) with the pass's own clear values (a cascade clears its depth to 1); every
         // other node LOADS, and the overlay phases only LOAD, so a CLEAR never wipes the depth a later overlay
         // tests against. A pass whose target or reads the graph cannot declare is refused with its error, never
-        // half-declared.
+        // half-declared. NeverCull: a pass body (the editor's external passes too) may change state outside
+        // the graph - per-frame material state, picking - which no declaration shows.
         std::shared_ptr<Framebuffer> previous;
         for ( const RenderGraphBuilder::PassConfig& pass : m_RenderGraphBuilder.GetSortedPasses() )
         {

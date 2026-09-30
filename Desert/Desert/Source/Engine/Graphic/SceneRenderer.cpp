@@ -783,6 +783,7 @@ namespace Desert::Graphic
         // Execute, after the whole graph is built, so a value one pass hands a later one travels through `values`,
         // which outlives Execute; everything else they need is captured by value.
         RDG::Builder        graph( "SceneView" );
+        graph.SetPassCulling( !m_DebugView.DisablePassCulling );
         FrameTextures       textures( graph );
         const auto          values = std::make_shared<FrameValues>();
 
