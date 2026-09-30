@@ -19,6 +19,8 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/RDG/RDGBuilder.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/RDG/RDGCompile.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/RDG/RDGAsyncFallbackLog.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/RDG/RDGPassBindings.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRdgPassBindings.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderGraph.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRdgTransient.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRdgQueues.cpp",
