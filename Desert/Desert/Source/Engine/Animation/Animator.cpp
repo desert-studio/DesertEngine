@@ -769,7 +769,9 @@ namespace Desert::Animation
         EvaluatePipeline();
     }
 
-    \1        // Through the tick, and onto the NEAREST one: a scrub arrives as a real number that has been
+    void Animator::SetTime( float time )
+    {
+        // Through the tick, and onto the NEAREST one: a scrub arrives as a real number that has been
         // through a pixel position and a division, so flooring it would put a user who dragged onto a key
         // one tick before it. See TimeModel.hpp.
         const FrameRate   rate    = m_Current.IsValid() ? m_Current.Clip->Sequence.TickRate : PROJECT_TICK_RATE;
