@@ -1272,7 +1272,7 @@ namespace Desert::Migration
             const auto source = Common::Content::MeshSourceBeside( path );
             if ( !source )
                 continue; // a hand-authored mesh: no import, no record
-            const auto stated = Desert::Migration::ImportRecordWithSourceHash( *source );
+            const auto stated = Desert::Migration::ImportRecordWithSourceHash( *source, path );
             if ( !stated )
             {
                 err << "FAIL   " << path.string() << " — " << stated.GetError() << "\n";

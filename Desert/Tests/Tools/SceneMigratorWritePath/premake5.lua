@@ -50,6 +50,11 @@ project(test_name)
         -- THE MESH ASSET READER, since MIG1: a `.stmesh`/`.skmesh` stamped 'MSAS' (AF4d) is judged by the
         -- engine's own DecodeMeshSourceAsset rather than refused as "not DESTMESH"; pure bytes, no GPU.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/MeshSourceAsset.cpp",
+        -- SKEL-fixa: the loop states a skinned import's source hash and box in its record (ImportRecordSourceHash)
+        -- through the engine's own record reader/writer and the one source hash (HashMeshSourceFile).
+        "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ImportRecordSourceHash.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/ImportRecord.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/MeshDerivedData.cpp",
     }
 
     -- Reflection.gen.cpp is emitted by DesertHeaderTool as a prebuild step of `Desert`.

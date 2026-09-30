@@ -39,6 +39,8 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <iterator>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -585,6 +587,57 @@ TEST_F( SkinnedImport, ASkeletonChosenOnTheMeshIsKeptByAReimport )
     ASSERT_EQ( ImportManager().Import( m_Source, true ), Editor::CookVerdict::Cooked );
     EXPECT_EQ( MeshSkeletonGuidOf( mesh ), otherText )
          << "the Reimport reverted the mesh to the skeleton its bones match: the artist's choice was lost";
+}
+
+// THE COMMITTED SKINNED CORPUS IS CURRENT: AN EDITOR START WRITES NOTHING (SKEL-fixa/b; UE: an asset whose
+// UAssetImportData states its source's hash is not re-imported). TwoJointProbe.gltf and every file its import
+// wrote (the mesh, the rig, the clip, the record SceneMigrator stated the source's hash in) are copied into a
+// sandbox byte for byte; the background cook's Import() of the source is UpToDate and not one file of the folder
+// changes, appears or disappears. Before the migrator step the record stated no SourceHash, and the first start
+// re-imported the file and rewrote the committed outputs (-0.0 in the rig, a new GUID in the record). Mutation:
+// ImportManager.cpp SkinnedImportIsFresh returning false => Cooked, the folder rewritten => red here. Mutation:
+// delete SourceHash from Editor/Resources/Assets/Meshes/TwoJointProbe.gltf.deimport => red here.
+TEST( SkinnedImportCorpus, TheCommittedTwoJointProbeIsCurrentAndItsImportWritesNothing )
+{
+    const std::filesystem::path        corpus = "Editor/Resources/Assets/Meshes";
+    const std::vector<std::string>     files  = { "TwoJointProbe.gltf", "TwoJointProbe.gltf.deimport",
+                                                  "TwoJointProbe.skmesh", "TwoJointProbe.skeleton",
+                                                  "TwoJointProbe_ArmSwing.anim" };
+    std::map<std::string, std::string> committed;
+    for ( const std::string& name : files )
+    {
+        std::ifstream in( corpus / name, std::ios::binary );
+        ASSERT_TRUE( in ) << ( corpus / name ).string() << " (run from the tree root)";
+        committed[name] = std::string{ std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() };
+    }
+
+    Assets::ContentRegistry::ResetForTest();
+    TestSupport::DerivedDataSandbox derivedData{ "SkinnedImportCorpus" };
+    TestSupport::AssetsSandbox      sandbox{ "SkinnedImportCorpus", {} };
+    const std::filesystem::path     folder = "Resources/Assets/Meshes";
+    std::filesystem::create_directories( folder );
+    for ( const auto& [name, bytes] : committed )
+        std::ofstream( folder / name, std::ios::binary ) << bytes;
+
+    EXPECT_EQ( Editor::ImportManager().Import( folder / "TwoJointProbe.gltf" ), Editor::CookVerdict::UpToDate )
+         << "the committed import of TwoJointProbe.gltf was taken as stale";
+
+    std::map<std::string, std::string> after;
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( "Resources" ) )
+        if ( entry.is_regular_file() )
+        {
+            std::ifstream in( entry.path(), std::ios::binary );
+            after[entry.path().lexically_relative( folder ).generic_string()] =
+                 std::string{ std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() };
+        }
+    EXPECT_EQ( after.size(), committed.size() ) << "the import added or removed a file";
+    for ( const auto& [name, bytes] : committed )
+    {
+        const auto found = after.find( name );
+        ASSERT_NE( found, after.end() ) << name << " is gone";
+        EXPECT_TRUE( found->second == bytes ) << name << " was rewritten";
+    }
+    Assets::ContentRegistry::ResetForTest();
 }
 
 int main( int argc, char** argv )
