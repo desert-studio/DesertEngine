@@ -1328,6 +1328,125 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
     EXPECT_EQ( row( kSize - 1 ), ( std::vector<uint8_t>{ 0, 255, 0, 255 } ) ) << "the resolve holds the clear";
 }
 
+// AA-1: the anti-aliasing method changes the scene target's sample count (1 -> 4 -> 1). The scene framebuffer is
+// recreated at the new count and re-imported; the graph's next render pass on it must be opened at that count,
+// and the pass a pipeline is resolved against (VulkanRdgBackend::GetOpenRenderPass, read by
+// VulkanRendererAPI::BindGraphicsPipeline) must say so -- same formats, the new count, nothing left over from the
+// previous one. Validation-clean across the switches.
+TEST( RenderGraphVulkan, ASampleCountChangeOpensTheNextRenderPassAtTheNewCount )
+{
+    Gpu& gpu = GetGpu();
+    ASSERT_TRUE( gpu.Error.empty() ) << gpu.Error;
+    const VkDevice device = gpu.Device.device;
+
+    VulkanRdgPool                 pool( gpu.Rdg, 1 );
+    VulkanRdgBackend              backend( gpu.Rdg, pool );
+    std::vector<RdgRenderPassKey> opened;
+    for ( const uint32_t samples : { 1u, 4u, 1u } )
+    {
+        // The recreated scene target: colour at `samples`, plus the 1x image it resolves into when multisampled.
+        VkImageCreateInfo info{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+        info.imageType     = VK_IMAGE_TYPE_2D;
+        info.format        = VK_FORMAT_R8G8B8A8_UNORM;
+        info.extent        = { kSize, kSize, 1 };
+        info.mipLevels     = 1;
+        info.arrayLayers   = 1;
+        info.samples       = static_cast<VkSampleCountFlagBits>( samples );
+        info.tiling        = VK_IMAGE_TILING_OPTIMAL;
+        info.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        VmaAllocationCreateInfo memory{};
+        memory.usage              = VMA_MEMORY_USAGE_AUTO;
+        VkImage       colourImage = VK_NULL_HANDLE, resolveImage = VK_NULL_HANDLE;
+        VmaAllocation colourAllocation = nullptr, resolveAllocation = nullptr;
+        ASSERT_EQ( vmaCreateImage( gpu.Allocator, &info, &memory, &colourImage, &colourAllocation, nullptr ),
+                   VK_SUCCESS );
+        if ( samples > 1 )
+        {
+            info.samples = VK_SAMPLE_COUNT_1_BIT;
+            ASSERT_EQ( vmaCreateImage( gpu.Allocator, &info, &memory, &resolveImage, &resolveAllocation, nullptr ),
+                       VK_SUCCESS );
+        }
+        {
+            auto importOf = [&]( VkImage image, uint32_t count )
+            {
+                RDG::TextureDesc desc = Target();
+                desc.Samples          = count;
+                RDG::ExternalTexture external;
+                external.Desc = desc;
+                external.SubresourceStates.assign( desc.SubresourceCount(),
+                                                   RDG::RecordedLayoutState( RDG::ImageLayout::Undefined ) );
+                external.Physical = VulkanRdgTexture::Wrap( device, image, VK_FORMAT_R8G8B8A8_UNORM, desc );
+                external.RecordFinalStates = []( const std::vector<RDG::AccessState>& ) -> Common::BoolResultStr
+                { return Common::MakeSuccess( true ); };
+                return external;
+            };
+            RDG::ExternalTexture colour  = importOf( colourImage, samples );
+            RDG::ExternalTexture resolve = samples > 1 ? importOf( resolveImage, 1 ) : RDG::ExternalTexture{};
+
+            VkCommandBuffer             cmd = VK_NULL_HANDLE;
+            VkCommandBufferAllocateInfo allocate{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+            allocate.commandPool        = gpu.CommandPool;
+            allocate.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocate.commandBufferCount = 1;
+            vkAllocateCommandBuffers( device, &allocate, &cmd );
+            VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+            begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            vkBeginCommandBuffer( cmd, &begin );
+            pool.BeginFrame( 0 );
+            backend.SetCommandBuffer( cmd );
+
+            RDG::Builder                               graph( "aa-sample-count-change" );
+            const std::array<RDG::ExternalTexture*, 1> colours  = { &colour };
+            const std::array<RDG::ExternalTexture*, 1> resolves = { &resolve };
+            const RDG::ImportedFramebuffer             fb =
+                 samples > 1 ? graph.ImportFramebuffer( colours, nullptr, "Scene", resolves )
+                                         : graph.ImportFramebuffer( colours, nullptr, "Scene" );
+            graph.AddPass(
+                 "Scene", RDG::PassFlags::Raster,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     pass.ColorTarget( 0, fb.Colors[0], RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 1.0f ) );
+                     if ( samples > 1 )
+                         pass.ResolveTarget( 0, fb.Resolves[0] );
+                 },
+                 [&]( RDG::PassContext& ) -> Common::BoolResultStr
+                 {
+                     if ( !backend.GetOpenRenderPass() )
+                         return Fail( "no render pass is open inside a raster pass" );
+                     opened.push_back( *backend.GetOpenRenderPass() );
+                     return Common::MakeSuccess( true );
+                 } );
+            const Common::BoolResultStr executed = graph.Execute( backend );
+            vkEndCommandBuffer( cmd );
+            ASSERT_TRUE( executed ) << executed.GetError();
+            EXPECT_FALSE( backend.GetOpenRenderPass() ) << "the open pass is cleared when the graph closes it";
+            VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+            submit.commandBufferCount = 1;
+            submit.pCommandBuffers    = &cmd;
+            vkQueueSubmit( gpu.Queue, 1, &submit, VK_NULL_HANDLE );
+            vkQueueWaitIdle( gpu.Queue );
+            vkFreeCommandBuffers( device, gpu.CommandPool, 1, &cmd );
+            vkDeviceWaitIdle( device );
+        }
+        vmaDestroyImage( gpu.Allocator, colourImage, colourAllocation );
+        if ( resolveImage != VK_NULL_HANDLE )
+            vmaDestroyImage( gpu.Allocator, resolveImage, resolveAllocation );
+    }
+
+    ASSERT_EQ( opened.size(), 3u ) << "every frame's scene pass ran";
+    EXPECT_EQ( opened[0].Samples, 1u );
+    EXPECT_EQ( opened[1].Samples, 4u ) << "the pass after the change is opened at the new count";
+    EXPECT_EQ( opened[2].Samples, 1u ) << "and back";
+    EXPECT_EQ( opened[0], opened[2] )
+         << "1x -> 4x -> 1x resolves pipelines against the same pass: the cached base";
+    EXPECT_EQ( opened[1],
+               RdgCompatibleRenderPassKey( { VK_FORMAT_R8G8B8A8_UNORM }, VK_FORMAT_UNDEFINED, false, 4 ) )
+         << "the 4x pass's compatibility key: same format, the new count, the resolve does not count";
+    const std::vector<Message> messages = TakeMessages();
+    EXPECT_TRUE( messages.empty() ) << messages.size() << " validation message(s):" << Join( messages );
+}
+
 TEST( RenderGraphVulkan, EveryGraphLayoutRoundTripsThroughItsVulkanLayout )
 {
     for ( const RDG::ImageLayout layout :

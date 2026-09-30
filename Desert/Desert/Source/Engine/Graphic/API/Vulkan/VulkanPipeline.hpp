@@ -4,6 +4,8 @@
 
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
+#include <Engine/Graphic/Framebuffer.hpp>
 
 #include <vulkan/vulkan.hpp>
 
@@ -12,6 +14,10 @@
 
 namespace Desert::Graphic::API::Vulkan
 {
+    // The compatibility key of a render pass opened on a Framebuffer's attachments at `samples` -- what the
+    // recording context hands GetVkPipelineFor for a framebuffer-opened pass.
+    RdgRenderPassKey CompatibleRenderPassKeyOf( const FramebufferSpecification& spec, uint32_t samples );
+
     class VulkanPipeline final : public GraphicsPipeline
     {
     public:
@@ -68,16 +74,13 @@ namespace Desert::Graphic::API::Vulkan
             return GetBuildState() == BuildState::Built ? m_Pipeline : VK_NULL_HANDLE;
         }
 
-        // THE PIPELINE FOR THE RENDER PASS OPEN NOW, keyed by its sample count. The pipeline is built at the
-        // sample count of its target when it is created; a render pass at another count (the scene target
-        // after an anti-aliasing change) gets a variant, created here on first use and cached until the
-        // pipeline is rebuilt or released — switching back costs nothing. Null while the base is not built
-        // or when the variant could not be created (logged once per count).
-        VkPipeline GetVkPipelineForSamples( uint32_t samples );
-
-        // The sample count of the render pass currently open on the recording thread: set by every
-        // vkCmdBeginRenderPass site (VulkanRendererAPI, VulkanRdgBackend) and read at bind time.
-        static inline thread_local uint32_t s_OpenPassSamples = 1;
+        // THE PIPELINE FOR THE RENDER PASS THE DRAW IS RECORDED IN, passed by the caller as that pass's
+        // compatibility key (RdgCompatibilityKey). The pipeline is built at the sample count of its target when
+        // it is created; a render pass at another count (the scene target after an anti-aliasing change) gets a
+        // variant built against that pass, created here on first use and cached under its key until the
+        // pipeline is rebuilt or released -- switching back costs nothing. Null while the base is not built or
+        // when the variant could not be created (logged once per key).
+        VkPipeline GetVkPipelineFor( const RdgRenderPassKey& openPass );
 
         VkPipelineLayout GetVkPipelineLayout() const
         {
@@ -141,9 +144,10 @@ namespace Desert::Graphic::API::Vulkan
         // TargetLayout: the canonical render pass (formats and samples, load/store DONT_CARE) the pipeline
         // is built against; compatible with every render pass the graph builds for those formats.
         VkRenderPass                          m_CompatibleRenderPass = VK_NULL_HANDLE;
-        // The sample count m_Pipeline was built at, and the variants for every other count asked for.
-        uint32_t                                 m_BuiltSamples = 1;
-        std::unordered_map<uint32_t, VkPipeline> m_SampleVariants;
+        // The sample count m_Pipeline was built at, and the variants for every render pass at another count it
+        // was bound in, by that pass's compatibility key.
+        uint32_t                               m_BuiltSamples = 1;
+        std::map<RdgRenderPassKey, VkPipeline> m_PassVariants;
         std::atomic<BuildState>               m_State{ BuildState::Unbuilt };
         PipelineRole                          m_Role = PipelineRole::Engine;
         std::future<void>                     m_Compile;

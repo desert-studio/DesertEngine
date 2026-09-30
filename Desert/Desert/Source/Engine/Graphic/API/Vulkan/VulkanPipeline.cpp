@@ -144,15 +144,15 @@ namespace Desert::Graphic::API::Vulkan
         m_State.store( BuildState::Unbuilt, std::memory_order_release );
 
         if ( m_Pipeline == VK_NULL_HANDLE && m_PipelineLayout == VK_NULL_HANDLE &&
-             m_CompatibleRenderPass == VK_NULL_HANDLE && m_SampleVariants.empty() )
+             m_CompatibleRenderPass == VK_NULL_HANDLE && m_PassVariants.empty() )
             return;
 
         VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
                               ->GetVulkanLogicalDevice();
-        for ( const auto& [samples, variant] : m_SampleVariants )
+        for ( const auto& [pass, variant] : m_PassVariants )
             if ( variant != VK_NULL_HANDLE )
                 vkDestroyPipeline( device, variant, nullptr );
-        m_SampleVariants.clear();
+        m_PassVariants.clear();
         if ( m_Pipeline != VK_NULL_HANDLE )
         {
             vkDestroyPipeline( device, m_Pipeline, nullptr );
@@ -392,48 +392,43 @@ namespace Desert::Graphic::API::Vulkan
                     .sampleShadingEnable  = VK_FALSE };
     }
 
-    VkPipeline VulkanPipeline::GetVkPipelineForSamples( const uint32_t samples )
+    RdgRenderPassKey CompatibleRenderPassKeyOf( const FramebufferSpecification& spec, const uint32_t samples )
+    {
+        std::vector<VkFormat>                     colourFormats;
+        std::optional<Core::Formats::ImageFormat> depth;
+        for ( const auto& attachment : spec.Attachments.Attachments )
+        {
+            if ( Graphic::Utils::IsDepthFormat( attachment.Format ) )
+                depth = attachment.Format;
+            else
+                colourFormats.push_back( API::Vulkan::GetImageVulkanFormat( attachment.Format ) );
+        }
+        const VkFormat depthFormat = depth ? API::Vulkan::GetImageVulkanFormat( *depth ) : VK_FORMAT_UNDEFINED;
+        const bool     hasStencil =
+             depth && ( API::Vulkan::GetImageVulkanAspect( *depth ) & VK_IMAGE_ASPECT_STENCIL_BIT ) != 0;
+        return RdgCompatibleRenderPassKey( colourFormats, depthFormat, hasStencil, std::max( 1u, samples ) );
+    }
+
+    VkPipeline VulkanPipeline::GetVkPipelineFor( const RdgRenderPassKey& openPass )
     {
         const VkPipeline base = GetVkPipeline();
+        const uint32_t   samples = std::max( 1u, openPass.Samples );
         if ( base == VK_NULL_HANDLE || samples == m_BuiltSamples )
             return base;
-        if ( const auto found = m_SampleVariants.find( samples ); found != m_SampleVariants.end() )
+        if ( const auto found = m_PassVariants.find( openPass ); found != m_PassVariants.end() )
             return found->second;
 
         VkDevice device =
              SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
 
-        // A render pass COMPATIBLE with the open one: same formats, the requested count. A pipeline does not
-        // keep its render pass, so this one is destroyed right after the create.
-        std::vector<VkFormat>                     colourFormats;
-        std::optional<Core::Formats::ImageFormat> depth;
-        if ( m_Specification.Framebuffer )
-        {
-            for ( const auto& attachment :
-                  m_Specification.Framebuffer->GetSpecification().Attachments.Attachments )
-            {
-                if ( Graphic::Utils::IsDepthFormat( attachment.Format ) )
-                    depth = attachment.Format;
-                else
-                    colourFormats.push_back( API::Vulkan::GetImageVulkanFormat( attachment.Format ) );
-            }
-        }
-        else
-        {
-            for ( const Core::Formats::ImageFormat format : m_Specification.TargetLayout->ColorFormats )
-                colourFormats.push_back( API::Vulkan::GetImageVulkanFormat( format ) );
-            depth = m_Specification.TargetLayout->DepthFormat;
-        }
-        const VkFormat depthFormat = depth ? API::Vulkan::GetImageVulkanFormat( *depth ) : VK_FORMAT_UNDEFINED;
-        const bool     hasStencil =
-             depth && ( API::Vulkan::GetImageVulkanAspect( *depth ) & VK_IMAGE_ASPECT_STENCIL_BIT ) != 0;
-        const Common::ResultStr<VkRenderPass> pass = API::Vulkan::CreateRdgRenderPass(
-             device, API::Vulkan::RdgCompatibleRenderPassKey( colourFormats, depthFormat, hasStencil, samples ) );
+        // A render pass of the open pass's compatibility class. A pipeline does not keep its render pass, so
+        // this one is destroyed right after the create.
+        const Common::ResultStr<VkRenderPass> pass = API::Vulkan::CreateRdgRenderPass( device, openPass );
         if ( !pass )
         {
             LOG_ERROR( "[Pipeline] '{}': no {}x variant, its render pass was not created: {}",
                        m_Specification.DebugName, samples, pass.GetError() );
-            m_SampleVariants.emplace( samples, VK_NULL_HANDLE );
+            m_PassVariants.emplace( openPass, VK_NULL_HANDLE );
             return VK_NULL_HANDLE;
         }
 
@@ -460,7 +455,7 @@ namespace Desert::Graphic::API::Vulkan
                                               std::format( "{} ({}x)", m_Specification.DebugName, samples ),
                                               variant );
         }
-        m_SampleVariants.emplace( samples, variant );
+        m_PassVariants.emplace( openPass, variant );
         return variant;
     }
 

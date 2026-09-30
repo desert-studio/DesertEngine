@@ -143,7 +143,7 @@ namespace Desert::Graphic
         // THE ANTI-ALIASING METHOD CHANGED THE SAMPLE COUNT: the same path as a resize. The frames in flight
         // finish, the scene target is recreated at the new count, and the two MSAA-only helpers (DepthExpand,
         // SceneDepthResolve) rebuild for it. Pipelines are not rebuilt: each binds its variant for the open
-        // render pass's count (VulkanPipeline::GetVkPipelineForSamples).
+        // render pass's count (VulkanPipeline::GetVkPipelineFor, resolved against the open pass).
         const uint32_t before = m_TargetFramebuffer->GetSpecification().Samples;
         Renderer::GetInstance().WaitDeviceIdle();
         if ( const auto set = m_TargetFramebuffer->SetSamples( samples ); !set )

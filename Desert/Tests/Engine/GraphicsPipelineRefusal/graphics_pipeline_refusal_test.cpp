@@ -158,6 +158,11 @@ namespace
             return Common::MakeError( "StubFramebuffer has nothing to resize" );
         }
 
+        Common::BoolResultStr SetSamples( uint32_t ) override
+        {
+            return Common::MakeError( "StubFramebuffer has no attachments to resample" );
+        }
+
         uint32_t GetFramebufferWidth() const override
         {
             return 0;

@@ -206,7 +206,8 @@ namespace Desert::Graphic::API::Vulkan
         VKUtils::BeginDebugLabel( m_CurrentCommandBuffer,
                                   renderPass->GetSpecification().DebugName.c_str() );
 
-        VulkanPipeline::s_OpenPassSamples = std::max( 1u, framebuffer->GetSpecification().Samples );
+        m_OpenRenderPass =
+             CompatibleRenderPassKeyOf( framebuffer->GetSpecification(), framebuffer->GetSpecification().Samples );
         vkCmdBeginRenderPass( m_CurrentCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
         SetViewportAndScissor( framebuffer->GetFramebufferWidth(), framebuffer->GetFramebufferHeight() );
 
@@ -241,7 +242,8 @@ namespace Desert::Graphic::API::Vulkan
         // leave the labels unbalanced.
         VKUtils::BeginDebugLabel( m_CurrentCommandBuffer, "SwapChainPass" );
 
-        VulkanPipeline::s_OpenPassSamples = static_cast<uint32_t>( vulkanSwap->GetMSAASamples() );
+        m_OpenRenderPass = CompatibleRenderPassKeyOf( framebuffer->GetSpecification(),
+                                                      static_cast<uint32_t>( vulkanSwap->GetMSAASamples() ) );
         vkCmdBeginRenderPass( m_CurrentCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
         SetViewportAndScissor( framebuffer->GetFramebufferWidth(), framebuffer->GetFramebufferHeight() );
 
@@ -253,6 +255,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( IsRecording() )
         {
             vkCmdEndRenderPass( m_CurrentCommandBuffer );
+            m_OpenRenderPass.reset();
 
             // The implicit final subpass dependency uses dstStageMask=BOTTOM_OF_PIPE and
             // dstAccessMask=0, which makes color writes *available* (flushed from the
@@ -297,11 +300,26 @@ namespace Desert::Graphic::API::Vulkan
         if ( !pipeline )
             return false;
 
-        // Not const: a render pass at another sample count than the pipeline was built at creates (once) the
-        // variant for it (VulkanPipeline::GetVkPipelineForSamples).
+        // The pipeline is resolved against the render pass this draw is recorded in: the graph's, when an exec
+        // lambda records inside a graph-opened pass, else the one this API opened. Not const: a pass at another
+        // sample count than the pipeline was built at creates (once) the variant for it.
+        const RdgRenderPassKey* openPass = nullptr;
+        if ( m_RdgBackend && m_RdgBackend->GetOpenRenderPass() )
+            openPass = &*m_RdgBackend->GetOpenRenderPass();
+        else if ( m_OpenRenderPass )
+            openPass = &*m_OpenRenderPass;
+        if ( !openPass )
+        {
+            // No pass, so nothing to resolve the pipeline against. Latched by name like an unbuilt pipeline.
+            if ( m_WarnedUnbuiltPipelines
+                      .insert( std::format( "{}#outside-pass", pipeline->GetSpecification().DebugName ) )
+                      .second )
+                LOG_ERROR( "[Renderer] pipeline '{}' bound outside a render pass; not drawn",
+                           pipeline->GetSpecification().DebugName );
+            return false;
+        }
         auto* vulkanPipeline = const_cast<VulkanPipeline*>( static_cast<const VulkanPipeline*>( pipeline ) );
-        if ( const VkPipeline bound = vulkanPipeline->GetVkPipelineForSamples( VulkanPipeline::s_OpenPassSamples );
-             bound != VK_NULL_HANDLE )
+        if ( const VkPipeline bound = vulkanPipeline->GetVkPipelineFor( *openPass ); bound != VK_NULL_HANDLE )
         {
             vkCmdBindPipeline( m_CurrentCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, bound );
             return true;
