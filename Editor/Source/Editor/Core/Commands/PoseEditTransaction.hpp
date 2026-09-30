@@ -1,45 +1,22 @@
 #pragma once
 
 /**
- * ONE DRAG, ONE UNDO STEP — FOR THE HALF OF THE SEQUENCER THAT HAD NONE.
+ * THE GESTURES THAT AUTHOR A POSE, AND HOW EACH BECOMES ONE UNDO STEP.
  *
- * Before this file, `SequencerPanel.cpp` did not mention `CommandHistory` once and both of
- * `GizmoController`'s undo guards read `!usePose`, so the whole POSE branch — the gizmo writing the
- * Animator's authoring buffer, and every key the `ControlKeyer` wrote out of it — was outside the undo
- * stack. Ctrl+Z after an afternoon of posing walked back through property edits and entity renames and
- * skipped the animation entirely.
+ * The undo of animation DATA is one command: `SequenceEditCommand` over the owner's `Timeline::Sequence`
+ * (SequenceEdit.hpp), with an optional authoring-pose half. This file holds what drives it from the
+ * editor's surfaces, and the one pose that is not in a Sequence:
  *
- * Report 05 §971 asks for "one undo transaction and one key per control per interaction". `ControlKeyer`
- * shipped the second half (A28: the keys are deferred to the release edge). This is the first half, and
- * it is deliberately driven by THE SAME EDGE, so the two cannot disagree about what one interaction is.
+ *  - `ControlPoseCommand` / `RecordControlDrag` / `RotateControlRecorded` — a control's authored pose lives
+ *    in its `ControlHierarchy`, so it is its own command (see the class note for why not a byte command).
+ *  - `ControlGizmoGesture`, `BoneGizmoGesture` — ImGuizmo reports only "held this frame"; these turn a
+ *    press-drag-release into exactly one entry.
+ *  - `KeyBonePose`, `KeyControlsRecorded`, `ControlAutoKey` — keying, each keyed interaction one
+ *    `SequenceEditTransaction`, so the key and the pose it came from undo together.
  *
- * ── WHY A SNAPSHOT AND NOT AN INVERSE COMMAND ────────────────────────────────────────────────────────
- *
- * The obvious undo for "a key was written at tick T" is "remove the key at tick T". It is wrong here, and
- * `TrackEditing.hpp` says why at `SetTransformKey`: THE WHOLE TRACK'S AUTO TANGENTS ARE REFRESHED after
- * the upsert, because the new key is a new neighbour for the two keys around it. An inverse that deletes
- * the key leaves those neighbours holding slopes computed against a key that no longer exists — the curve
- * does not come back, it comes back NEARLY, which is the middle-link shape this tree keeps paying for. A
- * by-value snapshot of the affected tracks restores derived state without needing to know it is derived.
- *
- * The same argument applies to the pose: `showKeyedPose` in the panel reloads the WHOLE authoring buffer
- * from the clip after a key lands, so the bones an interaction changed are not only the bone that was
- * dragged. The transaction therefore diffs the whole buffer rather than remembering "the dragged bone".
- *
- * ── WHAT IS STORED, AND WHY IT IS A DIFF AND NOT THE WHOLE CLIP ──────────────────────────────────────
- *
- * The full "before" copy is taken and held only while the interaction is open — one copy, not one per
- * history entry. What the command keeps is the CHANGED tracks and the CHANGED bones. A cooked clip is
- * 100 bones x hundreds of keys; storing it whole twice per entry against `CommandHistory::kMaxEntries`
- * (256) is hundreds of megabytes for a drag that moved one bone.
- *
- * ── WHY IT IS VOLATILE ───────────────────────────────────────────────────────────────────────────────
- *
- * The command holds an `Animator*` and an `AnimationClip*`, exactly as `CommandHistory::ByteCommand`
- * holds a field address, and for the same reason: the Animator is a `unique_ptr` member of
- * `AnimationComponent` (no `weak_ptr` exists to take) and the clip lives inside an `AnimationAsset` that
- * an eviction may unload. So it reports `IsVolatile()` and `CommandHistory::DropVolatile` drops it
- * whenever its target may have died. See the `PointerOwnership` register for the two rows.
+ * Every entry is BY VALUE (a snapshot of the changed tracks), never an inverse: `SetTransformKey` refreshes
+ * the neighbours' auto tangents, so "remove the key at T" would leave them holding slopes computed against
+ * a key that no longer exists. The suite is ClipEditUndo.
  */
 
 #include <Editor/Core/CommandHistory.hpp>

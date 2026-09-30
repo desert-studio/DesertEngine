@@ -91,6 +91,9 @@ namespace Desert::Editor
                                         const Animation::Timeline::EventKey& b );
     [[nodiscard]] bool SameStoredValue( const Animation::Timeline::EventChannel& a,
                                         const Animation::Timeline::EventChannel& b );
+    /// The channel alternative is part of the value: a different alternative is a different value.
+    [[nodiscard]] bool SameStoredValue( const Animation::Timeline::Channel& a,
+                                        const Animation::Timeline::Channel& b );
     [[nodiscard]] bool SameStoredValue( const Animation::Timeline::AnimationSectionContent& a,
                                         const Animation::Timeline::AnimationSectionContent& b );
     [[nodiscard]] bool SameStoredValue( const Animation::Timeline::CameraCutSectionContent& a,

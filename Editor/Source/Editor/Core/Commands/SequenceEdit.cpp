@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <utility>
+#include <variant>
 
 namespace Desert::Editor
 {
@@ -32,6 +33,23 @@ namespace Desert::Editor
             const auto& [aValue] = a;
             const auto& [bValue] = b;
             return SameGuid( aValue, bValue );
+        }
+
+        /// Two values of one `std::variant`: same alternative, and that alternative's stored value equal.
+        template <typename... Ts>
+        [[nodiscard]] bool SameAlternative( const std::variant<Ts...>& x, const std::variant<Ts...>& y )
+        {
+            if ( x.index() != y.index() )
+            {
+                return false;
+            }
+            return std::visit(
+                 [&y]( const auto& value ) -> bool
+                 {
+                     using T = std::decay_t<decltype( value )>;
+                     return SameStoredValue( value, std::get<T>( y ) );
+                 },
+                 x );
         }
 
         /// A copy of @p sequence without its tracks — what the header half of an entry stores.
@@ -108,6 +126,11 @@ namespace Desert::Editor
         return SameList( aKeys, bKeys );
     }
 
+    bool SameStoredValue( const Timeline::Channel& a, const Timeline::Channel& b )
+    {
+        return SameAlternative( a, b );
+    }
+
     bool SameStoredValue( const Timeline::AnimationSectionContent& a, const Timeline::AnimationSectionContent& b )
     {
         const auto& [aClip, aOffset, aRate, aLoop] = a;
@@ -131,30 +154,8 @@ namespace Desert::Editor
         {
             return false;
         }
-        // The alternative's index is part of the value; the channel's own alternative is the next level.
-        const auto sameAlternative = []( const auto& x, const auto& y ) -> bool
-        {
-            if ( x.index() != y.index() )
-            {
-                return false;
-            }
-            return std::visit(
-                 [&y]( const auto& value ) -> bool
-                 {
-                     using T = std::decay_t<decltype( value )>;
-                     return SameStoredValue( value, std::get<T>( y ) );
-                 },
-                 x );
-        };
-        if ( aContent.index() != bContent.index() )
-        {
-            return false;
-        }
-        if ( const auto* channel = std::get_if<Timeline::Channel>( &aContent ) )
-        {
-            return sameAlternative( *channel, std::get<Timeline::Channel>( bContent ) );
-        }
-        return sameAlternative( aContent, bContent );
+        // The alternative's index is part of the value; a channel's own alternative is the next level.
+        return SameAlternative( aContent, bContent );
     }
 
     bool SameStoredValue( const Timeline::Binding& a, const Timeline::Binding& b )
