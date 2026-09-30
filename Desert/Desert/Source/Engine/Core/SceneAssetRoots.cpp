@@ -117,6 +117,10 @@ namespace Desert::Core
         for ( const auto entity : registry.view<ECS::FoliageComponent>() )
             roots.Mark( registry.get<ECS::FoliageComponent>( entity ).FoliageType,
                         "a foliage field is painted with it" );
+        // A level sequence actor plays its `.dseq` (UE: ALevelSequenceActor::LevelSequenceAsset).
+        for ( const auto entity : registry.view<ECS::LevelSequenceComponent>() )
+            roots.Mark( registry.get<ECS::LevelSequenceComponent>( entity ).Sequence,
+                        "a level sequence actor plays it" );
 
         for ( const auto entity : registry.view<ECS::RetargetComponent>() )
         {

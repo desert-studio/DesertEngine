@@ -215,6 +215,7 @@
 #include <Engine/ECS/System/AnimationECSSystem.hpp>
 #include <Engine/ECS/System/AttachmentSystem.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
+#include <Engine/ECS/System/LevelSequenceSystem.hpp>
 #include <Engine/ECS/System/LocomotionSystem.hpp>
 #include <Engine/ECS/System/ScriptSystem.hpp>
 #include <Engine/ECS/System/AudioECSSystem.hpp>
@@ -2998,6 +2999,9 @@ namespace Desert::Editor
         // (mechanism vs behaviour); runs after it so it reads this frame's state.
         scene.AddSystem<ECS::LocomotionSystem>( &scene );
         scene.AddSystem<ECS::AudioECSSystem>( &scene );
+        // Level sequences play last: a keyed Transform wins over this frame's physics and locomotion (UE
+        // evaluates sequences after the actors' own tick).
+        scene.AddSystem<ECS::LevelSequenceSystem>( &scene, m_AssetManager.get() );
     }
 
     Common::BoolResultStr EditorLayer::UpdateSceneFrame( Desert::Core::Scene&    scene,
