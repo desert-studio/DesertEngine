@@ -10,6 +10,6 @@ namespace Desert::Graphic
     void MaterialFXAA::BindInputs( const std::shared_ptr<Image2D>& inputImage )
     {
         if ( m_InputTexture && inputImage )
-            m_InputTexture->SetImage( inputImage.get() );
+            m_InputTexture->SetImage( inputImage.get(), RDG::Access::SampledGraphics );
     }
 } // namespace Desert::Graphic

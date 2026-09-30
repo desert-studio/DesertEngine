@@ -10,7 +10,7 @@ namespace Desert::Graphic
     void MaterialSMAAEdges::BindInputs( const std::shared_ptr<Image2D>& color )
     {
         if ( m_Color && color )
-            m_Color->SetImage( color.get() );
+            m_Color->SetImage( color.get(), RDG::Access::SampledGraphics );
     }
 
     MaterialSMAAWeights::MaterialSMAAWeights() : Material( "MaterialSMAAWeights", "SMAAWeights" )
@@ -23,11 +23,11 @@ namespace Desert::Graphic
     void MaterialSMAAWeights::BindInputs( Image2D* edges, Image2D* area, Image2D* search )
     {
         if ( m_Edges && edges )
-            m_Edges->SetImage( edges );
+            m_Edges->SetImage( edges, RDG::Access::SampledGraphics );
         if ( m_Area && area )
-            m_Area->SetImage( area );
+            m_Area->SetImage( area, RDG::Access::SampledGraphics );
         if ( m_Search && search )
-            m_Search->SetImage( search );
+            m_Search->SetImage( search, RDG::Access::SampledGraphics );
     }
 
     MaterialSMAABlend::MaterialSMAABlend() : Material( "MaterialSMAABlend", "SMAABlend" )
@@ -42,12 +42,12 @@ namespace Desert::Graphic
                                         Image2D* area )
     {
         if ( m_Color && color )
-            m_Color->SetImage( color.get() );
+            m_Color->SetImage( color.get(), RDG::Access::SampledGraphics );
         if ( m_Blend && weights )
-            m_Blend->SetImage( weights );
+            m_Blend->SetImage( weights, RDG::Access::SampledGraphics );
         if ( m_Edges && edges )
-            m_Edges->SetImage( edges );
+            m_Edges->SetImage( edges, RDG::Access::SampledGraphics );
         if ( m_Area && area )
-            m_Area->SetImage( area );
+            m_Area->SetImage( area, RDG::Access::SampledGraphics );
     }
 } // namespace Desert::Graphic

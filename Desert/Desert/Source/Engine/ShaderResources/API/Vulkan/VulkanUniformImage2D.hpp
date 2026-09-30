@@ -23,7 +23,8 @@ namespace Desert::ShaderResources::API::Vulkan
             return m_DescriptorInfo;
         }
 
-        virtual void SetImage2D( const Graphic::Image2D* image2D ) override;
+        virtual void SetImage2D( const Graphic::Image2D*             image2D,
+                                 std::optional<Graphic::RDG::Access> declared ) override;
 
     private:
         // `RT_Invalidate()` and `Release()` stood here with EMPTY BODIES, called from the constructor and

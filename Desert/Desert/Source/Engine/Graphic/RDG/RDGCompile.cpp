@@ -509,8 +509,10 @@ namespace Desert::Graphic::RDG
                         sub.GroupRaw = addRaw( position, sub.GroupBefore, use.State, transient );
                 }
                 else if ( sub.Group.IsReadOnly() && use.State.IsReadOnly() &&
-                          sub.Group.Layout == use.State.Layout )
+                          ( record.Kind == ResourceKind::Buffer || sub.Group.Layout == use.State.Layout ) )
                 {
+                    // A buffer has no layout, so any two of its reads merge (an indirect-argument read joins the
+                    // storage read before it); an image's reads merge only within one layout.
                     // Merged read state: the barrier that opened this group of reads is widened to cover
                     // this pass's stages too, so no barrier is needed between the readers.
                     sub.Group = MergeReadStates( sub.Group, use.State );
