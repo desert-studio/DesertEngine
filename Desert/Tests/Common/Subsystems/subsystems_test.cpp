@@ -104,3 +104,9 @@ TEST( Subsystems, ADestroyedSubsystemLeavesTheTree )
     host.tree.Route( resize );
     EXPECT_EQ( host.owner.Recorded(), 4u );
 }
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}

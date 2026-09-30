@@ -294,3 +294,9 @@ TEST( HeaderToolChecks, TheDiagnosticReadsFileLineError )
     EXPECT_EQ( FormatDiagnostic( { "Editor/Source/Panel.hpp", 42, "message" } ),
                "Editor/Source/Panel.hpp:42: error: message" );
 }
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}
