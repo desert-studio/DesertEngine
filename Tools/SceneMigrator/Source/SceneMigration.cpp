@@ -10,6 +10,7 @@
 // The graph model and its JSON round trip, for the v20 -> v21 step: the blob it moves out of the entity
 // IS this type serialized, so reading it with anything else would be a second statement of the format.
 #include <Engine/Animation/Graph/AnimGraph.hpp>
+#include <Engine/Assets/Serialization/Skeleton.hpp>
 
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -702,6 +703,47 @@ namespace Desert::Migration
             Assets::Serialization::FoliageFloatInterval               GroundSlopeAngle{ 0.0f, 90.0f };
         };
     } // namespace
+
+    namespace
+    {
+        // SKEL 1 as it was written: the v2 struct without PreviewMesh / CompatibleSkeletons.
+        struct SkeletonAssetDataV1
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            uint64_t                                                  Signature = 0;
+            std::vector<Desert::Animation::BoneInfo>                  Bones;
+            std::optional<Assets::Serialization::SkeletonImportInfo>  Import;
+        };
+    } // namespace
+
+    Common::ResultStr<std::string> MigrateSkeletonV1ToV2( const std::string& text )
+    {
+        const auto v1 = Common::Json::Read<SkeletonAssetDataV1>( text );
+        if ( !v1 )
+            return Common::MakeFormattedError<std::string>( "SKEL 1 body does not read: {}", v1.GetError() );
+        const SkeletonAssetDataV1& old = v1.GetValue();
+        if ( !old.Header )
+            return Common::MakeFormattedError<std::string>( "the file states no header" );
+        const auto stated = old.Header->Versions.find( "SKEL" );
+        if ( stated == old.Header->Versions.end() || stated->second != 1u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states SKEL {}, and this step raises SKEL 1 only",
+                 stated == old.Header->Versions.end() ? std::string( "nothing" )
+                                                      : std::to_string( stated->second ) );
+
+        Assets::Serialization::SkeletonAssetData data;
+        data.Header                   = old.Header;
+        data.Header->Versions["SKEL"] = 2u;
+        data.Signature                = old.Signature;
+        data.Bones                    = old.Bones;
+        data.Import                   = old.Import;
+        std::string written           = Common::Json::Write( data );
+        // What the step writes, the engine's reader must read.
+        if ( auto back = Assets::Serialization::ReadSkeletonJson( written ); !back )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as SKEL 2: {}",
+                                                            back.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
 
     Common::ResultStr<std::string> MigrateFoliageTypeV1ToV2( const std::string& text )
     {
