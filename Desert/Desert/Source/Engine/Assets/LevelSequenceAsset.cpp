@@ -43,7 +43,10 @@ namespace Desert::Assets
         if ( guid.IsNull() )
             return Common::MakeError<std::string>( "a .dseq needs a GUID; the null GUID names no asset" );
 
-        const std::vector<uint8_t> block    = Animation::Timeline::WriteSequence( sequence );
+        auto written = Animation::Timeline::WriteSequence( sequence );
+        if ( !written )
+            return Common::MakeFormattedError<std::string>( "the sequence did not write: {}", written.GetError() );
+        const std::vector<uint8_t> block    = written.ExtractValue();
         auto                       envelope = Common::Json::Read<LevelSequenceEnvelope>(
              std::string_view( reinterpret_cast<const char*>( block.data() ), block.size() ) );
         if ( !envelope )

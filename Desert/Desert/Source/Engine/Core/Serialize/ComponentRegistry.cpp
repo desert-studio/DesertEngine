@@ -1608,8 +1608,15 @@ namespace Desert::Core::Serialize
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::UIAnimComponent>(); };
             s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
             {
-                const auto&                d     = e.GetComponent<ECS::UIAnimComponent>().Data;
-                const std::vector<uint8_t> bytes = Animation::Timeline::WriteSequence( d.Sequence );
+                const auto& d       = e.GetComponent<ECS::UIAnimComponent>().Data;
+                auto        written = Animation::Timeline::WriteSequence( d.Sequence );
+                if ( !written )
+                {
+                    // A sequence the writer refuses is named here rather than saved as an empty clip.
+                    LOG_ERROR( "UIAnim: the TMLN writer refused the sequence: {}", written.GetError() );
+                    return Common::Json::Value{};
+                }
+                const std::vector<uint8_t> bytes = written.ExtractValue();
                 auto                       block = Common::Json::Read<Common::Json::Value>(
                      std::string_view( reinterpret_cast<const char*>( bytes.data() ), bytes.size() ) );
                 if ( !block )

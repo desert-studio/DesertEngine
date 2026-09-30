@@ -414,7 +414,14 @@ namespace Desert::Migration
                                report.Refused.push_back( "entity " + who + ": " + lifted.GetError() );
                                return false;
                            }
-                           const std::vector<uint8_t> bytes = TL::WriteSequence( lifted.GetValue().Lifted );
+                           auto written = TL::WriteSequence( lifted.GetValue().Lifted );
+                           if ( !written )
+                           {
+                               report.Refused.push_back( "entity " + who + ": the TMLN writer refused: " +
+                                                         written.GetError() );
+                               return false;
+                           }
+                           const std::vector<uint8_t> bytes = written.ExtractValue();
                            const auto sequence = rfl::json::read<rfl::Generic>(
                                 std::string( reinterpret_cast<const char*>( bytes.data() ), bytes.size() ) );
                            if ( !sequence )
