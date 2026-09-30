@@ -23,9 +23,9 @@ namespace Desert::Graphic
                          float power, int sampleCount )
         {
             if ( m_Pos && worldPos )
-                m_Pos->SetImage( worldPos.get() );
+                m_Pos->SetImage( worldPos.get(), RDG::Access::SampledGraphics );
             if ( m_Normal && normal )
-                m_Normal->SetImage( normal.get() );
+                m_Normal->SetImage( normal.get(), RDG::Access::SampledGraphics );
 
             struct SSAOUBData
             {

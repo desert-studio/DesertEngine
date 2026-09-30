@@ -92,19 +92,19 @@ namespace Desert::Graphic
                          const DeferredEnvironmentInput& environment )
         {
             if ( m_GBufferA && gA )
-                m_GBufferA->SetImage( gA.get() );
+                m_GBufferA->SetImage( gA.get(), RDG::Access::SampledGraphics );
             if ( m_GBufferB && gB )
-                m_GBufferB->SetImage( gB.get() );
+                m_GBufferB->SetImage( gB.get(), RDG::Access::SampledGraphics );
             if ( m_GBufferC && gC )
-                m_GBufferC->SetImage( gC.get() );
+                m_GBufferC->SetImage( gC.get(), RDG::Access::SampledGraphics );
             if ( m_GBufferEmissive && gE )
-                m_GBufferEmissive->SetImage( gE.get() );
+                m_GBufferEmissive->SetImage( gE.get(), RDG::Access::SampledGraphics );
             if ( m_SSAO && aoImage )
-                m_SSAO->SetImage( aoImage.get() );
+                m_SSAO->SetImage( aoImage.get(), RDG::Access::SampledGraphics );
             // RSM mode only: the resolved indirect-light buffer. In the screen-space / off modes nothing is
             // bound here and the shader never samples it (the descriptor keeps its dummy image).
             if ( m_GI && giImage )
-                m_GI->SetImage( giImage.get() );
+                m_GI->SetImage( giImage.get(), RDG::Access::SampledGraphics );
 
             // The baked sky, SET EVERY FRAME INCLUDING WHEN IT IS ABSENT — matching
             // Graphic::SceneEnvironmentBind's shape, so the two paths cannot end up sampling different
@@ -198,7 +198,7 @@ namespace Desert::Graphic
                 Image2D* img = ( i < n ) ? shadow.CascadeMaps[i] : nullptr;
                 if ( img )
                     if ( auto* tex = Get<Texture2DProperty>( kNames[i] ) )
-                        tex->SetImage( img );
+                        tex->SetImage( img, RDG::Access::SampledGraphics );
             }
         }
 

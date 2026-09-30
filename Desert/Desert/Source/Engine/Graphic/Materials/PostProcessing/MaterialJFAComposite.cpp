@@ -12,10 +12,10 @@ namespace Desert::Graphic
                                            const glm::vec4& outlineColor, float outlineWidth, float smoothness )
     {
         if ( m_JFATexture && jfaSeed )
-            m_JFATexture->SetImage( jfaSeed );
+            m_JFATexture->SetImage( jfaSeed, RDG::Access::SampledGraphics );
 
         if ( m_SceneTexture && sceneColor )
-            m_SceneTexture->SetImage( sceneColor );
+            m_SceneTexture->SetImage( sceneColor, RDG::Access::SampledGraphics );
 
         SetOutlineColor( outlineColor );
         SetOutlineWidth( outlineWidth );

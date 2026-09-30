@@ -11,7 +11,7 @@ namespace Desert::Graphic
     {
         if ( m_MaskTexture && maskImage )
         {
-            m_MaskTexture->SetImage( maskImage );
+            m_MaskTexture->SetImage( maskImage, RDG::Access::SampledGraphics );
         }
     }
 
@@ -24,7 +24,7 @@ namespace Desert::Graphic
     {
         if ( m_InputTexture && inputSeed )
         {
-            m_InputTexture->SetImage( inputSeed );
+            m_InputTexture->SetImage( inputSeed, RDG::Access::SampledGraphics );
         }
         m_MaterialExecutor->PushConstant( &stepLength, sizeof( int ) );
     }

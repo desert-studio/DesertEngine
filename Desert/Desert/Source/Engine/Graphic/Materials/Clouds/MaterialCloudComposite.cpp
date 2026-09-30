@@ -27,9 +27,9 @@ namespace Desert::Graphic
     void MaterialCloudComposite::BindInputs( const Image2D* scatterImage, const Image2D* guideImage )
     {
         if ( m_ScatterTexture && scatterImage )
-            m_ScatterTexture->SetImage( scatterImage );
+            m_ScatterTexture->SetImage( scatterImage, RDG::Access::SampledGraphics );
 
         if ( m_GuideTexture && guideImage )
-            m_GuideTexture->SetImage( guideImage );
+            m_GuideTexture->SetImage( guideImage, RDG::Access::SampledGraphics );
     }
 } // namespace Desert::Graphic

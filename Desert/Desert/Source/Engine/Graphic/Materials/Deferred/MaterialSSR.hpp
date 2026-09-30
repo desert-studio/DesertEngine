@@ -35,7 +35,7 @@ namespace Desert::Graphic
         void BindTileMask( const std::shared_ptr<Image2D>& mask )
         {
             if ( m_TileMask != nullptr && mask != nullptr )
-                m_TileMask->SetImage( mask.get() );
+                m_TileMask->SetImage( mask.get(), RDG::Access::SampledGraphics );
         }
 
         void BindInputs( const std::shared_ptr<Image2D>& trace, const std::shared_ptr<Image2D>& history,
@@ -43,11 +43,11 @@ namespace Desert::Graphic
                          const glm::vec2& texelSize, float historyBlend )
         {
             if ( m_Trace && trace )
-                m_Trace->SetImage( trace.get() );
+                m_Trace->SetImage( trace.get(), RDG::Access::SampledGraphics );
             if ( m_History && history )
-                m_History->SetImage( history.get() );
+                m_History->SetImage( history.get(), RDG::Access::SampledGraphics );
             if ( m_WorldPos && worldPos )
-                m_WorldPos->SetImage( worldPos.get() );
+                m_WorldPos->SetImage( worldPos.get(), RDG::Access::SampledGraphics );
 
             struct SSRResolveUBData
             {
@@ -84,16 +84,16 @@ namespace Desert::Graphic
         void BindTileMask( const std::shared_ptr<Image2D>& mask )
         {
             if ( m_TileMask != nullptr && mask != nullptr )
-                m_TileMask->SetImage( mask.get() );
+                m_TileMask->SetImage( mask.get(), RDG::Access::SampledGraphics );
         }
 
         void BindInputs( const std::shared_ptr<Image2D>& ssr, const std::shared_ptr<Image2D>& normal,
                          const glm::vec2& texelSize )
         {
             if ( m_SSR && ssr )
-                m_SSR->SetImage( ssr.get() );
+                m_SSR->SetImage( ssr.get(), RDG::Access::SampledGraphics );
             if ( m_Normal && normal )
-                m_Normal->SetImage( normal.get() );
+                m_Normal->SetImage( normal.get(), RDG::Access::SampledGraphics );
 
             const glm::vec4 params( texelSize.x, texelSize.y, 0.0f, 0.0f );
             if ( auto* ub = Get<UniformBufferProperty>( "SSRCompositeUB" ) )

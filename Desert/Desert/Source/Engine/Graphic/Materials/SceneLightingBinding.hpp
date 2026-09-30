@@ -163,7 +163,7 @@ namespace Desert::Graphic
             Image2D* img = ( i < n ) ? cascadeMaps[i] : nullptr;
             if ( img )
                 if ( auto* tex = material->Get<Texture2DProperty>( MaterialPBRBase::kShadowMapNames[i] ) )
-                    tex->SetImage( img );
+                    tex->SetImage( img, RDG::Access::SampledGraphics );
         }
     }
 

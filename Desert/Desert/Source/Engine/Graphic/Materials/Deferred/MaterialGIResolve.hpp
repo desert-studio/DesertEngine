@@ -28,15 +28,15 @@ namespace Desert::Graphic
                          const glm::vec4& sunColorIntensity, float giIntensity, float jitterSeed )
         {
             if ( m_Normal && normal )
-                m_Normal->SetImage( normal.get() );
+                m_Normal->SetImage( normal.get(), RDG::Access::SampledGraphics );
             if ( m_WorldPos && worldPos )
-                m_WorldPos->SetImage( worldPos.get() );
+                m_WorldPos->SetImage( worldPos.get(), RDG::Access::SampledGraphics );
             if ( m_RSMAlbedo && rsmAlbedo )
-                m_RSMAlbedo->SetImage( rsmAlbedo.get() );
+                m_RSMAlbedo->SetImage( rsmAlbedo.get(), RDG::Access::SampledGraphics );
             if ( m_RSMNormal && rsmNormal )
-                m_RSMNormal->SetImage( rsmNormal.get() );
+                m_RSMNormal->SetImage( rsmNormal.get(), RDG::Access::SampledGraphics );
             if ( m_RSMWorldPos && rsmWorldPos )
-                m_RSMWorldPos->SetImage( rsmWorldPos.get() );
+                m_RSMWorldPos->SetImage( rsmWorldPos.get(), RDG::Access::SampledGraphics );
 
             struct GIResolveUBData
             {
