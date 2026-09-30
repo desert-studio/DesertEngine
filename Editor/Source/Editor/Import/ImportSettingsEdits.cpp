@@ -47,7 +47,8 @@ namespace Desert::Editor::ImportOptions
 
         // The record states what the copy was read from: the edit not yet applied survives. A different record
         // is newer than the edit and wins over it.
-        if ( it != edits.end() && it->second.Recorded == settings.GetValue() && it->second.Kind == kind.GetValue() )
+        if ( it != edits.end() && it->second.Recorded == settings.GetValue() &&
+             it->second.Kind == kind.GetValue() )
         {
             it->second.RecordTime = written;
             it->second.RecordRacy = racy;
