@@ -341,7 +341,110 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             }
         }
 
+        if ( stage == Core::Formats::ShaderStage::Vertex )
+            data.VertexInputLocations = ReflectVertexInputLocations( spirv );
+
         return diagnostics;
+    }
+
+    std::vector<uint32_t> ReflectVertexInputLocations( const std::vector<uint32_t>& spirv )
+    {
+        spirv_cross::Compiler              compiler( spirv );
+        const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
+
+        std::vector<uint32_t> locations;
+        for ( const auto& input : resources.stage_inputs )
+        {
+            const uint32_t first = compiler.get_decoration( input.id, spv::DecorationLocation );
+            const auto&    type  = compiler.get_type( input.type_id );
+            uint32_t       count = std::max( type.columns, 1u );
+            for ( const uint32_t length : type.array )
+                count *= std::max( length, 1u );
+            for ( uint32_t i = 0; i < count; ++i )
+                locations.push_back( first + i );
+        }
+        std::sort( locations.begin(), locations.end() );
+        locations.erase( std::unique( locations.begin(), locations.end() ), locations.end() );
+        return locations;
+    }
+
+    VkFormat VertexAttributeFormat( const ShaderDataType type )
+    {
+        switch ( type )
+        {
+            case ShaderDataType::Float:    return VK_FORMAT_R32_SFLOAT;
+            case ShaderDataType::Float2:   return VK_FORMAT_R32G32_SFLOAT;
+            case ShaderDataType::Float3:   return VK_FORMAT_R32G32B32_SFLOAT;
+            case ShaderDataType::Float4:   return VK_FORMAT_R32G32B32A32_SFLOAT;
+            case ShaderDataType::Int:      return VK_FORMAT_R32_SINT;
+            case ShaderDataType::Int2:     return VK_FORMAT_R32G32_SINT;
+            case ShaderDataType::Int3:     return VK_FORMAT_R32G32B32_SINT;
+            case ShaderDataType::Int4:     return VK_FORMAT_R32G32B32A32_SINT;
+            case ShaderDataType::Bool:     return VK_FORMAT_R8_UINT;
+            case ShaderDataType::UNorm8x4: return VK_FORMAT_R8G8B8A8_UNORM;
+            case ShaderDataType::None:     break;
+        }
+        return VK_FORMAT_UNDEFINED;
+    }
+
+    bool VertexInputState::HasBinding( const uint32_t binding ) const
+    {
+        return std::ranges::any_of( Bindings, [binding]( const VkVertexInputBindingDescription& b )
+                                    { return b.binding == binding; } );
+    }
+
+    bool VertexInputState::HasLocation( const uint32_t location ) const
+    {
+        return std::ranges::any_of( Attributes, [location]( const VkVertexInputAttributeDescription& a )
+                                    { return a.location == location; } );
+    }
+
+    VertexInputState BuildVertexInput( const VertexBufferLayout& layout, const std::vector<uint32_t>& consumedLocations )
+    {
+        VertexInputState state;
+        const auto       consumed = [&consumedLocations]( const uint32_t location )
+        { return std::ranges::binary_search( consumedLocations, location ); };
+
+        // Every location the layout feeds, whether or not the stage reads it: what is left of
+        // consumedLocations after this is input the stage reads and no stream provides.
+        std::vector<uint32_t> fed;
+        const auto            addAttribute = [&]( const VertexBufferElement& element, const uint32_t location,
+                                                  const uint32_t binding )
+        {
+            fed.push_back( location );
+            if ( !consumed( location ) )
+                return false;
+            const VkFormat format = VertexAttributeFormat( element.Type );
+            if ( format == VK_FORMAT_UNDEFINED )
+            {
+                state.Errors.push_back( std::format( "vertex attribute '{}' (location {}) has no Vulkan format",
+                                                     element.Name, location ) );
+                return false;
+            }
+            state.Attributes.push_back(
+                 { .location = location, .binding = binding, .format = format, .offset = element.Offset } );
+            return true;
+        };
+
+        state.Bindings.push_back( { .binding = 0, .stride = layout.GetStride(), .inputRate = VK_VERTEX_INPUT_RATE_VERTEX } );
+        for ( uint32_t location = 0; const auto& element : layout )
+            addAttribute( element, location++, 0 );
+
+        // Binding 1 (VertexBufferLayout::WithStreams) only when the stage reads at least one stream.
+        bool streamRead = false;
+        for ( uint32_t location = layout.GetStreamFirstLocation(); const auto& element : layout.GetStreamElements() )
+            streamRead = addAttribute( element, location++, 1 ) || streamRead;
+        if ( streamRead )
+            state.Bindings.push_back(
+                 { .binding = 1, .stride = layout.GetStreamStride(), .inputRate = VK_VERTEX_INPUT_RATE_VERTEX } );
+
+        for ( const uint32_t location : consumedLocations )
+        {
+            if ( std::ranges::find( fed, location ) == fed.end() )
+                state.Errors.push_back( std::format(
+                     "the vertex stage reads location {}, which the vertex layout does not feed", location ) );
+        }
+        return state;
     }
 
     std::vector<VkDescriptorSetLayoutBinding> BuildLayoutBindings( const ShaderResource::ShaderDescriptorSet& set )

@@ -4,6 +4,7 @@
 
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
 
 #include <vulkan/vulkan.hpp>
 
@@ -67,11 +68,12 @@ namespace Desert::Graphic::API::Vulkan
         {
             return GetBuildState() == BuildState::Built ? m_Pipeline : VK_NULL_HANDLE;
         }
-        // The layout carries the optional streams binding (binding 1): the draw must bind a buffer there.
+        // The pipeline's vertex input describes the optional streams binding (binding 1) — the layout has
+        // streams AND the vertex stage reads one of them (ShaderReflection::BuildVertexInput): the draw
+        // must bind a buffer there, and must not otherwise.
         [[nodiscard]] bool HasVertexStreams() const
         {
-            return !m_Specification.PullingConfig && m_Specification.Layout &&
-                   m_Specification.Layout->HasStreams();
+            return m_VertexInput.HasBinding( 1 );
         }
 
         VkPipelineLayout GetVkPipelineLayout() const
@@ -125,9 +127,9 @@ namespace Desert::Graphic::API::Vulkan
         VkPipelineMultisampleStateCreateInfo   m_Multisampling{};
         VkPipelineDepthStencilStateCreateInfo  m_DepthStencil{};
         VkPipelineColorBlendStateCreateInfo            m_ColorBlending{};
-        std::array<VkVertexInputBindingDescription, 2> m_VertexInputBindings{};
+        // Layout ∩ vertex-stage inputs; m_VertexInputInfo points into it.
+        ShaderReflection::VertexInputState m_VertexInput;
 
-        std::vector<VkVertexInputAttributeDescription>   m_VertexAttributes;
         std::vector<VkDynamicState>                      m_DynamicStates;
         std::vector<VkPipelineColorBlendAttachmentState> m_ColorBlendAttachments;
 

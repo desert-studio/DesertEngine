@@ -165,6 +165,12 @@ namespace Desert::Graphic::API::Vulkan
             return m_ReflectionData.PushConstantRanges;
         }
 
+        // The input locations the vertex stage declares (ShaderReflection::ReflectVertexInputLocations).
+        [[nodiscard]] const std::vector<uint32_t>& GetVertexInputLocations() const
+        {
+            return m_ReflectionData.VertexInputLocations;
+        }
+
         auto& GetVulkanDescriptorSetInfo() const
         {
             return m_DescriptorSetInfo;

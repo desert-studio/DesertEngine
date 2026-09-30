@@ -95,29 +95,6 @@ namespace Desert::Graphic::API::Vulkan
                 default: return VK_CULL_MODE_BACK_BIT;
             }
         }
-
-        static VkFormat ShaderDataTypeToVulkanFormat( ShaderDataType type )
-        {
-            switch ( type )
-            {
-                case ShaderDataType::Float:  return VK_FORMAT_R32_SFLOAT;
-                case ShaderDataType::Float2: return VK_FORMAT_R32G32_SFLOAT;
-                case ShaderDataType::Float3: return VK_FORMAT_R32G32B32_SFLOAT;
-                case ShaderDataType::Float4: return VK_FORMAT_R32G32B32A32_SFLOAT;
-                case ShaderDataType::Int:    return VK_FORMAT_R32_SINT;
-                case ShaderDataType::Int2:   return VK_FORMAT_R32G32_SINT;
-                case ShaderDataType::Int3:   return VK_FORMAT_R32G32B32_SINT;
-                case ShaderDataType::Int4:   return VK_FORMAT_R32G32B32A32_SINT;
-                case ShaderDataType::Bool:   return VK_FORMAT_R8_UINT;
-                case ShaderDataType::UNorm8x4:
-                    return VK_FORMAT_R8G8B8A8_UNORM;
-                default:
-                {
-                    DESERT_VERIFY( false, "Unknown ShaderDataType!" );
-                    return VK_FORMAT_UNDEFINED;
-                }
-            }
-        }
     }
 
     VulkanPipeline::VulkanPipeline( const GraphicsPipelineSpecification& specification ) 
@@ -263,6 +240,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanPipeline::CreateVertexInputState()
     {
+        m_VertexInput = {};
         if ( m_Specification.PullingConfig )
         {
             m_VertexInputInfo = VkPipelineVertexInputStateCreateInfo{
@@ -285,48 +263,22 @@ namespace Desert::Graphic::API::Vulkan
             return;
         }
 
-        const auto& layout       = m_Specification.Layout.value();
-        m_VertexInputBindings[0] = VkVertexInputBindingDescription{
-             .binding = 0, .stride = layout.GetStride(), .inputRate = VK_VERTEX_INPUT_RATE_VERTEX };
-
-        m_VertexAttributes.clear();
-        for ( uint32_t location = 0; const auto& element : layout )
-        {
-            m_VertexAttributes.push_back(
-                 VkVertexInputAttributeDescription{ .location = location,
-                                                    .binding  = 0,
-                                                    .format   = ShaderDataTypeToVulkanFormat( element.Type ),
-                                                    .offset   = element.Offset } );
-            location++;
-        }
-
-        // The optional streams (VertexBufferLayout::WithStreams): binding 1, always read per vertex at the
-        // streams' stride — from the mesh's own buffer, or from the shared default one (white, UV1 0,0) that
-        // holds at least as many vertices (VulkanRendererAPI::RenderMesh). ONE vertex-input state, one
-        // pipeline: a stride-0 binding is refused on portability devices (vertexAttributeAccessBeyondStride).
-        const uint32_t bindingCount = layout.HasStreams() ? 2u : 1u;
-        if ( layout.HasStreams() )
-        {
-            m_VertexInputBindings[1] = VkVertexInputBindingDescription{
-                 .binding = 1, .stride = layout.GetStreamStride(), .inputRate = VK_VERTEX_INPUT_RATE_VERTEX };
-            for ( uint32_t    location = layout.GetStreamFirstLocation();
-                  const auto& element : layout.GetStreamElements() )
-            {
-                m_VertexAttributes.push_back(
-                     VkVertexInputAttributeDescription{ .location = location,
-                                                        .binding  = 1,
-                                                        .format   = ShaderDataTypeToVulkanFormat( element.Type ),
-                                                        .offset   = element.Offset } );
-                location++;
-            }
-        }
+        // Layout ∩ what the vertex stage reads (ShaderReflection::BuildVertexInput): no attribute for a
+        // location the shader does not declare, no binding 1 when none of its streams is read.
+        const auto* vulkanShader =
+             std::static_pointer_cast<Graphic::API::Vulkan::VulkanShader>( m_Specification.Shader ).get();
+        m_VertexInput = ShaderReflection::BuildVertexInput( m_Specification.Layout.value(),
+                                                            vulkanShader->GetVertexInputLocations() );
+        for ( const auto& error : m_VertexInput.Errors )
+            LOG_ERROR( "[Pipeline] '{}' (shader '{}'): {}", m_Specification.DebugName,
+                       m_Specification.Shader->GetName(), error );
 
         m_VertexInputInfo = VkPipelineVertexInputStateCreateInfo{
              .sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-             .vertexBindingDescriptionCount   = bindingCount,
-             .pVertexBindingDescriptions      = m_VertexInputBindings.data(),
-             .vertexAttributeDescriptionCount = static_cast<uint32_t>( m_VertexAttributes.size() ),
-             .pVertexAttributeDescriptions    = m_VertexAttributes.data() };
+             .vertexBindingDescriptionCount   = static_cast<uint32_t>( m_VertexInput.Bindings.size() ),
+             .pVertexBindingDescriptions      = m_VertexInput.Bindings.data(),
+             .vertexAttributeDescriptionCount = static_cast<uint32_t>( m_VertexInput.Attributes.size() ),
+             .pVertexAttributeDescriptions    = m_VertexInput.Attributes.data() };
     }
 
     void VulkanPipeline::CreateInputAssemblyState()

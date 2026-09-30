@@ -376,7 +376,9 @@ namespace Desert::Graphic::API::Vulkan
         vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 0, 1, &vbuffer, offsets );
         // Binding 1, the optional streams (MeshVertexLayout): the mesh's own, or the shared default holding at
         // least as many vertices as this mesh — one pipeline, one stride either way.
-        // HasVertexStreams is read off the pipeline's vertex layout (VulkanPipeline), so it implies one.
+        // HasVertexStreams is read off the pipeline's BUILT vertex input (layout ∩ vertex-stage inputs,
+        // VulkanPipeline::CreateVertexInputState): a pipeline whose shader reads no stream has no binding 1
+        // and gets no buffer there. It implies a layout.
         if ( const auto& layout = pipeline->GetSpecification().Layout;
              vulkanPipeline->HasVertexStreams() && layout.has_value() )
         {
