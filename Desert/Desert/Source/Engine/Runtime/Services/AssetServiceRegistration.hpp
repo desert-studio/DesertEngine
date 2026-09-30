@@ -5,6 +5,7 @@
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/Core.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 
 namespace Desert::Core
 {
@@ -83,6 +84,11 @@ namespace Desert::Runtime
     /// an instance states no template of its own. Empty when the chain reaches none; a refusal when there is
     /// no material service to walk it. Callers outside the runtime ask HERE rather than reaching the service.
     NO_DISCARD Common::ResultStr<std::string> MaterialTemplateNameOf( const Assets::AssetHandle& material );
+
+    /// The slots @p material resolves to through its parent chain (MaterialService::ResolveOverrides). A refusal
+    /// when there is no material service or the handle resolves to no registered material.
+    NO_DISCARD Common::ResultStr<Graphic::MaterialOverrides>
+               MaterialOverridesOf( const Assets::AssetHandle& material );
 
     /// Register @p mesh with the MeshService as a LAZY SHELL if it is not already there. Idempotent.
     ///

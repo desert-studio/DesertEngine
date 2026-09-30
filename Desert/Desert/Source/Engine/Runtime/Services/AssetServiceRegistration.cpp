@@ -68,6 +68,17 @@ namespace Desert::Runtime
         return Common::MakeSuccess( service->ShaderHandleOf( material ).CompileName );
     }
 
+    Common::ResultStr<Graphic::MaterialOverrides> MaterialOverridesOf( const Assets::AssetHandle& material )
+    {
+        auto* service = Materials();
+        if ( service == nullptr )
+            return Common::MakeError<Graphic::MaterialOverrides>( "there is no material service to resolve it" );
+        Graphic::MaterialOverrides slots;
+        if ( !service->ResolveOverrides( material, slots ) )
+            return Common::MakeError<Graphic::MaterialOverrides>( "it resolves to no registered material" );
+        return Common::MakeSuccess( std::move( slots ) );
+    }
+
     void EnsureMeshRegistered( const Assets::Asset<Assets::MeshAsset>& mesh, Assets::AssetManager& registry )
     {
         auto* service = Meshes();

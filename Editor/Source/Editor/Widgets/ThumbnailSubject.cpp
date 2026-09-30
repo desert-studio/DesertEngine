@@ -107,9 +107,10 @@ namespace Desert::Editor::ThumbnailSubject
                  "its shader '{}' is Skybox-domain with no TextureCube property, so there is no sky to show",
                  shaderName );
 
-        Graphic::MaterialOverrides slots;
-        if ( !materials->ResolveOverrides( Assets::AssetHandle( material ), slots ) )
-            return Common::MakeFormattedError<Answer>( "it resolves to no registered material" );
+        auto resolved = Runtime::MaterialOverridesOf( Assets::AssetHandle( material ) );
+        if ( !resolved.IsSuccess() )
+            return Common::MakeFormattedError<Answer>( "{}", resolved.GetError() );
+        const Graphic::MaterialOverrides& slots = resolved.GetValue();
         const auto bound = std::find_if( slots.Textures.begin(), slots.Textures.end(),
                                          [&]( const auto& t ) { return t.first == cube->Name; } );
         if ( bound == slots.Textures.end() || bound->second == 0 )
