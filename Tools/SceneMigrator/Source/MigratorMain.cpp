@@ -57,6 +57,7 @@
 #include "SceneMigration.hpp"
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include "SettingsCanonical.hpp"
+#include "ClipInterpShift.hpp"
 #include "ClipMigration.hpp"
 #include "ImportRecordSourceHash.hpp"
 #include <Engine/Animation/Timeline/Hosts.hpp>
@@ -1093,8 +1094,6 @@ namespace Desert::Migration
                 }
                 out << "lifted " << path.string() << " — " << what << "\n";
                 ++relaid;
-                continue;
-            }
                 continue;
             }
             if ( !PassesTextHeaderGate( *TextHeaderGateFor( path ), path, source, err ) )
