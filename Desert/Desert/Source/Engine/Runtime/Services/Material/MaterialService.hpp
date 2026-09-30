@@ -133,6 +133,17 @@ namespace Desert::Runtime
         Graphic::DataDrivenMaterial* GetVariant( const Graphic::Material* built, Graphic::MeshVertexPath path,
                                                  Graphic::MeshPass pass ) const;
 
+        // The same cell as GetVariant, ONE PER VIEW: for a pass that draws one `.demat` under several views
+        // in ONE frame — the shadow cascades, each with its own light matrix. A material's per-frame blocks
+        // (the camera among them) are the material's, so a single GetVariant sibling drawn into four cascades
+        // would have its camera written four times a frame and every recorded draw would read the last — the
+        // hazard the renderer's own caster materials are per-cascade for. Built on miss from the asset exactly
+        // as GetVariant's sibling is (same parameters, same textures), owned here beside it: an edit reaches
+        // it through GetBuiltVariants and Invalidate retires it with the rest. Null on the same terms as
+        // GetVariant.
+        Graphic::DataDrivenMaterial* GetViewVariant( const Graphic::Material* built, Graphic::MeshVertexPath path,
+                                                     Graphic::MeshPass pass, uint32_t view ) const;
+
         // Whether this runtime material came from a `.demat` this service holds. FALSE for a material a
         // renderer built for itself — the glass pass, the RSM pass, the instanced batch material, and
         // MeshECSSystem's default material, which stands in for every mesh whose slot does not resolve.
@@ -310,6 +321,14 @@ namespace Desert::Runtime
 
         mutable uint32_t                                              m_InvalidationVersion = 0;
         mutable std::unordered_map<Assets::AssetHandle, PathVariants> m_Materials;
+        // GetViewVariant's materials: per asset, one per (cell slot x view), built on first ask.
+        struct ViewVariant
+        {
+            size_t                             Slot = 0;
+            uint32_t                           View = 0;
+            std::shared_ptr<Graphic::Material> Material;
+        };
+        mutable std::unordered_map<Assets::AssetHandle, std::vector<ViewVariant>> m_ViewMaterials;
         // Mutable: discovery on a miss fills these from const lookups (Get, ShaderHandleOf, ...), which is a
         // cache fill, not a change of what the service answers.
         mutable std::unordered_map<Common::UUID, Assets::AssetHandle> m_ExternalToInternal;

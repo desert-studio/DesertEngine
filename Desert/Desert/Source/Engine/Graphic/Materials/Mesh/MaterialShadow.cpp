@@ -46,15 +46,20 @@ namespace Desert::Graphic
     {
     }
 
-    void MaterialShadow::SetLightMatrix( const glm::mat4& view, const glm::mat4& projection )
+    void WriteLightCamera( Material& material, const glm::mat4& view, const glm::mat4& projection )
     {
         ShaderProtocols::Camera cameraUB;
         cameraUB.Projection = projection;
         cameraUB.View       = view;
         cameraUB.CameraPos  = glm::vec3( 0.0f );
 
-        Get<UniformBufferProperty>( ShaderProtocols::Camera::Name )
-             ->SetRawData( reinterpret_cast<const std::byte*>( &cameraUB ), sizeof( cameraUB ) );
+        if ( auto* camera = material.Get<UniformBufferProperty>( ShaderProtocols::Camera::Name ) )
+            camera->SetRawData( reinterpret_cast<const std::byte*>( &cameraUB ), sizeof( cameraUB ) );
+    }
+
+    void MaterialShadow::SetLightMatrix( const glm::mat4& view, const glm::mat4& projection )
+    {
+        WriteLightCamera( *this, view, projection );
     }
 
     void MaterialShadowSkinned::UploadBones( const std::vector<glm::mat4>& packedBoneMatrices )

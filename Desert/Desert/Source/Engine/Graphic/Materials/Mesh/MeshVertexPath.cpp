@@ -1,5 +1,7 @@
 #include "MeshVertexPath.hpp"
 
+#include <Engine/Core/Formats/ShaderProgramMeta.hpp>
+
 #include <format>
 #include <string_view>
 
@@ -39,6 +41,19 @@ namespace Desert::Graphic
         if ( cell == nullptr || templateName.empty() )
             return std::nullopt;
         return std::format( "{}/{}", templateName, cell );
+    }
+
+    ShadowCasterCell ShadowCasterCellFor( Core::Formats::SurfaceBlendMode blend )
+    {
+        return blend == Core::Formats::SurfaceBlendMode::Masked ? ShadowCasterCell::Own : ShadowCasterCell::Shared;
+    }
+
+    std::optional<std::string> ShadowCasterShaderFor( std::string_view materialTemplate, std::string_view defaultTemplate,
+                                                      Core::Formats::SurfaceBlendMode blend, MeshVertexPath path )
+    {
+        const std::string_view owner =
+             ShadowCasterCellFor( blend ) == ShadowCasterCell::Own ? materialTemplate : defaultTemplate;
+        return MeshShaderFor( owner, path, MeshPass::ShadowDepth );
     }
 
     std::optional<MeshVertexPath> MeshCellPath( std::string_view shaderName )

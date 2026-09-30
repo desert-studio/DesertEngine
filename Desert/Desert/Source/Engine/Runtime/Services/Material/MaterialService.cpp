@@ -499,6 +499,37 @@ namespace Desert::Runtime
         return static_cast<Graphic::DataDrivenMaterial*>( Get( it->second, path, pass ) );
     }
 
+    Graphic::DataDrivenMaterial* MaterialService::GetViewVariant( const Graphic::Material* built,
+                                                                  Graphic::MeshVertexPath path, Graphic::MeshPass pass,
+                                                                  uint32_t view ) const
+    {
+        // The sibling first: it resolves the asset (instance chain, unread shell, cell refusal) once, and a
+        // view variant exists only where the plain one does.
+        const auto* sibling = GetVariant( built, path, pass );
+        if ( !sibling )
+            return nullptr;
+        const auto owner = m_BuiltToAsset.find( sibling );
+        if ( owner == m_BuiltToAsset.end() )
+            return nullptr;
+
+        const size_t slot  = VariantSlot( path, pass );
+        auto&        views = m_ViewMaterials[owner->second];
+        for ( const auto& v : views )
+            if ( v.Slot == slot && v.View == view )
+                return static_cast<Graphic::DataDrivenMaterial*>( v.Material.get() );
+
+        const auto ait = m_MaterialAssets.find( owner->second );
+        if ( ait == m_MaterialAssets.end() )
+            return nullptr;
+        auto material = CreateSurfaceMaterial( ait->second.get(), path, pass );
+        if ( !material )
+            return nullptr; // CreateSurfaceMaterial named the material and the cell it refused
+        auto* raw = material.get();
+        raw->ClaimOwnership( Graphic::ResourceOwner::AssetService, owner->second );
+        views.push_back( ViewVariant{ slot, view, std::move( material ) } );
+        return raw;
+    }
+
     bool MaterialService::Owns( const Graphic::Material* material ) const
     {
         return material && m_BuiltToAsset.count( material ) != 0;
@@ -513,6 +544,11 @@ namespace Desert::Runtime
         for ( const auto& variant : it->second )
             if ( variant )
                 out.push_back( variant.get() );
+        // The per-view copies are the same `.demat`: an edit that misses them leaves a cascade casting the old
+        // mask while the surface shows the new one.
+        if ( const auto views = m_ViewMaterials.find( handle ); views != m_ViewMaterials.end() )
+            for ( const auto& v : views->second )
+                out.push_back( v.Material.get() );
         return out;
     }
 
@@ -651,6 +687,7 @@ namespace Desert::Runtime
         // Was an empty body. The graveyard goes with the rest: at shutdown there is no next frame to
         // collect it, and its materials own descriptor pools that must not outlive the device.
         m_Materials.clear();
+        m_ViewMaterials.clear();
         m_BuiltToAsset.clear();
         m_MaterialAssets.clear();
         m_Requests.clear();
@@ -684,6 +721,12 @@ namespace Desert::Runtime
                                   Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
             }
         m_Materials.erase( it );
+        if ( auto views = m_ViewMaterials.find( handle ); views != m_ViewMaterials.end() )
+        {
+            for ( auto& v : views->second )
+                m_Graveyard.Park( std::move( v.Material ), Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+            m_ViewMaterials.erase( views );
+        }
         ++m_InvalidationVersion; // cached instance sets rebuild on their next system tick
     }
 
