@@ -783,7 +783,23 @@ namespace Desert::Editor
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;     // Enable Docking
         io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;   // Enable Multi-Viewport / Platform Windows
 
-        // Before the first frame, which is when ImGui reads imgui.ini.
+        // THE DOCKING LAYOUT FILE, OFF THE PROJECT (UE: <Project>/Saved/Config/EditorLayout.ini) — never ImGui's
+        // default "imgui.ini", which fopen resolves against the working directory: an editor started from /tmp
+        // read and wrote /tmp/imgui.ini and came up with a different layout than one started from Editor/.
+        // Static storage: io.IniFilename is a borrowed C string ImGui reads at the first frame and on every save.
+        {
+            static std::string          s_LayoutIni;
+            const std::filesystem::path configDir = Common::Constants::Path::ProjectDir() / "Saved" / "Config";
+            std::error_code             dirError;
+            std::filesystem::create_directories( configDir, dirError );
+            if ( dirError )
+                return Common::MakeFormattedError( "the editor layout folder '{}' could not be created: {}",
+                                                   configDir.string(), dirError.message() );
+            s_LayoutIni    = ( configDir / "EditorLayout.ini" ).string();
+            io.IniFilename = s_LayoutIni.c_str();
+        }
+
+        // Before the first frame, which is when ImGui reads the layout file.
         RegisterDocumentWellLayoutHandler();
         RegisterDocumentPlacementHandler();
 
