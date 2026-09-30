@@ -48,6 +48,7 @@ namespace Desert::Editor
 
     void AnimGraphPanel::AddPoseNode( G::PoseNodeKind kind, const std::optional<glm::vec2>& where )
     {
+        AnimGraphEditTransaction::Scope transaction( m_GraphEdit, GraphOwner() );
         ECS::AnimationComponent* anim = ResolveComponent();
         if ( anim == nullptr || !anim->Graph )
         {
@@ -76,6 +77,7 @@ namespace Desert::Editor
 
     void AnimGraphPanel::WirePose( const std::string& from, const std::string& to, int pin )
     {
+        AnimGraphEditTransaction::Scope transaction( m_GraphEdit, GraphOwner() );
         ECS::AnimationComponent* anim = ResolveComponent();
         if ( anim == nullptr || !anim->Graph )
             return;
@@ -87,6 +89,7 @@ namespace Desert::Editor
 
     void AnimGraphPanel::RemovePoseNode( const std::string& name )
     {
+        AnimGraphEditTransaction::Scope transaction( m_GraphEdit, GraphOwner() );
         ECS::AnimationComponent* anim = ResolveComponent();
         if ( anim == nullptr || !anim->Graph )
             return;

@@ -2,6 +2,7 @@
 
 #include "../IPanel.hpp"
 
+#include <Editor/Core/Commands/AnimGraphEdit.hpp>
 #include <Editor/Core/GraphCanvas/GraphCanvasView.hpp>
 #include <Editor/Panels/Animation/AnimGraphCanvasPlan.hpp>
 #include <Editor/Panels/Animation/PoseGraphEdit.hpp>
@@ -186,6 +187,10 @@ namespace Desert::Editor
         // only ever have re-synced the one entity whose window was open.
         void MarkEdited();
 
+        /// This window's graph as an undo owner: the asset resolved by handle at every use, so an entry outlives
+        /// a reload of the file; a restore bumps the asset's revision (every entity re-syncs).
+        [[nodiscard]] AnimGraphOwner GraphOwner() const;
+
         // Writes the graph to its own file. Reports through the status line, which is this window's one
         // error channel.
         void SaveGraph();
@@ -270,5 +275,12 @@ namespace Desert::Editor
         std::string m_SelectedPoseNode;
         bool        m_PoseSelectPending = false; // a document action picked the node
         glm::vec2   m_PoseMenuAt{};              // where the context menu was opened
+
+        // EVERY EDIT OF THE GRAPH IS ONE UNDO ENTRY (UE: FScopedTransaction on the AnimBlueprint): discrete edits
+        // open a Scope, the canvas and the side panel are observed once per frame (a drag = one entry).
+        AnimGraphEditTransaction m_GraphEdit;
+        // The asset revision this window last wrote or saw. A move it did not make (Undo, Redo, another window)
+        // re-issues both canvases' ids, so the restored X/Y are pushed into the node editor, not pulled over.
+        std::optional<uint32_t> m_SeenRevision;
     };
 } // namespace Desert::Editor

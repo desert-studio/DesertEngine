@@ -51,6 +51,11 @@ namespace Desert::Editor::Graph
     /// `EndFrame` on the map itself: the plan IS the frame, and a caller that had to remember to bracket
     /// it is a caller that will one day forget.
     [[nodiscard]] AnimGraphCanvas PlanAnimGraph( const Animation::Graph::AnimGraph& graph, ElementIdMap& ids );
+    /// The same plan over ANY machine's states: a state machine nested in the pose graph (or in a layer graph) is
+    /// opened on its own canvas, as UE opens a state machine node's graph. `PlanAnimGraph` is this over the
+    /// machine at Output Pose.
+    [[nodiscard]] AnimGraphCanvas PlanStateMachine( const std::vector<Animation::Graph::State>& states,
+                                                    ElementIdMap&                                  ids );
 
     /// The state a node id names, or -1. NOT `id - 1`.
     [[nodiscard]] int StateOfNode( const AnimGraphCanvas& canvas, ElementId node );
@@ -109,6 +114,9 @@ namespace Desert::Editor::Graph
     /// resolve by string and all take the FIRST match — so two states sharing a name means the second is
     /// unreachable and plays the first one's clip with nothing said. Nothing enforced it before.
     [[nodiscard]] std::string MakeUniqueStateName( const Animation::Graph::AnimGraph& graph,
+                                                   const std::string& desired, int selfIndex );
+    /// The same rule over one machine's states (a nested machine is its own name space).
+    [[nodiscard]] std::string MakeUniqueStateName( const std::vector<Animation::Graph::State>& states,
                                                    const std::string& desired, int selfIndex );
 
     /// @p desired, or @p desired with a numeric suffix, such that no OTHER parameter of @p graph carries

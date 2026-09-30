@@ -175,6 +175,7 @@ namespace Desert::Editor
         if ( const auto asset = ResolveAsset() )
         {
             asset->MarkEdited();
+            m_SeenRevision = asset->GetRevision();
             return;
         }
         // NOT SILENT. An edit that reaches no asset is an edit no evaluator will ever be told about: the
@@ -183,6 +184,31 @@ namespace Desert::Editor
         // not do — that this project keeps paying for.
         m_Status        = "this graph has no asset behind it; the edit will not reach the running character";
         m_StatusIsError = true;
+    }
+
+    AnimGraphOwner AnimGraphPanel::GraphOwner() const
+    {
+        const ECS::AnimationComponent* anim  = ResolveComponent();
+        const auto                     asset = ResolveAsset();
+        AnimGraphOwner                 owner;
+        if ( anim == nullptr || !asset )
+            return owner; // resolves to nothing: a transaction refuses it
+        owner.Identity = asset.get();
+        owner.Name     = asset->GetDisplayName();
+        owner.Volatile = false;
+        Assets::AssetManager* manager = m_AssetManager;
+        const auto            handle  = anim->GraphAsset;
+        owner.Resolve = [manager, handle]() -> G::AnimGraph*
+        {
+            const auto found = manager->FindByHandle<Assets::AnimGraphAsset>( handle );
+            return found && found->GetGraph() ? found->GetGraph().get() : nullptr;
+        };
+        owner.AfterRestore = [manager, handle]
+        {
+            if ( const auto found = manager->FindByHandle<Assets::AnimGraphAsset>( handle ) )
+                found->MarkEdited();
+        };
+        return owner;
     }
 
     void AnimGraphPanel::SaveGraph()
@@ -219,6 +245,7 @@ namespace Desert::Editor
 
     void AnimGraphPanel::AddState()
     {
+        AnimGraphEditTransaction::Scope transaction( m_GraphEdit, GraphOwner() );
         ECS::AnimationComponent* anim = ResolveComponent();
         if ( anim == nullptr || !anim->Graph || G::OutputMachine( *anim->Graph ) == nullptr )
         {
@@ -247,6 +274,7 @@ namespace Desert::Editor
 
     void AnimGraphPanel::AddParameter()
     {
+        AnimGraphEditTransaction::Scope transaction( m_GraphEdit, GraphOwner() );
         ECS::AnimationComponent* anim = ResolveComponent();
         if ( anim == nullptr || !anim->Graph )
         {
@@ -348,6 +376,21 @@ namespace Desert::Editor
         {
             ImGui::TextDisabled( "This entity, its Animation component or its scene is gone — closing." );
             return;
+        }
+
+        // THE UNDO BOUNDARY, once per frame: what last frame's canvas and side panel did is closed into one
+        // entry when nothing is held any more. A revision this window did not make re-issues the canvas ids.
+        if ( const auto asset = ResolveAsset() )
+        {
+            const uint32_t revision = asset->GetRevision();
+            const bool held = ImGui::IsAnyItemActive() || ImGui::IsMouseDown( ImGuiMouseButton_Left );
+            (void)m_GraphEdit.Observe( GraphOwner(), revision, held );
+            if ( m_SeenRevision != revision )
+            {
+                m_Ids          = Graph::ElementIdMap{};
+                m_PoseIds      = Graph::ElementIdMap{};
+                m_SeenRevision = revision;
+            }
         }
 
         if ( !anim->Graph )
