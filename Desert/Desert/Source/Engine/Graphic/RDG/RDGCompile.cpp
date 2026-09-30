@@ -104,6 +104,56 @@ namespace Desert::Graphic::RDG
 
         constexpr AccessState kRdgUntouchedState{ PipelineStage_None, MemoryAccess_None, ImageLayout::Undefined };
 
+        // The stages a compute-only queue family executes (Vulkan's table of supported pipeline stages).
+        // Graphics runs every stage. Acceleration-structure builds are left out: they need an extension.
+        constexpr PipelineStageFlags kRdgComputeQueueStages =
+             PipelineStage_DrawIndirect | PipelineStage_ComputeShader | PipelineStage_Copy | PipelineStage_Host;
+        // What stands in for "everything this queue did before" when a barrier on the compute queue names
+        // only another pipe's stages: those accesses are ordered by the semaphore wait, and this scope chains
+        // the barrier to that wait (the graph's stage set has no ALL_COMMANDS).
+        constexpr PipelineStageFlags kRdgComputeQueueOrderStages =
+             PipelineStage_DrawIndirect | PipelineStage_ComputeShader | PipelineStage_Copy;
+
+        // The memory accesses a set of stages can perform: an access whose stages were filtered away goes too.
+        MemoryAccessFlags RdgAccessesOfStages( PipelineStageFlags stages )
+        {
+            MemoryAccessFlags memory = MemoryAccess_None;
+            if ( ( stages & PipelineStage_DrawIndirect ) != 0 )
+                memory |= MemoryAccess_IndirectCommandRead;
+            if ( ( stages & PipelineStage_VertexInput ) != 0 )
+                memory |= MemoryAccess_IndexRead | MemoryAccess_VertexAttributeRead;
+            if ( ( stages & kAllShaderStages ) != 0 )
+                memory |= MemoryAccess_UniformRead | MemoryAccess_ShaderSampledRead |
+                          MemoryAccess_ShaderStorageRead | MemoryAccess_ShaderStorageWrite |
+                          MemoryAccess_AccelStructRead;
+            if ( ( stages & kDepthTestStages ) != 0 )
+                memory |= MemoryAccess_DepthStencilRead | MemoryAccess_DepthStencilWrite;
+            if ( ( stages & PipelineStage_ColorAttachmentOutput ) != 0 )
+                memory |= MemoryAccess_ColorAttachmentRead | MemoryAccess_ColorAttachmentWrite;
+            if ( ( stages & PipelineStage_Copy ) != 0 )
+                memory |= MemoryAccess_TransferRead | MemoryAccess_TransferWrite;
+            if ( ( stages & PipelineStage_Host ) != 0 )
+                memory |= MemoryAccess_HostRead;
+            if ( ( stages & PipelineStage_AccelStructBuild ) != 0 )
+                memory |= MemoryAccess_AccelStructRead | MemoryAccess_AccelStructWrite;
+            return memory;
+        }
+
+        // UE's per-pipeline stage filtering: a barrier recorded on @p pipe names only the stages that pipe's
+        // queue executes. A declared access such as a sampled read carries vertex and fragment stages the
+        // compute queue does not have; another pipe's accesses are ordered by the semaphore between the queues.
+        AccessState RdgOnPipe( AccessState state, Pipe pipe )
+        {
+            if ( pipe == Pipe::Graphics )
+                return state;
+            const PipelineStageFlags declared = state.Stages;
+            state.Stages &= kRdgComputeQueueStages;
+            state.Memory &= RdgAccessesOfStages( state.Stages );
+            if ( state.Stages == PipelineStage_None && declared != PipelineStage_None )
+                state.Stages = kRdgComputeQueueOrderStages;
+            return state;
+        }
+
         uint64_t RdgAlignOffset( uint64_t value, uint64_t alignment )
         {
             return ( value + alignment - 1 ) / alignment * alignment;
@@ -1019,11 +1069,19 @@ namespace Desert::Graphic::RDG
                     // its last async use, acquired in the final barriers after the run's join.
                     const AccessState target = record.IsExtracted() ? GetAccessState( record.FinalAccess ) : last;
                     const uint32_t    at     = track[sub].LastTouch;
-                    finalRaws.push_back( { sub, r, last, target, false, BarrierKind::OwnershipAcquire,
+                    // The host is not a queue family: no ownership transfer may name the HOST stage. A host
+                    // readback gets its ownership back on Graphics in the state the run left it in, then a
+                    // plain graphics barrier hands it to the host (which waits on the graph's completion).
+                    const bool        host = ( target.Stages & PipelineStage_Host ) != 0;
+                    const AccessState owned =
+                         host ? AccessState{ last.Stages, last.Memory, target.Layout } : target;
+                    finalRaws.push_back( { sub, r, last, owned, false, BarrierKind::OwnershipAcquire,
                                            track[sub].GroupPipe, Pipe::Graphics, at } );
-                    epilogueRaws[at].push_back( { sub, r, last, target, false, BarrierKind::OwnershipRelease,
+                    epilogueRaws[at].push_back( { sub, r, last, owned, false, BarrierKind::OwnershipRelease,
                                                   track[sub].GroupPipe, Pipe::Graphics,
                                                   CrossPipeSync::kJoinAtGraphEnd } );
+                    if ( host )
+                        finalRaws.push_back( { sub, r, owned, target, false } );
                     last = target;
                 }
                 else if ( record.IsExtracted() )
@@ -1102,6 +1160,26 @@ namespace Desert::Graphic::RDG
             std::vector<uint32_t> partners;
             emit( finalRaws, result.FinalBarriers, partners );
             addTransfers( result.FinalBarriers, partners, CrossPipeSync::kJoinAtGraphEnd );
+        }
+
+        // ── S2b. Per-pipe stage filtering: a pass's barriers are recorded on its pipe (a release on the
+        // source pipe, an acquire on the destination pipe), the prologue and the final barriers on Graphics,
+        // and a semaphore wait blocks stages of the waiting pipe.
+        for ( CompiledPass& pass : result.Passes )
+        {
+            for ( std::vector<Barrier>* list : { &pass.Barriers, &pass.EpilogueBarriers } )
+            {
+                for ( Barrier& barrier : *list )
+                {
+                    barrier.Before = RdgOnPipe( barrier.Before, pass.OnPipe );
+                    barrier.After  = RdgOnPipe( barrier.After, pass.OnPipe );
+                }
+            }
+        }
+        for ( CrossPipeSync& sync : result.Syncs )
+        {
+            const AccessState waited{ sync.WaitStages, MemoryAccess_None, ImageLayout::Undefined };
+            sync.WaitStages = RdgOnPipe( waited, sync.WaitPipe ).Stages;
         }
 
         // ── S3. Pipe segments: what the backend records into one command buffer and submits once ──────────

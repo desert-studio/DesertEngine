@@ -983,7 +983,9 @@ TEST( RenderGraphVulkan, AnImportedFramebufferSharesOneRenderPassAndWritesItsLay
                  },
                  [&]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
-                     const VkCommandBuffer passCmd = PassCommandBuffer( context );
+                     // The graph runs through the counting decorator, so the context's backend is not the
+                     // Vulkan one: the segment's command buffer comes from the Vulkan backend it wraps.
+                     const VkCommandBuffer passCmd = backend.GetRecordingCommandBuffer();
                      if ( passCmd == VK_NULL_HANDLE )
                          return Fail( "the pass has no recording command buffer" );
                      auto source = context.GetTexture( fb.Colors[0], RDG::Access::CopySrc );
@@ -1814,9 +1816,11 @@ namespace
                      pass.Read( textures[i], RDG::Access::CopySrc );
                      pass.Write( readbacks[i], RDG::Access::CopyDst );
                  },
-                 [&textures, &readbacks, size, i]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [&textures, &readbacks, &vulkan, size, i]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
-                     const VkCommandBuffer passCmd = PassCommandBuffer( context );
+                     // The graph runs through the witness decorator, so the context's backend is not the
+                     // Vulkan one: the segment's command buffer comes from the Vulkan backend it wraps.
+                     const VkCommandBuffer passCmd = vulkan.GetRecordingCommandBuffer();
                      if ( passCmd == VK_NULL_HANDLE )
                          return Fail( "the pass has no recording command buffer" );
                      auto source = context.GetTexture( textures[i], RDG::Access::CopySrc );

@@ -438,16 +438,17 @@ TEST( DeviceLostCensus, TheDroppedResultCensusStillHoldsAndCanOnlyShrink )
              << ", and it does not any more. Delete the row -- a census that pins nothing passes silently.";
     }
 
-    // THE NUMBER, stated so a regression is visible as a number and not only as a diff. Five VkResults
-    // are dropped in the whole Vulkan backend (eighteen, then eleven; VKF1 moved the six startup
-    // enumerations of instance layers, devices and extensions into vk-bootstrap), and every survivor is
-    // either a startup enumeration whose caller refuses on the count, or a teardown wait that is already
-    // behind the gate.
+    // THE NUMBER, stated so a regression is visible as a number and not only as a diff. Six VkResults
+    // are dropped in the whole Vulkan backend (eighteen, then eleven, then five; VKF1 moved the six startup
+    // enumerations of instance layers, devices and extensions into vk-bootstrap; RDG-ALIAS A1 added the
+    // descriptor pool reset), and every survivor is either a startup enumeration whose caller refuses on
+    // the count, a teardown wait that is already behind the gate, or vkResetDescriptorPool, whose only
+    // return code is VK_SUCCESS.
     int droppedResults = 0;
     for ( const auto& row : k_Census )
         if ( std::string( row.Verdict ) != "void" )
             droppedResults += row.Count;
-    EXPECT_EQ( droppedResults, 5 )
+    EXPECT_EQ( droppedResults, 6 )
          << "the number of Vulkan calls whose result nobody reads has changed. Up is a regression; down is "
             "welcome, and this line moves with it.";
 }

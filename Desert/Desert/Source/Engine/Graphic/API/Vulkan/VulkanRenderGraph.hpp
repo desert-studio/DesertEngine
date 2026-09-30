@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <compare>
+#include <functional>
 #include <map>
 #include <optional>
 #include <memory>
@@ -331,6 +332,15 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_CommandBuffer;
         }
+        // The engine's command recorder (VulkanRendererAPI, the RHI command list every renderer's Record()
+        // goes through) records a pass into the command buffer of the segment the pass runs on, as a pass
+        // context would: it is told the backend's recording command buffer each time that changes (a
+        // segment begins or ends, the graph begins, is abandoned or hands its submissions over).
+        using RecordingListener = std::function<void( VkCommandBuffer )>;
+        void SetRecordingListener( RecordingListener listener )
+        {
+            m_RecordingListener = std::move( listener );
+        }
 
         RDG::BackendKind GetKind() const override
         {
@@ -394,6 +404,9 @@ namespace Desert::Graphic::API::Vulkan
         VulkanRdgPool&              m_Pool;
         VulkanRdgMemoryRequirements m_Memory;
         VkCommandBuffer              m_CommandBuffer = VK_NULL_HANDLE; // the open segment's (or the graph tail's)
+        RecordingListener            m_RecordingListener;
+        // Every change of m_CommandBuffer goes through here, so the listener never records into a stale one.
+        void                         SetRecording( VkCommandBuffer commandBuffer );
         VulkanRdgSegmentRecorder     m_Segments;    // B(3): segment command buffers, semaphores, submissions
         RDG::AsyncComputeFallbackLog m_FallbackLog; // B(4): the engine logger at Warning
         // Bound by BeginFrame for the frame being recorded (A1: transients and descriptors; B2: queues).

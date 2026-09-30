@@ -933,7 +933,7 @@ namespace Desert::Graphic::API::Vulkan
         Common::ResultStr<VkCommandBuffer> first = m_Segments.BeginGraph( *graph.Result, *m_Queues );
         if ( !first )
             return Common::MakeFormattedError( "graph '{}': {}", graph.Name, first.GetError() );
-        m_CommandBuffer = first.GetValue();
+        SetRecording( first.GetValue() );
         m_Textures.resize( graph.Resources.size() );
         m_Buffers.resize( graph.Resources.size() );
 
@@ -1056,71 +1056,86 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRdgBackend::RecordBarriers( std::span<const RDG::Barrier> barriers )
     {
-        // ONE vkCmdPipelineBarrier: the stage masks are the union over the batch, each resource keeps its
-        // own access masks and layouts.
-        VkPipelineStageFlags               srcStages = 0;
-        VkPipelineStageFlags               dstStages = 0;
-        std::vector<VkImageMemoryBarrier>  images;
-        std::vector<VkBufferMemoryBarrier> buffers;
-        for ( const RDG::Barrier& barrier : barriers )
+        // At most TWO vkCmdPipelineBarrier: the queue family ownership transfers first, then everything else.
+        // A transfer may not share a call with a HOST-stage barrier (VUID-vkCmdPipelineBarrier-srcStageMask-
+        // 09633/09634), and a resource whose ownership returns before a plain barrier hands it on (an async
+        // result read back by the host) needs the two in that order. Within a call the stage masks are the
+        // union over the batch, each resource keeps its own access masks and layouts.
+        for ( const bool ownershipCall : { true, false } )
         {
-            // Queue family ownership transfer (Vulkan 1.0): the release names the families and makes the
-            // source's writes available (dstAccess 0); the acquire repeats them with srcAccess 0. The acquire
-            // chains to the semaphore wait before it through ALL_COMMANDS (its first scope must meet the wait's
-            // stages, whatever they are).
-            const bool ownership = barrier.BarrierType == RDG::BarrierKind::OwnershipRelease ||
-                                   barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire;
-            const uint32_t srcFamily = ownership ? m_Queues->FamilyOf( barrier.SrcPipe ) : VK_QUEUE_FAMILY_IGNORED;
-            const uint32_t dstFamily = ownership ? m_Queues->FamilyOf( barrier.DstPipe ) : VK_QUEUE_FAMILY_IGNORED;
-            srcStages |= barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire
-                              ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT
-                              : RdgVulkanStages( barrier.Before.Stages );
-            // A release's second scope is on the other queue: on this one it only ends the barrier.
-            const bool release = barrier.BarrierType == RDG::BarrierKind::OwnershipRelease;
-            const bool acquire = barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire;
-            dstStages |= release ? VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT : RdgVulkanStages( barrier.After.Stages );
-            // A write-free source has nothing to make available: its stages only order the work. An acquire
-            // makes nothing available (its release did); a release makes nothing visible (its acquire does).
-            const VkAccessFlags srcAccess =
-                 acquire ? 0 : RdgVulkanAccess( barrier.Before.Memory & RDG::kWriteAccessMask );
-            const VkAccessFlags dstAccess = release ? 0 : RdgVulkanAccess( barrier.After.Memory );
-            if ( barrier.Kind == RDG::ResourceKind::Texture )
+            VkPipelineStageFlags               srcStages = 0;
+            VkPipelineStageFlags               dstStages = 0;
+            std::vector<VkImageMemoryBarrier>  images;
+            std::vector<VkBufferMemoryBarrier> buffers;
+            for ( const RDG::Barrier& barrier : barriers )
             {
-                const VulkanRdgTexture& texture = *m_Textures[barrier.Resource];
-                VkImageMemoryBarrier    image{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-                image.srcAccessMask       = srcAccess;
-                image.dstAccessMask       = dstAccess;
-                image.oldLayout           = barrier.DiscardContents ? VK_IMAGE_LAYOUT_UNDEFINED
-                                                                    : RdgVulkanLayout( barrier.Before.Layout );
-                image.newLayout           = RdgVulkanLayout( barrier.After.Layout );
-                image.srcQueueFamilyIndex = srcFamily;
-                image.dstQueueFamilyIndex = dstFamily;
-                image.image               = texture.GetImage();
-                image.subresourceRange    = { texture.GetAspect(), barrier.Range.BaseMip, barrier.Range.MipCount,
-                                              barrier.Range.BaseLayer, barrier.Range.LayerCount };
-                images.push_back( image );
+                const bool isOwnership = barrier.BarrierType == RDG::BarrierKind::OwnershipRelease ||
+                                         barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire;
+                if ( isOwnership != ownershipCall )
+                    continue;
+                // Queue family ownership transfer (Vulkan 1.0): the release names the families and makes the
+                // source's writes available (dstAccess 0); the acquire repeats them with srcAccess 0. The acquire
+                // chains to the semaphore wait before it through ALL_COMMANDS (its first scope must meet the
+                // wait's stages, whatever they are).
+                const bool ownership = barrier.BarrierType == RDG::BarrierKind::OwnershipRelease ||
+                                       barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire;
+                const uint32_t srcFamily =
+                     ownership ? m_Queues->FamilyOf( barrier.SrcPipe ) : VK_QUEUE_FAMILY_IGNORED;
+                const uint32_t dstFamily =
+                     ownership ? m_Queues->FamilyOf( barrier.DstPipe ) : VK_QUEUE_FAMILY_IGNORED;
+                srcStages |= barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire
+                                  ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT
+                                  : RdgVulkanStages( barrier.Before.Stages );
+                // A release's second scope is on the other queue: on this one it only ends the barrier.
+                const bool release = barrier.BarrierType == RDG::BarrierKind::OwnershipRelease;
+                const bool acquire = barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire;
+                dstStages |=
+                     release ? VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT : RdgVulkanStages( barrier.After.Stages );
+                // A write-free source has nothing to make available: its stages only order the work. An acquire
+                // makes nothing available (its release did); a release makes nothing visible (its acquire does).
+                const VkAccessFlags srcAccess =
+                     acquire ? 0 : RdgVulkanAccess( barrier.Before.Memory & RDG::kWriteAccessMask );
+                const VkAccessFlags dstAccess = release ? 0 : RdgVulkanAccess( barrier.After.Memory );
+                if ( barrier.Kind == RDG::ResourceKind::Texture )
+                {
+                    const VulkanRdgTexture& texture = *m_Textures[barrier.Resource];
+                    VkImageMemoryBarrier    image{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+                    image.srcAccessMask       = srcAccess;
+                    image.dstAccessMask       = dstAccess;
+                    image.oldLayout           = barrier.DiscardContents ? VK_IMAGE_LAYOUT_UNDEFINED
+                                                                        : RdgVulkanLayout( barrier.Before.Layout );
+                    image.newLayout           = RdgVulkanLayout( barrier.After.Layout );
+                    image.srcQueueFamilyIndex = srcFamily;
+                    image.dstQueueFamilyIndex = dstFamily;
+                    image.image               = texture.GetImage();
+                    image.subresourceRange = { texture.GetAspect(), barrier.Range.BaseMip, barrier.Range.MipCount,
+                                               barrier.Range.BaseLayer, barrier.Range.LayerCount };
+                    images.push_back( image );
+                }
+                else
+                {
+                    VkBufferMemoryBarrier buffer{ VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+                    buffer.srcAccessMask       = srcAccess;
+                    buffer.dstAccessMask       = dstAccess;
+                    buffer.srcQueueFamilyIndex = srcFamily;
+                    buffer.dstQueueFamilyIndex = dstFamily;
+                    buffer.buffer              = m_Buffers[barrier.Resource]->GetBuffer();
+                    buffer.offset              = 0;
+                    buffer.size                = VK_WHOLE_SIZE;
+                    buffers.push_back( buffer );
+                }
             }
-            else
-            {
-                VkBufferMemoryBarrier buffer{ VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
-                buffer.srcAccessMask       = srcAccess;
-                buffer.dstAccessMask       = dstAccess;
-                buffer.srcQueueFamilyIndex = srcFamily;
-                buffer.dstQueueFamilyIndex = dstFamily;
-                buffer.buffer              = m_Buffers[barrier.Resource]->GetBuffer();
-                buffer.offset              = 0;
-                buffer.size                = VK_WHOLE_SIZE;
-                buffers.push_back( buffer );
-            }
+            if ( images.empty() && buffers.empty() )
+                continue;
+            // v1 has no NONE stage: "nothing before" is TOP_OF_PIPE, "nothing after" (Present) BOTTOM_OF_PIPE.
+            if ( srcStages == 0 )
+                srcStages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            if ( dstStages == 0 )
+                dstStages = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+            vkCmdPipelineBarrier( m_CommandBuffer, srcStages, dstStages, 0, 0, nullptr,
+                                  static_cast<uint32_t>( buffers.size() ), buffers.data(),
+                                  static_cast<uint32_t>( images.size() ), images.data() );
         }
-        // v1 has no NONE stage: "nothing before" is TOP_OF_PIPE, "nothing after" (Present) BOTTOM_OF_PIPE.
-        if ( srcStages == 0 )
-            srcStages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-        if ( dstStages == 0 )
-            dstStages = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-        vkCmdPipelineBarrier( m_CommandBuffer, srcStages, dstStages, 0, 0, nullptr,
-                              static_cast<uint32_t>( buffers.size() ), buffers.data(),
-                              static_cast<uint32_t>( images.size() ), images.data() );
     }
 
     Common::ResultStr<VkRenderPass> VulkanRdgBackend::GetRenderPass( const RdgRenderPassKey& key )
@@ -1299,7 +1314,7 @@ namespace Desert::Graphic::API::Vulkan
             EndPass( RDG::CompiledPass{} );
         Release();
         m_Segments.AbandonGraph();
-        m_CommandBuffer = VK_NULL_HANDLE;
+        SetRecording( VK_NULL_HANDLE );
     }
 
     // ── RDG-CONTRACTS B: pipes, segments, submissions ────────────────────────────────────────────────────
@@ -1322,7 +1337,7 @@ namespace Desert::Graphic::API::Vulkan
         Common::ResultStr<VkCommandBuffer> begun = m_Segments.BeginSegment( segment, *m_Queues );
         if ( !begun )
             return Common::MakeError( begun.GetError() );
-        m_CommandBuffer = begun.GetValue();
+        SetRecording( begun.GetValue() );
         return Common::MakeSuccess( true );
     }
 
@@ -1331,7 +1346,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( m_RenderPassOpen )
             return Common::MakeError( "a render pass is open across a segment boundary" );
         Common::ResultStr<VkCommandBuffer> next = m_Segments.EndSegment( segment, *m_Queues );
-        m_CommandBuffer                         = next ? next.GetValue() : VK_NULL_HANDLE;
+        SetRecording( next ? next.GetValue() : VK_NULL_HANDLE );
         if ( !next )
             return Common::MakeError( next.GetError() );
         return Common::MakeSuccess( true );
@@ -1344,9 +1359,16 @@ namespace Desert::Graphic::API::Vulkan
         RecordBarriers( barriers );
     }
 
+    void VulkanRdgBackend::SetRecording( VkCommandBuffer commandBuffer )
+    {
+        m_CommandBuffer = commandBuffer;
+        if ( m_RecordingListener )
+            m_RecordingListener( commandBuffer );
+    }
+
     std::vector<VulkanRdgSubmission> VulkanRdgBackend::TakeSubmissions()
     {
-        m_CommandBuffer = VK_NULL_HANDLE;
+        SetRecording( VK_NULL_HANDLE );
         return m_Segments.Take();
     }
 

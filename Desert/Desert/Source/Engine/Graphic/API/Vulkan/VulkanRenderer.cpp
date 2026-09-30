@@ -796,6 +796,11 @@ namespace Desert::Graphic::API::Vulkan
             m_RdgDevice.CmdEndLabel   = fpCmdEndDebugUtilsLabelEXT;
             m_RdgPool                 = std::make_unique<VulkanRdgPool>( m_RdgDevice, slots );
             m_RdgBackend              = std::make_unique<VulkanRdgBackend>( m_RdgDevice, *m_RdgPool );
+            // B2: while a graph runs, every renderer's Record() goes through this API, so this API records
+            // into the command buffer of the segment the running pass is on, never into the frame's own
+            // (ended before the graph) or another segment's. ExecuteGraph re-arms a fresh one after.
+            m_RdgBackend->SetRecordingListener( [this]( VkCommandBuffer commandBuffer )
+                                                { m_CurrentCommandBuffer = commandBuffer; } );
             m_RdgTransients           = std::make_unique<VulkanRdgTransientAllocator>( m_RdgDevice, slots );
             m_RdgDescriptors          = std::make_unique<VulkanRdgPassDescriptors>( m_RdgDevice.Device, slots );
 
