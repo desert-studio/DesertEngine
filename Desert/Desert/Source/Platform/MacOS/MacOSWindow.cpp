@@ -4,6 +4,7 @@
 #include <Common/Core/Events/MouseEvents.hpp>
 #include <Common/Core/Events/KeyEvents.hpp>
 
+#include <Engine/Core/GlfwVulkan.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
 #include <Engine/Graphic/ViewMemory.hpp>
 #include <Engine/Core/EngineContext.hpp>
@@ -30,6 +31,14 @@ namespace Desert::Platform::MacOS
             // launcher set (Contents/MacOS, where the pak is mounted) - so the chdir made every pak lookup
             // after window creation miss and the runtime died with no shaders (PKG2c).
             glfwInitHint( GLFW_COCOA_CHDIR_RESOURCES, GLFW_FALSE );
+            // ONE VULKAN LOADER PER PROCESS. The engine links the loader; left alone, GLFW dlopen()s its own
+            // copy by the bare name libvulkan.1.dylib, which the default dyld search never finds outside
+            // /usr/lib — so a start without DYLD_FALLBACK_LIBRARY_PATH failed glfwVulkanSupported() even
+            // though the linked loader and the driver manifest were both in hand (ENG-ROOT-6). The linked
+            // entry point is handed over instead, as VulkanContext hands it to vk-bootstrap. Must precede
+            // glfwInit: GLFW reads it there.
+            if ( Graphic::RendererAPI::GetAPIType() == Graphic::RendererAPIType::Vulkan )
+                glfwInitVulkanLoader( vkGetInstanceProcAddr );
             int success = glfwInit();
             if ( !success )
             {

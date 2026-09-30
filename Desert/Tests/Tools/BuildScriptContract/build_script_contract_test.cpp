@@ -406,6 +406,7 @@ TEST( BuildScriptContract, GlfwIsIncludedOnlyThroughItsEntryHeaders )
     const std::string plainText   = ReadFile( root + plain );
     const std::string vulkanText  = ReadFile( root + vulkan );
     const std::string surfaceCall = "glfwCreateWindowSurface(";
+    const std::string loaderCall  = "glfwInitVulkanLoader(";
     ASSERT_FALSE( plainText.empty() ) << plain << " is missing";
     ASSERT_FALSE( vulkanText.empty() ) << vulkan << " is missing";
 
@@ -423,6 +424,9 @@ TEST( BuildScriptContract, GlfwIsIncludedOnlyThroughItsEntryHeaders )
     ASSERT_NE( declAt, std::string::npos ) << vulkan << " must declare glfwCreateWindowSurface itself";
     EXPECT_LT( vulkanAt, declAt ) << vulkan << " must include Vulkan before its declaration";
     EXPECT_LT( doorAt, declAt ) << vulkan << " must include GLFW (for GLFWAPI) before its declaration";
+    const auto loaderDeclAt = vulkanText.find( "GLFWAPI void glfwInitVulkanLoader(" );
+    ASSERT_NE( loaderDeclAt, std::string::npos ) << vulkan << " must declare glfwInitVulkanLoader itself";
+    EXPECT_LT( vulkanAt, loaderDeclAt ) << vulkan << " must include Vulkan before its declaration";
 
     std::vector<std::string> bare;
     std::vector<std::string> undeclared;
@@ -442,7 +446,7 @@ TEST( BuildScriptContract, GlfwIsIncludedOnlyThroughItsEntryHeaders )
             const std::string text = ReadFile( e.path().string() );
             if ( text.find( "<GLFW/glfw3.h>" ) != std::string::npos )
                 bare.push_back( rel );
-            if ( text.find( surfaceCall ) != std::string::npos )
+            if ( text.find( surfaceCall ) != std::string::npos || text.find( loaderCall ) != std::string::npos )
             {
                 ++callers;
                 if ( text.find( "#include <Engine/Core/GlfwVulkan.hpp>" ) == std::string::npos )
@@ -462,7 +466,7 @@ TEST( BuildScriptContract, GlfwIsIncludedOnlyThroughItsEntryHeaders )
     std::ostringstream callReport;
     for ( const auto& u : undeclared )
         callReport << "\n  " << u;
-    EXPECT_TRUE( undeclared.empty() ) << "sources calling glfwCreateWindowSurface without naming "
+    EXPECT_TRUE( undeclared.empty() ) << "sources calling glfwCreateWindowSurface / glfwInitVulkanLoader without naming "
                                       << "<Engine/Core/GlfwVulkan.hpp>:" << callReport.str();
 }
 
