@@ -210,6 +210,14 @@ namespace
         // owns readership for every reflected type and a second table of the same 51 answers would be the
         // duplication §2.1 forbids.
         const char* Where = nullptr;
+
+        // The type's own member functions through which consumers read this field, when the field is
+        // never meant to be read raw (AAMethod/MSAASamples: MSAASamples means nothing unless the method is
+        // MSAA, so every reader goes through EffectiveMSAASamples/PostProcessAA). A call of one of these on
+        // a value of the census type in `Where` counts as the read ONLY because `ViaImpl`, the file that
+        // defines them, is checked to read the field inside each getter's own body.
+        std::array<const char*, 2> Via{};
+        const char*                ViaImpl = nullptr;
     };
 
     struct FileCensus
@@ -371,22 +379,28 @@ namespace
     // Editor target and by nothing else; every field below is read by SceneRenderer, which the packaged
     // game also runs. One kind, two audiences, two files — and one SCHEMA, whose location is a parameter.
     //
-    // The consumer named is SceneRenderer.cpp for the four the renderer reads per frame; MSAASamples is
-    // read there too, at Init, and is separately spent by the panel that offers it.
+    // The consumer named is SceneRenderer.cpp for the fields the renderer reads per frame. AAMethod and
+    // MSAASamples reach it only through MachineSettings::EffectiveMSAASamples/PostProcessAA (AA1), the one
+    // place the pair is interpreted; the rows name those getters and the test checks their bodies.
     // ------------------------------------------------------------------------------------------------
 
     constexpr const char* kSceneRendererImpl = "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp";
+    constexpr const char* kMachineSettingsImpl = "Desert/Common/Source/Common/Settings/MachineSettings.cpp";
 
     constexpr Row kMachineSettingsRows[] = {
-         // Baked into every pipeline at SceneRenderer::Init, so it costs a restart — which is exactly the
-         // property that makes it the machine's and not the level's.
-         { "MSAASamples", Owner::Machine, kSceneRendererImpl },
+         // A per-machine cost (sample count of every scene target), which is exactly the property that
+         // makes it the machine's and not the level's. Applied on the next frame since AA1.
+         { "MSAASamples", Owner::Machine, kSceneRendererImpl, { "EffectiveMSAASamples" }, kMachineSettingsImpl },
 
          // The five К3 took out of the level file. Each passes the mis-authored/rendered-worse test on the
          // "rendered worse" side: MeshLOD off is byte-identical geometry near the camera, Anisotropy 1 and
          // Nearest filtering and AA None are the same picture blurrier or harsher, and CloudQuality High
          // reproduces the calibrated constants to the digit.
-         { "AAMethod", Owner::Machine, kSceneRendererImpl },
+         { "AAMethod",
+           Owner::Machine,
+           kSceneRendererImpl,
+           { "EffectiveMSAASamples", "PostProcessAA" },
+           kMachineSettingsImpl },
          { "MeshLOD", Owner::Machine, kSceneRendererImpl },
          { "TextureFilterMode", Owner::Machine, kSceneRendererImpl },
          { "Anisotropy", Owner::Machine, kSceneRendererImpl },
@@ -781,6 +795,37 @@ namespace
         return false;
     }
 
+    // Does `Type::getter( ... ) ... { body }` in `implText` read `field` inside the body? The body is the
+    // brace block that follows the definition's parameter list; a mention anywhere else in the file (a
+    // declaration, another function) does not certify the getter.
+    bool GetterBodyReadsField( const std::string& implText, const std::string& type, const std::string& getter,
+                               const std::string& field )
+    {
+        using namespace Desert::Tests::ConsumerText;
+
+        for ( std::size_t at : WordPositions( implText, getter ) )
+        {
+            if ( QualifierBefore( implText, at ) != type )
+                continue;
+            const std::size_t open = implText.find( '{', at );
+            if ( open == std::string::npos )
+                continue;
+            int         depth = 0;
+            std::size_t close = open;
+            for ( ; close < implText.size(); ++close )
+            {
+                if ( implText[close] == '{' )
+                    ++depth;
+                else if ( implText[close] == '}' && --depth == 0 )
+                    break;
+            }
+            const std::string body = implText.substr( open, close - open );
+            if ( !WordPositions( body, field ).empty() )
+                return true;
+        }
+        return false;
+    }
+
     bool IsKnownMisplaced( const char* file, const std::string& field )
     {
         for ( const Misplaced& m : kKnownMisplaced )
@@ -1009,7 +1054,22 @@ TEST( ConfigOwnership, EveryFieldOfTheUnreflectedFilesNamesAConsumerThatReadsIt 
             const std::string text = StripCommentsAndLiterals( ReadAll( root + r->Where ) );
             ASSERT_FALSE( text.empty() ) << "named consumer " << r->Where << " could not be read";
 
-            EXPECT_TRUE( FileReadsField( text, file, r->Field ) )
+            // A getter named by the row must itself read the field — otherwise a getter that stopped
+            // reading it would certify a dead setting.
+            bool readsViaGetter = false;
+            for ( const char* getter : r->Via )
+            {
+                if ( getter == nullptr )
+                    continue;
+                ASSERT_NE( r->ViaImpl, nullptr ) << r->Field << " names getter " << getter << " without its file";
+                const std::string impl = StripCommentsAndLiterals( ReadAll( root + r->ViaImpl ) );
+                EXPECT_TRUE( GetterBodyReadsField( impl, file.Type, getter, r->Field ) )
+                     << r->ViaImpl << " defines " << file.Type << "::" << getter << " as a read of " << r->Field
+                     << " but its body no longer mentions the field";
+                readsViaGetter = readsViaGetter || FileReadsField( text, file, getter );
+            }
+
+            EXPECT_TRUE( readsViaGetter || FileReadsField( text, file, r->Field ) )
                  << r->Where << " is named as the consumer of " << r->Field
                  << " but contains no read of that field on a value of type " << file.Type
                  << ". Either the read was removed and the setting is now dead, or it moved to another "
