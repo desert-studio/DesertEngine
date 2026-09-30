@@ -269,7 +269,7 @@ namespace
                 // states this kind, LevelSequenceAsset.hpp) - the header reader is all the scan consults.
                 const std::string text = "{\"Header\":{\"Kind\":\"LevelSequence\",\"Guid\":\"" +
                                          Common::Content::AssetGuidToText( guid ) +
-                                         "\",\"Versions\":{\"TMLN\":1},\"Dependencies\":[]}}\n";
+                                         "\",\"Versions\":{\"TMLN\":2},\"Dependencies\":[]}}\n";
                 return { text.begin(), text.end() };
             }
             default:

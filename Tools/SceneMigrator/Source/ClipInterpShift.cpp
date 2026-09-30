@@ -2,13 +2,21 @@
 
 #include <Engine/Animation/KeyInterpolation.hpp>
 #include <Engine/Animation/Timeline/Channel.hpp>
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
+
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/CanonicalText.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
 #include <format>
 #include <string>
+#include <span>
 #include <tuple>
+#include <utility>
 #include <variant>
 
 namespace Desert::Migration
@@ -295,5 +303,72 @@ namespace Desert::Migration
             }
         }
         return Common::MakeSuccess( samples );
+    }
+    Common::ResultStr<uint32_t> StatedTimelineVersion( const std::string_view block )
+    {
+        const auto envelope = Common::Json::Read<TimelineEnvelope>( block );
+        if ( !envelope )
+            return Common::MakeFormattedError<uint32_t>( "not a TMLN document: {}", envelope.GetError() );
+        const auto& versions = envelope.GetValue().Header.Versions;
+        const auto  stated   = versions.find( Common::Content::FourCCToString( Assets::kTimelineSchemaTag ) );
+        if ( stated == versions.end() )
+            return Common::MakeError<uint32_t>( "the timeline block states no TMLN version in its header" );
+        return Common::MakeSuccess( stated->second );
+    }
+
+    Common::ResultStr<Timeline::Sequence> ReadTimelineV1( const std::string_view block )
+    {
+        auto envelope = Common::Json::Read<TimelineEnvelope>( block );
+        if ( !envelope )
+            return Common::MakeFormattedError<Timeline::Sequence>( "not a TMLN document: {}",
+                                                                   envelope.GetError() );
+        TimelineEnvelope raised = envelope.ExtractValue();
+        const auto       stated =
+             raised.Header.Versions.find( Common::Content::FourCCToString( Assets::kTimelineSchemaTag ) );
+        if ( stated == raised.Header.Versions.end() ||
+             stated->second != Timeline::kTimelineLastArrivingInterpVersion )
+            return Common::MakeFormattedError<Timeline::Sequence>( "the timeline block is not TMLN v{}",
+                                                                   Timeline::kTimelineLastArrivingInterpVersion );
+        stated->second         = Timeline::kTimelineFormatVersion;
+        const std::string text = Common::Json::Write( raised );
+        return Timeline::ReadSequence(
+             std::span<const uint8_t>( reinterpret_cast<const uint8_t*>( text.data() ), text.size() ) );
+    }
+
+    Common::ResultStr<TimelineShift> ShiftTimelineV1( const std::string_view block )
+    {
+        auto arriving = ReadTimelineV1( block );
+        if ( !arriving )
+            return Common::MakeFormattedError<TimelineShift>( "{}", arriving.GetError() );
+        TimelineShift out;
+        out.Shifted  = arriving.GetValue();
+        out.KeyLists = ShiftInterpToLeavingKey( out.Shifted );
+        auto proved  = VerifyInterpShift( arriving.GetValue(), out.Shifted );
+        if ( !proved )
+            return Common::MakeFormattedError<TimelineShift>( "the mode shift is not the identity: {}",
+                                                              proved.GetError() );
+        out.SamplesProved = proved.GetValue();
+        return Common::MakeSuccess( std::move( out ) );
+    }
+
+    Common::ResultStr<std::string> WriteLevelSequence( const Timeline::Sequence& sequence,
+                                                       const TimelineEnvelope&   source )
+    {
+        if ( sequence.Host != Timeline::SequenceHost::LevelSequence )
+            return Common::MakeFormattedError<std::string>( "a .dseq holds a LevelSequence-host sequence, not {}",
+                                                            Timeline::ToString( sequence.Host ) );
+        auto written = Timeline::WriteSequence( sequence );
+        if ( !written )
+            return Common::MakeFormattedError<std::string>( "the sequence did not write: {}", written.GetError() );
+        const std::vector<uint8_t> block    = written.ExtractValue();
+        auto                       envelope = Common::Json::Read<TimelineEnvelope>(
+             std::string_view( reinterpret_cast<const char*>( block.data() ), block.size() ) );
+        if ( !envelope )
+            return Common::MakeFormattedError<std::string>( "the TMLN block did not re-read: {}",
+                                                            envelope.GetError() );
+        TimelineEnvelope data = envelope.ExtractValue();
+        data.Header.Kind      = source.Header.Kind;
+        data.Header.Guid      = source.Header.Guid;
+        return Common::Content::CanonicalJsonTextOfWriterOutput( Common::Json::Write( data ) );
     }
 } // namespace Desert::Migration

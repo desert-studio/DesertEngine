@@ -15,6 +15,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include "UILift.hpp"
+#include "ClipInterpShift.hpp"
 #include <Engine/Geometry/EditMeshConversion.hpp>
 #include <Engine/Geometry/EditMeshSerialization.hpp>
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
@@ -447,6 +448,66 @@ namespace Desert::Migration
                     report.Refused.push_back( "entity " + who +
                                               ": a prefab override restates UIAnim, which has no v40 whole to lift "
                                               "- move the clip onto the prefab's own record" );
+        }
+        return report;
+    }
+
+    UIAnimationTimelinesReport MigrateUIAnimationTimelinesV1ToV2( std::vector<Assets::EntityData>& entities )
+    {
+        UIAnimationTimelinesReport report;
+        const auto shift = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock( components, "UIAnim",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto sequence = block.get( "Sequence" );
+                           if ( !sequence )
+                               return false; // an override restating Loop/AutoPlay only
+                           const std::string text   = rfl::json::write( sequence.value() );
+                           const auto        stated = StatedTimelineVersion( text );
+                           if ( !stated )
+                           {
+                               report.Refused.push_back( "entity " + who + ": UIAnim: " + stated.GetError() );
+                               return false;
+                           }
+                           if ( stated.GetValue() != Animation::Timeline::kTimelineLastArrivingInterpVersion )
+                               return false;
+                           auto shifted = ShiftTimelineV1( text );
+                           if ( !shifted )
+                           {
+                               report.Refused.push_back( "entity " + who + ": UIAnim: " + shifted.GetError() );
+                               return false;
+                           }
+                           auto written = Animation::Timeline::WriteSequence( shifted.GetValue().Shifted );
+                           if ( !written )
+                           {
+                               report.Refused.push_back( "entity " + who +
+                                                         ": the TMLN writer refused: " + written.GetError() );
+                               return false;
+                           }
+                           const std::vector<uint8_t> bytes = written.ExtractValue();
+                           const auto                 next  = rfl::json::read<rfl::Generic>(
+                                std::string( reinterpret_cast<const char*>( bytes.data() ), bytes.size() ) );
+                           if ( !next )
+                           {
+                               report.Refused.push_back(
+                                    "entity " + who +
+                                    ": the TMLN writer's text does not read: " + next.error().what() );
+                               return false;
+                           }
+                           block["Sequence"] = next.value();
+                           ++report.Clips;
+                           report.SamplesProved += shifted.GetValue().SamplesProved;
+                           return true;
+                       } );
+        };
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? entity.id->ToString() : std::string( "<record without id>" );
+            shift( entity.Components, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    shift( override_.Components, who + " (prefab override)" );
         }
         return report;
     }
@@ -1085,6 +1146,18 @@ namespace Desert::Migration
                     report.Refused = "'" + name + "': " + lines + ". Nothing was written.";
                     return;
                 }
+            }
+
+            // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.
+            report.UIAnimationTimelines       = MigrateUIAnimationTimelinesV1ToV2( entities );
+            report.UIAnimationTimelinesRaised = report.UIAnimationTimelines.Clips != 0;
+            if ( !report.UIAnimationTimelines.Refused.empty() )
+            {
+                std::string lines;
+                for ( const auto& line : report.UIAnimationTimelines.Refused )
+                    lines += ( lines.empty() ? "" : "; " ) + line;
+                report.Refused = "'" + name + "': " + lines + ". Nothing was written.";
+                return;
             }
         }
 
