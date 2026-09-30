@@ -100,6 +100,10 @@ namespace Desert::Editor
         // Billboard icons for entities with no rendered geometry (spawn points, audio emitters, triggers,
         // empties) so they are visible in the viewport. Hover shows a tooltip; the normal LMB pick selects them.
         void RenderSpawnIcons( const std::shared_ptr<Desert::Core::Camera>& camera, float width, float height );
+        // UE's APlayerStart body: the pawn capsule wireframe + the world-space arrow (PlayerStartGizmoMath).
+        void DrawPlayerStartBody( ImDrawList* drawList, const glm::mat4& world, const glm::mat4& mvp,
+                                  const glm::vec3& eye, float width, float height, const ImVec2& windowPos,
+                                  bool selected );
         // Text entities (TextComponent): a big, click-selectable "Aa" billboard so a label is easy to find
         // and grab in the viewport even when its glyphs are small/edge-on.
         void RenderTextIcons( const std::shared_ptr<Desert::Core::Camera>& camera, float width, float height );
