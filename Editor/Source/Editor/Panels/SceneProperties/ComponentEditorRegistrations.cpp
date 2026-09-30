@@ -48,7 +48,6 @@
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Animation/Timeline/Player.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
-#include <rfl.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/MaterialData.hpp>
@@ -1871,12 +1870,17 @@ namespace Desert::Editor
             }
 
             // Playback Settings.
-            const auto loops   = rfl::get_enumerator_array<T::LoopMode>();
-            const auto current = rfl::enum_to_string( actor.Loop );
-            if ( ImGui::BeginCombo( "Loop", current.c_str() ) )
+            // The names are the saved ones (Player.hpp's enum, stored by name in ComponentRegistry.cpp).
+            static constexpr std::array<std::pair<const char*, T::LoopMode>, 3> kLoops{ {
+                 { "Once", T::LoopMode::Once }, { "Loop", T::LoopMode::Loop }, { "PingPong", T::LoopMode::PingPong } } };
+            const char* current = "?";
+            for ( const auto& [name, mode] : kLoops )
+                if ( mode == actor.Loop )
+                    current = name;
+            if ( ImGui::BeginCombo( "Loop", current ) )
             {
-                for ( const auto& [name, mode] : loops )
-                    if ( ImGui::Selectable( std::string( name ).c_str(), mode == actor.Loop ) )
+                for ( const auto& [name, mode] : kLoops )
+                    if ( ImGui::Selectable( name, mode == actor.Loop ) )
                         actor.Loop = mode;
                 ImGui::EndCombo();
             }
