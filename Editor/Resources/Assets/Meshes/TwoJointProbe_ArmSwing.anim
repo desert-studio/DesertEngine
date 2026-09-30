@@ -3,9 +3,9 @@
         "Kind": "Animation",
         "Guid": "3bf5647848b60997928f7421c81acffd",
         "Versions": {
-            "ANIM": 4
+            "ANIM": 5
         },
-        "Dependencies": []
+        "Dependencies": ["e287e4cefcdec52a99588849bcf0a0a0"]
     },
     "Name": "ArmSwing",
     "TickRate": {
@@ -17,7 +17,10 @@
         "Denominator": 1
     },
     "DurationTicks": 24000,
-    "SkeletonSignature": 6545059686777644984,
+    "Skeleton": {
+        "Guid": "e287e4cefcdec52a99588849bcf0a0a0",
+        "Path": "Meshes/TwoJointProbe.skeleton"
+    },
     "Channels": [
         {
             "BoneName": "Joint_Arm",
