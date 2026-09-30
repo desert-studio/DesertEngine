@@ -13,7 +13,6 @@
 local test_name = path.getname(_SCRIPT_DIR)
 -- notify_tracks_test.cpp tests AnimationNotifyTracks.hpp, which ANIM-I10d moves onto the Sequence; it rejoins then.
 local test_files = os.matchfiles("*.cpp")
-table.removevalue(test_files, "notify_tracks_test.cpp")
 
 project(test_name)
     kind "ConsoleApp"
@@ -73,6 +72,8 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
     }
+
+    removefiles { "notify_tracks_test.cpp" }
 
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
