@@ -459,9 +459,10 @@ TEST( DeviceLostCensus, OnlyGatedFunctionsCanArmTheCommandBuffer )
     //
     // Roughly forty recording entry points in VulkanRenderer.cpp carry no device-lost guard of their own.
     // That is correct only while `m_CurrentCommandBuffer` — the field every one of them checks for null
-    // before recording — is set to a real buffer only by the gated BeginFrame (the frame's first buffer) and
-    // the gated ExecuteGraph (the buffer after each graph), once each. A third writer would reopen the whole
-    // defect silently, with nothing in a code review to point at. The field is private and its getter
+    // before recording — is set to a real buffer only by the gated BeginFrame (the frame's first buffer), the
+    // gated ExecuteGraph (the buffer after each graph) and SetGraphRecordingTarget (the graph backend's
+    // segment buffers while a graph runs; it asks the gate itself), once each. A fourth writer would reopen
+    // the whole defect silently, with nothing in a code review to point at. The field is private and its getter
     // returns a copy, so this one file is the whole of its write surface.
     //
     // Clearing it to nullptr is deliberately not counted: disarming can only stop recording, never start
@@ -478,8 +479,9 @@ TEST( DeviceLostCensus, OnlyGatedFunctionsCanArmTheCommandBuffer )
         std::size_t End   = 0;
         int         Count = 0;
     };
-    std::array<Armer, 2> armers = { Armer{ "VulkanRendererAPI::BeginFrame" },
-                                    Armer{ "VulkanRendererAPI::ExecuteGraph" } };
+    std::array<Armer, 3> armers = { Armer{ "VulkanRendererAPI::BeginFrame" },
+                                    Armer{ "VulkanRendererAPI::ExecuteGraph" },
+                                    Armer{ "VulkanRendererAPI::SetGraphRecordingTarget" } };
     for ( Armer& armer : armers )
     {
         const std::string body = BodyOf( src, armer.Name );
@@ -518,10 +520,10 @@ TEST( DeviceLostCensus, OnlyGatedFunctionsCanArmTheCommandBuffer )
         EXPECT_EQ( armer.Count, 1 ) << armer.Name << " must arm the command buffer exactly once";
     for ( int line : armedOutside )
         ADD_FAILURE() << file.filename().string() << ":" << line
-                      << " assigns a command buffer to m_CurrentCommandBuffer OUTSIDE BeginFrame and "
-                         "ExecuteGraph. Every vkCmd* in this file is guarded by that field being null on a "
-                         "lost device, and those two are the arming functions the device-lost gate sits in "
-                         "front of.";
+                      << " assigns a command buffer to m_CurrentCommandBuffer OUTSIDE BeginFrame, "
+                         "ExecuteGraph and SetGraphRecordingTarget. Every vkCmd* in this file is guarded by "
+                         "that field being null on a lost device, and those three are the arming functions "
+                         "the device-lost gate sits in front of.";
 }
 
 TEST( DeviceLostCensus, EveryRecordingEntryPointAsksIsRecording )

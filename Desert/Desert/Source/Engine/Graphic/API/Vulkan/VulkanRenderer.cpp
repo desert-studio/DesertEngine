@@ -762,6 +762,8 @@ namespace Desert::Graphic::API::Vulkan
         }
         m_FrameSubmissions.push_back(
              { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, m_CurrentCommandBuffer, {}, {}, {} } );
+        // Ended: from here until the graph backend arms its first buffer nothing may record into it.
+        m_CurrentCommandBuffer                    = nullptr;
         const Common::BoolResultStr      executed = graph.Execute( *m_RdgBackend );
         std::vector<VulkanRdgSubmission> segments = m_RdgBackend->TakeSubmissions();
         m_FrameSubmissions.insert( m_FrameSubmissions.end(), std::make_move_iterator( segments.begin() ),
@@ -784,6 +786,18 @@ namespace Desert::Graphic::API::Vulkan
         return executed;
     }
 
+    void VulkanRendererAPI::SetGraphRecordingTarget( VkCommandBuffer commandBuffer )
+    {
+        // The in-graph writer of the recording target (see the field). The graph only runs inside the gated
+        // ExecuteGraph; a loss noted mid-graph still disarms here rather than arming the next segment.
+        if ( commandBuffer != VK_NULL_HANDLE && !Graphic::DeviceLost::AllowWork() )
+        {
+            m_CurrentCommandBuffer = nullptr;
+            return;
+        }
+        m_CurrentCommandBuffer = commandBuffer;
+    }
+
     Common::BoolResultStr VulkanRendererAPI::BeginRdgFrame()
     {
         const auto     device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
@@ -800,7 +814,7 @@ namespace Desert::Graphic::API::Vulkan
             // into the command buffer of the segment the running pass is on, never into the frame's own
             // (ended before the graph) or another segment's. ExecuteGraph re-arms a fresh one after.
             m_RdgBackend->SetRecordingListener( [this]( VkCommandBuffer commandBuffer )
-                                                { m_CurrentCommandBuffer = commandBuffer; } );
+                                                { SetGraphRecordingTarget( commandBuffer ); } );
             m_RdgTransients           = std::make_unique<VulkanRdgTransientAllocator>( m_RdgDevice, slots );
             m_RdgDescriptors          = std::make_unique<VulkanRdgPassDescriptors>( m_RdgDevice.Device, slots );
 

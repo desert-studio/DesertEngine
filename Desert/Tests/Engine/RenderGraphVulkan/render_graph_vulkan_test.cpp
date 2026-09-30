@@ -1974,6 +1974,17 @@ namespace
         std::string          Error;
         std::vector<uint8_t> Bytes;
         RDG::ExternalBuffer  Readback;
+        VkCommandBuffer      ProduceBuffer = VK_NULL_HANDLE; // what each pass recorded into
+        VkCommandBuffer      ConsumeBuffer = VK_NULL_HANDLE;
+    };
+
+    // Stands in for VulkanRendererAPI: its recording target is written ONLY by the backend's RecordingListener,
+    // exactly as VulkanRendererAPI::SetGraphRecordingTarget is, and a pass that records "through the renderer"
+    // records into whatever that target is at the time.
+    struct RecordingTarget
+    {
+        VkCommandBuffer Current = VK_NULL_HANDLE;
+        int             Changes = 0;
     };
 
     constexpr uint32_t kAsyncBytes      = 4096;
@@ -2120,8 +2131,10 @@ void main() { Words[gl_GlobalInvocationID.x] = From[gl_GlobalInvocationID.x]; })
         return vulkan.GetValue()->GetBuffer();
     }
 
+    // With @p target, each pass records its dispatch into target->Current (a renderer Record()) after checking it
+    // IS the pass's segment buffer; without, into CommandBufferOf(context).
     AsyncCopyRun RunAsyncCopy( Gpu& gpu, VulkanRdgBackend& backend, VulkanRdgPool& pool, FrameObjects& frame,
-                               RDG::ExternalBuffer* source )
+                               RDG::ExternalBuffer* source, const RecordingTarget* target = nullptr )
     {
         AsyncCopyRun  run;
         AsyncDispatch dispatch( gpu.Device.device );
@@ -2161,7 +2174,10 @@ void main() { Words[gl_GlobalInvocationID.x] = From[gl_GlobalInvocationID.x]; })
                                             : VK_NULL_HANDLE;
                  if ( !error.empty() )
                      return Fail( std::format( "Produce: {}", error ) );
-                 return dispatch.Record( cmd.GetValue(), from, to );
+                 if ( target != nullptr && target->Current != cmd.GetValue() )
+                     return Fail( "Produce: the recording target is not the pass's segment command buffer" );
+                 run.ProduceBuffer = target != nullptr ? target->Current : cmd.GetValue();
+                 return dispatch.Record( run.ProduceBuffer, from, to );
              } );
         graph.AddPass(
              "Consume", RDG::PassFlags::Compute,
@@ -2180,7 +2196,10 @@ void main() { Words[gl_GlobalInvocationID.x] = From[gl_GlobalInvocationID.x]; })
                  const VkBuffer to   = PassBuffer( context, bytes, RDG::Access::StorageWrite, error );
                  if ( !error.empty() )
                      return Fail( std::format( "Consume: {}", error ) );
-                 return dispatch.Record( cmd.GetValue(), from, to );
+                 if ( target != nullptr && target->Current != cmd.GetValue() )
+                     return Fail( "Consume: the recording target is not the pass's segment command buffer" );
+                 run.ConsumeBuffer = target != nullptr ? target->Current : cmd.GetValue();
+                 return dispatch.Record( run.ConsumeBuffer, from, to );
              } );
         graph.Extract( bytes, run.Readback, RDG::Access::HostRead );
 
@@ -2256,6 +2275,44 @@ TEST( RenderGraphVulkan, AsyncComputeAcrossQueuesAndFromTheGraphStartIsValidatio
         ASSERT_TRUE( second.Error.empty() ) << second.Error;
         EXPECT_TRUE( AllFilled( second.Bytes ) );
         EXPECT_EQ( backend.GetAsyncComputeFallbackLog().GetLinesLogged(), 0u );
+    }
+    const std::vector<Message> messages = TakeMessages();
+    EXPECT_TRUE( messages.empty() ) << messages.size() << " validation message(s):" << Join( messages );
+}
+
+// The architect's condition on the B2 recording target: a renderer Record() inside a pass lands in that pass's
+// segment command buffer. The recording target is written only by the backend's listener (as the engine's
+// VulkanRendererAPI::SetGraphRecordingTarget is); every pass records its dispatch THROUGH it into an
+// async-adjacent graph (async Produce, graphics Consume), and the frame is byte-exact and validation-clean.
+TEST( RenderGraphVulkan, ARecordThroughTheRecordingTargetLandsInThePassSegmentBuffer )
+{
+    Gpu& gpu = GetGpu();
+    ASSERT_TRUE( gpu.Error.empty() ) << gpu.Error;
+    if ( gpu.ComputeQueue == VK_NULL_HANDLE )
+        GTEST_SKIP() << "the device has no compute family other than the graphics one";
+    {
+        VulkanRdgPool    pool( gpu.Rdg, 1 );
+        FrameObjects     frame( gpu, 1, true );
+        VulkanRdgBackend backend( gpu.Rdg, pool );
+        RecordingTarget  target;
+        backend.SetRecordingListener(
+             [&target]( VkCommandBuffer commandBuffer )
+             {
+                 target.Current = commandBuffer;
+                 ++target.Changes;
+             } );
+
+        AsyncCopyRun run = RunAsyncCopy( gpu, backend, pool, frame, nullptr, &target );
+        ASSERT_TRUE( run.Error.empty() ) << run.Error;
+        EXPECT_TRUE( AllFilled( run.Bytes ) );
+        // Two pipes, two segments: the async pass and the graphics pass recorded into different buffers, and
+        // neither is the one the target holds once the submissions are handed over.
+        EXPECT_NE( run.ProduceBuffer, VK_NULL_HANDLE );
+        EXPECT_NE( run.ConsumeBuffer, VK_NULL_HANDLE );
+        EXPECT_NE( run.ProduceBuffer, run.ConsumeBuffer );
+        EXPECT_EQ( target.Current, VK_NULL_HANDLE ) << "TakeSubmissions must clear the recording target";
+        // Graph begin, then at least one begin and one end per segment, then the hand-over.
+        EXPECT_GE( target.Changes, 6 );
     }
     const std::vector<Message> messages = TakeMessages();
     EXPECT_TRUE( messages.empty() ) << messages.size() << " validation message(s):" << Join( messages );
