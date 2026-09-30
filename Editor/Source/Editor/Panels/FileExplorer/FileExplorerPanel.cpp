@@ -1224,9 +1224,6 @@ namespace Desert::Editor
 
     void FileExplorerPanel::OnUIRender()
     {
-        // Captured for the OS file-drop handler (which runs outside the ImGui frame, via OnEvent).
-        m_IsHovered = ImGui::IsWindowHovered( ImGuiHoveredFlags_RootAndChildWindows );
-
         // Keyboard shortcuts on the selected item (panel focused, no text field active): F2 rename, Del delete.
         if ( ImGui::IsWindowFocused( ImGuiFocusedFlags_RootAndChildWindows ) && m_CurrentSelected &&
              !ImGui::GetIO().WantTextInput )
@@ -2316,18 +2313,11 @@ namespace Desert::Editor
         QueueRefresh();
     }
 
-    void FileExplorerPanel::OnEvent( Common::Event& e )
+    bool FileExplorerPanel::OnWindowFileDropped( Common::EventWindowFileDrop& drop )
     {
-        Common::EventManager mgr( e );
-        mgr.Notify<Common::EventWindowFileDrop>(
-             [this]( Common::EventWindowFileDrop& drop ) -> bool
-             {
-                 if ( !m_IsHovered ) // only when the drop landed on the Assets panel
-                     return false;
-                 for ( const auto& path : drop.Paths )
-                     ImportExternalFile( path );
-                 return true;
-             } );
+        for ( const auto& path : drop.Paths )
+            ImportExternalFile( path );
+        return true;
     }
 
     std::vector<size_t> FileExplorerPanel::BuildDisplayOrder() const
@@ -3511,3 +3501,5 @@ namespace Desert::Editor
     }
 
 } // namespace Desert::Editor
+
+static_assert( Common::HandlesEvent<Desert::Editor::FileExplorerPanel, Common::EventWindowFileDrop> );

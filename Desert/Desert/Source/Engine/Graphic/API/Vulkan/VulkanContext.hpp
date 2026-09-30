@@ -25,7 +25,7 @@ namespace Desert::Graphic::API::Vulkan
 
         // EMPTY BY OBLIGATION, not by omission. `RendererContext::OnResize` is pure virtual, and on Vulkan
         // there is nothing at CONTEXT level that a resize touches: the swapchain owns every size-dependent
-        // object and `VulkanSwapChain::OnResize` is what the window actually calls. The names are commented
+        // object and `VulkanSwapChain::RequestRebuild` is what the window actually calls. The names are commented
         // out so the signature still documents the contract.
         void OnResize( uint32_t /*width*/, uint32_t /*height*/ ) override
         {

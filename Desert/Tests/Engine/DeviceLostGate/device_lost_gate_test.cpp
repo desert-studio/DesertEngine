@@ -52,14 +52,14 @@ namespace
     // The frame loop, in the order the recorded crash walked it. Each entry is a point that would issue
     // device work; `AllowWork()` is what each of them asks before doing so.
     const char* const k_FrameSequence[] = {
-         "VulkanQueue::PrepareFrame",         // vkResetFences  <- "pFences[0] is in use"
-         "VulkanSwapChain::AcquireNextImage", // vkAcquireNextImageKHR <- "Semaphore must not have..."
-         "VulkanSwapChain::OnResize",         // the rebuild
-         "VulkanSwapChain::CreateSwapChain",  // vkCreateSwapchainKHR <- the abort, at line 165
-         "VulkanRendererAPI::BeginFrame",     // vkBeginCommandBuffer
-         "VulkanQueue::Submit",               // vkQueueSubmit
-         "VulkanQueue::Present",              // vkQueuePresentKHR + vkWaitForFences
-         "VulkanRendererAPI::WaitDeviceIdle", // vkDeviceWaitIdle
+         "VulkanQueue::PrepareFrame",              // vkResetFences  <- "pFences[0] is in use"
+         "VulkanSwapChain::AcquireNextImage",      // vkAcquireNextImageKHR <- "Semaphore must not have..."
+         "VulkanSwapChain::ApplyRequestedRebuild", // the rebuild
+         "VulkanSwapChain::CreateSwapChain",       // vkCreateSwapchainKHR <- the abort, at line 165
+         "VulkanRendererAPI::BeginFrame",          // vkBeginCommandBuffer
+         "VulkanQueue::Submit",                    // vkQueueSubmit
+         "VulkanQueue::Present",                   // vkQueuePresentKHR + vkWaitForFences
+         "VulkanRendererAPI::WaitDeviceIdle",      // vkDeviceWaitIdle
     };
 
     // Runs the sequence and answers how many of its steps were allowed to issue work.
