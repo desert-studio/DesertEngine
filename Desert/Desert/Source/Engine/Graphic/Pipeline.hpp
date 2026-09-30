@@ -69,8 +69,8 @@ namespace Desert::Graphic
         // Entered at the first build (the object is whole by then), left here.
         virtual ~IPipeline()
         {
-            auto&           live = detail::LivePipelines();
-            std::lock_guard lock( live.Mutex );
+            auto&                 live = detail::LivePipelines();
+            const std::lock_guard lock( live.Mutex );
             live.All.erase( this );
         }
 
@@ -101,8 +101,8 @@ namespace Desert::Graphic
         {
             const auto& shader       = GetShader();
             m_BuiltAgainstGeneration = shader ? shader->GetCodeGeneration() : 0;
-            auto&           live     = detail::LivePipelines();
-            std::lock_guard lock( live.Mutex );
+            auto&                 live     = detail::LivePipelines();
+            const std::lock_guard lock( live.Mutex );
             live.All.insert( this );
         }
 

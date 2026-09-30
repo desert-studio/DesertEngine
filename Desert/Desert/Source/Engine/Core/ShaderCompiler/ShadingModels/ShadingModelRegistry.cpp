@@ -17,12 +17,12 @@ namespace Desert::Core::ShadingModels
     {
         bool IsIdentChar( const char ch )
         {
-            return std::isalnum( static_cast<unsigned char>( ch ) ) || ch == '_';
+            return std::isalnum( static_cast<unsigned char>( ch ) ) != 0 || ch == '_';
         }
 
         bool IsGlslIdentifier( const std::string_view name )
         {
-            return !name.empty() && !std::isdigit( static_cast<unsigned char>( name[0] ) ) &&
+            return !name.empty() && std::isdigit( static_cast<unsigned char>( name[0] ) ) == 0 &&
                    std::ranges::all_of( name, IsIdentChar );
         }
 
@@ -39,7 +39,7 @@ namespace Desert::Core::ShadingModels
                 if ( after < body.size() && IsIdentChar( body[after] ) )
                     continue;
                 std::size_t next = after;
-                while ( next < body.size() && std::isspace( static_cast<unsigned char>( body[next] ) ) )
+                while ( next < body.size() && std::isspace( static_cast<unsigned char>( body[next] ) ) != 0 )
                     ++next;
                 if ( next < body.size() && body[next] == '(' )
                     return true;
@@ -50,6 +50,14 @@ namespace Desert::Core::ShadingModels
         std::string FileName( const ShadingModelManifest& m )
         {
             return m.SourcePath.generic_string();
+        }
+
+        // The manifest as the shader root names it (ShadingModels/<Name>.shadingmodel) — what the GENERATED include
+        // may carry: its bytes must not depend on where the root lies on this machine, or the cooked copy in a pak
+        // never equals the set the packaged game loads (and every checkout writes its own include).
+        std::string RootRelativeName( const ShadingModelManifest& m )
+        {
+            return std::format( "{}/{}", kShadingModelDirectory, m.SourcePath.filename().generic_string() );
         }
 
         // Through the VFS (FileSystem is pak-aware): the packaged game has no loose shader root, only the pak
@@ -66,14 +74,14 @@ namespace Desert::Core::ShadingModels
         std::string snake;
         for ( std::size_t i = 0; i < modelName.size(); ++i )
         {
-            const unsigned char ch = static_cast<unsigned char>( modelName[i] );
-            if ( i > 0 && std::isupper( ch ) )
+            const auto ch = static_cast<unsigned char>( modelName[i] );
+            if ( i > 0 && std::isupper( ch ) != 0 )
             {
-                const unsigned char prev = static_cast<unsigned char>( modelName[i - 1] );
+                const auto prev = static_cast<unsigned char>( modelName[i - 1] );
                 const bool          nextLower =
-                     i + 1 < modelName.size() && std::islower( static_cast<unsigned char>( modelName[i + 1] ) );
+                     i + 1 < modelName.size() && std::islower( static_cast<unsigned char>( modelName[i + 1] ) ) != 0;
                 // "DefaultLit" -> DEFAULT_LIT, "GGXCloth" -> GGX_CLOTH.
-                if ( std::islower( prev ) || std::isdigit( prev ) || ( std::isupper( prev ) && nextLower ) )
+                if ( std::islower( prev ) != 0 || std::isdigit( prev ) != 0 || ( std::isupper( prev ) != 0 && nextLower ) )
                     snake.push_back( '_' );
             }
             snake.push_back( static_cast<char>( std::toupper( ch ) ) );
@@ -120,11 +128,12 @@ namespace Desert::Core::ShadingModels
         const auto                  surfaceTypesText = ReadText( surfaceTypes );
         if ( !surfaceTypesText.IsSuccess() )
             return Common::MakeError<ShadingModelRegistry>( surfaceTypesText.GetError() );
-        if ( !surfaceTypesText.GetValue().has_value() )
+        const std::optional<std::string>& surfaceTypesBody = surfaceTypesText.GetValue();
+        if ( !surfaceTypesBody.has_value() )
             return Common::MakeError<ShadingModelRegistry>(
                  std::format( "{}: missing — it declares SurfaceOutput, the field list of shading-model Inputs",
                               surfaceTypes.generic_string() ) );
-        const auto fields = ReadSurfaceOutputFields( *surfaceTypesText.GetValue() );
+        const auto fields = ReadSurfaceOutputFields( *surfaceTypesBody );
         if ( !fields.IsSuccess() )
             return Common::MakeError<ShadingModelRegistry>( fields.GetError() );
 
@@ -150,10 +159,11 @@ namespace Desert::Core::ShadingModels
             const auto text = ReadText( file );
             if ( !text.IsSuccess() )
                 return Common::MakeError<ShadingModelRegistry>( text.GetError() );
-            if ( !text.GetValue().has_value() )
+            const std::optional<std::string>& body = text.GetValue();
+            if ( !body.has_value() )
                 return Common::MakeError<ShadingModelRegistry>(
                      std::format( "{}: listed but not readable", file.generic_string() ) );
-            auto manifest = ParseShadingModelManifest( *text.GetValue(), file );
+            auto manifest = ParseShadingModelManifest( *body, file );
             if ( !manifest.IsSuccess() )
                 return Common::MakeError<ShadingModelRegistry>( manifest.GetError() );
             manifests.push_back( manifest.ExtractValue() );
@@ -207,18 +217,26 @@ namespace Desert::Core::ShadingModels
                                       FileName( m ), function ) );
         }
 
-        for ( const std::uint64_t required : { kUnlitGuid, kDefaultLitGuid } )
+        // The engine's two models are found by Guid; the label only names the constant in the message.
+        struct RequiredModel
+        {
+            std::uint64_t    Guid;
+            std::string_view Constant;
+        };
+        for ( const RequiredModel required :
+              { RequiredModel{ kUnlitGuid, "kUnlitGuid" }, RequiredModel{ kDefaultLitGuid, "kDefaultLitGuid" } } )
             if ( std::ranges::none_of( manifests, [&]( const ShadingModelManifest& m )
-                                       { return static_cast<std::uint64_t>( m.Guid ) == required; } ) )
+                                       { return static_cast<std::uint64_t>( m.Guid ) == required.Guid; } ) )
                 return Common::MakeError<ShadingModelRegistry>(
-                     std::format( "no shading model carries Guid {} ({}) — the engine relies on it", required,
-                                  required == kUnlitGuid ? "Unlit" : "DefaultLit" ) );
+                     std::format( "no shading model carries Guid {} ({}) — the engine relies on it",
+                                  required.Guid, required.Constant ) );
 
         // Unlit first, the rest by ascending Guid: the same files give the same indices everywhere.
         std::ranges::sort( manifests,
                            []( const ShadingModelManifest& a, const ShadingModelManifest& b )
                            {
-                               const std::uint64_t ga = a.Guid, gb = b.Guid;
+                               const std::uint64_t ga = a.Guid;
+                               const std::uint64_t gb = b.Guid;
                                if ( ( ga == kUnlitGuid ) != ( gb == kUnlitGuid ) )
                                    return ga == kUnlitGuid;
                                return ga < gb;
@@ -302,7 +320,7 @@ namespace Desert::Core::ShadingModels
                             "{}\n"
                             "#undef Evaluate\n"
                             "#undef EvaluateAmbient\n",
-                            FileName( e.Manifest ), e.Manifest.Guid.ToString(), e.Index, e.Manifest.Name,
+                            RootRelativeName( e.Manifest ), e.Manifest.Guid.ToString(), e.Index, e.Manifest.Name,
                             e.Manifest.Name, e.Manifest.Body );
 
         const auto dispatch =

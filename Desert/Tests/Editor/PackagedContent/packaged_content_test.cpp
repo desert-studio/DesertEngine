@@ -2308,10 +2308,10 @@ TEST( PackagedContent, NoWindowInitMovesTheWorkingDirectoryIntoTheBundleResource
 // ShadingModelRegistry::Scan and the scan fails here.
 TEST( PackagedContent, ThePackagedGameReadsItsShadingModelsFromThePakAndWritesNothing )
 {
-    EnvironmentGuard guard;
-    const fs::path   repo = fs::absolute( RepoRoot() );
+    const EnvironmentGuard guard;
+    const fs::path         repo = fs::absolute( RepoRoot() );
     ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
-    Desert::TestSupport::ScratchDir scratch( "desert-pkg-shading-models" );
+    const Desert::TestSupport::ScratchDir scratch( "desert-pkg-shading-models" );
     const fs::path                  staging       = scratch.Path() / "staging";
     const fs::path                  pkg           = scratch.Path() / "pkg";
     const fs::path                  shaders       = repo / "Editor" / "Resources" / "Shaders";

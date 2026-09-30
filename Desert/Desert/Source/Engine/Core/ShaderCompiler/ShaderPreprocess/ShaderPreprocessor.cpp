@@ -59,7 +59,7 @@ namespace Desert::Core::Preprocess
         if ( !preprocessed.IsSuccess() )
             return Common::MakeError<std::unordered_map<Core::Formats::ShaderStage, std::string>>(
                  preprocessed.GetError() );
-        return Common::MakeSuccess( std::move( preprocessed.GetValue().Stages ) );
+        return Common::MakeSuccess( std::move( preprocessed.ExtractValue().Stages ) );
     }
 
     Common::ResultStr<Core::Formats::ShaderProgramMeta>

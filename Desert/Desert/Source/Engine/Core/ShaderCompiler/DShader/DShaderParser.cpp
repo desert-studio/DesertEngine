@@ -901,10 +901,10 @@ namespace Desert::Core::Preprocess
         std::vector<std::string> SurfaceWrittenFields( const std::string_view surface )
         {
             const auto isIdent = []( const char ch )
-            { return std::isalnum( static_cast<unsigned char>( ch ) ) || ch == '_'; };
+            { return std::isalnum( static_cast<unsigned char>( ch ) ) != 0 || ch == '_'; };
             const auto skipSpace = [&]( std::size_t at )
             {
-                while ( at < surface.size() && std::isspace( static_cast<unsigned char>( surface[at] ) ) )
+                while ( at < surface.size() && std::isspace( static_cast<unsigned char>( surface[at] ) ) != 0 )
                     ++at;
                 return at;
             };
@@ -914,7 +914,7 @@ namespace Desert::Core::Preprocess
             {
                 std::size_t end = skipSpace( dot + 1 );
                 if ( end >= surface.size() ||
-                     !( std::isalpha( static_cast<unsigned char>( surface[end] ) ) || surface[end] == '_' ) )
+                     ( std::isalpha( static_cast<unsigned char>( surface[end] ) ) == 0 && surface[end] != '_' ) )
                     continue;
                 const std::size_t nameStart = end;
                 while ( end < surface.size() && isIdent( surface[end] ) )

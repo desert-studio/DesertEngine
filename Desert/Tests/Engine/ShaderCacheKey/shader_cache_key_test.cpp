@@ -1448,21 +1448,32 @@ TEST_F( ShaderRootFixture, TwoSmallParametersInARowStillLandOnTheirOwnSlots )
     }
 }
 
-TEST_F( ShaderRootFixture, AnUnlitGraphSurfaceReceivesNoneOfIt )
+TEST_F( ShaderRootFixture, AnUnlitGraphSurfaceIsShadedThroughTheSamePassesAsEveryModel )
 {
-    // The boundary is real and not a matter of degree: an unlit graph shader is a DIFFERENT domain of
-    // shading, it declares no lighting resource at all, and the change that gave the lit branch the
-    // engine's model must not have quietly given the unlit branch a lighting descriptor it will never
-    // read. (The Metallic/Roughness/Occlusion pins are likewise not evaluated for an unlit graph — the
-    // nodes behind them would otherwise be emitted into a shader that discards the result.)
-    const auto includes = FragmentIncludes( ShaderPath( "Graph/MatConst.shader" ) );
-    for ( const auto& include : includes )
-        EXPECT_FALSE( IsSharedShadingText( include ) )
-             << "an unlit graph surface compiles " << include.filename().string();
-
-    const auto bindings = GraphicsSetZero( ShaderPath( "Graph/MatConst.shader" ) );
-    EXPECT_FALSE( HasBinding( bindings, 20, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
-    EXPECT_FALSE( HasBinding( bindings, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
+    // SHM1 moved this boundary. It used to be that an unlit graph was a different DOMAIN, compiled with no
+    // lighting text and no lighting descriptor; that pinned the pre-registry design, where "unlit" was a pass
+    // of its own. Now Unlit is a shading model (ShadingModels/Unlit.shadingmodel) like DefaultLit and Toon —
+    // UE's MSM_Unlit, a model id and not a separate pipeline — so a graph that says `ShadingModel Unlit` is
+    // expanded into the same cells as every surface, compiles the same forward pass and the generated
+    // dispatch, and is flat because the dispatch sends its index to Unlit's zero-returning functions.
+    const auto path = ShaderPath( "Graph/MatConst.shader" );
+    bool       forwardPass = false;
+    bool       dispatch    = false;
+    bool       sharedText  = false;
+    for ( const auto& include : FragmentIncludes( path, "Static.Forward" ) )
+    {
+        forwardPass = forwardPass || include.filename() == "Pass_Forward.glslh";
+        dispatch =
+             dispatch || include.filename() ==
+                              std::filesystem::path( Desert::Core::ShadingModels::kGeneratedInclude ).filename();
+        sharedText = sharedText || IsSharedShadingText( include );
+        EXPECT_EQ( include.filename().string().find( "Unlit" ), std::string::npos )
+             << "the unlit graph compiles a model's own header, " << include.filename().string();
+    }
+    EXPECT_TRUE( forwardPass ) << "the unlit graph's forward cell is not built on Mesh/Surface/Pass_Forward.glslh";
+    EXPECT_TRUE( dispatch ) << "the unlit graph's forward cell does not compile the generated shading-model dispatch";
+    EXPECT_TRUE( sharedText ) << "the unlit graph's forward cell compiles none of the shared shading text";
+    EXPECT_FALSE( GraphicsSetZero( path, "Static.Forward" ).empty() ) << "the unlit graph's forward cell does not compile";
 }
 
 TEST_F( ShaderRootFixture, TheUnlitTemplateIsLitThroughTheSamePassesAsEveryModel )

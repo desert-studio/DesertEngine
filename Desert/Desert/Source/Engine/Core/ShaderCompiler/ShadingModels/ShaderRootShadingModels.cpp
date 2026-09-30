@@ -8,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 
 namespace Desert::Core::ShadingModels
 {
@@ -22,8 +23,12 @@ namespace Desert::Core::ShadingModels
         std::string WriteIfChanged( const std::filesystem::path& path, const std::string& text )
         {
             const auto current = Common::Utils::FileSystem::ReadFileContentIfExists( path );
-            if ( current.IsSuccess() && current.GetValue().has_value() && *current.GetValue() == text )
-                return {};
+            if ( current.IsSuccess() )
+            {
+                const std::optional<std::string>& bytes = current.GetValue();
+                if ( bytes.has_value() && *bytes == text )
+                    return {};
+            }
             std::ofstream out( path, std::ios::binary | std::ios::trunc );
             out << text;
             out.close();
@@ -76,7 +81,7 @@ namespace Desert::Core::ShadingModels
     {
         const std::filesystem::path root = CurrentRoot();
         RootSets&                   sets = Sets();
-        std::lock_guard             lock( sets.Mutex );
+        const std::lock_guard       lock( sets.Mutex );
         auto&                       slot = sets.Loaded[root];
         if ( !slot )
             slot = std::make_shared<const LoadResult>( Load( root ) );
@@ -89,8 +94,8 @@ namespace Desert::Core::ShadingModels
         RootSets&                   sets = Sets();
         // Under the lock for the whole scan: two reloads (or a first load racing a reload) must not write
         // kGeneratedInclude twice from two different sets.
-        std::lock_guard lock( sets.Mutex );
-        auto            loaded = std::make_shared<const LoadResult>( Load( root ) );
+        const std::lock_guard lock( sets.Mutex );
+        auto                  loaded = std::make_shared<const LoadResult>( Load( root ) );
         if ( !loaded->IsSuccess() )
             return Common::MakeError<bool>( loaded->GetError() );
         sets.Loaded[root] = std::move( loaded );

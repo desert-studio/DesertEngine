@@ -20,7 +20,7 @@ namespace Desert::Core::ShadingModels
             {
                 while ( Pos < Text.size() )
                 {
-                    if ( std::isspace( static_cast<unsigned char>( Text[Pos] ) ) )
+                    if ( std::isspace( static_cast<unsigned char>( Text[Pos] ) ) != 0 )
                         ++Pos;
                     else if ( Text.substr( Pos, 2 ) == "//" )
                     {
@@ -38,7 +38,7 @@ namespace Desert::Core::ShadingModels
                 SkipSpaceAndComments();
                 const std::size_t start = Pos;
                 while ( Pos < Text.size() &&
-                        ( std::isalnum( static_cast<unsigned char>( Text[Pos] ) ) || Text[Pos] == '_' ) )
+                        ( std::isalnum( static_cast<unsigned char>( Text[Pos] ) ) != 0 || Text[Pos] == '_' ) )
                     ++Pos;
                 return Text.substr( start, Pos - start );
             }

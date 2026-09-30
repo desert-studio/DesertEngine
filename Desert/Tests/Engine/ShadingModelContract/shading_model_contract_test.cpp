@@ -38,7 +38,7 @@ namespace
 
     std::string ReadFile( const std::filesystem::path& path )
     {
-        std::ifstream      in( path, std::ios::binary );
+        const std::ifstream in( path, std::ios::binary );
         std::ostringstream out;
         out << in.rdbuf();
         return out.str();
@@ -65,12 +65,12 @@ namespace
 
     const SM::ShadingWordField& Field( std::string_view name )
     {
-        const auto it = std::ranges::find( SM::kShadingWordFields, name, &SM::ShadingWordField::Name );
+        const auto* const it = std::ranges::find( SM::kShadingWordFields, name, &SM::ShadingWordField::Name );
         EXPECT_NE( it, SM::kShadingWordFields.end() ) << name;
         return *it;
     }
 
-    SM::ShadingModelManifest Manifest( std::uint64_t guid, std::string name, std::vector<std::string> inputs = {} )
+    SM::ShadingModelManifest Manifest( std::uint64_t guid, const std::string& name, std::vector<std::string> inputs = {} )
     {
         SM::ShadingModelManifest m;
         m.Guid   = Common::UUID( guid );
@@ -106,7 +106,7 @@ TEST( ShadingWord, FieldsAreDisjointAndExactInAFloat )
     {
         ASSERT_GT( f.BitCount, 0 ) << f.Name;
         ASSERT_LE( f.FirstBit + f.BitCount, SM::kShadingWordExactBits )
-             << f.Name << " reaches past bit " << int( SM::kShadingWordExactBits )
+             << f.Name << " reaches past bit " << static_cast<int>( SM::kShadingWordExactBits )
              << ", where a float stops being exact";
         const std::uint32_t mask = ( ( 1u << f.BitCount ) - 1u ) << f.FirstBit;
         EXPECT_EQ( used & mask, 0u ) << f.Name << " overlaps another field of the shading word";
@@ -127,7 +127,7 @@ TEST( ShadingWord, PayloadIsTwoFloatsOutsideTheOccupiedFields )
     for ( std::size_t i = 0; i < SM::kMaxPayloadFloats; ++i )
     {
         const SM::ShadingWordField& p = Field( std::format( "PAYLOAD{}", i ) );
-        for ( std::string_view occupied : { "INDEX", "TEXTURES" } )
+        for ( const std::string_view occupied : { "INDEX", "TEXTURES" } )
         {
             const SM::ShadingWordField& o = Field( occupied );
             EXPECT_TRUE( p.FirstBit >= o.FirstBit + o.BitCount || o.FirstBit >= p.FirstBit + p.BitCount )
@@ -164,8 +164,8 @@ TEST( ShadingWord, SunShadowReceiveIsTheSignOutsideTheMagnitude )
 
     for ( const std::uint32_t magnitude : { 0u, 1u, ( 1u << SM::kShadingWordExactBits ) - 1u } )
     {
-        const float word = static_cast<float>( magnitude );
-        const float marked =
+        const auto word = static_cast<float>( magnitude );
+        const auto marked =
              std::bit_cast<float>( std::bit_cast<std::uint32_t>( word ) | ( 1u << sign.FirstBit ) );
         EXPECT_TRUE( std::signbit( marked ) ) << magnitude;
         EXPECT_FALSE( std::signbit( word ) ) << magnitude;
@@ -201,7 +201,7 @@ TEST( ShippedShadingModels, EveryInputAndPayloadPinIsASurfaceOutputField )
     ASSERT_TRUE( registry.IsSuccess() ) << registry.GetError();
 
     const std::vector<std::string>& known = fields.GetValue();
-    for ( std::string_view pin : SM::kPayloadPins )
+    for ( const std::string_view pin : SM::kPayloadPins )
         EXPECT_NE( std::ranges::find( known, pin ), known.end() ) << pin << " is not a SurfaceOutput field";
     for ( const SM::ShadingModelEntry& e : registry.GetValue().Entries() )
     {
@@ -235,7 +235,7 @@ TEST( ShadingModelRegistryRules, UnlitIsZeroEvenBelowASmallerGuid )
 TEST( ShadingModelRegistryRules, IndexIsStableUnderFileOrder )
 {
     std::vector<SM::ShadingModelManifest> forward = WithEngineModels( { Manifest( 7, "A" ), Manifest( 9, "B" ) } );
-    std::vector<SM::ShadingModelManifest> reversed( forward.rbegin(), forward.rend() );
+    const std::vector<SM::ShadingModelManifest> reversed( forward.rbegin(), forward.rend() );
     const auto                            one = SM::ShadingModelRegistry::Build( forward, kFields );
     const auto                            two = SM::ShadingModelRegistry::Build( reversed, kFields );
     ASSERT_TRUE( one.IsSuccess() && two.IsSuccess() );
@@ -271,7 +271,7 @@ TEST( ShadingModelRegistryRules, InputOutsideSurfaceOutputIsRefusedNamingFileAnd
 
 TEST( ShadingModelRegistryRules, MissingInputNamesTheField )
 {
-    SM::ShadingModelEntry          toon{ Manifest( 5, "Toon", { "BaseColor", "CustomData0" } ), 1 };
+    const SM::ShadingModelEntry    toon{ Manifest( 5, "Toon", { "BaseColor", "CustomData0" } ), 1 };
     const std::vector<std::string> written{ "BaseColor" };
     EXPECT_EQ( SM::ShadingModelRegistry::MissingInput( toon, written ),
                std::optional<std::string>( "CustomData0" ) );

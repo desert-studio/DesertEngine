@@ -4,6 +4,7 @@
 
 #include "../../TestSupport/scratch_dir.hpp"
 
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -129,6 +130,17 @@ TEST( MaterialImportContract, TheShippedTemplatesChooseByTheirOwnContracts )
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
+    // Parsing a template resolves its `ShadingModel` through the shading-model registry of the shader root the
+    // engine compiles from (SHADERDIR_PATH, relative to the working directory, as the editor runs from Editor/).
+    // The runner starts a suite in its own scratch directory, so the process moves to the checkout's Editor/.
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
+    if ( root.empty() )
+    {
+        std::fprintf( stderr, "MaterialImportContract: no checkout above %s\n",
+                      std::filesystem::current_path().string().c_str() );
+        return 1;
+    }
+    std::filesystem::current_path( root / "Editor" );
     return RUN_ALL_TESTS();
 }
 

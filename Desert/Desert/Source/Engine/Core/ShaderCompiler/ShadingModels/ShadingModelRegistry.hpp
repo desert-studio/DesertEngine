@@ -65,17 +65,17 @@ namespace Desert::Core::ShadingModels
                                                               std::span<const std::string> surfaceOutputFields );
 
         // Ordered by Index: Entries()[i].Index == i.
-        std::span<const ShadingModelEntry> Entries() const;
+        [[nodiscard]] std::span<const ShadingModelEntry> Entries() const;
 
-        const ShadingModelEntry* FindByGuid( Common::UUID guid ) const;
-        const ShadingModelEntry* FindByName( std::string_view name ) const;
+        [[nodiscard]] const ShadingModelEntry* FindByGuid( Common::UUID guid ) const;
+        [[nodiscard]] const ShadingModelEntry* FindByName( std::string_view name ) const;
 
         // "<guid>=<index>;..." in index order — the Guid->index layout, hashed into ShaderCacheKey so a cached
         // SPIR-V compiled against another layout is never reused.
-        std::string IndexLayoutKey() const;
+        [[nodiscard]] std::string IndexLayoutKey() const;
 
         // The text of kGeneratedInclude.
-        std::string GenerateGlsl() const;
+        [[nodiscard]] std::string GenerateGlsl() const;
 
         // The first of @p model's Inputs (payload pins included) that @p writtenFields does not contain, or
         // nothing when the surface writes them all.

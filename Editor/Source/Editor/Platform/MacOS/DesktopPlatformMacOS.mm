@@ -10,7 +10,7 @@ namespace Desert::Editor
 
         @autoreleasepool
         {
-            NSOpenPanel* panel            = [NSOpenPanel openPanel];
+            NSOpenPanel* const panel      = [NSOpenPanel openPanel];
             panel.canChooseFiles          = YES;
             panel.canChooseDirectories    = NO;
             panel.allowsMultipleSelection = NO;
@@ -18,22 +18,22 @@ namespace Desert::Editor
 
             if ( [panel runModal] == NSModalResponseOK )
             {
-                NSURL* url = panel.URLs.firstObject;
+                NSURL* const url = panel.URLs.firstObject;
                 if ( url != nil )
                 {
-                    return std::filesystem::path( [url.path UTF8String] );
+                    return { [url.path UTF8String] };
                 }
             }
         }
 
-        return std::filesystem::path();
+        return {};
     }
 
     std::filesystem::path DesktopPlatform::OpenFolderDialog( const char* initialFolder )
     {
         @autoreleasepool
         {
-            NSOpenPanel* panel            = [NSOpenPanel openPanel];
+            NSOpenPanel* const panel      = [NSOpenPanel openPanel];
             panel.canChooseFiles          = NO;
             panel.canChooseDirectories    = YES;
             panel.allowsMultipleSelection = NO;
@@ -41,21 +41,21 @@ namespace Desert::Editor
 
             if ( initialFolder != nullptr && initialFolder[0] != '\0' )
             {
-                NSString* start    = [NSString stringWithUTF8String:initialFolder];
+                NSString* const start = [NSString stringWithUTF8String:initialFolder];
                 panel.directoryURL = [NSURL fileURLWithPath:start isDirectory:YES];
             }
 
             if ( [panel runModal] == NSModalResponseOK )
             {
-                NSURL* url = panel.URLs.firstObject;
+                NSURL* const url = panel.URLs.firstObject;
                 if ( url != nil )
                 {
-                    return std::filesystem::path( [url.path UTF8String] );
+                    return { [url.path UTF8String] };
                 }
             }
         }
 
-        return std::filesystem::path();
+        return {};
     }
 
     std::filesystem::path DesktopPlatform::SaveFileDialog( const char* filter )
@@ -64,19 +64,19 @@ namespace Desert::Editor
 
         @autoreleasepool
         {
-            NSSavePanel* panel         = [NSSavePanel savePanel];
+            NSSavePanel* const panel   = [NSSavePanel savePanel];
             panel.canCreateDirectories = YES;
 
             if ( [panel runModal] == NSModalResponseOK )
             {
-                NSURL* url = panel.URL;
+                NSURL* const url = panel.URL;
                 if ( url != nil )
                 {
-                    return std::filesystem::path( [url.path UTF8String] );
+                    return { [url.path UTF8String] };
                 }
             }
         }
 
-        return std::filesystem::path();
+        return {};
     }
 } // namespace Desert::Editor
