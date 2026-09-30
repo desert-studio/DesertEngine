@@ -208,7 +208,14 @@ namespace Desert::Animation
             if ( const auto asset =
                       m_AssetManager->ProbeByHandle<Assets::SkinnedMeshAsset>( Common::UUID( mesh ) ) )
                 return IdentifyMesh( *asset );
+        if ( const auto it = m_ProceduralMeshes.find( mesh ); it != m_ProceduralMeshes.end() )
+            return it->second;
         return MeshSkeletonIdentity{ SkeletonRefOf( {} ), {} };
+    }
+
+    void AnimationLibrary::RegisterMeshSkeleton( const Assets::AssetHandle& mesh, MeshSkeletonIdentity identity )
+    {
+        m_ProceduralMeshes[mesh] = std::move( identity );
     }
 
     std::vector<Assets::Asset<Assets::AnimationAsset>>
@@ -248,6 +255,7 @@ namespace Desert::Animation
     void AnimationLibrary::Clear()
     {
         m_Clips.clear();
+        m_ProceduralMeshes.clear();
         m_Unread.clear();
         m_Requests.clear();
     }

@@ -215,13 +215,15 @@ namespace Desert::Editor
     // (Core::SubjectOpenRequests), which is the one wire every document open goes through — see
     // Editor/Core/SubjectOpenRequest.hpp for why there are no longer three private ones.
 
-    std::string SequencerPanel::CreateEmptyClip( const Animation::Skeleton& skeleton )
+    std::string SequencerPanel::CreateEmptyClip( const Animation::Skeleton&             skeleton,
+                                                 const Animation::MeshSkeletonIdentity& mesh )
     {
-        if ( !m_AssetManager || !m_Library )
+        // A clip that references no skeleton plays on nothing (ClipPlaysOnMesh); the button is disabled then.
+        if ( !m_AssetManager || !m_Library || mesh.Skeleton.Guid.IsNull() )
             return {};
 
-        // Unique name so repeated "New Clip" presses don't collide (scan this skeleton's registered clips).
-        const auto  existing = m_Library->GetForSkeleton( skeleton );
+        // Unique name so repeated "New Clip" presses don't collide (scan the clips this mesh already plays).
+        const auto  existing = m_Library->GetForMesh( mesh );
         std::string name     = "NewClip";
         for ( int n = 1;; ++n )
         {
@@ -245,7 +247,7 @@ namespace Desert::Editor
         clip.DurationTicks     = Animation::FrameNumber{ Animation::PROJECT_TICK_RATE.Numerator };
         clip.TickRate          = Animation::PROJECT_TICK_RATE;
         clip.DisplayRate       = Animation::DEFAULT_DISPLAY_RATE;
-        clip.SkeletonSignature = skeleton.GetSignature();
+        clip.Skeleton = mesh.Skeleton.Guid; // the mesh's skeleton asset: the clip plays where it was authored
         clip.Tracks.reserve( skeleton.GetBones().size() );
         for ( const auto& bone : skeleton.GetBones() )
         {
@@ -408,17 +410,29 @@ namespace Desert::Editor
         ImGui::SameLine();
         if ( animator && m_AssetManager )
         {
+            // The new clip references the mesh's skeleton asset; an editor-built rig (Convert to Skinned) has
+            // none yet, so there is nothing a clip could name and the button says so instead of acting.
+            const Animation::MeshSkeletonIdentity meshSkeleton =
+                 m_Library ? m_Library->IdentifyMeshHandle( smc.MeshHandle ) : Animation::MeshSkeletonIdentity{};
+            const bool canCreate = !meshSkeleton.Skeleton.Guid.IsNull();
             ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.20f, 0.40f, 0.28f, 1.0f ) );
             ImGui::PushStyleColor( ImGuiCol_ButtonHovered, ImVec4( 0.26f, 0.50f, 0.36f, 1.0f ) );
-            if ( ImGui::Button( ICON_MDI_PLUS " New Clip" ) )
+            ImGui::BeginDisabled( !canCreate );
+            const bool pressed = ImGui::Button( ICON_MDI_PLUS " New Clip" );
+            ImGui::EndDisabled();
+            if ( !canCreate )
+                Utils::ImGuiUtilities::Tooltip(
+                     "This mesh references no skeleton asset (an editor-built rig, or the "
+                     "mesh is not loaded): a new clip would have no skeleton to name." );
+            if ( pressed )
             {
-                const std::string created = CreateEmptyClip( animator->GetSkeleton() );
+                const std::string created = CreateEmptyClip( animator->GetSkeleton(), meshSkeleton );
                 if ( !created.empty() )
                 {
                     anim.CurrentClip = created;
                     anim.Playing     = false;
                     // Rebind the picker's clip list next frame; play the new (empty) clip so its lanes show.
-                    for ( const auto& a : m_Library->GetForSkeleton( animator->GetSkeleton() ) )
+                    for ( const auto& a : m_Library->GetForMesh( meshSkeleton ) )
                         if ( a && a->GetClip().AnimationName == created )
                         {
                             animator->Play( a->GetClip(), false );

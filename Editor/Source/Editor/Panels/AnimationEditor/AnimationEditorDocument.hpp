@@ -11,6 +11,7 @@
 #include <Engine/Assets/AssetRootPin.hpp>
 
 #include <Engine/Animation/AnimationClip.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
 
 #include <glm/glm.hpp>
 
@@ -182,7 +183,7 @@ namespace Desert::Editor
         // Every registered skeletal mesh on the clip's rig, sorted by path; the preview shows m_MeshIndex.
         // Candidates by the registry's Rig tag, NOT loaded: only the one shown is (ANV1c3 loaded every one).
         std::vector<std::filesystem::path>        m_MeshCandidates;
-        uint64_t                                  m_Signature = 0; // the rig every mode of this window is on
+        Common::Content::AssetGuid                m_Skeleton; // the skeleton asset every mode of this window is on
         std::shared_ptr<Assets::SkinnedMeshAsset> m_Mesh;
         // The Mesh mode's skinning audit, cached against (mesh handle, bone count): a vertex scan per frame is waste.
         MeshAssetDetails::SkinningAudit m_SkinningAudit;
