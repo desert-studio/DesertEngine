@@ -344,3 +344,9 @@ TEST( AnimationClipFormat, BuildAssetDataFromClipStatesTheCurrentTimelineAndEver
     ui.Sequence.Host       = Timeline::SequenceHost::UIAnimation;
     EXPECT_FALSE( Ser::BuildAssetDataFromClip( ui ) ) << "a UI clip was written as a .anim";
 }
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}
