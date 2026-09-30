@@ -95,7 +95,7 @@ int main( int argc, char** argv )
              }
 
              Common::Logger::LogInit();
-             Common::Logger::RelocateLogFile( deproj.parent_path() );
+             Common::Logger::RelocateLogFile( deproj.parent_path() / "Saved" / "Logs" );
 
              if ( !Desert::Project::ProjectContext::Open( deproj.string(),
                                                           Desert::Project::ProjectContext::RecordInRecent::No ) )

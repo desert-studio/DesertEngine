@@ -3,9 +3,13 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <stdexcept>
 #include <optional>
+#include <source_location>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -14,7 +18,7 @@ namespace Common::Constants
     namespace Path
     {
         // Layout (UE-like): engine/editor resources (Shaders, Fonts) live under the shared Resources/
-        // tree next to the binary's working directory; all USER CONTENT lives under the PROJECT's assets
+        // tree of the ENGINE DIRECTORY (below); all USER CONTENT lives under the PROJECT's assets
         // root. By default (no project) the content paths point at Resources/Assets/ — the built-in
         // sandbox; opening a .deproj calls SetProjectRoot() and REMAPS every content path (and the
         // Cooked/ intermediate tree) into the project folder. Engine resources are never remapped.
@@ -43,10 +47,13 @@ namespace Common::Constants
         // (the config would itself have to be found first). Every engine resource path below is DERIVED
         // from it, so once it is set they are all absolute and the process can stand in any directory.
         //
-        // Empty until SetEngineDir — and then the derived paths are the historical working-directory-
-        // relative spellings (`Resources/Shaders/`), which is what the test suites still run against
-        // (they chdir into Editor/). That state is transitional: the ENG-ROOT series moves every test to
-        // an explicit engine dir, after which an unset engine dir becomes an error, not a spelling.
+        // UNSET IS AN ERROR, NOT A SPELLING. Until SetEngineDir runs, every derived engine path is EMPTY and
+        // EngineDir() / ShaderDir() / EngineContentDir() / ProjectDir() / FullPath() stop the process naming
+        // the missing call — the old transitional state, in which the derived paths were the working-
+        // directory-relative `Resources/Shaders/`, made an unset engine dir read whatever lay under the
+        // current directory (and a Finder launch starts in `/`). Every entry point sets it first: the editor
+        // (Sandbox.hpp), the tools (Tools/Shared/ToolEngineDir.hpp) and the runtime (its content root,
+        // Runtime/Source/Main.cpp).
         namespace Detail
         {
             struct EngineResourcePaths
@@ -62,6 +69,8 @@ namespace Common::Constants
             // historical values (`Resources/Shaders/`) and consumers compare `generic_string()`s built on them.
             inline EngineResourcePaths DeriveEngineResources( const std::filesystem::path& engineDir )
             {
+                if ( engineDir.empty() )
+                    return {}; // unset: nothing to derive from (see UNSET IS AN ERROR above)
                 const std::filesystem::path resources = engineDir / "Resources";
                 return EngineResourcePaths{ resources / "", resources / "Shaders" / "", resources / "Fonts" / "",
                                             resources / "Icons" / "", resources / "Engine" / "" };
@@ -69,6 +78,29 @@ namespace Common::Constants
 
             inline std::filesystem::path s_EngineDir;
             inline EngineResourcePaths   s_Engine = DeriveEngineResources( s_EngineDir );
+
+            // Header-only and below the logger, so the refusal is spelled here: it aborts in every
+            // configuration, like DESERT_VERIFY, because every answer after it would be a wrong path.
+            // It names the READER — the call site that asked, not the getter and never the working directory.
+            [[noreturn]] inline void EngineDirUnset( const char* getter, const std::source_location& reader )
+            {
+                std::fprintf( stderr,
+                              "[Engine] %s was read at %s:%u (%s) before Common::Constants::Path::SetEngineDir. "
+                              "The engine directory is set once at process start (editor: Sandbox.hpp, tools: "
+                              "Tools/Shared/ToolEngineDir.hpp, runtime: Runtime/Source/Main.cpp); a reader "
+                              "that runs earlier is the defect.\n",
+                              getter, reader.file_name(), static_cast<unsigned>( reader.line() ),
+                              reader.function_name() );
+                std::fflush( stderr );
+                std::abort();
+            }
+            inline const std::filesystem::path& Checked( const std::filesystem::path& path, const char* getter,
+                                                         const std::source_location& reader )
+            {
+                if ( s_EngineDir.empty() )
+                    EngineDirUnset( getter, reader );
+                return path;
+            }
         } // namespace Detail
 
         // Named views into the derived storage, exactly like the project census below: the reference is
@@ -80,17 +112,25 @@ namespace Common::Constants
         inline const std::filesystem::path& ICONS_PATH = Detail::s_Engine.Icons;
 
         // The service's function spellings (UE: FPaths::EngineDir / EngineContentDir / ShaderWorkingDir).
-        inline const std::filesystem::path& EngineDir() noexcept
+        inline const std::filesystem::path& EngineDir(
+             const std::source_location reader = std::source_location::current() ) noexcept
         {
-            return Detail::s_EngineDir;
+            return Detail::Checked( Detail::s_EngineDir, "EngineDir()", reader );
         }
-        inline const std::filesystem::path& ShaderDir() noexcept
+        inline const std::filesystem::path& ShaderDir(
+             const std::source_location reader = std::source_location::current() ) noexcept
         {
-            return Detail::s_Engine.Shaders;
+            return Detail::Checked( Detail::s_Engine.Shaders, "ShaderDir()", reader );
         }
-        inline const std::filesystem::path& EngineContentDir() noexcept
+        inline const std::filesystem::path& EngineContentDir(
+             const std::source_location reader = std::source_location::current() ) noexcept
         {
-            return Detail::s_Engine.EngineContent;
+            return Detail::Checked( Detail::s_Engine.EngineContent, "EngineContentDir()", reader );
+        }
+        // True once SetEngineDir has run — for the few callers that must ask rather than read.
+        inline bool HasEngineDir() noexcept
+        {
+            return !Detail::s_EngineDir.empty();
         }
 
         // --- The census of project-derived directories ---
@@ -314,6 +354,8 @@ namespace Common::Constants
             {
                 // The built-in sandbox (no project) IS engine content: it lives in the engine directory.
                 const std::filesystem::path& base   = state.ProjectDir.empty() ? s_EngineDir : state.ProjectDir;
+                if ( base.empty() )
+                    return {}; // neither a project nor the engine dir: nothing to derive (unset is an error)
                 const std::filesystem::path  assets = ( base / state.AssetsRoot ).lexically_normal();
                 const std::filesystem::path  cooked = ( base / COOKED_DIR_NAME ).lexically_normal();
 
@@ -435,25 +477,33 @@ namespace Common::Constants
 
         // The directory project content derives from: the open project's folder, or — for the built-in
         // sandbox — the engine directory. (UE: FPaths::ProjectDir.)
-        inline const std::filesystem::path& ProjectDir() noexcept
+        inline const std::filesystem::path& ProjectDir(
+             const std::source_location reader = std::source_location::current() ) noexcept
         {
-            return Detail::s_ProjectRoot.ProjectDir.empty() ? Detail::s_EngineDir
-                                                            : Detail::s_ProjectRoot.ProjectDir;
+            return Detail::s_ProjectRoot.ProjectDir.empty()
+                        ? Detail::Checked( Detail::s_EngineDir, "ProjectDir()", reader )
+                        : Detail::s_ProjectRoot.ProjectDir;
         }
 
         // A relative content path made absolute (UE: FPaths::ConvertRelativePathToFull): read off ProjectDir(),
         // NEVER off the process's working directory — the editor and the runtime may be started from any folder.
         // An absolute path is returned as given. A relative path while neither the engine directory nor a
         // project is set has nothing to be relative to: that is a programming error (a process that never
-        // called SetEngineDir), refused here rather than silently read off the working directory.
-        inline std::filesystem::path FullPath( const std::filesystem::path& path )
+        // called SetEngineDir), THROWN here naming the path and the reader's file:line, rather than silently
+        // read off the working directory. (ProjectDir() itself stops the process; FullPath is reached from
+        // asset code that a caller may guard, so it reports instead.)
+        inline std::filesystem::path FullPath( const std::filesystem::path& path,
+                                               const std::source_location reader = std::source_location::current() )
         {
             if ( path.is_absolute() )
                 return path.lexically_normal();
-            if ( !ProjectDir().is_absolute() )
+            const bool rooted = !Detail::s_ProjectRoot.ProjectDir.empty() || !Detail::s_EngineDir.empty();
+            if ( !rooted || !ProjectDir( reader ).is_absolute() )
                 throw std::logic_error( "Path::FullPath: '" + path.generic_string() +
-                                        "' is relative and neither the engine directory nor a project is set" );
-            return ( ProjectDir() / path ).lexically_normal();
+                                        "' is relative and neither the engine directory nor a project is set "
+                                        "(read at " + std::string( reader.file_name() ) + ":" +
+                                        std::to_string( reader.line() ) + ")" );
+            return ( ProjectDir( reader ) / path ).lexically_normal();
         }
 
         // Back to the no-project sandbox. Exists for tests, which used to restore the globals one

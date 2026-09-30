@@ -1066,8 +1066,8 @@ namespace
     PlayerStartup StartTheGameLikeThePlayerDoes( const fs::path& playerBinary )
     {
         PlayerStartup  out;
-        const fs::path baseDir = playerBinary.parent_path();
-        // The player's host step: its engine directory is its own (Desert::Project::ResolveEngineDir).
+        const fs::path baseDir = Common::Utils::FileSystem::PackagedContentDir( playerBinary.parent_path() );
+        // The player's host step: a packaged game's engine directory is its content directory.
         Common::Constants::Path::SetEngineDir( baseDir );
 
         const auto content = Desert::Player::MountPackagedContent( baseDir, playerBinary.stem().string() );
@@ -1159,6 +1159,11 @@ TEST( PackagedContent, APackagedGameIsABinaryAndAnArchiveThatStartWithNoArgument
          << "the generated launcher still names a project on the command line. That flag is the DEV door; "
             "a shipped game that needs it is a game that only starts when started the one blessed way:\n"
          << launcherRead.GetValue();
+    // Nor the Vulkan driver: the player finds its MoltenVK manifest from its own position (ENG-ROOT-4b,
+    // VulkanContext.cpp SelectDriverManifest), so a script that still exports one is a second source of
+    // the same answer — and a double-click without the script would have had no GPU.
+    EXPECT_EQ( launcherRead.GetValue().find( "VK_ICD_FILENAMES" ), std::string::npos ) << launcherRead.GetValue();
+    EXPECT_EQ( launcherRead.GetValue().find( "DYLD_" ), std::string::npos ) << launcherRead.GetValue();
 
     // ── THE ACCEPTANCE: the player's own sequence, no arguments anywhere in it.
     const PlayerStartup started = StartTheGameLikeThePlayerDoes( exe );
@@ -1182,9 +1187,9 @@ TEST( PackagedContent, APackagedGameIsABinaryAndAnArchiveThatStartWithNoArgument
 
 // The same property under the OTHER layout, and it is one test rather than a macOS-only one because the
 // claim is host-independent: whatever this host produces when a bundle is asked for, the archive is in
-// the directory the player binary is in. On a bundle host that is Contents/MacOS and Contents/Resources
-// is not produced at all — that split is what forced the launcher to pass `--project`, and it is gone
-// with it. Everywhere else the request is refused and the plain layout comes back, which satisfies the
+// the directory the player looks in from its own binary (FileSystem::PackagedContentDir). On a bundle host
+// that is Contents/Resources — Contents/MacOS holds code only (Apple's signing rule) — and the player
+// still needs no `--project` and no launcher to find it. Everywhere else the request is refused and the plain layout comes back, which satisfies the
 // same claim by a different route.
 TEST( PackagedContent, TheArchiveSitsBesideThePlayerBinaryInWhicheverLayoutTheHostProduces )
 {
@@ -1217,21 +1222,20 @@ TEST( PackagedContent, TheArchiveSitsBesideThePlayerBinaryInWhicheverLayoutTheHo
                                                 : root / host.RuntimeBinary;
     ASSERT_TRUE( fs::exists( exe ) ) << "no player binary at " << exe.string();
 
-    EXPECT_TRUE( fs::exists( exe.parent_path() / "Content.dpak" ) )
-         << "the archive is not beside the player binary (" << exe.parent_path().string() << ")";
+    const fs::path contentDir = host.SupportsAppBundle ? root / "Contents" / "Resources" : root;
+    EXPECT_EQ( Common::Utils::FileSystem::PackagedContentDir( exe.parent_path() ), contentDir )
+         << "the player would look for its content somewhere other than where the packager put it";
+    EXPECT_TRUE( fs::exists( contentDir / "Content.dpak" ) )
+         << "the archive is not in the packaged content directory (" << contentDir.string() << ")";
+    if ( host.SupportsAppBundle )
+        EXPECT_FALSE( fs::exists( exe.parent_path() / "Content.dpak" ) )
+             << "Contents/MacOS holds code only — an archive there breaks codesign --verify";
 
     if ( host.SupportsAppBundle )
     {
-        // Contents/Resources holds ONE thing: the Vulkan driver manifest, in the loader's own bundle location
-        // (vulkan/icd.d, PKG2b). No game payload.
-        std::vector<std::string> resources;
-        for ( const auto& entry : fs::directory_iterator( root / "Contents" / "Resources" ) )
-            resources.push_back( entry.path().filename().string() );
-        EXPECT_EQ( resources, std::vector<std::string>{ "vulkan" } )
-             << "Contents/Resources holds more than the Vulkan ICD manifest. Nothing on macOS requires it, and "
-                "holding the "
-                "payload there is exactly what made the launcher hand the descriptor over on the command "
-                "line - a second place the player has to be told about.";
+        // Contents/MacOS holds code only: the player binary, its launcher and nothing that is data.
+        for ( const auto& entry : fs::directory_iterator( root / "Contents" / "MacOS" ) )
+            EXPECT_NE( entry.path().extension(), ".dpak" ) << entry.path().string();
 
         // The plist and the disk must agree about which file macOS starts. They were two independent
         // literals; when they disagree macOS says "damaged application" and nothing else, which is the

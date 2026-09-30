@@ -1,13 +1,13 @@
 #include <Common/Core/Logger.hpp>
 
-#include <Common/Utilities/FileSystem.hpp>
-
 #include <spdlog/sinks/basic_file_sink.h>
 
 #include <fstream>
 #include <iterator>
+#include <mutex>
 #include <string>
 #include <system_error>
+#include <vector>
 
 #ifdef _WIN32
 #include <spdlog/sinks/msvc_sink.h>
@@ -18,30 +18,6 @@ namespace Common::Logger
     namespace
     {
         constexpr const char* kLogFileName = "engine_log.txt";
-
-        std::filesystem::path& LogFileStorage()
-        {
-            static std::filesystem::path file;
-            return file;
-        }
-    }
-
-    std::filesystem::path BootLogDirectory()
-    {
-        const std::filesystem::path dir = Common::Utils::FileSystem::ExecutablePath().parent_path() / "Saved" / "Logs";
-        std::error_code             ec;
-        std::filesystem::create_directories( dir, ec );
-        return dir;
-    }
-
-    std::filesystem::path CurrentLogFile()
-    {
-        return LogFileStorage();
-    }
-
-    void NoteLogFile( const std::filesystem::path& file )
-    {
-        LogFileStorage() = file;
     }
 
     void AddPlatformDebuggerSink()
@@ -53,41 +29,74 @@ namespace Common::Logger
 #endif
     }
 
+    namespace
+    {
+        std::mutex            s_PathMutex;
+        std::filesystem::path s_LogFilePath;
+    } // namespace
+
+    std::filesystem::path LogFilePath()
+    {
+        std::lock_guard lock( s_PathMutex );
+        return s_LogFilePath;
+    }
+
     void RelocateLogFile( const std::filesystem::path& directory )
     {
         auto logger = spdlog::default_logger();
         if ( !logger )
             return;
 
-        std::error_code             ec;
-        const std::filesystem::path from = LogFileStorage();
-        const std::filesystem::path to   = directory / kLogFileName;
-        std::filesystem::create_directories( directory, ec );
-        if ( from.empty() || ec || std::filesystem::equivalent( from.parent_path(), directory, ec ) )
+        const std::filesystem::path to = ( directory / kLogFileName ).lexically_normal();
+        {
+            std::lock_guard lock( s_PathMutex );
+            if ( s_LogFilePath == to )
+                return;
+        }
+        logger->flush();
+
+        // The lines so far: from the early ring on the first placement, from the previous file on a move.
+        auto&                    sinks = logger->sinks();
+        std::vector<std::string> earlier;
+        std::filesystem::path    previous; // the file being moved away from (empty on the first placement)
+        auto                     slot = sinks.end();
+        for ( auto it = sinks.begin(); it != sinks.end(); ++it )
+        {
+            if ( auto ring = std::dynamic_pointer_cast<spdlog::sinks::ringbuffer_sink_mt>( *it ) )
+            {
+                earlier = ring->last_formatted();
+                slot    = it;
+                break;
+            }
+            if ( std::dynamic_pointer_cast<spdlog::sinks::basic_file_sink_mt>( *it ) )
+            {
+                previous = LogFilePath();
+                std::ifstream in( previous, std::ios::binary );
+                earlier.emplace_back( std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() );
+                slot = it;
+                break;
+            }
+        }
+        if ( slot == sinks.end() )
             return;
 
-        auto& sinks = logger->sinks();
-        for ( auto& sink : sinks )
-        {
-            if ( !std::dynamic_pointer_cast<spdlog::sinks::basic_file_sink_mt>( sink ) )
-                continue;
-            logger->flush();
-            std::string earlier;
-            {
-                std::ifstream in( from, std::ios::binary );
-                earlier.assign( std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() );
-            }
-            auto moved = std::make_shared<spdlog::sinks::basic_file_sink_mt>( to.string(), true );
-            moved->set_formatter( std::make_unique<spdlog::pattern_formatter>( "%v" ) );
-            if ( !earlier.empty() && earlier.back() == '\n' )
-                earlier.pop_back();
-            if ( !earlier.empty() )
-                moved->log( spdlog::details::log_msg( "desert", spdlog::level::info, earlier ) );
-            moved->set_formatter( std::make_unique<spdlog::pattern_formatter>( "%^[%T.%e][%l][Desert]: %v%$" ) );
-            sink = std::move( moved );
-            LogFileStorage() = to;
-            std::filesystem::remove( from, ec ); // the old copy would be a second, stale log
-            return;
-        }
+        std::error_code ec;
+        std::filesystem::create_directories( directory, ec );
+        auto placed = std::make_shared<spdlog::sinks::basic_file_sink_mt>( to.string(), true );
+        placed->set_formatter( std::make_unique<spdlog::pattern_formatter>( "%v" ) );
+        std::string carried;
+        for ( const std::string& line : earlier )
+            carried += line;
+        while ( !carried.empty() && carried.back() == '\n' )
+            carried.pop_back();
+        if ( !carried.empty() )
+            placed->log( spdlog::details::log_msg( "desert", spdlog::level::info, carried ) );
+        placed->set_formatter( std::make_unique<spdlog::pattern_formatter>( "%^[%T.%e][%l][Desert]: %v%$" ) );
+        *slot = std::move( placed ); // closes the previous file, so removing it works on Windows too
+        if ( !previous.empty() )
+            std::filesystem::remove( previous, ec ); // the old copy would be a second, stale log
+
+        std::lock_guard lock( s_PathMutex );
+        s_LogFilePath = to;
     }
 } // namespace Common::Logger

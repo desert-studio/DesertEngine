@@ -10,11 +10,70 @@
 #include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
+#include <Common/Utilities/FileSystem.hpp>
+
+#include <array>
+#include <cstdlib>
+#include <filesystem>
 #include <string_view>
 #include <vulkan/vulkan.h>
 
 namespace Desert::Graphic::API::Vulkan
 {
+#if defined( DESERT_PLATFORM_MACOS )
+    namespace
+    {
+#define DESERT_VK_STRINGIFY_( x ) #x
+#define DESERT_VK_STRINGIFY( x ) DESERT_VK_STRINGIFY_( x )
+
+        // THE PROCESS FINDS ITS OWN VULKAN DRIVER (UE: the Mac RHI ships MoltenVK inside the .app and needs
+        // nothing from the shell). The loader only knows the driver through a manifest (MoltenVK_icd.json),
+        // and on macOS none of the places it searches by itself is where a bundle or a Homebrew install puts
+        // one — which is why every start used to go through a script exporting VK_ICD_FILENAMES, and why an
+        // Editor started directly (IDE, Finder, `cd /`) had no GPU. The manifest is chosen HERE, before the
+        // first loader call, from the executable's own position:
+        //   1. the bundle's  <App>.app/Contents/Resources/vulkan/icd.d/MoltenVK_icd.json (GamePackager's
+        //      BundleVulkan writes it there, the loader's standard bundle location);
+        //   2. beside the executable: <exe dir>/vulkan/icd.d/MoltenVK_icd.json (a plain-folder drop);
+        //   3. the development machine's manifest the build was configured against (premake records the
+        //      Homebrew path as DESERT_MOLTENVK_ICD, BuildScripts/PlatformMacOS.lua).
+        // An explicit VK_DRIVER_FILES / VK_ICD_FILENAMES is the loader's own documented override and is left
+        // standing. None found is a refusal naming every place looked at, not a start without a GPU.
+        Common::ResultStr<std::filesystem::path> SelectDriverManifest()
+        {
+            for ( const char* variable : { "VK_DRIVER_FILES", "VK_ICD_FILENAMES" } )
+                if ( const char* set = std::getenv( variable ); set != nullptr && *set != '\0' )
+                    return Common::MakeSuccess( std::filesystem::path( set ) );
+
+            const std::filesystem::path exeDir = Common::Utils::FileSystem::ExecutablePath().parent_path();
+            std::vector<std::filesystem::path> candidates = {
+                 ( exeDir / ".." / "Resources" / "vulkan" / "icd.d" / "MoltenVK_icd.json" ).lexically_normal(),
+                 exeDir / "vulkan" / "icd.d" / "MoltenVK_icd.json",
+            };
+#if defined( DESERT_MOLTENVK_ICD )
+            candidates.emplace_back( DESERT_VK_STRINGIFY( DESERT_MOLTENVK_ICD ) );
+#endif
+            std::string looked;
+            for ( const std::filesystem::path& manifest : candidates )
+            {
+                std::error_code ec;
+                if ( std::filesystem::is_regular_file( manifest, ec ) )
+                {
+                    ::setenv( "VK_DRIVER_FILES", manifest.c_str(), 1 );
+                    return Common::MakeSuccess( manifest );
+                }
+                looked += "\n    " + manifest.string();
+            }
+            return Common::MakeFormattedError<std::filesystem::path>(
+                 "no MoltenVK driver manifest (MoltenVK_icd.json) was found; looked at:{}\n  A packaged game "
+                 "carries it in its bundle; a development build records Homebrew's (brew install molten-vk, "
+                 "then re-run premake).",
+                 looked );
+        }
+#undef DESERT_VK_STRINGIFY
+#undef DESERT_VK_STRINGIFY_
+    } // namespace
+#endif
     static VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugReportCallback( VkDebugReportFlagsEXT      flags,
                                                                      VkDebugReportObjectTypeEXT objectType,
                                                                      uint64_t object, size_t location,
@@ -96,6 +155,13 @@ namespace Desert::Graphic::API::Vulkan
     Common::ResultStr<VkResult> VulkanContext::CreateVKInstance()
     {
         LOG_TRACE( "VulkanRenderingContext::CreateVKInstance()" );
+#if defined( DESERT_PLATFORM_MACOS )
+        // Before the first loader call (glfwVulkanSupported enumerates the drivers).
+        const auto manifest = SelectDriverManifest();
+        if ( !manifest )
+            return Common::MakeFormattedError<VkResult>( "[Vulkan] {}", manifest.GetError() );
+        LOG_INFO( "[Vulkan] driver manifest: {}", manifest.GetValue().string() );
+#endif
         DESERT_VERIFY( glfwVulkanSupported(), "GLFW must support Vulkan API" );
 
         // vk-bootstrap adds what every windowed instance needs: VK_KHR_surface and the platform surface

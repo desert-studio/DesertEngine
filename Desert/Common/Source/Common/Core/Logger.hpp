@@ -2,7 +2,7 @@
 
 #include <spdlog/spdlog.h>
 
-#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/ringbuffer_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 #include <Common/Core/ResultStr.hpp>
@@ -18,29 +18,31 @@ namespace Common::Logger
     // without `--console` stdout goes nowhere and "logs are not written" is what a developer sees).
     void AddPlatformDebuggerSink();
 
-    // THE LOG FILE NEVER LIVES IN THE WORKING DIRECTORY (UE: <ProjectDir>/Saved/Logs). Until the startup knows
-    // where the project is, it is opened beside the executable, in <exe dir>/Saved/Logs; the startup then calls
-    // RelocateLogFile with <ProjectDir>/Saved/Logs, the lines written so far are carried over and the file is
-    // reopened there. A process started anywhere — F5 in the solution root, a shell in /tmp — logs the same.
+    // THE LOG FILE IS NEVER OPENED IN THE WORKING DIRECTORY. A process started from Finder is in `/`
+    // (read-only), one started from a shell in /tmp would leave its log where nobody looks. LogInit keeps
+    // the lines written before the host knows where its log belongs in memory (a ring, Detail::EarlyLines);
+    // the host then calls this with that directory and the file is opened there, beginning with them
+    // (UE's layout: editor and tools <ProjectDir>/Saved/Logs, the shipped runtime the game's user directory
+    // /Logs since the install folder is read-only). A second call moves the file, carrying its lines.
     void RelocateLogFile( const std::filesystem::path& directory );
 
-    // <exe dir>/Saved/Logs — where the log is opened before a project is known (created on demand).
-    std::filesystem::path BootLogDirectory();
+    // Where the log file is — empty until RelocateLogFile has placed it (the Logs panel reads it here,
+    // never by a bare file name).
+    std::filesystem::path LogFilePath();
 
-    // The file the log is written to now (empty before LogInit): the Logs panel reads this, not a name.
-    std::filesystem::path CurrentLogFile();
-
-    // Records the file LogInit opened (Logger.cpp owns it, so RelocateLogFile knows what it moves).
-    void NoteLogFile( const std::filesystem::path& file );
+    namespace Detail
+    {
+        // Holds the startup lines until the log file has a directory; generous, since a startup that
+        // logs more than this before finding its own directory is itself the defect.
+        inline constexpr std::size_t kEarlyLineCapacity = 16384;
+    } // namespace Detail
 
     inline void LogInit()
     {
         auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-        const std::filesystem::path logFile   = BootLogDirectory() / "engine_log.txt";
-        auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>( logFile.string(), true );
-        NoteLogFile( logFile );
+        auto early_sink   = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>( Detail::kEarlyLineCapacity );
 
-        spdlog::set_default_logger(std::make_shared<spdlog::logger>("desert", spdlog::sinks_init_list{console_sink, file_sink}));
+        spdlog::set_default_logger(std::make_shared<spdlog::logger>("desert", spdlog::sinks_init_list{console_sink, early_sink}));
         // Millisecond timestamps (%e): startup-phase costs — a shader compile, an atlas bake — are
         // tens-to-hundreds of ms each, and a 1-second clock cannot attribute them to anything.
         spdlog::set_pattern( "%^[%T.%e][%l][Desert]: %v%$" );

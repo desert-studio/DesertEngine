@@ -149,6 +149,22 @@ namespace Common::Utils
 #endif
     }
 
+    std::filesystem::path FileSystem::BaseDir()
+    {
+        const fs::path executable = ExecutablePath();
+        return executable.empty() ? fs::path{} : executable.parent_path().lexically_normal();
+    }
+
+    std::filesystem::path FileSystem::PackagedContentDir( const std::filesystem::path& baseDir )
+    {
+        const fs::path dir      = baseDir.lexically_normal();
+        const fs::path contents = dir.parent_path();
+        if ( dir.filename() == "MacOS" && contents.filename() == "Contents" &&
+             contents.parent_path().extension() == ".app" )
+            return contents / "Resources";
+        return dir;
+    }
+
     std::string FileSystem::GetFileDirectoryString( const std::filesystem::path& filepath )
     {
         return filepath.parent_path().string();

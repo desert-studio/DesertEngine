@@ -26,6 +26,9 @@
 #include <Engine/Desert.hpp>
 #include <Engine/EntryPoint.hpp>
 #include <Engine/Project/ProjectContext.hpp>
+#include <Engine/Project/StartupLayout.hpp>
+
+#include <Common/Core/Constants.hpp>
 
 #include <Common/Settings/MachineSettings.hpp>
 
@@ -165,6 +168,16 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     }
 #endif
 
+    // THE ONE ANCHOR: THE EXECUTABLE'S OWN DIRECTORY (UE: FPlatformProcess::BaseDir). Never the working
+    // directory — Finder starts a double-clicked game in `/`, an IDE in the solution root — so a player that
+    // cannot say where it is refuses instead of looking wherever it happens to stand.
+    const fs::path exeDir = Common::Utils::FileSystem::BaseDir();
+    if ( exeDir.empty() )
+        FailStartup( "The game could not determine the folder its own executable is in, so it cannot find "
+                     "its content.",
+                     1 );
+    const std::string exeStem = Common::Utils::FileSystem::ExecutablePath().stem().string();
+
     // DEV: an explicit --project opens the loose on-disk descriptor (overrides packaged discovery).
     if ( !projectArg.empty() && !Desert::Project::ProjectContext::Open( projectArg ) )
     {
@@ -174,11 +187,29 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
                      1 );
     }
 
-    // Content directory: the project's folder (dev) or the executable's own folder (packaged).
-    const fs::path exePath = Common::Utils::FileSystem::ExecutablePath();
+    // THE ENGINE DIRECTORY (Common::Constants::Path::SetEngineDir), set before anything reads a path.
+    //   Packaged: the packaged content directory (FileSystem::PackagedContentDir). The engine's resources travel inside the base archive
+    //   (`Resources/Shaders/...`), which is mounted at that directory, so every engine path is a virtual
+    //   path under the mount — there is no second tree to find and no `--engine-dir` to pass.
+    //   Dev (--project): the checkout this binary was built in, derived from the same executable position
+    //   (Desert::Project::ResolveEngineDir, the editor's rule) — the loose shaders live in its Editor/.
+    if ( Desert::Project::ProjectContext::HasProject() )
+    {
+        const Desert::Project::EngineDirLookup engine = Desert::Project::ResolveEngineDir( exeDir, {} );
+        if ( !engine.Explanation.empty() )
+            FailStartup( "[Engine] " + engine.Explanation, 1 );
+        Common::Constants::Path::SetEngineDir( engine.Dir );
+    }
+    else
+    {
+        Common::Constants::Path::SetEngineDir( Common::Utils::FileSystem::PackagedContentDir( exeDir ) );
+    }
+
+    // Content directory: the project's folder (dev) or the packaged content directory — the executable's
+    // own folder, or Contents/Resources inside a .app (FileSystem::PackagedContentDir, the packager's rule).
     const fs::path baseDir = Desert::Project::ProjectContext::HasProject()
                                   ? fs::path( Desert::Project::ProjectContext::Directory() )
-                                  : ( exePath.empty() ? fs::current_path() : exePath.parent_path() );
+                                  : Common::Utils::FileSystem::PackagedContentDir( exeDir );
 
     // Mount the base archive (skipped in dev if there is none — reads stay plain disk reads), then any
     // Patch*.dpak ON TOP in name order (later overrides earlier), so shipping a fix = dropping one pak.
@@ -201,7 +232,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // The decision itself lives in PackagedContent.cpp, where a test can drive it with a real damaged
     // archive; this site owns only the policy — print, and exit with a code that says which of the two
     // it was.
-    const auto content = Desert::Player::MountPackagedContent( baseDir, exePath.stem().string() );
+    const auto content = Desert::Player::MountPackagedContent( baseDir, exeStem );
     if ( content.ExitCode != Desert::Player::kContentOk )
         FailStartup( content.Message, content.ExitCode );
 
@@ -239,7 +270,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
                                   "  Packaged: put '{}.dpak' (or 'Content.dpak') containing a '{}' "
                                   "next to the executable.\n"
                                   "  Dev:      pass --project <path/to/.deproj> [--scene <path/to/.desce>].",
-                                  exePath.stem().string(), Desert::Project::kPackagedDescriptorName ),
+                                  exeStem, Desert::Project::kPackagedDescriptorName ),
                      1 );
     }
 
@@ -253,6 +284,10 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
         FailStartup( "Crash handler: " + moved.GetError(), 1 );
     }
     Common::Crash::SetGameName( Desert::Project::ProjectContext::Current().Name );
+    // The log follows the game too, beside its crash reports (UE shipping: the user's Saved/Logs) — not into
+    // the working directory, not into the install folder, which a player cannot write.
+    Common::Logger::RelocateLogFile(
+         Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name ) / "Logs" );
 
 #if DESERT_DEV_INSTRUMENTS
     if ( crashTest.has_value() && crashTest->Stage == Desert::Player::CrashTestStage::Mounted )

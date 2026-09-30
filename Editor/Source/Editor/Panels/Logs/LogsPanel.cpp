@@ -1,9 +1,10 @@
 #include "LogsPanel.hpp"
-#include <Common/Core/Logger.hpp>
 
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/LogView.hpp>
 #include <Editor/Core/ThemeManager.hpp>
+
+#include <Common/Core/Logger.hpp>
 
 #include <ImGui/imgui.h>
 
@@ -17,7 +18,6 @@
 namespace Desert::Editor
 {
     namespace ImGui = ::ImGui;
-
 
     // The counters the STATUS BAR reads. File-static rather than per-panel because there is exactly one
     // log file and the status bar is not a panel; see LogsPanel::WarningCount in the header for why a
@@ -64,10 +64,14 @@ namespace Desert::Editor
 
     void LogsPanel::Refresh()
     {
-        if ( !std::filesystem::exists( Common::Logger::CurrentLogFile() ) )
+        // The file the logger placed (Common::Logger::LogFilePath) — never a bare name, which would be read
+        // from whatever directory the editor was started in.
+        const std::filesystem::path logFile = Common::Logger::LogFilePath();
+        std::error_code             ec;
+        if ( logFile.empty() || !std::filesystem::exists( logFile, ec ) )
             return;
 
-        auto writeTime = std::filesystem::last_write_time( Common::Logger::CurrentLogFile() );
+        auto writeTime = std::filesystem::last_write_time( logFile, ec );
         if ( writeTime == m_LastWriteTime )
             return;
 
@@ -75,7 +79,7 @@ namespace Desert::Editor
         m_Entries.clear();
         m_CountInfo = m_CountWarning = m_CountError = 0;
 
-        std::ifstream file( Common::Logger::CurrentLogFile() );
+        std::ifstream file( logFile );
         std::string   line;
         while ( std::getline( file, line ) )
         {
@@ -187,7 +191,8 @@ namespace Desert::Editor
             m_Entries.clear();
             m_CountInfo = m_CountWarning = m_CountError = 0;
             s_SessionWarnings = s_SessionErrors = 0;
-            std::ofstream( Common::Logger::CurrentLogFile(), std::ios::trunc ).close();
+            if ( const std::filesystem::path logFile = Common::Logger::LogFilePath(); !logFile.empty() )
+                std::ofstream( logFile, std::ios::trunc ).close();
             m_LastWriteTime = {};
         }
         if ( ImGui::IsItemHovered() )

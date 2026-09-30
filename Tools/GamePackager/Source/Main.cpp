@@ -185,9 +185,9 @@ int main( int argc, char** argv )
                  return Fail( refused );
 
              Common::Logger::LogInit();
-             // engine_log.txt beside the project, which is where the incomplete-cook message below sends
+             // engine_log.txt in <ProjectDir>/Saved/Logs, which is where the incomplete-cook message below sends
              // the reader — not in whatever folder the shell happened to be in.
-             Common::Logger::RelocateLogFile( deproj.parent_path() );
+             Common::Logger::RelocateLogFile( deproj.parent_path() / "Saved" / "Logs" );
 
              // NOT in the recent-projects registry: a build machine opening a project is not a person
              // opening one, and every CI run would otherwise file its checkout at the top of somebody's
@@ -221,7 +221,7 @@ int main( int argc, char** argv )
                  std::fprintf( stderr,
                                "GamePackager: the package exists but the cook did not complete - %zu asset(s) "
                                "could not be read/compiled and %zu produced artifact(s) did not reach the "
-                               "disk. See engine_log.txt beside the project for which.\n",
+                               "disk. See Saved/Logs/engine_log.txt in the project for which.\n",
                                result.CookFailures, result.CookUnwritten );
                  return kIncomplete;
              }

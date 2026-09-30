@@ -1151,6 +1151,27 @@ TEST( WorldSceneGenerator, CorpusPresetRefusesAMissingAssetByPathAndWritesNothin
     EXPECT_FALSE( std::filesystem::exists( out ) );
 }
 
+// 8c'. NO PROJECT IS ASSUMED. A corpus preset is furnished from the project's meshes and a run with no --assets
+// reads the project's materials; without --project either one is refused with the flag to pass (exit 2) and
+// nothing is written - never a world built from the engine directory or the working directory.
+TEST( WorldSceneGenerator, ARunThatNeedsAProjectAndNamesNoneIsRefusedWithTheFlag )
+{
+    const auto out = Scratch() / "no_project.desce";
+    std::filesystem::remove( out );
+    const std::vector<std::vector<std::string>> runs{
+         { "--out", out.string(), "--assets", AssetsRoot(), "--preset", "corpus-smoke" },
+         { "--out", out.string() },
+    };
+    for ( const auto& args : runs )
+    {
+        std::ostringstream reported;
+        std::ostringstream refused;
+        EXPECT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 2 ) << refused.str();
+        EXPECT_NE( refused.str().find( "pass --project" ), std::string::npos ) << refused.str();
+        EXPECT_FALSE( std::filesystem::exists( out ) );
+    }
+}
+
 // 8d. NEIGHBOURING DISTRICTS HOLD DIFFERENT ASSETS. The shipped `corpus` world, along the row the flight takes:
 // the materials of two neighbouring districts share nothing, and the row crosses every theme. This is the property
 // the flight's fall rests on - the first version drew a theme per CELL, every theme sat inside every loading
