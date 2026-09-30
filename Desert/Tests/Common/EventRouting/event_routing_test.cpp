@@ -773,8 +773,8 @@ TEST( EventRouting, AnAttachedObjectBelongsToItsOwnerNotToTheTree )
 {
     bool alive = false;
     {
-        Lives       object( alive );
-        EventTree   tree;
+        Lives             object( alive );
+        EventTree         tree;
         const EventNodeId node = tree.Attach( tree.Root(), object );
         tree.SetFocus( node );
 
@@ -792,7 +792,7 @@ TEST( EventRouting, ALinkTakesItsNodeOutOfTheTreeWhenItsHolderDies )
     bool      alive = false;
     EventTree tree;
     {
-        Lives         object( alive );
+        Lives               object( alive );
         const EventNodeLink link( tree, tree.Attach( tree.Root(), object ) );
         tree.SetFocus( link.Id() );
         EXPECT_TRUE( tree.Contains( link.Id() ) );
@@ -804,9 +804,9 @@ TEST( EventRouting, ALinkTakesItsNodeOutOfTheTreeWhenItsHolderDies )
 
 TEST( EventRouting, ALinkWhoseNodeWentWithItsParentReleasesNothingElse )
 {
-    ApplicationShape app;
-    bool             alive = false;
-    Lives            object( alive );
+    ApplicationShape  app;
+    bool              alive = false;
+    Lives             object( alive );
     const EventNodeId stranger = app.tree.Attach( app.windowNode, object );
     {
         const EventNodeLink link( app.tree, app.tree.Attach( app.panelNode, object ) );
@@ -821,9 +821,9 @@ TEST( EventRouting, ALinkWhoseNodeWentWithItsParentReleasesNothingElse )
 
 TEST( EventRouting, AMovedLinkIsReleasedOnceByItsLastHolder )
 {
-    EventTree     tree;
-    bool          alive = false;
-    Lives         object( alive );
+    EventTree                    tree;
+    bool                         alive = false;
+    Lives                        object( alive );
     EventNodeId                  id{};
     std::optional<EventNodeLink> second;
     {
