@@ -19,7 +19,7 @@ namespace Common::Utils
     namespace
     {
         constexpr std::string_view kMagic         = "DesertAssetRegistry";
-        constexpr int              kFormatVersion = 6;
+        constexpr int              kFormatVersion = 7;
         // The file's name under the Cooked tree. One spelling, here, because both the producer (the
         // editor's cook) and the consumer (both hosts' boot) have to name the same file and a second
         // literal is how they would come to name two.
@@ -258,13 +258,13 @@ namespace Common::Utils
                     out += ',';
                 out += kTagSkinned;
             }
-            if ( entry.RigSignature != 0 )
+            if ( !entry.Skeleton.IsNull() )
             {
                 if ( !out.empty() )
                     out += ',';
                 out += kTagRig;
                 out += '=';
-                out += std::to_string( entry.RigSignature );
+                out += Content::AssetGuidToText( entry.Skeleton );
             }
             if ( !entry.Role.empty() )
             {
@@ -290,12 +290,10 @@ namespace Common::Utils
                 else if ( one.starts_with( kTagRig ) && one.size() > kTagRig.size() + 1 &&
                           one[kTagRig.size()] == '=' )
                 {
-                    const std::string_view number = one.substr( kTagRig.size() + 1 );
-                    const auto             parsed =
-                         std::from_chars( number.data(), number.data() + number.size(), entry.RigSignature );
-                    if ( parsed.ec != std::errc() || parsed.ptr != number.data() + number.size() ||
-                         entry.RigSignature == 0 )
+                    const auto guid = Content::AssetGuidFromText( one.substr( kTagRig.size() + 1 ) );
+                    if ( !guid || guid.GetValue().IsNull() )
                         return false;
+                    entry.Skeleton = guid.GetValue();
                 }
                 else if ( one.starts_with( kTagName ) && one.size() > kTagName.size() + 1 &&
                           one[kTagName.size()] == '=' )
