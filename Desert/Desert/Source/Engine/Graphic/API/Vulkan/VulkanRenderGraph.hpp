@@ -3,6 +3,7 @@
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/ResultStr.hpp>
 
+#include <Engine/Graphic/API/Vulkan/VulkanRdgQueues.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
 #include <VulkanAllocator/vk_mem_alloc.h>
@@ -253,36 +254,6 @@ namespace Desert::Graphic::API::Vulkan
         uint64_t               m_Frame = 1;
     };
 
-    // RDG-CONTRACTS B(3). The queues the graph records onto and the per-frame-slot objects that sync them.
-    // Responsibility: the graphics and (when distinct) compute VkQueue + family, a command pool per (slot, pipe)
-    // from which a segment's command buffer is allocated, and one binary VkSemaphore per CrossPipeSync per slot
-    // (grown on demand, reused after the slot's fence). Built from VulkanDevice (m_ComputeQueue,
-    // GetComputeFamily(), CommandBufferAllocator's compute pool) - the device suite builds it on its own
-    // headless device. Never: report SeparateComputeFamily when the families are equal; reuse a slot's
-    // semaphores or command buffers before that slot's fence was waited.
-    struct VulkanRdgQueueSet
-    {
-        VkQueue  GraphicsQueue  = VK_NULL_HANDLE;
-        uint32_t GraphicsFamily = 0;
-        VkQueue  ComputeQueue   = VK_NULL_HANDLE; // null when the device has no separate compute family
-        uint32_t ComputeFamily  = 0;
-
-        RDG::PipeCapabilities GetCapabilities() const;
-    };
-
-    // RDG-CONTRACTS B(3). One queue submission the backend assembled from a PipeSegment. The caller submits the
-    // list IN ORDER (vkQueueSubmit per entry, the frame fence on the last Graphics entry); the backend never
-    // submits, exactly as it never submits today.
-    struct VulkanRdgSubmission
-    {
-        RDG::Pipe                         OnPipe        = RDG::Pipe::Graphics;
-        VkQueue                           Queue         = VK_NULL_HANDLE;
-        VkCommandBuffer                   CommandBuffer = VK_NULL_HANDLE;
-        std::vector<VkSemaphore>          WaitSemaphores;
-        std::vector<VkPipelineStageFlags> WaitStages;
-        std::vector<VkSemaphore>          SignalSemaphores;
-    };
-
     // RDG-CONTRACTS A(3). Descriptor sets for graph resources, allocated from a pool per frame slot that is reset
     // when the slot is re-begun. The one way a pass binds a transient to a pipeline: allocate a set for the
     // pipeline's layout inside exec, write the pass's bindings into it, bind it, forget it.
@@ -348,12 +319,6 @@ namespace Desert::Graphic::API::Vulkan
         ~VulkanRdgBackend() override;
         VulkanRdgBackend( const VulkanRdgBackend& )            = delete;
         VulkanRdgBackend& operator=( const VulkanRdgBackend& ) = delete;
-
-        // The command buffer the next Execute records into (begun by the caller, submitted by the caller).
-        void SetCommandBuffer( VkCommandBuffer commandBuffer )
-        {
-            m_CommandBuffer = commandBuffer;
-        }
 
         // What an exec lambda records with, and what its bindings are. Refused for a context or binding
         // that does not come from this backend.
@@ -422,7 +387,9 @@ namespace Desert::Graphic::API::Vulkan
         const VulkanRdgDevice&      m_Device;
         VulkanRdgPool&              m_Pool;
         VulkanRdgMemoryRequirements m_Memory;
-        VkCommandBuffer             m_CommandBuffer = VK_NULL_HANDLE;
+        VkCommandBuffer             m_CommandBuffer = VK_NULL_HANDLE; // the open segment's (or the graph tail's)
+        VulkanRdgSegmentRecorder     m_Segments;    // B(3): segment command buffers, semaphores, submissions
+        RDG::AsyncComputeFallbackLog m_FallbackLog; // B(4): the engine logger at Warning
         // Bound by BeginFrame for the frame being recorded (A1: transients and descriptors; B2: queues).
         uint32_t                     m_FrameSlot   = 0;
         const VulkanRdgQueueSet*     m_Queues      = nullptr;

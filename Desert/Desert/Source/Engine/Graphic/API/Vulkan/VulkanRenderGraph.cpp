@@ -4,6 +4,8 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRdgTransient.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderPassDependencies.hpp>
 
+#include <Common/Core/Logger.hpp>
+
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
@@ -825,7 +827,8 @@ namespace Desert::Graphic::API::Vulkan
     // ── Backend ────────────────────────────────────────────────────────────────────────────────────────
 
     VulkanRdgBackend::VulkanRdgBackend( const VulkanRdgDevice& device, VulkanRdgPool& pool )
-         : m_Device( device ), m_Pool( pool ), m_Memory( device )
+         : m_Device( device ), m_Pool( pool ), m_Memory( device ),
+           m_FallbackLog( []( std::string_view line ) { LOG_WARN( "{}", line ); } )
     {
     }
 
@@ -904,8 +907,9 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanRdgBackend::BeginGraph( const RDG::GraphView& graph )
     {
-        if ( m_CommandBuffer == VK_NULL_HANDLE )
-            return Common::MakeError( "the Vulkan backend has no command buffer (SetCommandBuffer)" );
+        if ( m_Queues == nullptr )
+            return Common::MakeFormattedError( "graph '{}': the Vulkan backend has no queues (BeginFrame)",
+                                               graph.Name );
         Release();
         // A framebuffer whose images the pool has destroyed is dead: drop it before a new view could reuse
         // the handle it remembers. Called between submissions the caller has waited for (pool contract).
@@ -925,6 +929,11 @@ namespace Desert::Graphic::API::Vulkan
         if ( graph.Result == nullptr )
             return Common::MakeFormattedError( "graph '{}': no compile result to place transients from",
                                                graph.Name );
+        // B(3): what records before the first segment (a graph with no segment: the tail for its final barriers).
+        Common::ResultStr<VkCommandBuffer> first = m_Segments.BeginGraph( *graph.Result, *m_Queues );
+        if ( !first )
+            return Common::MakeFormattedError( "graph '{}': {}", graph.Name, first.GetError() );
+        m_CommandBuffer = first.GetValue();
         m_Textures.resize( graph.Resources.size() );
         m_Buffers.resize( graph.Resources.size() );
 
@@ -1055,7 +1064,17 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<VkBufferMemoryBarrier> buffers;
         for ( const RDG::Barrier& barrier : barriers )
         {
-            srcStages |= RdgVulkanStages( barrier.Before.Stages );
+            // Queue family ownership transfer (Vulkan 1.0): the release names the families and makes the
+            // source's writes available (dstAccess 0); the acquire repeats them with srcAccess 0. The acquire
+            // chains to the semaphore wait before it through ALL_COMMANDS (its first scope must meet the wait's
+            // stages, whatever they are).
+            const bool     ownership = barrier.BarrierType == RDG::BarrierKind::OwnershipRelease ||
+                                   barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire;
+            const uint32_t srcFamily = ownership ? m_Queues->FamilyOf( barrier.SrcPipe ) : VK_QUEUE_FAMILY_IGNORED;
+            const uint32_t dstFamily = ownership ? m_Queues->FamilyOf( barrier.DstPipe ) : VK_QUEUE_FAMILY_IGNORED;
+            srcStages |= barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire
+                              ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT
+                              : RdgVulkanStages( barrier.Before.Stages );
             dstStages |= RdgVulkanStages( barrier.After.Stages );
             // A write-free source has nothing to make available: its stages only order the work.
             const VkAccessFlags srcAccess = RdgVulkanAccess( barrier.Before.Memory & RDG::kWriteAccessMask );
@@ -1069,8 +1088,8 @@ namespace Desert::Graphic::API::Vulkan
                 image.oldLayout           = barrier.DiscardContents ? VK_IMAGE_LAYOUT_UNDEFINED
                                                                     : RdgVulkanLayout( barrier.Before.Layout );
                 image.newLayout           = RdgVulkanLayout( barrier.After.Layout );
-                image.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                image.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                image.srcQueueFamilyIndex = srcFamily;
+                image.dstQueueFamilyIndex = dstFamily;
                 image.image               = texture.GetImage();
                 image.subresourceRange    = { texture.GetAspect(), barrier.Range.BaseMip, barrier.Range.MipCount,
                                               barrier.Range.BaseLayer, barrier.Range.LayerCount };
@@ -1081,8 +1100,8 @@ namespace Desert::Graphic::API::Vulkan
                 VkBufferMemoryBarrier buffer{ VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
                 buffer.srcAccessMask       = srcAccess;
                 buffer.dstAccessMask       = dstAccess;
-                buffer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                buffer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                buffer.srcQueueFamilyIndex = srcFamily;
+                buffer.dstQueueFamilyIndex = dstFamily;
                 buffer.buffer              = m_Buffers[barrier.Resource]->GetBuffer();
                 buffer.offset              = 0;
                 buffer.size                = VK_WHOLE_SIZE;
@@ -1274,6 +1293,56 @@ namespace Desert::Graphic::API::Vulkan
         while ( !m_ProfilerScopes.empty() )
             EndPass( RDG::CompiledPass{} );
         Release();
+        m_Segments.AbandonGraph();
+        m_CommandBuffer = VK_NULL_HANDLE;
+    }
+
+    // ── RDG-CONTRACTS B: pipes, segments, submissions ────────────────────────────────────────────────────
+
+    RDG::PipeCapabilities VulkanRdgBackend::GetPipeCapabilities() const
+    {
+        // Before BeginFrame there are no queues; BeginGraph refuses that graph by name.
+        return m_Queues != nullptr ? m_Queues->GetCapabilities() : RDG::PipeCapabilities{};
+    }
+
+    RDG::AsyncComputeFallbackLog& VulkanRdgBackend::GetAsyncComputeFallbackLog()
+    {
+        return m_FallbackLog;
+    }
+
+    Common::BoolResultStr VulkanRdgBackend::BeginPipeSegment( const RDG::PipeSegment& segment )
+    {
+        if ( m_Queues == nullptr )
+            return Common::MakeError( "the Vulkan backend has no queues (BeginFrame)" );
+        Common::ResultStr<VkCommandBuffer> begun = m_Segments.BeginSegment( segment, *m_Queues );
+        if ( !begun )
+            return Common::MakeError( begun.GetError() );
+        m_CommandBuffer = begun.GetValue();
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRdgBackend::EndPipeSegment( const RDG::PipeSegment& segment )
+    {
+        if ( m_RenderPassOpen )
+            return Common::MakeError( "a render pass is open across a segment boundary" );
+        Common::ResultStr<VkCommandBuffer> next = m_Segments.EndSegment( segment, *m_Queues );
+        m_CommandBuffer                         = next ? next.GetValue() : VK_NULL_HANDLE;
+        if ( !next )
+            return Common::MakeError( next.GetError() );
+        return Common::MakeSuccess( true );
+    }
+
+    void VulkanRdgBackend::RecordEpilogueBarriers( std::span<const RDG::Barrier> barriers )
+    {
+        // Releases only: RecordBarriers names the families from BarrierType and leaves dstAccess empty
+        // (After.Memory of a release is empty by contract).
+        RecordBarriers( barriers );
+    }
+
+    std::vector<VulkanRdgSubmission> VulkanRdgBackend::TakeSubmissions()
+    {
+        m_CommandBuffer = VK_NULL_HANDLE;
+        return m_Segments.Take();
     }
 
     std::shared_ptr<RDG::IPhysicalTexture> VulkanRdgBackend::GetPhysicalTexture( uint32_t resource ) const
