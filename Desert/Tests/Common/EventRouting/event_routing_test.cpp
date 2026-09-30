@@ -99,12 +99,12 @@ namespace
         long long Resizes = 0;
     };
 
-    KeyPressedEvent Key()
+    KeyPressedEvent APressedKey()
     {
         return KeyPressedEvent( KeyCode::A, 0 );
     }
 
-    MouseButtonPressedEvent Click()
+    MouseButtonPressedEvent ALeftClick()
     {
         return MouseButtonPressedEvent( MouseButton::Left );
     }
@@ -141,7 +141,7 @@ TEST( EventRouting, AClassWithoutHandlersReceivesNothingAndCostsNothing )
     auto      silent  = tree.Emplace<Silent>( counter.Id );
     ASSERT_TRUE( tree.SetFocus( silent.Id ) );
 
-    auto             key   = Key();
+    auto             key   = APressedKey();
     const EventReply reply = tree.Route( key );
     EXPECT_FALSE( reply.Handled );
     EXPECT_EQ( counter.Object.Calls, 1 );
@@ -161,7 +161,7 @@ TEST( EventRouting, AHandlerIsCalledOnlyForItsOwnEventType )
 
     KeyTypedEvent     typed( 'a' );
     MouseMovedEvent   moved( 1.0f, 2.0f );
-    auto              click = Click();
+    auto              click = ALeftClick();
     EventWindowResize resize( 640, 480 );
     EventWindowClose  close;
     tree.Route( typed );
@@ -171,7 +171,7 @@ TEST( EventRouting, AHandlerIsCalledOnlyForItsOwnEventType )
     tree.Route( close );
     EXPECT_EQ( node.Object.Calls, 0 );
 
-    auto key = Key();
+    auto key = APressedKey();
     tree.Route( key );
     EXPECT_EQ( node.Object.Calls, 1 );
 }
@@ -191,7 +191,7 @@ TEST( EventRouting, TheFocusedNodeHearsAKeyBeforeItsBackground )
     PanelOverBackground f;
     f.tree.SetFocus( f.panel );
 
-    auto key = Key();
+    auto key = APressedKey();
     f.tree.Route( key );
 
     const Log expected = { "background.previewKey", "panel.previewKey", "panel.key", "background.key" };
@@ -204,7 +204,7 @@ TEST( EventRouting, HandledStopsTheBubble )
     f.tree.SetFocus( f.panel );
     f.panelProbe->ClaimsKey = true;
 
-    auto             key   = Key();
+    auto             key   = APressedKey();
     const EventReply reply = f.tree.Route( key );
 
     EXPECT_TRUE( reply.Handled );
@@ -220,7 +220,7 @@ TEST( EventRouting, HandledInPreviewStopsTheWholeRouteAtTheAncestor )
     f.tree.SetFocus( f.panel );
     f.backgroundProbe->ClaimsPreview = true;
 
-    auto             key   = Key();
+    auto             key   = APressedKey();
     const EventReply reply = f.tree.Route( key );
 
     EXPECT_EQ( reply.HandledBy, f.background );
@@ -232,7 +232,7 @@ TEST( EventRouting, HandledInPreviewStopsTheWholeRouteAtTheAncestor )
 TEST( EventRouting, WithoutFocusNobodyHearsAKey )
 {
     PanelOverBackground f;
-    auto                key   = Key();
+    auto                key   = APressedKey();
     const EventReply    reply = f.tree.Route( key );
     EXPECT_FALSE( reply.Handled );
     EXPECT_TRUE( f.log.empty() );
@@ -245,7 +245,7 @@ TEST( EventRouting, PointerEventsGoToTheHoveredNodeNotTheFocusedOne )
     f.tree.SetFocus( f.panel );
     f.tree.SetHovered( other.Id );
 
-    auto click = Click();
+    auto click = ALeftClick();
     f.tree.Route( click );
 
     const Log expected = { "other.click" };
@@ -259,7 +259,7 @@ TEST( EventRouting, MouseCaptureOverridesHover )
     f.tree.SetHovered( other.Id );
     f.tree.SetCapture( f.panel );
 
-    auto click = Click();
+    auto click = ALeftClick();
     f.tree.Route( click );
 
     const Log expected = { "panel.click", "background.click" };
@@ -276,9 +276,9 @@ TEST( EventRouting, ANodeTakenOutOfTheTreeHearsNothing )
     EXPECT_FALSE( f.tree.Focus().IsSet() );
 
     f.tree.SetFocus( f.background );
-    auto key = Key();
+    auto key = APressedKey();
     f.tree.Route( key );
-    auto click = Click();
+    auto click = ALeftClick();
     f.tree.SetHovered( f.background );
     f.tree.Route( click );
 
@@ -304,8 +304,8 @@ TEST( EventRouting, ADestroyedObjectHearsNothingAndLeavesNoDanglingReference )
     EXPECT_FALSE( f.tree.Focus().IsSet() );
     EXPECT_FALSE( f.tree.Capture().IsSet() );
 
-    auto              key   = Key();
-    auto              click = Click();
+    auto              key   = APressedKey();
+    auto              click = ALeftClick();
     EventWindowResize resize( 1, 1 );
     f.tree.Route( key );
     f.tree.Route( click );
@@ -354,7 +354,7 @@ TEST( EventRouting, ANodeRemovedDuringDeliveryIsSkippedAndDestroyedAfterDelivery
     remover.Object.Victim       = f.background;
     f.tree.SetFocus( remover.Id );
 
-    auto key = Key();
+    auto key = APressedKey();
     f.tree.Route( key );
     f.log.push_back( "route.returned" );
 
@@ -372,7 +372,7 @@ TEST( EventRouting, AHandlerMayRemoveItsOwnNode )
     remover.Object.Victim = remover.Id;
     tree.SetFocus( remover.Id );
 
-    auto key = Key();
+    auto key = APressedKey();
     tree.Route( key );
 
     const Log expected = { "remover.key", "remover.returns" };
@@ -430,8 +430,8 @@ TEST( EventRouting, DeliveryOrderIsDeterministic )
             tree.SetHovered( c.Id );
             for ( int i = 0; i < 3; ++i )
             {
-                auto              key   = Key();
-                auto              click = Click();
+                auto              key   = APressedKey();
+                auto              click = ALeftClick();
                 EventWindowResize resize( 1, 1 );
                 tree.Route( key );
                 tree.Route( click );
@@ -514,7 +514,7 @@ namespace
         }
         bool OnKeyPressed( KeyPressedEvent& )
         {
-            auto click = Click();
+            auto click = ALeftClick();
             Inner      = Tree->Route( click );
             return true;
         }
@@ -536,7 +536,7 @@ TEST( EventRouting, DeliveryMayNest )
     tree.SetFocus( node.Id );
     tree.SetHovered( node.Id );
 
-    auto             key   = Key();
+    auto             key   = APressedKey();
     const EventReply outer = tree.Route( key );
 
     EXPECT_TRUE( outer.Handled );
@@ -564,7 +564,7 @@ TEST( EventRouting, DeliveryCostIsMeasured )
     const auto keyStart = Clock::now();
     for ( int i = 0; i < kKeys; ++i )
     {
-        auto key = Key();
+        auto key = APressedKey();
         tree.Route( key );
     }
     const double keyNs = std::chrono::duration<double, std::nano>( Clock::now() - keyStart ).count() / kKeys;
@@ -635,7 +635,7 @@ TEST( EventRouting, ADerivedClassAddingItsOwnHandlerKeepsTheHandlersOfItsBase )
     tree.SetFocus( node.Id );
     tree.SetHovered( node.Id );
 
-    auto            key = Key();
+    auto            key = APressedKey();
     MouseMovedEvent moved( 3.0f, 4.0f );
     tree.Route( key );
     tree.Route( moved );
@@ -656,7 +656,7 @@ TEST( EventRouting, AMethodNamedForAnotherEventDoesNotFireOnThisOne )
     tree.SetFocus( node.Id );
     tree.SetHovered( node.Id );
 
-    auto               key = Key();
+    auto               key = APressedKey();
     MouseMovedEvent    moved( 1.0f, 1.0f );
     MouseScrolledEvent scrolled( 0.0f, 1.0f );
     EXPECT_FALSE( tree.Route( key ).Handled );
@@ -668,4 +668,10 @@ TEST( EventRouting, AMethodNamedForAnotherEventDoesNotFireOnThisOne )
     KeyTypedEvent typed( 'x' );
     EXPECT_TRUE( tree.Route( typed ).Handled );
     EXPECT_EQ( node.Object.Typed, 1 );
+}
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }
