@@ -2768,7 +2768,7 @@ namespace Desert::Graphic::System
                              continue;
                          // The one binding the path adds (MeshPathOwnBinding): instance matrices or bone poses.
                          const auto        path = MeshCellPath( set.Caster->GetShaderName() );
-                         const std::string own  = MeshPathOwnBufferName( path );
+                         const std::string own  = path ? MeshPathOwnBufferName( *path ) : std::string();
                          if ( !own.empty() )
                              if ( auto* sb = set.Caster->Get<StorageBufferProperty>( own ) )
                                  sb->SetRawData(
