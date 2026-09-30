@@ -176,6 +176,12 @@ namespace Desert::Editor
             Warm( std::move( req ) );
     }
 
+    void ThumbnailService::WarmSkybox( const Assets::AssetHandle& skybox, const std::string& assetPath )
+    {
+        Warm( { Kind::Skybox, skybox, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
+                ThumbnailKey::Identity( assetPath ), assetPath, ThumbnailKey::DiskPath( assetPath ) } );
+    }
+
     ThumbnailService::Request ThumbnailService::MeshRequestOf( Kind kind, const Assets::AssetHandle& mesh,
                                                                const std::string&         cookedPath,
                                                                const Assets::AssetHandle& material )

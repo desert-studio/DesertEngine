@@ -518,6 +518,8 @@ namespace Desert::Editor
                     return ThumbnailFreshness::Verdict::Show; // refused and named by MeshSourceFor: no capture
                 return ThumbnailService::JudgeMeshPicture( *cooked ); // the tile's and the enqueue gate's verdict
             }
+            if ( item.Kind == WarmKind::Sky )
+                return ThumbnailService::JudgeSkyboxPicture( item.Path ); // the tile's and RequestSkybox's verdict
             return ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( ThumbnailPngFor( item.Path ), item.Path ) );
         };
         const auto needsCapture = [&]( const WarmItem& item )
@@ -562,6 +564,20 @@ namespace Desert::Editor
                 case WarmKind::Painted:
                     ThumbnailService::Get().WarmPainted( item.Path );
                     break;
+                case WarmKind::Sky:
+                {
+                    // The row the registry filed it under names the handle, as the tile's request does.
+                    const Assets::AssetHandle skybox = Runtime::SkyboxHandleAtPath( item.Path );
+                    if ( static_cast<uint64_t>( skybox ) == 0 )
+                    {
+                        LOG_WARN( "[Thumbnails] the splash cannot warm '{}': the registry has no skybox row at it",
+                                  item.Path );
+                        m_FailedThumbs.insert( item.Path );
+                        break;
+                    }
+                    ThumbnailService::Get().WarmSkybox( skybox, item.Path );
+                    break;
+                }
                 case WarmKind::Material:
                 {
                     // Resolved on a worker when it is not read yet; the arrival queues it as the tile's would.
