@@ -1,7 +1,10 @@
 #pragma once
 
+#include <Engine/Graphic/API/Vulkan/VulkanRdgQueues.hpp>
+
 #include <vulkan/vulkan.h>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace Desert::Graphic::API::Vulkan
@@ -23,7 +26,11 @@ namespace Desert::Graphic::API::Vulkan
         ~VulkanQueue();
 
         void PrepareFrame();
-        void Submit();
+        // Submits the frame IN ORDER (RDG-CONTRACTS B(3)): the frame command buffer split at every graph and
+        // the graphs' segment submissions. The first Graphics entry also waits for the swapchain image; the
+        // last entry (Graphics: the frame's tail) signals RenderComplete and the frame fence, which covers
+        // every AsyncCompute entry too (each one is joined by a later Graphics entry).
+        Common::BoolResultStr Submit( std::span<const VulkanRdgSubmission> frame );
         void Present();
 
         Common::ResultStr<VkResult> Init();

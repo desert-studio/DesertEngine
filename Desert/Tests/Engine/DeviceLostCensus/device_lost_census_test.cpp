@@ -32,6 +32,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -134,14 +135,15 @@ namespace
     //
     // The forty-odd vkCmd* entry points in VulkanRenderer.cpp are deliberately ABSENT, and that is an
     // argument rather than an omission: none of them records without VulkanRendererAPI::m_CurrentCommandBuffer,
-    // and BeginFrame — which IS on this list — is the only function that ever sets it. One gate therefore
-    // covers all of them, and OnlyBeginFrameCanArmTheCommandBuffer below asserts the "only" rather than
-    // trusting this paragraph.
+    // and only two functions ever set it, both on this list: BeginFrame (the frame's first command buffer)
+    // and ExecuteGraph (RDG-CONTRACTS B(3): the frame is split at every graph and recording continues in a
+    // fresh command buffer). The gates in those two therefore cover all of them, and
+    // OnlyGatedFunctionsCanArmTheCommandBuffer below asserts the "only" rather than trusting this paragraph.
     //
-    // THE ARGUMENT HAS EXACTLY ONE EXCEPTION AND IT WAS FOUND BY LOOKING RATHER THAN BY ASSUMING:
-    // VulkanImGui::End records the whole interface into `queue->GetDrawCommandBuffer()` directly, past
-    // that field entirely. It is on the list for that reason. Any future second route to a command buffer
-    // belongs here too — grep GetDrawCommandBuffer before believing there are none.
+    // VulkanImGui::End and VulkanSwapChain::RecordFrameCapture record into the renderer's current command
+    // buffer (GetCurrentCommandBuffer) from outside that file and are gated rows of their own.
+    // `queue->GetDrawCommandBuffer()` is read only by BeginFrame. Any future second route to a command buffer
+    // belongs here too — grep GetDrawCommandBuffer and GetCurrentCommandBuffer before believing there are none.
     constexpr GatedEntryPoint k_Gated[] = {
          { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanQueue.cpp", "VulkanQueue::PrepareFrame",
            "vkResetFences + the acquire" },
@@ -159,6 +161,8 @@ namespace
            "VulkanSwapChain::RecordFrameCapture", "a staging allocation and an image copy" },
          { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.cpp", "VulkanRendererAPI::BeginFrame",
            "vkBeginCommandBuffer -- and every vkCmd* after it" },
+         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.cpp",
+           "VulkanRendererAPI::ExecuteGraph", "vkEndCommandBuffer, the graph's segments and a re-armed buffer" },
          { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.cpp", "VulkanRendererAPI::EndFrame",
            "vkEndCommandBuffer" },
          { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.cpp",
@@ -175,9 +179,8 @@ namespace
            "vkDeviceWaitIdle" },
          { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp",
            "VulkanLogicalDevice::WritePipelineCache", "vkGetPipelineCacheData" },
-         // THE EXCEPTION TO THE PARAGRAPH ABOVE, and the reason it is a row rather than a footnote. This
-         // one records interface geometry into `queue->GetDrawCommandBuffer()` DIRECTLY, reaching past
-         // m_CurrentCommandBuffer, so the single gate in BeginFrame does not reach it.
+         // Records the interface into the renderer's current command buffer from outside
+         // VulkanRenderer.cpp, so the gates in BeginFrame and ExecuteGraph do not cover it.
          { "Editor/Source/Editor/ImGuiIntegration/VulkanImGuiLayer.cpp", "VulkanImGui::End",
            "a swapchain render pass and the whole interface's draw data" },
     };
@@ -216,8 +219,20 @@ namespace
          // VKF1: driverName/driverInfo for the start-up capability line.
          { "DeviceCapsProbe.cpp", "vkGetPhysicalDeviceProperties2", 1, "void" },
          // RDG1: the render graph's transient pool sizes its aliased image and buffer allocations.
-         { "VulkanRenderGraph.cpp", "vkGetImageMemoryRequirements", 1, "void" },
-         { "VulkanRenderGraph.cpp", "vkGetBufferMemoryRequirements", 1, "void" },
+         // RDG-ALIAS A1: TWO SITES each — the memory-requirements provider the compiler plans heaps from,
+         // and the placement of a transient at its planned offset (which checks it fits the heap).
+         { "VulkanRenderGraph.cpp", "vkGetImageMemoryRequirements", 2, "void" },
+         { "VulkanRenderGraph.cpp", "vkGetBufferMemoryRequirements", 2, "void" },
+         // RDG-ALIAS A1: a placed transient reads the heap's offset and memory to bind at (image, buffer).
+         { "VulkanRenderGraph.cpp", "vmaGetAllocationInfo", 2, "void" },
+         // RDG-ALIAS A1: the per-pass descriptor sets (WriteImage and WriteBuffer, one write each).
+         { "VulkanRenderGraph.cpp", "vkUpdateDescriptorSets", 2, "void" },
+         // RDG-ALIAS A1: the transient allocator reads a reserved heap's size and memory.
+         { "VulkanRdgTransient.cpp", "vmaGetAllocationInfo", 1, "void" },
+         // RDG-ALIAS A1: the frame slot's per-pass descriptor pools are reset after its fence. The
+         // specification gives vkResetDescriptorPool no failure code: it always returns VK_SUCCESS.
+         { "VulkanRenderGraph.cpp", "vkResetDescriptorPool", 1,
+           "dropped: always VK_SUCCESS" },
          { "VulkanDevice.cpp", "vkGetPhysicalDeviceFormatProperties", 3, "void" },
          // В2, шаг 2 программы по миру: чтение бюджета памяти устройства. Возвращает void — результат
          // приходит через цепочку `pNext` (`VkPhysicalDeviceMemoryBudgetPropertiesEXT`), которую
@@ -423,29 +438,32 @@ TEST( DeviceLostCensus, TheDroppedResultCensusStillHoldsAndCanOnlyShrink )
              << ", and it does not any more. Delete the row -- a census that pins nothing passes silently.";
     }
 
-    // THE NUMBER, stated so a regression is visible as a number and not only as a diff. Five VkResults
-    // are dropped in the whole Vulkan backend (eighteen, then eleven; VKF1 moved the six startup
-    // enumerations of instance layers, devices and extensions into vk-bootstrap), and every survivor is
-    // either a startup enumeration whose caller refuses on the count, or a teardown wait that is already
-    // behind the gate.
+    // THE NUMBER, stated so a regression is visible as a number and not only as a diff. Six VkResults
+    // are dropped in the whole Vulkan backend (eighteen, then eleven, then five; VKF1 moved the six startup
+    // enumerations of instance layers, devices and extensions into vk-bootstrap; RDG-ALIAS A1 added the
+    // descriptor pool reset), and every survivor is either a startup enumeration whose caller refuses on
+    // the count, a teardown wait that is already behind the gate, or vkResetDescriptorPool, whose only
+    // return code is VK_SUCCESS.
     int droppedResults = 0;
     for ( const auto& row : k_Census )
         if ( std::string( row.Verdict ) != "void" )
             droppedResults += row.Count;
-    EXPECT_EQ( droppedResults, 5 )
+    EXPECT_EQ( droppedResults, 6 )
          << "the number of Vulkan calls whose result nobody reads has changed. Up is a regression; down is "
             "welcome, and this line moves with it.";
 }
 
-TEST( DeviceLostCensus, OnlyBeginFrameCanArmTheCommandBuffer )
+TEST( DeviceLostCensus, OnlyGatedFunctionsCanArmTheCommandBuffer )
 {
     // THE INVARIANT THE vkCmd* EXEMPTION RESTS ON, ASSERTED RATHER THAN ASSUMED.
     //
     // Roughly forty recording entry points in VulkanRenderer.cpp carry no device-lost guard of their own.
     // That is correct only while `m_CurrentCommandBuffer` — the field every one of them checks for null
-    // before recording — is set to a real buffer in exactly ONE place: the gated BeginFrame. A second
-    // writer would reopen the whole defect silently, with nothing in a code review to point at. The field
-    // is private and has no getter, so this one file is the whole of its write surface.
+    // before recording — is set to a real buffer only by the gated BeginFrame (the frame's first buffer), the
+    // gated ExecuteGraph (the buffer after each graph) and SetGraphRecordingTarget (the graph backend's
+    // segment buffers while a graph runs; it asks the gate itself), once each. A fourth writer would reopen
+    // the whole defect silently, with nothing in a code review to point at. The field is private and its getter
+    // returns a copy, so this one file is the whole of its write surface.
     //
     // Clearing it to nullptr is deliberately not counted: disarming can only stop recording, never start
     // it, and is therefore safe from anywhere.
@@ -454,15 +472,26 @@ TEST( DeviceLostCensus, OnlyBeginFrameCanArmTheCommandBuffer )
 
     const fs::path file   = fs::path( root ) / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.cpp";
     const std::string src = StripCommentsAndStrings( ReadAll( file ) );
-    const std::string begin = BodyOf( src, "VulkanRendererAPI::BeginFrame" );
-    ASSERT_FALSE( begin.empty() ) << "VulkanRendererAPI::BeginFrame is not in " << file.string();
-
-    const std::size_t beginAt  = src.find( begin );
-    const std::size_t beginEnd = beginAt + begin.size();
+    struct Armer
+    {
+        const char* Name;
+        std::size_t At    = 0;
+        std::size_t End   = 0;
+        int         Count = 0;
+    };
+    std::array<Armer, 3> armers = { Armer{ "VulkanRendererAPI::BeginFrame" },
+                                    Armer{ "VulkanRendererAPI::ExecuteGraph" },
+                                    Armer{ "VulkanRendererAPI::SetGraphRecordingTarget" } };
+    for ( Armer& armer : armers )
+    {
+        const std::string body = BodyOf( src, armer.Name );
+        ASSERT_FALSE( body.empty() ) << armer.Name << " is not in " << file.string();
+        armer.At  = src.find( body );
+        armer.End = armer.At + body.size();
+    }
 
     const std::string field = "m_CurrentCommandBuffer";
     std::vector<int>  armedOutside;
-    int               armedInside = 0;
     for ( std::size_t at = 0; ( at = src.find( field, at ) ) != std::string::npos; at += field.size() )
     {
         std::size_t eq = at + field.size();
@@ -477,18 +506,24 @@ TEST( DeviceLostCensus, OnlyBeginFrameCanArmTheCommandBuffer )
         if ( src.compare( rhs, 7, "nullptr" ) == 0 )
             continue; // disarming, allowed from anywhere
 
-        if ( at >= beginAt && at < beginEnd )
-            ++armedInside;
+        Armer* inside = nullptr;
+        for ( Armer& armer : armers )
+            if ( at >= armer.At && at < armer.End )
+                inside = &armer;
+        if ( inside != nullptr )
+            ++inside->Count;
         else
             armedOutside.push_back( 1 + static_cast<int>( std::count( src.begin(), src.begin() + at, '\n' ) ) );
     }
 
-    EXPECT_EQ( armedInside, 1 ) << "BeginFrame must arm the command buffer exactly once";
+    for ( const Armer& armer : armers )
+        EXPECT_EQ( armer.Count, 1 ) << armer.Name << " must arm the command buffer exactly once";
     for ( int line : armedOutside )
         ADD_FAILURE() << file.filename().string() << ":" << line
-                      << " assigns a command buffer to m_CurrentCommandBuffer OUTSIDE BeginFrame. Every "
-                         "vkCmd* in this file is guarded by that field being null on a lost device, and "
-                         "BeginFrame is the only function the device-lost gate sits in front of.";
+                      << " assigns a command buffer to m_CurrentCommandBuffer OUTSIDE BeginFrame, "
+                         "ExecuteGraph and SetGraphRecordingTarget. Every vkCmd* in this file is guarded by "
+                         "that field being null on a lost device, and those three are the arming functions "
+                         "the device-lost gate sits in front of.";
 }
 
 TEST( DeviceLostCensus, EveryRecordingEntryPointAsksIsRecording )

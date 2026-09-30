@@ -1,12 +1,17 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanFormat.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRdgTransient.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderPassDependencies.hpp>
+
+#include <Common/Core/Logger.hpp>
 
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <array>
+#include <cstdio>
+#include <cstdlib>
 #include <format>
 
 namespace Desert::Graphic::API::Vulkan
@@ -345,6 +350,49 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( std::move( texture ) );
     }
 
+    Common::ResultStr<std::shared_ptr<VulkanRdgTexture>>
+    VulkanRdgTexture::CreatePlaced( const VulkanRdgDevice& device, const RDG::TextureDesc& desc,
+                                    uint32_t accessMask, VmaAllocation memory, uint64_t offset,
+                                    std::string_view name )
+    {
+        using Out                    = std::shared_ptr<VulkanRdgTexture>;
+        const VkImageCreateInfo info = RdgImageInfo( device, desc, accessMask );
+        if ( info.format == VK_FORMAT_UNDEFINED || info.usage == 0 )
+            return Common::MakeFormattedError<Out>(
+                 "texture '{}': no Vulkan format or no usage (access mask {:#x})", name, accessMask );
+        Out texture( new VulkanRdgTexture() );
+        texture->m_Device     = device.Device;
+        texture->m_Allocator  = device.Allocator; // m_Allocation stays null: the heap's memory is not ours
+        texture->m_Format     = info.format;
+        texture->m_Aspect     = GetImageVulkanAspect( desc.Format );
+        texture->m_Desc       = desc;
+        texture->m_AccessMask = accessMask;
+        VkResult result       = vkCreateImage( device.Device, &info, nullptr, &texture->m_Image );
+        if ( result != VK_SUCCESS )
+        {
+            texture->m_Image = VK_NULL_HANDLE;
+            return Common::MakeFormattedError<Out>( "texture '{}': vkCreateImage failed ({})", name,
+                                                    static_cast<int>( result ) );
+        }
+        // The plan measured this create info (VulkanRdgMemoryRequirements); the heap must still hold it here.
+        VkMemoryRequirements requirements{};
+        vkGetImageMemoryRequirements( device.Device, texture->m_Image, &requirements );
+        VmaAllocationInfo heap{};
+        vmaGetAllocationInfo( device.Allocator, memory, &heap );
+        if ( offset % requirements.alignment != 0 || offset + requirements.size > heap.size ||
+             ( requirements.memoryTypeBits & ( 1u << heap.memoryType ) ) == 0 )
+            return Common::MakeFormattedError<Out>( "texture '{}': {} bytes aligned {} (types {:#x}) do not fit "
+                                                    "at offset {} of a {}-byte heap of type {}",
+                                                    name, requirements.size, requirements.alignment,
+                                                    requirements.memoryTypeBits, offset, heap.size,
+                                                    heap.memoryType );
+        result = vmaBindImageMemory2( device.Allocator, memory, offset, texture->m_Image, nullptr );
+        if ( result != VK_SUCCESS )
+            return Common::MakeFormattedError<Out>( "texture '{}': vmaBindImageMemory2 at {} failed ({})", name,
+                                                    offset, static_cast<int>( result ) );
+        return Common::MakeSuccess( std::move( texture ) );
+    }
+
     std::shared_ptr<VulkanRdgTexture> VulkanRdgTexture::Wrap( VkDevice device, VkImage image, VkFormat format,
                                                               const RDG::TextureDesc& desc )
     {
@@ -355,6 +403,11 @@ namespace Desert::Graphic::API::Vulkan
         texture->m_Aspect = GetImageVulkanAspect( desc.Format );
         texture->m_Desc   = desc;
         return texture;
+    }
+
+    bool VulkanRdgTexture::Matches( const RDG::TextureDesc& desc, uint32_t accessMask ) const
+    {
+        return m_AccessMask == accessMask && RdgSameDesc( m_Desc, desc );
     }
 
     VulkanRdgTexture::~VulkanRdgTexture()
@@ -463,6 +516,48 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( std::move( buffer ) );
     }
 
+    Common::ResultStr<std::shared_ptr<VulkanRdgBuffer>>
+    VulkanRdgBuffer::CreatePlaced( const VulkanRdgDevice& device, const RDG::BufferDesc& desc, uint32_t accessMask,
+                                   VmaAllocation memory, uint64_t offset, std::string_view name )
+    {
+        using Out                     = std::shared_ptr<VulkanRdgBuffer>;
+        const VkBufferCreateInfo info = RdgBufferInfo( desc, accessMask );
+        if ( info.size == 0 || info.usage == 0 )
+            return Common::MakeFormattedError<Out>( "buffer '{}': {} bytes, usage from access mask {:#x} is empty",
+                                                    name, desc.Bytes, accessMask );
+        // The host reads a buffer after its graph; a transient that dies with the graph cannot be read there.
+        if ( RdgHas( accessMask, RDG::Access::HostRead ) )
+            return Common::MakeFormattedError<Out>( "buffer '{}': a HostRead buffer must be extracted, not placed",
+                                                    name );
+        Out buffer( new VulkanRdgBuffer() );
+        buffer->m_Allocator  = device.Allocator; // m_Allocation stays null: the heap's memory is not ours
+        buffer->m_Size       = desc.Bytes;
+        buffer->m_AccessMask = accessMask;
+        VkResult result      = vkCreateBuffer( device.Device, &info, nullptr, &buffer->m_Buffer );
+        if ( result != VK_SUCCESS )
+        {
+            buffer->m_Buffer = VK_NULL_HANDLE;
+            return Common::MakeFormattedError<Out>( "buffer '{}': vkCreateBuffer failed ({})", name,
+                                                    static_cast<int>( result ) );
+        }
+        VkMemoryRequirements requirements{};
+        vkGetBufferMemoryRequirements( device.Device, buffer->m_Buffer, &requirements );
+        VmaAllocationInfo heap{};
+        vmaGetAllocationInfo( device.Allocator, memory, &heap );
+        if ( offset % requirements.alignment != 0 || offset + requirements.size > heap.size ||
+             ( requirements.memoryTypeBits & ( 1u << heap.memoryType ) ) == 0 )
+            return Common::MakeFormattedError<Out>( "buffer '{}': {} bytes aligned {} (types {:#x}) do not fit at "
+                                                    "offset {} of a {}-byte heap of type {}",
+                                                    name, requirements.size, requirements.alignment,
+                                                    requirements.memoryTypeBits, offset, heap.size,
+                                                    heap.memoryType );
+        result = vmaBindBufferMemory2( device.Allocator, memory, offset, buffer->m_Buffer, nullptr );
+        if ( result != VK_SUCCESS )
+            return Common::MakeFormattedError<Out>( "buffer '{}': vmaBindBufferMemory2 at {} failed ({})", name,
+                                                    offset, static_cast<int>( result ) );
+        return Common::MakeSuccess( std::move( buffer ) );
+    }
+
     std::shared_ptr<VulkanRdgBuffer> VulkanRdgBuffer::Wrap( VkBuffer buffer, uint64_t size )
     {
         std::shared_ptr<VulkanRdgBuffer> wrapped( new VulkanRdgBuffer() );
@@ -530,7 +625,7 @@ namespace Desert::Graphic::API::Vulkan
         for ( Entry<VulkanRdgTexture>& entry : slot.Textures )
         {
             if ( entry.LastFrame != m_Frame && entry.Resource.use_count() == 1 &&
-                 entry.Resource->GetAccessMask() == accessMask && RdgSameDesc( entry.Resource->GetDesc(), desc ) )
+                 entry.Resource->Matches( desc, accessMask ) )
             {
                 entry.LastFrame = m_Frame;
                 return Common::MakeSuccess( entry.Resource );
@@ -635,10 +730,140 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( out );
     }
 
+    // ── Pass descriptors ────────────────────────────────────────────────────────────────────────────
+
+    VulkanRdgPassDescriptors::VulkanRdgPassDescriptors( VkDevice device, uint32_t frameSlots )
+         : m_Device( device ), m_Slots( std::max( 1u, frameSlots ) )
+    {
+    }
+
+    VulkanRdgPassDescriptors::~VulkanRdgPassDescriptors()
+    {
+        for ( const SlotPools& slot : m_Slots )
+        {
+            for ( VkDescriptorPool pool : slot.Pools )
+                vkDestroyDescriptorPool( m_Device, pool, nullptr );
+        }
+    }
+
+    Common::ResultStr<VkDescriptorPool> VulkanRdgPassDescriptors::AddPool( SlotPools& slot )
+    {
+        // One pool shape for every pass: a full pool is followed by another, never enlarged in place.
+        constexpr uint32_t                        kSets = 256;
+        const std::array<VkDescriptorPoolSize, 6> sizes = {
+             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kSets * 4 },
+             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kSets * 4 },
+             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSets * 4 },
+             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER, kSets },
+             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kSets * 2 },
+             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kSets * 2 } };
+        VkDescriptorPoolCreateInfo info{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+        info.maxSets            = kSets;
+        info.poolSizeCount      = static_cast<uint32_t>( sizes.size() );
+        info.pPoolSizes         = sizes.data();
+        VkDescriptorPool pool   = VK_NULL_HANDLE;
+        const VkResult   result = vkCreateDescriptorPool( m_Device, &info, nullptr, &pool );
+        if ( result != VK_SUCCESS )
+            return Common::MakeFormattedError<VkDescriptorPool>( "vkCreateDescriptorPool failed ({})",
+                                                                 static_cast<int>( result ) );
+        slot.Pools.push_back( pool );
+        return Common::MakeSuccess( pool );
+    }
+
+    void VulkanRdgPassDescriptors::BeginFrameSlot( uint32_t slot )
+    {
+        m_Slot           = slot % static_cast<uint32_t>( m_Slots.size() );
+        SlotPools& pools = m_Slots[m_Slot];
+        for ( VkDescriptorPool pool : pools.Pools )
+            vkResetDescriptorPool( m_Device, pool, 0 );
+        pools.Current = 0;
+    }
+
+    Common::ResultStr<VkDescriptorSet> VulkanRdgPassDescriptors::Allocate( VkDescriptorSetLayout layout )
+    {
+        SlotPools& pools = m_Slots[m_Slot];
+        for ( ;; )
+        {
+            bool fresh = false;
+            if ( pools.Current == pools.Pools.size() )
+            {
+                if ( auto added = AddPool( pools ); !added )
+                    return Common::MakeFormattedError<VkDescriptorSet>( "{}", added.GetError() );
+                fresh = true;
+            }
+            VkDescriptorSetAllocateInfo info{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+            info.descriptorPool     = pools.Pools[pools.Current];
+            info.descriptorSetCount = 1;
+            info.pSetLayouts        = &layout;
+            VkDescriptorSet set     = VK_NULL_HANDLE;
+            const VkResult  result  = vkAllocateDescriptorSets( m_Device, &info, &set );
+            if ( result == VK_SUCCESS )
+                return Common::MakeSuccess( set );
+            // Only a full pool moves on to the next; a layout that does not fit a fresh pool never will.
+            const bool full = result == VK_ERROR_OUT_OF_POOL_MEMORY || result == VK_ERROR_FRAGMENTED_POOL;
+            if ( !full || fresh )
+                return Common::MakeFormattedError<VkDescriptorSet>( "vkAllocateDescriptorSets failed ({})",
+                                                                    static_cast<int>( result ) );
+            ++pools.Current;
+        }
+    }
+
+    Common::BoolResultStr VulkanRdgPassDescriptors::WriteTexture( VkDescriptorSet set, uint32_t binding,
+                                                                  VkDescriptorType           type,
+                                                                  const RDG::TextureBinding& texture,
+                                                                  RDG::SubresourceRange      range,
+                                                                  VkImageLayout layout, VkSampler sampler )
+    {
+        const bool combined = type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        if ( type != VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE && type != VK_DESCRIPTOR_TYPE_STORAGE_IMAGE && !combined )
+            return Common::MakeFormattedError( "texture '{}': descriptor type {} is not an image type",
+                                               texture.Name, static_cast<int>( type ) );
+        if ( combined != ( sampler != VK_NULL_HANDLE ) )
+            return Common::MakeFormattedError( "texture '{}': a sampler goes with COMBINED_IMAGE_SAMPLER only",
+                                               texture.Name );
+        Common::ResultStr<VulkanRdgTexture*> physical = VulkanRdgBackend::TextureOf( texture );
+        if ( !physical )
+            return Common::MakeError( physical.GetError() );
+        Common::ResultStr<VkImageView> view = physical.GetValue()->GetView( range, false );
+        if ( !view )
+            return Common::MakeFormattedError( "texture '{}': {}", texture.Name, view.GetError() );
+        const VkDescriptorImageInfo image{ sampler, view.GetValue(), layout };
+        VkWriteDescriptorSet        write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        write.dstSet          = set;
+        write.dstBinding      = binding;
+        write.descriptorCount = 1;
+        write.descriptorType  = type;
+        write.pImageInfo      = &image;
+        vkUpdateDescriptorSets( m_Device, 1, &write, 0, nullptr );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRdgPassDescriptors::WriteBuffer( VkDescriptorSet set, uint32_t binding,
+                                                                 VkDescriptorType          type,
+                                                                 const RDG::BufferBinding& buffer )
+    {
+        if ( type != VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER && type != VK_DESCRIPTOR_TYPE_STORAGE_BUFFER )
+            return Common::MakeFormattedError( "buffer '{}': descriptor type {} is not a buffer type", buffer.Name,
+                                               static_cast<int>( type ) );
+        Common::ResultStr<VulkanRdgBuffer*> physical = VulkanRdgBackend::BufferOf( buffer );
+        if ( !physical )
+            return Common::MakeError( physical.GetError() );
+        const VkDescriptorBufferInfo info{ physical.GetValue()->GetBuffer(), 0, physical.GetValue()->GetSize() };
+        VkWriteDescriptorSet         write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        write.dstSet          = set;
+        write.dstBinding      = binding;
+        write.descriptorCount = 1;
+        write.descriptorType  = type;
+        write.pBufferInfo     = &info;
+        vkUpdateDescriptorSets( m_Device, 1, &write, 0, nullptr );
+        return Common::MakeSuccess( true );
+    }
+
     // ── Backend ────────────────────────────────────────────────────────────────────────────────────────
 
     VulkanRdgBackend::VulkanRdgBackend( const VulkanRdgDevice& device, VulkanRdgPool& pool )
-         : m_Device( device ), m_Pool( pool ), m_Memory( device )
+         : m_Device( device ), m_Pool( pool ), m_Memory( device ),
+           m_FallbackLog( []( std::string_view line ) { LOG_WARN( "{}", line ); } )
     {
     }
 
@@ -663,6 +888,42 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( commandBuffer );
     }
 
+    Common::BoolResultStr VulkanRdgBackend::BeginFrame( uint32_t slot, const VulkanRdgQueueSet& queues,
+                                                        VulkanRdgTransientAllocator& transients,
+                                                        VulkanRdgPassDescriptors&    descriptors )
+    {
+        if ( queues.GraphicsQueue == VK_NULL_HANDLE )
+            return Common::MakeError( "BeginFrame: the queue set has no graphics queue" );
+        m_FrameSlot   = slot;
+        m_Queues      = &queues;
+        m_Transients  = &transients;
+        m_Descriptors = &descriptors;
+        return Common::MakeSuccess( true );
+    }
+
+    Common::ResultStr<VulkanRdgPassDescriptors*> VulkanRdgBackend::DescriptorsOf( const RDG::PassContext& context )
+    {
+        RDG::IBackend& backend = context.GetBackend();
+        if ( backend.GetKind() != RDG::BackendKind::Vulkan )
+            return Common::MakeFormattedError<VulkanRdgPassDescriptors*>(
+                 "pass '{}' is not recorded by the Vulkan backend", context.GetPassName() );
+        VulkanRdgPassDescriptors* descriptors = static_cast<VulkanRdgBackend&>( backend ).m_Descriptors;
+        if ( descriptors == nullptr )
+            return Common::MakeFormattedError<VulkanRdgPassDescriptors*>(
+                 "pass '{}': the backend has no descriptors (BeginFrame)", context.GetPassName() );
+        return Common::MakeSuccess( descriptors );
+    }
+
+    RDG::ITransientAllocator& VulkanRdgBackend::GetTransientAllocator()
+    {
+        if ( m_Transients == nullptr )
+        {
+            std::fputs( "VulkanRdgBackend::GetTransientAllocator before BeginFrame\n", stderr );
+            std::abort();
+        }
+        return *m_Transients;
+    }
+
     Common::ResultStr<VulkanRdgTexture*> VulkanRdgBackend::TextureOf( const RDG::TextureBinding& binding )
     {
         if ( binding.Physical == nullptr || binding.Physical->GetBackendKind() != RDG::BackendKind::Vulkan )
@@ -681,8 +942,9 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanRdgBackend::BeginGraph( const RDG::GraphView& graph )
     {
-        if ( m_CommandBuffer == VK_NULL_HANDLE )
-            return Common::MakeError( "the Vulkan backend has no command buffer (SetCommandBuffer)" );
+        if ( m_Queues == nullptr )
+            return Common::MakeFormattedError( "graph '{}': the Vulkan backend has no queues (BeginFrame)",
+                                               graph.Name );
         Release();
         // A framebuffer whose images the pool has destroyed is dead: drop it before a new view could reuse
         // the handle it remembers. Called between submissions the caller has waited for (pool contract).
@@ -696,8 +958,55 @@ namespace Desert::Graphic::API::Vulkan
                                vkDestroyFramebuffer( m_Device.Device, entry.Framebuffer, nullptr );
                            return dead;
                        } );
+        if ( m_Transients == nullptr )
+            return Common::MakeFormattedError(
+                 "graph '{}': the Vulkan backend has no transient allocator (BeginFrame)", graph.Name );
+        if ( graph.Result == nullptr )
+            return Common::MakeFormattedError( "graph '{}': no compile result to place transients from",
+                                               graph.Name );
+        // B(3): what records before the first segment (a graph with no segment: the tail for its final barriers).
+        Common::ResultStr<VkCommandBuffer> first = m_Segments.BeginGraph( *graph.Result, *m_Queues );
+        if ( !first )
+            return Common::MakeFormattedError( "graph '{}': {}", graph.Name, first.GetError() );
+        SetRecording( first.GetValue() );
         m_Textures.resize( graph.Resources.size() );
         m_Buffers.resize( graph.Resources.size() );
+
+        // Every used, non-extracted transient is PLACED at its planned heap offset, in plan order. Two that share
+        // bytes are two resources over the same memory; the AliasAcquire barrier alone orders them.
+        const RDG::AliasingPlan& plan = graph.Result->Aliasing;
+        if ( auto reserved = m_Transients->ReserveHeaps( graph.Name, plan.Heaps ); !reserved )
+            return reserved;
+        m_GraphName = graph.Name;
+        for ( const RDG::Allocation& allocation : plan.Allocations )
+        {
+            if ( allocation.Resource >= graph.Resources.size() )
+                return Common::MakeFormattedError( "graph '{}': allocation of resource {} of {}", graph.Name,
+                                                   allocation.Resource, graph.Resources.size() );
+            const RDG::ResourceView& view = graph.Resources[allocation.Resource];
+            if ( !view.Used )
+                continue;
+            if ( view.Extracted || view.ExternalTex != nullptr || view.ExternalBuf != nullptr )
+                return Common::MakeFormattedError(
+                     "graph '{}': '{}' is external or extracted but has an allocation", graph.Name, view.Name );
+            if ( view.Kind == RDG::ResourceKind::Texture )
+            {
+                auto placed = m_Transients->PlaceTexture( allocation, *view.Texture, view.AccessMask, view.Name );
+                if ( !placed )
+                    return Common::MakeError( placed.GetError() );
+                m_Textures[view.Resource] = std::static_pointer_cast<VulkanRdgTexture>( placed.GetValue() );
+            }
+            else
+            {
+                auto placed = m_Transients->PlaceBuffer( allocation, *view.Buffer, view.AccessMask, view.Name );
+                if ( !placed )
+                    return Common::MakeError( placed.GetError() );
+                m_Buffers[view.Resource] = std::static_pointer_cast<VulkanRdgBuffer>( placed.GetValue() );
+            }
+        }
+
+        // Externals are bound; an extracted transient gets a dedicated resource from the pool (it outlives the
+        // graph, so it may not live in a heap the next frame reuses).
         for ( const RDG::ResourceView& view : graph.Resources )
         {
             if ( !view.Used )
@@ -713,6 +1022,11 @@ namespace Desert::Graphic::API::Vulkan
                     m_Textures[view.Resource] = std::static_pointer_cast<VulkanRdgTexture>( physical );
                     continue;
                 }
+                if ( m_Textures[view.Resource] )
+                    continue; // placed above
+                if ( !view.Extracted )
+                    return Common::MakeFormattedError( "graph '{}': transient '{}' has no allocation in the plan",
+                                                       graph.Name, view.Name );
                 auto acquired = m_Pool.AcquireTexture( *view.Texture, view.AccessMask, view.Name );
                 if ( !acquired )
                     return Common::MakeError( acquired.GetError() );
@@ -729,6 +1043,11 @@ namespace Desert::Graphic::API::Vulkan
                     m_Buffers[view.Resource] = std::static_pointer_cast<VulkanRdgBuffer>( physical );
                     continue;
                 }
+                if ( m_Buffers[view.Resource] )
+                    continue; // placed above
+                if ( !view.Extracted )
+                    return Common::MakeFormattedError( "graph '{}': transient '{}' has no allocation in the plan",
+                                                       graph.Name, view.Name );
                 auto acquired = m_Pool.AcquireBuffer( *view.Buffer, view.AccessMask, view.Name );
                 if ( !acquired )
                     return Common::MakeError( acquired.GetError() );
@@ -772,56 +1091,86 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRdgBackend::RecordBarriers( std::span<const RDG::Barrier> barriers )
     {
-        // ONE vkCmdPipelineBarrier: the stage masks are the union over the batch, each resource keeps its
-        // own access masks and layouts.
-        VkPipelineStageFlags               srcStages = 0;
-        VkPipelineStageFlags               dstStages = 0;
-        std::vector<VkImageMemoryBarrier>  images;
-        std::vector<VkBufferMemoryBarrier> buffers;
-        for ( const RDG::Barrier& barrier : barriers )
+        // At most TWO vkCmdPipelineBarrier: the queue family ownership transfers first, then everything else.
+        // A transfer may not share a call with a HOST-stage barrier (VUID-vkCmdPipelineBarrier-srcStageMask-
+        // 09633/09634), and a resource whose ownership returns before a plain barrier hands it on (an async
+        // result read back by the host) needs the two in that order. Within a call the stage masks are the
+        // union over the batch, each resource keeps its own access masks and layouts.
+        for ( const bool ownershipCall : { true, false } )
         {
-            srcStages |= RdgVulkanStages( barrier.Before.Stages );
-            dstStages |= RdgVulkanStages( barrier.After.Stages );
-            // A write-free source has nothing to make available: its stages only order the work.
-            const VkAccessFlags srcAccess = RdgVulkanAccess( barrier.Before.Memory & RDG::kWriteAccessMask );
-            const VkAccessFlags dstAccess = RdgVulkanAccess( barrier.After.Memory );
-            if ( barrier.Kind == RDG::ResourceKind::Texture )
+            VkPipelineStageFlags               srcStages = 0;
+            VkPipelineStageFlags               dstStages = 0;
+            std::vector<VkImageMemoryBarrier>  images;
+            std::vector<VkBufferMemoryBarrier> buffers;
+            for ( const RDG::Barrier& barrier : barriers )
             {
-                const VulkanRdgTexture& texture = *m_Textures[barrier.Resource];
-                VkImageMemoryBarrier    image{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-                image.srcAccessMask       = srcAccess;
-                image.dstAccessMask       = dstAccess;
-                image.oldLayout           = barrier.DiscardContents ? VK_IMAGE_LAYOUT_UNDEFINED
-                                                                    : RdgVulkanLayout( barrier.Before.Layout );
-                image.newLayout           = RdgVulkanLayout( barrier.After.Layout );
-                image.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                image.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                image.image               = texture.GetImage();
-                image.subresourceRange    = { texture.GetAspect(), barrier.Range.BaseMip, barrier.Range.MipCount,
-                                              barrier.Range.BaseLayer, barrier.Range.LayerCount };
-                images.push_back( image );
+                const bool isOwnership = barrier.BarrierType == RDG::BarrierKind::OwnershipRelease ||
+                                         barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire;
+                if ( isOwnership != ownershipCall )
+                    continue;
+                // Queue family ownership transfer (Vulkan 1.0): the release names the families and makes the
+                // source's writes available (dstAccess 0); the acquire repeats them with srcAccess 0. The acquire
+                // chains to the semaphore wait before it through ALL_COMMANDS (its first scope must meet the
+                // wait's stages, whatever they are).
+                const bool ownership = barrier.BarrierType == RDG::BarrierKind::OwnershipRelease ||
+                                       barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire;
+                const uint32_t srcFamily =
+                     ownership ? m_Queues->FamilyOf( barrier.SrcPipe ) : VK_QUEUE_FAMILY_IGNORED;
+                const uint32_t dstFamily =
+                     ownership ? m_Queues->FamilyOf( barrier.DstPipe ) : VK_QUEUE_FAMILY_IGNORED;
+                srcStages |= barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire
+                                  ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT
+                                  : RdgVulkanStages( barrier.Before.Stages );
+                // A release's second scope is on the other queue: on this one it only ends the barrier.
+                const bool release = barrier.BarrierType == RDG::BarrierKind::OwnershipRelease;
+                const bool acquire = barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire;
+                dstStages |=
+                     release ? VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT : RdgVulkanStages( barrier.After.Stages );
+                // A write-free source has nothing to make available: its stages only order the work. An acquire
+                // makes nothing available (its release did); a release makes nothing visible (its acquire does).
+                const VkAccessFlags srcAccess =
+                     acquire ? 0 : RdgVulkanAccess( barrier.Before.Memory & RDG::kWriteAccessMask );
+                const VkAccessFlags dstAccess = release ? 0 : RdgVulkanAccess( barrier.After.Memory );
+                if ( barrier.Kind == RDG::ResourceKind::Texture )
+                {
+                    const VulkanRdgTexture& texture = *m_Textures[barrier.Resource];
+                    VkImageMemoryBarrier    image{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+                    image.srcAccessMask       = srcAccess;
+                    image.dstAccessMask       = dstAccess;
+                    image.oldLayout           = barrier.DiscardContents ? VK_IMAGE_LAYOUT_UNDEFINED
+                                                                        : RdgVulkanLayout( barrier.Before.Layout );
+                    image.newLayout           = RdgVulkanLayout( barrier.After.Layout );
+                    image.srcQueueFamilyIndex = srcFamily;
+                    image.dstQueueFamilyIndex = dstFamily;
+                    image.image               = texture.GetImage();
+                    image.subresourceRange = { texture.GetAspect(), barrier.Range.BaseMip, barrier.Range.MipCount,
+                                               barrier.Range.BaseLayer, barrier.Range.LayerCount };
+                    images.push_back( image );
+                }
+                else
+                {
+                    VkBufferMemoryBarrier buffer{ VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+                    buffer.srcAccessMask       = srcAccess;
+                    buffer.dstAccessMask       = dstAccess;
+                    buffer.srcQueueFamilyIndex = srcFamily;
+                    buffer.dstQueueFamilyIndex = dstFamily;
+                    buffer.buffer              = m_Buffers[barrier.Resource]->GetBuffer();
+                    buffer.offset              = 0;
+                    buffer.size                = VK_WHOLE_SIZE;
+                    buffers.push_back( buffer );
+                }
             }
-            else
-            {
-                VkBufferMemoryBarrier buffer{ VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
-                buffer.srcAccessMask       = srcAccess;
-                buffer.dstAccessMask       = dstAccess;
-                buffer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                buffer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                buffer.buffer              = m_Buffers[barrier.Resource]->GetBuffer();
-                buffer.offset              = 0;
-                buffer.size                = VK_WHOLE_SIZE;
-                buffers.push_back( buffer );
-            }
+            if ( images.empty() && buffers.empty() )
+                continue;
+            // v1 has no NONE stage: "nothing before" is TOP_OF_PIPE, "nothing after" (Present) BOTTOM_OF_PIPE.
+            if ( srcStages == 0 )
+                srcStages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            if ( dstStages == 0 )
+                dstStages = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+            vkCmdPipelineBarrier( m_CommandBuffer, srcStages, dstStages, 0, 0, nullptr,
+                                  static_cast<uint32_t>( buffers.size() ), buffers.data(),
+                                  static_cast<uint32_t>( images.size() ), images.data() );
         }
-        // v1 has no NONE stage: "nothing before" is TOP_OF_PIPE, "nothing after" (Present) BOTTOM_OF_PIPE.
-        if ( srcStages == 0 )
-            srcStages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-        if ( dstStages == 0 )
-            dstStages = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-        vkCmdPipelineBarrier( m_CommandBuffer, srcStages, dstStages, 0, 0, nullptr,
-                              static_cast<uint32_t>( buffers.size() ), buffers.data(),
-                              static_cast<uint32_t>( images.size() ), images.data() );
     }
 
     Common::ResultStr<VkRenderPass> VulkanRdgBackend::GetRenderPass( const RdgRenderPassKey& key )
@@ -999,6 +1348,63 @@ namespace Desert::Graphic::API::Vulkan
         while ( !m_ProfilerScopes.empty() )
             EndPass( RDG::CompiledPass{} );
         Release();
+        m_Segments.AbandonGraph();
+        SetRecording( VK_NULL_HANDLE );
+    }
+
+    // ── RDG-CONTRACTS B: pipes, segments, submissions ────────────────────────────────────────────────────
+
+    RDG::PipeCapabilities VulkanRdgBackend::GetPipeCapabilities() const
+    {
+        // Before BeginFrame there are no queues; BeginGraph refuses that graph by name.
+        return m_Queues != nullptr ? m_Queues->GetCapabilities() : RDG::PipeCapabilities{};
+    }
+
+    RDG::AsyncComputeFallbackLog& VulkanRdgBackend::GetAsyncComputeFallbackLog()
+    {
+        return m_FallbackLog;
+    }
+
+    Common::BoolResultStr VulkanRdgBackend::BeginPipeSegment( const RDG::PipeSegment& segment )
+    {
+        if ( m_Queues == nullptr )
+            return Common::MakeError( "the Vulkan backend has no queues (BeginFrame)" );
+        Common::ResultStr<VkCommandBuffer> begun = m_Segments.BeginSegment( segment, *m_Queues );
+        if ( !begun )
+            return Common::MakeError( begun.GetError() );
+        SetRecording( begun.GetValue() );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRdgBackend::EndPipeSegment( const RDG::PipeSegment& segment )
+    {
+        if ( m_RenderPassOpen )
+            return Common::MakeError( "a render pass is open across a segment boundary" );
+        Common::ResultStr<VkCommandBuffer> next = m_Segments.EndSegment( segment, *m_Queues );
+        SetRecording( next ? next.GetValue() : VK_NULL_HANDLE );
+        if ( !next )
+            return Common::MakeError( next.GetError() );
+        return Common::MakeSuccess( true );
+    }
+
+    void VulkanRdgBackend::RecordEpilogueBarriers( std::span<const RDG::Barrier> barriers )
+    {
+        // Releases only: RecordBarriers names the families from BarrierType, ends the barrier at
+        // BOTTOM_OF_PIPE and leaves dstAccess empty (the acquire on the other queue makes it visible).
+        RecordBarriers( barriers );
+    }
+
+    void VulkanRdgBackend::SetRecording( VkCommandBuffer commandBuffer )
+    {
+        m_CommandBuffer = commandBuffer;
+        if ( m_RecordingListener )
+            m_RecordingListener( commandBuffer );
+    }
+
+    std::vector<VulkanRdgSubmission> VulkanRdgBackend::TakeSubmissions()
+    {
+        SetRecording( VK_NULL_HANDLE );
+        return m_Segments.Take();
     }
 
     std::shared_ptr<RDG::IPhysicalTexture> VulkanRdgBackend::GetPhysicalTexture( uint32_t resource ) const
@@ -1015,5 +1421,9 @@ namespace Desert::Graphic::API::Vulkan
     {
         m_Textures.clear();
         m_Buffers.clear();
+        // The allocator's open graph ends with the backend's hold (EndGraph, AbandonGraph, a new BeginGraph).
+        if ( m_Transients != nullptr )
+            m_Transients->EndGraph( m_GraphName );
+        m_GraphName.clear();
     }
 } // namespace Desert::Graphic::API::Vulkan

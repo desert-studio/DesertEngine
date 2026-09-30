@@ -186,16 +186,15 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanImGui::End()
     {
-        // THE ONE PLACE THAT RECORDS WITHOUT GOING THROUGH VulkanRendererAPI::m_CurrentCommandBuffer.
+        // RECORDS FROM OUTSIDE VulkanRenderer.cpp, into the renderer's current command buffer.
         //
-        // Every vkCmd* in VulkanRenderer.cpp is covered by one gate, because BeginFrame is the only writer
-        // of that field and BeginFrame is gated. This function is the exception: it reaches past the
-        // renderer to `queue->GetDrawCommandBuffer()` directly, so no amount of guarding over there
-        // reaches it. Left ungated, a loss discovered during a layer's OnUpdate would still be followed by
-        // a full frame of interface recording. Nothing would crash — recording does not touch the device
-        // and the buffer is never submitted, because PresentFinalImage is gated too — but "no Vulkan call
-        // after the loss" would be false, and a claim that is nearly true is the kind this project pays
-        // for later.
+        // Every vkCmd* in VulkanRenderer.cpp is covered by the gates of the only two writers of
+        // m_CurrentCommandBuffer (BeginFrame and ExecuteGraph). This function records through the getter
+        // from another file, so the device-lost census lists it as a gated row of its own. Left ungated, a loss
+        // discovered during a layer's OnUpdate would still be followed by a full frame of interface recording.
+        // Nothing would crash — recording does not touch the device and the buffer is never submitted, because
+        // PresentFinalImage is gated too — but "no Vulkan call after the loss" would be false, and a claim that is
+        // nearly true is the kind this project pays for later.
         if ( !Graphic::DeviceLost::AllowWork() )
             return;
 
@@ -218,8 +217,9 @@ namespace Desert::Graphic::API::Vulkan
         // ImGui must be rendered within a render pass that target the swapchain
         renderer.BeginSwapChainRenderPass();
 
-        ImGui_ImplVulkan_RenderDrawData( ::ImGui::GetDrawData(),
-                                         swapChain->GetVulkanQueue()->GetDrawCommandBuffer() );
+        // The frame's current command buffer: the frame is split at every graph, so the swapchain's first
+        // one would run BEFORE the graphs whose images the UI shows.
+        ImGui_ImplVulkan_RenderDrawData( ::ImGui::GetDrawData(), renderer.GetCurrentCommandBuffer() );
 
         // Reported rather than returned: this helper is void and its caller is ImGui's own render path.
         // A pass that will not close leaves the command buffer inside a render pass, and everything

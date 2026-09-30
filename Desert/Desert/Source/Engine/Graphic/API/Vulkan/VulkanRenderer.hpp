@@ -4,6 +4,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanGpuProfiler.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRdgTransient.hpp> // m_RdgTransients is owned here
 
 #include <memory>
 
@@ -28,6 +29,12 @@ namespace Desert::Graphic::API::Vulkan
         virtual void Shutdown() override;
 
         [[nodiscard]] virtual Common::BoolResultStr BeginFrame() override;
+        // The command buffer the frame records into NOW. It changes at every ExecuteGraph (the frame is split
+        // there), so a caller asks for it when it records and never keeps it.
+        VkCommandBuffer GetCurrentCommandBuffer() const
+        {
+            return m_CurrentCommandBuffer;
+        }
         [[nodiscard]] virtual Common::BoolResultStr EndFrame() override;
         [[nodiscard]] virtual Common::BoolResultStr PresentFinalImage() override;
         [[nodiscard]] virtual Common::BoolResultStr BeginRenderPass( const RenderPass* renderPass,
@@ -79,10 +86,9 @@ namespace Desert::Graphic::API::Vulkan
 
         // `VkCommandBuffer GetCurrentCmdBuffer() const;` USED TO SIT HERE WITH NO CALLERS AT ALL, and
         // removing it is not tidiness. m_CurrentCommandBuffer being non-null is what every vkCmd* in the
-        // implementation reads as "recording", and BeginFrame — the one function the device-lost gate sits
-        // in front of — is its only writer. A public getter is a standing invitation to record from
-        // outside that invariant. Nothing wanted it; nothing gets it. (DeviceLostCensus asserts the
-        // single-writer half.)
+        // implementation reads as "recording", and its writers are the fixed set documented at the field.
+        // A public getter is a standing invitation to record from outside that invariant. Nothing wanted
+        // it; nothing gets it. (DeviceLostCensus asserts the writer set.)
 
     private:
         // EVERY DRAW IN THIS FILE GOES THROUGH THESE TWO, AND THAT IS ASSERTED RATHER THAN INTENDED.
@@ -128,7 +134,22 @@ namespace Desert::Graphic::API::Vulkan
         // failed to create -- a segfault inside MoltenVK after "closing down in order". Disarms on the spot.
         [[nodiscard]] bool IsRecording();
 
+        // THE RECORDING TARGET: the command buffer every recording entry point of this API (every
+        // renderer's Record()) writes into. Ownership, one writer per phase of the frame:
+        //  - OUTSIDE a graph: the frame. BeginFrame arms the frame's first graphics buffer; ExecuteGraph
+        //    ends it before the graph (and clears the field, so nothing records into an ended buffer)
+        //    and arms a fresh graphics buffer after the graph. Both sit behind the device-lost gate.
+        //  - INSIDE a graph: the graph backend, and nothing else. VulkanRdgBackend calls
+        //    SetGraphRecordingTarget at every change of its recording buffer (graph begin, each pipe
+        //    segment's begin and end, abandon, TakeSubmissions), so a Record() from a pass lands in the
+        //    command buffer of the segment that pass runs on, on that segment's queue.
+        // Clearing it to nullptr (a failure, a lost device) is allowed anywhere: it can only stop
+        // recording. DeviceLostCensus.OnlyGatedFunctionsCanArmTheCommandBuffer asserts this writer set;
+        // RenderGraphVulkan.ARecordThroughTheRecordingTargetLandsInThePassSegmentBuffer proves the
+        // in-graph half.
         VkCommandBuffer m_CurrentCommandBuffer = nullptr;
+        // The in-graph writer above, bound as the backend's RecordingListener.
+        void SetGraphRecordingTarget( VkCommandBuffer commandBuffer );
 
         /// Debug names already reported by BindGraphicsPipeline. Written only from the render thread's
         /// recording path, which is the only caller of every submit entry point above.
@@ -152,6 +173,18 @@ namespace Desert::Graphic::API::Vulkan
         VulkanRdgDevice                   m_RdgDevice;
         std::unique_ptr<VulkanRdgPool>    m_RdgPool;
         std::unique_ptr<VulkanRdgBackend> m_RdgBackend;
+        // RDG-CONTRACTS A/B frame objects, per frame slot and re-begun by BeginFrame after the slot's fence:
+        // transient heaps, per-pass descriptor pools, segment command pools + semaphores, and the queues.
+        std::unique_ptr<VulkanRdgTransientAllocator> m_RdgTransients;
+        std::unique_ptr<VulkanRdgPassDescriptors>    m_RdgDescriptors;
+        std::unique_ptr<VulkanRdgQueueObjects>       m_RdgQueueObjects;
+        VulkanRdgQueueSet                            m_RdgQueues;
+        // The frame so far in submission order: the frame command buffer is split at every graph (what was
+        // recorded before it is submitted before it), followed by that graph's segment submissions.
+        std::vector<VulkanRdgSubmission> m_FrameSubmissions;
+
+        // Makes the RDG frame objects on the first frame and begins them all for the current frame slot.
+        Common::BoolResultStr BeginRdgFrame();
     };
 
 } // namespace Desert::Graphic::API::Vulkan

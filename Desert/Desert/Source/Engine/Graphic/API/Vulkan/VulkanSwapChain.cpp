@@ -9,6 +9,8 @@
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanFramebuffer.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
+#include <Engine/Graphic/Renderer.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
@@ -617,7 +619,10 @@ namespace Desert::Graphic::API::Vulkan
         // that MoltenVK tolerates silently — the picture comes out correct and only the validation layer
         // ever mentions it. ("vkQueueSubmit(): performs a layout transition on presentable VkImage, but the
         // image has not been acquired from VkSwapchainKHR." Measured, on the first capture this took.)
-        VkCommandBuffer cmd   = m_VulkanQueue->GetDrawCommandBuffer();
+        // The frame's CURRENT command buffer (its tail): the frame is split at every graph.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast) - this file is the Vulkan backend.
+        VkCommandBuffer cmd = static_cast<VulkanRendererAPI&>( *Renderer::GetInstance().GetRendererAPI() )
+                                   .GetCurrentCommandBuffer();
         VkImage         image = m_SwapChainImages.Images[imageIndex];
 
         // The render pass left the image in PRESENT_SRC, and it must be put back: the present that follows

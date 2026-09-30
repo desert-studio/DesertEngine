@@ -58,6 +58,24 @@ namespace Desert::Graphic::RDG
         Common::ResultStr<BufferBinding>  GetBuffer( BufferRef buffer, Access access ) const;
 
         std::string_view GetPassName() const;
+        // RDG-CONTRACTS B(1). The pipe this pass records on (CompiledPass::OnPipe). For labels and profiling rows
+        // only: an exec lambda records the same work on either pipe.
+        Pipe GetPipe() const;
+
+        // RDG-CONTRACTS A(3) - the renderer-facing contract for a graph transient (UE: FRDGTexture accessed
+        // through the pass parameters, never stored). A renderer moving an owned intermediate into the graph:
+        //   * declares it EVERY frame in the graph it builds: Builder::CreateTexture / CreateBuffer with a desc
+        //     computed from this frame's view (size, format, mips) - no member Image2D, no Resize();
+        //   * keeps only the TextureRef / BufferRef, and only for the graph being built (a local, or a field
+        //     of a per-frame struct such as FrameTextures). A ref from an earlier graph is meaningless;
+        //   * inside exec, gets the binding with GetTexture / GetBuffer and the backend object through the
+        //     backend's helper (VulkanRdgBackend::TextureOf -> VulkanRdgTexture::GetView);
+        //   * binds it through a descriptor set written in THIS exec (VulkanRdgBackend::DescriptorsOf), never
+        //     through a Material property or a descriptor set that outlives the frame.
+        // Never: cache a TextureBinding, IPhysicalTexture, VkImage, VkImageView or descriptor set written from
+        // one across frames or across graphs (the allocator may place a different image at the same handle
+        // value, or the same image for a different resource); read a transient's contents from a previous frame
+        // (a history buffer is an external, or an extracted transient registered back next frame).
         // The backend recording this graph; a backend-specific helper turns it into its command buffer.
         IBackend& GetBackend() const
         {
@@ -179,6 +197,22 @@ namespace Desert::Graphic::RDG
         // A culled pass records nothing, gets no barrier and opens no lifetime; CompileResult::CulledPasses and
         // CulledPassNames list it.
         Common::ResultStr<CompileResult> Compile( const IMemoryRequirementsProvider& memory ) const;
+
+        // RDG-CONTRACTS B(2). The same compile, scheduled for @p pipes. Compile(memory) above is this overload
+        // with PipeCapabilities{} (no separate compute family). Scheduling runs after culling and before the
+        // aliasing plan (which uses ResourceLifetime::AliasFirst/LastPosition):
+        //   1. pipe choice: a live pass with AsyncCompute runs on Pipe::AsyncCompute if
+        //   pipes.SeparateComputeFamily,
+        //      otherwise on Graphics and is listed in DemotedAsyncPasses;
+        //   2. segments: consecutive async passes form one AsyncCompute segment; the fork is the last graphics
+        //      writer of anything the segment reads, the join the first graphics pass depending on anything the
+        //      segment touched (CrossPipeSync). A graphics pass depending on an async pass WITHOUT a sync is a
+        //      compile error, never a silently serialised pass;
+        //   3. ownership: one QueueOwnershipTransfer per (resource, range) whose contents cross pipes;
+        //   4. lifetimes: AliasFirst/LastPosition widened over the fork..join window.
+        // The single-pipe result equals Compile(memory) on the same graph, except DemotedAsyncPasses.
+        Common::ResultStr<CompileResult> Compile( const IMemoryRequirementsProvider& memory,
+                                                  const PipeCapabilities&            pipes ) const;
 
         // Pass culling is on by default. Off, every pass is live and CulledPasses stays empty: the debug switch
         // DebugViewState::DisablePassCulling, so that a picture which changes with it names a pass whose effect

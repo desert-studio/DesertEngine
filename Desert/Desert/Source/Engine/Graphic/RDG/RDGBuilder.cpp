@@ -209,6 +209,11 @@ namespace Desert::Graphic::RDG
             RecordError(
                  fmt::format( "graph '{}': pass '{}' names {} of Raster/Compute/Copy; exactly one is required",
                               m_Name, name, kinds ) );
+        if ( HasFlag( flags, PassFlags::AsyncCompute ) && !HasFlag( flags, PassFlags::Compute ) )
+            RecordError(
+                 std::format( "graph '{}': pass '{}' declares AsyncCompute without Compute; only a compute "
+                              "pass can run on the async compute queue",
+                              m_Name, name ) );
 
         PassRecord record;
         record.Name  = std::string( name );
@@ -447,6 +452,16 @@ namespace Desert::Graphic::RDG
         return m_Builder.m_Passes[m_Pass].Name;
     }
 
+    Pipe PassContext::GetPipe() const
+    {
+        for ( const CompiledPass& pass : m_Result.Passes )
+        {
+            if ( pass.Pass == m_Pass )
+                return pass.OnPipe;
+        }
+        return Pipe::Graphics; // a context exists only for an executed pass, which is always listed above
+    }
+
     Common::ResultStr<TextureBinding> PassContext::GetTexture( TextureRef texture, Access access,
                                                                SubresourceRange range ) const
     {
@@ -568,10 +583,20 @@ namespace Desert::Graphic::RDG
                                                m_Name );
         m_Executed = true;
 
-        Common::ResultStr<CompileResult> compiled = Compile( backend.GetMemoryRequirements() );
+        Common::ResultStr<CompileResult> compiled =
+             Compile( backend.GetMemoryRequirements(), backend.GetPipeCapabilities() );
         if ( !compiled )
             return Common::MakeError( compiled.GetError() );
         const CompileResult& result = compiled.GetValue();
+
+        // The decided fallback, announced once per backend (the log keeps the count).
+        if ( !result.DemotedAsyncPasses.empty() )
+        {
+            std::vector<std::string_view> demoted;
+            for ( uint32_t pass : result.DemotedAsyncPasses )
+                demoted.push_back( m_Passes[pass].Name );
+            backend.GetAsyncComputeFallbackLog().Report( demoted );
+        }
 
         std::vector<ResourceView> views( m_Resources.size() );
         for ( uint32_t r = 0; r < m_Resources.size(); ++r )
@@ -600,7 +625,8 @@ namespace Desert::Graphic::RDG
         if ( !begun )
             return Common::MakeFormattedError( "graph '{}': {}", m_Name, begun.GetError() );
 
-        for ( const CompiledPass& compiledPass : result.Passes )
+        // One pass inside its segment: barriers, render pass, exec, releases. A failure abandons the graph.
+        auto recordPass = [&]( const CompiledPass& compiledPass ) -> Common::BoolResultStr
         {
             backend.BeginPass( compiledPass );
             if ( !compiledPass.Barriers.empty() )
@@ -636,7 +662,41 @@ namespace Desert::Graphic::RDG
             }
             if ( rendering && !compiledPass.KeepsRenderPassOpen )
                 backend.EndRenderPass();
+            if ( !compiledPass.EpilogueBarriers.empty() )
+                backend.RecordEpilogueBarriers( compiledPass.EpilogueBarriers );
             backend.EndPass( compiledPass );
+            return Common::MakeSuccess( true );
+        };
+
+        for ( const PipeSegment& segment : result.Segments )
+        {
+            // Amendment B: the prologue has no passes; it records the releases of a fork from the start.
+            const bool            prologue     = segment.FirstPosition == CrossPipeSync::kForkAtGraphStart;
+            const std::string     segmentName  = prologue ? std::string( "the graph start" )
+                                                          : std::string( result.Passes[segment.FirstPosition].Name );
+            Common::BoolResultStr segmentBegun = backend.BeginPipeSegment( segment );
+            if ( !segmentBegun )
+            {
+                backend.AbandonGraph();
+                return Common::MakeFormattedError( "graph '{}' segment at pass '{}': {}", m_Name, segmentName,
+                                                   segmentBegun.GetError() );
+            }
+            if ( prologue )
+                backend.RecordEpilogueBarriers( result.PrologueBarriers );
+            for ( uint32_t position = segment.FirstPosition; !prologue && position <= segment.LastPosition;
+                  ++position )
+            {
+                Common::BoolResultStr recorded = recordPass( result.Passes[position] );
+                if ( !recorded )
+                    return recorded;
+            }
+            Common::BoolResultStr segmentEnded = backend.EndPipeSegment( segment );
+            if ( !segmentEnded )
+            {
+                backend.AbandonGraph();
+                return Common::MakeFormattedError( "graph '{}' segment at pass '{}': {}", m_Name, segmentName,
+                                                   segmentEnded.GetError() );
+            }
         }
 
         // An extracted transient's image is taken before EndGraph releases the graph's hold on it.

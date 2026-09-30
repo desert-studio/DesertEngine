@@ -64,6 +64,14 @@ namespace Desert::Graphic::API::Vulkan
         if ( !window )
             return Common::MakeError( "Window is null" );
 
+        // After the slot's fence (Present waited it): the graph's frame objects of this slot are reusable.
+        m_FrameSubmissions.clear();
+        if ( Common::BoolResultStr rdg = BeginRdgFrame(); !rdg )
+        {
+            m_CurrentCommandBuffer = nullptr;
+            return Common::MakeFormattedError<bool>( "render graph frame: {}", rdg.GetError() );
+        }
+
         auto swapChain         = SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() );
         m_CurrentCommandBuffer = swapChain->GetVulkanQueue()->GetDrawCommandBuffer();
 
@@ -115,6 +123,9 @@ namespace Desert::Graphic::API::Vulkan
 #endif
 
             VK_CHECK_RESULT_BOOL( vkEndCommandBuffer( m_CurrentCommandBuffer ) );
+            // The frame's graphics tail: the last submission, which signals RenderComplete and the fence.
+            m_FrameSubmissions.push_back(
+                 { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, m_CurrentCommandBuffer, {}, {}, {} } );
             m_CurrentCommandBuffer = nullptr;
         }
         return BOOLSUCCESS;
@@ -138,7 +149,10 @@ namespace Desert::Graphic::API::Vulkan
         if ( !ended.IsSuccess() )
             return Common::MakeError( ended.GetError() );
 
-        swapChain->GetVulkanQueue()->Submit();
+        const Common::BoolResultStr submitted = swapChain->GetVulkanQueue()->Submit( m_FrameSubmissions );
+        m_FrameSubmissions.clear();
+        if ( !submitted )
+            return Common::MakeError( submitted.GetError() );
         swapChain->Present();
 
         // The submit and the present are where an asynchronous loss surfaces. Saying so HERE, in this
@@ -701,23 +715,108 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeError( "No active command buffer" );
 
         if ( !m_RdgBackend )
+            return Common::MakeError( "the render graph frame objects were not begun (BeginFrame)" );
+        // The second writer of m_CurrentCommandBuffer after BeginFrame: it ends the frame's command buffer and
+        // re-arms a fresh one after the graph, so it asks the device-lost gate like BeginFrame does.
+        if ( !Graphic::DeviceLost::AllowWork() )
         {
-            m_RdgDevice.Device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                                      ->GetVulkanLogicalDevice();
-            m_RdgDevice.Allocator     = VulkanAllocator::GetVMAAllocator();
-            m_RdgDevice.CmdBeginLabel = fpCmdBeginDebugUtilsLabelEXT;
-            m_RdgDevice.CmdEndLabel   = fpCmdEndDebugUtilsLabelEXT;
-            m_RdgPool                 = std::make_unique<VulkanRdgPool>( m_RdgDevice,
-                                                                         EngineContext::GetInstance().GetMaxFramesInFlight() );
-            m_RdgBackend              = std::make_unique<VulkanRdgBackend>( m_RdgDevice, *m_RdgPool );
+            m_CurrentCommandBuffer = nullptr;
+            return Common::MakeError( "the device is lost; the graph is not recorded" );
         }
-        // The sink the profiler holds now: GPU timing can be switched on and off between frames.
+            // The sink the profiler holds now: GPU timing can be switched on and off between frames.
 #if DESERT_DEV_INSTRUMENTS
         m_RdgDevice.Profiler = ::Common::Profiling::Profiler::Get().GetGpuSink();
 #endif
-        m_RdgPool->BeginFrame( EngineContext::GetInstance().GetCurrentFrameIndex() );
-        m_RdgBackend->SetCommandBuffer( m_CurrentCommandBuffer );
-        return graph.Execute( *m_RdgBackend );
+        // RDG-CONTRACTS B(3): the graph records into its own segment command buffers, so the frame command
+        // buffer is split here: what was recorded before the graph is submitted before the graph.
+        const VkResult ended = vkEndCommandBuffer( m_CurrentCommandBuffer );
+        if ( ended != VK_SUCCESS )
+        {
+            m_CurrentCommandBuffer = nullptr;
+            (void)NoteIfDeviceLost( ended, "vkEndCommandBuffer", __FILE__, __LINE__ );
+            return Common::MakeFormattedError<bool>( "vkEndCommandBuffer before a graph failed: {}",
+                                                     VkResultToString( ended ) );
+        }
+        m_FrameSubmissions.push_back(
+             { RDG::Pipe::Graphics, m_RdgQueues.GraphicsQueue, m_CurrentCommandBuffer, {}, {}, {} } );
+        // Ended: from here until the graph backend arms its first buffer nothing may record into it.
+        m_CurrentCommandBuffer                    = nullptr;
+        const Common::BoolResultStr      executed = graph.Execute( *m_RdgBackend );
+        std::vector<VulkanRdgSubmission> segments = m_RdgBackend->TakeSubmissions();
+        m_FrameSubmissions.insert( m_FrameSubmissions.end(), std::make_move_iterator( segments.begin() ),
+                                   std::make_move_iterator( segments.end() ) );
+
+        // Recording continues after the graph in a fresh graphics command buffer of this frame slot. A loss
+        // noted while the graph recorded (a segment's vkEndCommandBuffer) must not re-arm the frame.
+        if ( !Graphic::DeviceLost::AllowWork() )
+        {
+            m_CurrentCommandBuffer = nullptr;
+            return Common::MakeError( "the device was lost while the graph recorded" );
+        }
+        Common::ResultStr<VkCommandBuffer> next = m_RdgQueueObjects->BeginCommandBuffer( RDG::Pipe::Graphics );
+        if ( !next )
+        {
+            m_CurrentCommandBuffer = nullptr;
+            return Common::MakeError( next.GetError() );
+        }
+        m_CurrentCommandBuffer = next.GetValue();
+        return executed;
+    }
+
+    void VulkanRendererAPI::SetGraphRecordingTarget( VkCommandBuffer commandBuffer )
+    {
+        // The in-graph writer of the recording target (see the field). The graph only runs inside the gated
+        // ExecuteGraph; a loss noted mid-graph still disarms here rather than arming the next segment.
+        if ( commandBuffer != VK_NULL_HANDLE && !Graphic::DeviceLost::AllowWork() )
+        {
+            m_CurrentCommandBuffer = nullptr;
+            return;
+        }
+        m_CurrentCommandBuffer = commandBuffer;
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::BeginRdgFrame()
+    {
+        const auto     device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
+        const uint32_t slots  = EngineContext::GetInstance().GetMaxFramesInFlight();
+        if ( !m_RdgBackend )
+        {
+            m_RdgDevice.Device        = device->GetVulkanLogicalDevice();
+            m_RdgDevice.Allocator     = VulkanAllocator::GetVMAAllocator();
+            m_RdgDevice.CmdBeginLabel = fpCmdBeginDebugUtilsLabelEXT;
+            m_RdgDevice.CmdEndLabel   = fpCmdEndDebugUtilsLabelEXT;
+            m_RdgPool                 = std::make_unique<VulkanRdgPool>( m_RdgDevice, slots );
+            m_RdgBackend              = std::make_unique<VulkanRdgBackend>( m_RdgDevice, *m_RdgPool );
+            // B2: while a graph runs, every renderer's Record() goes through this API, so this API records
+            // into the command buffer of the segment the running pass is on, never into the frame's own
+            // (ended before the graph) or another segment's. ExecuteGraph re-arms a fresh one after.
+            m_RdgBackend->SetRecordingListener( [this]( VkCommandBuffer commandBuffer )
+                                                { SetGraphRecordingTarget( commandBuffer ); } );
+            m_RdgTransients           = std::make_unique<VulkanRdgTransientAllocator>( m_RdgDevice, slots );
+            m_RdgDescriptors          = std::make_unique<VulkanRdgPassDescriptors>( m_RdgDevice.Device, slots );
+
+            // The compute queue is the graph's AsyncCompute pipe only when its family differs from the
+            // graphics one (VulkanPhysicalDevice falls back to the graphics family when there is none);
+            // otherwise every pass runs on Graphics and the backend's fallback log says so once.
+            const uint32_t graphicsFamily = device->GetPhysicalDevice()->GetGraphicsFamily();
+            const uint32_t computeFamily  = device->GetPhysicalDevice()->GetComputeFamily();
+            const bool     separate       = computeFamily != graphicsFamily;
+            m_RdgQueueObjects             = std::make_unique<VulkanRdgQueueObjects>(
+                 m_RdgDevice.Device, graphicsFamily,
+                 separate ? std::optional<uint32_t>( computeFamily ) : std::nullopt, slots );
+            m_RdgQueues.GraphicsQueue  = device->GetGraphicsQueue();
+            m_RdgQueues.GraphicsFamily = graphicsFamily;
+            m_RdgQueues.ComputeQueue   = separate ? device->GetComputeQueue() : VK_NULL_HANDLE;
+            m_RdgQueues.ComputeFamily  = computeFamily;
+            m_RdgQueues.Objects        = m_RdgQueueObjects.get();
+        }
+        const uint32_t slot = EngineContext::GetInstance().GetCurrentFrameIndex();
+        m_RdgPool->BeginFrame( slot );
+        m_RdgTransients->BeginFrameSlot( slot );
+        m_RdgDescriptors->BeginFrameSlot( slot );
+        if ( Common::BoolResultStr begun = m_RdgQueueObjects->BeginFrameSlot( slot ); !begun )
+            return begun;
+        return m_RdgBackend->BeginFrame( slot, m_RdgQueues, *m_RdgTransients, *m_RdgDescriptors );
     }
 
     void VulkanRendererAPI::RetireGraphTexture( std::shared_ptr<RDG::IPhysicalTexture> texture )

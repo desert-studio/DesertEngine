@@ -3,6 +3,7 @@
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/ResultStr.hpp>
 
+#include <Engine/Graphic/API/Vulkan/VulkanRdgQueues.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
 #include <VulkanAllocator/vk_mem_alloc.h>
@@ -30,6 +31,8 @@
 // code on a headless device it creates itself.
 namespace Desert::Graphic::API::Vulkan
 {
+    class VulkanRdgTransientAllocator; // VulkanRdgTransient.hpp
+
     struct VulkanRdgDevice
     {
         VkDevice     Device    = VK_NULL_HANDLE;
@@ -94,6 +97,12 @@ namespace Desert::Graphic::API::Vulkan
                                                                             const RDG::TextureDesc& desc,
                                                                             uint32_t                accessMask,
                                                                             std::string_view        name );
+        // RDG-CONTRACTS A(1). Creates an image bound to @p memory at @p offset (a transient heap). The image is
+        // destroyed with this object; the memory is not (the allocator owns it). Called only by
+        // VulkanRdgTransientAllocator::PlaceTexture.
+        static Common::ResultStr<std::shared_ptr<VulkanRdgTexture>>
+        CreatePlaced( const VulkanRdgDevice& device, const RDG::TextureDesc& desc, uint32_t accessMask,
+                      VmaAllocation memory, uint64_t offset, std::string_view name );
         // Wraps an image someone else owns (a swapchain image, an engine image); never destroyed here.
         static std::shared_ptr<VulkanRdgTexture> Wrap( VkDevice device, VkImage image, VkFormat format,
                                                        const RDG::TextureDesc& desc );
@@ -126,6 +135,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_Desc;
         }
+        // The same description and usage: an image created for one can stand in for the other.
+        bool     Matches( const RDG::TextureDesc& desc, uint32_t accessMask ) const;
         uint32_t GetAccessMask() const
         {
             return m_AccessMask;
@@ -163,6 +174,10 @@ namespace Desert::Graphic::API::Vulkan
                                                                            const RDG::BufferDesc& desc,
                                                                            uint32_t               accessMask,
                                                                            std::string_view       name );
+        // RDG-CONTRACTS A(1). A buffer bound to @p memory at @p offset; see VulkanRdgTexture::CreatePlaced.
+        static Common::ResultStr<std::shared_ptr<VulkanRdgBuffer>>
+        CreatePlaced( const VulkanRdgDevice& device, const RDG::BufferDesc& desc, uint32_t accessMask,
+                      VmaAllocation memory, uint64_t offset, std::string_view name );
         // The graph's handle on an engine buffer it does not own (Renderer::ImportBuffer): it records the
         // barriers and binds @p buffer, and never destroys it; the engine buffer outlives every graph that
         // imports it because its own frames-in-flight release waits for them.
@@ -258,6 +273,45 @@ namespace Desert::Graphic::API::Vulkan
         uint64_t               m_Frame = 1;
     };
 
+    // RDG-CONTRACTS A(3). Descriptor sets for graph resources, allocated from a pool per frame slot that is reset
+    // when the slot is re-begun. The one way a pass binds a transient to a pipeline: allocate a set for the
+    // pipeline's layout inside exec, write the pass's bindings into it, bind it, forget it.
+    // Never: return a set to a caller outside the exec lambda that allocated it; write a set with a view of a
+    // resource the pass did not declare (the binding comes from PassContext::GetTexture, which refuses those).
+    class VulkanRdgPassDescriptors
+    {
+    public:
+        VulkanRdgPassDescriptors( VkDevice device, uint32_t frameSlots );
+        ~VulkanRdgPassDescriptors();
+        VulkanRdgPassDescriptors( const VulkanRdgPassDescriptors& )            = delete;
+        VulkanRdgPassDescriptors& operator=( const VulkanRdgPassDescriptors& ) = delete;
+
+        Common::ResultStr<VkDescriptorSet> Allocate( VkDescriptorSetLayout layout );
+        // @p type is the layout binding's type: SAMPLED_IMAGE, STORAGE_IMAGE or COMBINED_IMAGE_SAMPLER (with
+        // @p sampler) - a layout alone does not say whether an image in GENERAL is sampled or stored.
+        Common::BoolResultStr WriteTexture( VkDescriptorSet set, uint32_t binding, VkDescriptorType type,
+                                            const RDG::TextureBinding& texture, RDG::SubresourceRange range,
+                                            VkImageLayout layout, VkSampler sampler = VK_NULL_HANDLE );
+        // @p type: UNIFORM_BUFFER or STORAGE_BUFFER; the whole buffer is bound.
+        Common::BoolResultStr WriteBuffer( VkDescriptorSet set, uint32_t binding, VkDescriptorType type,
+                                           const RDG::BufferBinding& buffer );
+        // The frame loop, after the slot's fence: resets that slot's pool.
+        void BeginFrameSlot( uint32_t slot );
+
+    private:
+        struct SlotPools
+        {
+            std::vector<VkDescriptorPool> Pools; // Pools[Current] allocates; a full one is followed by a new one
+            size_t                        Current = 0;
+        };
+
+        Common::ResultStr<VkDescriptorPool> AddPool( SlotPools& slot );
+
+        VkDevice               m_Device = VK_NULL_HANDLE;
+        std::vector<SlotPools> m_Slots; // one per frame slot
+        uint32_t               m_Slot = 0;
+    };
+
     // Memory requirements from the device, for Compile's aliasing plan: the same create info the pool uses,
     // asked of a temporary image / buffer that never gets memory, cached per description and usage.
     class VulkanRdgMemoryRequirements final : public RDG::IMemoryRequirementsProvider
@@ -285,17 +339,26 @@ namespace Desert::Graphic::API::Vulkan
         VulkanRdgBackend( const VulkanRdgBackend& )            = delete;
         VulkanRdgBackend& operator=( const VulkanRdgBackend& ) = delete;
 
-        // The command buffer the next Execute records into (begun by the caller, submitted by the caller).
-        void SetCommandBuffer( VkCommandBuffer commandBuffer )
-        {
-            m_CommandBuffer = commandBuffer;
-        }
-
         // What an exec lambda records with, and what its bindings are. Refused for a context or binding
         // that does not come from this backend.
         static Common::ResultStr<VkCommandBuffer>   CommandBufferOf( const RDG::PassContext& context );
         static Common::ResultStr<VulkanRdgTexture*> TextureOf( const RDG::TextureBinding& binding );
         static Common::ResultStr<VulkanRdgBuffer*>  BufferOf( const RDG::BufferBinding& binding );
+        // The command buffer the open segment (or the graph tail) records into; VK_NULL_HANDLE outside a
+        // graph. For a backend that forwards to this one (its contexts are not this backend's).
+        VkCommandBuffer GetRecordingCommandBuffer() const
+        {
+            return m_CommandBuffer;
+        }
+        // The engine's command recorder (VulkanRendererAPI, the RHI command list every renderer's Record()
+        // goes through) records a pass into the command buffer of the segment the pass runs on, as a pass
+        // context would: it is told the backend's recording command buffer each time that changes (a
+        // segment begins or ends, the graph begins, is abandoned or hands its submissions over).
+        using RecordingListener = std::function<void( VkCommandBuffer )>;
+        void SetRecordingListener( RecordingListener listener )
+        {
+            m_RecordingListener = std::move( listener );
+        }
 
         RDG::BackendKind GetKind() const override
         {
@@ -317,6 +380,30 @@ namespace Desert::Graphic::API::Vulkan
         std::shared_ptr<RDG::IPhysicalTexture> GetPhysicalTexture( uint32_t resource ) const override;
         std::shared_ptr<RDG::IPhysicalBuffer>  GetPhysicalBuffer( uint32_t resource ) const override;
 
+        // ── RDG-CONTRACTS additions ──────────────────────────────────────────────────────────────────────
+        // A(1) / B(3): what the backend records into for the frame in @p slot, set by the frame loop after the
+        // slot's fence wait and before Execute. Replaces SetCommandBuffer: the backend allocates one command
+        // buffer per PipeSegment from @p queues' per-slot pools and begins / ends it itself.
+        Common::BoolResultStr BeginFrame( uint32_t slot, const VulkanRdgQueueSet& queues,
+                                          VulkanRdgTransientAllocator& transients,
+                                          VulkanRdgPassDescriptors&    descriptors );
+        // B(3): the submissions of the last Execute, in submission order; the caller submits and clears them.
+        std::vector<VulkanRdgSubmission> TakeSubmissions();
+        // A(3): the per-frame descriptor sets an exec lambda binds transients with.
+        static Common::ResultStr<VulkanRdgPassDescriptors*> DescriptorsOf( const RDG::PassContext& context );
+
+        // The allocator BeginFrame bound: every Execute follows a BeginFrame, so a call before the first one
+        // is a programming error and aborts.
+        RDG::ITransientAllocator&     GetTransientAllocator() override;
+        RDG::PipeCapabilities         GetPipeCapabilities() const override;
+        RDG::AsyncComputeFallbackLog& GetAsyncComputeFallbackLog() override;
+        Common::BoolResultStr         BeginPipeSegment( const RDG::PipeSegment& segment ) override;
+        Common::BoolResultStr         EndPipeSegment( const RDG::PipeSegment& segment ) override;
+        // Vulkan 1.0 queue family ownership transfer: a VkImage/BufferMemoryBarrier with srcQueueFamilyIndex =
+        // the family of SrcPipe and dstQueueFamilyIndex = that of DstPipe, recorded on the SrcPipe command buffer
+        // (release, dstAccessMask 0) and again on the DstPipe one (acquire, srcAccessMask 0).
+        void RecordEpilogueBarriers( std::span<const RDG::Barrier> barriers ) override;
+
     private:
         struct FramebufferEntry
         {
@@ -334,7 +421,18 @@ namespace Desert::Graphic::API::Vulkan
         const VulkanRdgDevice&      m_Device;
         VulkanRdgPool&              m_Pool;
         VulkanRdgMemoryRequirements m_Memory;
-        VkCommandBuffer             m_CommandBuffer = VK_NULL_HANDLE;
+        VkCommandBuffer              m_CommandBuffer = VK_NULL_HANDLE; // the open segment's (or the graph tail's)
+        RecordingListener            m_RecordingListener;
+        // Every change of m_CommandBuffer goes through here, so the listener never records into a stale one.
+        void                         SetRecording( VkCommandBuffer commandBuffer );
+        VulkanRdgSegmentRecorder     m_Segments;    // B(3): segment command buffers, semaphores, submissions
+        RDG::AsyncComputeFallbackLog m_FallbackLog; // B(4): the engine logger at Warning
+        // Bound by BeginFrame for the frame being recorded (A1: transients and descriptors; B2: queues).
+        uint32_t                     m_FrameSlot   = 0;
+        const VulkanRdgQueueSet*     m_Queues      = nullptr;
+        VulkanRdgTransientAllocator* m_Transients  = nullptr;
+        VulkanRdgPassDescriptors*    m_Descriptors = nullptr;
+        std::string                  m_GraphName; // the graph between BeginGraph and EndGraph / AbandonGraph
 
         std::vector<std::shared_ptr<VulkanRdgTexture>> m_Textures; // by resource index, this graph only
         std::vector<std::shared_ptr<VulkanRdgBuffer>>  m_Buffers;

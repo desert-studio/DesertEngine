@@ -5,6 +5,7 @@
 // synchronization validation to report the hazard - the proof that the silence above means something.
 
 #include <Engine/Graphic/API/Vulkan/DeviceCapsProbe.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRdgTransient.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderPassDependencies.hpp>
 
@@ -80,6 +81,8 @@ namespace
         DeviceCaps      Caps;
         VkQueue         Queue       = VK_NULL_HANDLE;
         uint32_t        QueueFamily = 0;
+        VkQueue         ComputeQueue  = VK_NULL_HANDLE; // a queue of a family other than QueueFamily, if any
+        uint32_t        ComputeFamily = 0;
         VmaAllocator    Allocator   = nullptr;
         VkCommandPool   CommandPool = VK_NULL_HANDLE;
         VulkanRdgDevice Rdg;
@@ -150,6 +153,12 @@ namespace
             }
             out.Queue       = out.Device.get_queue( vkb::QueueType::graphics ).value();
             out.QueueFamily = out.Device.get_queue_index( vkb::QueueType::graphics ).value();
+            // vk-bootstrap creates a queue in every family; its compute index is one without graphics.
+            if ( auto compute = out.Device.get_queue_index( vkb::QueueType::compute ); compute )
+            {
+                out.ComputeFamily = compute.value();
+                out.ComputeQueue  = out.Device.get_queue( vkb::QueueType::compute ).value();
+            }
 
             VmaAllocatorCreateInfo allocator{};
             allocator.physicalDevice   = out.Device.physical_device.physical_device;
@@ -400,10 +409,81 @@ void main()
         return Common::MakeError( what );
     }
 
+    // The command buffer the graph records a pass into (its pipe segment's, since RDG-ASYNC B2), not the
+    // caller's: VK_NULL_HANDLE for a context that is not the Vulkan backend's.
+    VkCommandBuffer PassCommandBuffer( const RDG::PassContext& context )
+    {
+        const Common::ResultStr<VkCommandBuffer> recorded = VulkanRdgBackend::CommandBufferOf( context );
+        return recorded ? recorded.GetValue() : VK_NULL_HANDLE;
+    }
+
+    // What the frame loop hands the Vulkan backend for its frame slots (RDG-ALIAS A1): the transient heaps and
+    // the per-pass descriptor pools, and (B2) the segment command pools + semaphores. Without @p asyncCompute
+    // (or on a device with no other family) the queue set has no compute queue: every pass runs on Graphics.
+    struct FrameObjects
+    {
+        FrameObjects( Gpu& gpu, uint32_t frameSlots, bool asyncCompute = false )
+             : Transients( gpu.Rdg, frameSlots ), Descriptors( gpu.Device.device, frameSlots ),
+               Objects( gpu.Device.device, gpu.QueueFamily,
+                        asyncCompute && gpu.ComputeQueue != VK_NULL_HANDLE
+                             ? std::optional<uint32_t>( gpu.ComputeFamily )
+                             : std::nullopt,
+                        frameSlots )
+        {
+            Queues.GraphicsQueue  = gpu.Queue;
+            Queues.GraphicsFamily = gpu.QueueFamily;
+            Queues.Objects        = &Objects;
+            if ( asyncCompute )
+            {
+                Queues.ComputeQueue  = gpu.ComputeQueue;
+                Queues.ComputeFamily = gpu.ComputeFamily;
+            }
+        }
+
+        VulkanRdgQueueSet           Queues;
+        VulkanRdgTransientAllocator Transients;
+        VulkanRdgPassDescriptors    Descriptors;
+        VulkanRdgQueueObjects       Objects;
+    };
+
+    // The frame loop's submission of what was recorded (RDG-CONTRACTS B(3)): the caller's own command buffer
+    // (work recorded before the graph) first, then the graph's segments in order, @p fence on the last.
+    void SubmitFrame( Gpu& gpu, VulkanRdgBackend& backend, const VkSubmitInfo& before, VkFence fence )
+    {
+        const std::vector<VulkanRdgSubmission> segments = backend.TakeSubmissions();
+        vkQueueSubmit( gpu.Queue, 1, &before, segments.empty() ? fence : VK_NULL_HANDLE );
+        for ( size_t i = 0; i < segments.size(); ++i )
+        {
+            const VulkanRdgSubmission& entry = segments[i];
+            VkSubmitInfo               info{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+            info.waitSemaphoreCount   = static_cast<uint32_t>( entry.WaitSemaphores.size() );
+            info.pWaitSemaphores      = entry.WaitSemaphores.data();
+            info.pWaitDstStageMask    = entry.WaitStages.data();
+            info.commandBufferCount   = 1;
+            info.pCommandBuffers      = &entry.CommandBuffer;
+            info.signalSemaphoreCount = static_cast<uint32_t>( entry.SignalSemaphores.size() );
+            info.pSignalSemaphores    = entry.SignalSemaphores.data();
+            vkQueueSubmit( entry.Queue, 1, &info, i + 1 == segments.size() ? fence : VK_NULL_HANDLE );
+        }
+    }
+
+    // The frame loop's order after the slot's fence (here: the previous submission of the slot was waited):
+    // the pool, the transient heaps and the descriptor pools are re-begun, then the backend is bound to them.
+    Common::BoolResultStr BeginFrameSlot( FrameObjects& frame, VulkanRdgBackend& backend, VulkanRdgPool& pool,
+                                          uint32_t slot )
+    {
+        pool.BeginFrame( slot );
+        frame.Transients.BeginFrameSlot( slot );
+        frame.Descriptors.BeginFrameSlot( slot );
+        if ( Common::BoolResultStr objects = frame.Objects.BeginFrameSlot( slot ); !objects )
+            return objects;
+        return backend.BeginFrame( slot, frame.Queues, frame.Transients, frame.Descriptors );
+    }
+
     // Builds clear -> sample -> compute -> copy, executes it through @p backend on @p commandBuffer,
     // submits, waits and reads the extracted buffer back.
     RunResult RunGraph( Gpu& gpu, Programs& programs, RDG::IBackend& backend, VulkanRdgBackend& vulkan,
-                        VulkanRdgPool& pool )
+                        VulkanRdgPool& pool, FrameObjects& frame )
     {
         RunResult                   run;
         VkCommandBuffer             cmd = VK_NULL_HANDLE;
@@ -415,8 +495,13 @@ void main()
         VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer( cmd, &begin );
-        pool.BeginFrame( 0 );
-        vulkan.SetCommandBuffer( cmd );
+        if ( const Common::BoolResultStr begun = BeginFrameSlot( frame, vulkan, pool, 0 ); !begun )
+        {
+            run.Error = begun.GetError();
+            vkEndCommandBuffer( cmd );
+            vkFreeCommandBuffers( gpu.Device.device, gpu.CommandPool, 1, &cmd );
+            return run;
+        }
 
         RDG::ExternalBuffer   readback;
         RDG::Builder          graph( "clear-sample-compute-copy" );
@@ -443,7 +528,8 @@ void main()
                      return Fail( image.GetError() );
                  run.Images[0]              = image.GetValue()->GetImage();
                  auto recorded              = VulkanRdgBackend::CommandBufferOf( context );
-                 run.CommandBufferOfMatched = recorded && recorded.GetValue() == cmd;
+                 run.CommandBufferOfMatched =
+                      recorded && recorded.GetValue() != VK_NULL_HANDLE && recorded.GetValue() != cmd;
                  return Common::MakeSuccess( true ); // the render pass's load op is the whole pass
              } );
         graph.AddPass(
@@ -455,6 +541,9 @@ void main()
              },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
+                 const VkCommandBuffer passCmd = vulkan.GetRecordingCommandBuffer();
+                 if ( passCmd == VK_NULL_HANDLE )
+                     return Fail( "the pass has no recording command buffer" );
                  auto source = context.GetTexture( cleared, RDG::Access::SampledGraphics );
                  auto target = context.GetTexture( sampled, RDG::Access::ColorTarget );
                  if ( !source || !target )
@@ -476,10 +565,10 @@ void main()
                  write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
                  write.pImageInfo      = &info;
                  vkUpdateDescriptorSets( gpu.Device.device, 1, &write, 0, nullptr );
-                 vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, programs.Draw );
-                 vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, programs.DrawPipeLayout, 0, 1,
+                 vkCmdBindPipeline( passCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, programs.Draw );
+                 vkCmdBindDescriptorSets( passCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, programs.DrawPipeLayout, 0, 1,
                                           &programs.DrawSet, 0, nullptr );
-                 vkCmdDraw( cmd, 3, 1, 0, 0 );
+                 vkCmdDraw( passCmd, 3, 1, 0, 0 );
                  return Common::MakeSuccess( true );
              } );
         graph.AddPass(
@@ -491,6 +580,9 @@ void main()
              },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
+                 const VkCommandBuffer passCmd = vulkan.GetRecordingCommandBuffer();
+                 if ( passCmd == VK_NULL_HANDLE )
+                     return Fail( "the pass has no recording command buffer" );
                  auto source = context.GetTexture( sampled, RDG::Access::SampledCompute );
                  auto target = context.GetTexture( computed, RDG::Access::StorageWrite );
                  if ( !source || !target )
@@ -520,10 +612,10 @@ void main()
                      writes[i].pImageInfo = i == 0 ? &sourceInfo : &targetInfo;
                  }
                  vkUpdateDescriptorSets( gpu.Device.device, 2, writes.data(), 0, nullptr );
-                 vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, programs.Compute );
-                 vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, programs.ComputePipeLayout, 0, 1,
+                 vkCmdBindPipeline( passCmd, VK_PIPELINE_BIND_POINT_COMPUTE, programs.Compute );
+                 vkCmdBindDescriptorSets( passCmd, VK_PIPELINE_BIND_POINT_COMPUTE, programs.ComputePipeLayout, 0, 1,
                                           &programs.ComputeSet, 0, nullptr );
-                 vkCmdDispatch( cmd, kSize / 8, kSize / 8, 1 );
+                 vkCmdDispatch( passCmd, kSize / 8, kSize / 8, 1 );
                  return Common::MakeSuccess( true );
              } );
         graph.AddPass(
@@ -535,6 +627,9 @@ void main()
              },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
+                 const VkCommandBuffer passCmd = vulkan.GetRecordingCommandBuffer();
+                 if ( passCmd == VK_NULL_HANDLE )
+                     return Fail( "the pass has no recording command buffer" );
                  auto source = context.GetTexture( computed, RDG::Access::CopySrc );
                  auto target = context.GetBuffer( bytes, RDG::Access::CopyDst );
                  if ( !source || !target )
@@ -546,7 +641,7 @@ void main()
                  VkBufferImageCopy region{};
                  region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
                  region.imageExtent      = { kSize, kSize, 1 };
-                 vkCmdCopyImageToBuffer( cmd, image.GetValue()->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                 vkCmdCopyImageToBuffer( passCmd, image.GetValue()->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                                          buffer.GetValue()->GetBuffer(), 1, &region );
                  return Common::MakeSuccess( true );
              } );
@@ -563,7 +658,7 @@ void main()
         VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
         submit.commandBufferCount = 1;
         submit.pCommandBuffers    = &cmd;
-        vkQueueSubmit( gpu.Queue, 1, &submit, VK_NULL_HANDLE );
+        SubmitFrame( gpu, vulkan, submit, VK_NULL_HANDLE );
         vkQueueWaitIdle( gpu.Queue );
         vkFreeCommandBuffers( gpu.Device.device, gpu.CommandPool, 1, &cmd );
 
@@ -626,8 +721,35 @@ void main()
         {
             return m_Inner.GetMemoryRequirements();
         }
+        // The RDG-CONTRACTS additions go to the Vulkan backend unchanged.
+        RDG::ITransientAllocator& GetTransientAllocator() override
+        {
+            return m_Inner.GetTransientAllocator();
+        }
+        RDG::PipeCapabilities GetPipeCapabilities() const override
+        {
+            return m_Inner.GetPipeCapabilities();
+        }
+        RDG::AsyncComputeFallbackLog& GetAsyncComputeFallbackLog() override
+        {
+            return m_Inner.GetAsyncComputeFallbackLog();
+        }
+        Common::BoolResultStr BeginPipeSegment( const RDG::PipeSegment& segment ) override
+        {
+            return m_Inner.BeginPipeSegment( segment );
+        }
+        Common::BoolResultStr EndPipeSegment( const RDG::PipeSegment& segment ) override
+        {
+            return m_Inner.EndPipeSegment( segment );
+        }
+        void RecordEpilogueBarriers( std::span<const RDG::Barrier> barriers ) override
+        {
+            m_Inner.RecordEpilogueBarriers( barriers );
+        }
         Common::BoolResultStr BeginGraph( const RDG::GraphView& graph ) override
         {
+            if ( graph.Result != nullptr )
+                Plan = graph.Result->Aliasing;
             return m_Inner.BeginGraph( graph );
         }
         void BeginPass( const RDG::CompiledPass& pass ) override
@@ -637,6 +759,8 @@ void main()
         }
         void RecordBarriers( std::span<const RDG::Barrier> barriers ) override
         {
+            for ( const RDG::Barrier& barrier : barriers )
+                Recorded.push_back( { m_Current, barrier } );
             if ( m_Current != m_Pass )
                 return m_Inner.RecordBarriers( barriers );
             std::vector<RDG::Barrier> weakened( barriers.begin(), barriers.end() );
@@ -679,6 +803,9 @@ void main()
 
         // Every BeginRenderPass the graph asked for: one vkCmdBeginRenderPass each in the Vulkan backend.
         int RenderPassesBegun = 0;
+        // The aliasing plan of the last BeginGraph, and every barrier recorded (pass name, barrier as given).
+        RDG::AliasingPlan                                 Plan;
+        std::vector<std::pair<std::string, RDG::Barrier>> Recorded;
 
     private:
         VulkanRdgBackend& m_Inner;
@@ -700,7 +827,7 @@ void main()
 } // namespace
 
 // The acceptance graph: byte-exact readback, validation (synchronization validation included) silent,
-// and on a second run of the unchanged graph the pool hands back the very same images.
+// and on a second run of the unchanged graph the transient allocator hands back the very same images.
 TEST( RenderGraphVulkan, ClearSampleComputeCopyIsByteExactAndValidationClean )
 {
     Gpu& gpu = GetGpu();
@@ -709,18 +836,22 @@ TEST( RenderGraphVulkan, ClearSampleComputeCopyIsByteExactAndValidationClean )
         Programs programs( gpu );
         ASSERT_TRUE( programs.Error.empty() ) << programs.Error;
         VulkanRdgPool    pool( gpu.Rdg, 1 );
+        FrameObjects     frameObjects( gpu, 1 );
         VulkanRdgBackend backend( gpu.Rdg, pool );
 
-        const RunResult first = RunGraph( gpu, programs, backend, backend, pool );
+        const RunResult first = RunGraph( gpu, programs, backend, backend, pool, frameObjects );
         ASSERT_TRUE( first.Error.empty() ) << first.Error;
         EXPECT_TRUE( first.CommandBufferOfMatched );
         EXPECT_EQ( FirstMismatch( first.Bytes, Expected() ), "" );
 
-        const RunResult second = RunGraph( gpu, programs, backend, backend, pool );
+        const RunResult second = RunGraph( gpu, programs, backend, backend, pool, frameObjects );
         ASSERT_TRUE( second.Error.empty() ) << second.Error;
         EXPECT_EQ( FirstMismatch( second.Bytes, Expected() ), "" );
-        EXPECT_EQ( second.Images, first.Images ) << "an unchanged graph must get the same images from the pool";
-        EXPECT_EQ( pool.GetTextureCount(), 3u );
+        EXPECT_EQ( second.Images, first.Images )
+             << "an unchanged plan must get the same placed images from the transient allocator";
+        // The three textures are placed in the graph's heap; only the extracted readback comes from the pool.
+        EXPECT_EQ( pool.GetTextureCount(), 0u );
+        EXPECT_EQ( frameObjects.Transients.GetStats().PlacedResources, 3u );
         vkDeviceWaitIdle( gpu.Device.device );
     }
     const std::vector<Message> messages = TakeMessages();
@@ -738,9 +869,10 @@ TEST( RenderGraphVulkan, SynchronizationValidationReportsAWeakenedBarrier )
         Programs programs( gpu );
         ASSERT_TRUE( programs.Error.empty() ) << programs.Error;
         VulkanRdgPool    pool( gpu.Rdg, 1 );
+        FrameObjects     frameObjects( gpu, 1 );
         VulkanRdgBackend backend( gpu.Rdg, pool );
         WeakenedBarriers weakened( backend, "Invert" );
-        const RunResult  run = RunGraph( gpu, programs, weakened, backend, pool );
+        const RunResult  run = RunGraph( gpu, programs, weakened, backend, pool, frameObjects );
         ASSERT_TRUE( run.Error.empty() ) << run.Error;
         vkDeviceWaitIdle( gpu.Device.device );
     }
@@ -796,6 +928,7 @@ TEST( RenderGraphVulkan, AnImportedFramebufferSharesOneRenderPassAndWritesItsLay
     VkImageLayout recorded = VK_IMAGE_LAYOUT_UNDEFINED; // the image's own layout record, as VulkanImage2D keeps it
     {
         VulkanRdgPool    pool( gpu.Rdg, 1 );
+        FrameObjects     frameObjects( gpu, 1 );
         VulkanRdgBackend backend( gpu.Rdg, pool );
         WeakenedBarriers counting( backend, "" ); // weakens no pass: it only counts the render passes
         const std::shared_ptr<VulkanRdgTexture> wrapped =
@@ -828,8 +961,7 @@ TEST( RenderGraphVulkan, AnImportedFramebufferSharesOneRenderPassAndWritesItsLay
             VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
             begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
             vkBeginCommandBuffer( cmd, &begin );
-            pool.BeginFrame( 0 );
-            backend.SetCommandBuffer( cmd );
+            ASSERT_TRUE( BeginFrameSlot( frameObjects, backend, pool, 0 ) );
 
             RDG::ExternalBuffer                        readback;
             RDG::Builder                               graph( "imported-framebuffer" );
@@ -854,6 +986,11 @@ TEST( RenderGraphVulkan, AnImportedFramebufferSharesOneRenderPassAndWritesItsLay
                  },
                  [&]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
+                     // The graph runs through the counting decorator, so the context's backend is not the
+                     // Vulkan one: the segment's command buffer comes from the Vulkan backend it wraps.
+                     const VkCommandBuffer passCmd = backend.GetRecordingCommandBuffer();
+                     if ( passCmd == VK_NULL_HANDLE )
+                         return Fail( "the pass has no recording command buffer" );
                      auto source = context.GetTexture( fb.Colors[0], RDG::Access::CopySrc );
                      auto dest   = context.GetBuffer( bytes, RDG::Access::CopyDst );
                      if ( !source || !dest )
@@ -865,7 +1002,7 @@ TEST( RenderGraphVulkan, AnImportedFramebufferSharesOneRenderPassAndWritesItsLay
                      VkBufferImageCopy region{};
                      region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
                      region.imageExtent      = { kSize, kSize, 1 };
-                     vkCmdCopyImageToBuffer( cmd, sourceImage.GetValue()->GetImage(),
+                     vkCmdCopyImageToBuffer( passCmd, sourceImage.GetValue()->GetImage(),
                                              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer.GetValue()->GetBuffer(),
                                              1, &region );
                      return Common::MakeSuccess( true );
@@ -879,7 +1016,7 @@ TEST( RenderGraphVulkan, AnImportedFramebufferSharesOneRenderPassAndWritesItsLay
             VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
             submit.commandBufferCount = 1;
             submit.pCommandBuffers    = &cmd;
-            vkQueueSubmit( gpu.Queue, 1, &submit, VK_NULL_HANDLE );
+            SubmitFrame( gpu, backend, submit, VK_NULL_HANDLE );
             vkQueueWaitIdle( gpu.Queue );
             vkFreeCommandBuffers( gpu.Device.device, gpu.CommandPool, 1, &cmd );
 
@@ -1014,6 +1151,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
     std::vector<uint8_t> pixels;
     {
         VulkanRdgPool        pool( gpu.Rdg, 1 );
+        FrameObjects         frameObjects( gpu, 1 );
         VulkanRdgBackend     backend( gpu.Rdg, pool );
         RDG::ExternalTexture target;
         target.Desc = Target();
@@ -1032,8 +1170,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
         VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer( cmd, &begin );
-        pool.BeginFrame( 0 );
-        backend.SetCommandBuffer( cmd );
+        ASSERT_TRUE( BeginFrameSlot( frameObjects, backend, pool, 0 ) );
 
         RDG::ExternalBuffer                        readback;
         RDG::Builder                               graph( "engine-pipeline" );
@@ -1043,10 +1180,13 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
         graph.AddPass(
              "Draw", RDG::PassFlags::Raster, [&]( RDG::PassBuilder& pass )
              { pass.ColorTarget( 0, fb.Colors[0], RDG::LoadOp::ClearColor( 0.0f, 1.0f, 0.0f, 1.0f ) ); },
-             [&]( RDG::PassContext& ) -> Common::BoolResultStr
+             [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
-                 vkCmdDraw( cmd, 3, 1, 0, 0 );
+                 const VkCommandBuffer passCmd = PassCommandBuffer( context );
+                 if ( passCmd == VK_NULL_HANDLE )
+                     return Fail( "the pass has no recording command buffer" );
+                 vkCmdBindPipeline( passCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
+                 vkCmdDraw( passCmd, 3, 1, 0, 0 );
                  return Common::MakeSuccess( true );
              } );
         graph.AddPass(
@@ -1058,6 +1198,9 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
              },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
+                 const VkCommandBuffer passCmd = PassCommandBuffer( context );
+                 if ( passCmd == VK_NULL_HANDLE )
+                     return Fail( "the pass has no recording command buffer" );
                  auto source = context.GetTexture( fb.Colors[0], RDG::Access::CopySrc );
                  auto dest   = context.GetBuffer( bytes, RDG::Access::CopyDst );
                  if ( !source || !dest )
@@ -1069,7 +1212,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
                  VkBufferImageCopy region{};
                  region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
                  region.imageExtent      = { kSize, kSize, 1 };
-                 vkCmdCopyImageToBuffer( cmd, sourceImage.GetValue()->GetImage(),
+                 vkCmdCopyImageToBuffer( passCmd, sourceImage.GetValue()->GetImage(),
                                          VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer.GetValue()->GetBuffer(), 1,
                                          &region );
                  return Common::MakeSuccess( true );
@@ -1081,7 +1224,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
         VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
         submit.commandBufferCount = 1;
         submit.pCommandBuffers    = &cmd;
-        vkQueueSubmit( gpu.Queue, 1, &submit, VK_NULL_HANDLE );
+        SubmitFrame( gpu, backend, submit, VK_NULL_HANDLE );
         vkQueueWaitIdle( gpu.Queue );
         vkFreeCommandBuffers( device, gpu.CommandPool, 1, &cmd );
         ASSERT_TRUE( readback.Physical && readback.Physical->GetBackendKind() == RDG::BackendKind::Vulkan );
@@ -1224,6 +1367,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
     std::vector<uint8_t> pixels;
     {
         VulkanRdgPool    pool( gpu.Rdg, 1 );
+        FrameObjects     frameObjects( gpu, 1 );
         VulkanRdgBackend backend( gpu.Rdg, pool );
         RDG::TextureDesc msaaDesc = Target();
         msaaDesc.Samples          = 4;
@@ -1250,8 +1394,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
         VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer( cmd, &begin );
-        pool.BeginFrame( 0 );
-        backend.SetCommandBuffer( cmd );
+        ASSERT_TRUE( BeginFrameSlot( frameObjects, backend, pool, 0 ) );
 
         RDG::ExternalBuffer                        readback;
         RDG::Builder                               graph( "engine-msaa-pipeline" );
@@ -1267,10 +1410,13 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
                  pass.ColorTarget( 0, fb.Colors[0], RDG::LoadOp::ClearColor( 0.0f, 1.0f, 0.0f, 1.0f ) );
                  pass.ResolveTarget( 0, fb.Resolves[0] );
              },
-             [&]( RDG::PassContext& ) -> Common::BoolResultStr
+             [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
-                 vkCmdDraw( cmd, 3, 1, 0, 0 );
+                 const VkCommandBuffer passCmd = PassCommandBuffer( context );
+                 if ( passCmd == VK_NULL_HANDLE )
+                     return Fail( "the pass has no recording command buffer" );
+                 vkCmdBindPipeline( passCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
+                 vkCmdDraw( passCmd, 3, 1, 0, 0 );
                  return Common::MakeSuccess( true );
              } );
         graph.AddPass(
@@ -1282,6 +1428,9 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
              },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
+                 const VkCommandBuffer passCmd = PassCommandBuffer( context );
+                 if ( passCmd == VK_NULL_HANDLE )
+                     return Fail( "the pass has no recording command buffer" );
                  auto source = context.GetTexture( fb.Resolves[0], RDG::Access::CopySrc );
                  auto dest   = context.GetBuffer( bytes, RDG::Access::CopyDst );
                  if ( !source || !dest )
@@ -1293,7 +1442,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
                  VkBufferImageCopy region{};
                  region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
                  region.imageExtent      = { kSize, kSize, 1 };
-                 vkCmdCopyImageToBuffer( cmd, sourceImage.GetValue()->GetImage(),
+                 vkCmdCopyImageToBuffer( passCmd, sourceImage.GetValue()->GetImage(),
                                          VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer.GetValue()->GetBuffer(), 1,
                                          &region );
                  return Common::MakeSuccess( true );
@@ -1305,7 +1454,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
         VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
         submit.commandBufferCount = 1;
         submit.pCommandBuffers    = &cmd;
-        vkQueueSubmit( gpu.Queue, 1, &submit, VK_NULL_HANDLE );
+        SubmitFrame( gpu, backend, submit, VK_NULL_HANDLE );
         vkQueueWaitIdle( gpu.Queue );
         vkFreeCommandBuffers( device, gpu.CommandPool, 1, &cmd );
         ASSERT_TRUE( readback.Physical && readback.Physical->GetBackendKind() == RDG::BackendKind::Vulkan );
@@ -1477,6 +1626,7 @@ void main()
     RDG::AccessState              bufferState = RDG::GetAccessState( RDG::Access::None );
     {
         VulkanRdgPool    pool( gpu.Rdg, 1 );
+        FrameObjects     frameObjects( gpu, 1 );
         VulkanRdgBackend backend( gpu.Rdg, pool );
         for ( int frame = 0; frame < 2; ++frame )
         {
@@ -1550,15 +1700,14 @@ void main()
             VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
             begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
             vkBeginCommandBuffer( cmd, &begin );
-            pool.BeginFrame( 0 );
-            backend.SetCommandBuffer( cmd );
+            ASSERT_TRUE( BeginFrameSlot( frameObjects, backend, pool, 0 ) );
             const Common::BoolResultStr executed = graph.Execute( backend );
             vkEndCommandBuffer( cmd );
             ASSERT_TRUE( executed ) << executed.GetError();
             VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
             submit.commandBufferCount = 1;
             submit.pCommandBuffers    = &cmd;
-            vkQueueSubmit( gpu.Queue, 1, &submit, VK_NULL_HANDLE );
+            SubmitFrame( gpu, backend, submit, VK_NULL_HANDLE );
             vkQueueWaitIdle( gpu.Queue );
             vkFreeCommandBuffers( device, gpu.CommandPool, 1, &cmd );
 
@@ -1604,6 +1753,7 @@ TEST( RenderGraphVulkan, AResizedImportedImageKeepsItsViewsUntilTheFramesUsingTh
     ASSERT_TRUE( gpu.Error.empty() ) << gpu.Error;
     const VkDevice device = gpu.Device.device;
     VulkanRdgPool  pool( gpu.Rdg, 2 );
+    FrameObjects   frameObjects( gpu, 2 );
 
     const auto makeImage = [&]( uint32_t edge, VkImage& image, VmaAllocation& memory )
     {
@@ -1643,9 +1793,9 @@ TEST( RenderGraphVulkan, AResizedImportedImageKeepsItsViewsUntilTheFramesUsingTh
         VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer( cmd, &begin );
-        pool.BeginFrame( slot );
         VulkanRdgBackend backend( gpu.Rdg, pool );
-        backend.SetCommandBuffer( cmd );
+        const Common::BoolResultStr begun = BeginFrameSlot( frameObjects, backend, pool, slot );
+        EXPECT_TRUE( begun ) << begun.GetError();
         RDG::ExternalTexture external( texture->GetDesc(), RDG::Access::None );
         external.Physical = texture;
         RDG::Builder          graph( "resize" );
@@ -1675,7 +1825,7 @@ TEST( RenderGraphVulkan, AResizedImportedImageKeepsItsViewsUntilTheFramesUsingTh
         VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
         submit.commandBufferCount = 1;
         submit.pCommandBuffers    = &cmd;
-        vkQueueSubmit( gpu.Queue, 1, &submit, fence );
+        SubmitFrame( gpu, backend, submit, fence );
     };
 
     VkImage       oldImage  = VK_NULL_HANDLE;
@@ -1786,4 +1936,609 @@ TEST( RenderGraphVulkan, ASampledInputViewAddressesExactlyTheMipAndLayerTheNodeD
              << "a mip the image has no view of is refused";
     }
     vmaDestroyImage( gpu.Allocator, image, memory );
+}
+
+namespace
+{
+    // One frame of the aliasing graph: First is cleared and copied out, then Second (the same description, a later
+    // lifetime) is cleared and copied out - so the plan may give Second First's bytes. Recorded on @p slot and
+    // submitted with a fence; FinishAliasFrame waits for it.
+    struct AliasFrame
+    {
+        std::string            Error;
+        VkCommandBuffer        CommandBuffer = VK_NULL_HANDLE;
+        VkFence                Fence         = VK_NULL_HANDLE;
+        RDG::ExternalBuffer    FirstBytes;
+        RDG::ExternalBuffer    SecondBytes;
+        std::array<VkImage, 2> Images{}; // First, Second as their clear passes saw them
+        uint32_t               Size = 0;
+    };
+
+    constexpr std::array<uint8_t, 4> kFirstTexel  = { 255, 0, 0, 255 };
+    constexpr std::array<uint8_t, 4> kSecondTexel = { 0, 0, 255, 255 };
+
+    void RecordAliasFrame( Gpu& gpu, VulkanRdgBackend& vulkan, WeakenedBarriers& witness, VulkanRdgPool& pool,
+                           FrameObjects& frame, uint32_t slot, uint32_t size, AliasFrame& out )
+    {
+        out.Size = size;
+        VkCommandBufferAllocateInfo allocate{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+        allocate.commandPool        = gpu.CommandPool;
+        allocate.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocate.commandBufferCount = 1;
+        vkAllocateCommandBuffers( gpu.Device.device, &allocate, &out.CommandBuffer );
+        const VkFenceCreateInfo fenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+        vkCreateFence( gpu.Device.device, &fenceInfo, nullptr, &out.Fence );
+        VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer( out.CommandBuffer, &begin );
+        if ( const Common::BoolResultStr begun = BeginFrameSlot( frame, vulkan, pool, slot ); !begun )
+        {
+            out.Error = begun.GetError();
+            vkEndCommandBuffer( out.CommandBuffer );
+            return;
+        }
+
+        RDG::TextureDesc desc;
+        desc.Size   = { size, size, 1 };
+        desc.Format = ImageFormat::RGBA8F;
+        const RDG::BufferDesc                bytes{ uint64_t( size ) * size * 4 };
+        RDG::Builder                         graph( "alias-first-second" );
+        const std::array<RDG::TextureRef, 2> textures  = { graph.CreateTexture( desc, "First" ),
+                                                           graph.CreateTexture( desc, "Second" ) };
+        const std::array<RDG::BufferRef, 2>  readbacks = { graph.CreateBuffer( bytes, "FirstBytes" ),
+                                                           graph.CreateBuffer( bytes, "SecondBytes" ) };
+        const VkCommandBuffer                cmd       = out.CommandBuffer;
+        for ( uint32_t i = 0; i < 2; ++i )
+        {
+            graph.AddPass(
+                 i == 0 ? "ClearFirst" : "ClearSecond", RDG::PassFlags::Raster,
+                 [&textures, i]( RDG::PassBuilder& pass )
+                 {
+                     const std::array<uint8_t, 4>& texel = i == 0 ? kFirstTexel : kSecondTexel;
+                     pass.ColorTarget( 0, textures[i],
+                                       RDG::LoadOp::ClearColor( texel[0] / 255.0f, texel[1] / 255.0f,
+                                                                texel[2] / 255.0f, texel[3] / 255.0f ) );
+                 },
+                 [&textures, &out, i]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     auto texture = context.GetTexture( textures[i], RDG::Access::ColorTarget );
+                     if ( !texture )
+                         return Fail( texture.GetError() );
+                     auto image = VulkanRdgBackend::TextureOf( texture.GetValue() );
+                     if ( !image )
+                         return Fail( image.GetError() );
+                     out.Images[i] = image.GetValue()->GetImage();
+                     return Common::MakeSuccess( true ); // the render pass's load op is the whole pass
+                 } );
+            graph.AddPass(
+                 i == 0 ? "CopyFirst" : "CopySecond", RDG::PassFlags::Copy,
+                 [&textures, &readbacks, i]( RDG::PassBuilder& pass )
+                 {
+                     pass.Read( textures[i], RDG::Access::CopySrc );
+                     pass.Write( readbacks[i], RDG::Access::CopyDst );
+                 },
+                 [&textures, &readbacks, &vulkan, size, i]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     // The graph runs through the witness decorator, so the context's backend is not the
+                     // Vulkan one: the segment's command buffer comes from the Vulkan backend it wraps.
+                     const VkCommandBuffer passCmd = vulkan.GetRecordingCommandBuffer();
+                     if ( passCmd == VK_NULL_HANDLE )
+                         return Fail( "the pass has no recording command buffer" );
+                     auto source = context.GetTexture( textures[i], RDG::Access::CopySrc );
+                     auto target = context.GetBuffer( readbacks[i], RDG::Access::CopyDst );
+                     if ( !source || !target )
+                         return Fail( !source ? source.GetError() : target.GetError() );
+                     auto image  = VulkanRdgBackend::TextureOf( source.GetValue() );
+                     auto buffer = VulkanRdgBackend::BufferOf( target.GetValue() );
+                     if ( !image || !buffer )
+                         return Fail( "no Vulkan resource" );
+                     VkBufferImageCopy region{};
+                     region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+                     region.imageExtent      = { size, size, 1 };
+                     vkCmdCopyImageToBuffer( passCmd, image.GetValue()->GetImage(),
+                                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer.GetValue()->GetBuffer(),
+                                             1, &region );
+                     return Common::MakeSuccess( true );
+                 } );
+        }
+        graph.Extract( readbacks[0], out.FirstBytes, RDG::Access::HostRead );
+        graph.Extract( readbacks[1], out.SecondBytes, RDG::Access::HostRead );
+
+        const Common::BoolResultStr executed = graph.Execute( witness );
+        vkEndCommandBuffer( cmd );
+        if ( !executed )
+        {
+            out.Error = executed.GetError();
+            return;
+        }
+        VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers    = &cmd;
+        SubmitFrame( gpu, vulkan, submit, out.Fence );
+    }
+
+    // Waits for the frame's fence, releases its command buffer and fence, and checks both readbacks texel by
+    // texel. Empty when both hold their own clear colour.
+    std::string FinishAliasFrame( Gpu& gpu, AliasFrame& frame )
+    {
+        vkWaitForFences( gpu.Device.device, 1, &frame.Fence, VK_TRUE, UINT64_MAX );
+        vkDestroyFence( gpu.Device.device, frame.Fence, nullptr );
+        vkFreeCommandBuffers( gpu.Device.device, gpu.CommandPool, 1, &frame.CommandBuffer );
+        for ( uint32_t i = 0; i < 2; ++i )
+        {
+            const RDG::ExternalBuffer&    readback = i == 0 ? frame.FirstBytes : frame.SecondBytes;
+            const std::array<uint8_t, 4>& texel    = i == 0 ? kFirstTexel : kSecondTexel;
+            if ( !readback.Physical || readback.Physical->GetBackendKind() != RDG::BackendKind::Vulkan )
+                return std::format( "readback {} carries no Vulkan buffer", i );
+            const auto& buffer = static_cast<const VulkanRdgBuffer&>( *readback.Physical );
+            buffer.InvalidateForHost();
+            const auto* mapped = static_cast<const uint8_t*>( buffer.GetMapped() );
+            if ( mapped == nullptr )
+                return std::format( "readback {} is not host-visible", i );
+            for ( uint64_t b = 0; b < uint64_t( frame.Size ) * frame.Size * 4; ++b )
+            {
+                if ( mapped[b] != texel[b % 4] )
+                    return std::format( "{} byte {}: {} instead of {}", i == 0 ? "First" : "Second", b,
+                                        int( mapped[b] ), int( texel[b % 4] ) );
+            }
+        }
+        return {};
+    }
+} // namespace
+
+// RDG-ALIAS A1: two transients with disjoint lifetimes are PLACED over the same heap bytes - two VkImages bound
+// to one VkDeviceMemory at one offset - and the second is ordered after the first only by its AliasAcquire
+// barrier. Each is cleared to its own colour and copied out: both readbacks are exact and validation
+// (synchronization validation included) is silent. The slot's heap is exactly the plan's peak; a heap the next
+// plan outgrows is retired, still reserved while other frames are in flight, and freed only when its slot is
+// re-begun after that slot's fence.
+TEST( RenderGraphVulkan, TwoTransientsWithDisjointLifetimesArePlacedOverTheSameBytesValidationClean )
+{
+    Gpu& gpu = GetGpu();
+    ASSERT_TRUE( gpu.Error.empty() ) << gpu.Error;
+    {
+        VulkanRdgPool    pool( gpu.Rdg, 2 );
+        FrameObjects     frame( gpu, 2 );
+        VulkanRdgBackend backend( gpu.Rdg, pool );
+        WeakenedBarriers witness( backend, "" ); // weakens no pass: it records the plan and the barriers
+
+        AliasFrame a;
+        RecordAliasFrame( gpu, backend, witness, pool, frame, 0, kSize, a );
+        ASSERT_TRUE( a.Error.empty() ) << a.Error;
+        EXPECT_EQ( FinishAliasFrame( gpu, a ), "" );
+
+        const RDG::AliasingPlan plan = witness.Plan;
+        ASSERT_EQ( plan.Allocations.size(), 2u );
+        const auto second =
+             std::find_if( plan.Allocations.begin(), plan.Allocations.end(),
+                           []( const RDG::Allocation& entry ) { return !entry.AliasPredecessors.empty(); } );
+        ASSERT_NE( second, plan.Allocations.end() ) << "the plan did not alias Second over First";
+        const RDG::Allocation& first =
+             second == plan.Allocations.begin() ? plan.Allocations[1] : plan.Allocations[0];
+        EXPECT_EQ( second->AliasPredecessors, std::vector<uint32_t>{ first.Resource } );
+        EXPECT_EQ( second->Heap, first.Heap );
+        EXPECT_EQ( second->Offset, first.Offset );
+        EXPECT_NE( a.Images[0], a.Images[1] ) << "two transients sharing bytes must be two images";
+        EXPECT_TRUE( std::any_of( witness.Recorded.begin(), witness.Recorded.end(),
+                                  [&]( const std::pair<std::string, RDG::Barrier>& recorded )
+                                  {
+                                      return recorded.second.BarrierType == RDG::BarrierKind::AliasAcquire &&
+                                             recorded.second.Resource == second->Resource;
+                                  } ) )
+             << "Second's first use must be an AliasAcquire";
+
+        uint64_t heapBytes = 0;
+        for ( const RDG::TransientHeapDesc& heap : plan.Heaps )
+            heapBytes += heap.Bytes;
+        EXPECT_EQ( heapBytes, plan.TotalPeakBytes );
+        const RDG::TransientAllocatorStats placed = frame.Transients.GetStats();
+        EXPECT_EQ( placed.HeapCount, 1u );
+        EXPECT_EQ( placed.ReservedBytes, plan.TotalPeakBytes );
+        EXPECT_EQ( placed.PlacedResources, 2u );
+
+        // Frame B (slot 1) stays in flight while frame C re-begins slot 0 with textures four times larger: slot
+        // 0's heap grows, so its old heap is retired and still reserved; slot 1's heap is not touched.
+        AliasFrame b;
+        RecordAliasFrame( gpu, backend, witness, pool, frame, 1, kSize, b );
+        ASSERT_TRUE( b.Error.empty() ) << b.Error;
+        AliasFrame c;
+        RecordAliasFrame( gpu, backend, witness, pool, frame, 0, kSize * 2, c );
+        ASSERT_TRUE( c.Error.empty() ) << c.Error;
+        const uint64_t grown = witness.Plan.TotalPeakBytes;
+        EXPECT_GT( grown, plan.TotalPeakBytes );
+        const RDG::TransientAllocatorStats inFlight = frame.Transients.GetStats();
+        EXPECT_EQ( inFlight.HeapCount, 3u ) << "slot 0's new heap, slot 0's retired heap, slot 1's heap";
+        EXPECT_EQ( inFlight.ReservedBytes, grown + 2 * plan.TotalPeakBytes );
+        EXPECT_EQ( FinishAliasFrame( gpu, b ), "" );
+        EXPECT_EQ( FinishAliasFrame( gpu, c ), "" );
+
+        // Slot 0 re-begun after its fence: the retired heap is freed only now.
+        ASSERT_TRUE( BeginFrameSlot( frame, backend, pool, 0 ) );
+        const RDG::TransientAllocatorStats retired = frame.Transients.GetStats();
+        EXPECT_EQ( retired.HeapCount, 2u );
+        EXPECT_EQ( retired.ReservedBytes, grown + plan.TotalPeakBytes );
+        vkDeviceWaitIdle( gpu.Device.device );
+    }
+    const std::vector<Message> messages = TakeMessages();
+    EXPECT_TRUE( messages.empty() ) << messages.size() << " validation message(s):" << Join( messages );
+}
+
+namespace
+{
+    // One async graph: "Produce" (Compute | AsyncCompute) writes a transient through a storage-buffer dispatch - a
+    // constant fill, or with @p source a shader copy of that external at position 0 (amendment B: the graphics
+    // prologue releases it) - and "Consume" (Compute, graphics pipe) copies it by dispatch into a host-read buffer.
+    // Both passes are dispatches: an AsyncCompute pass is a Compute pass, and a Compute pass may not declare
+    // CopySrc/CopyDst (RdgPassKindAllows). The readback is a storage buffer so the second graph can read it.
+    struct AsyncCopyRun
+    {
+        std::string          Error;
+        std::vector<uint8_t> Bytes;
+        RDG::ExternalBuffer  Readback;
+        VkCommandBuffer      ProduceBuffer = VK_NULL_HANDLE; // what each pass recorded into
+        VkCommandBuffer      ConsumeBuffer = VK_NULL_HANDLE;
+    };
+
+    // Stands in for VulkanRendererAPI: its recording target is written ONLY by the backend's RecordingListener,
+    // exactly as VulkanRendererAPI::SetGraphRecordingTarget is, and a pass that records "through the renderer"
+    // records into whatever that target is at the time.
+    struct RecordingTarget
+    {
+        VkCommandBuffer Current = VK_NULL_HANDLE;
+        int             Changes = 0;
+    };
+
+    constexpr uint32_t kAsyncBytes      = 4096;
+    constexpr uint32_t kAsyncGroupSize  = 64;
+    constexpr uint32_t kAsyncGroupCount = kAsyncBytes / 4 / kAsyncGroupSize;
+
+    constexpr const char* kAsyncFill = R"(#version 450
+layout( local_size_x = 64 ) in;
+layout( set = 0, binding = 1 ) writeonly buffer Target { uint Words[]; };
+void main() { Words[gl_GlobalInvocationID.x] = 0xA5C3E1F7u; })";
+
+    constexpr const char* kAsyncCopy = R"(#version 450
+layout( local_size_x = 64 ) in;
+layout( set = 0, binding = 0 ) readonly buffer Source { uint From[]; };
+layout( set = 0, binding = 1 ) writeonly buffer Target { uint Words[]; };
+void main() { Words[gl_GlobalInvocationID.x] = From[gl_GlobalInvocationID.x]; })";
+
+    // The two dispatches' pipelines: "fill" writes binding 1, "copy" copies binding 0 into binding 1. Each pass
+    // allocates its own set from the pool and points it at the buffers the graph hands it at execution.
+    struct AsyncDispatch
+    {
+        explicit AsyncDispatch( VkDevice device ) : Device( device )
+        {
+            const auto fill = CompileGlsl( kAsyncFill, shaderc_compute_shader, "async_fill.comp" );
+            const auto copy = CompileGlsl( kAsyncCopy, shaderc_compute_shader, "async_copy.comp" );
+            if ( !fill || !copy )
+            {
+                Error = !fill ? fill.GetError() : copy.GetError();
+                return;
+            }
+            const std::array<VkDescriptorSetLayoutBinding, 2> bindings = {
+                 VkDescriptorSetLayoutBinding{ 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT,
+                                               nullptr },
+                 VkDescriptorSetLayoutBinding{ 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT,
+                                               nullptr } };
+            VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            layoutInfo.bindingCount = static_cast<uint32_t>( bindings.size() );
+            layoutInfo.pBindings    = bindings.data();
+            vkCreateDescriptorSetLayout( Device, &layoutInfo, nullptr, &SetLayout );
+            VkPipelineLayoutCreateInfo pipeLayoutInfo{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+            pipeLayoutInfo.setLayoutCount = 1;
+            pipeLayoutInfo.pSetLayouts    = &SetLayout;
+            vkCreatePipelineLayout( Device, &pipeLayoutInfo, nullptr, &PipeLayout );
+            Fill = MakePipeline( fill.GetValue() );
+            Copy = MakePipeline( copy.GetValue() );
+            const VkDescriptorPoolSize size{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4 };
+            VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+            poolInfo.maxSets       = 2;
+            poolInfo.poolSizeCount = 1;
+            poolInfo.pPoolSizes    = &size;
+            vkCreateDescriptorPool( Device, &poolInfo, nullptr, &Pool );
+            if ( SetLayout == VK_NULL_HANDLE || PipeLayout == VK_NULL_HANDLE || Fill == VK_NULL_HANDLE ||
+                 Copy == VK_NULL_HANDLE || Pool == VK_NULL_HANDLE )
+                Error = "the async dispatch pipelines or descriptor pool could not be created";
+        }
+
+        ~AsyncDispatch()
+        {
+            vkDeviceWaitIdle( Device );
+            vkDestroyDescriptorPool( Device, Pool, nullptr );
+            vkDestroyPipeline( Device, Fill, nullptr );
+            vkDestroyPipeline( Device, Copy, nullptr );
+            vkDestroyPipelineLayout( Device, PipeLayout, nullptr );
+            vkDestroyDescriptorSetLayout( Device, SetLayout, nullptr );
+        }
+
+        AsyncDispatch( const AsyncDispatch& )            = delete;
+        AsyncDispatch& operator=( const AsyncDispatch& ) = delete;
+
+        // Records one dispatch: @p from == VK_NULL_HANDLE fills @p to, otherwise copies @p from into @p to.
+        Common::BoolResultStr Record( VkCommandBuffer cmd, VkBuffer from, VkBuffer to )
+        {
+            VkDescriptorSetAllocateInfo setInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+            setInfo.descriptorPool     = Pool;
+            setInfo.descriptorSetCount = 1;
+            setInfo.pSetLayouts        = &SetLayout;
+            VkDescriptorSet set        = VK_NULL_HANDLE;
+            if ( const VkResult allocated = vkAllocateDescriptorSets( Device, &setInfo, &set ); allocated != VK_SUCCESS )
+                return Fail( std::format( "async dispatch: vkAllocateDescriptorSets returned {}",
+                                          static_cast<int>( allocated ) ) );
+            const VkDescriptorBufferInfo        source{ from, 0, kAsyncBytes };
+            const VkDescriptorBufferInfo        target{ to, 0, kAsyncBytes };
+            std::array<VkWriteDescriptorSet, 2> writes{};
+            for ( VkWriteDescriptorSet& write : writes )
+            {
+                write                 = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+                write.dstSet          = set;
+                write.descriptorCount = 1;
+                write.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            }
+            writes[0].dstBinding  = 1;
+            writes[0].pBufferInfo = &target;
+            writes[1].dstBinding  = 0;
+            writes[1].pBufferInfo = &source;
+            // The fill shader does not use binding 0, so its set leaves it unwritten.
+            const uint32_t count = from == VK_NULL_HANDLE ? 1u : 2u;
+            vkUpdateDescriptorSets( Device, count, writes.data(), 0, nullptr );
+            vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, from == VK_NULL_HANDLE ? Fill : Copy );
+            vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, PipeLayout, 0, 1, &set, 0, nullptr );
+            vkCmdDispatch( cmd, kAsyncGroupCount, 1, 1 );
+            return Common::MakeSuccess( true );
+        }
+
+        VkDevice              Device     = VK_NULL_HANDLE;
+        VkDescriptorSetLayout SetLayout  = VK_NULL_HANDLE;
+        VkPipelineLayout      PipeLayout = VK_NULL_HANDLE;
+        VkPipeline            Fill       = VK_NULL_HANDLE;
+        VkPipeline            Copy       = VK_NULL_HANDLE;
+        VkDescriptorPool      Pool       = VK_NULL_HANDLE;
+        std::string           Error;
+
+    private:
+        VkPipeline MakePipeline( const std::vector<uint32_t>& code )
+        {
+            const VkShaderModule        module_ = Module( Device, code );
+            VkComputePipelineCreateInfo pipeInfo{ VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
+            pipeInfo.stage        = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
+            pipeInfo.stage.stage  = VK_SHADER_STAGE_COMPUTE_BIT;
+            pipeInfo.stage.module = module_;
+            pipeInfo.stage.pName  = "main";
+            pipeInfo.layout       = PipeLayout;
+            VkPipeline pipeline   = VK_NULL_HANDLE;
+            vkCreateComputePipelines( Device, VK_NULL_HANDLE, 1, &pipeInfo, nullptr, &pipeline );
+            vkDestroyShaderModule( Device, module_, nullptr );
+            return pipeline;
+        }
+    };
+
+    // The Vulkan buffer behind @p ref at @p access in this pass, or VK_NULL_HANDLE with @p error set.
+    VkBuffer PassBuffer( RDG::PassContext& context, RDG::BufferRef ref, RDG::Access access, std::string& error )
+    {
+        auto buffer = context.GetBuffer( ref, access );
+        if ( !buffer )
+        {
+            error = buffer.GetError();
+            return VK_NULL_HANDLE;
+        }
+        auto vulkan = VulkanRdgBackend::BufferOf( buffer.GetValue() );
+        if ( !vulkan )
+        {
+            error = vulkan.GetError();
+            return VK_NULL_HANDLE;
+        }
+        return vulkan.GetValue()->GetBuffer();
+    }
+
+    // With @p target, each pass records its dispatch into target->Current (a renderer Record()) after checking it
+    // IS the pass's segment buffer; without, into CommandBufferOf(context).
+    AsyncCopyRun RunAsyncCopy( Gpu& gpu, VulkanRdgBackend& backend, VulkanRdgPool& pool, FrameObjects& frame,
+                               RDG::ExternalBuffer* source, const RecordingTarget* target = nullptr )
+    {
+        AsyncCopyRun  run;
+        AsyncDispatch dispatch( gpu.Device.device );
+        if ( !dispatch.Error.empty() )
+        {
+            run.Error = dispatch.Error;
+            return run;
+        }
+        if ( const Common::BoolResultStr begun = BeginFrameSlot( frame, backend, pool, 0 ); !begun )
+        {
+            run.Error = begun.GetError();
+            return run;
+        }
+        RDG::Builder         graph( "async-copy" );
+        const RDG::BufferRef produced = graph.CreateBuffer( RDG::BufferDesc{ kAsyncBytes }, "Produced" );
+        const RDG::BufferRef bytes    = graph.CreateBuffer( RDG::BufferDesc{ kAsyncBytes }, "Readback" );
+        RDG::BufferRef       input;
+        if ( source != nullptr )
+            input = graph.RegisterExternal( *source, "Previous" );
+        graph.AddPass(
+             "Produce", RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 if ( source != nullptr )
+                     pass.Read( input, RDG::Access::StorageRead );
+                 pass.Write( produced, RDG::Access::StorageWrite );
+             },
+             [&]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 auto cmd = VulkanRdgBackend::CommandBufferOf( context );
+                 if ( !cmd )
+                     return Fail( cmd.GetError() );
+                 std::string    error;
+                 const VkBuffer to   = PassBuffer( context, produced, RDG::Access::StorageWrite, error );
+                 const VkBuffer from = source != nullptr
+                                            ? PassBuffer( context, input, RDG::Access::StorageRead, error )
+                                            : VK_NULL_HANDLE;
+                 if ( !error.empty() )
+                     return Fail( std::format( "Produce: {}", error ) );
+                 if ( target != nullptr && target->Current != cmd.GetValue() )
+                     return Fail( "Produce: the recording target is not the pass's segment command buffer" );
+                 run.ProduceBuffer = target != nullptr ? target->Current : cmd.GetValue();
+                 return dispatch.Record( run.ProduceBuffer, from, to );
+             } );
+        graph.AddPass(
+             "Consume", RDG::PassFlags::Compute,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 pass.Read( produced, RDG::Access::StorageRead );
+                 pass.Write( bytes, RDG::Access::StorageWrite );
+             },
+             [&]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 auto cmd = VulkanRdgBackend::CommandBufferOf( context );
+                 if ( !cmd )
+                     return Fail( cmd.GetError() );
+                 std::string    error;
+                 const VkBuffer from = PassBuffer( context, produced, RDG::Access::StorageRead, error );
+                 const VkBuffer to   = PassBuffer( context, bytes, RDG::Access::StorageWrite, error );
+                 if ( !error.empty() )
+                     return Fail( std::format( "Consume: {}", error ) );
+                 if ( target != nullptr && target->Current != cmd.GetValue() )
+                     return Fail( "Consume: the recording target is not the pass's segment command buffer" );
+                 run.ConsumeBuffer = target != nullptr ? target->Current : cmd.GetValue();
+                 return dispatch.Record( run.ConsumeBuffer, from, to );
+             } );
+        graph.Extract( bytes, run.Readback, RDG::Access::HostRead );
+
+        const Common::BoolResultStr executed = graph.Execute( backend );
+        if ( !executed )
+        {
+            run.Error = executed.GetError();
+            return run;
+        }
+        const std::vector<VulkanRdgSubmission> segments = backend.TakeSubmissions();
+        for ( const VulkanRdgSubmission& entry : segments )
+        {
+            VkSubmitInfo info{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+            info.waitSemaphoreCount   = static_cast<uint32_t>( entry.WaitSemaphores.size() );
+            info.pWaitSemaphores      = entry.WaitSemaphores.data();
+            info.pWaitDstStageMask    = entry.WaitStages.data();
+            info.commandBufferCount   = 1;
+            info.pCommandBuffers      = &entry.CommandBuffer;
+            info.signalSemaphoreCount = static_cast<uint32_t>( entry.SignalSemaphores.size() );
+            info.pSignalSemaphores    = entry.SignalSemaphores.data();
+            vkQueueSubmit( entry.Queue, 1, &info, VK_NULL_HANDLE );
+        }
+        vkDeviceWaitIdle( gpu.Device.device );
+        if ( !run.Readback.Physical )
+        {
+            run.Error = "the extracted readback buffer carries no physical buffer";
+            return run;
+        }
+        const auto& buffer = static_cast<const VulkanRdgBuffer&>( *run.Readback.Physical );
+        buffer.InvalidateForHost();
+        if ( buffer.GetMapped() == nullptr )
+        {
+            run.Error = "the readback buffer is not host-visible";
+            return run;
+        }
+        run.Bytes.resize( kAsyncBytes );
+        std::memcpy( run.Bytes.data(), buffer.GetMapped(), kAsyncBytes );
+        return run;
+    }
+
+    bool AllFilled( const std::vector<uint8_t>& bytes )
+    {
+        for ( size_t i = 0; i + 4 <= bytes.size(); i += 4 )
+        {
+            uint32_t word = 0;
+            std::memcpy( &word, bytes.data() + i, 4 );
+            if ( word != 0xA5C3E1F7u )
+                return false;
+        }
+        return !bytes.empty();
+    }
+} // namespace
+
+// B2 on the GPU, sync validation on: an AsyncCompute pass writes, a later graphics pass reads (fork-free, joined,
+// ownership released on compute and acquired on graphics); then a second graph whose async pass sits at position
+// 0 and consumes the first graph's output (amendment B: the graphics prologue releases it and forks).
+TEST( RenderGraphVulkan, AsyncComputeAcrossQueuesAndFromTheGraphStartIsValidationClean )
+{
+    Gpu& gpu = GetGpu();
+    ASSERT_TRUE( gpu.Error.empty() ) << gpu.Error;
+    if ( gpu.ComputeQueue == VK_NULL_HANDLE )
+        GTEST_SKIP() << "the device has no compute family other than the graphics one";
+    {
+        VulkanRdgPool    pool( gpu.Rdg, 1 );
+        FrameObjects     frame( gpu, 1, true );
+        VulkanRdgBackend backend( gpu.Rdg, pool );
+        ASSERT_TRUE( frame.Queues.GetCapabilities().SeparateComputeFamily );
+
+        AsyncCopyRun first = RunAsyncCopy( gpu, backend, pool, frame, nullptr );
+        ASSERT_TRUE( first.Error.empty() ) << first.Error;
+        EXPECT_TRUE( AllFilled( first.Bytes ) );
+        AsyncCopyRun second = RunAsyncCopy( gpu, backend, pool, frame, &first.Readback );
+        ASSERT_TRUE( second.Error.empty() ) << second.Error;
+        EXPECT_TRUE( AllFilled( second.Bytes ) );
+        EXPECT_EQ( backend.GetAsyncComputeFallbackLog().GetLinesLogged(), 0u );
+    }
+    const std::vector<Message> messages = TakeMessages();
+    EXPECT_TRUE( messages.empty() ) << messages.size() << " validation message(s):" << Join( messages );
+}
+
+// The architect's condition on the B2 recording target: a renderer Record() inside a pass lands in that pass's
+// segment command buffer. The recording target is written only by the backend's listener (as the engine's
+// VulkanRendererAPI::SetGraphRecordingTarget is); every pass records its dispatch THROUGH it into an
+// async-adjacent graph (async Produce, graphics Consume), and the frame is byte-exact and validation-clean.
+TEST( RenderGraphVulkan, ARecordThroughTheRecordingTargetLandsInThePassSegmentBuffer )
+{
+    Gpu& gpu = GetGpu();
+    ASSERT_TRUE( gpu.Error.empty() ) << gpu.Error;
+    if ( gpu.ComputeQueue == VK_NULL_HANDLE )
+        GTEST_SKIP() << "the device has no compute family other than the graphics one";
+    {
+        VulkanRdgPool    pool( gpu.Rdg, 1 );
+        FrameObjects     frame( gpu, 1, true );
+        VulkanRdgBackend backend( gpu.Rdg, pool );
+        RecordingTarget  target;
+        backend.SetRecordingListener(
+             [&target]( VkCommandBuffer commandBuffer )
+             {
+                 target.Current = commandBuffer;
+                 ++target.Changes;
+             } );
+
+        AsyncCopyRun run = RunAsyncCopy( gpu, backend, pool, frame, nullptr, &target );
+        ASSERT_TRUE( run.Error.empty() ) << run.Error;
+        EXPECT_TRUE( AllFilled( run.Bytes ) );
+        // Two pipes, two segments: the async pass and the graphics pass recorded into different buffers, and
+        // neither is the one the target holds once the submissions are handed over.
+        EXPECT_NE( run.ProduceBuffer, VK_NULL_HANDLE );
+        EXPECT_NE( run.ConsumeBuffer, VK_NULL_HANDLE );
+        EXPECT_NE( run.ProduceBuffer, run.ConsumeBuffer );
+        EXPECT_EQ( target.Current, VK_NULL_HANDLE ) << "TakeSubmissions must clear the recording target";
+        // Graph begin, then at least one begin and one end per segment, then the hand-over.
+        EXPECT_GE( target.Changes, 6 );
+    }
+    const std::vector<Message> messages = TakeMessages();
+    EXPECT_TRUE( messages.empty() ) << messages.size() << " validation message(s):" << Join( messages );
+}
+
+// The same two graphs with a queue set that has no compute queue - what the frame loop builds on a device with
+// one family: every pass runs on Graphics, the bytes are the same, and the backend logs the fallback ONCE.
+TEST( RenderGraphVulkan, AsyncComputeWithoutASeparateFamilyRunsOnGraphicsAndLogsOnce )
+{
+    Gpu& gpu = GetGpu();
+    ASSERT_TRUE( gpu.Error.empty() ) << gpu.Error;
+    {
+        VulkanRdgPool    pool( gpu.Rdg, 1 );
+        FrameObjects     frame( gpu, 1, false );
+        VulkanRdgBackend backend( gpu.Rdg, pool );
+        ASSERT_FALSE( backend.GetPipeCapabilities().SeparateComputeFamily );
+
+        AsyncCopyRun first = RunAsyncCopy( gpu, backend, pool, frame, nullptr );
+        ASSERT_TRUE( first.Error.empty() ) << first.Error;
+        EXPECT_TRUE( AllFilled( first.Bytes ) );
+        AsyncCopyRun second = RunAsyncCopy( gpu, backend, pool, frame, &first.Readback );
+        ASSERT_TRUE( second.Error.empty() ) << second.Error;
+        EXPECT_TRUE( AllFilled( second.Bytes ) );
+        EXPECT_EQ( backend.GetAsyncComputeFallbackLog().GetLinesLogged(), 1u );
+    }
+    const std::vector<Message> messages = TakeMessages();
+    EXPECT_TRUE( messages.empty() ) << messages.size() << " validation message(s):" << Join( messages );
 }
