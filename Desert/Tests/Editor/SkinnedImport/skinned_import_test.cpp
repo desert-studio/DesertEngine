@@ -21,6 +21,7 @@
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
@@ -265,6 +266,21 @@ TEST_F( SkinnedImport, TheRigAndItsClipAreWrittenBeforeTheMeshAndTheRecordSaysSk
     const auto kind = Ser::ReadImportRecordKind( m_Source );
     ASSERT_TRUE( kind.IsSuccess() ) << kind.GetError();
     EXPECT_EQ( kind.GetValue(), ContentKind::SkinnedMesh );
+}
+
+// THM-FIXJ: Reimport of a clip re-imports its source (UE: UAnimSequence::AssetImportData). `<stem>_<clip>.anim`
+// has no inverse, so the clip STATES the source it came from and the bytes' hash; live on Fox_Walk.anim "has no
+// import source to reimport from". ImportOptions::ImportSourceOfAsset resolves this statement beside the clip.
+TEST_F( SkinnedImport, TheClipNamesTheSourceItWasImportedFrom )
+{
+    ASSERT_FALSE( m_Outcome.WrittenClips.empty() );
+    const auto clip = Ser::ReadAnimationJson( Read( m_Outcome.WrittenClips.front() ) );
+    ASSERT_TRUE( clip.IsSuccess() ) << clip.GetError();
+    ASSERT_TRUE( clip.GetValue().Import.has_value() );
+    EXPECT_EQ( clip.GetValue().Import->Source, m_Source.filename().generic_string() );
+    const auto hash = Assets::HashMeshSourceFile( m_Source );
+    ASSERT_TRUE( hash.IsSuccess() ) << hash.GetError();
+    EXPECT_EQ( clip.GetValue().Import->SourceHash, hash.GetValue() );
 }
 
 // THM1l-b19: the texture EMBEDDED in the file ("*0" to assimp, a data-URI image here, a bufferView image in a

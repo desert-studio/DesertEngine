@@ -414,7 +414,7 @@ namespace Desert::Editor
         if ( !hash )
             return Common::MakeError<bool>( hash.GetError() );
         stamped.Import =
-             Assets::Serialization::SkeletonImportInfo{ sourcePath.filename().generic_string(), hash.GetValue() };
+             Assets::Serialization::ImportSourceInfo{ sourcePath.filename().generic_string(), hash.GetValue() };
         return WriteCookedJson( stamped, cookedPath );
     }
 
@@ -428,6 +428,14 @@ namespace Desert::Editor
         auto stamped   = data;
         stamped.Header = Assets::HeaderKeepingFileGuid( cookedPath, Common::Content::ContentKind::Animation,
                                                         Assets::Serialization::AnimationTextSubsystems() );
+        // THE CLIP NAMES ITS SOURCE (THM-FIXJ; UE: UAnimSequence::AssetImportData), as the rig does: Reimport of
+        // the clip re-imports this file (ImportOptions::ImportSourceOfAsset), which rewrites every asset made
+        // from it. The clip's file name cannot say it - `<stem>_<clip>.anim` has no inverse.
+        const auto hash = Assets::HashMeshSourceFile( sourcePath );
+        if ( !hash )
+            return Common::MakeError<bool>( hash.GetError() );
+        stamped.Import =
+             Assets::Serialization::ImportSourceInfo{ sourcePath.filename().generic_string(), hash.GetValue() };
         return WriteCookedJson( stamped, cookedPath );
     }
 
