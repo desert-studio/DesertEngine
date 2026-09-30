@@ -10,7 +10,6 @@
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
-#include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <Common/Json/Json.hpp>
@@ -353,10 +352,10 @@ namespace Desert::WorldGen
     int RunWorldGen( const std::vector<std::string>& args, std::ostream& out, std::ostream& err )
     {
         std::string        outPath;
-        // No defaults spelled against the working directory: an absent --project is the engine directory
-        // (Common::Constants::Path::EngineDir — the checkout's Editor/, which holds the development
-        // project; main() resolves it from the executable), and an absent --assets is that project's
-        // Resources/Assets.
+        // No project is guessed: not from the working directory and not from the engine directory (the
+        // engine is not a project). A run that needs a project — no --assets to read materials from, or a
+        // corpus preset, whose meshes are project paths — without --project is refused with the flag to
+        // pass; an absent --assets is the named project's Resources/Assets.
         std::string        assetsRoot;
         std::string        projectRoot;
         std::string        presetKey  = "world";
@@ -493,23 +492,19 @@ namespace Desert::WorldGen
             return 2;
         }
 
-        if ( projectRoot.empty() )
-            projectRoot = Common::Constants::Path::EngineDir().string();
-        if ( assetsRoot.empty() )
+        if ( projectRoot.empty() && ( assetsRoot.empty() || preset->Corpus ) )
         {
-            if ( projectRoot.empty() )
-            {
-                err << "WorldGen: no --assets and no --project, and no engine directory to take them from\n"
-                    << Usage() << "\n";
-                return 2;
-            }
-            assetsRoot = ( std::filesystem::path( projectRoot ) / "Resources" / "Assets" ).string();
-        }
-        if ( preset->Corpus && projectRoot.empty() )
-        {
-            err << "WorldGen: preset '" << presetKey << "' needs --project (no engine directory to default to)\n";
+            err << "WorldGen: no --project. " << ( preset->Corpus ? "Preset '" + presetKey + "' is furnished from "
+                                                                     "the project's own meshes"
+                                                                   : std::string( "Without --assets the materials "
+                                                                                  "come from the project" ) )
+                << ", and no project is assumed — pass --project <the folder holding the .deproj> "
+                   "(the development project is <checkout>/Editor).\n"
+                << Usage() << "\n";
             return 2;
         }
+        if ( assetsRoot.empty() )
+            assetsRoot = ( std::filesystem::path( projectRoot ) / "Resources" / "Assets" ).string();
 
         const std::filesystem::path assets( assetsRoot );
         std::vector<MaterialRef>    palette;

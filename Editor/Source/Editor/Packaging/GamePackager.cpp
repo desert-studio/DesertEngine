@@ -840,19 +840,18 @@ namespace Desert::Editor
             bundle = false;
         }
 
-        // THE CONTENT SITS BESIDE THE PLAYER BINARY, IN BOTH LAYOUTS (П5). The Runtime has exactly one
-        // rule for finding a game — look in its own executable's directory — and a bundle that put the
-        // archive in Contents/Resources could not satisfy it, so the launcher had to cd there and hand
-        // the descriptor over as `--project`. That flag is what made the package unstartable by hand:
-        // a player who ran the binary directly got "No game to run". Removing the flag means removing
-        // the reason it was needed, which is this split. Contents/Resources is simply not produced —
-        // macOS requires no such directory, and a second place the player has to be told about is
-        // exactly the knowledge a shipped game must not depend on.
+        // THE CONTENT SITS WHERE THE PLAYER LOOKS FROM ITS OWN EXECUTABLE (П5): FileSystem::PackagedContentDir,
+        // one rule on both sides. A plain folder: beside the player binary. A .app: Contents/Resources —
+        // Apple's signing rule keeps Contents/MacOS for code only. The player needs no flag and no launcher
+        // to find it; running the binary directly works.
         const fs::path root    = fs::path( options.OutputDir ) / ( bundle ? safeName + ".app" : safeName );
         const fs::path gameDir = bundle ? root / "Contents" / "MacOS" : root;
         const char*    binName = bundle ? kBundlePlayerBinary : host.RuntimeBinary;
+        const fs::path contentDir = Common::Utils::FileSystem::PackagedContentDir( gameDir );
 
         fs::create_directories( gameDir, ec );
+        if ( !ec )
+            fs::create_directories( contentDir, ec );
         if ( ec )
             return { false, "Cannot create output dir " + root.string() + ": " + ec.message(), "" };
 
@@ -921,7 +920,7 @@ namespace Desert::Editor
             if ( !plan )
                 return { false, plan.GetError(), "" };
 
-            auto written = Common::Content::WriteChunkedPaks( gameDir / "Content.dpak", plan.GetValue(),
+            auto written = Common::Content::WriteChunkedPaks( contentDir / "Content.dpak", plan.GetValue(),
                                                               contentFiles, baseBlobs );
             if ( !written )
                 return { false, written.GetError(), "" };
@@ -997,8 +996,8 @@ namespace Desert::Editor
         //
         // WHAT THE LAUNCHER IS STILL FOR, now that it names neither the project (П5) nor the Vulkan driver
         // (ENG-ROOT-4b: the player finds the bundle's MoltenVK_icd.json itself, from its own executable
-        // position — VulkanContext.cpp SelectDriverManifest): only the working directory engine_log.txt
-        // lands in. It is not a second way to start the game — running the binary directly works.
+        // position — VulkanContext.cpp SelectDriverManifest) nor the working directory (the log goes to the
+        // game's user directory): only being CFBundleExecutable. Running the binary directly works as well.
         if ( bundle )
         {
             std::ostringstream run;
@@ -1006,9 +1005,6 @@ namespace Desert::Editor
                 << "# Launches " << projectName << " (packaged by the Desert Editor).\n"
                 << "set -euo pipefail\n"
                 << "DIR=\"$(cd \"$(dirname \"$0\")\" && pwd)\"\n"
-                // The game directory IS this script's own directory now, so the cd is only about where
-                // engine_log.txt lands — the player finds its content from its executable path.
-                << "cd \"$DIR\"\n"
                 << "exec \"$DIR/" << kBundlePlayerBinary << "\" \"$@\"\n";
             const fs::path launcher = gameDir / kBundleLauncherName;
             // This script IS the bundle's CFBundleExecutable — without it macOS reports the app as

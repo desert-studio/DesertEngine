@@ -2,7 +2,7 @@
 
 #include <spdlog/spdlog.h>
 
-#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/ringbuffer_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 #include <Common/Core/ResultStr.hpp>
@@ -18,19 +18,30 @@ namespace Common::Logger
     // without `--console` stdout goes nowhere and "logs are not written" is what a developer sees).
     void AddPlatformDebuggerSink();
 
-    // THE LOG FILE LIVES IN THE ENGINE DIRECTORY. It is opened here, in the working directory, before the
-    // startup has found the engine directory (Common::Constants::Path::EngineDir); a process started
-    // anywhere else — Visual Studio's F5 in the solution root, a shell in /tmp — would leave it where
-    // nobody looks. The startup calls this once the engine directory is known: the lines written so far
-    // are carried over and the file is reopened in `directory`.
+    // THE LOG FILE IS NEVER OPENED IN THE WORKING DIRECTORY. A process started from Finder is in `/`
+    // (read-only), one started from a shell in /tmp would leave its log where nobody looks. LogInit keeps
+    // the lines written before the host knows where its log belongs in memory (a ring, Detail::EarlyLines);
+    // the host then calls this once with that directory (editor: the engine directory, runtime: the game's
+    // user directory, tools: the project's folder) and the file is opened there, beginning with them.
     void RelocateLogFile( const std::filesystem::path& directory );
+
+    // Where the log file is — empty until RelocateLogFile has placed it (the Logs panel reads it here,
+    // never by a bare file name).
+    std::filesystem::path LogFilePath();
+
+    namespace Detail
+    {
+        // Holds the startup lines until the log file has a directory; generous, since a startup that
+        // logs more than this before finding its own directory is itself the defect.
+        inline constexpr std::size_t kEarlyLineCapacity = 16384;
+    } // namespace Detail
 
     inline void LogInit()
     {
         auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-        auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("engine_log.txt", true);
+        auto early_sink   = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>( Detail::kEarlyLineCapacity );
 
-        spdlog::set_default_logger(std::make_shared<spdlog::logger>("desert", spdlog::sinks_init_list{console_sink, file_sink}));
+        spdlog::set_default_logger(std::make_shared<spdlog::logger>("desert", spdlog::sinks_init_list{console_sink, early_sink}));
         // Millisecond timestamps (%e): startup-phase costs — a shader compile, an atlas bake — are
         // tens-to-hundreds of ms each, and a 1-second clock cannot attribute them to anything.
         spdlog::set_pattern( "%^[%T.%e][%l][Desert]: %v%$" );

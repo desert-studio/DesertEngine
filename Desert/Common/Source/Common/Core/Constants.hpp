@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <optional>
+#include <source_location>
 #include <string_view>
 #include <vector>
 
@@ -78,21 +79,24 @@ namespace Common::Constants
 
             // Header-only and below the logger, so the refusal is spelled here: it aborts in every
             // configuration, like DESERT_VERIFY, because every answer after it would be a wrong path.
-            [[noreturn]] inline void EngineDirUnset( const char* reader )
+            // It names the READER — the call site that asked, not the getter and never the working directory.
+            [[noreturn]] inline void EngineDirUnset( const char* getter, const std::source_location& reader )
             {
                 std::fprintf( stderr,
-                              "[Engine] %s was read before Common::Constants::Path::SetEngineDir. The engine "
-                              "directory is set once at process start (editor: Sandbox.hpp, tools: "
+                              "[Engine] %s was read at %s:%u (%s) before Common::Constants::Path::SetEngineDir. "
+                              "The engine directory is set once at process start (editor: Sandbox.hpp, tools: "
                               "Tools/Shared/ToolEngineDir.hpp, runtime: Runtime/Source/Main.cpp); a reader "
                               "that runs earlier is the defect.\n",
-                              reader );
+                              getter, reader.file_name(), static_cast<unsigned>( reader.line() ),
+                              reader.function_name() );
                 std::fflush( stderr );
                 std::abort();
             }
-            inline const std::filesystem::path& Checked( const std::filesystem::path& path, const char* reader )
+            inline const std::filesystem::path& Checked( const std::filesystem::path& path, const char* getter,
+                                                         const std::source_location& reader )
             {
                 if ( s_EngineDir.empty() )
-                    EngineDirUnset( reader );
+                    EngineDirUnset( getter, reader );
                 return path;
             }
         } // namespace Detail
@@ -106,17 +110,20 @@ namespace Common::Constants
         inline const std::filesystem::path& ICONS_PATH = Detail::s_Engine.Icons;
 
         // The service's function spellings (UE: FPaths::EngineDir / EngineContentDir / ShaderWorkingDir).
-        inline const std::filesystem::path& EngineDir() noexcept
+        inline const std::filesystem::path& EngineDir(
+             const std::source_location reader = std::source_location::current() ) noexcept
         {
-            return Detail::Checked( Detail::s_EngineDir, "EngineDir()" );
+            return Detail::Checked( Detail::s_EngineDir, "EngineDir()", reader );
         }
-        inline const std::filesystem::path& ShaderDir() noexcept
+        inline const std::filesystem::path& ShaderDir(
+             const std::source_location reader = std::source_location::current() ) noexcept
         {
-            return Detail::Checked( Detail::s_Engine.Shaders, "ShaderDir()" );
+            return Detail::Checked( Detail::s_Engine.Shaders, "ShaderDir()", reader );
         }
-        inline const std::filesystem::path& EngineContentDir() noexcept
+        inline const std::filesystem::path& EngineContentDir(
+             const std::source_location reader = std::source_location::current() ) noexcept
         {
-            return Detail::Checked( Detail::s_Engine.EngineContent, "EngineContentDir()" );
+            return Detail::Checked( Detail::s_Engine.EngineContent, "EngineContentDir()", reader );
         }
         // True once SetEngineDir has run — for the few callers that must ask rather than read.
         inline bool HasEngineDir() noexcept
@@ -468,10 +475,12 @@ namespace Common::Constants
 
         // The directory project content derives from: the open project's folder, or — for the built-in
         // sandbox — the engine directory. (UE: FPaths::ProjectDir.)
-        inline const std::filesystem::path& ProjectDir() noexcept
+        inline const std::filesystem::path& ProjectDir(
+             const std::source_location reader = std::source_location::current() ) noexcept
         {
-            return Detail::s_ProjectRoot.ProjectDir.empty() ? Detail::Checked( Detail::s_EngineDir, "ProjectDir()" )
-                                                            : Detail::s_ProjectRoot.ProjectDir;
+            return Detail::s_ProjectRoot.ProjectDir.empty()
+                        ? Detail::Checked( Detail::s_EngineDir, "ProjectDir()", reader )
+                        : Detail::s_ProjectRoot.ProjectDir;
         }
 
         // A relative content path made absolute (UE: FPaths::ConvertRelativePathToFull): read off ProjectDir(),

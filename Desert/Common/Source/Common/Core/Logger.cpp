@@ -4,8 +4,10 @@
 
 #include <fstream>
 #include <iterator>
+#include <mutex>
 #include <string>
 #include <system_error>
+#include <vector>
 
 #ifdef _WIN32
 #include <spdlog/sinks/msvc_sink.h>
@@ -27,39 +29,73 @@ namespace Common::Logger
 #endif
     }
 
+    namespace
+    {
+        std::mutex            s_PathMutex;
+        std::filesystem::path s_LogFilePath;
+    } // namespace
+
+    std::filesystem::path LogFilePath()
+    {
+        std::lock_guard lock( s_PathMutex );
+        return s_LogFilePath;
+    }
+
     void RelocateLogFile( const std::filesystem::path& directory )
     {
         auto logger = spdlog::default_logger();
         if ( !logger )
             return;
 
-        std::error_code             ec;
-        const std::filesystem::path from = std::filesystem::absolute( kLogFileName, ec );
-        const std::filesystem::path to   = directory / kLogFileName;
-        if ( ec || std::filesystem::equivalent( from.parent_path(), directory, ec ) )
+        const std::filesystem::path to = ( directory / kLogFileName ).lexically_normal();
+        {
+            std::lock_guard lock( s_PathMutex );
+            if ( s_LogFilePath == to )
+                return;
+        }
+        logger->flush();
+
+        // The lines so far: from the early ring on the first placement, from the previous file on a move.
+        auto&                    sinks = logger->sinks();
+        std::vector<std::string> earlier;
+        auto                     slot = sinks.end();
+        for ( auto it = sinks.begin(); it != sinks.end(); ++it )
+        {
+            if ( auto ring = std::dynamic_pointer_cast<spdlog::sinks::ringbuffer_sink_mt>( *it ) )
+            {
+                earlier = ring->last_formatted();
+                slot    = it;
+                break;
+            }
+            if ( std::dynamic_pointer_cast<spdlog::sinks::basic_file_sink_mt>( *it ) )
+            {
+                const std::filesystem::path from = LogFilePath();
+                std::ifstream               in( from, std::ios::binary );
+                earlier.emplace_back( std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() );
+                slot = it;
+                std::error_code ec;
+                std::filesystem::remove( from, ec ); // the old copy would be a second, stale log
+                break;
+            }
+        }
+        if ( slot == sinks.end() )
             return;
 
-        auto& sinks = logger->sinks();
-        for ( auto& sink : sinks )
-        {
-            if ( !std::dynamic_pointer_cast<spdlog::sinks::basic_file_sink_mt>( sink ) )
-                continue;
-            logger->flush();
-            std::string earlier;
-            {
-                std::ifstream in( from, std::ios::binary );
-                earlier.assign( std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() );
-            }
-            auto moved = std::make_shared<spdlog::sinks::basic_file_sink_mt>( to.string(), true );
-            moved->set_formatter( std::make_unique<spdlog::pattern_formatter>( "%v" ) );
-            if ( !earlier.empty() && earlier.back() == '\n' )
-                earlier.pop_back();
-            if ( !earlier.empty() )
-                moved->log( spdlog::details::log_msg( "desert", spdlog::level::info, earlier ) );
-            moved->set_formatter( std::make_unique<spdlog::pattern_formatter>( "%^[%T.%e][%l][Desert]: %v%$" ) );
-            sink = std::move( moved );
-            std::filesystem::remove( from, ec ); // the old copy would be a second, stale log
-            return;
-        }
+        std::error_code ec;
+        std::filesystem::create_directories( directory, ec );
+        auto placed = std::make_shared<spdlog::sinks::basic_file_sink_mt>( to.string(), true );
+        placed->set_formatter( std::make_unique<spdlog::pattern_formatter>( "%v" ) );
+        std::string carried;
+        for ( const std::string& line : earlier )
+            carried += line;
+        while ( !carried.empty() && carried.back() == '\n' )
+            carried.pop_back();
+        if ( !carried.empty() )
+            placed->log( spdlog::details::log_msg( "desert", spdlog::level::info, carried ) );
+        placed->set_formatter( std::make_unique<spdlog::pattern_formatter>( "%^[%T.%e][%l][Desert]: %v%$" ) );
+        *slot = std::move( placed );
+
+        std::lock_guard lock( s_PathMutex );
+        s_LogFilePath = to;
     }
 } // namespace Common::Logger

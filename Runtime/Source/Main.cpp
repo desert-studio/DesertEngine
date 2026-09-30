@@ -188,7 +188,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     }
 
     // THE ENGINE DIRECTORY (Common::Constants::Path::SetEngineDir), set before anything reads a path.
-    //   Packaged: the executable's directory itself. The engine's resources travel inside the base archive
+    //   Packaged: the packaged content directory (FileSystem::PackagedContentDir). The engine's resources travel inside the base archive
     //   (`Resources/Shaders/...`), which is mounted at that directory, so every engine path is a virtual
     //   path under the mount — there is no second tree to find and no `--engine-dir` to pass.
     //   Dev (--project): the checkout this binary was built in, derived from the same executable position
@@ -202,13 +202,14 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     }
     else
     {
-        Common::Constants::Path::SetEngineDir( exeDir );
+        Common::Constants::Path::SetEngineDir( Common::Utils::FileSystem::PackagedContentDir( exeDir ) );
     }
 
-    // Content directory: the project's folder (dev) or the executable's own folder (packaged).
+    // Content directory: the project's folder (dev) or the packaged content directory — the executable's
+    // own folder, or Contents/Resources inside a .app (FileSystem::PackagedContentDir, the packager's rule).
     const fs::path baseDir = Desert::Project::ProjectContext::HasProject()
                                   ? fs::path( Desert::Project::ProjectContext::Directory() )
-                                  : exeDir;
+                                  : Common::Utils::FileSystem::PackagedContentDir( exeDir );
 
     // Mount the base archive (skipped in dev if there is none — reads stay plain disk reads), then any
     // Patch*.dpak ON TOP in name order (later overrides earlier), so shipping a fix = dropping one pak.

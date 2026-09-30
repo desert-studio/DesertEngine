@@ -199,8 +199,14 @@ namespace Common::Utils
         // THE PROCESS'S BASE DIRECTORY (UE: FPlatformProcess::BaseDir) — the directory of the running
         // executable, absolute, symlinks resolved; empty exactly when the OS would not say. The one anchor a
         // packaged game has: its archives and chunk manifest sit here (GamePackager puts them beside the
-        // player binary in both layouts — Contents/MacOS inside a .app, П5), and nothing is read from the
-        // working directory, which a Finder launch sets to `/`.
+        // player binary in a plain folder), and nothing is read from the working directory, which a Finder
+        // launch sets to `/`.
         [[nodiscard]] static std::filesystem::path BaseDir();
+
+        // WHERE A PACKAGED GAME'S CONTENT IS, given its BaseDir. Inside a macOS bundle
+        // (`<Name>.app/Contents/MacOS`) it is `Contents/Resources` — Apple's signing rule: Contents/MacOS
+        // holds code only, and a data file there breaks `codesign --verify`. Everywhere else it is the
+        // base directory itself. GamePackager writes to exactly this place (both sides call this).
+        [[nodiscard]] static std::filesystem::path PackagedContentDir( const std::filesystem::path& baseDir );
     };
 } // namespace Common::Utils
