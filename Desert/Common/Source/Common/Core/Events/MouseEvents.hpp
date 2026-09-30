@@ -11,6 +11,8 @@ namespace Common
     class MouseMovedEvent : public Event
     {
     public:
+        DESERT_ROUTED_EVENT( MouseMovedEvent, MouseMoved, Pointer )
+
         MouseMovedEvent( float x, float y ) : m_MouseX( x ), m_MouseY( y )
         {
         }
@@ -40,6 +42,8 @@ namespace Common
     class MouseScrolledEvent : public Event
     {
     public:
+        DESERT_ROUTED_EVENT( MouseScrolledEvent, MouseScrolled, Pointer )
+
         MouseScrolledEvent( float xOffset, float yOffset ) : m_XOffset( xOffset ), m_YOffset( yOffset )
         {
         }
@@ -85,6 +89,8 @@ namespace Common
     class MouseButtonPressedEvent : public MouseButtonEvent
     {
     public:
+        DESERT_ROUTED_EVENT( MouseButtonPressedEvent, MouseButtonPressed, Pointer )
+
         explicit MouseButtonPressedEvent( MouseButton button ) : MouseButtonEvent( button )
         {
         }

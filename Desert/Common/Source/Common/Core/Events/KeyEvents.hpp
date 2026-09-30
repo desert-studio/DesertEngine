@@ -22,6 +22,8 @@ namespace Common
     class KeyPressedEvent : public KeyEvent
     {
     public:
+        DESERT_ROUTED_EVENT( KeyPressedEvent, KeyPressed, Focus )
+
         virtual EventType GetEventType() const
         {
             return GetStaticType();
@@ -46,6 +48,8 @@ namespace Common
     class KeyTypedEvent : public Event
     {
     public:
+        DESERT_ROUTED_EVENT( KeyTypedEvent, KeyTyped, Focus )
+
         virtual EventType GetEventType() const
         {
             return GetStaticType();

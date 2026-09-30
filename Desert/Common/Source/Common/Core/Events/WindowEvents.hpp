@@ -12,6 +12,8 @@ namespace Common
     class EventWindowFileDrop : public Event
     {
     public:
+        DESERT_ROUTED_EVENT( EventWindowFileDrop, WindowFileDropped, Pointer )
+
         virtual EventType GetEventType() const
         {
             return GetStaticType();
@@ -30,6 +32,8 @@ namespace Common
     class EventWindowClose : public Event
     {
     public:
+        DESERT_ROUTED_EVENT( EventWindowClose, WindowClosed, Broadcast )
+
         virtual EventType GetEventType() const
         {
             return GetStaticType();
@@ -43,6 +47,8 @@ namespace Common
     class EventWindowResize : public Event
     {
     public:
+        DESERT_ROUTED_EVENT( EventWindowResize, WindowResized, Broadcast )
+
         virtual EventType GetEventType() const
         {
             return GetStaticType();
