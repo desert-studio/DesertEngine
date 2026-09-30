@@ -93,6 +93,8 @@ namespace Desert::Engine
                        "The GPU device was lost while the engine was starting up; see the [DeviceLost] "
                        "block above. Nothing was drawn and nothing was open, so there is nothing to "
                        "recover — start again." );
+
+        m_EngineSubsystems.emplace( *this, m_Events, m_ApplicationEventNode );
     }
 
     Application::~Application()
@@ -105,6 +107,8 @@ namespace Desert::Engine
         // with. Run() has already presented its last frame, but presentation only queues the work.
         if ( m_Device )
             m_Device->WaitIdle();
+
+        m_EngineSubsystems.reset();
 
         // Everything the renderer generated at Init() (the BRDF LUT, the fallback textures, the API
         // object) and every GPU resource the registries handed out lives in a static that outlives this
