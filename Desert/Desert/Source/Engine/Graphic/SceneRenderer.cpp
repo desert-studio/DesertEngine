@@ -777,14 +777,14 @@ namespace Desert::Graphic
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
         }
 
-        // THE FRAME IS A GRAPH (RDG3). Every GPU pass of this view from here on is one AddLegacyPass, added
-        // in exactly the order the frame used to record them; nothing is culled or reordered (that is RDG4,
-        // one pass at a time). A pass this frame does not run is not added. The lambdas run inside Execute,
-        // after the whole graph is built, so a value one pass hands a later one travels through `values`,
+        // THE FRAME IS A GRAPH. Every GPU pass of this view from here on is one graph node (Raster, Compute or
+        // Copy) that declares what it reads and writes; the graph orders them by those declarations and places
+        // every barrier and layout transition. A pass this frame does not run is not added. The lambdas run inside
+        // Execute, after the whole graph is built, so a value one pass hands a later one travels through `values`,
         // which outlives Execute; everything else they need is captured by value.
         RDG::Builder        graph( "SceneView" );
-        LegacyFrameTextures textures( graph );
-        const auto          values = std::make_shared<LegacyFrameValues>();
+        FrameTextures       textures( graph );
+        const auto          values = std::make_shared<FrameValues>();
 
         const auto sceneColor = [this, &textures]()
         {

@@ -748,8 +748,8 @@ namespace Desert::Graphic::API::Vulkan
         // The graph's handle on an engine image, made once and kept by the image (VulkanImage2D::GetGraphTexture).
         // The views a render pass binds are this handle's: a handle made per frame destroyed them when the frame's
         // texture table went away, while the command buffer that bound them was still recording
-        // (VUID-...-recording on every later command). One handle per image, so both ways into the graph
-        // (ImportImage, WrapLegacyImage) hand out the same views.
+        // (VUID-...-recording on every later command). One handle per image, so every import of it into a
+        // graph (ImportImage) hands out the same views.
         const std::shared_ptr<RDG::IPhysicalTexture>& GraphTextureOf( IVulkanImage& image )
         {
             if ( !image.GetGraphTexture() )
@@ -763,17 +763,6 @@ namespace Desert::Graphic::API::Vulkan
             return image.GetGraphTexture();
         }
     } // namespace
-
-    std::shared_ptr<RDG::IPhysicalTexture> VulkanRendererAPI::WrapLegacyImage( Image2D& image )
-    {
-        auto* vulkanImage = dynamic_cast<VulkanImage2D*>( &image );
-        if ( vulkanImage == nullptr )
-            return nullptr;
-        const VulkanImageResource& resource = vulkanImage->GetResource();
-        if ( resource.Image == VK_NULL_HANDLE || resource.Layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL )
-            return nullptr;
-        return GraphTextureOf( *vulkanImage );
-    }
 
     Common::BoolResultStr VulkanRendererAPI::ImportImage( const std::shared_ptr<Image>& image,
                                                           RDG::ExternalTexture&         into )

@@ -44,7 +44,7 @@ namespace Desert::Graphic::API::Vulkan
     };
 
     // Usage flags a transient is created with, from the graph's derived usage (bit i = 1 << Access i).
-    VkImageUsageFlags  RdgImageUsage( uint32_t accessMask, bool depthFormat );
+    VkImageUsageFlags  RdgImageUsage( uint32_t accessMask );
     VkBufferUsageFlags RdgBufferUsage( uint32_t accessMask );
 
     // The Vulkan translation of the graph's own state enums; one table each, no second copy.

@@ -19,15 +19,13 @@
 
 namespace Desert::Graphic
 {
-    // The graph's names for the engine images the legacy passes render into and sample, registered as
-    // external textures on first use. An image is only named when it sits in SHADER_READ_ONLY, the layout
-    // AddLegacyPass assumes before and after every legacy pass; one the old code keeps elsewhere (a depth
-    // attachment, a multisampled colour target) would have the graph issue barriers from a layout the image
-    // is not in, so it stays undeclared until its pass is ported (RDG4).
-    class LegacyFrameTextures
+    // The graph's names for the engine images this frame's nodes render into, copy and sample: each image is
+    // imported once per graph (Renderer::ImportImage) in the layout its own record holds, and every node naming
+    // it shares that one graph texture. The graph writes the layout it leaves the image in back into the record.
+    class FrameTextures
     {
     public:
-        explicit LegacyFrameTextures( RDG::Builder& graph ) : m_Graph( graph )
+        explicit FrameTextures( RDG::Builder& graph ) : m_Graph( graph )
         {
         }
 
@@ -36,7 +34,7 @@ namespace Desert::Graphic
         {
             std::vector<RDG::TextureRef> refs;
             for ( const auto& [image, name] : images )
-                if ( const RDG::TextureRef ref = Get( image, name ); ref.IsValid() )
+                if ( const RDG::TextureRef ref = Import( image, name ); ref.IsValid() )
                     refs.push_back( ref );
             return refs;
         }
@@ -48,16 +46,16 @@ namespace Desert::Graphic
             if ( !framebuffer )
                 return refs;
             for ( uint32_t i = 0; i < framebuffer->GetColorAttachmentCount(); ++i )
-                if ( const RDG::TextureRef ref =
-                          Get( framebuffer->GetColorAttachmentImage( i ), std::format( "{}.Color{}", name, i ) );
+                if ( const RDG::TextureRef ref = Import( framebuffer->GetColorAttachmentImage( i ),
+                                                         std::format( "{}.Color{}", name, i ) );
                      ref.IsValid() )
                     refs.push_back( ref );
             return refs;
         }
 
         // An engine image a graph node renders into or copies: registered in the layout the image records, and
-        // the graph writes its final layout back (Renderer::ImportImage), so the passes that are not graph
-        // nodes and the next frame find the layout the graph left. @p final, when given, is the state the graph
+        // the graph writes its final layout back (Renderer::ImportImage), so the work recorded outside the graph
+        // and the next frame find the layout the graph left. @p final, when given, is the state the graph
         // leaves the image in at its end. The first registration of an image wins, as for Refs.
         RDG::TextureRef Import( const std::shared_ptr<Image>& image, std::string_view name,
                                 std::optional<RDG::Access> final = std::nullopt )
@@ -96,9 +94,9 @@ namespace Desert::Graphic
             return imported;
         }
 
-        // The depth attachment of @p framebuffer (a depth target never sits in SHADER_READ_ONLY), imported with
-        // the layout its image records; Execute writes the layout the graph leaves back into the image. An
-        // image that cannot be imported gets an invalid ref, and the error is logged.
+        // The depth attachment of @p framebuffer, imported with the layout its image records; Execute writes the
+        // layout the graph leaves back into the image. An image that cannot be imported gets an invalid ref, and
+        // the error is logged.
         RDG::TextureRef Depth( const std::shared_ptr<Framebuffer>& framebuffer, std::string_view name )
         {
             if ( !framebuffer || framebuffer->GetDepthAttachmentCount() == 0 )
@@ -123,40 +121,13 @@ namespace Desert::Graphic
         }
 
     private:
-        RDG::TextureRef Get( const std::shared_ptr<Image2D>& image, std::string_view name )
-        {
-            if ( !image )
-                return {};
-            if ( const auto it = m_Refs.find( image.get() ); it != m_Refs.end() )
-                return it->second;
-
-            RDG::TextureRef                        ref;
-            std::shared_ptr<RDG::IPhysicalTexture> physical = Renderer::GetInstance().WrapLegacyImage( *image );
-            if ( physical )
-            {
-                const auto&      spec = image->GetImageSpecification();
-                RDG::TextureDesc desc;
-                desc.Size      = { image->GetWidth(), image->GetHeight(), 1 };
-                desc.Format    = spec.Format;
-                desc.Mips      = image->GetMipmapLevels();
-                desc.Layers    = 1;
-                desc.Samples   = std::max( 1u, spec.Samples );
-                auto& external = m_Storage.emplace_back(
-                     std::make_unique<RDG::ExternalTexture>( desc, RDG::Access::LegacyWrite ) );
-                external->Physical = std::move( physical );
-                ref                = m_Graph.RegisterExternal( *external, name );
-            }
-            m_Refs.emplace( image.get(), ref );
-            return ref;
-        }
-
         RDG::Builder&                                      m_Graph;
         std::vector<std::unique_ptr<RDG::ExternalTexture>> m_Storage; // outlive Execute: the graph points at them
         std::map<const Image*, RDG::TextureRef>            m_Refs;
     };
 
-    // What one legacy pass hands a later one inside the same frame graph (the passes run at Execute).
-    struct LegacyFrameValues
+    // What one node hands a later one inside the same frame graph (the nodes record at Execute).
+    struct FrameValues
     {
         std::shared_ptr<Image2D> AoImage;
         std::shared_ptr<Image2D> GiImage;
@@ -165,10 +136,10 @@ namespace Desert::Graphic
     };
 
     // The graph textures of every image @p declared names, in order, each through the frame's one import of it
-    // (LegacyFrameTextures::Import, so the node and every other node naming the image share one graph texture). An
+    // (FrameTextures::Import, so the node and every other node naming the image share one graph texture). An
     // image or a buffer the graph does not know refuses the node: false, the error logged naming @p node, and the
     // caller adds nothing. A node is never added half-declared.
-    inline bool ResolveDeclared( LegacyFrameTextures& textures, const RenderPassDeclaration& declared,
+    inline bool ResolveDeclared( FrameTextures& textures, const RenderPassDeclaration& declared,
                                  std::string_view node, std::vector<RDG::TextureRef>& images )
     {
         images.clear();
@@ -223,7 +194,7 @@ namespace Desert::Graphic
     // entry cannot be declared none is added (a later dispatch would read what the refused one did not write), and
     // the error names the node. NeverCull: the bodies also advance the system's own per-frame state (history
     // index, frame counters) the graph cannot see.
-    inline void AddComputeNodes( RDG::Builder& graph, LegacyFrameTextures& textures,
+    inline void AddComputeNodes( RDG::Builder& graph, FrameTextures& textures,
                                  std::vector<ComputeNodeDeclaration> nodes )
     {
         std::vector<std::vector<RDG::TextureRef>> images( nodes.size() );
@@ -242,16 +213,5 @@ namespace Desert::Graphic
                      return BOOLSUCCESS;
                  } );
         }
-    }
-
-    inline void AddLegacy( RDG::Builder& graph, std::string_view name, const std::vector<RDG::TextureRef>& reads,
-                           const std::vector<RDG::TextureRef>& writes, std::function<void()> body )
-    {
-        graph.AddLegacyPass( name, reads, writes,
-                             [body = std::move( body )]( RDG::PassContext& ) -> Common::BoolResultStr
-                             {
-                                 body();
-                                 return BOOLSUCCESS;
-                             } );
     }
 } // namespace Desert::Graphic

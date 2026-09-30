@@ -43,8 +43,7 @@ namespace Desert::Graphic
 
         // Named region in the current command buffer (RenderDoc pass tree). Pair Begin/End.
         void BeginDebugLabel( const char* name );
-        Common::BoolResultStr                  ExecuteGraph( RDG::Builder& graph );
-        std::shared_ptr<RDG::IPhysicalTexture> WrapLegacyImage( Image2D& image );
+        Common::BoolResultStr ExecuteGraph( RDG::Builder& graph );
         Common::BoolResultStr ImportImage( const std::shared_ptr<Image>& image, RDG::ExternalTexture& into );
         Common::BoolResultStr ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
                                             RDG::ExternalBuffer&                                   into );

@@ -251,9 +251,6 @@ namespace Desert::Graphic::RDG
         Compute   = 1u << 1,
         Copy      = 1u << 2,
         NeverCull = 1u << 3, // a culling root even if nothing reads what it writes (readbacks, debug capture)
-        // Old code recorded through Builder::AddLegacyPass: it records its own render passes and expects
-        // every image it touches in SHADER_READ_ONLY before and leaves them there. Removed in RDG-Z.
-        Legacy = 1u << 4,
     };
 
     constexpr PassFlags operator|( PassFlags a, PassFlags b )

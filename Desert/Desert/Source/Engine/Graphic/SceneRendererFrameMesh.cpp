@@ -50,10 +50,10 @@ namespace Desert::Graphic
         };
 
         // A target the graph cannot declare whole is refused with its pass, never half-declared: a render pass
-        // missing an attachment is not the one the pass's pipelines were built against. That covers a colour
-        // image outside SHADER_READ_ONLY. A multisampled framebuffer is declared as its engine render pass is: the
-        // multisampled colours and depth, plus the single-sample image each colour resolves into.
-        std::optional<RasterTargets> TargetsOf( LegacyFrameTextures&                textures,
+        // missing an attachment is not the one the pass's pipelines were built against (an image the graph cannot
+        // import). A multisampled framebuffer is declared as its engine render pass is: the multisampled colours
+        // and depth, plus the single-sample image each colour resolves into.
+        std::optional<RasterTargets> TargetsOf( FrameTextures&                      textures,
                                                 const std::shared_ptr<Framebuffer>& framebuffer,
                                                 std::string_view name, std::string_view pass )
         {
@@ -110,7 +110,7 @@ namespace Desert::Graphic
 
         // The shadow images a lit forward pass samples (SceneRenderer::DeclareShadowReads), as graph textures.
         // When one cannot be imported the error is logged and the pass declares none of them.
-        std::vector<RDG::TextureRef> ShadowSamples( const SceneRenderer& renderer, LegacyFrameTextures& textures,
+        std::vector<RDG::TextureRef> ShadowSamples( const SceneRenderer& renderer, FrameTextures& textures,
                                                     std::string_view node )
         {
             RenderPassDeclaration declared;
@@ -122,7 +122,7 @@ namespace Desert::Graphic
         }
     } // namespace
 
-    void SceneRenderer::AddGraphPhasePasses( RDG::Builder& graph, LegacyFrameTextures&      textures,
+    void SceneRenderer::AddGraphPhasePasses( RDG::Builder& graph, FrameTextures&            textures,
                                              bool ( *selects )( RenderPhaseID ), const bool clearFirst )
     {
         // Every registered pass of the selected phases (engine systems and the editor's external passes), in the
@@ -180,7 +180,7 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRenderer::AddFrameGBuffer( RDG::Builder& graph, LegacyFrameTextures& textures,
+    void SceneRenderer::AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures,
                                          System::MeshRenderer* meshRenderer )
     {
         const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Deferred: GBuffer" );
@@ -193,7 +193,7 @@ namespace Desert::Graphic
                    [meshRenderer]() { meshRenderer->RenderGBufferManual(); } );
     }
 
-    void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, LegacyFrameTextures& textures )
+    void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )
     {
         // Its own row, so the ground's G-buffer cost reads as a pass line (the forward path's is the
         // graph's "TerrainPass"). LOAD: the meshes' G-buffer node cleared it; the graph merges the two into
@@ -210,7 +210,7 @@ namespace Desert::Graphic
         // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
     }
 
-    void SceneRenderer::AddFrameRSM( RDG::Builder& graph, LegacyFrameTextures& textures,
+    void SceneRenderer::AddFrameRSM( RDG::Builder& graph, FrameTextures& textures,
                                      System::MeshRenderer* meshRenderer, const glm::vec3& sunDir )
     {
         if ( glm::distance( sunDir, m_RSMLastSunDir ) > 1e-4f || m_RSMFrameCounter == 0 )
@@ -227,7 +227,7 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRenderer::AddFrameGeneric( RDG::Builder& graph, LegacyFrameTextures& textures,
+    void SceneRenderer::AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures,
                                          System::MeshRenderer* meshRenderer )
     {
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Generic" );
@@ -238,7 +238,7 @@ namespace Desert::Graphic
                    [meshRenderer]() { meshRenderer->RenderGenericManual(); } );
     }
 
-    void SceneRenderer::AddFrameSkinned( RDG::Builder& graph, LegacyFrameTextures& textures,
+    void SceneRenderer::AddFrameSkinned( RDG::Builder& graph, FrameTextures& textures,
                                          System::MeshRenderer* meshRenderer )
     {
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Skinned" );
@@ -249,10 +249,10 @@ namespace Desert::Graphic
                    [meshRenderer]() { meshRenderer->RenderSkinnedManual(); } );
     }
 
-    void SceneRenderer::AddFrameGlass( RDG::Builder& graph, LegacyFrameTextures& textures,
-                                       const std::vector<RDG::TextureRef>&       copyReads,
-                                       System::MeshRenderer*                     meshRenderer,
-                                       const std::shared_ptr<LegacyFrameValues>& values )
+    void SceneRenderer::AddFrameGlass( RDG::Builder& graph, FrameTextures& textures,
+                                       const std::vector<RDG::TextureRef>& copyReads,
+                                       System::MeshRenderer*               meshRenderer,
+                                       const std::shared_ptr<FrameValues>& values )
     {
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Glass" );
         if ( !targets || !meshRenderer )
@@ -265,7 +265,7 @@ namespace Desert::Graphic
     }
 
 #if DESERT_DEV_INSTRUMENTS
-    void SceneRenderer::AddFrameOverdraw( RDG::Builder& graph, LegacyFrameTextures& textures )
+    void SceneRenderer::AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );

@@ -162,25 +162,6 @@ namespace Desert::Graphic::RDG
             m_Passes.back().Exec = ExecFunction( std::forward<Exec>( exec ) );
         }
 
-        // Adapter for code not yet written as graph passes (removed in RDG-Z): the graph brings every
-        // texture in @p reads and @p writes to SHADER_READ_ONLY before @p exec, and considers them left
-        // there afterwards - what old code with its own render passes expects and does.
-        template <class Exec>
-        void AddLegacyPass( std::string_view name, const std::vector<TextureRef>& reads,
-                            const std::vector<TextureRef>& writes, Exec&& exec )
-        {
-            AddPass(
-                 name, PassFlags::Legacy | PassFlags::NeverCull,
-                 [&]( PassBuilder& pass )
-                 {
-                     for ( const TextureRef read : reads )
-                         pass.Read( read, Access::LegacyRead );
-                     for ( const TextureRef write : writes )
-                         pass.Write( write, Access::LegacyWrite );
-                 },
-                 std::forward<Exec>( exec ) );
-        }
-
         // Pure: reads the declarations, touches nothing, may be called any number of times. @p memory
         // answers the size / alignment / memory types of each transient for the aliasing plan.
         Common::ResultStr<CompileResult> Compile( const IMemoryRequirementsProvider& memory ) const;

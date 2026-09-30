@@ -67,11 +67,6 @@ namespace Desert::Graphic
         // labels and pass timings, and each pass's own recording, in the graph's order.
         virtual Common::BoolResultStr ExecuteGraph( RDG::Builder& graph ) = 0;
 
-        // The graph's handle on an engine image that legacy passes render into and sample. Null when the
-        // image is not in SHADER_READ_ONLY, the layout Builder::AddLegacyPass assumes around every legacy
-        // pass: declaring it would make the graph issue barriers from a layout the image is not in.
-        virtual std::shared_ptr<RDG::IPhysicalTexture> WrapLegacyImage( Image2D& image ) = 0;
-
         // Imports @p image into @p into for one graph: its description (a 2D image, a volume or a cube, as the
         // image describes itself), its physical image, the state its own layout record implies
         // (RDG::RecordedLayoutState), and the hook through which Execute writes the final layout back into

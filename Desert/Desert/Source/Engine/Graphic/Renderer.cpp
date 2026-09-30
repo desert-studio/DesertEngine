@@ -242,11 +242,6 @@ namespace Desert::Graphic
         return s_RendererAPI->ImportBuffer( buffer, into );
     }
 
-    std::shared_ptr<RDG::IPhysicalTexture> Renderer::WrapLegacyImage( Image2D& image )
-    {
-        return s_RendererAPI->WrapLegacyImage( image );
-    }
-
     void Renderer::BeginDebugLabel( const char* name )
     {
         s_RendererAPI->BeginDebugLabel( name );

@@ -70,7 +70,7 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddFrameCloudShadowMap( RDG::Builder& graph, LegacyFrameTextures& textures )
+    void SceneRenderer::AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures )
     {
         // The cloud layer's shadow on the world. HERE, and not beside the cloud march at the other end of the
         // frame, because its readers are the lit passes (the deferred Composite, the forward meshes and terrain),
@@ -81,7 +81,7 @@ namespace Desert::Graphic
             AddComputeNodes( graph, textures, clouds->DeclareShadowMapNodes() );
     }
 
-    void SceneRenderer::AddFrameSkyAtmosphereLuts( RDG::Builder& graph, LegacyFrameTextures& textures )
+    void SceneRenderer::AddFrameSkyAtmosphereLuts( RDG::Builder& graph, FrameTextures& textures )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
@@ -89,7 +89,7 @@ namespace Desert::Graphic
             AddComputeNodes( graph, textures, sky->DeclareAtmosphereLutNodes() );
     }
 
-    void SceneRenderer::AddFrameAtmosphericFog( RDG::Builder& graph, LegacyFrameTextures& textures )
+    void SceneRenderer::AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* fog = UNIQUE_GET_AS( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] );
@@ -97,7 +97,7 @@ namespace Desert::Graphic
             AddComputeNodes( graph, textures, fog->DeclareFrameNodes() );
     }
 
-    void SceneRenderer::AddFrameVolumetricClouds( RDG::Builder& graph, LegacyFrameTextures& textures )
+    void SceneRenderer::AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] );

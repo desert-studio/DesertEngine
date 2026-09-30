@@ -47,7 +47,7 @@ namespace Desert::Graphic
         }
     } // namespace
 
-    void SceneRenderer::AddFrameJumpFlood( RDG::Builder& graph, LegacyFrameTextures& textures )
+    void SceneRenderer::AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures )
     {
         auto* jfa = UNIQUE_GET_AS( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
         if ( !jfa )
@@ -117,7 +117,7 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddFrameAutoExposure( RDG::Builder& graph, LegacyFrameTextures& textures,
+    void SceneRenderer::AddFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures,
                                               const std::vector<RDG::TextureRef>& sceneColor )
     {
         auto* autoExp = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] );
@@ -163,7 +163,7 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddFrameBloom( RDG::Builder& graph, LegacyFrameTextures& textures,
+    void SceneRenderer::AddFrameBloom( RDG::Builder& graph, FrameTextures& textures,
                                        const std::vector<RDG::TextureRef>& sceneColor )
     {
         auto* bloom = UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] );
@@ -206,9 +206,9 @@ namespace Desert::Graphic
                  } );
     }
 
-    void SceneRenderer::AddFrameLightShafts( RDG::Builder& graph, LegacyFrameTextures& textures,
-                                             const std::vector<RDG::TextureRef>&       sceneColor,
-                                             const std::shared_ptr<LegacyFrameValues>& values )
+    void SceneRenderer::AddFrameLightShafts( RDG::Builder& graph, FrameTextures& textures,
+                                             const std::vector<RDG::TextureRef>& sceneColor,
+                                             const std::shared_ptr<FrameValues>& values )
     {
         // The sun's screen position is the frame's, known when the graph is built (the camera and the atmosphere
         // are); the shafts here and the lens flare after them read it from the frame's shared values, whether or
@@ -275,9 +275,9 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRenderer::AddFrameLensFlare( RDG::Builder& graph, LegacyFrameTextures& textures,
-                                           const std::vector<RDG::TextureRef>&       sceneColor,
-                                           const std::shared_ptr<LegacyFrameValues>& values )
+    void SceneRenderer::AddFrameLensFlare( RDG::Builder& graph, FrameTextures& textures,
+                                           const std::vector<RDG::TextureRef>& sceneColor,
+                                           const std::shared_ptr<FrameValues>& values )
     {
         auto* flare   = UNIQUE_GET_AS( System::LensFlareRenderer, m_RenderSystems["LensFlareSystem"] );
         auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
@@ -332,7 +332,7 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddFrameTonemap( RDG::Builder& graph, LegacyFrameTextures& textures )
+    void SceneRenderer::AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures )
     {
         auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
         if ( !tonemap )
@@ -363,7 +363,7 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddFrameFXAA( RDG::Builder& graph, LegacyFrameTextures& textures )
+    void SceneRenderer::AddFrameFXAA( RDG::Builder& graph, FrameTextures& textures )
     {
         auto* fxaa = UNIQUE_GET_AS( System::FXAARenderer, m_RenderSystems["FXAASystem"] );
         if ( !fxaa )
@@ -384,7 +384,7 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddFrameSMAA( RDG::Builder& graph, LegacyFrameTextures& textures )
+    void SceneRenderer::AddFrameSMAA( RDG::Builder& graph, FrameTextures& textures )
     {
         auto* smaa = UNIQUE_GET_AS( System::SMAARenderer, m_RenderSystems["SMAASystem"] );
         if ( !smaa || !smaa->Prepare() )
@@ -440,7 +440,7 @@ namespace Desert::Graphic
              } );
     }
 
-    RDG::TextureRef SceneRenderer::AddFrameBackdropBlur( RDG::Builder& graph, LegacyFrameTextures& textures,
+    RDG::TextureRef SceneRenderer::AddFrameBackdropBlur( RDG::Builder& graph, FrameTextures& textures,
                                                          const std::vector<RDG::TextureRef>& sceneColor )
     {
         auto* backdrop = UNIQUE_GET_AS( System::BackdropBlurRenderer, m_RenderSystems["BackdropBlurSystem"] );

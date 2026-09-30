@@ -13,6 +13,7 @@
 #include <cctype>
 #include <filesystem>
 #include <memory>
+#include <regex>
 #include <span>
 #include <format>
 #include <functional>
@@ -1112,112 +1113,14 @@ TEST( RenderGraphCompile, AliasingPlanUsesTheProvidersRequirements )
     EXPECT_NE( refused.GetError().find( "Scratch" ), std::string::npos ) << refused.GetError();
 }
 
-// AddLegacyPass: old code gets its images in SHADER_READ_ONLY and leaves them there; the graph neither
-// opens a rendering scope for it nor lets graph passes use the legacy accesses.
-TEST( RenderGraphCompile, LegacyPassSeesShaderReadOnlyAndLeavesItThere )
-{
-    ExternalTexture  history( Tex2D( 64, 64, ImageFormat::RGBA16F ), Access::None );
-    ExternalTexture  back( Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None );
-    RecordingBackend backend;
-    Builder          graph( "legacy" );
-    const TextureRef scene = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA16F ), "Scene" );
-    const TextureRef hist  = graph.RegisterExternal( history, "History" );
-    const TextureRef bb    = graph.RegisterExternal( back, "Backbuffer" );
-    graph.AddPass(
-         "Scene", PassFlags::Raster,
-         [&]( PassBuilder& pass ) { pass.ColorTarget( 0, scene, LoadOp::ClearColor( 0, 0, 0, 1 ) ); }, Ok );
-    graph.AddLegacyPass( "OldBloom", { scene }, { hist }, Ok );
-    graph.AddPass(
-         "Tonemap", PassFlags::Raster,
-         [&]( PassBuilder& pass )
-         {
-             pass.Read( hist, Access::SampledGraphics );
-             pass.ColorTarget( 0, bb, LoadOp::DontCare() );
-         },
-         Ok );
-
-    const CompileResult result = CompileOrFail( graph );
-    const CompiledPass* legacy = result.FindPass( "OldBloom" );
-    ASSERT_NE( legacy, nullptr );
-    const std::vector<Barrier> onScene = BarriersOn( legacy, scene.Index );
-    const std::vector<Barrier> onHist  = BarriersOn( legacy, hist.Index );
-    ASSERT_EQ( onScene.size(), 1u );
-    ASSERT_EQ( onHist.size(), 1u );
-    EXPECT_EQ( onScene[0].Before.Layout, ImageLayout::ColorAttachment );
-    EXPECT_EQ( onScene[0].After.Layout, ImageLayout::ShaderReadOnly );
-    EXPECT_EQ( onHist[0].After.Layout, ImageLayout::ShaderReadOnly );
-    // After the legacy pass the texture is considered in SHADER_READ_ONLY: the reader's barrier waits on
-    // everything legacy code may have done but changes no layout.
-    const std::vector<Barrier> tonemap = BarriersOn( result.FindPass( "Tonemap" ), hist.Index );
-    ASSERT_EQ( tonemap.size(), 1u );
-    EXPECT_EQ( tonemap[0].Before, GetAccessState( Access::LegacyWrite ) );
-    EXPECT_EQ( tonemap[0].Before.Layout, ImageLayout::ShaderReadOnly );
-    EXPECT_EQ( tonemap[0].After.Layout, ImageLayout::ShaderReadOnly );
-
-    ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
-    const auto legacyBegin = std::find( backend.Calls.begin(), backend.Calls.end(), "BeginPass OldBloom" );
-    ASSERT_NE( legacyBegin, backend.Calls.end() );
-    ASSERT_GE( backend.Calls.end() - legacyBegin, 3 );
-    EXPECT_EQ( *( legacyBegin + 1 ), "Barriers 2" );
-    EXPECT_EQ( *( legacyBegin + 2 ), "EndPass OldBloom" ) << "a legacy pass records its own render passes";
-
-    // The legacy accesses belong to legacy passes only, and legacy passes take nothing else.
-    Builder          misuse( "misuse" );
-    const TextureRef t = misuse.CreateTexture( Tex2D( 8, 8, ImageFormat::RGBA8F ), "T" );
-    misuse.AddPass(
-         "Sneaky", PassFlags::Raster, [&]( PassBuilder& pass ) { pass.Read( t, Access::LegacyRead ); }, Ok );
-    Common::ResultStr<CompileResult> refused = misuse.Compile( kEstimate );
-    ASSERT_FALSE( refused.IsSuccess() );
-    EXPECT_NE( refused.GetError().find( "Sneaky" ), std::string::npos ) << refused.GetError();
-    EXPECT_NE( refused.GetError().find( "raster" ), std::string::npos ) << refused.GetError();
-}
-
-// ── SceneRenderer's frame as legacy passes (RDG3) ───────────────────────────────────────────────────────
-
-// SceneRenderer records its frame as AddLegacyPass wrappers whose real hazards the graph does not see
-// (most declare nothing, some declare only the SceneColor they read). The frame is correct only if the graph
-// then runs them exactly in the order they were added and drops none. Here the declarations point the wrong
-// way on purpose: a later pass writes what an earlier one reads, and two passes declare nothing and feed
-// nobody, which is what culling removes and a dependency sort would move.
-TEST( RenderGraphCompile, LegacyPassesRunInTheOrderAddedAndNoneIsCulled )
-{
-    ExternalTexture          color( Tex2D( 64, 64, ImageFormat::RGBA16F ), Access::None );
-    RecordingBackend         backend;
-    Builder                  graph( "legacyFrame" );
-    const TextureRef         scene = graph.RegisterExternal( color, "SceneColor" );
-    std::vector<std::string> executed;
-    const auto               body = [&executed]( const char* name )
-    {
-        return [&executed, name]( PassContext& ) -> Common::BoolResultStr
-        {
-            executed.emplace_back( name );
-            return Common::MakeSuccess( true );
-        };
-    };
-    graph.AddLegacyPass( "Clear", {}, {}, body( "Clear" ) );
-    graph.AddLegacyPass( "Tonemap", { scene }, {}, body( "Tonemap" ) );
-    graph.AddLegacyPass( "Composite", {}, { scene }, body( "Composite" ) );
-    graph.AddLegacyPass( "Particles", {}, {}, body( "Particles" ) );
-    graph.AddLegacyPass( "Bloom", {}, { scene }, body( "Bloom" ) );
-
-    const std::vector<std::string> added  = { "Clear", "Tonemap", "Composite", "Particles", "Bloom" };
-    const CompileResult            result = CompileOrFail( graph );
-    std::vector<std::string>       compiled;
-    for ( const CompiledPass& pass : result.Passes )
-        compiled.push_back( pass.Name );
-    EXPECT_EQ( compiled, added );
-    ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
-    EXPECT_EQ( executed, added );
-}
-
 // WHICH ORDER SceneRenderer ADDS. The pass sequence of SceneRenderer::OnUpdate, read from the source: the
-// name of every AddLegacy wrapper and, for AddGraphPhasePasses, its phase selector (it adds one wrapper per
+// name of every graph node and, for AddGraphPhasePasses, its phase selector (it adds one node per
 // RenderGraphBuilder::GetSortedPasses entry the selector admits, in that order). The table is the frame
 // order before RDG3 (c303909f9, SceneRenderer::OnUpdate): its DESERT_PROFILE_PASS scopes and direct calls in
 // sequence, ExecuteRenderGraph = every phase but the deferred overlays, then ExecuteTransparency,
-// ExecuteDebugOverlay and ExecuteUI one phase each. With the test above, the frame the graph runs is this
-// table: moving a pass changes the picture and has to change the table on purpose.
-TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
+// ExecuteDebugOverlay and ExecuteUI one phase each. Moving a pass changes the picture and has to change the
+// table on purpose.
+TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "run from inside the repository";
@@ -1266,7 +1169,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
     {
         for ( size_t at = from;; )
         {
-            const size_t legacy = std::min( text.find( "AddLegacy(", at ), text.find( "graph.AddPass(", at ) );
+            const size_t pass   = text.find( "graph.AddPass(", at );
             const size_t phases = text.find( "AddGraphPhasePasses(", at );
             const size_t frame  = text.find( "AddFrame", at );
             size_t       raster = text.find( "AddRaster(", at );
@@ -1280,7 +1183,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
             // A call names its node first (a quote before the call's first ')'); the helper's definition does not.
             while ( raster != std::string::npos && text.find( '"', raster ) > text.find( ')', raster ) )
                 raster = text.find( "AddRaster(", raster + 1 );
-            const size_t first = std::min( { legacy, phases, frame, raster, node, compute } );
+            const size_t first = std::min( { pass, phases, frame, raster, node, compute } );
             if ( first == std::string::npos )
                 return;
             if ( first == frame )
@@ -1303,7 +1206,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
                      std::format( "compute[{}]", call.substr( prefix.size(), call.size() - prefix.size() - 1 ) ) );
                 at = semi + 1;
             }
-            else if ( first == legacy || first == raster || first == node )
+            else if ( first == pass || first == raster || first == node )
             {
                 const size_t open  = text.find( '"', first );
                 const size_t close = text.find( '"', open + 1 );
@@ -1323,7 +1226,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
     };
     collect( body, 0 );
 
-    const std::vector<std::string> legacyOrder = {
+    const std::vector<std::string> frameOrder = {
          "ClearMainFramebuffer",
          "Particles: Simulate",
          "compute[clouds->DeclareShadowMapNodes()]",
@@ -1370,14 +1273,13 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
          "PostFX: SMAAWeights",
          "PostFX: SMAABlend",
     };
-    EXPECT_EQ( added, legacyOrder );
+    EXPECT_EQ( added, frameOrder );
 
-    // RDG-LEG1-L2: the deferred passes are graph nodes with declared accesses, not legacy wrappers.
+    // RDG-LEG1-L2: the deferred passes are graph nodes with declared accesses.
     const auto declares = [&]( std::string_view function, std::initializer_list<std::string_view> needles )
     {
         const std::string text = squeeze( bodyOf( function ) );
         ASSERT_FALSE( text.empty() ) << function;
-        EXPECT_EQ( text.find( "AddLegacy(" ), std::string::npos ) << function << " still adds a legacy pass";
         for ( const std::string_view needle : needles )
             EXPECT_NE( text.find( needle ), std::string::npos ) << function << " does not declare " << needle;
     };
@@ -1390,7 +1292,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
 }
 
 // DepthResolve is a Copy node: G-buffer depth CopySrc -> target depth CopyDst, so the graph plans the barriers
-// into TRANSFER_SRC / TRANSFER_DST before it (the old AddLegacy wrapper declared nothing and got none), and the
+// into TRANSFER_SRC / TRANSFER_DST before it (the old wrapper declared nothing and got none), and the
 // G-buffer depth ends the graph in the attachment layout. The same declarations compiled on recorded images:
 TEST( RenderGraphCompile, DepthResolveIsACopyNodeWithCopySrcCopyDstAndPlannedBarriers )
 {
@@ -1409,12 +1311,11 @@ TEST( RenderGraphCompile, DepthResolveIsACopyNodeWithCopySrcCopyDstAndPlannedBar
     EXPECT_NE( body.find( "DeferredFrameNodes::DeclareDepthResolve(pass,sourceRef,targetRef)" ),
                std::string::npos );
     EXPECT_NE( body.find( "\"GBuffer.Depth\",DeferredFrameNodes::kGBufferDepthFinal" ), std::string::npos );
-    EXPECT_EQ( body.find( "AddLegacy(" ), std::string::npos );
 }
 
 // THE POST-PROCESS AND BACKDROP PASSES ARE GRAPH NODES (RDG-LEG1-L4). Every pass SceneRendererFramePostFX.cpp
 // adds is a Compute or Raster node whose setup declares what it samples and writes, so the graph places every
-// barrier and opens every render pass: no AddLegacy wrapper is left, and neither the file nor the renderers it
+// barrier and opens every render pass, and neither the file nor the renderers it
 // drives record a manual image transition, a ComputeImageBegin/EndWrite bracket or their own render pass. A
 // node that declares nothing must be a culling root (NeverCull): the auto-exposure histogram clear writes only
 // a buffer the graph does not import yet.
@@ -1438,8 +1339,6 @@ TEST( RenderGraphCompile, PostFxPassesAreRealGraphNodesWithDeclaredAccess )
     const std::string postFx = read( "Desert/Desert/Source/Engine/Graphic/SceneRendererFramePostFX.cpp" );
     ASSERT_FALSE( postFx.empty() ) << "SceneRendererFramePostFX.cpp is gone";
 
-    EXPECT_EQ( postFx.find( "AddLegacy(" ), std::string::npos ) << "a PostFX/UI pass is still a legacy wrapper";
-
     size_t nodes = 0;
     for ( size_t at = postFx.find( "graph.AddPass(" ); at != std::string::npos;
           at        = postFx.find( "graph.AddPass(", at + 1 ) )
@@ -1457,7 +1356,6 @@ TEST( RenderGraphCompile, PostFxPassesAreRealGraphNodesWithDeclaredAccess )
         EXPECT_TRUE( flags.find( "RDG::PassFlags::Compute" ) != std::string::npos ||
                      flags.find( "RDG::PassFlags::Raster" ) != std::string::npos )
              << name << " is neither a Compute nor a Raster node";
-        EXPECT_EQ( flags.find( "PassFlags::Legacy" ), std::string::npos ) << name << " is a legacy node";
 
         const std::string declarations = postFx.substr( setup, exec - setup );
         const bool        declares     = declarations.find( "pass.Read(" ) != std::string::npos ||
@@ -1682,7 +1580,7 @@ TEST( RenderGraphCompile, DepthTargetOnAnImportedDepthIsTransitionedIntoAttachme
 
 // The deferred frame's own declarations (DeferredFrameNodes, what SceneRendererFrameDeferred.cpp declares) on the
 // images as the frame hands them over: the G-buffer depth and the scene target depth both recorded in the
-// attachment layout. The graph must plan TRANSFER_SRC / TRANSFER_DST before the copy (the old AddLegacy wrapper
+// attachment layout. The graph must plan TRANSFER_SRC / TRANSFER_DST before the copy (the old wrapper
 // declared nothing, and CopyDepthImage transitioned by hand behind the graph's back), take the target depth back
 // into the attachment layout before Composite, and leave the G-buffer depth where the next frame's G-buffer
 // pass begins.
@@ -1756,7 +1654,6 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
         return std::string( std::istreambuf_iterator<char>( file ), std::istreambuf_iterator<char>() );
     };
     const std::string frame = read( "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameMesh.cpp" );
-    EXPECT_EQ( frame.find( "AddLegacy(" ), std::string::npos );
     EXPECT_NE( frame.find( "pass.ColorTarget(" ), std::string::npos );
     EXPECT_NE( frame.find( "pass.DepthTarget(" ), std::string::npos );
     // The call is matched with its whitespace collapsed: where clang-format breaks "AddRaster(" from its arguments
@@ -1958,7 +1855,6 @@ TEST( RenderGraphCompile, ParticleSimulationIsAComputeNodeTheGraphKeeps )
     const size_t begin = text.find( "voidSceneRenderer::AddFrameParticlesSimulate(" );
     ASSERT_NE( begin, std::string::npos );
     const std::string body = text.substr( begin, text.find( "voidSceneRenderer::", begin + 1 ) - begin );
-    EXPECT_EQ( body.find( "AddLegacy(" ), std::string::npos );
     EXPECT_NE(
          body.find( "graph.AddPass(\"Particles:Simulate\",RDG::PassFlags::Compute|RDG::PassFlags::NeverCull" ),
          std::string::npos );
@@ -2059,7 +1955,6 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
     { return SqueezedSource( root, std::format( "{}{}", graphic, relative ).c_str() ); };
 
     const std::string sceneRenderer = source( "SceneRenderer.cpp" );
-    EXPECT_EQ( sceneRenderer.find( "AddLegacy(" ), std::string::npos ) << "SceneRenderer.cpp adds a legacy pass";
     EXPECT_EQ( sceneRenderer.find( "BeginRenderPass(pass->CachedRenderPass" ), std::string::npos )
          << "the bridge still opens the engine render pass itself";
 
@@ -2073,7 +1968,6 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
             "node.ResolveTarget(slot,targets->Resolves[slot])",
             "RDG::LoadOp::ClearDepth(spec.ClearColor.DepthStencil.x)" } )
         EXPECT_NE( bridge.find( needle ), std::string::npos ) << "the phase pass node does not " << needle;
-    EXPECT_EQ( bridge.find( "AddLegacy(" ), std::string::npos );
     EXPECT_EQ( bridge.find( "BeginRenderPass(" ), std::string::npos );
     EXPECT_EQ( bridge.find( "EndRenderPass(" ), std::string::npos );
 
@@ -2129,7 +2023,6 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
     { return SqueezedSource( root, std::format( "Desert/Desert/Source/Engine/Graphic/{}", relative ).c_str() ); };
 
     const std::string frame = source( "SceneRendererFrameAtmosphere.cpp" );
-    EXPECT_EQ( frame.find( "AddLegacy(" ), std::string::npos ) << "an atmosphere pass is still a legacy wrapper";
     for ( const char* needle : { "AddComputeNodes(graph,textures,clouds->DeclareShadowMapNodes())",
                                  "AddComputeNodes(graph,textures,sky->DeclareAtmosphereLutNodes())",
                                  "AddComputeNodes(graph,textures,fog->DeclareFrameNodes())",
@@ -2184,4 +2077,42 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
     EXPECT_NE( source( "SceneRenderer.cpp" )
                     .find( "ResolveDeclared(textures,shadows,\"Deferred:Composite\",shadowMaps)" ),
                std::string::npos );
+}
+
+// NO LEGACY CONSTRUCT REMAINS (RDG-LEG1-L5b). Every pass of the frame is a Raster, Compute or Copy node that
+// declares what it touches; the bridge that let old code record its own render passes behind the graph's back
+// (the legacy pass, its two accesses and pass kind, the SHADER_READ_ONLY image wrapper and the frame texture table
+// built on it) is gone from the engine and the editor, and must not come back under the same names.
+TEST( RenderGraphCompile, NoLegacyConstructRemainsInTheEngine )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const std::regex forbidden(
+         R"(AddLegacy|AddLegacyPass|LegacyRead|LegacyWrite|PassFlags::Legacy|WrapLegacyImage|LegacyFrameTextures)" );
+    std::vector<std::string> found;
+    size_t                   scanned = 0;
+    for ( const char* tree : { "Desert/Desert/Source", "Editor/Source" } )
+    {
+        ASSERT_TRUE( fs::is_directory( root / tree ) ) << tree << " is gone";
+        for ( const fs::directory_entry& entry : fs::recursive_directory_iterator( root / tree ) )
+        {
+            const std::string extension = entry.path().extension().string();
+            if ( !entry.is_regular_file() ||
+                 ( extension != ".cpp" && extension != ".hpp" && extension != ".h" && extension != ".inl" ) )
+                continue;
+            ++scanned;
+            std::ifstream file( entry.path() );
+            std::string   line;
+            for ( size_t number = 1; std::getline( file, line ); ++number )
+                if ( line.find( "Legacy" ) != std::string::npos && std::regex_search( line, forbidden ) )
+                    found.push_back( std::format( "{}:{}: {}", fs::relative( entry.path(), root ).generic_string(),
+                                                  number, line ) );
+        }
+    }
+    EXPECT_GT( scanned, 0u );
+    std::string list;
+    for ( const std::string& hit : found )
+        std::format_to( std::back_inserter( list ), "
+  {}", hit );
+    EXPECT_TRUE( found.empty() ) << found.size() << " legacy construct(s) remain:" << list;
 }

@@ -28,8 +28,6 @@ namespace Desert::Graphic::RDG
                 return "raster";
             if ( HasFlag( flags, PassFlags::Compute ) )
                 return "compute";
-            if ( HasFlag( flags, PassFlags::Legacy ) )
-                return "legacy";
             return "copy";
         }
 
@@ -37,11 +35,6 @@ namespace Desert::Graphic::RDG
         // could only honour by synchronising stages the pass never runs.
         bool RdgPassKindAllows( PassFlags flags, Access access )
         {
-            const bool legacyAccess = access == Access::LegacyRead || access == Access::LegacyWrite;
-            if ( HasFlag( flags, PassFlags::Legacy ) )
-                return legacyAccess;
-            if ( legacyAccess )
-                return false;
             if ( HasFlag( flags, PassFlags::Copy ) )
                 return access == Access::CopySrc || access == Access::CopyDst;
             if ( HasFlag( flags, PassFlags::Compute ) )
@@ -209,13 +202,13 @@ namespace Desert::Graphic::RDG
 
     PassBuilder Builder::BeginPass( std::string_view name, PassFlags flags )
     {
-        const int kinds =
-             ( HasFlag( flags, PassFlags::Raster ) ? 1 : 0 ) + ( HasFlag( flags, PassFlags::Compute ) ? 1 : 0 ) +
-             ( HasFlag( flags, PassFlags::Copy ) ? 1 : 0 ) + ( HasFlag( flags, PassFlags::Legacy ) ? 1 : 0 );
+        const int kinds = ( HasFlag( flags, PassFlags::Raster ) ? 1 : 0 ) +
+                          ( HasFlag( flags, PassFlags::Compute ) ? 1 : 0 ) +
+                          ( HasFlag( flags, PassFlags::Copy ) ? 1 : 0 );
         if ( kinds != 1 )
-            RecordError( fmt::format(
-                 "graph '{}': pass '{}' names {} of Raster/Compute/Copy/Legacy; exactly one is required", m_Name,
-                 name, kinds ) );
+            RecordError(
+                 fmt::format( "graph '{}': pass '{}' names {} of Raster/Compute/Copy; exactly one is required",
+                              m_Name, name, kinds ) );
 
         PassRecord record;
         record.Name  = std::string( name );

@@ -40,7 +40,6 @@ namespace Desert::Graphic::API::Vulkan
                                         uint32_t accessMask )
         {
             const VkFormat    format = RdgFormat( device, desc.Format );
-            const bool        depth  = ( GetImageVulkanAspect( desc.Format ) & VK_IMAGE_ASPECT_DEPTH_BIT ) != 0;
             VkImageCreateInfo info{};
             info.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
             info.flags         = desc.Dim == RDG::TextureDim::Cube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0u;
@@ -52,7 +51,7 @@ namespace Desert::Graphic::API::Vulkan
             info.arrayLayers   = desc.Layers;
             info.samples       = static_cast<VkSampleCountFlagBits>( std::max( 1u, desc.Samples ) );
             info.tiling        = VK_IMAGE_TILING_OPTIMAL;
-            info.usage         = RdgImageUsage( accessMask, depth );
+            info.usage         = RdgImageUsage( accessMask );
             info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
             info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
             return info;
@@ -86,12 +85,11 @@ namespace Desert::Graphic::API::Vulkan
 
     // ── Translation tables ─────────────────────────────────────────────────────────────────────────────
 
-    VkImageUsageFlags RdgImageUsage( uint32_t accessMask, bool depthFormat )
+    VkImageUsageFlags RdgImageUsage( uint32_t accessMask )
     {
         using RDG::Access;
         VkImageUsageFlags usage = 0;
-        if ( RdgHas( accessMask, Access::SampledGraphics ) || RdgHas( accessMask, Access::SampledCompute ) ||
-             RdgHas( accessMask, Access::LegacyRead ) )
+        if ( RdgHas( accessMask, Access::SampledGraphics ) || RdgHas( accessMask, Access::SampledCompute ) )
             usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
         if ( RdgHas( accessMask, Access::StorageRead ) || RdgHas( accessMask, Access::StorageWrite ) )
             usage |= VK_IMAGE_USAGE_STORAGE_BIT;
@@ -103,13 +101,6 @@ namespace Desert::Graphic::API::Vulkan
             usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         if ( RdgHas( accessMask, Access::CopyDst ) )
             usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-        // Legacy code renders into the image through its own render pass, samples it and copies it; what it
-        // does exactly is invisible to the graph.
-        if ( RdgHas( accessMask, Access::LegacyWrite ) )
-            usage |= VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                     VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                     ( depthFormat ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
-                                   : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT );
         return usage;
     }
 

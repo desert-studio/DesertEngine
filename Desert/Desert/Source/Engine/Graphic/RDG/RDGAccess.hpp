@@ -35,8 +35,6 @@ namespace Desert::Graphic::RDG
         AccelStructBuildInput, // vertex/index/instance data consumed by an acceleration-structure build
         AccelStructBuildWrite, // the acceleration structure being built
         AccelStructRead,       // ray query from a fragment or compute shader
-        LegacyRead,            // sampled by a legacy pass (Builder::AddLegacyPass) in any shader stage
-        LegacyWrite,           // written by a legacy pass through its own render pass, left SHADER_READ_ONLY
         Count
     };
 
@@ -221,22 +219,6 @@ namespace Desert::Graphic::RDG
            { PipelineStage_FragmentShader | PipelineStage_ComputeShader, MemoryAccess_AccelStructRead,
              ImageLayout::Undefined },
            AccessTarget_Buffer },
-         // Legacy code expects SHADER_READ_ONLY before it runs and leaves its images there; what it does in
-         // between is invisible to the graph, so a legacy write waits on and is waited on by every stage and
-         // access such code can use.
-         { Access::LegacyRead,
-           "LegacyRead",
-           { kAllShaderStages, MemoryAccess_ShaderSampledRead, ImageLayout::ShaderReadOnly },
-           AccessTarget_Texture },
-         { Access::LegacyWrite,
-           "LegacyWrite",
-           { kAllShaderStages | PipelineStage_ColorAttachmentOutput | kDepthTestStages | PipelineStage_Copy,
-             MemoryAccess_ShaderSampledRead | MemoryAccess_ShaderStorageRead | MemoryAccess_ShaderStorageWrite |
-                  MemoryAccess_ColorAttachmentRead | MemoryAccess_ColorAttachmentWrite |
-                  MemoryAccess_DepthStencilRead | MemoryAccess_DepthStencilWrite | MemoryAccess_TransferRead |
-                  MemoryAccess_TransferWrite,
-             ImageLayout::ShaderReadOnly },
-           AccessTarget_Texture },
     } };
 
     namespace AccessTableDetail
