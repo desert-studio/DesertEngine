@@ -96,6 +96,22 @@ namespace Desert::Core
     [[nodiscard]] Common::ResultStr<ECS::Entity>
     SpawnDefaultPawn( Scene& scene, const Assets::AssetManager& assets, const PlayRequest& request );
 
+    // The capsule of the pawn Play WOULD spawn (UE: APlayerStart draws the DefaultPawnClass CDO's capsule).
+    struct PawnCapsule
+    {
+        float Radius = 0.0f; // cm
+        float Height = 0.0f; // cm, total (CharacterControllerData::Height)
+    };
+
+    // The level's Default Pawn's body, read from the prefab's records without spawning it: the first record
+    // (hierarchy order, so the root first) carrying a "CharacterController" block, deserialized into
+    // CharacterControllerData by its reflection - the ONE home of the size, so a field the file leaves out is
+    // that struct's value, exactly what the spawned pawn gets. nullopt = the level names no pawn, or its pawn
+    // has no controller (a spectator); both legal, and there is then no capsule to draw. A handle that does
+    // not resolve to a loaded prefab is an error naming the level, as SpawnDefaultPawn says it.
+    [[nodiscard]] Common::ResultStr<std::optional<PawnCapsule>>
+    DefaultPawnCapsule( const Scene& scene, const Assets::AssetManager& assets );
+
     // Everything Play needs before the first gameplay tick, in the one order both the editor and the
     // packaged game use: spawn the pawn, resolve the view target, enter SceneState::Play. On failure the
     // scene is left in its state from before the call (nothing spawned stays behind) and the error says why.

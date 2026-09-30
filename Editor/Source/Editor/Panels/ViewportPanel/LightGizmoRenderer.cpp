@@ -191,8 +191,8 @@ namespace Desert::Editor
     } // namespace
 
     LightGizmoRenderer::LightGizmoRenderer( const std::shared_ptr<Desert::Core::Scene>& scene,
-                                            Editor::UI::UIHelper* uiHelper )
-         : m_Scene( scene ), m_UIHelper( uiHelper )
+                                            const Assets::AssetManager* assets, Editor::UI::UIHelper* uiHelper )
+         : m_Scene( scene ), m_Assets( assets ), m_UIHelper( uiHelper )
     {
     }
 
@@ -1338,6 +1338,19 @@ namespace Desert::Editor
         const auto   mvp       = camera->GetProjectionMatrix() * camera->GetViewMatrix();
         ImDrawList*  drawList  = ImGui::GetWindowDrawList();
 
+        // The body every PlayerStart draws is the pawn the LEVEL would spawn (UE: the DefaultPawnClass
+        // CDO's capsule), read once per frame; a pawn that cannot be read has no capsule, and the start's
+        // tooltip says why.
+        std::optional<::Desert::Core::PawnCapsule> pawn;
+        std::string                                pawnRefusal;
+        if ( m_Assets != nullptr )
+        {
+            if ( auto read = ::Desert::Core::DefaultPawnCapsule( *m_Scene, *m_Assets ) )
+                pawn = read.GetValue();
+            else
+                pawnRefusal = read.GetError();
+        }
+
         for ( auto entity : entities )
         {
             // Only entities WITHOUT a rendered/gizmo'd representation get a billboard — anything already
@@ -1366,7 +1379,7 @@ namespace Desert::Editor
             ImVec4    color = ImVec4( 0.75f, 0.78f, 0.85f, 1.0f );
             if ( entity.HasComponent<ECS::PlayerStartComponent>() )
             {
-                role  = GizmoIcon::SpawnPoint;
+                role  = GizmoIcon::PlayerStart; // UE's S_Player: the figure that will stand here
                 color = ImVec4( 0.45f, 1.00f, 0.45f, 1.0f );
             }
             else if ( entity.HasComponent<ECS::AudioSourceComponent>() )
@@ -1403,10 +1416,11 @@ namespace Desert::Editor
 
             // A PlayerStart is UE's APlayerStart: the pawn's capsule as a world wireframe and a solid
             // world-space arrow along the facing, both from Tools/PlayerStartGizmoMath.hpp; the billboard
-            // below is the third component. The capsule is the CharacterController's, its one home.
-            if ( entity.HasComponent<ECS::PlayerStartComponent>() )
+            // below is the third component. The capsule is the level's Default Pawn's CharacterController.
+            const bool isStart = entity.HasComponent<ECS::PlayerStartComponent>();
+            if ( isStart )
                 DrawPlayerStartBody( drawList, entity.GetWorldTransform(), mvp, camera->GetPosition(), width,
-                                     height, windowPos, IsSelected( entity ) );
+                                     height, windowPos, IsSelected( entity ), pawn );
 
             if ( DrawBillboardIcon( drawList, ImVec2( ax, ay ), role, color, IsSelected( entity ), m_UIHelper ) )
             {
@@ -1423,8 +1437,13 @@ namespace Desert::Editor
                                               : std::string( "Actor" );
                 ImGui::PushStyleColor( ImGuiCol_PopupBg, IM_COL32( 0, 0, 0, 0 ) );
                 ImGui::PushStyleColor( ImGuiCol_Border, IM_COL32( 0, 0, 0, 0 ) );
-                Utils::ImGuiUtilities::Tooltip( std::format( "{}\n{}\nPosition: ({:.2f}, {:.2f}, {:.2f})", name,
-                                                             label, worldPos.x, worldPos.y, worldPos.z )
+                const std::string pawnLine =
+                     !isStart               ? std::string()
+                     : !pawnRefusal.empty() ? std::format( "\n{}", pawnRefusal )
+                     : pawn ? std::format( "\nPawn capsule: r {:.0f} cm, h {:.0f} cm", pawn->Radius, pawn->Height )
+                            : std::string( "\nNo Default Pawn with a CharacterController" );
+                Utils::ImGuiUtilities::Tooltip( std::format( "{}\n{}\nPosition: ({:.2f}, {:.2f}, {:.2f}){}", name,
+                                                             label, worldPos.x, worldPos.y, worldPos.z, pawnLine )
                                                      .c_str() );
                 ImGui::PopStyleColor( 2 );
             }
@@ -1433,20 +1452,21 @@ namespace Desert::Editor
 
     void LightGizmoRenderer::DrawPlayerStartBody( ImDrawList* drawList, const glm::mat4& world,
                                                   const glm::mat4& mvp, const glm::vec3& eye, float width,
-                                                  float height, const ImVec2& windowPos, bool selected )
+                                                  float height, const ImVec2& windowPos, bool selected,
+                                                  const std::optional<::Desert::Core::PawnCapsule>& pawn )
     {
         const glm::vec3                  centre  = glm::vec3( world[3] );
         const glm::vec3                  forward = glm::normalize( -glm::vec3( world[2] ) ); // -Z, as cameras
-        const ECS::CharacterControllerData pawn{};
         const glm::vec3& outline = EditorPreferences::Get().OutlineColor;
 
         // (1) the capsule — UE's ShapeColor for a shape component, the selection colour when selected
         const ImU32 wire = selected ? ImU32( ImColor( ImVec4( outline.r, outline.g, outline.b, 1.0f ) ) )
                                     : IM_COL32( 223, 149, 157, 220 );
-        for ( const Tools::GizmoSegment& s :
-              Tools::BuildPawnCapsuleWire( centre, forward, pawn.Radius, pawn.Height ) )
-            DrawWorldLine( drawList, s.A, s.B, mvp, width, height, windowPos.x, windowPos.y, wire,
-                           selected ? 2.0f : 1.5f );
+        if ( pawn )
+            for ( const Tools::GizmoSegment& s :
+                  Tools::BuildPawnCapsuleWire( centre, forward, pawn->Radius, pawn->Height ) )
+                DrawWorldLine( drawList, s.A, s.B, mvp, width, height, windowPos.x, windowPos.y, wire,
+                               selected ? 2.0f : 1.5f );
 
         // (2) the arrow — a solid mesh: back faces culled, the rest painted far to near, lit from the eye
         struct Face

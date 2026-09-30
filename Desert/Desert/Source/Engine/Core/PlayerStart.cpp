@@ -4,6 +4,9 @@
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/Reflection/ReflectionRegistry.hpp>
+#include <Engine/Reflection/ReflectionSerializer.hpp>
+#include <Common/Json/Document.hpp>
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/matrix_decompose.hpp>
@@ -96,6 +99,43 @@ namespace Desert::Core
             pawn.AddComponent<ECS::StreamingSourceComponent>();
         scene.SetPlayerPawn( pawn.GetHandle() );
         return Common::MakeSuccess( pawn );
+    }
+
+    Common::ResultStr<std::optional<PawnCapsule>> DefaultPawnCapsule( const Scene&                scene,
+                                                                      const Assets::AssetManager& assets )
+    {
+        const Assets::AssetHandle pawnHandle = scene.GetSettings().DefaultPawn;
+        if ( pawnHandle == 0 )
+            return Common::MakeSuccess( std::optional<PawnCapsule>{} );
+
+        const auto prefab = assets.FindByHandle<Assets::PrefabAsset>( pawnHandle );
+        if ( !prefab || !prefab->IsReadyForUse() )
+            return Common::MakeError<std::optional<PawnCapsule>>(
+                 "level '" + scene.GetSceneName() + "': its Default Pawn (asset handle " +
+                 std::to_string( static_cast<uint64_t>( pawnHandle ) ) + ") is not a loaded prefab" );
+
+        const auto* type = Reflection::ReflectionRegistry::Get().Find( "CharacterControllerData" );
+        if ( type == nullptr )
+            return Common::MakeError<std::optional<PawnCapsule>>( "CharacterControllerData is not reflected" );
+
+        for ( const auto& record : prefab->GetEntities() )
+        {
+            const auto block = record.Components.get( "CharacterController" );
+            if ( !block.has_value() )
+                continue;
+            ECS::CharacterControllerData data{};
+            Common::Json::Issues         issues;
+            Reflection::DeserializeReflected(
+                 *type, &data,
+                 Common::Json::Root( block.value(), Common::Json::Path().Key( "CharacterController" ) ), issues );
+            if ( !issues.empty() )
+                return Common::MakeError<std::optional<PawnCapsule>>(
+                     "level '" + scene.GetSceneName() +
+                     "': its Default Pawn's CharacterController block is malformed (" +
+                     std::to_string( issues.size() ) + " issue(s))" );
+            return Common::MakeSuccess( std::optional<PawnCapsule>( PawnCapsule{ data.Radius, data.Height } ) );
+        }
+        return Common::MakeSuccess( std::optional<PawnCapsule>{} );
     }
 
     Common::BoolResultStr BeginPlay( Scene& scene, const Assets::AssetManager& assets, const PlayRequest& request )
