@@ -44,12 +44,13 @@ namespace Desert::Assets
 
     std::vector<Animation::RequiredBone> RequiredBonesOf( const AnimationAsset& clip )
     {
-        // A track names only its bone; the parent is the skeleton's business (RequiredBone::Parent = nullopt).
+        // A bone binding names only its bone; the parent is the skeleton's business (RequiredBone::Parent = nullopt).
         std::vector<Animation::RequiredBone> required;
         std::unordered_set<std::string>      seen;
-        for ( const auto& track : clip.GetClip().Tracks )
-            if ( !track.BoneName.empty() && seen.insert( track.BoneName ).second )
-                required.push_back( Animation::RequiredBone{ track.BoneName, std::nullopt } );
+        for ( const auto& binding : clip.GetClip().Sequence.Bindings )
+            if ( binding.Kind == Animation::Timeline::BindingKind::Bone && !binding.Locator.empty() &&
+                 seen.insert( binding.Locator ).second )
+                required.push_back( Animation::RequiredBone{ binding.Locator, std::nullopt } );
         return required;
     }
 } // namespace Desert::Assets
