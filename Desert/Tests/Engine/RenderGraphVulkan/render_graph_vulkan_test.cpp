@@ -1380,7 +1380,7 @@ TEST( RenderGraphVulkan, ASampleCountChangeOpensTheNextRenderPassAtTheNewCount )
                 external.SubresourceStates.assign( desc.SubresourceCount(),
                                                    RDG::RecordedLayoutState( RDG::ImageLayout::Undefined ) );
                 external.Physical = VulkanRdgTexture::Wrap( device, image, VK_FORMAT_R8G8B8A8_UNORM, desc );
-                external.RecordFinalStates = []( const std::vector<RDG::AccessState>& ) -> Common::BoolResultStr
+                external.RecordStates = []( const std::vector<RDG::AccessState>&, bool ) -> Common::BoolResultStr
                 { return Common::MakeSuccess( true ); };
                 return external;
             };
