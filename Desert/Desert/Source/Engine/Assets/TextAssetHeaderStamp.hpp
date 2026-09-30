@@ -62,13 +62,18 @@ namespace Desert::Assets
     inline constexpr uint32_t kAnimGraphSchemaTag     = Common::Content::FourCC( "ANGR" );
     inline constexpr uint32_t kAnimGraphSchemaVersion = 1;
     // A .skeleton: the rig file layout, stated in the header since v1 (T7e). The files before it stated no
-    // version at all - that generation is 0, and a file of it is refused by name.
+    // version at all - that generation is 0, and a file of it is refused by name. v2 (SKEL-TREE): PreviewMesh
+    // and CompatibleSkeletons, as GUID references. v3 (SKEL-eng2): the dead `Import` provenance is gone (the
+    // import record's SourceHash is the one freshness). Tools/SceneMigrator raises v1 and v2 to v3.
     inline constexpr uint32_t kSkeletonSchemaTag     = Common::Content::FourCC( "SKEL" );
-    inline constexpr uint32_t kSkeletonSchemaVersion = 1;
+    inline constexpr uint32_t kSkeletonSchemaVersion = 3;
     // A .anim: the clip file layout, stated in the header since v4 (T7e; v0-v3 had a top-level `Version`,
     // absent meaning 0, and no header). The number continues the clip's own sequence (kAnimationVersion).
+    // v5 (SKEL-TREE): the clip names its skeleton by GUID (`Skeleton`, an AssetGuidRef, also the header's one
+    // Dependency); the bone-hash `SkeletonSignature` is gone. Tools/SceneMigrator raises v4 through
+    // Animation::MigrateSkeletonReference (exactly one .skeleton with that signature, else a refusal).
     inline constexpr uint32_t kAnimationSchemaTag     = Common::Content::FourCC( "ANIM" );
-    inline constexpr uint32_t kAnimationSchemaVersion = 4;
+    inline constexpr uint32_t kAnimationSchemaVersion = 5;
     // A .shader: stated since v1 (T7j) on the source's first line (ShaderAssetHeader.hpp). The files before it
     // stated nothing - that generation is 0, and a file of it is refused by name.
     inline constexpr uint32_t kShaderSchemaTag     = Common::Content::FourCC( "SHDR" );

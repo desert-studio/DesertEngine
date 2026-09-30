@@ -3,9 +3,9 @@
         "Kind": "Animation",
         "Guid": "2976c5016500e1c822f8647887e9ed42",
         "Versions": {
-            "ANIM": 4
+            "ANIM": 5
         },
-        "Dependencies": []
+        "Dependencies": ["6e7625493009a5445f91e22e58561d44"]
     },
     "Name": "ForeignArm_Swing",
     "TickRate": {
@@ -17,7 +17,10 @@
         "Denominator": 1
     },
     "DurationTicks": 48000,
-    "SkeletonSignature": 8155024733651207695,
+    "Skeleton": {
+        "Guid": "6e7625493009a5445f91e22e58561d44",
+        "Path": "Meshes/Skinned/ForeignArm.skeleton"
+    },
     "Channels": [
         {
             "BoneName": "IK_Shoulder",

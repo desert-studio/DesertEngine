@@ -3,7 +3,9 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/Math/AABB.hpp>
 
+#include <cstddef>
 #include <cstdint>
+#include <type_traits>
 #include <cstring>
 #include <limits>
 #include <optional>
@@ -29,47 +31,64 @@ namespace Common::Content
         uint64_t FileSize; // declared; compared against the bytes actually in hand
         uint32_t SectionCount;
         uint32_t Flags;
-        uint64_t SkeletonSignature;
+        // THE MESH'S SKELETON (version 5, SKEL-TREE; UE USkeletalMesh::Skeleton as an Asset Registry tag): the
+        // .skeleton's header GUID, in the header so the content scan reads it without the body. Null = the mesh
+        // names no skeleton (every static mesh). Replaced the uint64 bone-hash `SkeletonSignature` of v1-v4.
+        AssetGuid SkeletonGuid;
         // The mesh's box around its own origin (the union of its submesh boxes), meaningful only under
         // kMeshFlagHasBounds. These 24 bytes were reserved and zero before the flag existed, and no reader
         // ever checked them, so a file written before the flag reads as "states no box", never as a box
         // at the origin — which is why the flag, and not the numbers, is what says a box is present.
-        float BoundsMin[3];
-        float BoundsMax[3];
+        float    BoundsMin[3];
+        float    BoundsMax[3];
+        uint64_t Reserved; // zero; pads the header to 80 bytes (a multiple of 16)
     };
-    static_assert( sizeof( MeshBinaryFileHeader ) == 64 );
+    static_assert( sizeof( AssetGuid ) == 16 && std::is_trivially_copyable_v<AssetGuid> );
+    static_assert( offsetof( MeshBinaryFileHeader, SkeletonGuid ) == 32 );
+    static_assert( offsetof( MeshBinaryFileHeader, BoundsMin ) == 48 );
+    static_assert( sizeof( MeshBinaryFileHeader ) == 80 );
     static_assert( alignof( MeshBinaryFileHeader ) == 8 );
 
     /// Version 2 (M4) appends the PolyGroups section; see MeshBinary.hpp for the history. The bounds flag
     /// is NOT a version: an older reader ignores an unknown flag bit and a newer one reads an older file
     /// as "states no box", so both directions keep loading.
-    inline constexpr uint32_t kMeshBinaryVersion = 4; // 4: optional Colors/UV1 streams
+    /// Version 5 (SKEL-TREE) states the skeleton by GUID in an 80-byte header; versions 1-4 are refused by
+    /// name and raised by Tools/SceneMigrator (bone hash -> the one .skeleton with it).
+    inline constexpr uint32_t kMeshBinaryVersion = 5; // 5: SkeletonGuid in the header
 
-    // THE MESH'S IDENTITY (version 3, AF7). The 64-byte header above was full, so the asset GUID follows it
-    // as {Hi u64, Lo u64} at byte 64 and the section table starts at byte 80. Versions 1 and 2 state no
-    // GUID and their table starts at 64. The GUID sits in the prefix, not in a section, so the content scan
-    // reads it from the first 80 bytes without the body — as it reads the box.
+    // THE MESH'S IDENTITY (version 3, AF7): the asset GUID follows the header as {Hi u64, Lo u64} - at byte 80
+    // since version 5 - and the section table follows it at byte 96: kMeshBinaryPrefixSize, the header plus the
+    // GUID. The GUID sits in the prefix, not in a section, so the content scan reads it from the prefix without
+    // the body — as it reads the box.
     inline constexpr std::size_t kMeshBinaryGuidOffset = sizeof( MeshBinaryFileHeader );
-    inline constexpr std::size_t kMeshBinaryPrefixV3   = kMeshBinaryGuidOffset + 16;
+    inline constexpr std::size_t kMeshBinaryPrefixSize = kMeshBinaryGuidOffset + 16;
 
-    [[nodiscard]] constexpr std::size_t MeshHeaderSize( const uint32_t version )
-    {
-        return version >= 3 ? kMeshBinaryPrefixV3 : sizeof( MeshBinaryFileHeader );
-    }
-
-    // The GUID a v3 prefix states; nullopt for a shorter buffer, a foreign file or a version before 3.
+    // The GUID the current prefix states; nullopt for a shorter buffer, a foreign file or another version.
     [[nodiscard]] inline std::optional<AssetGuid> ReadMeshHeaderGuid( const std::string_view bytes )
     {
-        if ( bytes.size() < kMeshBinaryPrefixV3 )
+        if ( bytes.size() < kMeshBinaryPrefixSize )
             return std::nullopt;
         MeshBinaryFileHeader header{};
         std::memcpy( &header, bytes.data(), sizeof( header ) );
-        if ( std::memcmp( header.Magic, "DESTMESH", 8 ) != 0 || header.Version < 3 )
+        if ( std::memcmp( header.Magic, "DESTMESH", 8 ) != 0 || header.Version != kMeshBinaryVersion )
             return std::nullopt;
         AssetGuid guid;
         std::memcpy( &guid.Hi, bytes.data() + kMeshBinaryGuidOffset, 8 );
         std::memcpy( &guid.Lo, bytes.data() + kMeshBinaryGuidOffset + 8, 8 );
         return guid;
+    }
+
+    // The skeleton the current header states (null = none); nullopt for a shorter buffer, a foreign file or
+    // another version. What the content scan reads for a mesh's rig, without the body.
+    [[nodiscard]] inline std::optional<AssetGuid> ReadMeshHeaderSkeleton( const std::string_view bytes )
+    {
+        if ( bytes.size() < sizeof( MeshBinaryFileHeader ) )
+            return std::nullopt;
+        MeshBinaryFileHeader header{};
+        std::memcpy( &header, bytes.data(), sizeof( header ) );
+        if ( std::memcmp( header.Magic, "DESTMESH", 8 ) != 0 || header.Version != kMeshBinaryVersion )
+            return std::nullopt;
+        return header.SkeletonGuid;
     }
 
     // THE SUBMESH TABLE, AS FAR AS THE HEADER READER NEEDS IT (version 3). A mesh's dependency edges are
@@ -96,7 +115,7 @@ namespace Common::Content
     inline constexpr uint32_t kMeshBinaryByteOrderTag = 0x04030201u;
 
     inline constexpr uint32_t kMeshFlagIsSkinned            = 1u << 0;
-    inline constexpr uint32_t kMeshFlagHasSkeletonSignature = 1u << 1;
+    // Bit 1 was kMeshFlagHasSkeletonSignature (v1-v4); v5 states the skeleton as a GUID, null = none.
     // The header states the mesh's box. A mesh with no submeshes states it too — as an inverted box
     // (min > max) — so "this mesh has no extent" and "this file predates the statement" stay different
     // answers, and only the second one sends a reader to the body.

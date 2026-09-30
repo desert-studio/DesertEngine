@@ -15,6 +15,7 @@
 #include <glm/glm.hpp>
 
 #include <Engine/Animation/ClipSection.hpp>
+#include <Engine/Animation/ClipSkeletonMatch.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -189,7 +190,8 @@ namespace Desert::Editor
 
         // Creates a NEW empty clip for the given skeleton (a track per bone, no keys yet), registers it as an
         // in-memory AnimationAsset so it shows in the picker, and returns its name (empty on failure).
-        std::string CreateEmptyClip( const Animation::Skeleton& skeleton );
+        std::string CreateEmptyClip( const Animation::Skeleton&             skeleton,
+                                     const Animation::MeshSkeletonIdentity& mesh );
 
         // Writes the clip to Cooked/Meshes/_<name>.anim (rfl::json, same format the importer cooks) so an
         // in-editor-authored clip PERSISTS and is indexed from its registry row next session.

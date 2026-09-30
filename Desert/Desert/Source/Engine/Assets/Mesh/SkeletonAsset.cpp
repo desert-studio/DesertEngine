@@ -2,8 +2,7 @@
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 
-#include <Common/Utilities/FileSystem.hpp>
-#include <Common/Utilities/VFS.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 
 namespace Desert::Assets
 {
@@ -22,24 +21,10 @@ namespace Desert::Assets
         // The old path of a moved asset reads the file where it now lives, through the registry - the same
         // file the constructor took the identity from (ReadTextAssetIdentity).
         const std::filesystem::path file = ContentRegistry::FileToOpen( m_Metadata.Filepath );
-        // Through the VFS first, so a packaged build reads the rig out of its .dpak like every other asset,
-        // then off the disk for a loose file the pak does not carry (T7e: it read only the disk).
-        std::string text;
-        if ( const auto packed =
-                  Common::Utils::VFS::Exists( file ) ? Common::Utils::VFS::ReadFile( file ) : std::nullopt;
-             packed.has_value() )
-            text = packed.value();
-        else
-        {
-            auto raw = Common::Utils::FileSystem::ReadFileContent( file );
-            if ( !raw )
-                return Common::MakeError( raw.GetError() );
-            text = raw.ExtractValue();
-        }
-
-        auto read = Serialization::ReadSkeletonJson( text );
+        // The one read of a rig file (VFS, then loose disk; T7e: it read only the disk).
+        auto read = Serialization::ReadSkeletonFile( file );
         if ( !read )
-            return Common::MakeFormattedError<bool>( "'{}': {}", file.string(), read.GetError() );
+            return Common::MakeError( read.GetError() );
 
         auto data = read.ExtractValue();
 
@@ -58,7 +43,51 @@ namespace Desert::Assets
         // what a cook WROTE, and this is what the rig in memory IS. A mesh is matched against the second.
         m_Signature = m_Skeleton->GetSignature();
 
+        // The references (SKEL 2) resolve by GUID; the stored path is only for the reader. A GUID that does not
+        // parse is a broken file, refused by name rather than read as "no reference".
+        Common::Content::AssetGuid preview;
+        if ( data.PreviewMesh )
+        {
+            auto guid = Common::Content::AssetGuidFromText( data.PreviewMesh->Guid );
+            if ( !guid )
+                return Common::MakeFormattedError<bool>( "'{}': PreviewMesh '{}': {}", file.string(),
+                                                         data.PreviewMesh->Path, guid.GetError() );
+            preview = guid.GetValue();
+        }
+        std::vector<Common::Content::AssetGuid> compatible;
+        compatible.reserve( data.CompatibleSkeletons.size() );
+        for ( const AssetGuidRef& ref : data.CompatibleSkeletons )
+        {
+            auto guid = Common::Content::AssetGuidFromText( ref.Guid );
+            if ( !guid )
+                return Common::MakeFormattedError<bool>( "'{}': CompatibleSkeletons '{}': {}", file.string(),
+                                                         ref.Path, guid.GetError() );
+            compatible.push_back( guid.GetValue() );
+        }
+        m_PreviewMesh         = preview;
+        m_CompatibleSkeletons = std::move( compatible );
+
         return BOOLSUCCESS;
+    }
+
+    Common::Content::AssetGuid SkeletonAsset::GetPreviewMesh() const
+    {
+        return m_PreviewMesh;
+    }
+
+    std::span<const Common::Content::AssetGuid> SkeletonAsset::GetCompatibleSkeletons() const
+    {
+        return m_CompatibleSkeletons;
+    }
+
+    void SkeletonAsset::SetPreviewMesh( Common::Content::AssetGuid mesh )
+    {
+        m_PreviewMesh = mesh;
+    }
+
+    void SkeletonAsset::SetCompatibleSkeletons( std::vector<Common::Content::AssetGuid> skeletons )
+    {
+        m_CompatibleSkeletons = std::move( skeletons );
     }
 
     Common::BoolResultStr SkeletonAsset::Unload()

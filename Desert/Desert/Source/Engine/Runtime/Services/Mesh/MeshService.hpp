@@ -167,7 +167,7 @@ namespace Desert::Runtime
         // EXCEPT the one a later write can cure: a skinned mesh whose rig had no Skeleton row waits for it.
         struct RigAwaited
         {
-            uint64_t Signature = 0; // the rig the mesh row names
+            Common::Content::AssetGuid Skeleton; // the skeleton the mesh row references (its GUID)
             uint64_t Since     = 0; // the registry write serial last looked at (ContentRegistry::WrittenSince)
         };
         struct Entry

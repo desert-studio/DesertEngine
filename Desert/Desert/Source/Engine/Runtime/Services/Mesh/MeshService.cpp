@@ -7,6 +7,8 @@
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 
+#include <Common/Content/TextAssetHeader.hpp>
+
 #include <algorithm>
 
 namespace Desert::Runtime
@@ -203,8 +205,8 @@ namespace Desert::Runtime
              Assets::ContentRegistry::WrittenSince( Common::Content::ContentKind::Skeleton, awaited.Since );
         const auto meshes =
              Assets::ContentRegistry::WrittenSince( Common::Content::ContentKind::SkinnedMesh, awaited.Since );
-        const bool rigWritten = std::ranges::any_of( rigs.Rows, [&]( const auto& row )
-                                                     { return row.RigSignature == awaited.Signature; } );
+        const bool rigWritten =
+             std::ranges::any_of( rigs.Rows, [&]( const auto& row ) { return row.Skeleton == awaited.Skeleton; } );
         const bool meshWritten =
              std::ranges::any_of( meshes.Rows, [&]( const auto& row ) { return row.Handle == handle; } );
         awaited.Since = std::min( rigs.Serial, meshes.Serial );
@@ -242,15 +244,16 @@ namespace Desert::Runtime
             const uint64_t seen      = Assets::ContentRegistry::WriteSerial();
             const auto     row       = Assets::ContentRegistry::RowOf( Common::Content::ContentKind::SkinnedMesh,
                                                                        static_cast<uint64_t>( handle ) );
-            const uint64_t signature = row ? row->RigSignature : 0;
-            const auto     rig       = Assets::ContentRegistry::RigRow( signature );
+            const Common::Content::AssetGuid skeleton = row ? row->Skeleton : Common::Content::AssetGuid{};
+            const auto                       rig      = Assets::ContentRegistry::RigRow( skeleton );
             if ( !rig )
             {
                 Fail( handle,
-                      fmt::format( "the skinned mesh '{}' names rig signature {} and no Skeleton row of the "
-                                   "content registry states it yet; it is drawn once that rig is written",
-                                   entry.Asset->GetMetadata().Filepath.string(), signature ) );
-                entry.AwaitedRig = RigAwaited{ signature, seen };
+                      fmt::format( "the skinned mesh '{}' references skeleton {} and no Skeleton row of the "
+                                   "content registry is it yet; it is drawn once that skeleton is written",
+                                   entry.Asset->GetMetadata().Filepath.string(),
+                                   Common::Content::AssetGuidToText( skeleton ) ) );
+                entry.AwaitedRig = RigAwaited{ skeleton, seen };
                 return false;
             }
             auto created = Assets::CreateFromRegistryRow<Assets::SkeletonAsset>(
@@ -280,10 +283,10 @@ namespace Desert::Runtime
             if ( !skinned.GetSkeletonDependency().IsValid() )
             {
                 Fail( handle,
-                      fmt::format( "'{}' is resident with its registry rig '{}' (signature {}) and the two "
-                                   "do not match; the registry's Rig tag is stale — re-scan",
+                      fmt::format( "'{}' is resident with its registry skeleton '{}' and does not bind it; the "
+                                   "registry's Rig tag is stale — re-scan",
                                    entry.Asset->GetMetadata().Filepath.string(),
-                                   entry.Rig->GetMetadata().Filepath.string(), entry.Rig->GetSignature() ) );
+                                   entry.Rig->GetMetadata().Filepath.string() ) );
                 return false;
             }
         }

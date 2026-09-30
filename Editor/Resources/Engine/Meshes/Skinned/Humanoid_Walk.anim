@@ -1,0 +1,1558 @@
+{
+    "Header": {
+        "Kind": "Animation",
+        "Guid": "6d3a1f0e2b8c4e579a41c7d25e0b3f22",
+        "Versions": {
+            "ANIM": 5
+        },
+        "Dependencies": ["9d3c5e0a41b84f27b6e1a7c2d4f09e53"]
+    },
+    "Name": "Walk",
+    "TickRate": {
+        "Numerator": 24000,
+        "Denominator": 1
+    },
+    "DisplayRate": {
+        "Numerator": 30,
+        "Denominator": 1
+    },
+    "DurationTicks": 24000,
+    "Skeleton": {
+        "Guid": "9d3c5e0a41b84f27b6e1a7c2d4f09e53",
+        "Path": "engine:Engine/Meshes/Skinned/Humanoid.skeleton"
+    },
+    "Channels": [
+        {
+            "BoneName": "Shoulder.L",
+            "Positions": [
+                {
+                    "Tick": 0,
+                    "Value": [18.0, 5.000007152557373, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    },
+                    "ArriveTangent": [0.0, 0.0, 0.0],
+                    "LeaveTangent": [0.0, 0.0, 0.0]
+                }
+            ],
+            "Rotations": [
+                {
+                    "Tick": 0,
+                    "Value": [1.0, -1.7484556025237907e-8, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 1500,
+                    "Value": [0.9970725178718567, -0.07646199315786362, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 3000,
+                    "Value": [0.9900166392326355, -0.14095044136047363, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 4500,
+                    "Value": [0.9829774498939514, -0.18372628092765808, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 6000,
+                    "Value": [0.9800665974617004, -0.19866932928562164, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 7500,
+                    "Value": [0.9829774498939514, -0.1837262362241745, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 9000,
+                    "Value": [0.9900166392326355, -0.14095036685466766, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 10500,
+                    "Value": [0.9970725178718567, -0.07646198570728302, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 12000,
+                    "Value": [1.0, 3.4969112050475815e-8, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 13500,
+                    "Value": [0.9970725178718567, 0.07646205276250839, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 15000,
+                    "Value": [0.9900166392326355, 0.14095042645931244, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 16500,
+                    "Value": [0.9829774498939514, 0.18372628092765808, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 18000,
+                    "Value": [0.9800665974617004, 0.19866932928562164, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 19500,
+                    "Value": [0.9829774498939514, 0.1837262213230133, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 21000,
+                    "Value": [0.9900166988372803, 0.14095032215118408, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 22500,
+                    "Value": [0.9970725178718567, 0.07646200805902481, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 24000,
+                    "Value": [1.0, -4.769952433036906e-9, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                }
+            ],
+            "Scales": []
+        },
+        {
+            "BoneName": "Elbow.L",
+            "Positions": [
+                {
+                    "Tick": 0,
+                    "Value": [0.0, -30.00000762939453, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    },
+                    "ArriveTangent": [0.0, 0.0, 0.0],
+                    "LeaveTangent": [0.0, 0.0, 0.0]
+                }
+            ],
+            "Rotations": [
+                {
+                    "Tick": 0,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 1500,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 3000,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 4500,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 6000,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 7500,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 9000,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 10500,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 12000,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 13500,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 15000,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 16500,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 18000,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 19500,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 21000,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 22500,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 24000,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                }
+            ],
+            "Scales": []
+        },
+        {
+            "BoneName": "Shoulder.R",
+            "Positions": [
+                {
+                    "Tick": 0,
+                    "Value": [-18.0, 5.000007152557373, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    },
+                    "ArriveTangent": [0.0, 0.0, 0.0],
+                    "LeaveTangent": [0.0, 0.0, 0.0]
+                }
+            ],
+            "Rotations": [
+                {
+                    "Tick": 0,
+                    "Value": [1.0, 0.0, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 1500,
+                    "Value": [0.9970725178718567, 0.07646199315786362, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 3000,
+                    "Value": [0.9900166392326355, 0.14095042645931244, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 4500,
+                    "Value": [0.9829774498939514, 0.1837262511253357, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 6000,
+                    "Value": [0.9800665974617004, 0.19866932928562164, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 7500,
+                    "Value": [0.9829774498939514, 0.1837262511253357, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 9000,
+                    "Value": [0.9900166392326355, 0.14095042645931244, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 10500,
+                    "Value": [0.9970725178718567, 0.07646195590496063, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 12000,
+                    "Value": [1.0, -1.7484556025237907e-8, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 13500,
+                    "Value": [0.9970725178718567, -0.07646199315786362, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 15000,
+                    "Value": [0.9900166392326355, -0.14095044136047363, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 16500,
+                    "Value": [0.9829774498939514, -0.18372628092765808, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 18000,
+                    "Value": [0.9800665974617004, -0.19866932928562164, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 19500,
+                    "Value": [0.9829774498939514, -0.1837262362241745, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 21000,
+                    "Value": [0.9900166392326355, -0.14095036685466766, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 22500,
+                    "Value": [0.9970725178718567, -0.07646198570728302, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 24000,
+                    "Value": [1.0, 3.4969112050475815e-8, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                }
+            ],
+            "Scales": []
+        },
+        {
+            "BoneName": "Elbow.R",
+            "Positions": [
+                {
+                    "Tick": 0,
+                    "Value": [0.0, -30.00000762939453, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    },
+                    "ArriveTangent": [0.0, 0.0, 0.0],
+                    "LeaveTangent": [0.0, 0.0, 0.0]
+                }
+            ],
+            "Rotations": [
+                {
+                    "Tick": 0,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 1500,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 3000,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 4500,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 6000,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 7500,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 9000,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 10500,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 12000,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 13500,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 15000,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 16500,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 18000,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 19500,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 21000,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 22500,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 24000,
+                    "Value": [0.9921976923942566, -0.1246747300028801, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                }
+            ],
+            "Scales": []
+        },
+        {
+            "BoneName": "Hip.L",
+            "Positions": [
+                {
+                    "Tick": 0,
+                    "Value": [9.0, -2.999997138977051, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    },
+                    "ArriveTangent": [0.0, 0.0, 0.0],
+                    "LeaveTangent": [0.0, 0.0, 0.0]
+                }
+            ],
+            "Rotations": [
+                {
+                    "Tick": 0,
+                    "Value": [1.0, 0.0, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 1500,
+                    "Value": [0.9954270124435425, 0.09552498906850815, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 3000,
+                    "Value": [0.9844156503677368, 0.17585742473602295, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 4500,
+                    "Value": [0.9734448194503784, 0.22892175614833832, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 6000,
+                    "Value": [0.9689124226570129, 0.24740396440029144, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 7500,
+                    "Value": [0.9734448194503784, 0.22892175614833832, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 9000,
+                    "Value": [0.9844156503677368, 0.17585742473602295, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 10500,
+                    "Value": [0.9954270124435425, 0.09552494436502457, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 12000,
+                    "Value": [1.0, -2.1855694143368964e-8, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 13500,
+                    "Value": [0.9954270124435425, -0.09552498906850815, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 15000,
+                    "Value": [0.9844156503677368, -0.17585745453834534, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 16500,
+                    "Value": [0.9734448194503784, -0.2289218008518219, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 18000,
+                    "Value": [0.9689124226570129, -0.24740396440029144, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 19500,
+                    "Value": [0.9734448194503784, -0.22892174124717712, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 21000,
+                    "Value": [0.9844156503677368, -0.17585736513137817, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 22500,
+                    "Value": [0.9954270124435425, -0.09552498161792755, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 24000,
+                    "Value": [1.0, 4.371138828673793e-8, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                }
+            ],
+            "Scales": []
+        },
+        {
+            "BoneName": "Knee.L",
+            "Positions": [
+                {
+                    "Tick": 0,
+                    "Value": [0.0, -42.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    },
+                    "ArriveTangent": [0.0, 0.0, 0.0],
+                    "LeaveTangent": [0.0, 0.0, 0.0]
+                }
+            ],
+            "Rotations": [
+                {
+                    "Tick": 0,
+                    "Value": [0.9847265481948853, 0.1741081327199936, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 1500,
+                    "Value": [0.9941703677177429, 0.10782039165496826, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 3000,
+                    "Value": [0.998686671257019, 0.05123387277126312, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 4500,
+                    "Value": [0.9999112486839294, 0.01332069281488657, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 6000,
+                    "Value": [1.0, 0.0, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 7500,
+                    "Value": [0.9999112486839294, 0.01332069281488657, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 9000,
+                    "Value": [0.998686671257019, 0.05123387277126312, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 10500,
+                    "Value": [0.9941703677177429, 0.10782039165496826, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 12000,
+                    "Value": [0.9847265481948853, 0.1741081327199936, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 13500,
+                    "Value": [0.970867931842804, 0.2396153211593628, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 15000,
+                    "Value": [0.9557070136070251, 0.2943197786808014, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 16500,
+                    "Value": [0.9438570141792297, 0.3303543031215668, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 18000,
+                    "Value": [0.939372718334198, 0.34289780259132385, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 19500,
+                    "Value": [0.9438570141792297, 0.3303543031215668, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 21000,
+                    "Value": [0.9557070136070251, 0.2943197190761566, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 22500,
+                    "Value": [0.970867931842804, 0.2396152764558792, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 24000,
+                    "Value": [0.9847265481948853, 0.1741081327199936, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                }
+            ],
+            "Scales": []
+        },
+        {
+            "BoneName": "Hip.R",
+            "Positions": [
+                {
+                    "Tick": 0,
+                    "Value": [-9.0, -2.999997138977051, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    },
+                    "ArriveTangent": [0.0, 0.0, 0.0],
+                    "LeaveTangent": [0.0, 0.0, 0.0]
+                }
+            ],
+            "Rotations": [
+                {
+                    "Tick": 0,
+                    "Value": [1.0, -2.1855694143368964e-8, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 1500,
+                    "Value": [0.9954270124435425, -0.09552498906850815, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 3000,
+                    "Value": [0.9844156503677368, -0.17585745453834534, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 4500,
+                    "Value": [0.9734448194503784, -0.2289218008518219, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 6000,
+                    "Value": [0.9689124226570129, -0.24740396440029144, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 7500,
+                    "Value": [0.9734448194503784, -0.22892174124717712, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 9000,
+                    "Value": [0.9844156503677368, -0.17585736513137817, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 10500,
+                    "Value": [0.9954270124435425, -0.09552498161792755, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 12000,
+                    "Value": [1.0, 4.371138828673793e-8, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 13500,
+                    "Value": [0.9954270124435425, 0.09552506357431412, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 15000,
+                    "Value": [0.9844156503677368, 0.17585742473602295, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 16500,
+                    "Value": [0.9734448194503784, 0.2289217859506607, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 18000,
+                    "Value": [0.9689124226570129, 0.24740396440029144, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 19500,
+                    "Value": [0.9734448194503784, 0.22892171144485474, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 21000,
+                    "Value": [0.9844156503677368, 0.1758573055267334, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 22500,
+                    "Value": [0.9954270124435425, 0.09552501142024994, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 24000,
+                    "Value": [1.0, -5.962440319251527e-9, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                }
+            ],
+            "Scales": []
+        },
+        {
+            "BoneName": "Knee.R",
+            "Positions": [
+                {
+                    "Tick": 0,
+                    "Value": [0.0, -42.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    },
+                    "ArriveTangent": [0.0, 0.0, 0.0],
+                    "LeaveTangent": [0.0, 0.0, 0.0]
+                }
+            ],
+            "Rotations": [
+                {
+                    "Tick": 0,
+                    "Value": [0.9847265481948853, 0.1741081327199936, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 1500,
+                    "Value": [0.970867931842804, 0.2396153211593628, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 3000,
+                    "Value": [0.9557070136070251, 0.2943197786808014, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 4500,
+                    "Value": [0.9438570141792297, 0.3303543031215668, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 6000,
+                    "Value": [0.939372718334198, 0.34289780259132385, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 7500,
+                    "Value": [0.9438570141792297, 0.3303543031215668, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 9000,
+                    "Value": [0.9557070136070251, 0.2943197190761566, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 10500,
+                    "Value": [0.970867931842804, 0.2396152764558792, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 12000,
+                    "Value": [0.9847265481948853, 0.1741081327199936, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 13500,
+                    "Value": [0.9941703677177429, 0.10782035440206528, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 15000,
+                    "Value": [0.998686671257019, 0.05123383179306984, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 16500,
+                    "Value": [0.9999112486839294, 0.01332068257033825, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 18000,
+                    "Value": [1.0, 0.0, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 19500,
+                    "Value": [0.9999112486839294, 0.013320713303983212, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 21000,
+                    "Value": [0.998686671257019, 0.05123387277126312, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 22500,
+                    "Value": [0.9941703677177429, 0.10782041400671005, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                },
+                {
+                    "Tick": 24000,
+                    "Value": [0.9847265481948853, 0.17410819232463837, 0.0, 0.0],
+                    "Shape": {
+                        "Interp": 1,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    }
+                }
+            ],
+            "Scales": []
+        }
+    ],
+    "Notifies": [],
+    "Sections": [
+        {
+            "Name": "Whole clip",
+            "StartTick": 0,
+            "EndTick": 24000,
+            "Blend": 0,
+            "Tracks": [],
+            "Weight": []
+        }
+    ],
+    "Curves": []
+}

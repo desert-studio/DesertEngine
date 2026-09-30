@@ -3,9 +3,9 @@
         "Kind": "Animation",
         "Guid": "709ca2d39bf08be7c141dc0d70756acc",
         "Versions": {
-            "ANIM": 4
+            "ANIM": 5
         },
-        "Dependencies": []
+        "Dependencies": ["14df187f6fede36fad0b96f4420f4c5b"]
     },
     "Name": "TwoBoneProbe_Wave",
     "TickRate": {
@@ -17,7 +17,10 @@
         "Denominator": 1
     },
     "DurationTicks": 48000,
-    "SkeletonSignature": 13952148091082370875,
+    "Skeleton": {
+        "Guid": "14df187f6fede36fad0b96f4420f4c5b",
+        "Path": "Meshes/Skinned/TwoBoneProbe.skeleton"
+    },
     "Channels": [
         {
             "BoneName": "Base",
