@@ -2,8 +2,7 @@
 //
 // What these tests pin, and why each one: the previous identity (a hash of the bones) let a re-cooked rig
 // orphan every mesh and clip that meant it, and let two exports of one rig be two identities. The GUID rule
-// must therefore IGNORE bones entirely (SameGuidPlays_BonesIrrelevant is structural: the rule has no bone
-// input), CompatibleSkeletons must be one-directional, the assignment check is where names live, and
+// must therefore IGNORE bones entirely (structural: ClipPlaysOnMesh takes no bone input at all), CompatibleSkeletons must be one-directional, the assignment check is where names live, and
 // migration must refuse rather than guess.
 
 #include <Engine/Animation/BoneInfo.hpp>
