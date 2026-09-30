@@ -20,11 +20,6 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipMigrate.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
-        -- A32: the SECTION AUTHORING operations, so the round-trip test can author a section the way the
-        -- Sequencer authors one instead of hand-filling the struct. A hand-filled section proves the
-        -- writer and the reader agree; it cannot prove that what the editor PRODUCES survives the trip,
-        -- which is the claim the section lane is making.
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/ClipSection.cpp",
     }
 
     includedirs {

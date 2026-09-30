@@ -27,6 +27,7 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include "../ClipFixture.hpp"
 #include "../PoseGraphFixture.hpp"
 
 #include <gtest/gtest.h>
@@ -39,7 +40,6 @@
 using Desert::Animation::AnimationClip;
 using Desert::Animation::Animator;
 using Desert::Animation::BoneInfo;
-using Desert::Animation::BoneTrack;
 using Desert::Animation::BoneTransform;
 using Desert::Animation::ControlBoneDrive;
 using Desert::Animation::ControlElement;
@@ -134,27 +134,15 @@ namespace
     // and not the bind. Two ticks apart so the suite can scrub between two different skeletons.
     AnimationClip ArmClip()
     {
-        AnimationClip clip;
-        clip.AnimationName = "wave";
-        clip.DurationTicks = FrameNumber{ PROJECT_TICK_RATE.Numerator };
+        const FrameNumber end{ PROJECT_TICK_RATE.Numerator };
+        AnimationClip     clip = ClipFixture::Clip( "wave", end );
 
-        BoneTrack shoulder;
-        shoulder.BoneName = "Shoulder";
-        shoulder.PositionKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 10.0F, 20.0F, 0.0F ) } );
-        shoulder.PositionKeys.push_back(
-             { FrameNumber{ PROJECT_TICK_RATE.Numerator }, glm::vec3( 40.0F, 55.0F, -12.0F ) } );
-        shoulder.RotationKeys.push_back( { FrameNumber{ 0 }, glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ) } );
-        shoulder.ScaleKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 1.0F ) } );
-        clip.Tracks.push_back( shoulder );
-
-        BoneTrack hand;
-        hand.BoneName = "Hand";
-        hand.PositionKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 0.0F, -30.0F, 0.0F ) } );
-        hand.PositionKeys.push_back(
-             { FrameNumber{ PROJECT_TICK_RATE.Numerator }, glm::vec3( 7.0F, -22.0F, 4.0F ) } );
-        hand.RotationKeys.push_back( { FrameNumber{ 0 }, glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ) } );
-        hand.ScaleKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 1.0F ) } );
-        clip.Tracks.push_back( hand );
+        const auto keyed = []( const Common::BoolResultStr& result )
+        { EXPECT_TRUE( result.IsSuccess() ) << result.GetError(); };
+        keyed( ClipFixture::KeyBone( clip, "Shoulder", FrameNumber{ 0 }, glm::vec3( 10.0F, 20.0F, 0.0F ) ) );
+        keyed( ClipFixture::KeyBone( clip, "Shoulder", end, glm::vec3( 40.0F, 55.0F, -12.0F ) ) );
+        keyed( ClipFixture::KeyBone( clip, "Hand", FrameNumber{ 0 }, glm::vec3( 0.0F, -30.0F, 0.0F ) ) );
+        keyed( ClipFixture::KeyBone( clip, "Hand", end, glm::vec3( 7.0F, -22.0F, 4.0F ) ) );
 
         return clip;
     }
@@ -163,16 +151,8 @@ namespace
     // ask which of the two the bone ended up at.
     AnimationClip HandLayerClip()
     {
-        AnimationClip clip;
-        clip.AnimationName = "layer";
-        clip.DurationTicks = FrameNumber{ PROJECT_TICK_RATE.Numerator };
-
-        BoneTrack hand;
-        hand.BoneName = "Hand";
-        hand.PositionKeys.push_back( { FrameNumber{ 0 }, glm::vec3( -60.0F, 15.0F, 33.0F ) } );
-        hand.RotationKeys.push_back( { FrameNumber{ 0 }, glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ) } );
-        hand.ScaleKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 1.0F ) } );
-        clip.Tracks.push_back( hand );
+        AnimationClip clip = ClipFixture::Clip( "layer", FrameNumber{ PROJECT_TICK_RATE.Numerator } );
+        (void)ClipFixture::AddStaticBone( clip, "Hand", glm::vec3( -60.0F, 15.0F, 33.0F ) );
         return clip;
     }
 

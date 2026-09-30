@@ -1,16 +1,17 @@
 // AN ANIMATOR'S BONE->TRACK CACHE AND THE CLIP IT POINTS INTO MUST AGREE — a suite about a RELATION.
 //
 // The relation: THE CACHED TRACK POINTERS ARE VALID ONLY WHILE THE CLIP'S OWN TRACK STORAGE IS THE
-// STORAGE THEY WERE BUILT FROM. `Animator::ResolveTrack` builds, per clip, a vector of `const BoneTrack*`
-// mapping skeleton bone index -> that clip's track, and it cached the result keyed on the CLIP'S ADDRESS
-// alone, "for the animator's lifetime".
+// STORAGE THEY WERE BUILT FROM. The Animator binds, per clip, skeleton bone index -> that clip's
+// Timeline track (a `ClipBinding` over the clip's `Timeline::Sequence`), and it once cached the result
+// keyed on the CLIP'S ADDRESS alone, "for the animator's lifetime". The key is now the Sequence's Revision
+// plus its track storage.
 //
 // Why that key is not enough, and it is not a hypothetical. `Assets::AnimationAsset` owns its
 // `AnimationClip` BY VALUE, so the clip keeps one address for the asset's whole life while the tracks
-// underneath it are replaced: `Unload()` does `Tracks.clear()` + `shrink_to_fit()` (returning the storage
-// to the allocator) and a later `Load()` allocates a fresh vector. Asset eviction does exactly that to a
-// clip an entity is still playing — DELIBERATELY, because `AnimationLibrary::Resolve` reloads on every
-// lookup and the library's design accepts eviction on that basis. The animator then dereferenced pointers
+// underneath it are replaced: `Unload()` releases the Sequence's bindings and tracks (returning the storage
+// to the allocator) and a later `Load()` allocates fresh ones and stamps a new `Sequence.Revision`. Asset
+// eviction does exactly that to a clip an entity is still playing — DELIBERATELY, because
+// `AnimationLibrary::Resolve` reloads on every lookup and the library's design accepts eviction on that basis. The animator then dereferenced pointers
 // into freed memory and the process died inside `std::lower_bound` over a keyframe vector that no longer
 // existed.
 //
@@ -31,14 +32,16 @@
 #include <Engine/Animation/BoneInfo.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 
+#include "../ClipFixture.hpp"
+
 #include <glm/glm.hpp>
 
+#include <utility>
 #include <vector>
 
 using Desert::Animation::AnimationClip;
 using Desert::Animation::Animator;
 using Desert::Animation::BoneInfo;
-using Desert::Animation::BoneTrack;
 using Desert::Animation::FrameNumber;
 using Desert::Animation::PROJECT_TICK_RATE;
 using Desert::Animation::Skeleton;
@@ -72,24 +75,14 @@ namespace
     // survives a reload instead of being rebuilt by accident.
     AnimationClip ClipWith( float rootY, float childY, bool includeChild )
     {
-        AnimationClip clip;
-        // A5: the clip states a length in TICKS on the project grid. `Duration` + `TicksPerSecond = 1`
-        // used to say "one second" by setting the rate so a tick WAS a second.
-        clip.AnimationName     = "Probe";
-        clip.DurationTicks     = FrameNumber{ PROJECT_TICK_RATE.Numerator };
+        // A5: the clip states a length in TICKS on the project grid.
+        AnimationClip clip     = ClipFixture::Clip( "Probe", FrameNumber{ PROJECT_TICK_RATE.Numerator } );
         clip.SkeletonSignature = 0;
 
-        BoneTrack rootTrack;
-        rootTrack.BoneName = "Root";
-        rootTrack.PositionKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 0.0f, rootY, 0.0f ) } );
-        clip.Tracks.push_back( rootTrack );
-
+        (void)ClipFixture::AddStaticBone( clip, "Root", glm::vec3( 0.0f, rootY, 0.0f ) );
         if ( includeChild )
         {
-            BoneTrack childTrack;
-            childTrack.BoneName = "Child";
-            childTrack.PositionKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 0.0f, childY, 0.0f ) } );
-            clip.Tracks.push_back( childTrack );
+            (void)ClipFixture::AddStaticBone( clip, "Child", glm::vec3( 0.0f, childY, 0.0f ) );
         }
         return clip;
     }
@@ -117,13 +110,17 @@ TEST( AnimatorClipRebind, ThePoseFollowsTheClipsCurrentTracksAfterItsStorageIsRe
          << "the animator does not sample the clip it was given at all, so the rest of this test cannot "
             "mean anything";
 
-    // THE REPLACEMENT, in the same shape as AnimationAsset::Unload() + Load(): the vector is emptied and
-    // its storage released, then a new one is built. Different size AND different values, so a stale
-    // binding is wrong about both.
-    clip.Tracks.clear();
-    clip.Tracks.shrink_to_fit();
-    const AnimationClip reloaded = ClipWith( /*rootY=*/250.0f, /*childY=*/7.0f, /*includeChild=*/true );
-    clip.Tracks                  = reloaded.Tracks;
+    // THE REPLACEMENT, in the same shape as AnimationAsset::Unload() + Load(): the Sequence's bindings and
+    // tracks are emptied and their storage released, then new ones are built and the asset stamps a new
+    // Revision. Different size AND different values, so a stale binding is wrong about both.
+    clip.Sequence.Bindings.clear();
+    clip.Sequence.Bindings.shrink_to_fit();
+    clip.Sequence.Tracks.clear();
+    clip.Sequence.Tracks.shrink_to_fit();
+    AnimationClip reloaded = ClipWith( /*rootY=*/250.0f, /*childY=*/7.0f, /*includeChild=*/true );
+    clip.Sequence.Bindings = std::move( reloaded.Sequence.Bindings );
+    clip.Sequence.Tracks   = std::move( reloaded.Sequence.Tracks );
+    ++clip.Sequence.Revision;
 
     // Nothing re-Plays the clip: the pointer is unchanged and so is the clip's name, which is all the ECS
     // compares. This is the frame after an eviction reload, and it is where the process used to die.
@@ -132,7 +129,7 @@ TEST( AnimatorClipRebind, ThePoseFollowsTheClipsCurrentTracksAfterItsStorageIsRe
     EXPECT_FLOAT_EQ( RootTranslationY( animator ), 250.0f )
          << "the animator is still sampling the clip's PREVIOUS tracks. In the engine that storage has been "
             "returned to the allocator by AnimationAsset::Unload, so this is a read of freed memory that "
-            "happens to have survived -- see Animator::TrackBinding.";
+            "happens to have survived -- see the Animator's ClipBinding.";
 
     // The second bone appeared with the reload, so a binding rebuilt correctly resolves it too. A cache
     // that merely dropped its stale pointers without re-deriving the mapping would leave this at bind.
