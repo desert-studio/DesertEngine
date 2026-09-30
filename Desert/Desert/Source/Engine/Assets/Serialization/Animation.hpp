@@ -23,6 +23,7 @@
 #include <glm/gtx/compatibility.hpp>
 
 namespace Desert::Assets::Serialization
+{
     /**
      * @brief A `.anim` since ANIM v5 (ANIM-I8a): identity + ONE timeline block (Timeline/Sequence.hpp).
      *

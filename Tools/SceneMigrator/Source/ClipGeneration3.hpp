@@ -682,7 +682,7 @@ namespace Desert::Migration::ClipGen3
             return FrameTimeToSeconds( FrameTime{ DurationTicks, 0.0F }, TickRate );
         }
 
-{
+    };
     // EVERY SCALAR IN THIS FILE CARRIES AN INITIALISER. These structs are what reflect-cpp writes into a
     // `.anim`, so a field left indeterminate is not a runtime accident that the next assignment repairs — it
     // is bytes on disk that outlive the process. glm's vector/quaternion default constructors leave their
