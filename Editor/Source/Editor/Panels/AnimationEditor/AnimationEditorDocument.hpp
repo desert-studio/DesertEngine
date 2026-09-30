@@ -12,6 +12,9 @@
 
 #include <Engine/Animation/AnimationClip.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
+
+#include <ImGui/imgui.h>
 #include <glm/glm.hpp>
 
 #include <array>
@@ -25,6 +28,7 @@ namespace Desert::Assets
 {
     class AssetManager;
     class AnimationAsset;
+    class SkeletonAsset;
     class SkinnedMeshAsset;
 } // namespace Desert::Assets
 
@@ -41,9 +45,17 @@ namespace Desert::Editor
      * @brief One window per animation clip (`.anim`): UE's Animation Editor (Persona) — part 1, the preview
      * viewport and the transport.
      *
-     * THE MESH IS FOUND BY THE CLIP'S RIG. A clip names a skeleton signature and nothing else; the window shows
-     * the first registered `.skmesh` (by path, so the pick is stable) whose skeleton signature is the clip's.
-     * No such mesh is a named error in the window — the signature by number — never a stand-in mesh.
+     * THE MESH IS FOUND BY THE SKELETON (SKEL-TREE, UE Persona). Every mode is on ONE `.skeleton`, by GUID: the
+     * clip's (AnimationAsset::GetSkeleton), the mesh's (SkinnedMeshAsset::GetSkeleton) or the subject itself.
+     * The preview is the mesh the mode is about (Mesh), else the skeleton's PreviewMesh, else the first
+     * registered `.skmesh` on that skeleton by path (a stable pick). No such mesh is a named error in the window,
+     * never a stand-in mesh. The Asset Browser lists the clips Animation::ClipPlaysOnMesh accepts for it.
+     *
+     * THE SKELETON EDITOR (Skeleton mode, UE's): the Skeleton Tree (SkeletonTree.hpp, the one tree), the preview
+     * with every bone drawn through BoneOverlay (the level viewport's look and pick) — a click on a joint selects
+     * the bone in the tree, a row selects it in the picture — the bone's Details on the right, and the skeleton's
+     * PreviewMesh / CompatibleSkeletons as asset slots in Asset Details (SkeletonReferenceSlots). The Mesh and
+     * Animation modes carry the `Skeleton` slot of their asset; assigning passes CheckSkeletonAssignment.
      *
      * THE POSE IS A FUNCTION OF THE TRANSPORT'S TIME. AnimationTransport owns the clock; the preview's animator
      * is stopped and told the time every frame (PreviewViewport::SetAnimationTime), so a scrub, a step or a
@@ -130,7 +142,13 @@ namespace Desert::Editor
         void                      DrawAssetDetails();
         void                      DrawPreviewSceneSettings();
         void                      DrawAssetBrowser();
-        void                      DrawBones( const glm::vec2& origin, const glm::vec2& size ) const;
+        void                      DrawBones( const glm::vec2& origin, const glm::vec2& size );
+        // The `Skeleton` slot of the mesh (Mesh mode) or the clip (Animation mode): pick, check, write.
+        void DrawSkeletonSlot();
+        // The skeleton reference changed under the window: drop the preview and resolve the rig again.
+        void ResetRig();
+        // The clips of the window's skeleton, by Animation::ClipPlaysOnMesh over the registry's tags.
+        void ListBrowserClips();
         void                      SetPreviewMesh( size_t candidate );
         [[nodiscard]] std::string PanelTitle( const char* name ) const;
         void                      DrawTransport();
@@ -182,7 +200,10 @@ namespace Desert::Editor
         // Every registered skeletal mesh on the clip's rig, sorted by path; the preview shows m_MeshIndex.
         // Candidates by the registry's Rig tag, NOT loaded: only the one shown is (ANV1c3 loaded every one).
         std::vector<std::filesystem::path>        m_MeshCandidates;
-        uint64_t                                  m_Signature = 0; // the rig every mode of this window is on
+        // The skeleton every mode of this window is on, by GUID, and that `.skeleton` loaded (Preview Mesh,
+        // Compatible Skeletons, the Asset Details of Skeleton mode).
+        Common::Content::AssetGuid                m_Skeleton;
+        std::shared_ptr<Assets::SkeletonAsset>    m_SkeletonAsset;
         std::shared_ptr<Assets::SkinnedMeshAsset> m_Mesh;
         // The Mesh mode's skinning audit, cached against (mesh handle, bone count): a vertex scan per frame is waste.
         MeshAssetDetails::SkinningAudit m_SkinningAudit;
@@ -206,6 +227,12 @@ namespace Desert::Editor
         std::vector<bool>                                        m_CollapsedBones;
         std::array<char, 64>                                     m_BoneFilter{};
         bool                                                     m_ShowBones = false;
+        // The joints BoneOverlay drew this frame (absolute screen), for a click in the picture to select one.
+        std::vector<std::pair<int, ImVec2>> m_BonePick;
+        // The asset slots' picker search and the last assignment's verdict (a refusal lists every bone).
+        std::array<char, 64> m_SlotFilter{};
+        std::string          m_AssignStatus;
+        bool                 m_AssignFailed = false;
 
         // POSING (UE Persona's bone gizmo and "+ Key"). While m_Posed the preview shows the animator's
         // authoring pose instead of the clip's; it is dropped, unkeyed, when the frame changes or play starts.
