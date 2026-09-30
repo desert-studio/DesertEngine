@@ -25,51 +25,50 @@
 
 namespace TimelineFixtures
 {
+    using namespace Desert::Animation;
+    using namespace Desert::Animation::Timeline;
+    namespace G = Desert::Animation::Graph;
+    using Common::Content::AssetGuid;
+
+    inline FrameNumber Tick( int32_t value )
     {
-        using namespace Desert::Animation;
-        using namespace Desert::Animation::Timeline;
-        namespace G = Desert::Animation::Graph;
-        using Common::Content::AssetGuid;
+        return FrameNumber{ value };
+    }
+    inline FrameTime At( int32_t tick, float subframe = 0.0F )
+    {
+        return FrameTime{ Tick( tick ), subframe };
+    }
+    inline ScalarKey Key( int32_t tick, float value, KeyInterp interp = KeyInterp::Linear )
+    {
+        ScalarKey key;
+        key.Tick   = Tick( tick );
+        key.Value  = value;
+        key.Interp = interp;
+        return key;
+    }
+    inline BindingGuid Guid( uint64_t lo )
+    {
+        return BindingGuid{ AssetGuid{ 1, lo } };
+    }
 
-        inline FrameNumber Tick( int32_t value )
-        {
-            return FrameNumber{ value };
-        }
-        inline FrameTime At( int32_t tick, float subframe = 0.0F )
-        {
-            return FrameTime{ Tick( tick ), subframe };
-        }
-        inline ScalarKey Key( int32_t tick, float value, KeyInterp interp = KeyInterp::Linear )
-        {
-            ScalarKey key;
-            key.Tick   = Tick( tick );
-            key.Value  = value;
-            key.Interp = interp;
-            return key;
-        }
-        inline BindingGuid Guid( uint64_t lo )
-        {
-            return BindingGuid{ AssetGuid{ 1, lo } };
-        }
-
-        /// A LevelSequence with one entity and one Float track "Opacity" holding @p channel in one section.
-        inline Sequence OneFloatTrack( FloatChannel channel )
-        {
-            Sequence sequence;
-            sequence.Host  = SequenceHost::LevelSequence;
-            sequence.Start = Tick( 0 );
-            sequence.End   = Tick( 100 );
-            sequence.Bindings.push_back( Binding{ Guid( 1 ), BindingKind::Entity, "entity-uuid", "Door", {} } );
-            Track track;
-            track.Binding  = Guid( 1 );
-            track.Property = "Opacity";
-            track.Kind     = TrackKind::Float;
-            Section section;
-            section.Start   = Tick( 0 );
-            section.End     = Tick( 100 );
-            section.Content = Channel{ std::move( channel ) };
-            track.Sections.push_back( std::move( section ) );
-            sequence.Tracks.push_back( std::move( track ) );
-            return sequence;
-        }
+    /// A LevelSequence with one entity and one Float track "Opacity" holding @p channel in one section.
+    inline Sequence OneFloatTrack( FloatChannel channel )
+    {
+        Sequence sequence;
+        sequence.Host  = SequenceHost::LevelSequence;
+        sequence.Start = Tick( 0 );
+        sequence.End   = Tick( 100 );
+        sequence.Bindings.push_back( Binding{ Guid( 1 ), BindingKind::Entity, "entity-uuid", "Door", {} } );
+        Track track;
+        track.Binding  = Guid( 1 );
+        track.Property = "Opacity";
+        track.Kind     = TrackKind::Float;
+        Section section;
+        section.Start   = Tick( 0 );
+        section.End     = Tick( 100 );
+        section.Content = Channel{ std::move( channel ) };
+        track.Sections.push_back( std::move( section ) );
+        sequence.Tracks.push_back( std::move( track ) );
+        return sequence;
+    }
     } // namespace TimelineFixtures
