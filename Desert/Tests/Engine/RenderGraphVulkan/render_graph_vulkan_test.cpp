@@ -1925,9 +1925,11 @@ TEST( RenderGraphVulkan, TwoTransientsWithDisjointLifetimesArePlacedOverTheSameB
 
 namespace
 {
-    // One async graph: "Produce" (AsyncCompute) writes a transient - a fill, or with @p source a copy of that
-    // external at position 0 (amendment B: the graphics prologue releases it) - and "Consume" (Graphics) copies
-    // it into a host-read buffer.
+    // One async graph: "Produce" (Compute | AsyncCompute) writes a transient through a storage-buffer dispatch - a
+    // constant fill, or with @p source a shader copy of that external at position 0 (amendment B: the graphics
+    // prologue releases it) - and "Consume" (Compute, graphics pipe) copies it by dispatch into a host-read buffer.
+    // Both passes are dispatches: an AsyncCompute pass is a Compute pass, and a Compute pass may not declare
+    // CopySrc/CopyDst (RdgPassKindAllows). The readback is a storage buffer so the second graph can read it.
     struct AsyncCopyRun
     {
         std::string          Error;
@@ -1935,12 +1937,160 @@ namespace
         RDG::ExternalBuffer  Readback;
     };
 
-    constexpr uint32_t kAsyncBytes = 4096;
+    constexpr uint32_t kAsyncBytes      = 4096;
+    constexpr uint32_t kAsyncGroupSize  = 64;
+    constexpr uint32_t kAsyncGroupCount = kAsyncBytes / 4 / kAsyncGroupSize;
+
+    constexpr const char* kAsyncFill = R"(#version 450
+layout( local_size_x = 64 ) in;
+layout( set = 0, binding = 1 ) writeonly buffer Target { uint Words[]; };
+void main() { Words[gl_GlobalInvocationID.x] = 0xA5C3E1F7u; })";
+
+    constexpr const char* kAsyncCopy = R"(#version 450
+layout( local_size_x = 64 ) in;
+layout( set = 0, binding = 0 ) readonly buffer Source { uint From[]; };
+layout( set = 0, binding = 1 ) writeonly buffer Target { uint Words[]; };
+void main() { Words[gl_GlobalInvocationID.x] = From[gl_GlobalInvocationID.x]; })";
+
+    // The two dispatches' pipelines: "fill" writes binding 1, "copy" copies binding 0 into binding 1. Each pass
+    // allocates its own set from the pool and points it at the buffers the graph hands it at execution.
+    struct AsyncDispatch
+    {
+        explicit AsyncDispatch( VkDevice device ) : Device( device )
+        {
+            const auto fill = CompileGlsl( kAsyncFill, shaderc_compute_shader, "async_fill.comp" );
+            const auto copy = CompileGlsl( kAsyncCopy, shaderc_compute_shader, "async_copy.comp" );
+            if ( !fill || !copy )
+            {
+                Error = !fill ? fill.GetError() : copy.GetError();
+                return;
+            }
+            const std::array<VkDescriptorSetLayoutBinding, 2> bindings = {
+                 VkDescriptorSetLayoutBinding{ 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT,
+                                               nullptr },
+                 VkDescriptorSetLayoutBinding{ 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT,
+                                               nullptr } };
+            VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+            layoutInfo.bindingCount = static_cast<uint32_t>( bindings.size() );
+            layoutInfo.pBindings    = bindings.data();
+            vkCreateDescriptorSetLayout( Device, &layoutInfo, nullptr, &SetLayout );
+            VkPipelineLayoutCreateInfo pipeLayoutInfo{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+            pipeLayoutInfo.setLayoutCount = 1;
+            pipeLayoutInfo.pSetLayouts    = &SetLayout;
+            vkCreatePipelineLayout( Device, &pipeLayoutInfo, nullptr, &PipeLayout );
+            Fill = MakePipeline( fill.GetValue() );
+            Copy = MakePipeline( copy.GetValue() );
+            const VkDescriptorPoolSize size{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4 };
+            VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+            poolInfo.maxSets       = 2;
+            poolInfo.poolSizeCount = 1;
+            poolInfo.pPoolSizes    = &size;
+            vkCreateDescriptorPool( Device, &poolInfo, nullptr, &Pool );
+            if ( SetLayout == VK_NULL_HANDLE || PipeLayout == VK_NULL_HANDLE || Fill == VK_NULL_HANDLE ||
+                 Copy == VK_NULL_HANDLE || Pool == VK_NULL_HANDLE )
+                Error = "the async dispatch pipelines or descriptor pool could not be created";
+        }
+
+        ~AsyncDispatch()
+        {
+            vkDeviceWaitIdle( Device );
+            vkDestroyDescriptorPool( Device, Pool, nullptr );
+            vkDestroyPipeline( Device, Fill, nullptr );
+            vkDestroyPipeline( Device, Copy, nullptr );
+            vkDestroyPipelineLayout( Device, PipeLayout, nullptr );
+            vkDestroyDescriptorSetLayout( Device, SetLayout, nullptr );
+        }
+
+        AsyncDispatch( const AsyncDispatch& )            = delete;
+        AsyncDispatch& operator=( const AsyncDispatch& ) = delete;
+
+        // Records one dispatch: @p from == VK_NULL_HANDLE fills @p to, otherwise copies @p from into @p to.
+        Common::BoolResultStr Record( VkCommandBuffer cmd, VkBuffer from, VkBuffer to )
+        {
+            VkDescriptorSetAllocateInfo setInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+            setInfo.descriptorPool     = Pool;
+            setInfo.descriptorSetCount = 1;
+            setInfo.pSetLayouts        = &SetLayout;
+            VkDescriptorSet set        = VK_NULL_HANDLE;
+            if ( const VkResult allocated = vkAllocateDescriptorSets( Device, &setInfo, &set ); allocated != VK_SUCCESS )
+                return Fail( std::format( "async dispatch: vkAllocateDescriptorSets returned {}",
+                                          static_cast<int>( allocated ) ) );
+            const VkDescriptorBufferInfo        source{ from, 0, kAsyncBytes };
+            const VkDescriptorBufferInfo        target{ to, 0, kAsyncBytes };
+            std::array<VkWriteDescriptorSet, 2> writes{};
+            for ( VkWriteDescriptorSet& write : writes )
+            {
+                write                 = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+                write.dstSet          = set;
+                write.descriptorCount = 1;
+                write.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            }
+            writes[0].dstBinding  = 1;
+            writes[0].pBufferInfo = &target;
+            writes[1].dstBinding  = 0;
+            writes[1].pBufferInfo = &source;
+            // The fill shader does not use binding 0, so its set leaves it unwritten.
+            const uint32_t count = from == VK_NULL_HANDLE ? 1u : 2u;
+            vkUpdateDescriptorSets( Device, count, writes.data(), 0, nullptr );
+            vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, from == VK_NULL_HANDLE ? Fill : Copy );
+            vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, PipeLayout, 0, 1, &set, 0, nullptr );
+            vkCmdDispatch( cmd, kAsyncGroupCount, 1, 1 );
+            return Common::MakeSuccess( true );
+        }
+
+        VkDevice              Device     = VK_NULL_HANDLE;
+        VkDescriptorSetLayout SetLayout  = VK_NULL_HANDLE;
+        VkPipelineLayout      PipeLayout = VK_NULL_HANDLE;
+        VkPipeline            Fill       = VK_NULL_HANDLE;
+        VkPipeline            Copy       = VK_NULL_HANDLE;
+        VkDescriptorPool      Pool       = VK_NULL_HANDLE;
+        std::string           Error;
+
+    private:
+        VkPipeline MakePipeline( const std::vector<uint32_t>& code )
+        {
+            const VkShaderModule        module_ = Module( Device, code );
+            VkComputePipelineCreateInfo pipeInfo{ VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
+            pipeInfo.stage        = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
+            pipeInfo.stage.stage  = VK_SHADER_STAGE_COMPUTE_BIT;
+            pipeInfo.stage.module = module_;
+            pipeInfo.stage.pName  = "main";
+            pipeInfo.layout       = PipeLayout;
+            VkPipeline pipeline   = VK_NULL_HANDLE;
+            vkCreateComputePipelines( Device, VK_NULL_HANDLE, 1, &pipeInfo, nullptr, &pipeline );
+            vkDestroyShaderModule( Device, module_, nullptr );
+            return pipeline;
+        }
+    };
+
+    // The Vulkan buffer behind @p ref at @p access in this pass, or VK_NULL_HANDLE with @p error set.
+    VkBuffer PassBuffer( RDG::PassContext& context, RDG::BufferRef ref, RDG::Access access, std::string& error )
+    {
+        auto buffer = context.GetBuffer( ref, access );
+        if ( !buffer )
+        {
+            error = buffer.GetError();
+            return VK_NULL_HANDLE;
+        }
+        auto vulkan = VulkanRdgBackend::BufferOf( buffer.GetValue() );
+        if ( !vulkan )
+        {
+            error = vulkan.GetError();
+            return VK_NULL_HANDLE;
+        }
+        return vulkan.GetValue()->GetBuffer();
+    }
 
     AsyncCopyRun RunAsyncCopy( Gpu& gpu, VulkanRdgBackend& backend, VulkanRdgPool& pool, FrameObjects& frame,
                                RDG::ExternalBuffer* source )
     {
-        AsyncCopyRun run;
+        AsyncCopyRun  run;
+        AsyncDispatch dispatch( gpu.Device.device );
+        if ( !dispatch.Error.empty() )
+        {
+            run.Error = dispatch.Error;
+            return run;
+        }
         if ( const Common::BoolResultStr begun = BeginFrameSlot( frame, backend, pool, 0 ); !begun )
         {
             run.Error = begun.GetError();
@@ -1957,57 +2107,41 @@ namespace
              [&]( RDG::PassBuilder& pass )
              {
                  if ( source != nullptr )
-                     pass.Read( input, RDG::Access::CopySrc );
-                 pass.Write( produced, RDG::Access::CopyDst );
+                     pass.Read( input, RDG::Access::StorageRead );
+                 pass.Write( produced, RDG::Access::StorageWrite );
              },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 auto cmd    = VulkanRdgBackend::CommandBufferOf( context );
-                 auto target = context.GetBuffer( produced, RDG::Access::CopyDst );
-                 if ( !cmd || !target )
-                     return Fail( !cmd ? cmd.GetError() : target.GetError() );
-                 auto buffer = VulkanRdgBackend::BufferOf( target.GetValue() );
-                 if ( !buffer )
-                     return Fail( buffer.GetError() );
-                 if ( source == nullptr )
-                 {
-                     vkCmdFillBuffer( cmd.GetValue(), buffer.GetValue()->GetBuffer(), 0, VK_WHOLE_SIZE,
-                                      0xA5C3E1F7u );
-                     return Common::MakeSuccess( true );
-                 }
-                 auto from = context.GetBuffer( input, RDG::Access::CopySrc );
-                 if ( !from )
-                     return Fail( from.GetError() );
-                 auto fromBuffer = VulkanRdgBackend::BufferOf( from.GetValue() );
-                 if ( !fromBuffer )
-                     return Fail( fromBuffer.GetError() );
-                 const VkBufferCopy region{ 0, 0, kAsyncBytes };
-                 vkCmdCopyBuffer( cmd.GetValue(), fromBuffer.GetValue()->GetBuffer(),
-                                  buffer.GetValue()->GetBuffer(), 1, &region );
-                 return Common::MakeSuccess( true );
+                 auto cmd = VulkanRdgBackend::CommandBufferOf( context );
+                 if ( !cmd )
+                     return Fail( cmd.GetError() );
+                 std::string    error;
+                 const VkBuffer to   = PassBuffer( context, produced, RDG::Access::StorageWrite, error );
+                 const VkBuffer from = source != nullptr
+                                            ? PassBuffer( context, input, RDG::Access::StorageRead, error )
+                                            : VK_NULL_HANDLE;
+                 if ( !error.empty() )
+                     return Fail( std::format( "Produce: {}", error ) );
+                 return dispatch.Record( cmd.GetValue(), from, to );
              } );
         graph.AddPass(
-             "Consume", RDG::PassFlags::Copy,
+             "Consume", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Read( produced, RDG::Access::CopySrc );
-                 pass.Write( bytes, RDG::Access::CopyDst );
+                 pass.Read( produced, RDG::Access::StorageRead );
+                 pass.Write( bytes, RDG::Access::StorageWrite );
              },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 auto cmd  = VulkanRdgBackend::CommandBufferOf( context );
-                 auto from = context.GetBuffer( produced, RDG::Access::CopySrc );
-                 auto to   = context.GetBuffer( bytes, RDG::Access::CopyDst );
-                 if ( !cmd || !from || !to )
-                     return Fail( "Consume: no command buffer or buffer" );
-                 auto fromBuffer = VulkanRdgBackend::BufferOf( from.GetValue() );
-                 auto toBuffer   = VulkanRdgBackend::BufferOf( to.GetValue() );
-                 if ( !fromBuffer || !toBuffer )
-                     return Fail( "Consume: no Vulkan buffer" );
-                 const VkBufferCopy region{ 0, 0, kAsyncBytes };
-                 vkCmdCopyBuffer( cmd.GetValue(), fromBuffer.GetValue()->GetBuffer(),
-                                  toBuffer.GetValue()->GetBuffer(), 1, &region );
-                 return Common::MakeSuccess( true );
+                 auto cmd = VulkanRdgBackend::CommandBufferOf( context );
+                 if ( !cmd )
+                     return Fail( cmd.GetError() );
+                 std::string    error;
+                 const VkBuffer from = PassBuffer( context, produced, RDG::Access::StorageRead, error );
+                 const VkBuffer to   = PassBuffer( context, bytes, RDG::Access::StorageWrite, error );
+                 if ( !error.empty() )
+                     return Fail( std::format( "Consume: {}", error ) );
+                 return dispatch.Record( cmd.GetValue(), from, to );
              } );
         graph.Extract( bytes, run.Readback, RDG::Access::HostRead );
 

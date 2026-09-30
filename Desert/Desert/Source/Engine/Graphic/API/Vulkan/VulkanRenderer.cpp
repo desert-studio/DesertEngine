@@ -739,6 +739,13 @@ namespace Desert::Graphic::API::Vulkan
 
         if ( !m_RdgBackend )
             return Common::MakeError( "the render graph frame objects were not begun (BeginFrame)" );
+        // The second writer of m_CurrentCommandBuffer after BeginFrame: it ends the frame's command buffer and
+        // re-arms a fresh one after the graph, so it asks the device-lost gate like BeginFrame does.
+        if ( !Graphic::DeviceLost::AllowWork() )
+        {
+            m_CurrentCommandBuffer = nullptr;
+            return Common::MakeError( "the device is lost; the graph is not recorded" );
+        }
             // The sink the profiler holds now: GPU timing can be switched on and off between frames.
 #if DESERT_DEV_INSTRUMENTS
         m_RdgDevice.Profiler = ::Common::Profiling::Profiler::Get().GetGpuSink();
@@ -760,7 +767,13 @@ namespace Desert::Graphic::API::Vulkan
         m_FrameSubmissions.insert( m_FrameSubmissions.end(), std::make_move_iterator( segments.begin() ),
                                    std::make_move_iterator( segments.end() ) );
 
-        // Recording continues after the graph in a fresh graphics command buffer of this frame slot.
+        // Recording continues after the graph in a fresh graphics command buffer of this frame slot. A loss
+        // noted while the graph recorded (a segment's vkEndCommandBuffer) must not re-arm the frame.
+        if ( !Graphic::DeviceLost::AllowWork() )
+        {
+            m_CurrentCommandBuffer = nullptr;
+            return Common::MakeError( "the device was lost while the graph recorded" );
+        }
         Common::ResultStr<VkCommandBuffer> next = m_RdgQueueObjects->BeginCommandBuffer( RDG::Pipe::Graphics );
         if ( !next )
         {
