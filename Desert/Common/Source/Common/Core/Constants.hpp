@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <filesystem>
+#include <stdexcept>
 #include <optional>
 #include <string_view>
 #include <vector>
@@ -442,16 +443,17 @@ namespace Common::Constants
 
         // A relative content path made absolute (UE: FPaths::ConvertRelativePathToFull): read off ProjectDir(),
         // NEVER off the process's working directory — the editor and the runtime may be started from any folder.
-        // An absolute path is returned as given. Only while neither the engine directory nor a project is set
-        // (the transitional state described at SetEngineDir's storage) does the result stay relative to the
-        // working directory, through std::filesystem::absolute; ENG-ROOT-4 makes that state an error.
+        // An absolute path is returned as given. A relative path while neither the engine directory nor a
+        // project is set has nothing to be relative to: that is a programming error (a process that never
+        // called SetEngineDir), refused here rather than silently read off the working directory.
         inline std::filesystem::path FullPath( const std::filesystem::path& path )
         {
             if ( path.is_absolute() )
                 return path.lexically_normal();
-            std::error_code             ec;
-            const std::filesystem::path full = std::filesystem::absolute( ProjectDir() / path, ec );
-            return ( ec ? ProjectDir() / path : full ).lexically_normal();
+            if ( !ProjectDir().is_absolute() )
+                throw std::logic_error( "Path::FullPath: '" + path.generic_string() +
+                                        "' is relative and neither the engine directory nor a project is set" );
+            return ( ProjectDir() / path ).lexically_normal();
         }
 
         // Back to the no-project sandbox. Exists for tests, which used to restore the globals one

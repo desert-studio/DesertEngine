@@ -722,10 +722,10 @@ TEST_F( SkinnedImport, ASkeletonChosenOnTheMeshIsKeptByAReimport )
 // changes, appears or disappears. Before the migrator step the record stated no SourceHash, and the first start
 // re-imported the file and rewrote the committed outputs (-0.0 in the rig, a new GUID in the record). Mutation:
 // ImportManager.cpp SkinnedImportIsFresh returning false => Cooked, the folder rewritten => red here. Mutation:
-// delete SourceHash from Editor/Resources/Assets/Meshes/TwoJointProbe.gltf.deimport => red here.
+// delete SourceHash from Desert/Tests/Data/Resources/Assets/Meshes/TwoJointProbe.gltf.deimport => red here.
 TEST( SkinnedImportCorpus, TheCommittedTwoJointProbeIsCurrentAndItsImportWritesNothing )
 {
-    const std::filesystem::path corpus = Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Assets/Meshes";
+    const std::filesystem::path corpus = Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes";
     const std::vector<std::string>     files = { "TwoJointProbe.gltf", "TwoJointProbe.gltf.deimport",
                                                  "TwoJointProbe.skmesh", "TwoJointProbe.skeleton",
                                                  "TwoJointProbe_ArmSwing.anim" };

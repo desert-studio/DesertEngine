@@ -36,7 +36,7 @@
  * The clip drives all three bones AND lifts the root, so all three stages of the pipeline are exercised
  * by the same measurement: pelvis motion, FK chains and the IK tip.
  *
- * `Editor/Cooked/Meshes/ForeignArm.skeleton` and `ForeignArm_Swing.anim` still ship, because
+ * `Desert/Tests/Data/Resources/Assets/Meshes/Skinned/ForeignArm.skeleton` and `ForeignArm_Swing.anim` still ship, because
  * `ANIM_RetargetWitness.desce` plays the clip and the `.retarget` names the rig — but they are now a
  * DERIVED artifact of the construction below, pinned to it by
  * `TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstructs`. No measurement in this file reads them.
@@ -76,6 +76,7 @@
 #include <string>
 #include <variant>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
@@ -93,16 +94,16 @@ namespace
     namespace File     = Desert::Assets::Serialization;
     namespace Timeline = Desert::Animation::Timeline;
 
-    constexpr const char* kTargetRig    = "Editor/Resources/Assets/Meshes/Skinned/IKProbe.skeleton";
-    constexpr const char* kSourceRig    = "Editor/Resources/Assets/Meshes/Skinned/ForeignArm.skeleton";
-    constexpr const char* kSourceClip   = "Editor/Resources/Assets/Meshes/Skinned/ForeignArm_Swing.anim";
+    constexpr const char* kTargetRig    = "Resources/Assets/Meshes/Skinned/IKProbe.skeleton";
+    constexpr const char* kSourceRig    = "Resources/Assets/Meshes/Skinned/ForeignArm.skeleton";
+    constexpr const char* kSourceClip   = "Resources/Assets/Meshes/Skinned/ForeignArm_Swing.anim";
 
     /// The clip's skeleton reference (SKEL-TREE: a clip names its .skeleton by GUID, UE UAnimSequence::Skeleton):
     /// the header GUID `kSourceRig` states and its path relative to the assets root. The shipped-corpus test
     /// pins that the file really states this GUID.
     constexpr const char* kSourceRigGuid    = "6e7625493009a5445f91e22e58561d44";
     constexpr const char* kSourceRigRefPath = "Meshes/Skinned/ForeignArm.skeleton";
-    constexpr const char* kRetargetFile = "Editor/Resources/Assets/Retargets/ForeignArm_To_IKProbe.retarget";
+    constexpr const char* kRetargetFile = "Resources/Assets/Retargets/ForeignArm_To_IKProbe.retarget";
 
     /// The clip is 48000 ticks long and its motion is one full sine, so tick 0 and tick 48000 are the rest
     /// and tick 12000 is the extreme. EVERY measurement in this file is taken at the extreme, and there is
@@ -111,19 +112,18 @@ namespace
     /// RIG rather than from a tick), so a named constant for it would be an invitation to measure there.
     constexpr int32_t kMovingTick = 12000;
 
-    std::string RepoRoot()
+    // The suite data project (Desert/Tests/Data), baked by the build (DESERT_TEST_DATA_DIR) — never found
+    // from the working directory.
+    std::string DataRoot()
     {
-        std::string prefix = "./";
-        for ( int up = 0; up < 6; ++up )
-        {
-            const std::ifstream probe( prefix + kTargetRig );
-            if ( probe )
-                return prefix;
-            prefix += "../";
-        }
-        return {};
+        return Desert::TestSupport::TestDataDir().generic_string() + "/";
     }
 
+    // The checkout, for the source-level caller census.
+    std::string RepoRoot()
+    {
+        return Desert::TestSupport::RepositoryRoot().generic_string() + "/";
+    }
     std::string ReadFile( const std::string& path )
     {
         const std::ifstream in( path, std::ios::binary );
@@ -136,7 +136,7 @@ namespace
 
     Skeleton RigFrom( const char* path )
     {
-        const std::string raw = ReadFile( RepoRoot() + path );
+        const std::string raw = ReadFile( DataRoot() + path );
         EXPECT_FALSE( raw.empty() ) << "could not read " << path;
         auto data = Common::Json::Read<File::SkeletonAssetData>( raw );
         EXPECT_TRUE( data.IsSuccess() ) << ( data.IsSuccess() ? "" : data.GetError() );
@@ -204,7 +204,7 @@ namespace
 
     std::vector<BoneInfo> TargetBones()
     {
-        const std::string raw = ReadFile( RepoRoot() + kTargetRig );
+        const std::string raw = ReadFile( DataRoot() + kTargetRig );
         EXPECT_FALSE( raw.empty() ) << "could not read " << kTargetRig;
         auto data = Common::Json::Read<File::SkeletonAssetData>( raw );
         EXPECT_TRUE( data.IsSuccess() ) << ( data.IsSuccess() ? "" : data.GetError() );
@@ -367,7 +367,7 @@ namespace
 
     File::RetargetAssetData ShippedRetarget()
     {
-        auto parsed = File::ParseRetarget( ReadFile( RepoRoot() + kRetargetFile ) );
+        auto parsed = File::ParseRetarget( ReadFile( DataRoot() + kRetargetFile ) );
         EXPECT_TRUE( parsed.IsSuccess() ) << ( parsed.IsSuccess() ? "" : parsed.GetError() );
         return parsed.IsSuccess() ? parsed.ExtractValue() : File::RetargetAssetData{};
     }
@@ -561,7 +561,7 @@ TEST( RetargetAssetTest, TheSourceRigIsNamedByTheGuidItsSkeletonStates )
     // number minted beside it: a GUID nobody states resolves to nothing, which loads fine and does nothing.
     const File::RetargetAssetData data = ShippedRetarget();
     const auto                    rigGuid =
-         Desert::Assets::ReadTextHeaderGuid( RepoRoot() + "Editor/Resources/Assets/" + data.SourceSkeleton.Path );
+         Desert::Assets::ReadTextHeaderGuid( DataRoot() + "Resources/Assets/" + data.SourceSkeleton.Path );
     ASSERT_FALSE( rigGuid.IsNull() ) << data.SourceSkeleton.Path << " states no header GUID";
     EXPECT_EQ( data.SourceSkeleton.Guid, Common::Content::AssetGuidToText( rigGuid ) );
 }
@@ -1165,7 +1165,7 @@ TEST( RetargetAssetTest, ALayerIsRetargetedTooAndNotFoldedFromTheSourceRig )
 
 TEST( RetargetAssetTest, TheShippedRetargetNamesARigTheProjectHasAndTheWitnessScenesNameIt )
 {
-    const std::string root = RepoRoot();
+    const std::string root = DataRoot();
     ASSERT_FALSE( root.empty() );
 
     const File::RetargetAssetData data = ShippedRetarget();
@@ -1175,7 +1175,7 @@ TEST( RetargetAssetTest, TheShippedRetargetNamesARigTheProjectHasAndTheWitnessSc
     // `MESH_PATH_COOKED / SourceSkeleton.Path` (for the reader; the rig resolves by GUID); checking it here is
     // what stops the corpus from shipping a retarget whose source rig is a typo, which loads perfectly and does
     // nothing.
-    const std::string rig = root + "Editor/Resources/Assets/" + data.SourceSkeleton.Path;
+    const std::string rig = root + "Resources/Assets/" + data.SourceSkeleton.Path;
     EXPECT_FALSE( ReadFile( rig ).empty() )
          << "the shipped retarget names " << data.SourceSkeleton.Path << ", which is not in the cooked meshes";
 
@@ -1183,13 +1183,13 @@ TEST( RetargetAssetTest, TheShippedRetargetNamesARigTheProjectHasAndTheWitnessSc
     // IKProbe.skmesh to the source rig — see this file's header.
     EXPECT_NE( SourceRig().GetSignature(), RigFrom( kTargetRig ).GetSignature() );
 
-    const std::string witness = ReadFile( root + "Editor/Resources/Assets/Scenes/ANIM_RetargetWitness.desce" );
+    const std::string witness = ReadFile( root + "Resources/Assets/Scenes/ANIM_RetargetWitness.desce" );
     ASSERT_FALSE( witness.empty() );
     EXPECT_NE( witness.find( "Retargets/ForeignArm_To_IKProbe.retarget" ), std::string::npos );
     EXPECT_NE( witness.find( "ForeignArm_Swing" ), std::string::npos );
 
     const std::string control =
-         ReadFile( root + "Editor/Resources/Assets/Scenes/ANIM_RetargetWitness_NoRetarget.desce" );
+         ReadFile( root + "Resources/Assets/Scenes/ANIM_RetargetWitness_NoRetarget.desce" );
     ASSERT_FALSE( control.empty() );
     EXPECT_EQ( control.find( "\"Retarget\"" ), std::string::npos )
          << "the control scene must differ from the witness in exactly one thing: the retarget";
@@ -1207,7 +1207,7 @@ TEST( RetargetAssetTest, TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstr
     //
     // THEY ARE COMPARED BY VALUE AND NOT BY BYTES, because the writer is free to choose its spelling of a
     // float; what must agree is the rig and the motion.
-    const std::string root = RepoRoot();
+    const std::string root = DataRoot();
     ASSERT_FALSE( root.empty() );
 
     // THE REGENERATION PATH IS THIS TEST, not a sentence in a comment. Both files are written out on

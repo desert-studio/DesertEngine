@@ -56,30 +56,22 @@
 #include <format>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
-    constexpr const char* kCookedDir = "Editor/Resources/Assets/Meshes/Skinned/";
-    constexpr const char* kSceneFile = "Editor/Resources/Assets/Scenes/ANIM_TwoBoneWitness.desce";
+    constexpr const char* kCookedDir = "Resources/Assets/Meshes/Skinned/";
+    constexpr const char* kSceneFile = "Resources/Assets/Scenes/ANIM_TwoBoneWitness.desce";
 
     constexpr const char* kBaseBone = "Base";
     constexpr const char* kArmBone  = "Arm";
 
-    std::string RepoRoot()
+    // The suite data project (Desert/Tests/Data), baked by the build (DESERT_TEST_DATA_DIR) — never found
+    // from the working directory.
+    std::string DataRoot()
     {
-        std::string prefix = "./";
-        for ( int up = 0; up < 6; ++up )
-        {
-            const std::ifstream probe( prefix + std::string( kCookedDir ) + "TwoBoneProbe.skeleton" );
-            if ( probe )
-            {
-                return prefix;
-            }
-            prefix += "../";
-        }
-        return {};
+        return Desert::TestSupport::TestDataDir().generic_string() + "/";
     }
-
     std::string ReadFile( const std::string& path )
     {
         const std::ifstream in( path, std::ios::binary );
@@ -132,7 +124,7 @@ namespace
 
     Desert::Assets::Serialization::SkeletonAssetData LoadSkeletonData( const std::string& stem )
     {
-        const std::string raw = ReadFile( RepoRoot() + kCookedDir + stem + ".skeleton" );
+        const std::string raw = ReadFile( DataRoot() + kCookedDir + stem + ".skeleton" );
         EXPECT_FALSE( raw.empty() ) << "could not read " << stem << ".skeleton";
         auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
         EXPECT_TRUE( data.IsSuccess() ) << data.GetError();
@@ -141,7 +133,7 @@ namespace
 
     Desert::Assets::Serialization::MeshAssetData LoadMeshData( const std::string& stem )
     {
-        const std::string raw = ReadFile( RepoRoot() + kCookedDir + stem + ".skmesh" );
+        const std::string raw = ReadFile( DataRoot() + kCookedDir + stem + ".skmesh" );
         EXPECT_FALSE( raw.empty() ) << "could not read " << stem << ".skmesh";
         // Through the engine's own reader (B11): a cooked mesh is a binary container, and a suite that
         // parsed the fixture as JSON would be reading it by a route the engine does not take.
@@ -154,7 +146,7 @@ namespace
     // pure build step, so anything this suite accepts the engine accepts.
     Desert::Animation::AnimationClip LoadClip( const std::string& stem )
     {
-        const std::string raw = ReadFile( RepoRoot() + kCookedDir + stem + ".anim" );
+        const std::string raw = ReadFile( DataRoot() + kCookedDir + stem + ".anim" );
         EXPECT_FALSE( raw.empty() ) << "could not read " << stem << ".anim";
         auto data = Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( raw );
         EXPECT_TRUE( data.IsSuccess() ) << data.GetError();
@@ -346,7 +338,7 @@ namespace
 // can rot without anything noticing.
 TEST( TwoBoneWitness, TheShippedRigIsTheChainThisSuiteDescribes )
 {
-    ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
+    ASSERT_FALSE( DataRoot().empty() ) << "the suite data directory is not baked";
 
     const auto data     = LoadSkeletonData( "TwoBoneProbe" );
     const auto expected = WitnessBones();
@@ -388,10 +380,10 @@ TEST( TwoBoneWitness, TheShippedRigIsTheChainThisSuiteDescribes )
     // SCNE 28: the shipped scene names the witness mesh by the GUID its own header states -- read from
     // the file, not pinned, so re-cooking the mesh with a new GUID fails here until the scene follows.
     const auto meshGuid =
-         Common::Content::ReadMeshHeaderGuid( ReadFile( RepoRoot() + kCookedDir + "TwoBoneProbe.skmesh" ) );
+         Common::Content::ReadMeshHeaderGuid( ReadFile( DataRoot() + kCookedDir + "TwoBoneProbe.skmesh" ) );
     ASSERT_TRUE( meshGuid.has_value() ) << "TwoBoneProbe.skmesh states no header GUID (not a v3 mesh)";
     const std::string meshGuidText = Common::Content::AssetGuidToText( *meshGuid );
-    const std::string scene        = ReadFile( RepoRoot() + kSceneFile );
+    const std::string scene        = ReadFile( DataRoot() + kSceneFile );
     ASSERT_FALSE( scene.empty() ) << "could not read " << kSceneFile;
     // Named outside the macro: MSVC mis-lexes a raw string followed by \" inside a macro argument (C2017).
     const std::string meshGuidField = R"("MeshGuid": ")" + meshGuidText + "\"";
@@ -404,7 +396,7 @@ TEST( TwoBoneWitness, TheShippedRigIsTheChainThisSuiteDescribes )
 // probe again while still parsing, still rendering, and still passing every other test in this suite.
 TEST( TwoBoneWitness, NeitherBoneCollapsesIntoTheSpaceItIsSupposedToSeparate )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
+    ASSERT_FALSE( DataRoot().empty() );
 
     const auto  rig   = RigFromFile( "TwoBoneProbe" );
     const auto& bones = rig.GetBones();
@@ -459,7 +451,7 @@ TEST( TwoBoneWitness, NeitherBoneCollapsesIntoTheSpaceItIsSupposedToSeparate )
 // the arithmetic — and it is the measured reason a whole class of defect has been invisible here.
 TEST( TwoBoneWitness, TheRigSeparatesBlendingBeforeSkinningFromBlendingAfterIt )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
+    ASSERT_FALSE( DataRoot().empty() );
 
     const float blind = WidestDisagreement( RigFromFile( "SkinProbe" ), LoadMeshData( "SkinProbe" ),
                                             LoadClip( "SkinProbe_Hover" ), LoadClip( "SkinProbe_Tilt" ) );
@@ -480,7 +472,7 @@ TEST( TwoBoneWitness, TheRigSeparatesBlendingBeforeSkinningFromBlendingAfterIt )
 // ClipPlaysOnMesh compares references, so a clip copied into the wrong corpus is refused by name.
 TEST( TwoBoneWitness, TheWitnessCorpusAndTheOneBoneCorpusStayApart )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
+    ASSERT_FALSE( DataRoot().empty() );
 
     const auto witness = SkeletonRefOf( "TwoBoneProbe" );
     const auto probe   = SkeletonRefOf( "SkinProbe" );
@@ -510,7 +502,7 @@ TEST( TwoBoneWitness, TheWitnessCorpusAndTheOneBoneCorpusStayApart )
 // rig the SAME way cannot tell a frame which of them played.
 TEST( TwoBoneWitness, TheWitnessClipsMoveTheChainAndMoveItDifferently )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
+    ASSERT_FALSE( DataRoot().empty() );
 
     const auto rig   = RigFromFile( "TwoBoneProbe" );
     const auto wave  = LoadClip( "TwoBoneProbe_Wave" );

@@ -1,5 +1,7 @@
 #include <Common/Core/Logger.hpp>
 
+#include <Common/Utilities/FileSystem.hpp>
+
 #include <spdlog/sinks/basic_file_sink.h>
 
 #include <fstream>
@@ -16,6 +18,30 @@ namespace Common::Logger
     namespace
     {
         constexpr const char* kLogFileName = "engine_log.txt";
+
+        std::filesystem::path& LogFileStorage()
+        {
+            static std::filesystem::path file;
+            return file;
+        }
+    }
+
+    std::filesystem::path BootLogDirectory()
+    {
+        const std::filesystem::path dir = Common::Utils::FileSystem::ExecutablePath().parent_path() / "Saved" / "Logs";
+        std::error_code             ec;
+        std::filesystem::create_directories( dir, ec );
+        return dir;
+    }
+
+    std::filesystem::path CurrentLogFile()
+    {
+        return LogFileStorage();
+    }
+
+    void NoteLogFile( const std::filesystem::path& file )
+    {
+        LogFileStorage() = file;
     }
 
     void AddPlatformDebuggerSink()
@@ -34,9 +60,10 @@ namespace Common::Logger
             return;
 
         std::error_code             ec;
-        const std::filesystem::path from = std::filesystem::absolute( kLogFileName, ec );
+        const std::filesystem::path from = LogFileStorage();
         const std::filesystem::path to   = directory / kLogFileName;
-        if ( ec || std::filesystem::equivalent( from.parent_path(), directory, ec ) )
+        std::filesystem::create_directories( directory, ec );
+        if ( from.empty() || ec || std::filesystem::equivalent( from.parent_path(), directory, ec ) )
             return;
 
         auto& sinks = logger->sinks();
@@ -58,6 +85,7 @@ namespace Common::Logger
                 moved->log( spdlog::details::log_msg( "desert", spdlog::level::info, earlier ) );
             moved->set_formatter( std::make_unique<spdlog::pattern_formatter>( "%^[%T.%e][%l][Desert]: %v%$" ) );
             sink = std::move( moved );
+            LogFileStorage() = to;
             std::filesystem::remove( from, ec ); // the old copy would be a second, stale log
             return;
         }

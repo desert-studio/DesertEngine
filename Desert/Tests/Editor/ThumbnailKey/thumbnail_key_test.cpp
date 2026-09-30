@@ -79,24 +79,24 @@ namespace
             return ( Common::Constants::Path::ASSETS_PATH / relative ).lexically_normal();
         }
 
-        // The working directory for the test's length: a relative spelling resolves under it, and nothing the
-        // project root leads to is the checkout.
-        Desert::TestSupport::ScratchWorkingDirectory m_Scratch{ "desert-thumbnailkey" };
-        fs::path                                     m_ProjectDir;
+        // The project for the test's length: a relative spelling resolves under it (Path::FullPath), and
+        // nothing the project root leads to is the checkout.
+        Desert::TestSupport::ScratchDir m_Scratch{ "desert-thumbnailkey" };
+        fs::path                        m_ProjectDir;
     };
 
     // ─── One asset, many spellings ────────────────────────────────────────────────────────────────────
 
     // The four divergences the key has to survive, each written the way a caller actually produces it:
     // the absolute form (the asset browser's directory walk, and every AssetManager record), the
-    // working-directory-relative form (a collection manifest), a `./` form, and a form with a `..`
+    // project-relative form (a collection manifest), a `./` form, and a form with a `..`
     // detour through a sibling directory. All four open the same file.
     TEST_F( ThumbnailKeyTest, EverySpellingOfOneAssetGivesOneKey )
     {
         const std::string           relative  = "Resources/Assets/Materials/M_Wood.demat";
         const std::vector<fs::path> spellings = {
              m_ProjectDir / relative,                                              // absolute
-             fs::path( relative ),                                                 // working-dir relative
+             fs::path( relative ),                                                 // project relative
              fs::path( "./" ) / relative,                                          // leading ./
              m_ProjectDir / "Resources/Assets/Textures/../Materials/M_Wood.demat", // a .. detour
              m_ProjectDir / "./Resources/./Assets/Materials/M_Wood.demat",         // interior ./

@@ -1,4 +1,5 @@
 #include "LogsPanel.hpp"
+#include <Common/Core/Logger.hpp>
 
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/LogView.hpp>
@@ -17,7 +18,6 @@ namespace Desert::Editor
 {
     namespace ImGui = ::ImGui;
 
-    static constexpr const char* k_LogFile = "engine_log.txt";
 
     // The counters the STATUS BAR reads. File-static rather than per-panel because there is exactly one
     // log file and the status bar is not a panel; see LogsPanel::WarningCount in the header for why a
@@ -64,10 +64,10 @@ namespace Desert::Editor
 
     void LogsPanel::Refresh()
     {
-        if ( !std::filesystem::exists( k_LogFile ) )
+        if ( !std::filesystem::exists( Common::Logger::CurrentLogFile() ) )
             return;
 
-        auto writeTime = std::filesystem::last_write_time( k_LogFile );
+        auto writeTime = std::filesystem::last_write_time( Common::Logger::CurrentLogFile() );
         if ( writeTime == m_LastWriteTime )
             return;
 
@@ -75,7 +75,7 @@ namespace Desert::Editor
         m_Entries.clear();
         m_CountInfo = m_CountWarning = m_CountError = 0;
 
-        std::ifstream file( k_LogFile );
+        std::ifstream file( Common::Logger::CurrentLogFile() );
         std::string   line;
         while ( std::getline( file, line ) )
         {
@@ -187,7 +187,7 @@ namespace Desert::Editor
             m_Entries.clear();
             m_CountInfo = m_CountWarning = m_CountError = 0;
             s_SessionWarnings = s_SessionErrors = 0;
-            std::ofstream( k_LogFile, std::ios::trunc ).close();
+            std::ofstream( Common::Logger::CurrentLogFile(), std::ios::trunc ).close();
             m_LastWriteTime = {};
         }
         if ( ImGui::IsItemHovered() )

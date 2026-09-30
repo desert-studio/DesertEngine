@@ -65,30 +65,8 @@ namespace
         Common::Constants::Path::ProjectRootState m_Saved;
     };
 
-    // The working directory is what turns a RELATIVE spelling into a place, so the reproducer below has
-    // to control it: `StableKeyForPath` resolves a relative path through `fs::absolute`, and a scene
-    // saying `Cooked/Meshes/base.stmesh` means "under the project I am open in".
-    class WorkingDirectoryGuard
-    {
-    public:
-        explicit WorkingDirectoryGuard( const std::filesystem::path& moveTo )
-             : m_Saved( std::filesystem::current_path() )
-        {
-            std::filesystem::current_path( moveTo );
-        }
-
-        ~WorkingDirectoryGuard()
-        {
-            std::error_code ec;
-            std::filesystem::current_path( m_Saved, ec );
-        }
-
-        WorkingDirectoryGuard( const WorkingDirectoryGuard& )            = delete;
-        WorkingDirectoryGuard& operator=( const WorkingDirectoryGuard& ) = delete;
-
-    private:
-        std::filesystem::path m_Saved;
-    };
+    // A RELATIVE spelling is relative to the open project (Path::FullPath), never to the working directory:
+    // a scene saying `Cooked/Meshes/base.stmesh` means "under the project I am open in".
 
     // Two asset classes with DIFFERENT type ids, because the identity is (file, type) and the suite has
     // to be able to tell the two halves apart. Neither reads a byte: `Load` only flips the flag the
@@ -190,7 +168,6 @@ TEST( AssetPathIdentity, EverySpellingOfOneFileFindsTheAssetRegisteredUnderAnoth
 {
     const ProjectRootGuard      roots;
     const auto                  project = OpenProject( "find_only" );
-    const WorkingDirectoryGuard cwd( project );
 
     AssetManager mgr;
 
@@ -213,7 +190,6 @@ TEST( AssetPathIdentity, TheTwoEntryPointsAnswerOneQuestionTheSameWay )
 {
     const ProjectRootGuard      roots;
     const auto                  project = OpenProject( "agreement" );
-    const WorkingDirectoryGuard cwd( project );
 
     AssetManager mgr;
 
@@ -242,7 +218,6 @@ TEST( AssetPathIdentity, TheScenesSpellingFindsThePreloadersUnparsedShell )
 {
     const ProjectRootGuard      roots;
     const auto                  project = OpenProject( "preloader_shell" );
-    const WorkingDirectoryGuard cwd( project );
 
     AssetManager mgr;
 
@@ -268,7 +243,6 @@ TEST( AssetPathIdentity, TheRecordsOwnKeyEqualsTheKeyOfEverySpellingOfIt )
 {
     const ProjectRootGuard      roots;
     const auto                  project = OpenProject( "record_key" );
-    const WorkingDirectoryGuard cwd( project );
 
     AssetManager mgr;
 
@@ -320,7 +294,6 @@ TEST( AssetPathIdentity, OnePathTwoTypesStaysTwoRecordsUnderEverySpelling )
 {
     const ProjectRootGuard      roots;
     const auto                  project = OpenProject( "two_types" );
-    const WorkingDirectoryGuard cwd( project );
 
     AssetManager mgr;
 
@@ -424,7 +397,6 @@ TEST( AssetPathIdentity, RelativeSpellingsAreResolvedLexicallyNotThroughLinks )
 
     // The project is opened under the UNCANONICAL spelling, the caller stands in the canonical one.
     Common::Constants::Path::SetProjectRoot( dir, "Resources/Assets" );
-    const WorkingDirectoryGuard cwd( canonical );
 
     AssetManager mgr;
 
@@ -490,7 +462,6 @@ TEST( AssetPathIdentity, ARootRelativeReferenceIsAnotherIdentityUntilItsOwnForma
 {
     const ProjectRootGuard      roots;
     const auto                  project = OpenProject( "assets_root_relative" );
-    const WorkingDirectoryGuard cwd( project );
 
     // Exactly what the shipped `Cirrus.decloudtype` carries in its "NoiseVolume" field, and exactly where
     // the file sits. Spelled here rather than read off disk because the claim is about the KEY.

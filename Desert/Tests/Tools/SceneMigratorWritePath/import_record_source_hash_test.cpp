@@ -36,7 +36,7 @@ namespace
         void SetUp() override
         {
             const std::filesystem::path corpus =
-                 Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Assets/Meshes";
+                 Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes";
             m_Gltf = ReadBytes( corpus / "TwoJointProbe.gltf" );
             m_Mesh = ReadBytes( corpus / "TwoJointProbe.skmesh" );
             ASSERT_FALSE( m_Gltf.empty() ) << "run from the tree root";

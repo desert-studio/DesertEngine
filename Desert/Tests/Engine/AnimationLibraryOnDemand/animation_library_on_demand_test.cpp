@@ -19,6 +19,7 @@
 
 #include <filesystem>
 #include <format>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
@@ -26,21 +27,12 @@ namespace
     namespace fs   = std::filesystem;
     namespace Path = Common::Constants::Path;
 
-    constexpr const char* kClip = "SkinProbe_Tilt"; // Editor/Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim
+    constexpr const char* kClip = "SkinProbe_Tilt"; // Desert/Tests/Data/Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim
 
     fs::path RepoRoot()
     {
-        for ( const char* prefix : { "", "../", "../../", "../../../", "../../../../" } )
-        {
-            const fs::path candidate =
-                 fs::path( prefix ) / "Editor/Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim";
-            if ( fs::is_regular_file( candidate ) )
-                return fs::absolute( fs::path( prefix ).empty() ? fs::path( "." ) : fs::path( prefix ) )
-                     .lexically_normal();
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot();
     }
-
     class AnimationLibraryOnDemand : public ::testing::Test
     {
     protected:
@@ -54,7 +46,7 @@ namespace
             // Editor/, or the built-in humanoid's clips are outside the registry this suite gathers.
             m_SavedEngineDir = Common::Constants::Path::EngineDir();
             Common::Constants::Path::SetEngineDir( root / "Editor" );
-            Path::SetProjectRoot( root / "Editor", "Resources/Assets" );
+            Path::SetProjectRoot( Desert::TestSupport::TestDataDir(), "Resources/Assets" );
             Assets::ContentRegistry::ResetForTest();
             std::vector<std::string> refused;
             ASSERT_TRUE( Assets::ContentRegistry::Gather( &refused ) );
@@ -158,7 +150,7 @@ TEST_F( AnimationLibraryOnDemand, TheSpawnedHumanoidsDefaultClipIsACommittedEngi
 // the import rewrites it.
 TEST_F( AnimationLibraryOnDemand, AClipAnImportWritesAfterPopulationIsOffered )
 {
-    const fs::path source = RepoRoot() / "Editor/Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim";
+    const fs::path source = Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim";
     const fs::path project =
          fs::temp_directory_path() /
          std::format( "anim_library_import_{}", ::testing::UnitTest::GetInstance()->random_seed() );

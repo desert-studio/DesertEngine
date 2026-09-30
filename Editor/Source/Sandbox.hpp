@@ -140,9 +140,9 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
         }
         Common::Constants::Path::SetEngineDir( engine.Dir );
         startedInCheckout = engine.FromCheckout;
-        // The log lives in the engine directory wherever the process was started (a no-op for the
-        // run scripts, which start in it) — the one place a developer looks for engine_log.txt.
-        Common::Logger::RelocateLogFile( engine.Dir );
+        // The log lives in <ProjectDir>/Saved/Logs wherever the process was started (UE's layout) — the one
+        // place a developer looks for engine_log.txt.
+        Common::Logger::RelocateLogFile( Common::Constants::Path::ProjectDir() / "Saved" / "Logs" );
 
         // A binary started where it was built: an IDE passes the run scripts' `--project Desert.deproj`
         // but starts in the solution root, where no such file is. The name then means the one in the

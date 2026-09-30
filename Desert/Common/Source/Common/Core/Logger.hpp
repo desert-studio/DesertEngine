@@ -18,17 +18,27 @@ namespace Common::Logger
     // without `--console` stdout goes nowhere and "logs are not written" is what a developer sees).
     void AddPlatformDebuggerSink();
 
-    // THE LOG FILE LIVES IN THE ENGINE DIRECTORY. It is opened here, in the working directory, before the
-    // startup has found the engine directory (Common::Constants::Path::EngineDir); a process started
-    // anywhere else — Visual Studio's F5 in the solution root, a shell in /tmp — would leave it where
-    // nobody looks. The startup calls this once the engine directory is known: the lines written so far
-    // are carried over and the file is reopened in `directory`.
+    // THE LOG FILE NEVER LIVES IN THE WORKING DIRECTORY (UE: <ProjectDir>/Saved/Logs). Until the startup knows
+    // where the project is, it is opened beside the executable, in <exe dir>/Saved/Logs; the startup then calls
+    // RelocateLogFile with <ProjectDir>/Saved/Logs, the lines written so far are carried over and the file is
+    // reopened there. A process started anywhere — F5 in the solution root, a shell in /tmp — logs the same.
     void RelocateLogFile( const std::filesystem::path& directory );
+
+    // <exe dir>/Saved/Logs — where the log is opened before a project is known (created on demand).
+    std::filesystem::path BootLogDirectory();
+
+    // The file the log is written to now (empty before LogInit): the Logs panel reads this, not a name.
+    std::filesystem::path CurrentLogFile();
+
+    // Records the file LogInit opened (Logger.cpp owns it, so RelocateLogFile knows what it moves).
+    void NoteLogFile( const std::filesystem::path& file );
 
     inline void LogInit()
     {
         auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-        auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("engine_log.txt", true);
+        const std::filesystem::path logFile   = BootLogDirectory() / "engine_log.txt";
+        auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>( logFile.string(), true );
+        NoteLogFile( logFile );
 
         spdlog::set_default_logger(std::make_shared<spdlog::logger>("desert", spdlog::sinks_init_list{console_sink, file_sink}));
         // Millisecond timestamps (%e): startup-phase costs — a shader compile, an atlas bake — are

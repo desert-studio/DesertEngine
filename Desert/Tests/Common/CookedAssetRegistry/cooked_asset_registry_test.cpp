@@ -783,7 +783,7 @@ TEST( CookedAssetRegistry, AClipRowCarriesTheRigItsFileStates )
 {
     namespace fs = std::filesystem;
     const fs::path corpus =
-         Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe_Wave.anim";
+         Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned/TwoBoneProbe_Wave.anim";
     ASSERT_TRUE( fs::exists( corpus ) ) << corpus.string();
     const auto described = Common::Content::DescribeContentFile( corpus, Common::Content::ContentKind::Animation );
     const auto kWitnessSkeleton = Common::Content::AssetGuidFromText( "14df187f6fede36fad0b96f4420f4c5b" );

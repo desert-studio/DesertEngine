@@ -164,21 +164,15 @@ namespace Common
 
             const fs::path normalized = path.lexically_normal();
 
-            // Absolute forms are used ONLY to decide which root contains the path. Comparing the two
-            // spellings directly cannot work: with a project open the roots are absolute while callers
-            // still pass working-directory-relative strings (shaders always do — SHADERDIR_PATH is const
-            // and is never remapped), and with no project open it is the other way round.
-            //
-            // A path that is ALREADY absolute skips fs::absolute, which consults the working directory.
-            // Worth having and not worth much: measured over a 2000-asset dedup scan it took 56.9 s to
-            // 53.6 s, because the cost here is the path algebra and its allocations rather than the
-            // syscall. What actually made this function cheap enough to sit in the registry was calling
-            // it once per asset instead of once per comparison — see AssetManager::CreateAsset.
-            std::error_code ec;
-            const fs::path  absolutePath =
-                 normalized.is_absolute() ? normalized : fs::absolute( normalized, ec ).lexically_normal();
-            if ( ec )
+            // A SYNTHETIC key (`procedural://`, `memory://`) is not a filesystem path: it keeps its spelling and
+            // never resolves against anything.
+            if ( path.generic_string().find( "://" ) != std::string::npos )
                 return normalized.generic_string();
+
+            // A relative spelling is relative to the PROJECT (UE: FPaths::ConvertRelativePathToFull reads
+            // ProjectDir), never to the process's working directory; FullPath refuses one when no root is set.
+            // A path that is already absolute is taken as given.
+            const fs::path absolutePath = Constants::Path::FullPath( normalized );
 
             std::string_view bestTag;
             std::string      bestRelative;
@@ -186,12 +180,10 @@ namespace Common
 
             for ( const PathRoot& candidate : ContentRoots() )
             {
-                std::error_code rootEc;
-                const fs::path  absoluteRoot = candidate.Root->is_absolute()
-                                                    ? *candidate.Root
-                                                    : fs::absolute( *candidate.Root, rootEc ).lexically_normal();
-                if ( rootEc )
+                // A root is relative only before SetEngineDir / SetProjectRoot; then it names no place yet.
+                if ( !candidate.Root->is_absolute() )
                     continue;
+                const fs::path absoluteRoot = candidate.Root->lexically_normal();
 
                 const std::string relative = absolutePath.lexically_relative( absoluteRoot ).generic_string();
 

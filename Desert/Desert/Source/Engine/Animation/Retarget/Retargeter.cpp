@@ -18,8 +18,8 @@ namespace Desert::Animation::Retarget
         using Desert::Animation::Solvers::TwoBoneIKChain;
         using Desert::Animation::Solvers::TwoBoneIKGoal;
 
-        /// 1 world unit = 1 cm, and +Y is up: every bone in the corpus rigs is offset along +Y from its
-        /// parent and the roots sit at y=150 (IKProbe) and y=100 (TwoBoneProbe). "Pelvis height" in
+        /// 1 world unit = 1 cm, and +Y is up: a rig's bones are offset along +Y from their parents, so the
+        /// root's height above the ground is its Y. "Pelvis height" in
         /// `PelvisMotionOp.cpp:223-224` is the pelvis's height above the ground in the rest pose, so it is
         /// this component of its model-space translation.
         constexpr int UP_AXIS = 1;

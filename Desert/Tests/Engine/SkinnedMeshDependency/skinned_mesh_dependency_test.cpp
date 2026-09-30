@@ -74,21 +74,21 @@ namespace
     // THE RIG'S IDENTITY: the header GUID of the shipped SkinProbe.skeleton, which SkinProbe.skmesh names in
     // its header (v5 SkeletonGuid). The scratch rig is written with the same GUID, so every test binds by the
     // identity the shipped files use.
-    constexpr const char* kProbeSkeletonPath = "Editor/Resources/Assets/Meshes/Skinned/SkinProbe.skeleton";
+    constexpr const char* kProbeSkeletonPath = "Resources/Assets/Meshes/Skinned/SkinProbe.skeleton";
     constexpr Common::Content::AssetGuid kProbeSkeletonGuid{ 0xacf475090f8a76b0ull, 0xeac6ee0c3e5d32fdull };
 
     // The identity the shipped scene stores for the shipped probe mesh: MESH_SkinnedProbe.desce names it by
     // MeshGuid, and the mesh states the same GUID in its header (AF8b: authored, committed under the assets
     // root). The runtime handle is that GUID folded (Content::HandleForGuid), so it no longer depends on
     // where the file sits.
-    constexpr const char*   kProbeMeshPath   = "Editor/Resources/Assets/Meshes/Skinned/SkinProbe.skmesh";
+    constexpr const char*   kProbeMeshPath   = "Resources/Assets/Meshes/Skinned/SkinProbe.skmesh";
     constexpr std::uint64_t kProbeMeshGuidHi = 0x047623816f024edfull;
     constexpr std::uint64_t kProbeMeshGuidLo = 0x9fd7a557f6501f7eull;
 
-    // The checkout, baked by the build (DESERT_TEST_REPO_ROOT).
-    std::filesystem::path RepoRoot()
+    // The suite data project, baked by the build (DESERT_TEST_DATA_DIR).
+    std::filesystem::path DataRoot()
     {
-        return Desert::TestSupport::RepositoryRoot();
+        return Desert::TestSupport::TestDataDir();
     }
 
     Desert::Assets::Serialization::SkeletonAssetData
@@ -419,7 +419,7 @@ TEST( SkinnedMeshDependency, TheShippedProbeKeepsTheIdentityTheSceneWasSavedWith
          << "The one-bone 'Root' rig no longer hashes to the signature SkinProbe.skmesh stores; the shipped "
             "probe mesh would find no skeleton and the scene that places it would render nothing.";
 
-    const std::filesystem::path root = RepoRoot();
+    const std::filesystem::path root = DataRoot();
     ASSERT_FALSE( root.empty() ) << "run from inside the checkout";
     std::ifstream in( root / kProbeMeshPath, std::ios::binary );
     std::string   prefix( Common::Content::kMeshBinaryPrefixSize, '\0' );

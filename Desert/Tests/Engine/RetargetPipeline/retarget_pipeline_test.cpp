@@ -48,6 +48,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
@@ -62,10 +63,10 @@ namespace
     using Desert::Animation::Retarget::Retargeter;
     using Desert::Animation::Retarget::RetargetSetup;
 
-    constexpr const char* kRigPath     = "Editor/Resources/Assets/Meshes/Skinned/IKProbe.skeleton";
-    constexpr const char* kClipPath    = "Editor/Resources/Assets/Meshes/Skinned/IKProbe_Swing.anim";
-    constexpr const char* kTwoBoneRig  = "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe.skeleton";
-    constexpr const char* kTwoBoneClip = "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe_Wave.anim";
+    constexpr const char* kRigPath     = "Resources/Assets/Meshes/Skinned/IKProbe.skeleton";
+    constexpr const char* kClipPath    = "Resources/Assets/Meshes/Skinned/IKProbe_Swing.anim";
+    constexpr const char* kTwoBoneRig  = "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skeleton";
+    constexpr const char* kTwoBoneClip = "Resources/Assets/Meshes/Skinned/TwoBoneProbe_Wave.anim";
 
     // The probe limb, and the only three-bone chain in the corpus. A limb is what a retargeter is judged
     // on, and IK_Shoulder is also the rig's root, so it doubles as the pelvis.
@@ -73,19 +74,12 @@ namespace
     constexpr const char* kMid  = "IK_Elbow";
     constexpr const char* kTip  = "IK_Hand";
 
-    std::string RepoRoot()
+    // The suite data project (Desert/Tests/Data), baked by the build (DESERT_TEST_DATA_DIR) — never found
+    // from the working directory.
+    std::string DataRoot()
     {
-        std::string prefix = "./";
-        for ( int up = 0; up < 6; ++up )
-        {
-            const std::ifstream probe( prefix + kRigPath );
-            if ( probe )
-                return prefix;
-            prefix += "../";
-        }
-        return {};
+        return Desert::TestSupport::TestDataDir().generic_string() + "/";
     }
-
     std::string ReadFile( const std::string& path )
     {
         const std::ifstream in( path, std::ios::binary );
@@ -98,7 +92,7 @@ namespace
 
     std::vector<BoneInfo> BonesFrom( const char* path )
     {
-        const std::string raw = ReadFile( RepoRoot() + path );
+        const std::string raw = ReadFile( DataRoot() + path );
         EXPECT_FALSE( raw.empty() ) << "could not read " << path;
         auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
         EXPECT_TRUE( data.IsSuccess() ) << path << ": " << data.GetError();
@@ -107,7 +101,7 @@ namespace
 
     Desert::Animation::AnimationClip ClipFrom( const char* path )
     {
-        const std::string raw = ReadFile( RepoRoot() + path );
+        const std::string raw = ReadFile( DataRoot() + path );
         EXPECT_FALSE( raw.empty() ) << "could not read " << path;
         const auto data = Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( raw );
         EXPECT_TRUE( data.IsSuccess() ) << path << ": " << data.GetError();

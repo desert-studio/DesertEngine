@@ -44,34 +44,26 @@
 #include <string>
 #include <type_traits>
 #include <variant>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace Ser      = Desert::Assets::Serialization;
 namespace Timeline = Desert::Animation::Timeline;
 
 namespace
 {
-    constexpr const char* kCookedDir = "Editor/Resources/Assets/Meshes/Skinned/";
+    constexpr const char* kCookedDir = "Resources/Assets/Meshes/Skinned/";
     constexpr const char* kBone      = "IK_Shoulder";
 
-    std::string RepoRoot()
+    // The suite data project (Desert/Tests/Data), baked by the build (DESERT_TEST_DATA_DIR) — never found
+    // from the working directory.
+    std::string DataRoot()
     {
-        std::string prefix = "./";
-        for ( int up = 0; up < 6; ++up )
-        {
-            const std::ifstream probe( prefix + std::string( kCookedDir ) + "A6Curve_Linear.anim" );
-            if ( probe )
-            {
-                return prefix;
-            }
-            prefix += "../";
-        }
-        return {};
+        return Desert::TestSupport::TestDataDir().generic_string() + "/";
     }
-
     /// The file through the engine's own reader (header, generation and schema checks included).
     Ser::AnimationAssetData Load( const char* stem )
     {
-        const std::ifstream in( RepoRoot() + kCookedDir + stem + ".anim", std::ios::binary );
+        const std::ifstream in( DataRoot() + kCookedDir + stem + ".anim", std::ios::binary );
         EXPECT_TRUE( in.good() ) << stem;
         std::ostringstream text;
         text << in.rdbuf();
@@ -148,7 +140,7 @@ namespace
 
 TEST( KeyInterpolationWitness, TheTwoClipsDifferInExactlyOneFieldPerKey )
 {
-    ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
+    ASSERT_FALSE( DataRoot().empty() ) << "the suite data directory is not baked";
 
     const Ser::AnimationAssetData linearData = Load( "A6Curve_Linear" );
     const Ser::AnimationAssetData cubicData  = Load( "A6Curve_Cubic" );
@@ -202,7 +194,7 @@ TEST( KeyInterpolationWitness, TheTwoClipsDifferInExactlyOneFieldPerKey )
 
 TEST( KeyInterpolationWitness, OnAKeyTheTwoClipsGiveTheSamePose )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
+    ASSERT_FALSE( DataRoot().empty() );
 
     const auto linear = Built( "A6Curve_Linear" );
     const auto cubic  = Built( "A6Curve_Cubic" );
@@ -221,7 +213,7 @@ TEST( KeyInterpolationWitness, OnAKeyTheTwoClipsGiveTheSamePose )
 
 TEST( KeyInterpolationWitness, BetweenKeysTheyDifferAndTheCubicStaysInsideItsKeys )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
+    ASSERT_FALSE( DataRoot().empty() );
 
     const auto linear = Built( "A6Curve_Linear" );
     const auto cubic  = Built( "A6Curve_Cubic" );
@@ -246,7 +238,7 @@ TEST( KeyInterpolationWitness, BetweenKeysTheyDifferAndTheCubicStaysInsideItsKey
 
 TEST( KeyInterpolationWitness, TheAutoPassFlattensThePeakOfThisVeryClip )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
+    ASSERT_FALSE( DataRoot().empty() );
 
     // The files ship with zero tangents, because `Auto` means "computed", and the pass is what computes
     // them. Running it here proves the shipped data and the rule agree about this clip rather than about
@@ -268,7 +260,7 @@ TEST( KeyInterpolationWitness, TheAutoPassFlattensThePeakOfThisVeryClip )
 
 TEST( KeyInterpolationWitness, InsertingAKeyAtThePlayheadRecordsTheCurveAndNotTheOrigin )
 {
-    ASSERT_FALSE( RepoRoot().empty() );
+    ASSERT_FALSE( DataRoot().empty() );
 
     // THE HOLE A MUTATION FOUND. This suite read the shipped clips and asserted their shape, and it was
     // green against a build whose "Add Key @ Playhead" inserted `glm::vec3( 0.0f )` — a position key AT

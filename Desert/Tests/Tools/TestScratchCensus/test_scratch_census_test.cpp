@@ -36,21 +36,10 @@ namespace
     };
 
     // One row per file that may keep a flagged line, with the tests that are about the working directory.
-    constexpr std::array<Exception, 5> kExceptions{ {
+    constexpr std::array<Exception, 2> kExceptions{ {
          { "Desert/Tests/Engine/AssetHandleStability/asset_handle_stability_test.cpp",
            "ASyntheticKeyDoesNotFollowTheWorkingDirectory moves the process to prove a procedural:// key does not "
-           "follow it. (Its ScratchWorkingDirectory users go with ScratchWorkingDirectory, below.)" },
-         { "Desert/Tests/TestSupport/scratch_dir.hpp",
-           "ScratchWorkingDirectory: Common::AssetHandle::StableKeyForPath still resolves a relative spelling "
-           "through fs::absolute (the working directory), and AssetHandleStability / ThumbnailKey measure exactly "
-           "that; it goes when StableKeyForPath reads off Path::FullPath (ProjectDir) — ENG-ROOT follow-up." },
-         { "Desert/Tests/Engine/AssetPathIdentity/asset_path_identity_test.cpp",
-           "WorkingDirectoryGuard: every spelling test measures StableKeyForPath's relative-through-the-working-"
-           "directory resolution (same follow-up as scratch_dir.hpp)." },
-         { "Desert/Tests/Common/CrashHandler/crash_handler_test.cpp",
-           "the crash CHILD process's main stands in its scratch root: Common::Logger::LogInit opens "
-           "engine_log.txt "
-           "in the working directory (a log directory service is the follow-up)." },
+           "follow it." },
          { "Desert/Tests/Tools/TestScratchCensus/test_scratch_census_test.cpp", "the rule's own self-tests." },
     } };
 

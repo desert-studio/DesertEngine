@@ -318,7 +318,7 @@ TEST_F( MeshServiceResidency, ASkinnedMeshFailedForItsMissingRigIsDrawnOnceTheRi
     namespace fs   = std::filesystem;
     namespace Path = Common::Constants::Path;
     const fs::path repo    = Desert::TestSupport::RepositoryRoot();
-    const fs::path shipped = repo / "Editor/Resources/Assets/Meshes/Skinned";
+    const fs::path shipped = Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned";
 
     // A snapshot, not a reference: SetProjectRoot below rewrites the state CurrentProjectRoot() refers to, and the
     // test restores the root it found from this copy.

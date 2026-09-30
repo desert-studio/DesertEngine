@@ -256,7 +256,7 @@ namespace Desert::Assets::Serialization
 
         /// The `.skeleton` the CLIPS are authored on. Resolved by GUID in `RetargetAsset::ResolveDependencies`;
         /// its GUID is the header's one Dependency (WriteRetarget states it, ParseRetarget refuses a
-        /// disagreement). The path is RELATIVE to the assets root (e.g. "Meshes/Skinned/IKProbe.skeleton") and is
+        /// disagreement). The path is RELATIVE to the assets root (e.g. "Characters/Mannequin.skeleton") and is
         /// what a reader and every warning name. See the file note for why this is not a signature.
         AssetGuidRef SourceSkeleton;
 
