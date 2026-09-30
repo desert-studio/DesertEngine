@@ -359,6 +359,27 @@ namespace Desert::Editor
                                          ImVec2( x - 5, y ), IM_COL32( 230, 190, 60, 255 ) );
                 }
             }
+            // The Animation track: one bar per section, labelled with the clip it plays.
+            if ( const TL::Track* track =
+                      TL::FindTrack( sequence, binding.Guid, ECS::kLevelSequenceAnimationProperty ) )
+            {
+                const auto clips = LevelAnimationClips( binding.Guid );
+                for ( const auto& section : track->Sections )
+                {
+                    const auto* anim = std::get_if<TL::AnimationSectionContent>( &section.Content );
+                    if ( anim == nullptr )
+                        continue;
+                    std::string label = "?";
+                    for ( const auto& clip : clips )
+                        if ( clip && Assets::ContentRegistry::GuidForHandle(
+                                          static_cast<uint64_t>( clip->GetMetadata().Handle ) ) == anim->Clip )
+                            label = clip->GetClip().AnimationName;
+                    const float x0 = xOf( section.Start.Value ), x1 = xOf( section.End.Value );
+                    draw->AddRectFilled( ImVec2( x0, rowY + 2 ), ImVec2( x1, rowY + ImGui::GetFrameHeight() - 2 ),
+                                         IM_COL32( 80, 150, 90, 255 ), 3.0f );
+                    draw->AddText( ImVec2( x0 + 4, rowY + 3 ), IM_COL32( 240, 240, 240, 255 ), label.c_str() );
+                }
+            }
             ImGui::PopID();
         }
 
