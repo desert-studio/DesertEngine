@@ -104,7 +104,6 @@ namespace Desert::Migration::ClipGen3
                                 spanSeconds, factor );
     }
 
-{
     float ClipSection::WeightAt( FrameTime at, FrameRate tickRate ) const
     {
         if ( Weight.empty() )
@@ -415,7 +414,6 @@ namespace Desert::Migration::ClipGen3
         section.Weight.clear();
     }
 
-{
     Common::ResultStr<AnimationClip> BuildClip( const AnimationAssetData& data )
     {
         // The generation is not checked here: it lives in the file's header, and ReadAnimationJson refuses
