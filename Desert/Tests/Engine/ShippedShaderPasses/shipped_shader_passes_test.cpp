@@ -489,7 +489,7 @@ namespace
     }
 
     // The handle a `.demat`'s normal slot resolves to (HandleForGuid of the GUID it states, MATL 3), or 0 for
-    // "no slot" and for "the slot is empty" alike -- which are the same fact to every consumer: MaterialFactory
+    // "no slot" and for "the slot is empty" alike -- which are the same fact to every consumer: MaterialService
     // binds the shader's 1x1 fallback for both, and the fragment stage's `textureSize(...) > 1` guard then
     // skips the TBN multiply.
     uint64_t NormalTextureHandleOf( const std::string& demat )
@@ -923,7 +923,7 @@ TEST( ShippedShaderPasses, AnAuthoredPBRParamReachesItsBytesInTheRowByManifestNa
 
 TEST( ShippedShaderPasses, EveryPBRTextureSlotIsBoundByManifestNameAndAnEmptyOneTakesTheSchemaDefault )
 {
-    // MaterialFactory binds a PBR material's maps through ForEachMaterialTextureSlot: the slot names come
+    // MaterialService binds a PBR material's maps through ForEachMaterialTextureSlot: the slot names come
     // from the template's manifest, the handles from the .demat. There used to be three hand-written binds
     // (albedo, normal, opacity), so an ORM or emissive map persisted in the file never reached a sampler.
     constexpr uint64_t                    kORMHandle = 0x0123456789ABCDEFull;

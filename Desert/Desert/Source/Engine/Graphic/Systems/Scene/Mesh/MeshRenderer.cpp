@@ -1131,7 +1131,7 @@ namespace Desert::Graphic::System
                         LOG_ERROR( "[MeshRenderer] A material has no (Instanced x {}) variant, so its "
                                    "objects cannot be hardware-batched in this pass. Auto-batched statics "
                                    "fall back to one draw each; an Instanced Static Mesh on this material "
-                                   "does NOT appear at all. MaterialFactory logged which shader refused.",
+                                   "does NOT appear at all. MaterialService logged which shader refused.",
                                    MeshPassName( instancedPass ) );
                     return nullptr;
                 }
@@ -1320,7 +1320,7 @@ namespace Desert::Graphic::System
                     if ( s_WarnedNoGBufferVariant.insert( mat ).second )
                         LOG_ERROR( "[MeshRenderer] No (Static x GBuffer) material for a mesh material; its "
                                    "{} object(s) are NOT drawn into the G-buffer and will be missing from "
-                                   "the deferred scene. MaterialFactory logged which shader refused.",
+                                   "the deferred scene. MaterialService logged which shader refused.",
                                    singles.size() );
                     continue;
                 }
@@ -3104,7 +3104,7 @@ namespace Desert::Graphic::System
                 if ( data.MaterialSlots && !data.MaterialSlots->Slots.empty() )
                 {
                     // THE SAME selector the static queue uses, asked for the SKINNED path. It used to be
-                    // a second loop hunting a different C++ CLASS, and since MaterialFactory could not
+                    // a second loop hunting a different C++ CLASS, and since the material build could not
                     // produce that class from an asset under any circumstances, an imported character
                     // with its own materials matched nothing and was dropped without drawing.
                     if ( const auto slot = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Skinned ) )

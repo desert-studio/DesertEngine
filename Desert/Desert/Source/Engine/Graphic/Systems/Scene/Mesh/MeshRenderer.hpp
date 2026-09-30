@@ -501,7 +501,7 @@ namespace Desert::Graphic::System
         // mesh whose slot did not resolve.
         //
         // IT USED TO RECORD EVERY BATCH, AND THAT WAS THE DEFECT. A material built here has never been
-        // through MaterialFactory, so every 2D sampler it declares holds the shader schema's 1x1 white.
+        // through MaterialService, so every 2D sampler it declares holds the shader schema's 1x1 white.
         // Recording an asset-backed group with it deleted that surface's whole texture channel while
         // leaving its colours, tiling-independent, intact — see InstancedRecorder.hpp for the numbers and
         // for why rebinding this one material per batch cannot be the fix. A batch now finds its own

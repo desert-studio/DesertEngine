@@ -3,7 +3,7 @@
 //
 // The engine has two routes for a data-driven material, and they are NOT equivalent:
 //
-//   * the per-SLOT route -- StaticMeshComponent::MaterialSlots -> MaterialFactory -> a DataDrivenMaterial
+//   * the per-SLOT route -- StaticMeshComponent::MaterialSlots -> MaterialService (CreateSurfaceMaterial) -> a DataDrivenMaterial
 //     that IS the asset. What a real scene mesh takes.
 //   * the shader-OVERRIDE route -- MaterialComponent::ShaderName + per-draw overrides, driving a material
 //     shared by shader name. MeshRenderer re-applies ApplyDefaults() to it EVERY frame, so an asset's

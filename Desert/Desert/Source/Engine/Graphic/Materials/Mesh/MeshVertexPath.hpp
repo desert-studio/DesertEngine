@@ -85,7 +85,7 @@ namespace Desert::Graphic
     // `.demat` into exactly one of them. The consequences were all one defect wearing different clothes:
     //
     //   1. an imported character with its own materials did not draw AT ALL — MeshRenderer looked for a
-    //      slot whose parent was the skinned PBR class, and MaterialFactory could not build one from an
+    //      slot whose parent was the skinned PBR class, and MaterialService could not build one from an
     //      asset under any circumstances (it answered the static class even for a `.demat` naming the
     //      skinned shader);
     //   2. a skinned mesh cast NO SHADOW — the cascade pass walked the static queue by name;

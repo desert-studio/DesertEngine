@@ -270,7 +270,7 @@ TEST( EngineShaderByGuid, RenamingTheShaderDoesNotChangeResolution )
 
 // THE ROLE IS NOT READ FROM A SHELL (THM1n-10). The PBR surface template registered UNREAD (the boot scan's
 // loadAfterCreate=false) or EVICTED (ShaderAsset::Unload clears the Role) answered an empty role, the material
-// took 'StaticMeshPBR' for a custom DSL shader, MaterialFactory refused its (Skinned x Forward) cell, and the
+// took 'StaticMeshPBR' for a custom DSL shader, the material build refused its (Skinned x Forward) cell, and the
 // skinned thumbnail drew the sky. Resolving loads the template as the dependency the header says it is.
 TEST( EngineShaderByGuid, ThePBRSurfaceRoleIsReadFromAnUnreadOrEvictedShader )
 {
