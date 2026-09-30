@@ -67,29 +67,54 @@ namespace Desert::Graphic::API::Vulkan
             LOG_ERROR( "[AcquireNextImage] {}", acquired.GetError() );
     }
 
-    void VulkanQueue::Submit()
+    Common::BoolResultStr VulkanQueue::Submit( std::span<const VulkanRdgSubmission> frame )
     {
         if ( !Graphic::DeviceLost::AllowWork() )
-            return;
+            return Common::MakeError( "the device is lost; nothing is submitted" );
+        if ( frame.empty() || frame.back().OnPipe != RDG::Pipe::Graphics )
+            return Common::MakeError( "the frame's last submission is not its graphics tail" );
 
         uint32_t currentIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
 
         const auto& queue =
              SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetGraphicsQueue();
 
-        VkPipelineStageFlags waitStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        VkSubmitInfo         submitInfo    = {};
-        submitInfo.sType                   = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submitInfo.pWaitDstStageMask       = &waitStageMask;
-        submitInfo.pWaitSemaphores         = &m_FrameSemaphores[currentIndex].PresentComplete;
-        submitInfo.waitSemaphoreCount      = 1;
-        submitInfo.pSignalSemaphores       = &m_FrameSemaphores[currentIndex].RenderComplete;
-        submitInfo.signalSemaphoreCount    = 1;
-        submitInfo.pCommandBuffers         = &m_DrawCommandBuffers[currentIndex];
-        submitInfo.commandBufferCount      = 1;
-
-        VK_CHECK_RESULT( SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                              ->SubmitToQueue( queue, 1, &submitInfo, m_WaitFences[currentIndex] ) );
+        const auto device        = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
+        bool       waitedOnImage = false;
+        for ( size_t i = 0; i < frame.size(); ++i )
+        {
+            const VulkanRdgSubmission&        entry = frame[i];
+            const bool                        last  = i + 1 == frame.size();
+            std::vector<VkSemaphore>          waits  = entry.WaitSemaphores;
+            std::vector<VkPipelineStageFlags> stages = entry.WaitStages;
+            std::vector<VkSemaphore>          signals = entry.SignalSemaphores;
+            if ( !waitedOnImage && entry.OnPipe == RDG::Pipe::Graphics )
+            {
+                waits.push_back( m_FrameSemaphores[currentIndex].PresentComplete );
+                stages.push_back( VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT );
+                waitedOnImage = true;
+            }
+            if ( last )
+                signals.push_back( m_FrameSemaphores[currentIndex].RenderComplete );
+            VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+            submitInfo.waitSemaphoreCount   = static_cast<uint32_t>( waits.size() );
+            submitInfo.pWaitSemaphores      = waits.data();
+            submitInfo.pWaitDstStageMask    = stages.data();
+            submitInfo.commandBufferCount   = 1;
+            submitInfo.pCommandBuffers      = &entry.CommandBuffer;
+            submitInfo.signalSemaphoreCount = static_cast<uint32_t>( signals.size() );
+            submitInfo.pSignalSemaphores    = signals.data();
+            const VkQueue  target = entry.Queue != VK_NULL_HANDLE ? entry.Queue : queue;
+            const VkResult submitted =
+                 device->SubmitToQueue( target, 1, &submitInfo, last ? m_WaitFences[currentIndex] : VK_NULL_HANDLE );
+            if ( submitted != VK_SUCCESS )
+            {
+                (void)NoteIfDeviceLost( submitted, "vkQueueSubmit", __FILE__, __LINE__ );
+                return Common::MakeFormattedError<bool>( "vkQueueSubmit of frame entry {} of {} failed: {}", i,
+                                                         frame.size(), VkResultToString( submitted ) );
+            }
+        }
+        return Common::MakeSuccess( true );
     }
 
     void VulkanQueue::Present()

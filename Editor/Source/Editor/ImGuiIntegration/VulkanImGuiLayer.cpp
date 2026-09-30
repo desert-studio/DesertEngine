@@ -218,8 +218,9 @@ namespace Desert::Graphic::API::Vulkan
         // ImGui must be rendered within a render pass that target the swapchain
         renderer.BeginSwapChainRenderPass();
 
-        ImGui_ImplVulkan_RenderDrawData( ::ImGui::GetDrawData(),
-                                         swapChain->GetVulkanQueue()->GetDrawCommandBuffer() );
+        // The frame's current command buffer: the frame is split at every graph, so the swapchain's first
+        // one would run BEFORE the graphs whose images the UI shows.
+        ImGui_ImplVulkan_RenderDrawData( ::ImGui::GetDrawData(), renderer.GetCurrentCommandBuffer() );
 
         // Reported rather than returned: this helper is void and its caller is ImGui's own render path.
         // A pass that will not close leaves the command buffer inside a render pass, and everything

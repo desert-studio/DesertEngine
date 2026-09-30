@@ -24,6 +24,12 @@ namespace Desert::Graphic::API::Vulkan
         virtual void Shutdown() override;
 
         [[nodiscard]] virtual Common::BoolResultStr BeginFrame() override;
+        // The command buffer the frame records into NOW. It changes at every ExecuteGraph (the frame is split
+        // there), so a caller asks for it when it records and never keeps it.
+        VkCommandBuffer GetCurrentCommandBuffer() const
+        {
+            return m_CurrentCommandBuffer;
+        }
         [[nodiscard]] virtual Common::BoolResultStr EndFrame() override;
         [[nodiscard]] virtual Common::BoolResultStr PresentFinalImage() override;
         [[nodiscard]] virtual Common::BoolResultStr BeginRenderPass( const RenderPass* renderPass,
@@ -151,6 +157,18 @@ namespace Desert::Graphic::API::Vulkan
         VulkanRdgDevice                   m_RdgDevice;
         std::unique_ptr<VulkanRdgPool>    m_RdgPool;
         std::unique_ptr<VulkanRdgBackend> m_RdgBackend;
+        // RDG-CONTRACTS A/B frame objects, per frame slot and re-begun by BeginFrame after the slot's fence:
+        // transient heaps, per-pass descriptor pools, segment command pools + semaphores, and the queues.
+        std::unique_ptr<VulkanRdgTransientAllocator> m_RdgTransients;
+        std::unique_ptr<VulkanRdgPassDescriptors>    m_RdgDescriptors;
+        std::unique_ptr<VulkanRdgQueueObjects>       m_RdgQueueObjects;
+        VulkanRdgQueueSet                            m_RdgQueues;
+        // The frame so far in submission order: the frame command buffer is split at every graph (what was
+        // recorded before it is submitted before it), followed by that graph's segment submissions.
+        std::vector<VulkanRdgSubmission> m_FrameSubmissions;
+
+        // Makes the RDG frame objects on the first frame and begins them all for the current frame slot.
+        Common::BoolResultStr BeginRdgFrame();
     };
 
 } // namespace Desert::Graphic::API::Vulkan

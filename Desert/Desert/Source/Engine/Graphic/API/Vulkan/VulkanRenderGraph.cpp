@@ -1075,10 +1075,15 @@ namespace Desert::Graphic::API::Vulkan
             srcStages |= barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire
                               ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT
                               : RdgVulkanStages( barrier.Before.Stages );
-            dstStages |= RdgVulkanStages( barrier.After.Stages );
-            // A write-free source has nothing to make available: its stages only order the work.
-            const VkAccessFlags srcAccess = RdgVulkanAccess( barrier.Before.Memory & RDG::kWriteAccessMask );
-            const VkAccessFlags dstAccess = RdgVulkanAccess( barrier.After.Memory );
+            // A release's second scope is on the other queue: on this one it only ends the barrier.
+            const bool release = barrier.BarrierType == RDG::BarrierKind::OwnershipRelease;
+            const bool acquire = barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire;
+            dstStages |= release ? VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT : RdgVulkanStages( barrier.After.Stages );
+            // A write-free source has nothing to make available: its stages only order the work. An acquire
+            // makes nothing available (its release did); a release makes nothing visible (its acquire does).
+            const VkAccessFlags srcAccess =
+                 acquire ? 0 : RdgVulkanAccess( barrier.Before.Memory & RDG::kWriteAccessMask );
+            const VkAccessFlags dstAccess = release ? 0 : RdgVulkanAccess( barrier.After.Memory );
             if ( barrier.Kind == RDG::ResourceKind::Texture )
             {
                 const VulkanRdgTexture& texture = *m_Textures[barrier.Resource];
@@ -1334,8 +1339,8 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRdgBackend::RecordEpilogueBarriers( std::span<const RDG::Barrier> barriers )
     {
-        // Releases only: RecordBarriers names the families from BarrierType and leaves dstAccess empty
-        // (After.Memory of a release is empty by contract).
+        // Releases only: RecordBarriers names the families from BarrierType, ends the barrier at
+        // BOTTOM_OF_PIPE and leaves dstAccess empty (the acquire on the other queue makes it visible).
         RecordBarriers( barriers );
     }
 
