@@ -1,6 +1,7 @@
 #include <Editor/Core/DetailsNavigation.hpp>
 #include "SkyboxComponent.hpp"
 #include <Editor/Widgets/AssetFieldOpen.hpp>
+#include <Editor/Core/AssetOpen.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
@@ -9,7 +10,6 @@
 
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
 #include <Editor/Panels/PropertyEditor/PropertyEditorBuilder.hpp>
-#include <Editor/Widgets/PreviewViewport.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
@@ -75,35 +75,28 @@ namespace Desert::Editor
                   std::string currentName =
                        current ? ::Desert::Editor::PickerDisplayName( *current ) : std::string( "None" );
 
-                  // ── THE PREVIEW ON A BALL, beside the picker ───────────────────────────────────────
+                  // ── THE SKY'S TILE, beside the picker ─────────────────────────────────────────────
                   //
-                  // 96 px rather than the material slot's 64: a cubemap is READ for where things are in
-                  // it (is the sun behind me now?), and that is the question the rotation slider below
-                  // exists to answer, so the picture has to be big enough to answer it.
-                  constexpr float kPreview = 96.0f;
-                  const bool      drewLive = ctx.Preview && ctx.Preview->HasContent() &&
-                                        ctx.Preview->GetFill() == PreviewViewport::Fill::Cubemap &&
-                                        ctx.DrawPreview( ImVec2( kPreview, kPreview ), DetailsPreviewKind::Skybox,
-                                                         static_cast<uint64_t>( skybox.SkyboxHandle ) );
-                  // The live ball is Static (DetailsPreviewInteraction): it keeps the one angle the Rotation
-                  // slider is read against, and its double-click opens the skybox.
-                  if ( !drewLive )
+                  // NO LIVE BALL (THM-FIXF). Details holds no render view — UE's Details slots are thumbnails
+                  // from the shared pool, and the live ball lives in the skybox's own window (double-click
+                  // opens it). The pool has no skybox picture kind yet, so the tile is the type icon.
+                  constexpr float kTile = 96.0f;
                   {
-                      // THREE STATES, NOT TWO. "no asset", "the panel was lent no renderer" and "the
-                      // cubes are not baked yet" are different facts, and a single grey box for all
-                      // three is how a person concludes the feature is broken when it is merely busy.
                       const ImVec2 at = ImGui::GetCursorScreenPos();
-                      ImGui::Dummy( ImVec2( kPreview, kPreview ) );
-                      const ImVec2 br( at.x + kPreview, at.y + kPreview );
+                      ImGui::Dummy( ImVec2( kTile, kTile ) );
+                      if ( current && ImGui::IsItemHovered() &&
+                           ImGui::IsMouseDoubleClicked( ImGuiMouseButton_Left ) )
+                          Core::AssetFieldRequests::Request( skybox.SkyboxHandle, Core::AssetFieldAction::Open );
+                      const ImVec2 br( at.x + kTile, at.y + kTile );
                       ImDrawList*  dl = ImGui::GetWindowDrawList();
                       dl->AddRectFilled( at, br, IM_COL32( 15, 15, 15, 255 ), 2.0f );
                       const char*  icon = ICON_MDI_IMAGE_FILTER_HDR;
                       const ImVec2 ts   = ImGui::CalcTextSize( icon );
-                      dl->AddText( ImVec2( at.x + ( kPreview - ts.x ) * 0.5f, at.y + ( kPreview - ts.y ) * 0.5f ),
+                      dl->AddText( ImVec2( at.x + ( kTile - ts.x ) * 0.5f, at.y + ( kTile - ts.y ) * 0.5f ),
                                    ImGui::GetColorU32( ImGuiCol_TextDisabled ), icon );
                       dl->AddRect( at, br, ImGui::GetColorU32( ImGuiCol_Border ), 2.0f );
                       Utils::ImGuiUtilities::Tooltip( !current ? "No HDR skybox assigned"
-                                                               : "Preview starting — the cubemap is baking" );
+                                                               : "Double-click to open the skybox in its viewer" );
                   }
 
                   ImGui::SameLine();

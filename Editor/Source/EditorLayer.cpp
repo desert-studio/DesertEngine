@@ -3357,14 +3357,8 @@ namespace Desert::Editor
         for ( const auto& view : m_ExtraViewports )
             census.push_back( { "viewport '" + view->Name + "'", view->Renderer != nullptr } );
 
-        // The Details preview is a TOOL that happens to own a renderer, so it is found among the panels.
-        for ( const auto& panel : m_Panels )
-            if ( const auto* details = dynamic_cast<const ScenePropertiesPanel*>( panel.get() ) )
-                // Only while it HOLDS one. With nothing previewable selected it owns no renderer and has
-                // no forecast either (it builds lazily on a selection, not on a document), so a row here
-                // read "will allocate ~0.0 MiB when it draws" — a line the user could do nothing with.
-                if ( details->HoldsView() )
-                    census.push_back( { "Details preview", true } );
+        // NO DETAILS ROW. Details holds no view (THM-FIXF): its asset rows are pictures from the thumbnail pool,
+        // as UE's Details slots are, and a live view belongs to an asset window and dies with it.
 
         // The documents are asked of their own owner rather than sifted out of the panel list with a
         // dynamic_cast. That cast was the seam an earlier task closed: it only existed because the two

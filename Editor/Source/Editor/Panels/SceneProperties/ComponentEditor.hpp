@@ -22,15 +22,11 @@ namespace Desert::Editor
         void Render( ECS::Entity& entity, ::Desert::Core::Scene* scene = nullptr,
                      const char* fieldFilter = nullptr );
 
-        // The Details panel lends its ONE preview renderer to the component pass (the 3D Model row draws
-        // it as a live thumbnail) along with the texture-id cache used for both it and cached PNGs.
-        // @p used is raised when a component actually drew it, so the panel only pays for the offscreen
-        // render while it is on screen.
-        void SetPreview( PreviewViewport* preview, UI::UIHelper* ui, bool* used )
+        // The texture-id cache the rows blit ThumbnailService's pictures through. Details lends no live view
+        // (THM-FIXF): an asset row is a thumbnail, as in UE.
+        void SetThumbnailUI( UI::UIHelper* ui )
         {
-            m_Preview     = preview;
             m_ThumbnailUI = ui;
-            m_PreviewUsed = used;
         }
 
     private:
@@ -48,9 +44,7 @@ namespace Desert::Editor
         static bool EntryMatchesFilter( const ComponentEditorEntry& entry, const char* filter );
 
     private:
-        PreviewViewport* m_Preview     = nullptr;
-        UI::UIHelper*    m_ThumbnailUI = nullptr;
-        bool*            m_PreviewUsed = nullptr;
+        UI::UIHelper* m_ThumbnailUI = nullptr;
 
         std::weak_ptr<Assets::AssetManager> m_AssetManager;
         const Animation::AnimationLibrary*  m_AnimationLibrary = nullptr;

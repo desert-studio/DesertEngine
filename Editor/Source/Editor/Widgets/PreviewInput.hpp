@@ -12,8 +12,8 @@ namespace Desert::Editor
     // material editor, a viewer) is where you LOOK at the asset, so dragging orbits and double-click
     // re-frames. A Static preview keeps one angle and turns double-click into "open" (UE's
     // SPropertyEditorAsset gesture, Editor/Widgets/AssetFieldOpen.hpp) — for a Details row whose picture
-    // must stay at one angle to mean anything. Which Details row gets which is DetailsPreviewInteraction
-    // below; a Details row may be Interactive too (the Static Mesh one is).
+    // must stay at one angle to mean anything. Details itself no longer draws live previews (THM-FIXF: its
+    // rows are thumbnails), so no production caller asks for Static today.
     //
     // A pure function because the decision is the whole feature and ImGui cannot be driven from a test:
     // PreviewViewport::Draw gathers the events, hands them here, and applies what comes back.
@@ -39,32 +39,6 @@ namespace Desert::Editor
         if ( toolHeld || ( toolUnderPointer && !anotherItemActive ) )
             return PreviewInteraction::Yielded;
         return PreviewInteraction::Interactive;
-    }
-
-    // WHICH MODE EACH DETAILS PREVIEW GETS. Not one answer for all of Details, because the reason a row
-    // would be Static differs by what it shows:
-    //  - StaticMesh is Interactive. A model is read by turning it; one fixed angle hides most of it, and
-    //    the "double-click opens" gesture it used to carry duplicates the Open button every asset field in
-    //    Details already has (AssetFieldOpen), so Static cost the row its point and bought nothing.
-    //  - Skybox stays Static. Its ball answers "where is the sun at this rotation?" for the Rotation slider
-    //    beside it, and that answer only holds while the ball keeps the one angle the slider is read
-    //    against — an orbited ball would make the picture depend on where the mouse last wandered.
-    enum class DetailsPreviewKind : uint8_t
-    {
-        StaticMesh,
-        Skybox,
-    };
-
-    [[nodiscard]] constexpr PreviewInteraction DetailsPreviewInteraction( DetailsPreviewKind kind )
-    {
-        switch ( kind )
-        {
-            case DetailsPreviewKind::StaticMesh:
-                return PreviewInteraction::Interactive;
-            case DetailsPreviewKind::Skybox:
-                return PreviewInteraction::Static;
-        }
-        return PreviewInteraction::Static;
     }
 
     // One frame of mouse and keyboard over the preview, as ImGui reported it.

@@ -179,33 +179,6 @@ TEST( PreviewInput, InteractiveWheelZoomsExceptInTheDome )
     EXPECT_EQ( PreviewInput( PreviewInteraction::Interactive, events ).Wheel, 0.0f );
 }
 
-// ── Which Details preview gets which mode ───────────────────────────────────────────────────────────────
-
-// The owner's call (AV1d2): a model in Details orbits and zooms — its asset field already has an Open button,
-// so a double-click that opened it bought nothing and cost the row its point.
-TEST( PreviewInput, DetailsStaticMeshPreviewIsInteractive )
-{
-    EXPECT_EQ( DetailsPreviewInteraction( DetailsPreviewKind::StaticMesh ), PreviewInteraction::Interactive );
-
-    // And therefore, through the mode, the gestures: a drag orbits, the wheel zooms, a double-click re-frames
-    // and opens nothing.
-    const PreviewInteraction mode = DetailsPreviewInteraction( DetailsPreviewKind::StaticMesh );
-    EXPECT_NE( PreviewInput( mode, Drag( 40.0f, -12.0f ) ).OrbitDelta.x, 0.0f );
-    PreviewInputEvents wheel;
-    wheel.Hovered = true;
-    wheel.Wheel   = 1.0f;
-    EXPECT_EQ( PreviewInput( mode, wheel ).Wheel, 1.0f );
-    const PreviewInputResult dbl = PreviewInput( mode, DoubleClick() );
-    EXPECT_TRUE( dbl.Reframe );
-    EXPECT_FALSE( dbl.Open );
-}
-
-// The skybox ball keeps the one angle its Rotation slider is read against.
-TEST( PreviewInput, DetailsSkyboxPreviewStaysStatic )
-{
-    EXPECT_EQ( DetailsPreviewInteraction( DetailsPreviewKind::Skybox ), PreviewInteraction::Static );
-}
-
 // ── Who owns the wheel ──────────────────────────────────────────────────────────────────────────────────
 
 // The preview claims the wheel exactly when the wheel zooms it; otherwise the panel keeps scrolling. The
@@ -232,12 +205,10 @@ TEST( PreviewInput, WheelBelongsToThePreviewOnlyWhenItZooms )
         }
 }
 
-// ── The Details route ───────────────────────────────────────────────────────────────────────────────────
+// ── The wheel claim in the widget ───────────────────────────────────────────────────────────────────────
 //
-// Every Details preview goes through ComponentEditContext::DrawPreview (Skybox and Static Mesh rows), so the
-// mode is decided in exactly one place — from the row's kind — and a Static row's Open reaches the asset-field
-// queue EditorLayer answers with RequestOpenAsset. Pin that the route asks the kind rather than hard-coding a
-// mode, that each row names its own kind, and that the widget claims the wheel on the preview item.
+// Details draws no live preview any more (THM-FIXF; ThumbnailRequesters.DetailsBuildsNoRenderViewOfItsOwn), so
+// what is left to pin here is that the widget claims the wheel on the preview item through the rule.
 namespace
 {
     std::string ReadRepoFile( const char* relative )
@@ -255,36 +226,6 @@ namespace
         return {};
     }
 } // namespace
-
-TEST( PreviewInput, DetailsPreviewModeComesFromTheRowKind )
-{
-    const std::string source =
-         ReadRepoFile( "Editor/Source/Editor/Panels/PropertyEditor/ComponentWidgetRegistry.cpp" );
-    ASSERT_FALSE( source.empty() ) << "ComponentWidgetRegistry.cpp not found from the test's working directory";
-
-    const auto body = source.find( "ComponentEditContext::DrawPreview" );
-    ASSERT_NE( body, std::string::npos );
-    const std::string drawPreview = source.substr( body, 1200 );
-    EXPECT_NE( drawPreview.find( "DetailsPreviewInteraction( kind )" ), std::string::npos );
-    EXPECT_EQ( drawPreview.find( "PreviewInteraction::Static" ), std::string::npos );
-    EXPECT_EQ( drawPreview.find( "PreviewInteraction::Interactive" ), std::string::npos );
-    EXPECT_NE( drawPreview.find( "AssetFieldRequests::Request" ), std::string::npos );
-    EXPECT_NE( drawPreview.find( "AssetFieldAction::Open" ), std::string::npos );
-}
-
-TEST( PreviewInput, EachDetailsRowNamesItsOwnKind )
-{
-    const std::string mesh =
-         ReadRepoFile( "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/StaticMeshComponent.cpp" );
-    const std::string sky =
-         ReadRepoFile( "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkyboxComponent.cpp" );
-    ASSERT_FALSE( mesh.empty() );
-    ASSERT_FALSE( sky.empty() );
-    EXPECT_NE( mesh.find( "DetailsPreviewKind::StaticMesh" ), std::string::npos );
-    EXPECT_EQ( mesh.find( "DetailsPreviewKind::Skybox" ), std::string::npos );
-    EXPECT_NE( sky.find( "DetailsPreviewKind::Skybox" ), std::string::npos );
-    EXPECT_EQ( sky.find( "DetailsPreviewKind::StaticMesh" ), std::string::npos );
-}
 
 TEST( PreviewInput, PreviewWidgetClaimsTheWheelThroughTheRule )
 {

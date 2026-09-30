@@ -807,6 +807,39 @@ TEST( ThumbnailRequesters, AComponentWidgetBuiltPerDrawOwnsNoPictureCache )
          << "a widget rebuilt every frame builds its own UIHelper: texture ids die with the frame";
 }
 
+// THM-FIXF: DETAILS HOLDS NO RENDER VIEW. UE's Details slots draw pictures from the thumbnail pool; a live view
+// belongs to an asset window and dies with it. The panel used to build a full SceneRenderer (shadow cascade,
+// SMAA, fog) as 'preview #N' the moment a mesh was clicked and render it every frame while the entity stayed
+// selected — 140 -> 100 FPS measured. The census: no Details file names a view's creator.
+TEST( ThumbnailRequesters, DetailsBuildsNoRenderViewOfItsOwn )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    std::vector<std::string> files = {
+         "Editor/Source/Editor/Panels/SceneProperties/ScenePropertiesPanel.hpp",
+         "Editor/Source/Editor/Panels/SceneProperties/ScenePropertiesPanel.cpp",
+         "Editor/Source/Editor/Panels/SceneProperties/ComponentEditor.hpp",
+         "Editor/Source/Editor/Panels/SceneProperties/ComponentEditor.cpp",
+         "Editor/Source/Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp",
+         "Editor/Source/Editor/Panels/PropertyEditor/ComponentWidgetRegistry.cpp",
+    };
+    const std::string widgets = "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets";
+    for ( const auto& entry : fs::recursive_directory_iterator( root + widgets ) )
+        if ( entry.is_regular_file() )
+            files.push_back( fs::relative( entry.path(), root ).generic_string() );
+    ASSERT_GT( files.size(), 10u ) << "the ComponentWidgets folder was not found from " << root;
+
+    for ( const auto& file : files )
+    {
+        const std::string code = CodeOf( root, file );
+        ASSERT_FALSE( code.empty() ) << file;
+        for ( const char* creator :
+              { "PreviewViewport", "SceneRenderer", "MayCreateView", "kPreviewViewProfile", "DrawPreview" } )
+            EXPECT_EQ( code.find( creator ), std::string::npos )
+                 << file << " names " << creator << ": Details shows thumbnails, a live view is an asset window's";
+    }
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
