@@ -50,6 +50,17 @@ namespace Desert::Assets::Serialization
             std::array<float, 3> Max{};
         };
         std::optional<Box> Bounds;
+
+        // THE IMPORT OPTION "Combine Meshes" (UE: UFbxStaticMeshImportData::bCombineMeshes, OFF by default).
+        // Absent means UE's default, false: every mesh-bearing node of the source becomes its own static mesh
+        // (NodeMeshSplit). Set it true in the record to import the whole file as the one combined mesh only.
+        // Kept by every re-import (EnsureImportRecord rewrites the parsed record, never a fresh one).
+        std::optional<bool> CombineMeshes;
+
+        // THE NODE MESHES THE LAST SPLIT IMPORT WROTE (THM1j), by node name: <stem>_<node>.stmesh beside the
+        // source (NodeMeshSplit). Present only when the source was split; then there is NO combined mesh, and
+        // the import's freshness is these files' (each states the source's hash), not a combined envelope's.
+        std::optional<std::vector<std::string>> Nodes;
     };
 
     Common::ResultStr<ImportRecordData> ParseImportRecord( const std::string& text );
@@ -62,6 +73,19 @@ namespace Desert::Assets::Serialization
     /// The import's side: the record's GUID, the record written first (with a new GUID) when @p source has
     /// none. An existing record keeps its GUID, so a re-import keeps the identity; its `Bounds` are rewritten
     /// when the import's box differs from the one it states.
+    /// @p source's "Combine Meshes" option: the record's value, UE's default (false) when the record states none
+    /// or when the source has no record yet (its first import). An error naming the record when it is unreadable.
+    Common::ResultStr<bool> ReadImportRecordCombineMeshes( const std::filesystem::path& source );
+
+    /// @p source's whole record; nullopt when the source has no record yet. An error naming the record when it is
+    /// unreadable.
+    Common::ResultStr<std::optional<ImportRecordData>> ReadImportRecord( const std::filesystem::path& source );
+
+    /// Rewrites the record's `Nodes` (THM1j): the node names a split import wrote, nullopt for a combined import.
+    /// The record must exist (EnsureImportRecord runs first); written only when the list changes.
+    Common::BoolResultStr SetImportRecordNodes( const std::filesystem::path&                   source,
+                                                const std::optional<std::vector<std::string>>& nodes );
+
     Common::ResultStr<Common::Content::AssetGuid> EnsureImportRecord( const std::filesystem::path& source,
                                                                       const Common::Math::AABB&    bounds );
 } // namespace Desert::Assets::Serialization

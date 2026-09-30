@@ -27,6 +27,7 @@
 #include <typeinfo>
 
 #include <Engine/Core/Projection.hpp>
+#include <Engine/Geometry/PosedBounds.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 
 namespace Desert::Core
@@ -57,34 +58,12 @@ namespace Desert::Core
             return nullptr;
         }
 
-        // Mesh-local AABB of a skinned mesh deformed by `skin` (linear blend). A skinned submesh's stored
-        // BoundingBox is in RAW-vertex space (which only matches the rendered mesh when bind == identity), so
-        // picking must deform the retained CPU vertices by the current pose instead of using that box.
+        // Mesh-local AABB of a skinned mesh deformed by `skin`: the stored submesh box is raw-vertex space, so
+        // picking measures the posed vertices (Geometry::MeasurePosedVertices, shared with the pose thumbnail).
         Common::Math::AABB SkinnedLocalBounds( const SkinnedMesh& mesh, const std::vector<glm::mat4>& skin )
         {
-            glm::vec3 mn( FLT_MAX ), mx( -FLT_MAX );
-            for ( const auto& sv : mesh.GetVertices() )
-            {
-                glm::vec3 pos( 0.0f );
-                float     wsum = 0.0f;
-                for ( size_t j = 0; j < SkinnedVertex::MAX_BONE_INFLUENCES; ++j )
-                {
-                    const float w = sv.BoneWeights[j];
-                    if ( w <= 0.0f )
-                        continue;
-                    const uint32_t b = sv.BoneIDs[j];
-                    if ( b < skin.size() )
-                        pos += w * glm::vec3( skin[b] * glm::vec4( sv.StaticVertex.Position, 1.0f ) );
-                    wsum += w;
-                }
-                if ( wsum > 1e-5f )
-                    pos /= wsum; // weighted average (robust to weights that don't sum to exactly 1)
-                else
-                    pos = sv.StaticVertex.Position;
-                mn = glm::min( mn, pos );
-                mx = glm::max( mx, pos );
-            }
-            return { mn, mx };
+            const auto box = Geometry::MeasurePosedVertices( mesh.GetVertices(), skin );
+            return { box.Min, box.Max };
         }
     } // namespace
 

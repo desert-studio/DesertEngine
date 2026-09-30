@@ -19,6 +19,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 #include <cstdio>
 
 namespace Common::Content
@@ -287,6 +288,25 @@ namespace Common::Content
             return document ? document.GetValue().SkeletonSignature : 0;
         }
 
+        // An import record's `Nodes` member (THM1j): present when the last import split the source into node meshes
+        // (<stem>_<node>.stmesh beside it) and wrote NO combined mesh. Such a source is not a StaticMesh row of its
+        // own - its node meshes are, each an asset file the scan lists from disk.
+        struct StatedImportNodes
+        {
+            std::optional<std::vector<std::string>> Nodes;
+        };
+        DESERT_JSON_LENIENT( StatedImportNodes, "reads the one Nodes member of a whole import record; the source, "
+                                                "settings and bounds are the rest of that record, not damage" )
+        bool ImportRecordStatesNodes( const std::filesystem::path& record )
+        {
+            const auto text =
+                 Utils::FileSystem::ReadFileContentPrefix( record, Utils::FileSystem::GetFileSize( record ) );
+            if ( !text )
+                return false;
+            const auto document = Json::Read<StatedImportNodes>( text.GetValue() );
+            return document && document.GetValue().Nodes.has_value();
+        }
+
         ResultStr<MeshHeaderBounds> ReadStatedPrefabBounds( const std::filesystem::path& file )
         {
             const auto text =
@@ -437,6 +457,9 @@ namespace Common::Content
                         const std::filesystem::path asset = MeshAssetOfImportRecord( candidate );
                         std::error_code             ec;
                         if ( std::filesystem::exists( asset, ec ) || KindOfContentFile( asset ) != kind )
+                            continue;
+                        // A split source's meshes are its nodes; the source itself is no mesh asset (THM1k).
+                        if ( ImportRecordStatesNodes( candidate ) )
                             continue;
                         if ( const std::string key = AssetHandle::StableKeyForPath( asset ); !key.empty() )
                             visit( candidate, kind, key );

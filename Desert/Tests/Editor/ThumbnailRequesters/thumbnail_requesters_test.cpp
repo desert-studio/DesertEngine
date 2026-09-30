@@ -102,9 +102,8 @@ namespace
          { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/MaterialsPanelComponent.cpp",
            "MaterialComponentWidget::DrawSlotPreview", Role::Shows, "RequestLoadedMaterial",
            "the Details material slot — the row ThumbnailService was built for, and the one the mesh slot "
-           "beside it was supposed to have been copying. It holds the material LOADED, so it queues through "
-           "RequestLoadedMaterial (THM1f), which resolves the preview route and mesh only when a capture is "
-           "owed and then hands the resolved subject to RequestMaterial" },
+           "beside it was supposed to have been copying. It HOLDS the loaded asset, so it asks through the "
+           "loaded-material entry (THM1f), which carries the same route and PreviewMesh as the path form" },
 
          { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
            "FileExplorerPanel::DrawRenderedMaterialThumbnail", Role::Shows, "RequestMaterial",
@@ -113,6 +112,11 @@ namespace
          { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
            "FileExplorerPanel::DrawRenderedMeshThumbnail", Role::Shows, "RequestMesh",
            "the asset browser's mesh grid" },
+
+         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
+           "FileExplorerPanel::DrawRenderedPoseThumbnail", Role::Shows, "RequestPose",
+           "the asset browser's SKINNED mesh tile: the figure in its bind pose (or its clip's middle "
+           "frame), photographed from the cooked asset like the static mesh grid beside it" },
 
          { "Editor/Source/Editor/Panels/Collections/CollectionsPanel.cpp", "CollectionsPanel::DrawCard",
            Role::Shows, "RequestMesh", "the Collections card grid" },

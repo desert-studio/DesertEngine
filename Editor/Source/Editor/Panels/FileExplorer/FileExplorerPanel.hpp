@@ -3,7 +3,10 @@
 #include "../IPanel.hpp"
 
 #include <Editor/Core/SubjectEditorRegistry.hpp>
+#include <Editor/Panels/FileExplorer/FileType.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
+#include <Editor/Widgets/ThumbnailProducers.hpp>
+#include <Editor/Widgets/ThumbnailWarmup.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <ImGui/imgui.h>
@@ -12,7 +15,9 @@
 #include <stack>
 #include <functional>
 #include <future>
+#include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -39,50 +44,6 @@ namespace Desert::Core
 
 namespace Desert::Editor
 {
-
-    enum class FileType
-    {
-        Unknown = 0,
-        Scene,
-        Prefab,
-        Script,
-        Audio,
-        Shader,
-        Texture,
-        Cubemap,
-        Model,
-        Material,
-        ShaderGraph,
-        // `Project` USED TO SIT HERE AND WAS DEAD IN BOTH DIRECTIONS: no extension mapped to it and no
-        // code read it. It could not have worked either — a `.deproj` lives at the PROJECT root, above
-        // the assets root this browser is rooted at, so the tile it typed can never be drawn.
-        Ini,
-        Font,
-
-        /// The four cloud formats — `.dclayout`, `.dcnv`, `.dcmv`, `.decloudtype`.
-        ///
-        /// ONE TYPE FOR FOUR EXTENSIONS, and the alternative was four. They share a colour, an icon, a
-        /// filter entry and — the reason that decides it — a THUMBNAIL PRODUCER: all four are painted
-        /// from their own bytes by Editor/Widgets/CloudThumbnail.hpp, so every branch that would
-        /// distinguish them here would immediately re-join. What tells them apart is the document each
-        /// one opens, and that is the subject-editor registry's question, not this enum's.
-        ///
-        /// THEY WERE `Unknown` UNTIL M11, which is why the owner could not pick a cloud by looking: an
-        /// unknown type gets the generic document glyph, so four different assets drew one identical
-        /// grey square and the browser's own type filter could not name them.
-        Cloud,
-
-        /// A UI theme (`.detheme`) — named colours, metrics and fonts plus the styles that bind them.
-        /// Its OWN type rather than sharing one: it has no producer in common with anything above (a
-        /// theme is not painted from bytes the way a cloud is), and the browser's type filter has to be
-        /// able to name it, which is the whole reason the cloud formats stopped being `Unknown`.
-        UITheme,
-
-        /// A landscape layer info (`.delayerinfo`, UE ULandscapeLayerInfoObject): its own type so the
-        /// browser can colour it, give it an icon and filter by it; it has no producer in common with any
-        /// type above.
-        LandscapeLayerInfo
-    };
 
     struct DirectoryInformation
     {
@@ -133,18 +94,34 @@ namespace Desert::Editor
         void OnPreUpdate() override; // polls the current dir for external changes -> auto-refresh
         void OnEvent( Common::Event& e ) override; // OS file drop -> import into the current dir
 
-        /// THE SPLASH'S UPLOAD PASS (THUMB2). The folder this panel opens on is the one it prefetched in its
-        /// constructor (ChangeDirectory), so the pictures to upload are exactly the ones it asked a worker for:
-        /// every one a worker has finished goes through ThumbnailCache::Get now — the same call the tile makes,
-        /// so the first frame after the hand-over finds it cached and draws it. Nothing is captured or
-        /// rendered. Returns how many of those pictures are still waiting for or on a worker.
+        /// THE SPLASH'S UPLOAD PASS (THUMB2, THM1n-13). Every picture this panel asked a worker for — the
+        /// opening folder's and the whole project's (WarmProjectThumbnails) — that a worker has finished goes
+        /// through ThumbnailCache::Get now, the same call the tile makes, so after the hand-over every tile of
+        /// every folder finds its picture resident. Nothing is captured or rendered. Returns how many of those
+        /// pictures are still waiting for or on a worker.
         std::size_t UploadPrefetchedThumbnails();
 
-        /// THE OPEN SCENE'S MATERIALS, WARMED ON THE SPLASH (THUMB3). @p materialPaths = ThumbnailWarmup::
-        /// SceneWarmList. A picture already on disk is decoded by the prefetch workers with the opening
-        /// folder's; one that is missing or stale is resolved (on a worker) and queued with
-        /// ThumbnailService::WarmMaterial, ahead of the folder, for the splash's scene-only capture pass.
-        void WarmSceneThumbnails( const std::vector<std::string>& materialPaths );
+        /// WHAT THE SPLASH MAKES RESIDENT (THUMB3, THM1m, THM1n-13). @p scene = ThumbnailWarmup::SceneWarmList,
+        /// the open scene's materials and meshes; @p project = ThumbnailWarmup::ProjectWarmList, every picture
+        /// of the project from the content registry. Every picture on disk is handed to the prefetch workers
+        /// (and uploaded by UploadPrefetchedThumbnails); every one missing or stale is resolved (a mesh on a
+        /// worker) and queued with ThumbnailService::WarmMaterial / WarmMesh / WarmPose / WarmPainted, scene
+        /// first, for the splash's warm-only capture pass (ThumbnailWarmup::SplashWarmList). Returns how many
+        /// captures it queued or is still resolving.
+        std::size_t WarmProjectThumbnails( const std::vector<ThumbnailWarmup::WarmItem>& scene,
+                                           const std::vector<ThumbnailWarmup::WarmItem>& project );
+
+        /// The splash's captures have landed: hand the project's pictures that are not resident yet — the PNGs
+        /// those captures just wrote — to the workers again, so they are uploaded before the hand-over too.
+        void RequestProjectPictures();
+
+        /// How many pictures the browser holds on the GPU (ThumbnailCache::ResidentCount).
+        [[nodiscard]] std::size_t ResidentThumbnails() const;
+
+        /// Meshes WarmProjectThumbnails found cold (read in flight on a worker): asked again each frame until
+        /// each is resident and queued, or refused. Returns how many are still being read — they hold the
+        /// hand-over like a queued capture does, within the same budget.
+        std::size_t TickWarmMeshes();
 
         bool RenderFile( int dirIndex, bool folder, int shownIndex, bool gridView );
         // Right-click context menu on a file/folder: Open (default app), Show in Explorer, Open folder, etc.
@@ -348,7 +325,9 @@ namespace Desert::Editor
         // What PrefetchCurrentFolderThumbnails last handed to the workers: the one list the splash's upload
         // pass reads, so "which folder opens" and "which pictures it shows" are never asked twice.
         std::vector<ThumbnailPrefetch::Item> m_PrefetchItems;
-        std::vector<ThumbnailPrefetch::Item> m_ScenePrefetchItems; // WarmSceneThumbnails' pictures, decoded too
+        std::vector<ThumbnailPrefetch::Item> m_ProjectPrefetchItems; // WarmProjectThumbnails' pictures, decoded too
+        std::vector<ThumbnailWarmup::WarmItem>
+             m_WarmMeshesPending; // TickWarmMeshes: cold meshes/poses still being read
 
         // PER-TILE WORK THAT USED TO BE REDONE EVERY FRAME FOR EVERY TILE (THUMB3, sampled in a folder of 240
         // materials): the cache file name costs a StableKeyForPath (std::filesystem::absolute) and the
@@ -366,6 +345,20 @@ namespace Desert::Editor
         std::weak_ptr<::Desert::Core::Scene>     m_ViewportScene; // for "Capture Thumbnail from viewport"
         std::unordered_set<std::string>          m_FailedThumbs;  // assets that failed to load -> show icon, no retry spam
 
+        // THE FILE A RenderedMesh TILE PHOTOGRAPHS: a model's own path (CookPaths::MeshAsset maps it to its
+        // .stmesh), or the cooked mesh a .defoliage names (ThumbnailFoliage — UE: a foliage type's picture is
+        // its mesh's), so a type and its mesh share one key, one freshness source and one capture. The foliage
+        // read is cached per path and file time; a refusal is logged once and blacklisted in m_FailedThumbs.
+        std::optional<std::string> MeshSourceFor( const DirectoryInformation& entry );
+        // The same answer by path and type — for a registry row, which has no DirectoryInformation.
+        std::optional<std::string> MeshSourceFor( const std::string& assetPath, FileType type );
+        struct MeshSourceRead
+        {
+            std::filesystem::file_time_type Written;
+            std::string                     Source;
+        };
+        std::unordered_map<std::string, MeshSourceRead> m_MeshSourceOf;
+
         // File watcher: cheap throttled poll of the current dir's entry signature -> QueueRefresh on change.
         int    m_PollCounter   = 0;
         size_t m_DirSignature  = 0;
@@ -377,12 +370,17 @@ namespace Desert::Editor
         // Copy one external file into the current dir; cook+register if it's a texture (drag-drop / import).
         void ImportExternalFile( const std::filesystem::path& src );
         // Resolve (existing-only) + draw a texture thumbnail for an entry; returns false if none.
+        // The tile's and the tooltip's picture, by ThumbnailProducers::ProducerOf — the one dispatch. False =
+        // draw the type icon (no picture yet, or none by design).
+        bool DrawThumbnailFor( DirectoryInformation* entry, const ImVec2& size );
         bool DrawTextureThumbnail( DirectoryInformation* entry, const ImVec2& size );
         // Draw a rendered preview for a material entry (material-on-sphere). Generates the PNG lazily
         // (throttled to ~1/frame) on first use and caches it to disk; returns false until the PNG exists.
         bool DrawRenderedMaterialThumbnail( DirectoryInformation* entry, const ImVec2& size );
         // Same, for a mesh entry (the mesh auto-framed by its bounds).
         bool DrawRenderedMeshThumbnail( DirectoryInformation* entry, const ImVec2& size );
+        // Same, for a skinned mesh in its bind pose (ThumbnailPose; the .skmesh is its own cooked form).
+        bool DrawRenderedPoseThumbnail( DirectoryInformation* entry, const ImVec2& size );
         // Same, for a file whose picture is PAINTED from its own bytes rather than rendered — the four
         // cloud formats. It asks for no handle and no renderer; see Editor/Widgets/CloudThumbnail.hpp.
         bool DrawPaintedThumbnail( DirectoryInformation* entry, const ImVec2& size );

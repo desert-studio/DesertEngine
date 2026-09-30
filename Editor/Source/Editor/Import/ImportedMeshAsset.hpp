@@ -92,8 +92,8 @@ namespace Desert::Editor
     Common::ResultStr<MeshAssetWrite> WriteImportedMeshAsset( const Assets::Serialization::MeshAssetData& imported,
                                                               std::span<const Assets::MeshMaterialSlot>   named,
                                                               const std::filesystem::path&                source );
-    // THE PREVIEW MESH AN IMPORTED MATERIAL NAMES (UE: UMaterial::ThumbnailInfo / PreviewMesh): the static mesh
-    // imported from @p source, by the GUID its import record states, located by @p source relative to the
+    // THE THUMBNAIL MESH A MATERIAL NAMES (UE: UMaterial::ThumbnailInfo / PreviewMesh), authored by a drop in the
+    // Material Editor - an import never writes one (THM1j): the static mesh imported from @p source, by the GUID its import record states, located by @p source relative to the
     // working directory (the spelling the browser and ThumbnailSubject::ResolveMesh use). An error when the
     // record is missing - it is written by WriteImportedMeshAsset, so the mesh is written first.
     Common::ResultStr<Assets::AssetGuidRef> PreviewMeshRefFor( const std::filesystem::path& source );

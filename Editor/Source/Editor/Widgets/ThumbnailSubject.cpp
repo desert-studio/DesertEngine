@@ -12,8 +12,10 @@
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <unordered_map>
 #include <utility>
@@ -31,8 +33,23 @@ namespace Desert::Editor::ThumbnailSubject
         if ( shaders == nullptr )
             return Common::MakeFormattedError<Preview>( "there is no shader service, so no domain to ask" );
 
-        const std::string shaderName = asset.GetShaderName();
-        const auto        shader     = shaders->GetByName( shaderName );
+        // AN INSTANCE STATES NO TEMPLATE: its program is its base's, found through the parent chain by the
+        // same walk the scene draws it with (MaterialService::ShaderHandleOf). Asking the instance's own
+        // empty name refused every `_Inst` material as "shader '' is not registered" (THM1n-10).
+        std::string shaderName = asset.GetShaderName();
+        if ( asset.Data().InstanceParentId().has_value() )
+        {
+            auto* materials = Runtime::ResourceRegistry::GetMaterialService();
+            if ( materials == nullptr )
+                return Common::MakeFormattedError<Preview>(
+                     "it is a material instance and there is no material service to walk its parent chain" );
+            shaderName = materials->ShaderHandleOf( asset.GetMetadata().Handle ).CompileName;
+            if ( shaderName.empty() )
+                return Common::MakeFormattedError<Preview>(
+                     "it is a material instance and its parent chain reaches no template (a parent missing, "
+                     "unreadable or naming no loaded shader)" );
+        }
+        const auto shader = shaders->GetByName( shaderName );
         if ( !shader )
         {
             return Common::MakeFormattedError<Preview>(
@@ -54,11 +71,47 @@ namespace Desert::Editor::ThumbnailSubject
         // material. A black square the freshness rule then calls correct for ever.
         return Common::MakeFormattedError<Preview>(
              "its shader '{}' declares Domain {}, and no thumbnail producer draws that domain — the mesh "
-             "path executes only {} and the dome only {}. Photographing it would write an empty frame and "
+             "path executes only {} and the dome only {} and Skybox. Photographing it would write an empty frame and "
              "file it as the picture of this material",
              shaderName, Core::Formats::ShaderDomainName( domain ),
              Core::Formats::ShaderDomainName( Core::Formats::kMeshPathDomain ),
              Core::Formats::ShaderDomainName( Core::Formats::kVolumePathDomain ) );
+    }
+
+    Common::ResultStr<std::optional<Common::AssetHandle>> DomeSkyboxOf( const Common::AssetHandle& material )
+    {
+        using Answer    = std::optional<Common::AssetHandle>;
+        auto* materials = Runtime::ResourceRegistry::GetMaterialService();
+        auto* shaders   = Runtime::ResourceRegistry::GetShaderService();
+        if ( materials == nullptr || shaders == nullptr )
+            return Common::MakeFormattedError<Answer>( "there is no material or shader service to read its sky" );
+
+        const std::string shaderName = materials->ShaderHandleOf( Assets::AssetHandle( material ) ).CompileName;
+        const auto        shader     = shaders->GetByName( shaderName );
+        if ( !shader )
+            return Common::MakeFormattedError<Answer>( "its template '{}' is not a registered shader", shaderName );
+        const auto& meta = shader->GetProgramMeta();
+        if ( meta.Domain != Core::Formats::ShaderDomain::Skybox )
+            return Common::MakeSuccess( Answer{} );
+
+        // The FIRST cube property, as the Material Editor's ball wraps it: any Skybox-domain shader names its
+        // own slot, and the schema is the contract.
+        const auto cube =
+             std::find_if( meta.Params.begin(), meta.Params.end(), []( const auto& p ) { return p.IsCubeTexture; } );
+        if ( cube == meta.Params.end() )
+            return Common::MakeFormattedError<Answer>(
+                 "its shader '{}' is Skybox-domain with no TextureCube property, so there is no sky to show",
+                 shaderName );
+
+        Graphic::MaterialOverrides slots;
+        if ( !materials->ResolveOverrides( Assets::AssetHandle( material ), slots ) )
+            return Common::MakeFormattedError<Answer>( "it resolves to no registered material" );
+        const auto bound = std::find_if( slots.Textures.begin(), slots.Textures.end(),
+                                         [&]( const auto& t ) { return t.first == cube->Name; } );
+        if ( bound == slots.Textures.end() || bound->second == 0 )
+            return Common::MakeFormattedError<Answer>(
+                 "nothing is bound to its cube slot '{}', so there is no sky to show", cube->DisplayName );
+        return Common::MakeSuccess( Answer{ Common::AssetHandle( bound->second ) } );
     }
 
     namespace
@@ -79,6 +132,12 @@ namespace Desert::Editor::ThumbnailSubject
                                                        const Assets::Asset<Assets::SurfaceMaterialAsset>& asset,
                                                        const std::string& assetPath )
     {
+        // Registered and its closure (an instance's parent chain included) awaited BEFORE the route is asked:
+        // an instance's template is read through the service's chain walk, which knows only registered
+        // materials. Registration is a map write; the build happens at the capture.
+        Runtime::EnsureMaterialRegistered( asset );
+        (void)Runtime::AwaitAssetClosure( asset->GetMetadata().Handle, Common::Content::ContentKind::Material );
+
         auto route = PreviewRouteFor( *asset );
         if ( !route )
             return Common::MakeFormattedError<Material>( "'{}': {}", assetPath, route.GetError() );
@@ -122,18 +181,13 @@ namespace Desert::Editor::ThumbnailSubject
             previewMesh = mesh.GetValue().Handle;
         }
 
-        // Was `if ( !GetMaterialService()->Get( h ) ) Register( a )`. `Get` BUILDS the runtime material on a
-        // miss, so the question and the answer were the same call — and the sweep asks it about every
-        // material in the project. The registration is a map write now; the build happens when the capture
-        // shades with it, which is one frame later and only for the materials actually photographed.
-        Runtime::EnsureMaterialRegistered( asset );
-
-        // THE SERVICE MAY HOLD ITS OWN SHELL of this material — one it discovered from the registry row
-        // before the browser asked — and registration keeps that one. The capture shades through the
-        // service, so an unread service shell was parsed inside the capture's frame (M_HDR_Chrome,
-        // CB_Red, … on Starter). Waited for here on a worker (AwaitOne: not an in-frame load), which is
-        // free when the service's asset is the one just read.
-        (void)Runtime::AwaitAssetClosure( asset->GetMetadata().Handle, Common::Content::ContentKind::Material );
+        // A SKY WITH NOTHING TO SHOW is refused here, where the reason can still be said: a Skybox-domain
+        // material with no bound cube would photograph the default backdrop as its picture.
+        if ( route.GetValue() == Preview::SkyDome )
+        {
+            if ( const auto sky = DomeSkyboxOf( asset->GetMetadata().Handle ); !sky )
+                return Common::MakeFormattedError<Material>( "'{}': {}", assetPath, sky.GetError() );
+        }
 
         Material out;
         out.Handle      = asset->GetMetadata().Handle;

@@ -5,11 +5,14 @@
 #include <Editor/Widgets/ThumbnailEncode.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 
+#include <Engine/Assets/AssetRootPin.hpp>
+
 #include <Common/Core/ResultStr.hpp>
 
 #include <chrono>
 #include <filesystem>
 #include <future>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -36,8 +39,9 @@ namespace Desert::Editor
      * PHOTOGRAPHED — an offscreen scene, a camera, one of six slots, ~370 ms. The four cloud formats are
      * PAINTED from their own bytes on a JobSystem worker (Editor/Widgets/CloudThumbnail.hpp), which needs
      * no device at all. Which of the two a format uses is not decided here and not decided at the call
-     * site either: it is a column of Editor/Widgets/ThumbnailFormats.hpp, the census that also makes a
-     * format with NO producer a red test rather than a silent grey icon.
+     * site either: it is the chain extension -> FileType -> ThumbnailProducers::Producer
+     * (Editor/Widgets/ThumbnailProducers.hpp), whose census makes a format with NO row a red test rather
+     * than a silent grey icon.
      *
      * ONLY WHAT IS ON SCREEN IS CAPTURED, as in UE's content browser. Requests arrive from the panels
      * that draw a tile and from nowhere else: there is no project-wide sweep any more (owner decision В4,
@@ -102,10 +106,18 @@ namespace Desert::Editor
                                            const std::shared_ptr<Assets::SurfaceMaterialAsset>& asset,
                                            const std::string&                                   assetPath );
 
+        // An asset a panel could not even ROUTE (ThumbnailSubject refused it: a domain no producer draws, an
+        // instance whose chain names no template, an unreadable file). Logged ONCE with @p reason and entered
+        // in the failure set, so the card keeps its type icon for a stated reason — never silently (THM1n-10).
+        void Refuse( const std::string& assetPath, const std::string& reason );
+
         // Queue a mesh preview, optionally with the material to apply to every slot.
         std::string
         RequestMesh( const Assets::AssetHandle& mesh, const std::string& assetPath,
                      const Assets::AssetHandle& material = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
+        // Queue a skinned mesh in its bind pose (THM1n-6), keyed and judged like RequestMesh: @p assetPath is
+        // the .skmesh, its own cooked form. The same enqueue as RequestMesh, so deduplication is one code.
+        std::string RequestPose( const Assets::AssetHandle& mesh, const std::string& assetPath );
 
         /**
          * @brief Queue a picture that is PAINTED ON THE CPU from the file's own bytes — the four cloud
@@ -145,6 +157,15 @@ namespace Desert::Editor
         /// (THUMB3; UE renders what is on screen first). Already queued -> moved forward; already fresh on
         /// disk, failed or in flight -> nothing. These are the only captures the splash may run.
         void WarmMaterial( const ThumbnailSubject::Material& material, const std::string& assetPath );
+        /// The same for a mesh (THM1m): the open scene's meshes and the opening folder's uncaptured mesh tiles
+        /// are photographed on the splash too, keyed on the cooked form as RequestMesh keys them.
+        void WarmMesh( const ThumbnailSubject::Mesh& mesh );
+        /// The same for a skinned mesh's pose (ThumbnailPose::ResolveSkinnedMesh's answer).
+        void WarmPose( const ThumbnailSubject::Mesh& mesh );
+        /// THM1n-13: a painted picture of the project warmed on the splash — RequestPainted, counted in
+        /// SceneWarmPending until it lands, and painted before the hand-over (TickCapture(SceneWarmOnly) runs the
+        /// paint queue while its front is a warm one).
+        void WarmPainted( const std::string& assetPath );
         /// Scene-warm captures still queued or in flight: what holds the hand-over within its budget.
         [[nodiscard]] std::size_t SceneWarmPending() const;
 
@@ -193,7 +214,8 @@ namespace Desert::Editor
         enum class Kind
         {
             Material,
-            Mesh
+            Mesh,
+            Pose // a skinned mesh posed (AssetThumbnailRenderer::RequestPose)
         };
         struct Request
         {
@@ -215,8 +237,26 @@ namespace Desert::Editor
         // Shared by both Request* entry points: decides whether the work is needed at all. Takes the
         // asset's IDENTITY (ThumbnailKey::Identity), never a raw path — the sets below are keyed on it.
         bool ShouldQueue( const std::string& identity, const std::string& png, const std::string& source );
+        // THE ONE REQUEST SHAPE of a mesh-like capture (Mesh, Pose): keyed and judged on the cooked file, so the
+        // browser tile, the splash and every kind ask for one picture of one file.
+        static Request MeshRequestOf( Kind kind, const Assets::AssetHandle& mesh, const std::string& cookedPath,
+                                      const Assets::AssetHandle& material );
+        // RequestMesh and RequestPose: one enqueue, one deduplication.
+        std::string EnqueueMeshLike( Request req );
         // Identities WarmMaterial queued; an entry leaves with its m_Queued one (settled, failed or skipped).
         std::unordered_set<std::string> m_SceneWarm;
+
+        // THE SUBJECT OF A QUEUED CAPTURE IS HELD RESIDENT, as UE's thumbnail renderer holds the object it
+        // photographs (THM1n). A request names handles, and the eviction sweep that follows a scene load
+        // releases every asset no scene names — which is every folder tile and a warmed mesh the scene does
+        // not place: base/base_basic_pbr/base_basic_shaded were resolved on the splash, dropped by the sweep
+        // ("Dropped 3 built mesh(es)") and then refused at dispatch as "not built in the MeshService", for
+        // the rest of the session. One set of pins per identity, from the moment it is queued until it leaves
+        // m_Queued (settled, failed, skipped or invalidated) — reconciled by HoldSubjects.
+        std::unordered_map<std::string, std::vector<std::unique_ptr<Assets::AssetRootPin>>> m_Held;
+        void                                                                                HoldSubjects();
+        // The one queue-front insertion both Warm* entry points share.
+        void Warm( Request req );
 
         // The identity-free half of the question: is the PICTURE on disk missing or out of date? Split out
         // because dispatch asks it a second time, when the dedup sets deliberately still hold the entry.
@@ -249,10 +289,10 @@ namespace Desert::Editor
         // Keyed on ThumbnailKey::Identity, not on a path spelling, so two panels naming one asset
         // differently cannot each hold their own entry (see Invalidate).
         std::unordered_set<std::string> m_Queued; // asset identities currently queued or in flight
-        std::unordered_set<std::string> m_Failed; // gave up: do not retry every frame
-        // The dispatched capture, kept past a give-up so a late PNG still gets its record (TH1c).
+        std::unordered_set<std::string>
+             m_Failed; // the renderer refused or wrote nothing: do not retry every frame
+        // The dispatched capture, from dispatch until the renderer answers (ThumbnailFreshness::Capture).
         ThumbnailFreshness::Capture    m_Capture;
-        int                            m_InFlightTicks = 0;
         int                            m_IdleTicks     = 0; // consecutive frames with no work
         ThumbnailEncode::CaptureBudget m_Budget;            // paces dispatch by main-thread ms (TH3)
         // Already said out loud that there was no slot to spare. Latched so the warning is one line per

@@ -16,6 +16,9 @@
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include "ImportedMeshAsset.hpp"
+#include "NodeMeshSplit.hpp"
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 
 #include <Common/Core/Constants.hpp>
@@ -28,6 +31,7 @@
 
 #include <Common/Core/JobSystem.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <format>
 #include <fstream>
@@ -217,25 +221,26 @@ namespace Desert::Editor
             named.reserve( resolved.Materials.size() );
             for ( const auto& material : resolved.Materials )
                 named.push_back( { material.Name, material.Guid } );
-            if ( const auto written = WriteImportedMeshAsset( resolved.Mesh.value(), named, sourcePath );
-                 !written )
+            // COMBINE MESHES OFF (UE's default): every mesh-bearing node becomes its own static mesh and NO
+            // combined one is written (NodeMeshSplit.hpp WriteStaticMeshImport); a single-node source, or Combine
+            // Meshes on, is the one combined mesh.
+            auto written =
+                 WriteStaticMeshImport( resolved.Mesh.value(), resolved.SubmeshNodes, named, sourcePath );
+            if ( !written )
                 record( Common::MakeError<bool>( written.GetError() ) );
+            else
+            {
+                for ( const auto& [node, path] : written.GetValue() )
+                    Assets::ContentRegistry::NoteFile( path );
+            }
         }
 
-        // THE MATERIALS AFTER THE MESH: a static mesh's import record (its GUID) exists only once the mesh is
-        // written, and each material names that mesh as its PreviewMesh - the tuft a grass atlas was authored
-        // for, which its thumbnail then draws (ThumbnailSubject::Preview::Mesh). A skinned mesh is not drawn
-        // by the mesh path, so its materials name none and keep the sphere.
-        std::optional<Assets::AssetGuidRef> previewMesh;
-        if ( resolved.Mesh && !resolved.Mesh->IsSkinned )
-        {
-            if ( auto ref = PreviewMeshRefFor( sourcePath ) )
-                previewMesh = ref.GetValue();
-            else
-                record( Common::MakeError<bool>( ref.GetError() ) );
-        }
+        // NO PREVIEW MESH FROM THE IMPORT (owner, THM1j): an imported material's thumbnail is the ball, as in UE,
+        // masked materials included (the mesh path's alpha discard cuts the ball). PreviewMesh stays the manual
+        // "Thumbnail Mesh" setting of the Material Editor; the pack's tufts are shown by the node meshes' own
+        // thumbnails.
         for ( const auto& material : resolved.Materials )
-            record( SerializeMaterialAsset( material, sourcePath, previewMesh ) );
+            record( SerializeMaterialAsset( material, sourcePath ) );
 
         if ( resolved.Skeleton )
             record( SerializeSkeletonAsset( resolved.Skeleton.value(), sourcePath ) );
@@ -359,8 +364,7 @@ namespace Desert::Editor
 
     Common::BoolResultStr
     ImportManager::SerializeMaterialAsset( const ImportedMaterial&                    material,
-                                           const std::filesystem::path&               sourcePath,
-                                           const std::optional<Assets::AssetGuidRef>& previewMesh )
+                                           const std::filesystem::path&               sourcePath )
     {
         // Imported materials are EDITABLE CONTENT, not cooked intermediates -> write them into the content
         // tree at Resources/Assets/Materials/<meshRelativeId>/<materialName>.demat (browsable + editable in
@@ -400,12 +404,7 @@ namespace Desert::Editor
                       "imported",
                       material.Name, sourcePath.generic_string(), chosen.ShaderName, key );
 
-        Assets::MaterialData data;
-        data.Shader = Assets::AssetGuidRef{ chosen.Guid, chosen.Locator };
-        if ( fill.TwoSided )
-            data.TwoSided = true;
-        for ( const ImportedParam& param : fill.Params )
-            data.Params.push_back( { param.Name, param.Value } );
+        Assets::MaterialData data = ImportedMaterialDocument( chosen, fill );
         for ( const ImportedTextureSlot& slot : fill.Textures )
         {
             std::filesystem::path image = slot.Parts.front().Source;
@@ -431,8 +430,7 @@ namespace Desert::Editor
             data.Textures.push_back( { slot.Slot, Common::Content::AssetGuidToText( key.GetValue().Guid ),
                                        Common::AssetHandle::StableKeyForPath( asset ), slot.Sampler } );
         }
-        data.PreviewMesh = previewMesh;
-        data.Header      = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material, material.Guid,
+        data.Header = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material, material.Guid,
                                                             Assets::MaterialTextSubsystems() );
         const auto text = Assets::WriteMaterialJson( data );
         if ( !text )

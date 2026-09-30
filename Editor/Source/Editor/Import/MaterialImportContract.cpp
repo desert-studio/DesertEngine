@@ -179,4 +179,14 @@ namespace Desert::Editor
                 fill.UnreadKeys.push_back( key );
         return fill;
     }
+    Assets::MaterialData ImportedMaterialDocument( const ImportTemplate& chosen, const TemplateFill& fill )
+    {
+        Assets::MaterialData data;
+        data.Shader = Assets::AssetGuidRef{ chosen.Guid, chosen.Locator };
+        if ( fill.TwoSided )
+            data.TwoSided = true;
+        for ( const ImportedParam& param : fill.Params )
+            data.Params.push_back( { param.Name, param.Value } );
+        return data;
+    }
 } // namespace Desert::Editor

@@ -63,6 +63,21 @@ namespace Desert::Assets::Serialization
         return guid;
     }
 
+    Common::ResultStr<bool> ReadImportRecordCombineMeshes( const std::filesystem::path& source )
+    {
+        const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
+        std::error_code             ec;
+        if ( !std::filesystem::is_regular_file( record, ec ) )
+            return Common::MakeSuccess( false ); // the first import: UE's default
+        const auto text = Common::Utils::FileSystem::ReadFileContent( record );
+        if ( !text )
+            return Common::MakeFormattedError<bool>( "'{}': {}", record.string(), text.GetError() );
+        const auto data = ParseImportRecord( text.GetValue() );
+        if ( !data )
+            return Common::MakeFormattedError<bool>( "'{}': {}", record.string(), data.GetError() );
+        return Common::MakeSuccess( data.GetValue().CombineMeshes.value_or( false ) );
+    }
+
     Common::ResultStr<Common::Content::AssetGuid> EnsureImportRecord( const std::filesystem::path& source,
                                                                       const Common::Math::AABB&    bounds )
     {
@@ -96,5 +111,42 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<AssetGuid>( "'{}' could not be written: {}", record.string(),
                                                           written.GetError() );
         return ReadImportRecordGuid( source );
+    }
+
+    Common::ResultStr<std::optional<ImportRecordData>> ReadImportRecord( const std::filesystem::path& source )
+    {
+        using Result                       = std::optional<ImportRecordData>;
+        const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
+        std::error_code             ec;
+        if ( !std::filesystem::is_regular_file( record, ec ) )
+            return Common::MakeSuccess( Result{} );
+        const auto text = Common::Utils::FileSystem::ReadFileContent( record );
+        if ( !text )
+            return Common::MakeFormattedError<Result>( "'{}': {}", record.string(), text.GetError() );
+        auto parsed = ParseImportRecord( text.GetValue() );
+        if ( !parsed )
+            return Common::MakeFormattedError<Result>( "'{}': {}", record.string(), parsed.GetError() );
+        return Common::MakeSuccess( Result{ parsed.ExtractValue() } );
+    }
+
+    Common::BoolResultStr SetImportRecordNodes( const std::filesystem::path&                   source,
+                                                const std::optional<std::vector<std::string>>& nodes )
+    {
+        const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
+        auto                        data   = ReadImportRecord( source );
+        if ( !data )
+            return Common::MakeError<bool>( data.GetError() );
+        if ( !data.GetValue() )
+            return Common::MakeFormattedError<bool>( "'{}' does not exist, so its node meshes cannot be recorded",
+                                                     record.string() );
+        ImportRecordData out = *data.GetValue();
+        if ( out.Nodes == nodes )
+            return BOOLSUCCESS;
+        out.Nodes = nodes;
+        if ( auto written = Common::Content::WriteCanonicalJsonFileAtomic( record, WriteImportRecord( out ) );
+             !written )
+            return Common::MakeFormattedError<bool>( "'{}' could not be written: {}", record.string(),
+                                                     written.GetError() );
+        return BOOLSUCCESS;
     }
 } // namespace Desert::Assets::Serialization

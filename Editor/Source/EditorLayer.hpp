@@ -799,7 +799,7 @@ namespace Desert::Editor
         // hidden main window and closes the splash. Until then the splash is the only window.
         void RevealWhenReady();
         // THUMB2: before the hand-over, upload the opening folder's cached thumbnails as workers finish
-        // them, and hold the hand-over for them within Splash::kThumbnailUploadBudgetMs.
+        // them, and hold the hand-over until they are all up (no time bound, THM1n).
         void UploadSplashThumbnails();
         bool m_ThumbnailsHoldReveal = false;
         // THUMB3: the open scene's materials — their cached pictures decoded, the missing ones captured on the
@@ -808,6 +808,7 @@ namespace Desert::Editor
         bool        m_SplashWarmStarted = false;
         std::size_t m_SplashWarmTotal   = 0; // captures queued when the warm-up started
         std::size_t m_SplashWarmShown   = 0; // what the splash line last said was left
+        bool m_SplashPicturesReasked = false; // the captures landed and their PNGs were asked for (THM1n-13)
         // When every other reveal condition first held: the start of the thumbnails' budget.
         std::optional<std::chrono::steady_clock::time_point> m_RevealOtherwiseReadySince;
         void StartBackgroundCook();

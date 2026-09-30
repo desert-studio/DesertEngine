@@ -1,8 +1,12 @@
 #include "ThumbnailPrefetch.hpp"
 
+#include <Editor/Widgets/ThumbnailFormats.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/JobSystem.hpp>
+#include <Common/Core/Logger.hpp>
 
 #include <stb_image/stb_image.h>
 
@@ -14,6 +18,15 @@
 
 namespace Desert::Editor
 {
+    namespace
+    {
+        // Common::Content::ContentKinds' Texture row, spelled as ExtensionOf answers (without the dot).
+        std::string_view TextureAssetExtension()
+        {
+            return Common::Content::KindSpec( Common::Content::ContentKind::Texture ).Extension.substr( 1 );
+        }
+    } // namespace
+
     std::optional<ThumbnailPixels> ThumbnailPixels::Decode( const std::string& path )
     {
         const auto began = std::chrono::steady_clock::now();
@@ -21,7 +34,39 @@ namespace Desert::Editor
         int      w      = 0;
         int      h      = 0;
         int      ch     = 0;
-        stbi_uc* pixels = stbi_load( path.c_str(), &w, &h, &ch, 4 );
+        stbi_uc* pixels = nullptr;
+        if ( ThumbnailFormats::ExtensionOf( path ) == TextureAssetExtension() )
+        {
+            // AN IMPORTED TEXTURE ASSET IS ITS SOURCE, WRAPPED (UE: UTexture::Source). The envelope's SRCE
+            // section holds the imported file's bytes verbatim (TextureSourceAsset.hpp), so its picture is
+            // those bytes decoded — the same decode a loose .png gets. Record-only: the subsystem versions
+            // judge the PAYLOAD's layout, and the source section is the source file's own format, which
+            // this build decodes whatever version stamped the envelope; the header's shape and the
+            // section hashes are still checked.
+            constexpr Common::Content::AssetHeaderReadContext kRecordOnly{ {}, true };
+            const auto envelope = Common::Content::ReadAssetEnvelopeFile( path, kRecordOnly );
+            if ( !envelope )
+            {
+                LOG_WARN( "[Thumbnails] '{}' has no picture: {}", path, envelope.GetError() );
+                return std::nullopt;
+            }
+            const auto& sections = envelope.GetValue().Sections;
+            const auto  source   = std::find_if( sections.begin(), sections.end(),
+                                                 []( const Common::Content::EnvelopeSectionData& section ) {
+                                                  return section.Tag == Common::Content::EnvelopeSection::Source;
+                                              } );
+            if ( source == sections.end() || source->Bytes.empty() )
+            {
+                LOG_WARN( "[Thumbnails] '{}' has no picture: the texture asset carries no source section (a "
+                          "cooked texture keeps only its derived-data key)",
+                          path );
+                return std::nullopt;
+            }
+            pixels = stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( source->Bytes.data() ),
+                                            static_cast<int>( source->Bytes.size() ), &w, &h, &ch, 4 );
+        }
+        else
+            pixels = stbi_load( path.c_str(), &w, &h, &ch, 4 );
         if ( pixels == nullptr || w <= 0 || h <= 0 )
         {
             stbi_image_free( pixels );
