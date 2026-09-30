@@ -184,14 +184,21 @@ namespace Common::Content
         {
             const auto            kind = static_cast<ContentKind>( i );
             const ContentKindSpec spec = KindSpec( kind );
-            if ( spec.Extension != extension || !IsUnder( file, *spec.Root ) )
+            if ( spec.StatedOnly() || spec.Extension != extension )
                 continue;
 
-            const std::size_t rootLength = spec.Root->generic_string().size();
-            if ( !best || rootLength > bestRootLength )
+            // Under ANY of the kind's roots (the project's or the engine mount's, ScanRootsOf). A file sits
+            // under one mount only, so the lengths compared are always roots of the same mount.
+            for ( const std::filesystem::path& root : ScanRootsOf( spec ) )
             {
-                best           = kind;
-                bestRootLength = rootLength;
+                if ( !IsUnder( file, root ) )
+                    continue;
+                const std::size_t rootLength = root.generic_string().size();
+                if ( !best || rootLength > bestRootLength )
+                {
+                    best           = kind;
+                    bestRootLength = rootLength;
+                }
             }
         }
         return best;
@@ -440,8 +447,9 @@ namespace Common::Content
                 // that also sees what a mounted `.dpak` holds — a packaged game's content directories do
                 // not exist on disk at all. The font and icon services each hand-rolled the disk half once,
                 // and a packaged game scanned nothing.
-                for ( const std::filesystem::path& candidate :
-                      Utils::FileSystem::ListFilesRecursive( *spec.Root ) )
+                // Every root of the kind: the project's and the engine content mount (ScanRootsOf).
+                for ( const std::filesystem::path& root : ScanRootsOf( spec ) )
+                for ( const std::filesystem::path& candidate : Utils::FileSystem::ListFilesRecursive( root ) )
                 {
                     // Kinds may share an extension under nested roots (Texture/Skybox): a file belongs to the
                     // kind whose root is the LONGEST that contains it, never to whichever row was walked first.
