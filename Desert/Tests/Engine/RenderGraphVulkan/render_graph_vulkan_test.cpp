@@ -5,6 +5,7 @@
 // synchronization validation to report the hazard - the proof that the silence above means something.
 
 #include <Engine/Graphic/API/Vulkan/DeviceCapsProbe.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRdgTransient.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderPassDependencies.hpp>
 
@@ -400,10 +401,37 @@ void main()
         return Common::MakeError( what );
     }
 
+    // What the frame loop hands the Vulkan backend for its frame slots (RDG-ALIAS A1): the transient heaps and
+    // the per-pass descriptor pools. The suite records on its one queue, so the queue set has no compute queue.
+    struct FrameObjects
+    {
+        FrameObjects( Gpu& gpu, uint32_t frameSlots )
+             : Transients( gpu.Rdg, frameSlots ), Descriptors( gpu.Device.device, frameSlots )
+        {
+            Queues.GraphicsQueue  = gpu.Queue;
+            Queues.GraphicsFamily = gpu.QueueFamily;
+        }
+
+        VulkanRdgQueueSet           Queues;
+        VulkanRdgTransientAllocator Transients;
+        VulkanRdgPassDescriptors    Descriptors;
+    };
+
+    // The frame loop's order after the slot's fence (here: the previous submission of the slot was waited):
+    // the pool, the transient heaps and the descriptor pools are re-begun, then the backend is bound to them.
+    Common::BoolResultStr BeginFrameSlot( FrameObjects& frame, VulkanRdgBackend& backend, VulkanRdgPool& pool,
+                                          uint32_t slot )
+    {
+        pool.BeginFrame( slot );
+        frame.Transients.BeginFrameSlot( slot );
+        frame.Descriptors.BeginFrameSlot( slot );
+        return backend.BeginFrame( slot, frame.Queues, frame.Transients, frame.Descriptors );
+    }
+
     // Builds clear -> sample -> compute -> copy, executes it through @p backend on @p commandBuffer,
     // submits, waits and reads the extracted buffer back.
     RunResult RunGraph( Gpu& gpu, Programs& programs, RDG::IBackend& backend, VulkanRdgBackend& vulkan,
-                        VulkanRdgPool& pool )
+                        VulkanRdgPool& pool, FrameObjects& frame )
     {
         RunResult                   run;
         VkCommandBuffer             cmd = VK_NULL_HANDLE;
@@ -415,7 +443,13 @@ void main()
         VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer( cmd, &begin );
-        pool.BeginFrame( 0 );
+        if ( const Common::BoolResultStr begun = BeginFrameSlot( frame, vulkan, pool, 0 ); !begun )
+        {
+            run.Error = begun.GetError();
+            vkEndCommandBuffer( cmd );
+            vkFreeCommandBuffers( gpu.Device.device, gpu.CommandPool, 1, &cmd );
+            return run;
+        }
         vulkan.SetCommandBuffer( cmd );
 
         RDG::ExternalBuffer   readback;
@@ -626,8 +660,35 @@ void main()
         {
             return m_Inner.GetMemoryRequirements();
         }
+        // The RDG-CONTRACTS additions go to the Vulkan backend unchanged.
+        RDG::ITransientAllocator& GetTransientAllocator() override
+        {
+            return m_Inner.GetTransientAllocator();
+        }
+        RDG::PipeCapabilities GetPipeCapabilities() const override
+        {
+            return m_Inner.GetPipeCapabilities();
+        }
+        RDG::AsyncComputeFallbackLog& GetAsyncComputeFallbackLog() override
+        {
+            return m_Inner.GetAsyncComputeFallbackLog();
+        }
+        Common::BoolResultStr BeginPipeSegment( const RDG::PipeSegment& segment ) override
+        {
+            return m_Inner.BeginPipeSegment( segment );
+        }
+        Common::BoolResultStr EndPipeSegment( const RDG::PipeSegment& segment ) override
+        {
+            return m_Inner.EndPipeSegment( segment );
+        }
+        void RecordEpilogueBarriers( std::span<const RDG::Barrier> barriers ) override
+        {
+            m_Inner.RecordEpilogueBarriers( barriers );
+        }
         Common::BoolResultStr BeginGraph( const RDG::GraphView& graph ) override
         {
+            if ( graph.Result != nullptr )
+                Plan = graph.Result->Aliasing;
             return m_Inner.BeginGraph( graph );
         }
         void BeginPass( const RDG::CompiledPass& pass ) override
@@ -637,6 +698,8 @@ void main()
         }
         void RecordBarriers( std::span<const RDG::Barrier> barriers ) override
         {
+            for ( const RDG::Barrier& barrier : barriers )
+                Recorded.push_back( { m_Current, barrier } );
             if ( m_Current != m_Pass )
                 return m_Inner.RecordBarriers( barriers );
             std::vector<RDG::Barrier> weakened( barriers.begin(), barriers.end() );
@@ -679,6 +742,9 @@ void main()
 
         // Every BeginRenderPass the graph asked for: one vkCmdBeginRenderPass each in the Vulkan backend.
         int RenderPassesBegun = 0;
+        // The aliasing plan of the last BeginGraph, and every barrier recorded (pass name, barrier as given).
+        RDG::AliasingPlan                                 Plan;
+        std::vector<std::pair<std::string, RDG::Barrier>> Recorded;
 
     private:
         VulkanRdgBackend& m_Inner;
@@ -700,7 +766,7 @@ void main()
 } // namespace
 
 // The acceptance graph: byte-exact readback, validation (synchronization validation included) silent,
-// and on a second run of the unchanged graph the pool hands back the very same images.
+// and on a second run of the unchanged graph the transient allocator hands back the very same images.
 TEST( RenderGraphVulkan, ClearSampleComputeCopyIsByteExactAndValidationClean )
 {
     Gpu& gpu = GetGpu();
@@ -709,18 +775,22 @@ TEST( RenderGraphVulkan, ClearSampleComputeCopyIsByteExactAndValidationClean )
         Programs programs( gpu );
         ASSERT_TRUE( programs.Error.empty() ) << programs.Error;
         VulkanRdgPool    pool( gpu.Rdg, 1 );
+        FrameObjects     frameObjects( gpu, 1 );
         VulkanRdgBackend backend( gpu.Rdg, pool );
 
-        const RunResult first = RunGraph( gpu, programs, backend, backend, pool );
+        const RunResult first = RunGraph( gpu, programs, backend, backend, pool, frameObjects );
         ASSERT_TRUE( first.Error.empty() ) << first.Error;
         EXPECT_TRUE( first.CommandBufferOfMatched );
         EXPECT_EQ( FirstMismatch( first.Bytes, Expected() ), "" );
 
-        const RunResult second = RunGraph( gpu, programs, backend, backend, pool );
+        const RunResult second = RunGraph( gpu, programs, backend, backend, pool, frameObjects );
         ASSERT_TRUE( second.Error.empty() ) << second.Error;
         EXPECT_EQ( FirstMismatch( second.Bytes, Expected() ), "" );
-        EXPECT_EQ( second.Images, first.Images ) << "an unchanged graph must get the same images from the pool";
-        EXPECT_EQ( pool.GetTextureCount(), 3u );
+        EXPECT_EQ( second.Images, first.Images )
+             << "an unchanged plan must get the same placed images from the transient allocator";
+        // The three textures are placed in the graph's heap; only the extracted readback comes from the pool.
+        EXPECT_EQ( pool.GetTextureCount(), 0u );
+        EXPECT_EQ( frameObjects.Transients.GetStats().PlacedResources, 3u );
         vkDeviceWaitIdle( gpu.Device.device );
     }
     const std::vector<Message> messages = TakeMessages();
@@ -738,9 +808,10 @@ TEST( RenderGraphVulkan, SynchronizationValidationReportsAWeakenedBarrier )
         Programs programs( gpu );
         ASSERT_TRUE( programs.Error.empty() ) << programs.Error;
         VulkanRdgPool    pool( gpu.Rdg, 1 );
+        FrameObjects     frameObjects( gpu, 1 );
         VulkanRdgBackend backend( gpu.Rdg, pool );
         WeakenedBarriers weakened( backend, "Invert" );
-        const RunResult  run = RunGraph( gpu, programs, weakened, backend, pool );
+        const RunResult  run = RunGraph( gpu, programs, weakened, backend, pool, frameObjects );
         ASSERT_TRUE( run.Error.empty() ) << run.Error;
         vkDeviceWaitIdle( gpu.Device.device );
     }
@@ -796,6 +867,7 @@ TEST( RenderGraphVulkan, AnImportedFramebufferSharesOneRenderPassAndWritesItsLay
     VkImageLayout recorded = VK_IMAGE_LAYOUT_UNDEFINED; // the image's own layout record, as VulkanImage2D keeps it
     {
         VulkanRdgPool    pool( gpu.Rdg, 1 );
+        FrameObjects     frameObjects( gpu, 1 );
         VulkanRdgBackend backend( gpu.Rdg, pool );
         WeakenedBarriers counting( backend, "" ); // weakens no pass: it only counts the render passes
         const std::shared_ptr<VulkanRdgTexture> wrapped =
@@ -825,7 +897,7 @@ TEST( RenderGraphVulkan, AnImportedFramebufferSharesOneRenderPassAndWritesItsLay
             VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
             begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
             vkBeginCommandBuffer( cmd, &begin );
-            pool.BeginFrame( 0 );
+            ASSERT_TRUE( BeginFrameSlot( frameObjects, backend, pool, 0 ) );
             backend.SetCommandBuffer( cmd );
 
             RDG::ExternalBuffer                        readback;
@@ -1011,6 +1083,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
     std::vector<uint8_t> pixels;
     {
         VulkanRdgPool        pool( gpu.Rdg, 1 );
+        FrameObjects         frameObjects( gpu, 1 );
         VulkanRdgBackend     backend( gpu.Rdg, pool );
         RDG::ExternalTexture target;
         target.Desc = Target();
@@ -1029,7 +1102,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
         VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer( cmd, &begin );
-        pool.BeginFrame( 0 );
+        ASSERT_TRUE( BeginFrameSlot( frameObjects, backend, pool, 0 ) );
         backend.SetCommandBuffer( cmd );
 
         RDG::ExternalBuffer                        readback;
@@ -1221,6 +1294,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
     std::vector<uint8_t> pixels;
     {
         VulkanRdgPool    pool( gpu.Rdg, 1 );
+        FrameObjects     frameObjects( gpu, 1 );
         VulkanRdgBackend backend( gpu.Rdg, pool );
         RDG::TextureDesc msaaDesc = Target();
         msaaDesc.Samples          = 4;
@@ -1247,7 +1321,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
         VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer( cmd, &begin );
-        pool.BeginFrame( 0 );
+        ASSERT_TRUE( BeginFrameSlot( frameObjects, backend, pool, 0 ) );
         backend.SetCommandBuffer( cmd );
 
         RDG::ExternalBuffer                        readback;
@@ -1474,6 +1548,7 @@ void main()
     RDG::AccessState              bufferState = RDG::GetAccessState( RDG::Access::None );
     {
         VulkanRdgPool    pool( gpu.Rdg, 1 );
+        FrameObjects     frameObjects( gpu, 1 );
         VulkanRdgBackend backend( gpu.Rdg, pool );
         for ( int frame = 0; frame < 2; ++frame )
         {
@@ -1547,7 +1622,7 @@ void main()
             VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
             begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
             vkBeginCommandBuffer( cmd, &begin );
-            pool.BeginFrame( 0 );
+            ASSERT_TRUE( BeginFrameSlot( frameObjects, backend, pool, 0 ) );
             backend.SetCommandBuffer( cmd );
             const Common::BoolResultStr executed = graph.Execute( backend );
             vkEndCommandBuffer( cmd );
@@ -1584,6 +1659,227 @@ void main()
     wrappedImage.reset();
     vmaDestroyImage( gpu.Allocator, image, imageAlloc );
     vmaDestroyBuffer( gpu.Allocator, buffer, bufferAlloc );
+    const std::vector<Message> messages = TakeMessages();
+    EXPECT_TRUE( messages.empty() ) << messages.size() << " validation message(s):" << Join( messages );
+}
+
+namespace
+{
+    // One frame of the aliasing graph: First is cleared and copied out, then Second (the same description, a later
+    // lifetime) is cleared and copied out - so the plan may give Second First's bytes. Recorded on @p slot and
+    // submitted with a fence; FinishAliasFrame waits for it.
+    struct AliasFrame
+    {
+        std::string            Error;
+        VkCommandBuffer        CommandBuffer = VK_NULL_HANDLE;
+        VkFence                Fence         = VK_NULL_HANDLE;
+        RDG::ExternalBuffer    FirstBytes;
+        RDG::ExternalBuffer    SecondBytes;
+        std::array<VkImage, 2> Images{}; // First, Second as their clear passes saw them
+        uint32_t               Size = 0;
+    };
+
+    constexpr std::array<uint8_t, 4> kFirstTexel  = { 255, 0, 0, 255 };
+    constexpr std::array<uint8_t, 4> kSecondTexel = { 0, 0, 255, 255 };
+
+    void RecordAliasFrame( Gpu& gpu, VulkanRdgBackend& vulkan, WeakenedBarriers& witness, VulkanRdgPool& pool,
+                           FrameObjects& frame, uint32_t slot, uint32_t size, AliasFrame& out )
+    {
+        out.Size = size;
+        VkCommandBufferAllocateInfo allocate{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+        allocate.commandPool        = gpu.CommandPool;
+        allocate.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocate.commandBufferCount = 1;
+        vkAllocateCommandBuffers( gpu.Device.device, &allocate, &out.CommandBuffer );
+        const VkFenceCreateInfo fenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+        vkCreateFence( gpu.Device.device, &fenceInfo, nullptr, &out.Fence );
+        VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer( out.CommandBuffer, &begin );
+        if ( const Common::BoolResultStr begun = BeginFrameSlot( frame, vulkan, pool, slot ); !begun )
+        {
+            out.Error = begun.GetError();
+            vkEndCommandBuffer( out.CommandBuffer );
+            return;
+        }
+        vulkan.SetCommandBuffer( out.CommandBuffer );
+
+        RDG::TextureDesc desc;
+        desc.Size   = { size, size, 1 };
+        desc.Format = ImageFormat::RGBA8F;
+        const RDG::BufferDesc                bytes{ uint64_t( size ) * size * 4 };
+        RDG::Builder                         graph( "alias-first-second" );
+        const std::array<RDG::TextureRef, 2> textures  = { graph.CreateTexture( desc, "First" ),
+                                                           graph.CreateTexture( desc, "Second" ) };
+        const std::array<RDG::BufferRef, 2>  readbacks = { graph.CreateBuffer( bytes, "FirstBytes" ),
+                                                           graph.CreateBuffer( bytes, "SecondBytes" ) };
+        const VkCommandBuffer                cmd       = out.CommandBuffer;
+        for ( uint32_t i = 0; i < 2; ++i )
+        {
+            graph.AddPass(
+                 i == 0 ? "ClearFirst" : "ClearSecond", RDG::PassFlags::Raster,
+                 [&textures, i]( RDG::PassBuilder& pass )
+                 {
+                     const std::array<uint8_t, 4>& texel = i == 0 ? kFirstTexel : kSecondTexel;
+                     pass.ColorTarget( 0, textures[i],
+                                       RDG::LoadOp::ClearColor( texel[0] / 255.0f, texel[1] / 255.0f,
+                                                                texel[2] / 255.0f, texel[3] / 255.0f ) );
+                 },
+                 [&textures, &out, i]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     auto texture = context.GetTexture( textures[i], RDG::Access::ColorTarget );
+                     if ( !texture )
+                         return Fail( texture.GetError() );
+                     auto image = VulkanRdgBackend::TextureOf( texture.GetValue() );
+                     if ( !image )
+                         return Fail( image.GetError() );
+                     out.Images[i] = image.GetValue()->GetImage();
+                     return Common::MakeSuccess( true ); // the render pass's load op is the whole pass
+                 } );
+            graph.AddPass(
+                 i == 0 ? "CopyFirst" : "CopySecond", RDG::PassFlags::Copy,
+                 [&textures, &readbacks, i]( RDG::PassBuilder& pass )
+                 {
+                     pass.Read( textures[i], RDG::Access::CopySrc );
+                     pass.Write( readbacks[i], RDG::Access::CopyDst );
+                 },
+                 [&textures, &readbacks, cmd, size, i]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     auto source = context.GetTexture( textures[i], RDG::Access::CopySrc );
+                     auto target = context.GetBuffer( readbacks[i], RDG::Access::CopyDst );
+                     if ( !source || !target )
+                         return Fail( !source ? source.GetError() : target.GetError() );
+                     auto image  = VulkanRdgBackend::TextureOf( source.GetValue() );
+                     auto buffer = VulkanRdgBackend::BufferOf( target.GetValue() );
+                     if ( !image || !buffer )
+                         return Fail( "no Vulkan resource" );
+                     VkBufferImageCopy region{};
+                     region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+                     region.imageExtent      = { size, size, 1 };
+                     vkCmdCopyImageToBuffer( cmd, image.GetValue()->GetImage(),
+                                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer.GetValue()->GetBuffer(),
+                                             1, &region );
+                     return Common::MakeSuccess( true );
+                 } );
+        }
+        graph.Extract( readbacks[0], out.FirstBytes, RDG::Access::HostRead );
+        graph.Extract( readbacks[1], out.SecondBytes, RDG::Access::HostRead );
+
+        const Common::BoolResultStr executed = graph.Execute( witness );
+        vkEndCommandBuffer( cmd );
+        if ( !executed )
+        {
+            out.Error = executed.GetError();
+            return;
+        }
+        VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers    = &cmd;
+        vkQueueSubmit( gpu.Queue, 1, &submit, out.Fence );
+    }
+
+    // Waits for the frame's fence, releases its command buffer and fence, and checks both readbacks texel by
+    // texel. Empty when both hold their own clear colour.
+    std::string FinishAliasFrame( Gpu& gpu, AliasFrame& frame )
+    {
+        vkWaitForFences( gpu.Device.device, 1, &frame.Fence, VK_TRUE, UINT64_MAX );
+        vkDestroyFence( gpu.Device.device, frame.Fence, nullptr );
+        vkFreeCommandBuffers( gpu.Device.device, gpu.CommandPool, 1, &frame.CommandBuffer );
+        for ( uint32_t i = 0; i < 2; ++i )
+        {
+            const RDG::ExternalBuffer&    readback = i == 0 ? frame.FirstBytes : frame.SecondBytes;
+            const std::array<uint8_t, 4>& texel    = i == 0 ? kFirstTexel : kSecondTexel;
+            if ( !readback.Physical || readback.Physical->GetBackendKind() != RDG::BackendKind::Vulkan )
+                return std::format( "readback {} carries no Vulkan buffer", i );
+            const auto& buffer = static_cast<const VulkanRdgBuffer&>( *readback.Physical );
+            buffer.InvalidateForHost();
+            const auto* mapped = static_cast<const uint8_t*>( buffer.GetMapped() );
+            if ( mapped == nullptr )
+                return std::format( "readback {} is not host-visible", i );
+            for ( uint64_t b = 0; b < uint64_t( frame.Size ) * frame.Size * 4; ++b )
+            {
+                if ( mapped[b] != texel[b % 4] )
+                    return std::format( "{} byte {}: {} instead of {}", i == 0 ? "First" : "Second", b,
+                                        int( mapped[b] ), int( texel[b % 4] ) );
+            }
+        }
+        return {};
+    }
+} // namespace
+
+// RDG-ALIAS A1: two transients with disjoint lifetimes are PLACED over the same heap bytes - two VkImages bound
+// to one VkDeviceMemory at one offset - and the second is ordered after the first only by its AliasAcquire
+// barrier. Each is cleared to its own colour and copied out: both readbacks are exact and validation
+// (synchronization validation included) is silent. The slot's heap is exactly the plan's peak; a heap the next
+// plan outgrows is retired, still reserved while other frames are in flight, and freed only when its slot is
+// re-begun after that slot's fence.
+TEST( RenderGraphVulkan, TwoTransientsWithDisjointLifetimesArePlacedOverTheSameBytesValidationClean )
+{
+    Gpu& gpu = GetGpu();
+    ASSERT_TRUE( gpu.Error.empty() ) << gpu.Error;
+    {
+        VulkanRdgPool    pool( gpu.Rdg, 2 );
+        FrameObjects     frame( gpu, 2 );
+        VulkanRdgBackend backend( gpu.Rdg, pool );
+        WeakenedBarriers witness( backend, "" ); // weakens no pass: it records the plan and the barriers
+
+        AliasFrame a;
+        RecordAliasFrame( gpu, backend, witness, pool, frame, 0, kSize, a );
+        ASSERT_TRUE( a.Error.empty() ) << a.Error;
+        EXPECT_EQ( FinishAliasFrame( gpu, a ), "" );
+
+        const RDG::AliasingPlan plan = witness.Plan;
+        ASSERT_EQ( plan.Allocations.size(), 2u );
+        const auto second =
+             std::find_if( plan.Allocations.begin(), plan.Allocations.end(),
+                           []( const RDG::Allocation& entry ) { return !entry.AliasPredecessors.empty(); } );
+        ASSERT_NE( second, plan.Allocations.end() ) << "the plan did not alias Second over First";
+        const RDG::Allocation& first =
+             second == plan.Allocations.begin() ? plan.Allocations[1] : plan.Allocations[0];
+        EXPECT_EQ( second->AliasPredecessors, std::vector<uint32_t>{ first.Resource } );
+        EXPECT_EQ( second->Heap, first.Heap );
+        EXPECT_EQ( second->Offset, first.Offset );
+        EXPECT_NE( a.Images[0], a.Images[1] ) << "two transients sharing bytes must be two images";
+        EXPECT_TRUE( std::any_of( witness.Recorded.begin(), witness.Recorded.end(),
+                                  [&]( const std::pair<std::string, RDG::Barrier>& recorded )
+                                  {
+                                      return recorded.second.BarrierType == RDG::BarrierKind::AliasAcquire &&
+                                             recorded.second.Resource == second->Resource;
+                                  } ) )
+             << "Second's first use must be an AliasAcquire";
+
+        uint64_t heapBytes = 0;
+        for ( const RDG::TransientHeapDesc& heap : plan.Heaps )
+            heapBytes += heap.Bytes;
+        EXPECT_EQ( heapBytes, plan.TotalPeakBytes );
+        const RDG::TransientAllocatorStats placed = frame.Transients.GetStats();
+        EXPECT_EQ( placed.HeapCount, 1u );
+        EXPECT_EQ( placed.ReservedBytes, plan.TotalPeakBytes );
+        EXPECT_EQ( placed.PlacedResources, 2u );
+
+        // Frame B (slot 1) stays in flight while frame C re-begins slot 0 with textures four times larger: slot
+        // 0's heap grows, so its old heap is retired and still reserved; slot 1's heap is not touched.
+        AliasFrame b;
+        RecordAliasFrame( gpu, backend, witness, pool, frame, 1, kSize, b );
+        ASSERT_TRUE( b.Error.empty() ) << b.Error;
+        AliasFrame c;
+        RecordAliasFrame( gpu, backend, witness, pool, frame, 0, kSize * 2, c );
+        ASSERT_TRUE( c.Error.empty() ) << c.Error;
+        const uint64_t grown = witness.Plan.TotalPeakBytes;
+        EXPECT_GT( grown, plan.TotalPeakBytes );
+        const RDG::TransientAllocatorStats inFlight = frame.Transients.GetStats();
+        EXPECT_EQ( inFlight.HeapCount, 3u ) << "slot 0's new heap, slot 0's retired heap, slot 1's heap";
+        EXPECT_EQ( inFlight.ReservedBytes, grown + 2 * plan.TotalPeakBytes );
+        EXPECT_EQ( FinishAliasFrame( gpu, b ), "" );
+        EXPECT_EQ( FinishAliasFrame( gpu, c ), "" );
+
+        // Slot 0 re-begun after its fence: the retired heap is freed only now.
+        ASSERT_TRUE( BeginFrameSlot( frame, backend, pool, 0 ) );
+        const RDG::TransientAllocatorStats retired = frame.Transients.GetStats();
+        EXPECT_EQ( retired.HeapCount, 2u );
+        EXPECT_EQ( retired.ReservedBytes, grown + plan.TotalPeakBytes );
+        vkDeviceWaitIdle( gpu.Device.device );
+    }
     const std::vector<Message> messages = TakeMessages();
     EXPECT_TRUE( messages.empty() ) << messages.size() << " validation message(s):" << Join( messages );
 }
