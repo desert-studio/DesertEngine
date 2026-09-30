@@ -33,6 +33,8 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Track.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Sequence.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Evaluator.cpp",
+        -- The moving clip is keyed by the engine's own edit (ClipFixture::KeyBone -> SetBoneKey).
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/TrackEditing.cpp",
         -- A25: `Animator` owns an optional retarget, so every suite that compiles Animator.cpp links the
         -- retarget layer with it. Listed here rather than discovered at link time because premake
         -- enumerates sources EXPLICITLY: a dependency that is real but unlisted fails as an undefined

@@ -1,19 +1,23 @@
 #pragma once
 
-// Clips the Animator suites play (AnimatorBlending, AnimatorPose): ONE spelling of "a clip whose data is its
-// Timeline::Sequence", built the way the engine builds one (ProceduralCharacterAnimations): a Bone binding with
-// a Transform track per animated bone, the clip's notifies as keys of an Event track on the Sequence (master)
-// binding, its curves as Float tracks named by Property on that same binding. Every track holds ONE section
-// spanning the clip's playback range, Absolute at full weight — what every migrated `.anim` carries — and the
-// suites that need a section's Weight/Blend get that section back to edit. Included by relative path;
-// header-only.
+// Clips the Animator suites play (AnimatorBlending, AnimatorPose, the rig, rebind and retarget suites): ONE
+// spelling of "a clip whose data is its Timeline::Sequence", built the way the engine builds one
+// (ProceduralCharacterAnimations): a Bone binding with a Transform track per animated bone, the clip's notifies as
+// keys of an Event track on the Sequence (master) binding, its curves as Float tracks named by Property on that
+// same binding. Every track holds ONE section spanning the clip's playback range, Absolute at full weight — what
+// every migrated `.anim` carries — and the suites that need a section's Weight/Blend get that section back to
+// edit. Included by relative path; header-only.
 
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/KeyInterpolation.hpp>
+#include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/Timeline/Binding.hpp>
 #include <Engine/Animation/Timeline/Channel.hpp>
 #include <Engine/Animation/Timeline/Section.hpp>
 #include <Engine/Animation/Timeline/Track.hpp>
+#include <Engine/Animation/TrackEditing.hpp>
+
+#include <Common/Core/ResultStr.hpp>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -78,6 +82,29 @@ namespace ClipFixture
     }
 
     /**
+     * @brief Bind @p bone and give it @p channel as the one section of its Transform track — the lift's shape
+     * (every migrated `.anim` bone). Returns that section; the reference is into `clip.Sequence.Tracks` and
+     * dies with the next track added.
+     */
+    inline Timeline::Section& AddBoneChannel( Animation::AnimationClip& clip, const std::string& bone,
+                                              Timeline::TransformChannel channel )
+    {
+        Timeline::Binding binding;
+        binding.Guid    = Timeline::BindingGuid::Generate();
+        binding.Kind    = Timeline::BindingKind::Bone;
+        binding.Locator = bone;
+        binding.Label   = bone;
+        clip.Sequence.Bindings.push_back( binding );
+
+        Timeline::Track track;
+        track.Binding = binding.Guid;
+        track.Kind    = Timeline::TrackKind::Transform;
+        track.Sections.push_back( WholeClipSection( clip, Timeline::Channel{ std::move( channel ) } ) );
+        clip.Sequence.Tracks.push_back( std::move( track ) );
+        return clip.Sequence.Tracks.back().Sections.back();
+    }
+
+    /**
      * @brief Bind @p bone and hold it at @p position / @p rotation / @p scale for the whole clip: one key per
      * component at the clip's first tick. Returns the track's one section, for a suite that sets its Weight or
      * Blend. The reference is into `clip.Sequence.Tracks`; it dies with the next track added.
@@ -87,13 +114,6 @@ namespace ClipFixture
                                              const glm::quat& rotation = glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ),
                                              const glm::vec3& scale    = glm::vec3( 1.0F ) )
     {
-        Timeline::Binding binding;
-        binding.Guid    = Timeline::BindingGuid::Generate();
-        binding.Kind    = Timeline::BindingKind::Bone;
-        binding.Locator = bone;
-        binding.Label   = bone;
-        clip.Sequence.Bindings.push_back( binding );
-
         const Animation::FrameNumber at = clip.Sequence.Start;
         Timeline::TransformChannel   channel;
         channel.Translation.X.Keys.push_back( Key( at, position.x ) );
@@ -106,13 +126,24 @@ namespace ClipFixture
         channel.Scale.X.Keys.push_back( Key( at, scale.x ) );
         channel.Scale.Y.Keys.push_back( Key( at, scale.y ) );
         channel.Scale.Z.Keys.push_back( Key( at, scale.z ) );
+        return AddBoneChannel( clip, bone, std::move( channel ) );
+    }
 
-        Timeline::Track track;
-        track.Binding = binding.Guid;
-        track.Kind    = Timeline::TrackKind::Transform;
-        track.Sections.push_back( WholeClipSection( clip, Timeline::Channel{ std::move( channel ) } ) );
-        clip.Sequence.Tracks.push_back( std::move( track ) );
-        return clip.Sequence.Tracks.back().Sections.back();
+    /**
+     * @brief Key @p bone at @p tick to @p translation / @p rotation / @p scale by the engine's own edit
+     * (TrackEditing's `SetBoneKey`: binding, track and one Absolute whole-clip section created as needed,
+     * an existing key upserted). For clips that MOVE; a suite that uses it compiles TrackEditing.cpp.
+     */
+    inline Common::BoolResultStr KeyBone( Animation::AnimationClip& clip, const std::string& bone,
+                                          Animation::FrameNumber tick, const glm::vec3& translation,
+                                          const glm::quat& rotation = glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ),
+                                          const glm::vec3& scale    = glm::vec3( 1.0F ) )
+    {
+        Animation::BoneTransform pose;
+        pose.Translation = translation;
+        pose.Rotation    = rotation;
+        pose.Scale       = scale;
+        return Animation::SetBoneKey( clip.Sequence, bone, tick, pose );
     }
 
     /// A clip of @p duration holding @p bone still — the one-key clip most Animator tests play.
