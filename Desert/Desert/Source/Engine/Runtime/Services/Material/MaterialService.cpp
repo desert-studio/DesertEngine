@@ -306,6 +306,13 @@ namespace Desert::Runtime
         return Common::MakeSuccess( std::move( *shader ) );
     }
 
+    void MaterialService::PinDefaultSurfaceTemplate( const Common::AssetHandle& handle )
+    {
+        m_DefaultSurfacePin = std::make_unique<Assets::AssetRootPin>(
+             handle,
+             "the engine's Default Surface template: every slotless mesh and every new material draws with it" );
+    }
+
     void MaterialService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
     {
         m_Assets = assets;
@@ -742,6 +749,7 @@ namespace Desert::Runtime
         m_ReportedMissing.clear();
         m_ExternalToInternal.clear();
         m_Graveyard.Clear();
+        m_DefaultSurfacePin.reset();
     }
 
     void MaterialService::Invalidate( const Assets::AssetHandle& handle )

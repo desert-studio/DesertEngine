@@ -62,21 +62,6 @@
             "Path": ""
         },
         {
-            "Name": "u_MetallicTexture",
-            "Guid": "",
-            "Path": ""
-        },
-        {
-            "Name": "u_RoughnessTexture",
-            "Guid": "",
-            "Path": ""
-        },
-        {
-            "Name": "u_AOTexture",
-            "Guid": "",
-            "Path": ""
-        },
-        {
             "Name": "u_EmissiveTexture",
             "Guid": "c6ff26d3abf50030251f7dad63b62142",
             "Path": "assets:Meshes/shaded.detex"

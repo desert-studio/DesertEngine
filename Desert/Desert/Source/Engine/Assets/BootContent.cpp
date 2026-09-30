@@ -152,6 +152,9 @@ namespace Desert::Assets
                  std::format( "the engine has no 'Default Surface' template — the shader every "
                               "slot-less mesh and every new material is authored on: {}",
                               defaultSurface.GetError() ) );
+        // And it stays: in the root set for the engine's life, or the first eviction sweep releases it (no scene
+        // names it) and every later slotless mesh is dropped (MaterialService::PinDefaultSurfaceTemplate).
+        Runtime::ResourceRegistry::GetMaterialService()->PinDefaultSurfaceTemplate( defaultSurface.GetValue() );
         return BOOLSUCCESS;
     }
 
