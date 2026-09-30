@@ -201,7 +201,7 @@ TEST( LayeredBlendPerBone, CurvesCombineByTheNodesRule )
 
     const auto blinkWith = [&]( G::CurveBlendOption option )
     {
-        node.CurveBlend = option;
+        node.CurveBlend = static_cast<int>( option );
         EXPECT_TRUE(
              G::BlendLayeredPerBone( node, weights.GetValue(), skeleton, base, layers, half, out ).IsSuccess() );
         return out.CurveValues.empty() ? -1.0F : out.CurveValues[0];

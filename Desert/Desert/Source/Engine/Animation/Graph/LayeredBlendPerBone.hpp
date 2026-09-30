@@ -78,7 +78,8 @@ namespace Desert::Animation::Graph
         std::vector<LayerSetup> Layers; // one per blend-pose input
         bool                    MeshSpaceRotationBlend = false;
         bool                    MeshSpaceScaleBlend    = false;
-        CurveBlendOption        CurveBlend             = CurveBlendOption::Override;
+        /// A CurveBlendOption, stored as int like every enum of the AnimGraph format (AnimGraph.hpp).
+        int CurveBlend = static_cast<int>( CurveBlendOption::Override );
         /// Root motion comes from a layer only in proportion to that layer's weight ON THE ROOT BONE
         /// (UE's bBlendRootMotionBasedOnRootBone): an upper-body layer never steers the character.
         bool BlendRootMotionBasedOnRootBone = true;

@@ -89,14 +89,7 @@ namespace Desert::Migration::ClipGen3
             {
                 return true;
             }
-            for ( const std::string& owned : Tracks )
-            {
-                if ( owned == trackName )
-                {
-                    return true;
-                }
-            }
-            return false;
+            return std::ranges::any_of( Tracks, [&]( const std::string& owned ) { return owned == trackName; } );
         }
 
         /// The weight at `at`. 1 for an unkeyed channel; see the field note for why that is not 0.
@@ -383,7 +376,7 @@ namespace Desert::Migration::ClipGen3
         {
             if ( RotationKeys.empty() )
             {
-                return glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
+                return { 1.0f, 0.0f, 0.0f, 0.0f };
             }
             if ( RotationKeys.size() == 1 )
             {

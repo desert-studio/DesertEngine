@@ -8,6 +8,7 @@
 #include <Engine/Core/Serialize/TextureSlot.hpp>
 #include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 
+#include <Common/Core/ByteText.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Json/Document.hpp>
 #include <Common/Core/AssetHandle.hpp>
@@ -1617,8 +1618,7 @@ namespace Desert::Core::Serialize
                     return Common::Json::Value{};
                 }
                 const std::vector<uint8_t> bytes = written.ExtractValue();
-                auto                       block = Common::Json::Read<Common::Json::Value>(
-                     std::string_view( reinterpret_cast<const char*>( bytes.data() ), bytes.size() ) );
+                auto block = Common::Json::Read<Common::Json::Value>( Common::TextOf( bytes ) );
                 if ( !block )
                 {
                     // WriteSequence's own output not reading back as JSON is a broken writer, not a state of the
@@ -1647,8 +1647,7 @@ namespace Desert::Core::Serialize
                     return;
                 }
                 const std::string text     = Common::Json::Write( d.Sequence );
-                auto              sequence = Animation::Timeline::ReadSequence(
-                     std::span( reinterpret_cast<const uint8_t*>( text.data() ), text.size() ) );
+                auto              sequence = Animation::Timeline::ReadSequence( Common::BytesOf( text ) );
                 if ( !sequence )
                 {
                     issues.push_back(
@@ -1663,7 +1662,7 @@ namespace Desert::Core::Serialize
                 }
                 auto& ac         = e.HasComponent<ECS::UIAnimComponent>() ? e.GetComponent<ECS::UIAnimComponent>()
                                                                           : e.AddComponent<ECS::UIAnimComponent>();
-                ac.Data.Sequence = std::move( sequence.GetValue() );
+                ac.Data.Sequence = sequence.ExtractValue();
                 ac.Data.Loop     = static_cast<Animation::Timeline::LoopMode>( d.Loop );
                 ac.Data.AutoPlay = d.AutoPlay;
                 ac.Data.Playback.reset(); // the range may have changed; the next frame re-creates the player
@@ -1932,7 +1931,7 @@ namespace Desert::Core::Serialize
                                   .lexically_relative( Common::Constants::Path::ASSETS_PATH.lexically_normal() )
                                   .generic_string() );
                 }
-                else if ( actor.Sequence )
+                else if ( static_cast<uint64_t>( actor.Sequence ) != 0 )
                 {
                     LOG_ERROR(
                          "[LevelSequence] Entity '{}' names sequence handle {} that no loaded asset carries; "
@@ -1988,6 +1987,9 @@ namespace Desert::Core::Serialize
                     return; // an actor whose sequence was never chosen: authored so, saved so
 
                 const auto guid    = Common::Content::AssetGuidFromText( guidText );
+                // A deserializer is handed the registry as const, and creating the asset it names is a write
+                // (the same cast the FoliageType row below and FromPath make).
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
                 auto&      manager = const_cast<Assets::AssetManager&>( assetManager );
                 Assets::Asset<Assets::LevelSequenceAsset> sequence;
                 if ( guid )
@@ -2001,9 +2003,9 @@ namespace Desert::Core::Serialize
                 if ( !sequence )
                 {
                     // REFUSED, NOT SUBSTITUTED: an actor playing nothing would look authored.
-                    issues.push_back( Common::Json::Issue{ "LevelSequence.SequenceGuid",
-                                                           "a .dseq the content registry knows",
-                                                           "GUID '" + guidText + "', path '" + path + "'" } );
+                    issues.push_back(
+                         Common::Json::Issue{ "LevelSequence.SequenceGuid", "a .dseq the content registry knows",
+                                              std::format( "GUID '{}', path '{}'", guidText, path ) } );
                     LOG_ERROR( "[LevelSequence] Entity '{}': sequence GUID '{}' (path '{}') is not a .dseq this "
                                "project has scanned; the actor plays nothing",
                                entity.GetComponent<ECS::TagComponent>().Tag, guidText, path );
@@ -2076,9 +2078,9 @@ namespace Desert::Core::Serialize
                 {
                     // REFUSED, NOT SUBSTITUTED: a field painted with defaults would look like the scene's grass
                     // while being nobody's.
-                    issues.push_back( Common::Json::Issue{ "Foliage.FoliageTypeGuid",
-                                                           "a .defoliage the content registry knows",
-                                                           "GUID '" + guidText + "', path '" + path + "'" } );
+                    issues.push_back(
+                         Common::Json::Issue{ "Foliage.FoliageTypeGuid", "a .defoliage the content registry knows",
+                                              std::format( "GUID '{}', path '{}'", guidText, path ) } );
                     LOG_ERROR(
                          "[Foliage] Entity '{}': foliage type GUID '{}' (path '{}') is not a .defoliage this "
                          "project has scanned; the field keeps no type",

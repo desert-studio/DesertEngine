@@ -39,7 +39,7 @@ namespace Desert::Migration
         if ( table.Missing != 0 )
             return Common::MakeFormattedError<bool>( "{} bone bindings of the lift found no bone", table.Missing );
 
-        Evaluator           evaluator( lift );
+        const Evaluator     evaluator( lift );
         EvaluatedFrame      frame;
         const BoneTransform reference; // the rest value the pose is seeded with, ApplySection's `reference`
         for ( int32_t tick = 0; tick <= clip.DurationTicks.Value; ++tick )

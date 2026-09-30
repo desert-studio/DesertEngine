@@ -4,6 +4,7 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 
+#include <Common/Core/ByteText.hpp>
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Json/Json.hpp>
@@ -47,8 +48,7 @@ namespace Desert::Assets
         if ( !written )
             return Common::MakeFormattedError<std::string>( "the sequence did not write: {}", written.GetError() );
         const std::vector<uint8_t> block    = written.ExtractValue();
-        auto                       envelope = Common::Json::Read<LevelSequenceEnvelope>(
-             std::string_view( reinterpret_cast<const char*>( block.data() ), block.size() ) );
+        auto                       envelope = Common::Json::Read<LevelSequenceEnvelope>( Common::TextOf( block ) );
         if ( !envelope )
             return Common::MakeFormattedError<std::string>( "the TMLN block did not re-read: {}",
                                                             envelope.GetError() );
@@ -71,8 +71,7 @@ namespace Desert::Assets
         if ( !guid )
             return Common::MakeFormattedError<Parsed>( "header GUID: {}", guid.GetError() );
 
-        auto sequence = Animation::Timeline::ReadSequence(
-             std::span<const uint8_t>( reinterpret_cast<const uint8_t*>( text.data() ), text.size() ) );
+        auto sequence = Animation::Timeline::ReadSequence( Common::BytesOf( text ) );
         if ( !sequence )
             return Common::MakeFormattedError<Parsed>( "{}", sequence.GetError() );
         if ( sequence.GetValue().Host != Animation::Timeline::SequenceHost::LevelSequence )

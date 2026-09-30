@@ -3,6 +3,12 @@
 
 #include "TimelineFixtures.hpp"
 
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
+
+#include <Common/Content/AssetEnvelope.hpp>
+
+#include <format>
+
 using namespace TimelineFixtures;
 using namespace TimelineFixtures;
 
@@ -156,17 +162,24 @@ TEST( TimelineFormat, WriteReadRoundTripsAndATruncatedBlockIsRefused )
     EXPECT_FALSE( ReadSequence( cut ).IsSuccess() );
 
     // The version is the header's, and an unknown one is refused by name.
+    // The file is tampered with as bytes (a newer or older writer's output), not rebuilt: the stated version
+    // is found by the header's own tag, so the test never spells the format's JSON.
+    const auto statedAs = []( int version )
+    {
+        return std::format( "\"{}\": {}", Common::Content::FourCCToString( Desert::Assets::kTimelineSchemaTag ),
+                            version );
+    };
     std::string  text( bytes.begin(), bytes.end() );
-    const size_t stated = text.find( "\"TMLN\": 2" );
+    const size_t stated = text.find( statedAs( 2 ) );
     ASSERT_NE( stated, std::string::npos ) << text;
-    text.replace( stated, 9, "\"TMLN\": 3" );
+    text.replace( stated, statedAs( 2 ).size(), statedAs( 3 ) );
     const auto newer = ReadSequence( std::span( reinterpret_cast<const uint8_t*>( text.data() ), text.size() ) );
     ASSERT_FALSE( newer.IsSuccess() );
     EXPECT_NE( newer.GetError().find( "TMLN v3" ), std::string::npos ) << newer.GetError();
 
     // v1 (a key's mode shaped the segment ARRIVING at it) has v2's layout and is refused by name all the
     // same: only SceneMigrator reads it (ANIM-FMT).
-    text.replace( stated, 9, "\"TMLN\": 1" );
+    text.replace( stated, statedAs( 3 ).size(), statedAs( 1 ) );
     const auto older = ReadSequence( std::span( reinterpret_cast<const uint8_t*>( text.data() ), text.size() ) );
     ASSERT_FALSE( older.IsSuccess() );
     EXPECT_NE( older.GetError().find( "TMLN v1" ), std::string::npos ) << older.GetError();

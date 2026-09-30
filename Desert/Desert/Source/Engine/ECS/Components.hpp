@@ -1894,7 +1894,12 @@ namespace Desert::ECS
     // Sequencer, serialized by hand (ComponentRegistry) as the TMLN text block.
     struct UIAnimData
     {
-        Animation::Timeline::Sequence Sequence{ .Host = Animation::Timeline::SequenceHost::UIAnimation };
+        Animation::Timeline::Sequence Sequence = []
+        {
+            Animation::Timeline::Sequence hosted; // every other field keeps the Sequence's own default
+            hosted.Host = Animation::Timeline::SequenceHost::UIAnimation;
+            return hosted;
+        }();
         Animation::Timeline::LoopMode Loop     = Animation::Timeline::LoopMode::Once;
         bool                          AutoPlay = true;
 

@@ -5,6 +5,7 @@
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Core/ByteText.hpp>
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Json/Json.hpp>
@@ -81,8 +82,8 @@ namespace Desert::Migration
 
         glm::quat QuatAt( const Timeline::RotationChannel& channel, const size_t i )
         {
-            return glm::quat( channel.W.Keys[i].Value, channel.X.Keys[i].Value, channel.Y.Keys[i].Value,
-                              channel.Z.Keys[i].Value );
+            return { channel.W.Keys[i].Value, channel.X.Keys[i].Value, channel.Y.Keys[i].Value,
+                     channel.Z.Keys[i].Value };
         }
 
         glm::quat SampleArriving( const Timeline::RotationChannel& channel, const FrameTime at,
@@ -90,7 +91,7 @@ namespace Desert::Migration
         {
             const std::vector<ScalarKey>& keys = channel.X.Keys;
             if ( keys.empty() )
-                return glm::quat( channel.W.Default, channel.X.Default, channel.Y.Default, channel.Z.Default );
+                return { channel.W.Default, channel.X.Default, channel.Y.Default, channel.Z.Default };
             const ArrivingBracket b = Bracket( keys, at, rate );
             if ( !b.Inside )
                 return QuatAt( channel, b.Hold );
@@ -178,12 +179,13 @@ namespace Desert::Migration
             if ( const auto* a = std::get_if<Timeline::TransformChannel>( &arriving ) )
             {
                 const auto& b = std::get<Timeline::TransformChannel>( leaving );
-                if ( std::string r = CompareVector( a->Translation, b.Translation, rate, samples ); !r.empty() )
-                    return "translation " + r;
+                if ( const std::string r = CompareVector( a->Translation, b.Translation, rate, samples );
+                     !r.empty() )
+                    return std::format( "translation {}", r );
                 if ( std::string r = CompareRotation( a->Rotation, b.Rotation, rate, samples ); !r.empty() )
                     return r;
-                if ( std::string r = CompareVector( a->Scale, b.Scale, rate, samples ); !r.empty() )
-                    return "scale " + r;
+                if ( const std::string r = CompareVector( a->Scale, b.Scale, rate, samples ); !r.empty() )
+                    return std::format( "scale {}", r );
                 return {};
             }
             if ( const auto* a = std::get_if<Timeline::BoolChannel>( &arriving ) )
@@ -331,8 +333,7 @@ namespace Desert::Migration
                                                                    Timeline::kTimelineLastArrivingInterpVersion );
         stated->second         = Timeline::kTimelineFormatVersion;
         const std::string text = Common::Json::Write( raised );
-        return Timeline::ReadSequence(
-             std::span<const uint8_t>( reinterpret_cast<const uint8_t*>( text.data() ), text.size() ) );
+        return Timeline::ReadSequence( Common::BytesOf( text ) );
     }
 
     Common::ResultStr<TimelineShift> ShiftTimelineV1( const std::string_view block )
@@ -361,8 +362,7 @@ namespace Desert::Migration
         if ( !written )
             return Common::MakeFormattedError<std::string>( "the sequence did not write: {}", written.GetError() );
         const std::vector<uint8_t> block    = written.ExtractValue();
-        auto                       envelope = Common::Json::Read<TimelineEnvelope>(
-             std::string_view( reinterpret_cast<const char*>( block.data() ), block.size() ) );
+        auto                       envelope = Common::Json::Read<TimelineEnvelope>( Common::TextOf( block ) );
         if ( !envelope )
             return Common::MakeFormattedError<std::string>( "the TMLN block did not re-read: {}",
                                                             envelope.GetError() );

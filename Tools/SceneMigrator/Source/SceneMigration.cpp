@@ -1,6 +1,7 @@
 #include "SceneMigration.hpp"
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <map>
@@ -43,6 +44,7 @@
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Json/Json.hpp>
 #include <Common/Core/AssetHandle.hpp>
+#include <Common/Core/ByteText.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Units.hpp>
@@ -70,6 +72,16 @@ namespace Desert::Migration
 {
     namespace
     {
+        // A step that refused entities refuses the whole scene: one line naming the scene and every refusal.
+        std::string RefusedWhole( const std::string& scene, const std::vector<std::string>& refusals )
+        {
+            std::string text = std::format( "'{}': ", scene );
+            for ( size_t i = 0; i < refusals.size(); ++i )
+                std::format_to( std::back_inserter( text ), "{}{}", i == 0 ? "" : "; ", refusals[i] );
+            text += ". Nothing was written.";
+            return text;
+        }
+
         // The offending value, spelled out. A warning that says "wrong type" without saying WHAT was in
         // the file sends the next reader back to the file anyway.
         std::string Describe( const rfl::Generic& g )
@@ -411,31 +423,31 @@ namespace Desert::Migration
                           rfl::json::read<TL::UIAnimationV40, rfl::DefaultIfMissing>( rfl::json::write( block ) );
                      if ( !v40 )
                      {
-                         report.Refused.push_back( "entity " + who +
-                                                   ": its UIAnim block is not a v40 clip: " + v40.error().what() );
+                         report.Refused.push_back( std::format(
+                              "entity {}: its UIAnim block is not a v40 clip: {}", who, v40.error().what() ) );
                          return false;
                      }
                      auto lifted = TL::LiftUIAnimation( v40.value(), who, Animation::PROJECT_TICK_RATE,
                                                         Animation::DEFAULT_DISPLAY_RATE );
                      if ( !lifted )
                      {
-                         report.Refused.push_back( "entity " + who + ": " + lifted.GetError() );
+                         report.Refused.push_back( std::format( "entity {}: {}", who, lifted.GetError() ) );
                          return false;
                      }
                      auto written = TL::WriteSequence( lifted.GetValue().Lifted );
                      if ( !written )
                      {
-                         report.Refused.push_back( "entity " + who +
-                                                   ": the TMLN writer refused: " + written.GetError() );
+                         report.Refused.push_back(
+                              std::format( "entity {}: the TMLN writer refused: {}", who, written.GetError() ) );
                          return false;
                      }
                      const std::vector<uint8_t> bytes    = written.ExtractValue();
-                     const auto                 sequence = rfl::json::read<rfl::Generic>(
-                          std::string( reinterpret_cast<const char*>( bytes.data() ), bytes.size() ) );
+                     const auto sequence = rfl::json::read<rfl::Generic>( std::string( Common::TextOf( bytes ) ) );
                      if ( !sequence )
                      {
-                         report.Refused.push_back( "entity " + who + ": the TMLN writer's text does not read: " +
-                                                   sequence.error().what() );
+                         report.Refused.push_back(
+                              std::format( "entity {}: the TMLN writer's text does not read: {}", who,
+                                           sequence.error().what() ) );
                          return false;
                      }
                      ++report.Clips;
@@ -452,10 +464,10 @@ namespace Desert::Migration
                 continue;
             for ( const auto& override_ : *entity.PrefabOverrides )
                 if ( override_.Components.get( "UIAnim" ).has_value() )
-                    report.Refused.push_back(
-                         "entity " + who +
-                         ": a prefab override restates UIAnim, which has no v40 whole to lift "
-                         "- move the clip onto the prefab's own record" );
+                    report.Refused.push_back( std::format(
+                         "entity {}: a prefab override restates UIAnim, which has no v40 whole to lift "
+                         "- move the clip onto the prefab's own record",
+                         who ) );
         }
         return report;
     }
@@ -475,7 +487,8 @@ namespace Desert::Migration
                            const auto        stated = StatedTimelineVersion( text );
                            if ( !stated )
                            {
-                               report.Refused.push_back( "entity " + who + ": UIAnim: " + stated.GetError() );
+                               report.Refused.push_back(
+                                    std::format( "entity {}: UIAnim: {}", who, stated.GetError() ) );
                                return false;
                            }
                            if ( stated.GetValue() != Animation::Timeline::kTimelineLastArrivingInterpVersion )
@@ -483,24 +496,25 @@ namespace Desert::Migration
                            auto shifted = ShiftTimelineV1( text );
                            if ( !shifted )
                            {
-                               report.Refused.push_back( "entity " + who + ": UIAnim: " + shifted.GetError() );
+                               report.Refused.push_back(
+                                    std::format( "entity {}: UIAnim: {}", who, shifted.GetError() ) );
                                return false;
                            }
                            auto written = Animation::Timeline::WriteSequence( shifted.GetValue().Shifted );
                            if ( !written )
                            {
-                               report.Refused.push_back( "entity " + who +
-                                                         ": the TMLN writer refused: " + written.GetError() );
+                               report.Refused.push_back( std::format( "entity {}: the TMLN writer refused: {}",
+                                                                      who, written.GetError() ) );
                                return false;
                            }
                            const std::vector<uint8_t> bytes = written.ExtractValue();
-                           const auto                 next  = rfl::json::read<rfl::Generic>(
-                                std::string( reinterpret_cast<const char*>( bytes.data() ), bytes.size() ) );
+                           const auto                 next =
+                                rfl::json::read<rfl::Generic>( std::string( Common::TextOf( bytes ) ) );
                            if ( !next )
                            {
                                report.Refused.push_back(
-                                    "entity " + who +
-                                    ": the TMLN writer's text does not read: " + next.error().what() );
+                                    std::format( "entity {}: the TMLN writer's text does not read: {}", who,
+                                                 next.error().what() ) );
                                return false;
                            }
                            block["Sequence"] = next.value();
@@ -515,7 +529,7 @@ namespace Desert::Migration
             shift( entity.Components, who );
             if ( entity.PrefabOverrides )
                 for ( auto& override_ : *entity.PrefabOverrides )
-                    shift( override_.Components, who + " (prefab override)" );
+                    shift( override_.Components, std::format( "{} (prefab override)", who ) );
         }
         return report;
     }
@@ -1435,10 +1449,7 @@ namespace Desert::Migration
                 report.UndeclaredKeys       = MigrateUndeclaredKeysV38ToV39( entities );
                 if ( !report.UndeclaredKeys.Refused.empty() )
                 {
-                    std::string lines;
-                    for ( const auto& line : report.UndeclaredKeys.Refused )
-                        lines += ( lines.empty() ? "" : "; " ) + line;
-                    report.Refused = "'" + name + "': " + lines + ". Nothing was written.";
+                    report.Refused = RefusedWhole( name, report.UndeclaredKeys.Refused );
                     return;
                 }
             }
@@ -1457,10 +1468,7 @@ namespace Desert::Migration
                 report.UIAnimations       = MigrateUIAnimationsV40ToV41( entities );
                 if ( !report.UIAnimations.Refused.empty() )
                 {
-                    std::string lines;
-                    for ( const auto& line : report.UIAnimations.Refused )
-                        lines += ( lines.empty() ? "" : "; " ) + line;
-                    report.Refused = "'" + name + "': " + lines + ". Nothing was written.";
+                    report.Refused = RefusedWhole( name, report.UIAnimations.Refused );
                     return;
                 }
             }
@@ -1470,10 +1478,7 @@ namespace Desert::Migration
             report.UIAnimationTimelinesRaised = report.UIAnimationTimelines.Clips != 0;
             if ( !report.UIAnimationTimelines.Refused.empty() )
             {
-                std::string lines;
-                for ( const auto& line : report.UIAnimationTimelines.Refused )
-                    lines += ( lines.empty() ? "" : "; " ) + line;
-                report.Refused = "'" + name + "': " + lines + ". Nothing was written.";
+                report.Refused = RefusedWhole( name, report.UIAnimationTimelines.Refused );
                 return;
             }
         }

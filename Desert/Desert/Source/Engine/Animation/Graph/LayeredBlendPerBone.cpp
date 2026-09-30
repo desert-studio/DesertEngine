@@ -258,7 +258,7 @@ namespace Desert::Animation::Graph
             }
         }
 
-        BlendCurves( node.CurveBlend, base, layers, layerWeights, out );
+        BlendCurves( static_cast<CurveBlendOption>( node.CurveBlend ), base, layers, layerWeights, out );
 
         // Root motion: by the layer's weight ON THE ROOT BONE, or by its layer weight alone.
         out.RootMotion = base.RootMotion;

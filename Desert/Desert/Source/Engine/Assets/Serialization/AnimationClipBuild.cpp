@@ -2,6 +2,7 @@
 
 #include <Engine/Animation/Timeline/Sequence.hpp>
 
+#include <Common/Core/ByteText.hpp>
 #include <Common/Json/Json.hpp>
 
 #include <format>
@@ -13,8 +14,7 @@ namespace Desert::Assets::Serialization
     Common::ResultStr<Animation::AnimationClip> BuildClipFromAssetData( const AnimationAssetData& data )
     {
         const std::string block    = Common::Json::Write( data.Sequence );
-        auto              sequence = Animation::Timeline::ReadSequence(
-             std::span<const uint8_t>( reinterpret_cast<const uint8_t*>( block.data() ), block.size() ) );
+        auto              sequence = Animation::Timeline::ReadSequence( Common::BytesOf( block ) );
         if ( !sequence )
         {
             return Common::MakeFormattedError<Animation::AnimationClip>( "clip '{}': {}", data.Name,
@@ -56,8 +56,7 @@ namespace Desert::Assets::Serialization
                                                                    block.GetError() );
         }
         const std::vector<uint8_t>& bytes = block.GetValue();
-        auto                        value = Common::Json::Read<Common::Json::Value>(
-             std::string_view( reinterpret_cast<const char*>( bytes.data() ), bytes.size() ) );
+        auto                        value = Common::Json::Read<Common::Json::Value>( Common::TextOf( bytes ) );
         if ( !value )
         {
             return Common::MakeFormattedError<AnimationAssetData>( "clip '{}': the TMLN block is not JSON: {}",

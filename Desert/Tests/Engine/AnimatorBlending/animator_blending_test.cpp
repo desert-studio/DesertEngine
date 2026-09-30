@@ -865,7 +865,8 @@ TEST( AnimatorBlending, TwoPlayersCurvesAtFullWeightNormalizeToTheirMean )
     FlatCurve( layer, "Only", 3.0F );
 
     auto graph                              = PoseGraphFixture::FullBodyLayer( "root" );
-    graph.Nodes[2].LayeredBlend->CurveBlend = Animation::Graph::CurveBlendOption::NormalizeByWeight;
+    graph.Nodes[2].LayeredBlend->CurveBlend =
+         static_cast<int>( Animation::Graph::CurveBlendOption::NormalizeByWeight );
     animator.Play( base, false );
     ASSERT_TRUE( PoseGraphFixture::Drive( animator, graph, layer, 1.0F, false ) );
     animator.Update( Timestep( 0.25F ) );
