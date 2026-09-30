@@ -134,7 +134,7 @@ namespace Desert::Graphic::API::Vulkan
             return m_Desc;
         }
         // The same description and usage: an image created for one can stand in for the other.
-        bool Matches( const RDG::TextureDesc& desc, uint32_t accessMask ) const;
+        bool     Matches( const RDG::TextureDesc& desc, uint32_t accessMask ) const;
         uint32_t GetAccessMask() const
         {
             return m_AccessMask;

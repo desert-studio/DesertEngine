@@ -349,8 +349,9 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     Common::ResultStr<std::shared_ptr<VulkanRdgTexture>>
-    VulkanRdgTexture::CreatePlaced( const VulkanRdgDevice& device, const RDG::TextureDesc& desc, uint32_t accessMask,
-                                    VmaAllocation memory, uint64_t offset, std::string_view name )
+    VulkanRdgTexture::CreatePlaced( const VulkanRdgDevice& device, const RDG::TextureDesc& desc,
+                                    uint32_t accessMask, VmaAllocation memory, uint64_t offset,
+                                    std::string_view name )
     {
         using Out                    = std::shared_ptr<VulkanRdgTexture>;
         const VkImageCreateInfo info = RdgImageInfo( device, desc, accessMask );
@@ -378,10 +379,11 @@ namespace Desert::Graphic::API::Vulkan
         vmaGetAllocationInfo( device.Allocator, memory, &heap );
         if ( offset % requirements.alignment != 0 || offset + requirements.size > heap.size ||
              ( requirements.memoryTypeBits & ( 1u << heap.memoryType ) ) == 0 )
-            return Common::MakeFormattedError<Out>(
-                 "texture '{}': {} bytes aligned {} (types {:#x}) do not fit at offset {} of a {}-byte heap of type {}",
-                 name, requirements.size, requirements.alignment, requirements.memoryTypeBits, offset, heap.size,
-                 heap.memoryType );
+            return Common::MakeFormattedError<Out>( "texture '{}': {} bytes aligned {} (types {:#x}) do not fit "
+                                                    "at offset {} of a {}-byte heap of type {}",
+                                                    name, requirements.size, requirements.alignment,
+                                                    requirements.memoryTypeBits, offset, heap.size,
+                                                    heap.memoryType );
         result = vmaBindImageMemory2( device.Allocator, memory, offset, texture->m_Image, nullptr );
         if ( result != VK_SUCCESS )
             return Common::MakeFormattedError<Out>( "texture '{}': vmaBindImageMemory2 at {} failed ({})", name,
@@ -514,10 +516,11 @@ namespace Desert::Graphic::API::Vulkan
         vmaGetAllocationInfo( device.Allocator, memory, &heap );
         if ( offset % requirements.alignment != 0 || offset + requirements.size > heap.size ||
              ( requirements.memoryTypeBits & ( 1u << heap.memoryType ) ) == 0 )
-            return Common::MakeFormattedError<Out>(
-                 "buffer '{}': {} bytes aligned {} (types {:#x}) do not fit at offset {} of a {}-byte heap of type {}",
-                 name, requirements.size, requirements.alignment, requirements.memoryTypeBits, offset, heap.size,
-                 heap.memoryType );
+            return Common::MakeFormattedError<Out>( "buffer '{}': {} bytes aligned {} (types {:#x}) do not fit at "
+                                                    "offset {} of a {}-byte heap of type {}",
+                                                    name, requirements.size, requirements.alignment,
+                                                    requirements.memoryTypeBits, offset, heap.size,
+                                                    heap.memoryType );
         result = vmaBindBufferMemory2( device.Allocator, memory, offset, buffer->m_Buffer, nullptr );
         if ( result != VK_SUCCESS )
             return Common::MakeFormattedError<Out>( "buffer '{}': vmaBindBufferMemory2 at {} failed ({})", name,
@@ -718,11 +721,11 @@ namespace Desert::Graphic::API::Vulkan
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kSets * 2 },
              VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kSets * 2 } };
         VkDescriptorPoolCreateInfo info{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-        info.maxSets           = kSets;
-        info.poolSizeCount     = static_cast<uint32_t>( sizes.size() );
-        info.pPoolSizes        = sizes.data();
-        VkDescriptorPool pool  = VK_NULL_HANDLE;
-        const VkResult result  = vkCreateDescriptorPool( m_Device, &info, nullptr, &pool );
+        info.maxSets            = kSets;
+        info.poolSizeCount      = static_cast<uint32_t>( sizes.size() );
+        info.pPoolSizes         = sizes.data();
+        VkDescriptorPool pool   = VK_NULL_HANDLE;
+        const VkResult   result = vkCreateDescriptorPool( m_Device, &info, nullptr, &pool );
         if ( result != VK_SUCCESS )
             return Common::MakeFormattedError<VkDescriptorPool>( "vkCreateDescriptorPool failed ({})",
                                                                  static_cast<int>( result ) );
@@ -771,13 +774,13 @@ namespace Desert::Graphic::API::Vulkan
     Common::BoolResultStr VulkanRdgPassDescriptors::WriteTexture( VkDescriptorSet set, uint32_t binding,
                                                                   VkDescriptorType           type,
                                                                   const RDG::TextureBinding& texture,
-                                                                  RDG::SubresourceRange range, VkImageLayout layout,
-                                                                  VkSampler sampler )
+                                                                  RDG::SubresourceRange      range,
+                                                                  VkImageLayout layout, VkSampler sampler )
     {
         const bool combined = type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         if ( type != VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE && type != VK_DESCRIPTOR_TYPE_STORAGE_IMAGE && !combined )
-            return Common::MakeFormattedError( "texture '{}': descriptor type {} is not an image type", texture.Name,
-                                               static_cast<int>( type ) );
+            return Common::MakeFormattedError( "texture '{}': descriptor type {} is not an image type",
+                                               texture.Name, static_cast<int>( type ) );
         if ( combined != ( sampler != VK_NULL_HANDLE ) )
             return Common::MakeFormattedError( "texture '{}': a sampler goes with COMBINED_IMAGE_SAMPLER only",
                                                texture.Name );
@@ -917,10 +920,11 @@ namespace Desert::Graphic::API::Vulkan
                            return dead;
                        } );
         if ( m_Transients == nullptr )
-            return Common::MakeFormattedError( "graph '{}': the Vulkan backend has no transient allocator (BeginFrame)",
-                                               graph.Name );
+            return Common::MakeFormattedError(
+                 "graph '{}': the Vulkan backend has no transient allocator (BeginFrame)", graph.Name );
         if ( graph.Result == nullptr )
-            return Common::MakeFormattedError( "graph '{}': no compile result to place transients from", graph.Name );
+            return Common::MakeFormattedError( "graph '{}': no compile result to place transients from",
+                                               graph.Name );
         m_Textures.resize( graph.Resources.size() );
         m_Buffers.resize( graph.Resources.size() );
 
@@ -939,8 +943,8 @@ namespace Desert::Graphic::API::Vulkan
             if ( !view.Used )
                 continue;
             if ( view.Extracted || view.ExternalTex != nullptr || view.ExternalBuf != nullptr )
-                return Common::MakeFormattedError( "graph '{}': '{}' is external or extracted but has an allocation",
-                                                   graph.Name, view.Name );
+                return Common::MakeFormattedError(
+                     "graph '{}': '{}' is external or extracted but has an allocation", graph.Name, view.Name );
             if ( view.Kind == RDG::ResourceKind::Texture )
             {
                 auto placed = m_Transients->PlaceTexture( allocation, *view.Texture, view.AccessMask, view.Name );

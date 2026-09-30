@@ -91,12 +91,12 @@ namespace Desert::Graphic::API::Vulkan
             std::vector<std::shared_ptr<VulkanRdgBuffer>>  RetiredBuffers;
         };
 
-        void                                  Retire( Slot& slot, GraphHeaps& graph, uint32_t heap );
-        void                                  Destroy( GraphHeaps& graph );
-        static void                           DestroyRetired( VmaAllocator allocator, Slot& slot );
-        Common::ResultStr<Heap>               AllocateHeap( const RDG::TransientHeapDesc& desc ) const;
-        Common::ResultStr<const Heap*>        OpenHeap( const RDG::Allocation& allocation, RDG::MemoryClass memoryClass,
-                                                        std::string_view name ) const;
+        void                           Retire( Slot& slot, GraphHeaps& graph, uint32_t heap );
+        void                           Destroy( GraphHeaps& graph );
+        static void                    DestroyRetired( VmaAllocator allocator, Slot& slot );
+        Common::ResultStr<Heap>        AllocateHeap( const RDG::TransientHeapDesc& desc ) const;
+        Common::ResultStr<const Heap*> OpenHeap( const RDG::Allocation& allocation, RDG::MemoryClass memoryClass,
+                                                 std::string_view name ) const;
 
         const VulkanRdgDevice& m_Device;
         std::vector<Slot>      m_Slots;
