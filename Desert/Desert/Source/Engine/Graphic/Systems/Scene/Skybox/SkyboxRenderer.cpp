@@ -915,6 +915,11 @@ namespace Desert::Graphic::System
             // them as storage images, last frame's at this point of the frame.
             if ( !m_BackdropVisible || !m_UseProceduralSky )
                 return;
+            // This node declares before SkyAtmosphereLuts (DeclareAtmosphereLutNodes) in the frame, so the
+            // sky-view LUT is allocated here, by its first reader: allocated later in the frame, Render would
+            // bind an image this node never declared and the graph would not have put in a sampled layout.
+            if ( m_SkyViewLutPipeline && m_ActiveCamera )
+                EnsureSkyViewLutResources();
             declared.Read( m_TransmittanceLut, RDG::Access::SampledGraphics, "Sky.TransmittanceLut" );
             declared.Read( m_SkyViewLut, RDG::Access::SampledGraphics, "Sky.SkyViewLut" );
         };

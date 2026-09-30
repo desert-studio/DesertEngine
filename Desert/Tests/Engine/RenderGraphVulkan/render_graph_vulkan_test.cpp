@@ -772,7 +772,7 @@ TEST( RenderGraphVulkan, TheEngineInstanceEnablesSynchronizationValidation )
 
 // An engine image imported as a framebuffer attachment: two consecutive Raster nodes on it (CLEAR, then
 // LOAD) share ONE render pass the graph opens, a copy reads it back, the layer says nothing, and the layout
-// handed to RecordFinalStates is the graph's final layout. The second frame imports the image from that
+// handed to RecordStates at the end is the graph's final layout. The second frame imports the image from that
 // recorded layout, as the engine's next frame does.
 TEST( RenderGraphVulkan, AnImportedFramebufferSharesOneRenderPassAndWritesItsLayoutBack )
 {
@@ -809,8 +809,11 @@ TEST( RenderGraphVulkan, AnImportedFramebufferSharesOneRenderPassAndWritesItsLay
             target.SubresourceStates.assign( target.Desc.SubresourceCount(), RDG::RecordedLayoutState( *from ) );
             target.Physical          = wrapped;
             int writeBacks           = 0;
-            target.RecordFinalStates = [&]( const std::vector<RDG::AccessState>& states ) -> Common::BoolResultStr
+            target.RecordStates = [&]( const std::vector<RDG::AccessState>& states,
+                                      bool graphEnded ) -> Common::BoolResultStr
             {
+                if ( !graphEnded )
+                    return Common::MakeSuccess( true );
                 ++writeBacks;
                 recorded = RdgVulkanLayout( states.front().Layout );
                 return Common::MakeSuccess( true );
@@ -1017,7 +1020,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
         target.SubresourceStates.assign( target.Desc.SubresourceCount(),
                                          RDG::RecordedLayoutState( RDG::ImageLayout::Undefined ) );
         target.Physical          = VulkanRdgTexture::Wrap( device, image, VK_FORMAT_R8G8B8A8_UNORM, Target() );
-        target.RecordFinalStates = []( const std::vector<RDG::AccessState>& ) -> Common::BoolResultStr
+        target.RecordStates = []( const std::vector<RDG::AccessState>&, bool ) -> Common::BoolResultStr
         { return Common::MakeSuccess( true ); };
 
         VkCommandBuffer             cmd = VK_NULL_HANDLE;
@@ -1231,7 +1234,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
             external.SubresourceStates.assign( desc.SubresourceCount(),
                                                RDG::RecordedLayoutState( RDG::ImageLayout::Undefined ) );
             external.Physical          = VulkanRdgTexture::Wrap( device, image, VK_FORMAT_R8G8B8A8_UNORM, desc );
-            external.RecordFinalStates = []( const std::vector<RDG::AccessState>& ) -> Common::BoolResultStr
+            external.RecordStates = []( const std::vector<RDG::AccessState>&, bool ) -> Common::BoolResultStr
             { return Common::MakeSuccess( true ); };
             return external;
         };
@@ -1481,7 +1484,7 @@ void main()
             volume.Desc              = volumeDesc;
             volume.SubresourceStates = imageStates;
             volume.Physical          = wrappedImage;
-            volume.RecordFinalStates = [&]( const std::vector<RDG::AccessState>& states ) -> Common::BoolResultStr
+            volume.RecordStates = [&]( const std::vector<RDG::AccessState>& states, bool ) -> Common::BoolResultStr
             {
                 imageStates = states;
                 return Common::MakeSuccess( true );

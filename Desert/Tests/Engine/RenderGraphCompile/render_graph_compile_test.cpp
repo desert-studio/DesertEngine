@@ -1501,8 +1501,10 @@ namespace
         texture.SubresourceStates = { RecordedLayoutState( layout ) };
         if ( writtenBack )
         {
-            texture.RecordFinalStates = [writtenBack]( const std::vector<AccessState>& states )
+            texture.RecordStates = [writtenBack]( const std::vector<AccessState>& states, bool graphEnded )
             {
+                if ( !graphEnded )
+                    return Common::BoolResultStr( Common::MakeSuccess( true ) );
                 for ( const AccessState& state : states )
                     writtenBack->push_back( state.Layout );
                 return Common::BoolResultStr( Common::MakeSuccess( true ) );
@@ -1560,7 +1562,7 @@ TEST( RenderGraphCompile, ImportedFramebufferStartsFromTheRecordedLayoutsAndWrit
 TEST( RenderGraphCompile, AFailedLayoutWriteBackFailsExecuteNamingTheTexture )
 {
     ExternalTexture color   = Recorded( ImageFormat::RGBA8F, ImageLayout::ShaderReadOnly, nullptr );
-    color.RecordFinalStates = []( const std::vector<AccessState>& )
+    color.RecordStates = []( const std::vector<AccessState>&, bool )
     { return Common::BoolResultStr( Common::MakeError( "record gone" ) ); };
     Builder                   graph( "import" );
     ExternalTexture* const    colors[] = { &color };

@@ -798,20 +798,31 @@ namespace Desert::Graphic::API::Vulkan
         into.SubresourceStates.assign( desc.SubresourceCount(), RDG::RecordedLayoutState( *layout ) );
         into.Physical                          = GraphTextureOf( *vulkanImage );
         const std::weak_ptr<IVulkanImage> weak = vulkanImage;
-        into.RecordFinalStates = [weak]( const std::vector<RDG::AccessState>& states ) -> Common::BoolResultStr
+        // Called after every barrier the graph records on this image and once at the end: the image's record is
+        // always the layout the GPU has it in. The record holds ONE layout; while a graph has the subresources
+        // in different layouts (a mip chain mid-walk) no single layout is true, so the record says UNDEFINED
+        // and any descriptor bind of the whole image fails validation loudly instead of binding a stale layout.
+        // At the end of the graph the subresources must agree, the next frame imports from the record.
+        into.RecordStates = [weak]( const std::vector<RDG::AccessState>& states,
+                                    bool                                 graphEnded ) -> Common::BoolResultStr
         {
             const std::shared_ptr<IVulkanImage> target = weak.lock();
             if ( !target )
                 return Common::MakeError( "the imported image was destroyed before its graph finished" );
-            for ( const RDG::AccessState& state : states )
+            if ( states.empty() )
+                return Common::MakeSuccess( true );
+            const auto mixed = std::find_if( states.begin(), states.end(), [&]( const RDG::AccessState& state )
+                                             { return state.Layout != states.front().Layout; } );
+            if ( mixed == states.end() )
             {
-                if ( state.Layout != states.front().Layout )
-                    return Common::MakeError( std::format(
-                         "its subresources end in different layouts ({} and {}), the image records one",
-                         static_cast<int>( states.front().Layout ), static_cast<int>( state.Layout ) ) );
-            }
-            if ( !states.empty() )
                 target->RecordLayout( RdgVulkanLayout( states.front().Layout ) );
+                return Common::MakeSuccess( true );
+            }
+            if ( graphEnded )
+                return Common::MakeError(
+                     std::format( "its subresources end in different layouts ({} and {}), the image records one",
+                                  static_cast<int>( states.front().Layout ), static_cast<int>( mixed->Layout ) ) );
+            target->RecordLayout( VK_IMAGE_LAYOUT_UNDEFINED );
             return Common::MakeSuccess( true );
         };
         return Common::MakeSuccess( true );
