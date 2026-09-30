@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -59,6 +60,57 @@ namespace Common::Settings
         FXAA,
         SMAA,
         MSAA,
+    };
+
+    // WHAT A FRAME RUNS for the stored method on a given render path (MachineSettings::EffectiveAA).
+    //
+    // MSAA ONLY WHERE IT WORKS, as in UE (r.MSAACount applies with forward shading only; the deferred
+    // renderer offers FXAA/TAA/TSR). In the deferred path every opaque surface goes through the G-buffer
+    // and one lighting sample per pixel, so MSAA smooths only the few forward-drawn objects (glass) and
+    // costs its memory for nothing: AA1 measured the white cube's silhouette at 0 intermediate edge
+    // pixels under 1x/2x/4x/8x, and 87 under FXAA. So:
+    //
+    //     stored method | forward path             | deferred path
+    //     None          | None, 1 sample           | None, 1 sample
+    //     FXAA          | FXAA, 1 sample           | FXAA, 1 sample
+    //     SMAA          | SMAA, 1 sample           | SMAA, 1 sample
+    //     MSAA (n)      | MSAA, n samples, no post | FXAA, 1 sample  (MSAAUnavailableOnPath)
+    //
+    // The stored choice is never rewritten: a machine set to MSAA 4x gets it back in the next forward
+    // scene. The fallback is never silent — the renderer logs it once per scene (AntiAliasingFallbackNotice)
+    // and the Scalability panel says it.
+    struct EffectiveAntiAliasing
+    {
+        AntiAliasingMethod Method  = AntiAliasingMethod::FXAA; // what the frame runs
+        int                Samples = 1; // scene framebuffer sample count; > 1 only under Method MSAA
+        // The post-process pass after tonemapping: Method, except None under MSAA.
+        AntiAliasingMethod PostProcess = AntiAliasingMethod::FXAA;
+        // True when the stored method is MSAA and this path cannot multisample (the FXAA row above).
+        bool MSAAUnavailableOnPath = false;
+
+        bool operator==( const EffectiveAntiAliasing& ) const = default;
+    };
+
+    // WHEN THE "MSAA DOES NOT APPLY HERE" LINE IS WRITTEN: once when a scene starts falling back, and not
+    // again while the same scene keeps doing so — a per-frame line would bury the log, and no line would
+    // be the silent fallback contract §1.4 forbids. A different scene, or the fallback ending and coming
+    // back (the method switched away and back), writes it again. `scene` is any stable identity of the
+    // scene being rendered.
+    class AntiAliasingFallbackNotice
+    {
+    public:
+        // True when the caller must write the line for this frame.
+        [[nodiscard]] bool Observe( std::uintptr_t scene, const EffectiveAntiAliasing& effective )
+        {
+            const bool changed = scene != m_Scene || effective.MSAAUnavailableOnPath != m_FellBack;
+            m_Scene            = scene;
+            m_FellBack         = effective.MSAAUnavailableOnPath;
+            return changed && m_FellBack;
+        }
+
+    private:
+        std::uintptr_t m_Scene    = 0;
+        bool           m_FellBack = false;
     };
 
     // Global texture sampler filter. Live: SceneRenderer pushes it into Graphic::RenderConfig and the
@@ -158,12 +210,12 @@ namespace Common::Settings
         // with no path is not a store, and guessing one would be the silent fallback §1.4 forbids.
         static bool Save();
 
-        // The sample count the scene framebuffers must have for this method: MSAASamples under MSAA, 1
-        // under every other method. Not clamped to the device — the renderer does that.
-        int EffectiveMSAASamples() const;
-
-        // The post-process AA pass this method runs after tonemapping (None for None and MSAA).
-        AntiAliasingMethod PostProcessAA() const;
+        // THE ONE PLACE THAT DECIDES WHAT ANTI-ALIASING A FRAME ACTUALLY RUNS (AA2), from the stored choice
+        // and whether the active render path can multisample. See EffectiveAntiAliasing for the table.
+        //
+        // The path arrives as a capability, not as Core::RenderPath, because Common does not link the
+        // engine; Core::RenderPathSupportsMSAA (SceneSettings.hpp) is the one mapping from a path to it.
+        EffectiveAntiAliasing EffectiveAA( bool pathSupportsMSAA ) const;
 
         // THE MIGRATION OF THE RETIRED SCHEMA, applied by Load() and by the re-read before every Save().
         // The old file stored two independent keys, `AA` (None/FXAA/SMAA post filter) and `MSAASamples`

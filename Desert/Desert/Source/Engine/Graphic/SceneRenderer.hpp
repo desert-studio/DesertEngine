@@ -619,6 +619,8 @@ namespace Desert::Graphic
 
         // Selected post-process anti-aliasing technique, taken from m_Quality each BeginScene.
         Common::Settings::AntiAliasingMethod m_AAMode       = Common::Settings::AntiAliasingMethod::FXAA;
+        // Writes the "MSAA does not apply to this deferred scene" line once per scene (AA2).
+        Common::Settings::AntiAliasingFallbackNotice m_AAFallbackNotice;
         bool                               m_BloomEnabled = false;
 
         // Lens flare, refreshed from SceneSettings each BeginScene. The tint is held apart from the rest

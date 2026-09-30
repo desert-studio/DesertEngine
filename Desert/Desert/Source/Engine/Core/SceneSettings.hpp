@@ -53,6 +53,14 @@ namespace Desert::Core
         Deferred = 1,
     };
 
+    // WHETHER A PATH CAN MULTISAMPLE, the input MachineSettings::EffectiveAA takes (AA2). Forward shades
+    // every sample it rasterizes; Deferred shades one G-buffer sample per pixel, so MSAA there smooths
+    // only forward-drawn objects and is replaced by FXAA (see Common::Settings::EffectiveAntiAliasing).
+    constexpr bool RenderPathSupportsMSAA( const RenderPath path )
+    {
+        return path == RenderPath::Forward;
+    }
+
     // Reflected (REFLECT/PROPERTY) so the whole block (de)serializes generically via the reflection
     // serializer (no hand-written mirror) and the editor can build its panel from the same metadata.
     struct SceneSettings

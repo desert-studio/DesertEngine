@@ -196,11 +196,12 @@ namespace Common::Settings
         // NAMED, not numbered: this line is what a support ticket's engine_log.txt has to answer "what
         // was this machine actually rendering at" with, and `2` is not an answer. The names come from the
         // same rfl call that writes them to the file, so the log and the file cannot disagree.
-        LOG_INFO( "[Machine] {} — AA {} (MSAA samples {}), mesh LOD {}, filter {} {}x, clouds {}{}",
-                  s_File.string(), rfl::enum_to_string( Get().AAMethod ), Get().EffectiveMSAASamples(),
-                  Get().MeshLOD ? "on" : "off", rfl::enum_to_string( Get().TextureFilterMode ), Get().Anisotropy,
-                  rfl::enum_to_string( Get().CloudQualityTier ),
-                  migrated ? " — migrated from the retired AA/MSAASamples pair; the next save drops `AA`" : "" );
+        LOG_INFO(
+             "[Machine] {} — AA {} (MSAA samples {} on forward scenes), mesh LOD {}, filter {} {}x, clouds {}{}",
+             s_File.string(), rfl::enum_to_string( Get().AAMethod ), Get().EffectiveAA( true ).Samples,
+             Get().MeshLOD ? "on" : "off", rfl::enum_to_string( Get().TextureFilterMode ), Get().Anisotropy,
+             rfl::enum_to_string( Get().CloudQualityTier ),
+             migrated ? " — migrated from the retired AA/MSAASamples pair; the next save drops `AA`" : "" );
 
         // The migration is written back NOW, not at the user's next change (contract §4: no legacy key
         // left in the file).
@@ -222,14 +223,14 @@ namespace Common::Settings
         }
     }
 
-    int MachineSettings::EffectiveMSAASamples() const
+    EffectiveAntiAliasing MachineSettings::EffectiveAA( const bool pathSupportsMSAA ) const
     {
-        return AAMethod == AntiAliasingMethod::MSAA ? MSAASamples : 1;
-    }
-
-    AntiAliasingMethod MachineSettings::PostProcessAA() const
-    {
-        return AAMethod == AntiAliasingMethod::MSAA ? AntiAliasingMethod::None : AAMethod;
+        if ( AAMethod != AntiAliasingMethod::MSAA )
+            return { AAMethod, 1, AAMethod, false };
+        if ( pathSupportsMSAA )
+            return { AntiAliasingMethod::MSAA, MSAASamples, AntiAliasingMethod::None, false };
+        // UE's fallback for a deferred scene: FXAA at one sample. MSAASamples is kept for the next forward scene.
+        return { AntiAliasingMethod::FXAA, 1, AntiAliasingMethod::FXAA, true };
     }
 
     bool MachineSettings::MigrateRetiredKeys( MachineSettings& settings, std::string_view rawJson )
