@@ -14,6 +14,7 @@
 #include "SceneViewList.hpp"
 
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Core/Subsystems/WorldSubsystems.hpp>
 #include <Common/Core/Timestep.hpp>
 #include <Common/Core/UUID.hpp>
 #include <glm/glm.hpp>
@@ -45,6 +46,14 @@ namespace Common::Math
 {
     class Ray;
 }
+
+namespace Desert::Core
+{
+    class Scene;
+}
+
+template <>
+inline constexpr bool Common::SubsystemsJoinEventTree<Desert::Core::Scene> = false;
 
 namespace Desert::Core
 {
@@ -95,6 +104,12 @@ namespace Desert::Core
          * destructor, so an entry can never be dangling and nothing here extends a lifetime.
          */
         [[nodiscard]] static const std::vector<Scene*>& LiveScenes();
+
+        template <typename T>
+        [[nodiscard]] T* GetSubsystem() const
+        {
+            return m_Subsystems.template Get<T>();
+        }
 
         void Clear();
 
@@ -276,6 +291,7 @@ namespace Desert::Core
         void                     SetState( SceneState state )
         {
             m_State = state;
+            m_Subsystems.SetPlaying( state != SceneState::Edit );
             if ( state != SceneState::Paused )
                 m_SingleFramePending = false; // a step belongs to the pause it was asked in
         }
@@ -530,5 +546,9 @@ namespace Desert::Core
         std::optional<Common::Json::TextDocument> m_LoadedDocument;
         // See GetWorldPartition().
         std::optional<WorldPartitionSerialized> m_WorldPartition;
+
+        Common::WorldSubsystems<Scene> m_Subsystems{ *this };
     };
+
+    void CreateSubsystems( Common::SubsystemCollection<Scene>& collection );
 } // namespace Desert::Core

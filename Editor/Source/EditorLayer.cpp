@@ -722,7 +722,10 @@ namespace Desert::Editor
     [[nodiscard]] Common::BoolResultStr EditorLayer::OnAttach()
     {
         if ( Common::EventTree* events = Events() )
+        {
             m_Panels.JoinEvents( *events, EventNode() );
+            m_Subsystems.emplace( *this, *events, EventNode() );
+        }
 
         // THE CONTROL CHANNEL, IF ONE WAS ASKED FOR. Before anything else, so a client that started this
         // editor can connect and watch the boot rather than guessing how long to wait for the socket.
@@ -11149,6 +11152,7 @@ namespace Desert::Editor
 
     Common::BoolResultStr EditorLayer::OnDetach()
     {
+        m_Subsystems.reset();
         m_Application->GetCloseGate().Uninstall();
         // The socket goes first, and its file with it. A leftover path is not harmless: the next editor
         // to be given it PROBES what is there, and while a dead one only costs a log line, leaving the
