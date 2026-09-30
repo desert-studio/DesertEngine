@@ -167,6 +167,36 @@ TEST( ThumbnailFormats, EveryEngineAssetFormatIsTypedByTheBrowser )
 }
 
 // ---------------------------------------------------------------------------------------------------
+// 2b. EVERY CONTENT KIND HAS A PRODUCER (THM-FIXB, owner 09-29 "all assets on the splash"). Each kind of
+// the content registry either makes a picture, is an icon by decision (TypeIcon, with its reason), or is
+// named in the NotYetProduced register — which the splash then says aloud (ThumbnailWarmup::UnproducedKinds).
+// The skeletal kinds are pinned by name: the live check found .anim and .skeleton without pictures.
+// ---------------------------------------------------------------------------------------------------
+TEST( ThumbnailFormats, EveryContentKindHasAProducerOrANamedDebt )
+{
+    for ( const auto& spec : Common::Content::ContentKinds() )
+    {
+        if ( spec.Extension.empty() )
+            continue;
+        const auto producer = TP::ProducerOfPath( std::string( "Assets/x" ) + std::string( spec.Extension ) );
+        ASSERT_TRUE( producer.has_value() ) << spec.Name;
+        if ( *producer != TP::Producer::NotYetProduced )
+            continue;
+        const FileType type = FileTypeOf( spec.Extension.substr( 1 ) );
+        EXPECT_NE( std::find( TP::kNotYetProduced.begin(), TP::kNotYetProduced.end(), type ),
+                   TP::kNotYetProduced.end() )
+             << spec.Name << " has no producer and is not in the NotYetProduced register";
+    }
+    for ( const char* extension : { "skmesh", "skeleton", "anim" } )
+        EXPECT_EQ( TP::ProducerOfPath( std::string( "Assets/Fox/Fox." ) + extension ), TP::Producer::RenderedPose )
+             << extension;
+    for ( const char* extension : { "demat", "detex", "stmesh" } )
+        EXPECT_NE( TP::ProducerOfPath( std::string( "Assets/Fox/Fox." ) + extension ),
+                   TP::Producer::NotYetProduced )
+             << extension;
+}
+
+// ---------------------------------------------------------------------------------------------------
 // 3. THE BROWSER HAS NO SECOND MAP. The panel types a file through FileTypeOf and draws through
 // ThumbnailProducers; a private extension table there would be the third answer this task removed.
 // ---------------------------------------------------------------------------------------------------

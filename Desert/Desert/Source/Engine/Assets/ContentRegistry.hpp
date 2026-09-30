@@ -720,6 +720,36 @@ namespace Desert::Assets
             return std::nullopt;
         }
 
+        // THE PREVIEW MESH OF A RIG (UE: USkeleton::PreviewSkeletalMesh; a UAnimSequence is shown on its
+        // skeleton's): the first SkinnedMesh row BY PATH whose Rig tag is @p signature — a stable pick, the
+        // same one the Animation Editor opens on. Read from the tags the scan wrote, so nothing is loaded to
+        // choose. Empty when no skinned mesh stands on that rig; 0 is never a rig.
+        inline std::optional<PickerRow> PreviewMeshRow( uint64_t signature )
+        {
+            if ( signature == 0 )
+                return std::nullopt;
+            std::optional<PickerRow> first;
+            for ( PickerRow& row : Rows( Common::Content::ContentKind::SkinnedMesh ) )
+            {
+                if ( row.RigSignature == signature && ( !first || row.Path < first->Path ) )
+                    first = std::move( row );
+            }
+            return first;
+        }
+
+        // THE ROW A FILE IS, among one kind's rows — by the path as this machine spells it, normalised.
+        inline std::optional<PickerRow> RowOfPath( Common::Content::ContentKind kind,
+                                                   const std::filesystem::path& file )
+        {
+            const std::filesystem::path wanted = std::filesystem::absolute( file ).lexically_normal();
+            for ( PickerRow& row : Rows( kind ) )
+            {
+                if ( std::filesystem::absolute( row.Path ).lexically_normal() == wanted )
+                    return std::move( row );
+            }
+            return std::nullopt;
+        }
+
         // ONE FILE CHANGED ON DISK — appeared, was rewritten or went away — and the registry follows it
         // without a walk. Called by the editor's hot reload for exactly the files it saw move; the full
         // `Refresh` remains the safety net for what arrived while nobody was looking. A file that is not a

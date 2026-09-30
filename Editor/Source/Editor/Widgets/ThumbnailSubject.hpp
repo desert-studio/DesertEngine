@@ -16,6 +16,7 @@ namespace Desert::Assets
 {
     class AssetManager;
     class SurfaceMaterialAsset;
+    class AnimationAsset;
 }
 
 namespace Desert::Editor::ThumbnailSubject
@@ -184,6 +185,11 @@ namespace Desert::Editor::ThumbnailSubject
         /// is resolved from the SOURCE, because a sidecar `.demat` is what an artist leaves beside the
         /// `.fbx` — a different question from which file gets photographed.
         Common::AssetHandle Material{ static_cast<uint64_t>( 0 ) };
+
+        /// THE POSE (THM-FIXB): an `.anim` subject's clip, read, whose middle frame the preview mesh stands in;
+        /// null for the bind pose (a `.skmesh`, a `.skeleton`) and for every static mesh. Carried with the
+        /// request, so the clip stays resident until the capture has been taken.
+        std::shared_ptr<Assets::AnimationAsset> Clip;
 
         /// The cooked mesh is being read on a worker: nothing to capture YET, ask again on a later pass.
         /// Handle and CookedPath are set; Material is not. Not a refusal — a caller that blacklists refusals

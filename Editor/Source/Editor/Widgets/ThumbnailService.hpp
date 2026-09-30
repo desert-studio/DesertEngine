@@ -116,9 +116,10 @@ namespace Desert::Editor
         std::string
         RequestMesh( const Assets::AssetHandle& mesh, const std::string& assetPath,
                      const Assets::AssetHandle& material = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
-        // Queue a skinned mesh in its bind pose (THM1n-6), keyed and judged like RequestMesh: @p assetPath is
-        // the .skmesh, its own cooked form. The same enqueue as RequestMesh, so deduplication is one code.
-        std::string RequestPose( const Assets::AssetHandle& mesh, const std::string& assetPath );
+        // Queue a posed picture (THM1n-6, THM-FIXB), keyed and judged like RequestMesh on @p pose.CookedPath —
+        // the subject's own file (.skmesh, .skeleton, .anim; ThumbnailPose::ResolvePoseSubject) — the preview
+        // mesh in pose.Handle, the clip (null: bind pose) in pose.Clip. The same enqueue as RequestMesh.
+        std::string RequestPose( const ThumbnailSubject::Mesh& pose );
 
         /**
          * @brief Queue a picture that is PAINTED ON THE CPU from the file's own bytes — the four cloud
@@ -255,6 +256,9 @@ namespace Desert::Editor
             // THE ASSET'S THUMBNAIL INFO, carried to the renderer (the only thing it frames by): a material's
             // whole info, a mesh's orbit in Thumbnail.Orbit (its primitive and PreviewMesh unused).
             Assets::ThumbnailInfo Thumbnail;
+            // Poses only: the clip whose middle frame is photographed (an .anim's); null for the bind pose.
+            // Held here, so the clip is resident until the capture is taken.
+            std::shared_ptr<Assets::AnimationAsset> Clip;
         };
 
         // The renderer's own dispatch of @p req (a mesh, a material, a material on its preview mesh).
