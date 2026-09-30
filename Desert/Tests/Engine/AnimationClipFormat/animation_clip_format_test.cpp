@@ -18,6 +18,9 @@
 #include <Engine/Assets/Serialization/AnimationClipMigrate.hpp>
 #include <Engine/Assets/Serialization/AnimationClipWrite.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
+#include <Engine/Assets/AssetGuidRef.hpp>
+
+#include <Common/Content/TextAssetHeader.hpp>
 
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
@@ -56,7 +59,11 @@ namespace
     // THE MIGRATION STOPS AT GENERATION 3, whose version is a top-level `Version`; the header raise
     // (Tools/SceneMigrator) cuts that member and states the version in the header instead. The struct is the
     // current generation and reads strictly, so the member is taken off here the way the raise takes it off
-    // -- after checking it says 3 -- rather than read leniently past it.
+    // -- after checking it says 3 -- rather than read leniently past it. Generation 3 still names its rig by
+    // the bone hash `SkeletonSignature`; the ANIM 5 step (Tools/SceneMigrator, MigrateSkeletonReference)
+    // replaces it by the one .skeleton's GUID, which needs the registered skeletons and is tested there
+    // (SkeletonReference, SceneMigrator). Here the member is checked PRESENT -- the migration must carry the
+    // signature to the step that resolves it -- and taken off.
     Common::ResultStr<Ser::AnimationAssetData> ReadGenerationThree( const std::string& text )
     {
         const auto parsed = Common::Json::Parse( text );
@@ -74,9 +81,12 @@ namespace
         root.ForEachMember(
              [&]( std::string_view name, const Common::Json::Node& member )
              {
-                 if ( name != "Version" )
+                 if ( name != "Version" && name != "SkeletonSignature" )
                      body.Set( name, member.Raw() );
              } );
+        if ( !root.Get( "SkeletonSignature" ) )
+            return Common::MakeError<Ser::AnimationAssetData>(
+                 "the migration dropped SkeletonSignature, which the ANIM 5 step resolves to a skeleton GUID" );
         const Common::Json::Value raised( body.Build() );
         return Common::Json::Root( raised ).As<Ser::AnimationAssetData>();
     }
@@ -103,7 +113,10 @@ TEST( AnimationClipFormat, AssetFieldCensus )
     // T7e (generation 4): `Version` moves into the text asset `Header`, beside the clip's GUID.
     EXPECT_EQ( FieldNames<Ser::AnimationAssetData>(),
                ( std::vector<std::string>{ "Channels", "Curves", "DisplayRate", "DurationTicks", "Header", "Name",
-                                           "Notifies", "Sections", "SkeletonSignature", "TickRate" } ) );
+                                           "Notifies", "Sections", "Skeleton", "TickRate" } ) );
+    // SKEL-TREE (ANIM 5): the clip names its rig by the .skeleton's GUID (UE UAnimSequence::Skeleton), no
+    // longer by a hash of the bones; the reference is the one GUID+path pair every text format uses.
+    EXPECT_EQ( FieldNames<Desert::Assets::AssetGuidRef>(), ( std::vector<std::string>{ "Guid", "Path" } ) );
     // ANV1b: a notify states the Animation Editor row it is drawn on (UE's Notify Tracks).
     // ANV3: and its length — a notify with one is UE's Notify State.
     EXPECT_EQ( FieldNames<Ser::NotifyData>(),
@@ -120,7 +133,11 @@ TEST( AnimationClipFormat, AssetFieldCensus )
 TEST( AnimationClipFormat, SkeletonFieldCensus )
 {
     EXPECT_EQ( FieldNames<Ser::SkeletonAssetData>(),
-               ( std::vector<std::string>{ "Bones", "Header", "Import", "Signature" } ) );
+               ( std::vector<std::string>{ "Bones", "CompatibleSkeletons", "Header", "Import", "PreviewMesh",
+                                           "Signature" } ) )
+         << "SKEL 2: the preview mesh and the one-way compatible list are the skeleton's; the signature stays as "
+            "a "
+            "payload hash, never an identity";
     // BoneInfo is written to .skeleton verbatim; it carried the same redundant index.
     EXPECT_EQ( FieldNames<Desert::Animation::BoneInfo>(),
                ( std::vector<std::string>{ "LocalBindTransform", "Name", "OffsetMatrix", "ParentBoneID" } ) );
@@ -143,9 +160,10 @@ TEST( AnimationClipFormat, ChannelOrderIsPreservedAndBoundByName )
 
     data.Name = "Walk";
 
-    data.DurationTicks     = 48000;
-    data.SkeletonSignature = 1234u;
-    data.Channels          = { Channel( "hips" ), Channel( "spine" ), Channel( "head" ) };
+    const Common::Content::AssetGuid rig{ 0x1234ull, 0x5678ull };
+    data.DurationTicks = 48000;
+    data.Skeleton      = Desert::Assets::AssetGuidRef{ Common::Content::AssetGuidToText( rig ), "Rig.skeleton" };
+    data.Channels      = { Channel( "hips" ), Channel( "spine" ), Channel( "head" ) };
 
     const auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data );
     ASSERT_TRUE( built ) << built.GetError();
@@ -158,7 +176,31 @@ TEST( AnimationClipFormat, ChannelOrderIsPreservedAndBoundByName )
     EXPECT_EQ( clip.AnimationName, "Walk" );
     EXPECT_EQ( clip.TickRate, Desert::Animation::PROJECT_TICK_RATE );
     EXPECT_EQ( clip.DurationTicks.Value, 48000 );
-    EXPECT_EQ( clip.SkeletonSignature, 1234u );
+    EXPECT_EQ( clip.Skeleton, rig ) << "the clip's skeleton is the GUID the file states, not a hash of bones";
+}
+
+TEST( AnimationClipFormat, AClipStatingNoSkeletonBuildsWithANullReference )
+{
+    Ser::AnimationAssetData data;
+    data.Name     = "Unrigged";
+    data.Channels = { Channel( "hips" ) };
+
+    const auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data );
+    ASSERT_TRUE( built ) << built.GetError();
+    EXPECT_TRUE( built.GetValue().Skeleton.IsNull() ) << "absent = names no skeleton, plays on no mesh";
+}
+
+TEST( AnimationClipFormat, ASkeletonGuidThatDoesNotParseIsRefusedNamingThePath )
+{
+    Ser::AnimationAssetData data;
+    data.Name     = "BadRig";
+    data.Skeleton = Desert::Assets::AssetGuidRef{ "not-a-guid", "Characters/Hero.skeleton" };
+    data.Channels = { Channel( "hips" ) };
+
+    const auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data );
+    ASSERT_FALSE( built ) << "a reference that does not parse would load as a clip that plays on nothing";
+    EXPECT_NE( built.GetError().find( "BadRig" ), std::string::npos ) << built.GetError();
+    EXPECT_NE( built.GetError().find( "Characters/Hero.skeleton" ), std::string::npos ) << built.GetError();
 }
 
 TEST( AnimationClipFormat, AnUnnamedChannelIsRefusedByName )
@@ -298,6 +340,8 @@ TEST( AnimationClipFormat, TheMigrationMovesSecondsOntoTicksAndDerivesTheDisplay
     ASSERT_TRUE( migrated ) << migrated.GetError();
 
     EXPECT_EQ( report.FromVersion, 0 );
+    EXPECT_NE( migrated.GetValue().find( R"("SkeletonSignature":42)" ), std::string::npos )
+         << "the rig's bone hash must reach the ANIM 5 step, which resolves it to the .skeleton's GUID";
     EXPECT_EQ( report.KeysMoved, 0u ) << "an eighth of a second is a whole number of 24000ths";
     // THE DISPLAY GRID IS DERIVED FROM THE KEYS, not defaulted: these all lie on eighths, so 8 fps is the
     // coarsest grid that represents every one of them exactly. Handing them the default 30 would leave
@@ -399,7 +443,7 @@ namespace
         clip.DurationTicks     = Desert::Animation::FrameNumber{ 60000 }; // 2.5 s at 24000
         clip.TickRate          = Desert::Animation::PROJECT_TICK_RATE;
         clip.DisplayRate       = Desert::Animation::FrameRate{ 30, 1 };
-        clip.SkeletonSignature = 0x1234'5678'9abc'def0ull;
+        clip.Skeleton          = Common::Content::AssetGuid{ 0x1234'5678'9abc'def0ull, 0x0fed'cba9'8765'4321ull };
 
         Desert::Animation::BoneTrack hip;
         hip.BoneName = "Hips";
@@ -444,8 +488,14 @@ TEST( AnimationClipFormat, AClipWrittenToDiskReadsBackAsTheSameClip )
     EXPECT_EQ( back.DurationTicks.Value, clip.DurationTicks.Value );
     EXPECT_EQ( back.TickRate, clip.TickRate );
     EXPECT_EQ( back.DisplayRate, clip.DisplayRate );
-    EXPECT_EQ( back.SkeletonSignature, clip.SkeletonSignature )
-         << "the rig the clip claims did not survive the round trip";
+    EXPECT_EQ( back.Skeleton, clip.Skeleton ) << "the rig the clip claims did not survive the round trip";
+    // The writer states the skeleton as the header's dependency too (UE: the package imports its USkeleton),
+    // so the registry's reference graph sees the edge without parsing the body.
+    ASSERT_TRUE( parsed.GetValue().Header.has_value() );
+    const auto& deps = parsed.GetValue().Header->Dependencies;
+    EXPECT_NE( std::find( deps.begin(), deps.end(), Common::Content::AssetGuidToText( clip.Skeleton ) ),
+               deps.end() )
+         << "the clip's skeleton is not among the header's dependencies";
 
     ASSERT_EQ( back.Tracks.size(), clip.Tracks.size() );
     for ( size_t t = 0; t < clip.Tracks.size(); ++t )
@@ -582,7 +632,8 @@ TEST( AnimationClipFormat, BuildAssetDataFromClipCarriesEveryChannelAndNotify )
     const auto data = Desert::Assets::Serialization::BuildAssetDataFromClip( clip );
 
     EXPECT_EQ( data.Name, "Walk" );
-    EXPECT_EQ( data.SkeletonSignature, clip.SkeletonSignature );
+    ASSERT_TRUE( data.Skeleton.has_value() ) << "the clip names a skeleton; the data must state it";
+    EXPECT_EQ( data.Skeleton->Guid, Common::Content::AssetGuidToText( clip.Skeleton ) );
     ASSERT_EQ( data.Channels.size(), 2u );
     EXPECT_EQ( data.Channels[0].BoneName, "Hips" );
     EXPECT_EQ( data.Channels[0].Positions.size(), 2u );
@@ -635,7 +686,8 @@ namespace
         data.Channels.push_back( channel );
 
         // Written WITHOUT the sections field, which is what a real generation-2 file on disk looks like.
-        std::string json = R"({"Version":2,)" + Common::Json::Write( data ).substr( 1 );
+        // ...and naming its rig by the bone hash, as every generation before ANIM 5 did.
+        std::string json = R"({"Version":2,"SkeletonSignature":7,)" + Common::Json::Write( data ).substr( 1 );
         const auto  at   = json.find( R"(,"Sections":[])" );
         if ( at != std::string::npos )
         {

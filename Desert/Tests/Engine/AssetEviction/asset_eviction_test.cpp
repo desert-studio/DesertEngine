@@ -195,7 +195,11 @@ namespace
     // the LOADER produces. A one-bone rig and a one-triangle mesh, because the relation has nothing to do
     // with either of their sizes.
     // `withChild` writes the same rig with one more bone under the root — what a reimport of a source that
-    // gained a bone rewrites the file to.
+    // gained a bone rewrites the file to. The rig's IDENTITY is its header GUID (the mesh names it by that,
+    // SkinnedMeshAsset::ResolveDependencies binds HandleForGuid of it), so both writes state the SAME GUID —
+    // a reimport keeps the rig's identity and changes only its bones.
+    constexpr Common::Content::AssetGuid kProbeRigGuid{ 0x5e1e7a0e7c1c7100ull, 0x00000000000e71c7ull };
+
     std::string WriteProbeRig( const std::filesystem::path& path, const bool withChild = false )
     {
         Desert::Animation::BoneInfo root;
@@ -205,7 +209,9 @@ namespace
         root.ParentBoneID       = std::nullopt;
 
         Desert::Assets::Serialization::SkeletonAssetData data;
-        data.Bones = { root };
+        data.Header = Common::Content::MakeTextHeader( Common::Content::ContentKind::Skeleton, kProbeRigGuid,
+                                                       Desert::Assets::Serialization::SkeletonTextSubsystems() );
+        data.Bones  = { root };
         if ( withChild )
         {
             Desert::Animation::BoneInfo child = root;
@@ -220,11 +226,12 @@ namespace
         return path.generic_string();
     }
 
-    std::string WriteProbeSkinnedMesh( const std::filesystem::path& path, const std::uint64_t signature )
+    std::string WriteProbeSkinnedMesh( const std::filesystem::path&      path,
+                                       const Common::Content::AssetGuid& skeleton )
     {
         Desert::Assets::Serialization::MeshAssetData data;
-        data.IsSkinned         = true;
-        data.SkeletonSignature = signature;
+        data.IsSkinned = true;
+        data.Skeleton  = skeleton;
 
         for ( int i = 0; i < 3; ++i )
         {
@@ -627,13 +634,13 @@ TEST( AssetEviction, AnUnloadedAssetStopsAnsweringWithItsPayload )
 
     SkinnedMeshAsset skinned( path );
     ASSERT_TRUE( skinned.Unload() );
-    EXPECT_EQ( skinned.GetSkeletonSignature(), 0U )
-         << "an unloaded skinned mesh still claims a rig signature; ResolveDependencies matches rigs on "
-            "that number";
+    EXPECT_TRUE( skinned.GetSkeleton().IsNull() )
+         << "an unloaded skinned mesh still names a skeleton; ResolveDependencies binds HandleForGuid of "
+            "that GUID, so a released mesh would keep resolving a rig it no longer holds the data for";
 
     AnimationAsset animation( path );
     ASSERT_TRUE( animation.Unload() );
-    EXPECT_EQ( animation.GetSkeletonSignature(), 0U );
+    EXPECT_TRUE( animation.GetSkeleton().IsNull() );
     EXPECT_TRUE( animation.GetClip().Tracks.empty() );
 
     CloudNoiseVolumeAsset noise( path );
@@ -807,7 +814,7 @@ TEST( AssetEviction, ASkinnedMeshRebindsItsRigAfterASweepHasReleasedBoth )
     ASSERT_NE( signature, 0U ) << "the probe rig did not load; the relation cannot be tested";
 
     auto mesh = manager.CreateAsset<SkinnedMeshAsset>(
-         Common::Filepath( WriteProbeSkinnedMesh( dir / "probe.skmesh", signature ) ),
+         Common::Filepath( WriteProbeSkinnedMesh( dir / "probe.skmesh", kProbeRigGuid ) ),
          /*loadAfterCreate=*/false );
     ASSERT_TRUE( mesh );
     ASSERT_TRUE( mesh->EnsureLoaded( manager ).IsSuccess() );
@@ -825,7 +832,7 @@ TEST( AssetEviction, ASkinnedMeshRebindsItsRigAfterASweepHasReleasedBoth )
             "cannot be found again by anything.";
 
     // THE SCENE COMES BACK. This is MeshService::Get's build-on-miss, and everything it needs is in the
-    // registry: the same two files, the same two handles, the same signature inside the mesh.
+    // registry: the same two files, the same two handles, the same skeleton GUID inside the mesh.
     ASSERT_TRUE( mesh->EnsureLoaded( manager ).IsSuccess() );
 
     EXPECT_TRUE( mesh->GetSkeletonDependency().IsValid() )
@@ -890,11 +897,11 @@ namespace
                       "nothing. The base's empty body, which is what an asset that names no other asset "
                       "inherits." },
          ResolverRow{ "Desert/Desert/Source/Engine/Assets/Mesh/SkinnedMeshAsset.hpp",
-                      "a rig, by SIGNATURE — a number computed from the rig's BONES, i.e. from its "
-                      "payload. This is the dangerous kind, and the one this suite's "
-                      "ASkinnedMeshRebindsItsRigAfterASweepHasReleasedBoth exists for: it is safe only "
-                      "because SkeletonAsset keeps its signature across Unload and this resolver loads "
-                      "the rig back and re-checks the number against the bones it just read." },
+                      "a rig, by GUID — the .skmesh header's SkeletonGuid, folded to the handle the "
+                      "rig adopted from its own header (HandleForGuid). Identity, not payload: it "
+                      "outlives Unload by construction, and the resolver loads the rig's bones back "
+                      "before it counts as bound; this suite's "
+                      "ASkinnedMeshRebindsItsRigAfterASweepHasReleasedBoth pins that." },
          ResolverRow{ "Desert/Desert/Source/Engine/Assets/CloudTypeAsset.cpp",
                       "a noise volume, by PATH. A path is identity: eviction releases payloads and is "
                       "forbidden to touch identity, so this resolver cannot lose its target." },

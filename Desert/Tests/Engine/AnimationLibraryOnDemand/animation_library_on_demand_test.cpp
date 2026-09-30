@@ -83,6 +83,21 @@ size_t Desert::Animation::ProceduralCharacterAnimations::RegisterClips( Assets::
     return 0;
 }
 
+// A mesh with no SkinnedMeshAsset (the procedural humanoid) states its skeleton via RegisterMeshSkeleton;
+// IdentifyMeshHandle answers it, and Clear() drops it.
+TEST_F( AnimationLibraryOnDemand, ARegisteredMeshSkeletonIsIdentifiedUntilClear )
+{
+    Animation::AnimationLibrary           library( &m_Manager );
+    const Assets::AssetHandle             mesh{ 0x5EED };
+    const Animation::MeshSkeletonIdentity humanoid{ { Common::Content::AssetGuid{ 7, 9 }, "Humanoid" }, {} };
+    EXPECT_TRUE( library.IdentifyMeshHandle( mesh ).Skeleton.Guid.IsNull() );
+    library.RegisterMeshSkeleton( mesh, humanoid );
+    EXPECT_TRUE( library.IdentifyMeshHandle( mesh ).Skeleton.Guid == humanoid.Skeleton.Guid )
+         << "a registered procedural mesh's skeleton is not what the library identifies for its handle";
+    library.Clear();
+    EXPECT_TRUE( library.IdentifyMeshHandle( mesh ).Skeleton.Guid.IsNull() ) << "Clear() kept a mesh's skeleton";
+}
+
 TEST_F( AnimationLibraryOnDemand, IndexingTheRegistryRowsReadsAndCreatesNoClip )
 {
     Animation::AnimationLibrary library( &m_Manager );
@@ -102,8 +117,8 @@ TEST_F( AnimationLibraryOnDemand, ALookupRequestsOnlyTheNamedClipAndItBecomesPla
     Animation::AnimationLibrary library( &m_Manager );
     ASSERT_GT( library.IndexRegistryRows(), 1U );
 
-    const Animation::Skeleton none( std::vector<Animation::BoneInfo>{} );
-    const auto                first = library.FindForSkeleton( none, kClip );
+    const Animation::MeshSkeletonIdentity none{};
+    const auto                            first = library.FindForMesh( none, kClip );
     EXPECT_FALSE( first ) << "a clip nobody has read was answered synchronously";
     ASSERT_EQ( ClipAssets(), 1U ) << "the lookup created other clips than the one it named";
 
@@ -147,26 +162,22 @@ TEST_F( AnimationLibraryOnDemand, AClipAnImportWritesAfterPopulationIsOffered )
     Assets::ContentRegistry::NoteFile( written );
 
     EXPECT_TRUE( library.HasPending( kClip ) ) << "the clip the import wrote never reached the library";
-    const Animation::Skeleton none( std::vector<Animation::BoneInfo>{} );
-    EXPECT_FALSE( library.FindForSkeleton( none, kClip ) );
+    const Animation::MeshSkeletonIdentity none{};
+    EXPECT_FALSE( library.FindForMesh( none, kClip ) ) << "a mesh naming no skeleton was offered a clip";
     ASSERT_EQ( ClipAssets(), 1U );
     const auto asset = m_Manager.FindAllByType<Assets::AnimationAsset>().begin()->second;
     ASSERT_TRUE( Assets::AsyncAssetLoader::Get().FlushOne( asset->GetMetadata().Handle ) );
 
-    std::vector<Animation::BoneInfo> bones;
-    for ( const auto& track : asset->GetClip().Tracks )
-        if ( !track.BoneName.empty() )
-            bones.push_back( Animation::BoneInfo{ .Name = track.BoneName } );
-    ASSERT_FALSE( bones.empty() );
-    const Animation::Skeleton rig( std::move( bones ) );
-    EXPECT_EQ( library.GetForSkeleton( rig ).size(), 1U )
-         << "the rig the imported clip animates is offered nothing";
-    EXPECT_TRUE( library.FindForSkeleton( rig, kClip ) );
+    // A mesh on the skeleton the imported clip names (by GUID) is offered it.
+    ASSERT_FALSE( asset->GetSkeleton().IsNull() ) << "the imported clip names no skeleton";
+    const Animation::MeshSkeletonIdentity rig{ { asset->GetSkeleton(), "the imported clip's skeleton" }, {} };
+    EXPECT_EQ( library.GetForMesh( rig ).size(), 1U ) << "the skeleton the imported clip names is offered nothing";
+    EXPECT_TRUE( library.FindForMesh( rig, kClip ) );
 
     // The import rewrites it (a reimport): still one clip, re-registered from the asset read in place.
     fs::copy_file( source, written, fs::copy_options::overwrite_existing );
     Assets::ContentRegistry::NoteFile( written );
-    EXPECT_EQ( library.GetForSkeleton( rig ).size(), 1U ) << "a rewritten clip is offered twice or not at all";
+    EXPECT_EQ( library.GetForMesh( rig ).size(), 1U ) << "a rewritten clip is offered twice or not at all";
     EXPECT_FALSE( library.HasPending( kClip ) );
 
     fs::remove_all( project );
