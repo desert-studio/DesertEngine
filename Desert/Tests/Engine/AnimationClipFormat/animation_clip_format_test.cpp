@@ -186,7 +186,7 @@ TEST( AnimationClipFormat, AClipStatingNoSkeletonBuildsWithANullReference )
 TEST( AnimationClipFormat, SkeletonFieldCensus )
 {
     EXPECT_EQ( FieldNames<Ser::SkeletonAssetData>(),
-               ( std::vector<std::string>{ "Bones", "Header", "Import", "Signature" } ) );
+               ( std::vector<std::string>{ "Bones", "CompatibleSkeletons", "Header", "PreviewMesh", "Signature" } ) );
     // BoneInfo is written to .skeleton verbatim; it carried a redundant BoneIndex once.
     EXPECT_EQ( FieldNames<Anim::BoneInfo>(),
                ( std::vector<std::string>{ "LocalBindTransform", "Name", "OffsetMatrix", "ParentBoneID" } ) );
