@@ -1082,6 +1082,25 @@ namespace Desert::Migration
         for ( const auto& path : texts )
         {
             const std::string text = ReadAll( path );
+            if ( path.extension() == ".skeleton" )
+            {
+                // SKEL 1 -> 2 (SKEL-TREE): the rig gains PreviewMesh / CompatibleSkeletons.
+                const auto stated = ReadStatedVersion( path, text, "SKEL" );
+                if ( stated && stated.GetValue() == 1u )
+                {
+                    const auto raised = Desert::Migration::MigrateSkeletonV1ToV2( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — SKEL 1 -> 2: " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " SKEL 1 -> 2\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                        ++failed;
+                    continue;
+                }
+            }
             if ( path.extension() == Desert::Assets::Serialization::kFoliageTypeExtension )
             {
                 const auto stated = ReadStatedVersion( path, text, "FOLT" );

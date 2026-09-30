@@ -291,6 +291,11 @@ namespace Desert::Migration
     // whose v1 body does not read, is an error naming why. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateFoliageTypeV1ToV2( const std::string& text );
 
+    // The SKEL 2 text of a SKEL 1 `.skeleton` (SKEL-TREE): header GUID, signature, bones and Import kept;
+    // PreviewMesh null and CompatibleSkeletons [] (v1 stated neither). A file that does not state SKEL 1 is an
+    // error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateSkeletonV1ToV2( const std::string& text );
+
     // The v3 text of a v2 `.defoliage`: every v2 number kept, CullDistance at UE's default {0, 0} (never
     // culled), the header's GUID kept. A file that does not state FOLT 2 is an error naming what it states.
     // PURE - no filesystem access.

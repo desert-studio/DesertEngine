@@ -62,9 +62,10 @@ namespace Desert::Assets
     inline constexpr uint32_t kAnimGraphSchemaTag     = Common::Content::FourCC( "ANGR" );
     inline constexpr uint32_t kAnimGraphSchemaVersion = 1;
     // A .skeleton: the rig file layout, stated in the header since v1 (T7e). The files before it stated no
-    // version at all - that generation is 0, and a file of it is refused by name.
+    // version at all - that generation is 0, and a file of it is refused by name. v2 (SKEL-TREE): PreviewMesh
+    // and CompatibleSkeletons, as GUID references; Tools/SceneMigrator raises v1 (both absent -> null, []).
     inline constexpr uint32_t kSkeletonSchemaTag     = Common::Content::FourCC( "SKEL" );
-    inline constexpr uint32_t kSkeletonSchemaVersion = 1;
+    inline constexpr uint32_t kSkeletonSchemaVersion = 2;
     // A .anim: the clip file layout, stated in the header since v4 (T7e; v0-v3 had a top-level `Version`,
     // absent meaning 0, and no header). The number continues the clip's own sequence (kAnimationVersion).
     inline constexpr uint32_t kAnimationSchemaTag     = Common::Content::FourCC( "ANIM" );
