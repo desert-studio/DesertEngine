@@ -30,7 +30,6 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Engine/Animation/AnimationClip.hpp>
-#include <Engine/Animation/ClipSkeletonMatch.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
@@ -151,41 +150,6 @@ namespace
 
     // The clip exactly as AnimationAsset::Load builds it: the same reader with the same DefaultIfMissing
     // policy, then the same pure build step. Anything this suite accepts, the engine accepts.
-    Desert::Animation::AnimationClip LoadClip( const std::string& stem )
-    {
-        const std::string path = RepoRoot() + kCorpusDir + stem + ".anim";
-        const std::string raw  = ReadFile( path );
-        EXPECT_FALSE( raw.empty() ) << "could not read the corpus clip " << path;
-
-        const auto data = Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( raw );
-        EXPECT_TRUE( data.IsSuccess() ) << path << ": " << ( data.IsSuccess() ? "" : data.GetError() );
-        if ( !data.IsSuccess() )
-            return {};
-
-        auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data.GetValue() );
-        EXPECT_TRUE( built.IsSuccess() ) << path << ": " << ( built.IsSuccess() ? "" : built.GetError() );
-        if ( !built.IsSuccess() )
-            return {};
-        return built.ExtractValue();
-    }
-
-    // The rig is built from the SHIPPED file, and its signature is therefore recomputed by
-    // Skeleton::ComputeSignature rather than read out of the file's own `Signature` field. That is
-    // deliberate: the clips are checked against the number the ENGINE derives for this rig, which is the
-    // number the match rule uses.
-    Desert::Animation::Skeleton ProbeRig()
-    {
-        const std::string raw = ReadFile( RepoRoot() + kProbeRig );
-        EXPECT_FALSE( raw.empty() ) << "could not read " << kProbeRig;
-
-        auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
-        EXPECT_TRUE( data.IsSuccess() );
-
-        std::vector<Desert::Animation::BoneInfo> bones;
-        if ( data.IsSuccess() )
-            bones = data.GetValue().Bones;
-        return Desert::Animation::Skeleton( std::move( bones ) );
-    }
 
 } // namespace
 
