@@ -254,6 +254,22 @@ namespace Desert::Animation
             return m_PoseGraph ? &m_PoseGraph->Instance.Graph() : nullptr;
         }
 
+        // --- Linked anim layers (UE LinkAnimClassLayers / UnlinkAnimClassLayers) -------------------------
+        // `implementation`'s layer graphs now answer the pose graph's LinkedAnimLayer nodes of the interfaces
+        // it implements — a weapon swaps a layer without an edit to the character's graph. Refuses with no
+        // pose graph set (the host the interfaces are checked against) and every LinkedLayerTable::Link
+        // refusal, by name. Links outlive a re-set pose graph (they resolve by name at evaluation); each
+        // linked layer's sequence players have their own clocks here, fed by SetLinkedLayerSource.
+        [[nodiscard]] Common::BoolResultStr LinkLayers( const Graph::AnimGraph& implementation );
+        void                                UnlinkLayers( const Graph::AnimGraph& implementation );
+        [[nodiscard]] const Graph::LinkedLayerTable& GetLinkedLayers() const
+        {
+            return m_LinkedLayers;
+        }
+        /// Source node `node` of the layer graph in `slot` of GetLinkedLayers() plays `clip`.
+        void SetLinkedLayerSource( size_t slot, size_t node, const AnimationClip& clip, bool loop = true );
+        void SetLinkedLayerSource( size_t slot, size_t node, AnimationClip&& clip, bool loop = true ) = delete;
+
         // --- Skeletal controls (IK and friends) ---------------------------------------------------------
         // A control is a pose -> pose operator that writes a SPARSE set of bones and leaves the rest of the
         // pose untouched; see BoneControl.hpp for the contract and why the base class owns the blend. They
@@ -362,6 +378,8 @@ namespace Desert::Animation
         /// PoseStage::Graph — evaluates the pose graph; its base source reads `pose` (the Source stage's), every
         /// other source samples its own clip. NOT const for EvaluateSource's reason.
         void EvaluateGraph( LocalPose& pose );
+        /// Sizes m_LinkedSources to m_LinkedLayers after a link or unlink.
+        void RebuildLinkedClocks();
 
         /// PoseStage::Controls — runs each control over `pose`. NOT const: a control reads the pose in
         /// component space, which is a cache fill on m_Component, and writes back through the blend.
@@ -487,6 +505,9 @@ namespace Desert::Animation
 
         // The pose graph, run by PoseStage::Graph; absent = the stage is not in the list.
         std::optional<PoseGraphState> m_PoseGraph;
+        Graph::LinkedLayerTable       m_LinkedLayers;
+        /// Per slot of m_LinkedLayers, one clock per node of its layer graph.
+        std::vector<std::vector<ClipPlayback>> m_LinkedSources;
 
         // Skeletal controls, run by PoseStage::Controls. `unique_ptr` because a control is polymorphic and
         // holds its own resolved bone indices; the Animator is its one owner and outlives it by definition.

@@ -46,6 +46,26 @@ namespace Desert::ECS
     {
     public:
         /**
+         * @brief UE LinkAnimClassLayers on an entity: `implementation`'s layer graphs answer the LinkedAnimLayer
+         *        nodes of the entity's pose graph (Animator::LinkLayers). Refuses an entity with no animator yet
+         *        and every Animator::LinkLayers refusal, by name.
+         */
+        [[nodiscard]] static Common::BoolResultStr LinkAnimLayers( ECS::AnimationComponent&          anim,
+                                                                   const Animation::Graph::AnimGraph& implementation )
+        {
+            if ( !anim.Animator )
+                return Common::MakeError<bool>( fmt::format(
+                     "cannot link the layers of '{}': the entity has no animator yet", implementation.Name ) );
+            return anim.Animator->LinkLayers( implementation );
+        }
+        /// UE UnlinkAnimClassLayers: the interfaces `implementation` linked pass their input through again.
+        static void UnlinkAnimLayers( ECS::AnimationComponent& anim, const Animation::Graph::AnimGraph& implementation )
+        {
+            if ( anim.Animator )
+                anim.Animator->UnlinkLayers( implementation );
+        }
+
+        /**
          * @param assetManager where a `ControlRigComponent`'s handle is resolved to a parsed `.derig`. May
          *        be null: a host with no asset manager simply has no rigs, and the refusal says so once
          *        rather than crashing on the first entity that names one.
@@ -431,6 +451,23 @@ namespace Desert::ECS
                     anim.Animator->SetPoseGraphSource( n, found.GetValue()->GetClip(), loop );
                 else if ( !m_AnimationLibrary->HasPending( clip ) )
                     ReportUnplayableState( clipRig, owner, clip, found.GetError() );
+            }
+            // The linked layers' sequence players (a layer graph holds no state machine: PlanPoseGraph).
+            const auto linked = anim.Animator->GetLinkedLayers().Layers();
+            for ( size_t slot = 0; slot < linked.size(); ++slot )
+            {
+                const AG::AnimGraph& layerGraph = linked[slot].Instance.Graph();
+                for ( size_t n = 0; n < layerGraph.Nodes.size(); ++n )
+                {
+                    const AG::PoseNode& node = layerGraph.Nodes[n];
+                    if ( !node.Sequence )
+                        continue;
+                    const auto found = m_AnimationLibrary->FindForSkeleton( clipRig, node.Sequence->Clip );
+                    if ( found )
+                        anim.Animator->SetLinkedLayerSource( slot, n, found.GetValue()->GetClip(), node.Sequence->Loop );
+                    else if ( !m_AnimationLibrary->HasPending( node.Sequence->Clip ) )
+                        ReportUnplayableState( clipRig, node.Name, node.Sequence->Clip, found.GetError() );
+                }
             }
         }
 

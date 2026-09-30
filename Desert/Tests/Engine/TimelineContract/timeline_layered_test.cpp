@@ -343,3 +343,126 @@ TEST( PoseGraphInstance, AnAdditiveOverALayeredBlendAndARefusedFilterBone )
     EXPECT_NE( refused.GetError().find( "Upper" ), std::string::npos ) << refused.GetError();
     EXPECT_NE( refused.GetError().find( "no_such_bone" ), std::string::npos ) << refused.GetError();
 }
+
+// ── 9b. Linked Anim Layer: a layer of an interface, answered by whichever graph is linked ─────────────────
+
+namespace
+{
+    G::PoseNode LinkedCall( std::string name, std::string input )
+    {
+        G::PoseNode node;
+        node.Name        = std::move( name );
+        node.Kind        = static_cast<int>( G::PoseNodeKind::LinkedAnimLayer );
+        node.PoseInputs  = { std::move( input ) };
+        node.LinkedLayer = G::LinkedAnimLayerNode{ "Weapon", "UpperBody" };
+        return node;
+    }
+
+    /// The character's graph: Output Pose = LinkedAnimLayer "Call" (Weapon.UpperBody) over leaf "L0".
+    G::AnimGraph Character()
+    {
+        G::AnimGraph graph;
+        graph.Name       = "Character";
+        graph.Parameters.push_back(
+             G::Parameter{ .Name = "Aim", .Type = static_cast<int>( G::ParamType::Float ), .Default = 1.0F } );
+        graph.Nodes      = { Leaf( "L0" ), LinkedCall( "Call", "L0" ) };
+        graph.OutputPose = "Call";
+        graph.Layers     = G::AnimGraphLayers{ { G::AnimLayerInterface{ "Weapon", { "UpperBody" } } }, {} };
+        return graph;
+    }
+
+    /// The rifle: Weapon.UpperBody = its "Aim" sequence over the caller's input on the spine branch, weight
+    /// bound to the (host's) parameter "Aim". Its own Output Pose is a lone leaf.
+    G::AnimGraph Rifle()
+    {
+        G::AnimGraph graph;
+        graph.Name = "Rifle";
+        graph.Parameters.push_back(
+             G::Parameter{ .Name = "Aim", .Type = static_cast<int>( G::ParamType::Float ), .Default = 1.0F } );
+        graph.Nodes      = { Leaf( "Idle" ) };
+        graph.OutputPose = "Idle";
+        G::PoseNode input;
+        input.Name = "In";
+        input.Kind = static_cast<int>( G::PoseNodeKind::LinkedInputPose );
+        G::PoseNode blend = Blend( "Upper", "In", "Aim", "spine" );
+        blend.ParameterInputs.push_back( G::ParameterPin{ G::LayerWeightPin( 0 ), "Aim" } );
+        graph.Layers = G::AnimGraphLayers{ { G::AnimLayerInterface{ "Weapon", { "UpperBody" } } },
+                                           { G::AnimLayerGraph{ "Weapon", "UpperBody",
+                                                                { input, Leaf( "Aim" ), blend }, "Upper" } } };
+        return graph;
+    }
+
+    /// Host leaves as NumberedLeaves; a linked layer's leaf n poses every bone at x = 10 + n.
+    G::PoseGraphSources LinkedLeaves( const LocalPose& reference, G::LinkedLayerTable& table )
+    {
+        G::PoseGraphSources sources = NumberedLeaves( reference );
+        sources.Parameter           = []( const std::string& ) { return 1.0F; };
+        sources.SampleLinked        = []( size_t, size_t node, G::GraphPose& out )
+        {
+            for ( size_t b = 0; b < out.Pose.Size(); ++b )
+                out.Pose[b].Translation = glm::vec3( 10.0F + static_cast<float>( node ), 0.0F, 0.0F );
+        };
+        sources.Linked = &table;
+        return sources;
+    }
+} // namespace
+
+TEST( LinkedAnimLayer, UnlinkedPassesTheInputAndLinkingSwapsTheLayerWithoutEditingTheGraph )
+{
+    const Skeleton skeleton = FiveBones();
+    const uint32_t spine    = skeleton.FindBoneIndex( "spine" ).value();
+    const G::AnimGraph character = Character();
+
+    G::PoseGraphInstance instance;
+    const auto           bound = instance.Bind( character, skeleton );
+    ASSERT_TRUE( bound.IsSuccess() ) << bound.GetError();
+
+    const LocalPose     reference( skeleton.GetBones().size() );
+    G::LinkedLayerTable table;
+    G::GraphPose        out;
+    instance.Evaluate( LinkedLeaves( reference, table ), skeleton, out );
+    EXPECT_NEAR( out.Pose[spine].Translation.x, 1.0F, 1e-6F ) << "nothing linked: the call is its input, L0";
+
+    const G::AnimGraph rifle  = Rifle();
+    const auto         linked = table.Link( character, rifle, skeleton );
+    ASSERT_TRUE( linked.IsSuccess() ) << linked.GetError();
+    instance.Evaluate( LinkedLeaves( reference, table ), skeleton, out );
+    EXPECT_NEAR( out.Pose[0].Translation.x, 1.0F, 1e-6F ) << "the root is outside the rifle's spine branch";
+    EXPECT_NEAR( out.Pose[spine].Translation.x, 11.0F, 1e-6F ) << "the spine is the rifle's Aim (layer node 1)";
+    EXPECT_EQ( instance.Graph().Nodes.size(), character.Nodes.size() ) << "the character's graph was not edited";
+
+    table.Unlink( rifle );
+    instance.Evaluate( LinkedLeaves( reference, table ), skeleton, out );
+    EXPECT_NEAR( out.Pose[spine].Translation.x, 1.0F, 1e-6F ) << "unlinked: the input passes again";
+}
+
+TEST( LinkedAnimLayer, ALinkIsRefusedByNameAndLeavesTheTableAsItWas )
+{
+    const Skeleton      skeleton = FiveBones();
+    G::LinkedLayerTable table;
+
+    G::AnimGraph noInterface = Character();
+    noInterface.Layers.reset();
+    noInterface.Nodes.pop_back();
+    noInterface.OutputPose = "L0";
+    const auto undeclared  = table.Link( noInterface, Rifle(), skeleton );
+    ASSERT_FALSE( undeclared.IsSuccess() );
+    EXPECT_NE( undeclared.GetError().find( "'Weapon'" ), std::string::npos ) << undeclared.GetError();
+
+    G::AnimGraph otherLayers = Character();
+    otherLayers.Layers->Interfaces[0].Layers.push_back( "Hands" );
+    EXPECT_FALSE( table.Link( otherLayers, Rifle(), skeleton ).IsSuccess() ) << "the interfaces disagree";
+
+    G::AnimGraph noAim = Character();
+    noAim.Parameters.clear();
+    const auto unread = table.Link( noAim, Rifle(), skeleton );
+    ASSERT_FALSE( unread.IsSuccess() );
+    EXPECT_NE( unread.GetError().find( "'Aim'" ), std::string::npos ) << unread.GetError();
+
+    G::AnimGraph badBone = Rifle();
+    badBone.Layers->Implemented[0].Nodes[2].LayeredBlend->Layers[0].Filters[0].BoneName = "no_such_bone";
+    const auto unbound = table.Link( Character(), badBone, skeleton );
+    ASSERT_FALSE( unbound.IsSuccess() );
+    EXPECT_NE( unbound.GetError().find( "no_such_bone" ), std::string::npos ) << unbound.GetError();
+    EXPECT_TRUE( table.Layers().empty() ) << "every refusal left nothing linked";
+}

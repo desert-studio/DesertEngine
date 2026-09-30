@@ -3,6 +3,7 @@
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Animation/Graph/LayeredBlendPerBone.hpp>
+#include <Engine/Animation/Graph/LinkedAnimLayer.hpp>
 
 #include <optional>
 #include <span>
@@ -104,6 +105,17 @@ namespace Desert::Animation::Graph
         LayeredBlendPerBone = 1, ///< UE FAnimNode_LayeredBoneBlend: a base pose and one pose per layer
         SequencePlayer      = 2, ///< UE FAnimNode_SequencePlayer: one clip on its own clock, no Pose input
         ApplyAdditive       = 3, ///< UE FAnimNode_ApplyAdditive: Base + Alpha x (Additive - reference pose)
+        LinkedAnimLayer     = 4, ///< UE FAnimNode_LinkedAnimLayer: a layer of a declared interface, by name
+        LinkedInputPose     = 5, ///< UE FAnimNode_LinkedInputPose: a layer graph's input, only in one
+    };
+
+    /// Where a pose graph lives, which decides two kinds: a LinkedInputPose exists only in a LAYER graph (it
+    /// is the input its caller hands in), and a layer graph calls no linked layer and holds no state machine
+    /// (a linked layer is evaluated by the host's clocks and parameters; see AnimLayerGraph).
+    enum class GraphScope : int
+    {
+        Host  = 0,
+        Layer = 1,
     };
 
     /// The Apply Additive node's pins: pin 0 Base, pin 1 Additive, and the `Alpha` parameter pin (unbound: 1).
@@ -161,8 +173,33 @@ namespace Desert::Animation::Graph
         /// layer i's pose; LayerWeightPin(i) its weight.
         std::optional<LayeredBlendPerBoneNode> LayeredBlend;
         std::optional<SequencePlayerNode>      Sequence; // the payload, present exactly when Kind == SequencePlayer
+        /// The payload, present exactly when Kind == LinkedAnimLayer: the interface and layer it calls.
+        std::optional<LinkedAnimLayerNode> LinkedLayer;
         float                       X = 0.0f;        // node editor canvas position (persisted, unused at runtime)
         float                       Y = 0.0f;
+    };
+
+    /**
+     * @brief One layer of an interface as an implementing graph implements it (UE: a layer function graph of
+     *        an AnimBlueprint implementing an Anim Layer Interface): a pose graph in `GraphScope::Layer`,
+     *        whose LinkedInputPose node (if any) is the caller's input pose. Its parameter pins read the
+     *        CALLING graph's live parameters by name, so each one must be declared by the implementing graph
+     *        (to plan) and by the host with the same type (checked at link).
+     */
+    struct AnimLayerGraph
+    {
+        std::string           Interface;
+        std::string           Layer;
+        std::vector<PoseNode> Nodes;
+        std::string           OutputPose;
+    };
+
+    /// The linked-layer half of a graph: the interfaces it declares (to call or to implement) and the layer
+    /// graphs it implements. An interface with any layer implemented must have every layer implemented.
+    struct AnimGraphLayers
+    {
+        std::vector<AnimLayerInterface> Interfaces;
+        std::vector<AnimLayerGraph>     Implemented;
     };
 
     struct AnimGraph
@@ -182,7 +219,17 @@ namespace Desert::Animation::Graph
         /// The node wired into the Output Pose sink. Every graph has one: a graph with nothing at its
         /// output is refused by `PlanPoseGraph`, which is what the loader runs.
         std::string OutputPose;
+        /// Declared layer interfaces and implemented layer graphs; absent = the graph neither calls nor
+        /// implements a linked layer (the files written before ANIM-I14 are exactly that).
+        std::optional<AnimGraphLayers> Layers;
     };
+
+    /// The interface `name` the graph declares, or nullptr.
+    [[nodiscard]] const AnimLayerInterface* FindLayerInterface( const AnimGraph& graph, std::string_view name );
+
+    /// Layer graph `layer` of `owner` as a graph of its own (`owner`'s parameters, no layers of its own), the
+    /// shape `PlanPoseGraph( ..., GraphScope::Layer )` and `PoseGraphInstance::Bind` take.
+    [[nodiscard]] AnimGraph LayerGraphAsGraph( const AnimGraph& owner, const AnimLayerGraph& layer );
 
     /// The state machine node's name in a graph `MakeStateMachineGraph` built — and the name every ANGR 1
     /// file's machine was given by the migration.
@@ -222,7 +269,13 @@ namespace Desert::Animation::Graph
      * does not have or bound to an undeclared parameter; a kind's payload missing; and a CYCLE, spelled
      * as the loop of node names ("A -> B -> A"), because a pose graph with a loop has no first node.
      */
-    [[nodiscard]] Common::ResultStr<std::vector<int>> PlanPoseGraph( const AnimGraph& graph );
+    ///
+    /// In `GraphScope::Host` it also checks the graph's `Layers`: interfaces of unique names with unique
+    /// layers, every LinkedAnimLayer node naming a declared interface and one of its layers (refused BY NAME,
+    /// with what is declared), and each implemented layer graph planned in `GraphScope::Layer`, of a declared
+    /// interface and layer, once, with every layer of an implemented interface present.
+    [[nodiscard]] Common::ResultStr<std::vector<int>> PlanPoseGraph( const AnimGraph& graph,
+                                                                     GraphScope scope = GraphScope::Host );
 
     /// The graph's declared parameters as a readable list ("'Speed' (Float), 'Armed' (Bool)"), or
     /// "none at all". ONE spelling, because both refusals that need it — the evaluator's and the Lua

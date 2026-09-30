@@ -241,31 +241,5 @@ TEST( TimelineLiftClip, TwoTracksForOneBoneAreRefusedNotMerged )
     EXPECT_FALSE( LiftClip( clip ).IsSuccess() );
 }
 
-// ── 9. AnimGraph layer nodes: LinkedAnimLayer (LayeredBlendPerBone is timeline_layered_test.cpp) ──────
-
-TEST( LinkedAnimLayer, UnlinkedIsTheDefaultAndAHalfImplementationIsRefused )
-{
-    G::AnimLayerInterface locomotion;
-    locomotion.Guid      = AssetGuid{ 7, 1 };
-    locomotion.Functions = { G::AnimLayerFunction{ "FullBody", { "In" }, "" },
-                             G::AnimLayerFunction{ "UpperBody", { "In" }, "" } };
-    G::LinkedLayerTable          table;
-    const G::LinkedAnimLayerNode node{ locomotion.Guid, "UpperBody" };
-    EXPECT_TRUE( table.Resolve( node ).IsNull() );
-
-    const G::LayerImplementation half{ AssetGuid{ 8, 1 }, locomotion.Guid, { "FullBody" } };
-    const auto                   refused = table.Link( locomotion, half );
-    ASSERT_FALSE( refused.IsSuccess() );
-    EXPECT_NE( refused.GetError().find( "UpperBody" ), std::string::npos );
-
-    const G::LayerImplementation other{ AssetGuid{ 8, 2 }, AssetGuid{ 6, 6 }, { "FullBody", "UpperBody" } };
-    EXPECT_FALSE( table.Link( locomotion, other ).IsSuccess() ) << "implements another interface";
-
-    const G::LayerImplementation rifle{ AssetGuid{ 8, 3 }, locomotion.Guid, { "FullBody", "UpperBody" } };
-    ASSERT_TRUE( table.Link( locomotion, rifle ).IsSuccess() );
-    EXPECT_EQ( table.Resolve( node ), rifle.Graph );
-
-    table.Unlink( locomotion.Guid );
-    EXPECT_TRUE( table.Resolve( node ).IsNull() );
-}
+// ── 9. landed: LayeredBlendPerBone and LinkedAnimLayer are in timeline_layered_test.cpp ────────────────
 }

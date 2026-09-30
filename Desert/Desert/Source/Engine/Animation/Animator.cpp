@@ -12,6 +12,7 @@
 #include <glm/gtx/quaternion.hpp>
 
 #include <algorithm>
+#include <format>
 
 namespace Desert::Animation
 {
@@ -246,6 +247,10 @@ namespace Desert::Animation
             for ( auto& source : m_PoseGraph->Sources )
                 if ( source.IsValid() )
                     UpdatePlayback( source, deltaTime );
+        for ( auto& layer : m_LinkedSources )
+            for ( auto& source : layer )
+                if ( source.IsValid() )
+                    UpdatePlayback( source, deltaTime );
 
         EvaluatePipeline();
 
@@ -324,15 +329,8 @@ namespace Desert::Animation
         const Graph::AnimGraph& graph = state.Instance.Graph();
 
         Graph::PoseGraphSources sources;
-        sources.Sample = [&]( size_t node, Graph::GraphPose& out )
+        const auto              sampleClock = [&]( const ClipPlayback& playback, Graph::GraphPose& out )
         {
-            // THE BASE SOURCE IS THE SOURCE STAGE: its crossfade, notifies and root motion are the Animator's.
-            if ( static_cast<int>( node ) == state.BaseSource )
-            {
-                out.Pose = pose;
-                return;
-            }
-            const ClipPlayback& playback = state.Sources[node];
             if ( !playback.IsValid() )
             {
                 out.Pose = m_BindPose; // a source with no clip yet (still loading) stands in the bind pose
@@ -357,6 +355,20 @@ namespace Desert::Animation
             for ( uint32_t b = 0; b < n; ++b )
                 out.Pose[b] = SampleLocalTransform( rig, playback.Clip, b, playback.Time );
         };
+        sources.Sample = [&]( size_t node, Graph::GraphPose& out )
+        {
+            // THE BASE SOURCE IS THE SOURCE STAGE: its crossfade, notifies and root motion are the Animator's.
+            if ( static_cast<int>( node ) == state.BaseSource )
+            {
+                out.Pose = pose;
+                return;
+            }
+            sampleClock( state.Sources[node], out );
+        };
+        // A linked layer's sequence players run on their own clocks, sampled exactly as the host's are.
+        sources.SampleLinked = [&]( size_t slot, size_t node, Graph::GraphPose& out )
+        { sampleClock( m_LinkedSources[slot][node], out ); };
+        sources.Linked = &m_LinkedLayers;
         sources.Parameter = [&]( const std::string& name )
         {
             for ( size_t p = 0; p < graph.Parameters.size(); ++p )
@@ -732,6 +744,41 @@ namespace Desert::Animation
         for ( size_t p = 0; p < parameters.size(); ++p )
             if ( parameters[p].Name == name )
                 m_PoseGraph->Parameters[p] = value;
+    }
+
+    Common::BoolResultStr Animator::LinkLayers( const Graph::AnimGraph& implementation )
+    {
+        if ( !m_PoseGraph )
+            return Common::MakeError<bool>( std::format(
+                 "cannot link the layers of '{}': the character has no pose graph to call them", implementation.Name ) );
+        if ( auto linked = m_LinkedLayers.Link( m_PoseGraph->Instance.Graph(), implementation, m_Skeleton ); !linked )
+            return linked;
+        RebuildLinkedClocks();
+        return Common::MakeSuccess( true );
+    }
+
+    void Animator::UnlinkLayers( const Graph::AnimGraph& implementation )
+    {
+        m_LinkedLayers.Unlink( implementation );
+        RebuildLinkedClocks();
+    }
+
+    void Animator::RebuildLinkedClocks()
+    {
+        // The slots moved; every layer's clocks start fresh with its link (the ECS re-feeds the clips each tick).
+        m_LinkedSources.assign( m_LinkedLayers.Layers().size(), {} );
+        for ( size_t slot = 0; slot < m_LinkedSources.size(); ++slot )
+            m_LinkedSources[slot].resize( m_LinkedLayers.Layers()[slot].Instance.Graph().Nodes.size() );
+    }
+
+    void Animator::SetLinkedLayerSource( size_t slot, size_t node, const AnimationClip& clip, bool loop )
+    {
+        if ( slot >= m_LinkedSources.size() || node >= m_LinkedSources[slot].size() )
+            return;
+        ClipPlayback& playback = m_LinkedSources[slot][node];
+        if ( playback.Clip != &clip )
+            playback = { &clip, FrameTime{}, loop };
+        playback.Loop = loop;
     }
 
     void Animator::ClearPoseGraph()

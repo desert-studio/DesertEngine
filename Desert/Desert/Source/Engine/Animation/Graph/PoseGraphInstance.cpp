@@ -5,6 +5,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <algorithm>
 #include <format>
 #include <utility>
 
@@ -80,9 +81,9 @@ namespace Desert::Animation::Graph
         return unbound;
     }
 
-    Common::BoolResultStr PoseGraphInstance::Bind( AnimGraph graph, const Skeleton& skeleton )
+    Common::BoolResultStr PoseGraphInstance::Bind( AnimGraph graph, const Skeleton& skeleton, GraphScope scope )
     {
-        auto plan = PlanPoseGraph( graph );
+        auto plan = PlanPoseGraph( graph, scope );
         if ( !plan )
             return Common::MakeError<bool>( plan.GetError() );
 
@@ -115,6 +116,18 @@ namespace Desert::Animation::Graph
 
     void PoseGraphInstance::Evaluate( const PoseGraphSources& sources, const Skeleton& skeleton, GraphPose& out )
     {
+        Run( sources, skeleton, std::nullopt, nullptr, out );
+    }
+
+    void PoseGraphInstance::EvaluateLayer( const PoseGraphSources& sources, const Skeleton& skeleton, size_t slot,
+                                           const GraphPose& input, GraphPose& out )
+    {
+        Run( sources, skeleton, slot, &input, out );
+    }
+
+    void PoseGraphInstance::Run( const PoseGraphSources& sources, const Skeleton& skeleton, std::optional<size_t> slot,
+                                 const GraphPose* input, GraphPose& out )
+    {
         if ( m_Plan.empty() )
             return;
 
@@ -134,8 +147,32 @@ namespace Desert::Animation::Graph
                     pose.CurveNames.clear();
                     pose.CurveValues.clear();
                     pose.RootMotion = BoneTransform{};
-                    sources.Sample( n, pose );
+                    if ( !slot )
+                        sources.Sample( n, pose );
+                    else if ( sources.SampleLinked )
+                        sources.SampleLinked( *slot, n, pose );
                     break;
+
+                case PoseNodeKind::LinkedInputPose:
+                    // Planned only in a layer graph, which is only run through EvaluateLayer with its input.
+                    if ( input != nullptr )
+                        pose = *input;
+                    break;
+
+                case PoseNodeKind::LinkedAnimLayer:
+                {
+                    // UE FAnimNode_LinkedAnimLayer: the linked implementation's layer graph on this node's input,
+                    // or — nothing linked — the input itself (the interface's default).
+                    const GraphPose& in = m_Poses[static_cast<size_t>( wired[0] )];
+                    const auto linked   = sources.Linked != nullptr
+                                               ? sources.Linked->Find( node.LinkedLayer->Interface, node.LinkedLayer->Layer )
+                                               : std::nullopt;
+                    if ( linked )
+                        sources.Linked->At( *linked ).Instance.EvaluateLayer( sources, skeleton, *linked, in, pose );
+                    else
+                        pose = in;
+                    break;
+                }
 
                 case PoseNodeKind::LayeredBlendPerBone:
                 {
@@ -170,5 +207,77 @@ namespace Desert::Animation::Graph
             }
         }
         out = m_Poses[static_cast<size_t>( m_Plan.back() )];
+    }
+
+    Common::BoolResultStr LinkedLayerTable::Link( const AnimGraph& host, const AnimGraph& implementation,
+                                                  const Skeleton& skeleton )
+    {
+        if ( !implementation.Layers || implementation.Layers->Implemented.empty() )
+            return Common::MakeError<bool>(
+                 std::format( "AnimGraph '{}' implements no layer interface, so it has no layer to link onto '{}'",
+                              implementation.Name, host.Name ) );
+        // The implementation plans (a loaded file has; a graph built in code may not have been).
+        if ( auto plan = PlanPoseGraph( implementation ); !plan )
+            return Common::MakeError<bool>( plan.GetError() );
+
+        std::vector<Layer>       linked;
+        std::vector<std::string> interfaces;
+        for ( const AnimLayerGraph& layer : implementation.Layers->Implemented )
+        {
+            const AnimLayerInterface* mine   = FindLayerInterface( implementation, layer.Interface );
+            const AnimLayerInterface* theirs = FindLayerInterface( host, layer.Interface );
+            if ( theirs == nullptr )
+                return Common::MakeError<bool>(
+                     std::format( "cannot link '{}' onto '{}': '{}' does not declare interface '{}'",
+                                  implementation.Name, host.Name, host.Name, layer.Interface ) );
+            if ( mine == nullptr || mine->Layers != theirs->Layers )
+                return Common::MakeError<bool>( std::format(
+                     "cannot link '{}' onto '{}': the two declare interface '{}' with different layers",
+                     implementation.Name, host.Name, layer.Interface ) );
+            // The layer graph's pins read the HOST's live parameters, by name: the same type or no link.
+            for ( const PoseNode& node : layer.Nodes )
+                for ( const ParameterPin& pin : node.ParameterInputs )
+                {
+                    const auto same = [&]( const Parameter& p ) { return p.Name == pin.Parameter; };
+                    const auto mineP =
+                         std::find_if( implementation.Parameters.begin(), implementation.Parameters.end(), same );
+                    const auto theirsP = std::find_if( host.Parameters.begin(), host.Parameters.end(), same );
+                    if ( theirsP == host.Parameters.end() || mineP == implementation.Parameters.end() ||
+                         theirsP->Type != mineP->Type )
+                        return Common::MakeError<bool>( std::format(
+                             "cannot link '{}' onto '{}': layer '{}.{}' reads parameter '{}', which '{}' does not "
+                             "declare as the same type",
+                             implementation.Name, host.Name, layer.Interface, layer.Layer, pin.Parameter, host.Name ) );
+                }
+
+            Layer entry{ implementation.Name, layer.Interface, layer.Layer, PoseGraphInstance{} };
+            if ( auto bound = entry.Instance.Bind( LayerGraphAsGraph( implementation, layer ), skeleton,
+                                                   GraphScope::Layer );
+                 !bound )
+                return bound;
+            linked.push_back( std::move( entry ) );
+            if ( std::find( interfaces.begin(), interfaces.end(), layer.Interface ) == interfaces.end() )
+                interfaces.push_back( layer.Interface );
+        }
+
+        std::erase_if( m_Layers,
+                       [&]( const Layer& l )
+                       { return std::find( interfaces.begin(), interfaces.end(), l.Interface ) != interfaces.end(); } );
+        for ( Layer& entry : linked )
+            m_Layers.push_back( std::move( entry ) );
+        return Common::MakeSuccess( true );
+    }
+
+    void LinkedLayerTable::Unlink( const AnimGraph& implementation )
+    {
+        std::erase_if( m_Layers, [&]( const Layer& l ) { return l.Implementation == implementation.Name; } );
+    }
+
+    std::optional<size_t> LinkedLayerTable::Find( std::string_view anInterface, std::string_view layer ) const
+    {
+        for ( size_t slot = 0; slot < m_Layers.size(); ++slot )
+            if ( m_Layers[slot].Interface == anInterface && m_Layers[slot].Name == layer )
+                return slot;
+        return std::nullopt;
     }
 } // namespace Desert::Animation::Graph

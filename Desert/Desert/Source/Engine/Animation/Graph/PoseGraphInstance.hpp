@@ -19,9 +19,12 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <cstddef>
 #include <functional>
+#include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Animation::Graph
@@ -37,11 +40,17 @@ namespace Desert::Animation::Graph
     [[nodiscard]] Common::BoolResultStr ApplyAdditive( const GraphPose& base, const GraphPose& additive,
                                                        const LocalPose& reference, float alpha, GraphPose& out );
 
+    class LinkedLayerTable;
+
     /// What the owner of the clocks and the parameters supplies to one evaluation (UE: the AnimInstance proxy).
     struct PoseGraphSources
     {
         /// Fills `out` with source node `node`'s pose this tick (`IsSourceKind`), sized to the skeleton.
         std::function<void( size_t node, GraphPose& out )> Sample;
+        /// The same for source node `node` of the layer graph linked in `slot` of `Linked` (its own clock).
+        std::function<void( size_t slot, size_t node, GraphPose& out )> SampleLinked;
+        /// The layers linked on this character; nullptr or no link for a node's layer = its input passes.
+        LinkedLayerTable* Linked = nullptr;
         /// The live value of the graph parameter `parameter` (declared: `PlanPoseGraph` refused otherwise).
         std::function<float( const std::string& parameter )> Parameter;
         /// The pose an Apply Additive's additive input is a difference from (the rest pose on the target rig).
@@ -57,7 +66,8 @@ namespace Desert::Animation::Graph
          *        unplannable graph (PlanPoseGraph's refusal: a cycle is named as its loop of nodes) and a
          *        filter bone the skeleton lacks, naming the node.
          */
-        [[nodiscard]] Common::BoolResultStr Bind( AnimGraph graph, const Skeleton& skeleton );
+        [[nodiscard]] Common::BoolResultStr Bind( AnimGraph graph, const Skeleton& skeleton,
+                                                  GraphScope scope = GraphScope::Host );
 
         /// Evaluates every planned node in order into its buffer; `out` becomes Output Pose's. Only after a
         /// successful Bind (an unbound instance leaves `out` untouched).
@@ -82,7 +92,15 @@ namespace Desert::Animation::Graph
         [[nodiscard]] static float PinValue( const PoseNode& node, std::string_view pin, float unbound,
                                              const std::function<float( const std::string& )>& parameter );
 
+        /// A LAYER graph's evaluation (bound in `GraphScope::Layer`): its LinkedInputPose nodes output `input`,
+        /// its sources are `sources.SampleLinked( slot, ... )`, its pins read `sources.Parameter`.
+        void EvaluateLayer( const PoseGraphSources& sources, const Skeleton& skeleton, size_t slot,
+                            const GraphPose& input, GraphPose& out );
+
     private:
+        void Run( const PoseGraphSources& sources, const Skeleton& skeleton, std::optional<size_t> slot,
+                  const GraphPose* input, GraphPose& out );
+
         AnimGraph                                    m_Graph;
         std::vector<int>                             m_Plan;
         std::vector<std::vector<int>>                m_Inputs; ///< per node: the node index behind each Pose pin
@@ -90,5 +108,53 @@ namespace Desert::Animation::Graph
         std::vector<GraphPose>                       m_Poses;  ///< per node: its pose this evaluation
         std::vector<GraphPose>                       m_LayerScratch;
         std::vector<float>                           m_WeightScratch;
+    };
+
+    /**
+     * @brief The layers linked on one character (UE: the linked instances of a UAnimInstance, what
+     *        LinkAnimClassLayers fills): per (interface, layer) the implementing graph's layer graph, BOUND.
+     *        A LinkedAnimLayer node resolves here by name at evaluation; no entry = its input passes through.
+     */
+    class LinkedLayerTable
+    {
+    public:
+        struct Layer
+        {
+            std::string       Implementation; ///< the implementing graph's name (what Unlink matches)
+            std::string       Interface;
+            std::string       Name;
+            PoseGraphInstance Instance; ///< bound in GraphScope::Layer against the host's skeleton
+        };
+
+        /**
+         * @brief UE LinkAnimClassLayers: every interface `implementation` implements now resolves to its layer
+         *        graphs, replacing whatever was linked for those interfaces. All or nothing; refuses, naming
+         *        it: an interface `host` does not declare or declares with other layers, a parameter a layer
+         *        graph reads that `host` does not declare as the same type, a layer graph that does not bind,
+         *        and a graph implementing no interface at all.
+         */
+        [[nodiscard]] Common::BoolResultStr Link( const AnimGraph& host, const AnimGraph& implementation,
+                                                  const Skeleton& skeleton );
+        /// UE UnlinkAnimClassLayers: the interfaces `implementation` linked go back to pass-through. A no-op
+        /// for interfaces another graph has linked since.
+        void Unlink( const AnimGraph& implementation );
+        void Clear()
+        {
+            m_Layers.clear();
+        }
+
+        /// The slot of (interface, layer), or empty when nothing is linked for it.
+        [[nodiscard]] std::optional<size_t> Find( std::string_view anInterface, std::string_view layer ) const;
+        [[nodiscard]] std::span<const Layer> Layers() const
+        {
+            return m_Layers;
+        }
+        [[nodiscard]] Layer& At( size_t slot )
+        {
+            return m_Layers[slot];
+        }
+
+    private:
+        std::vector<Layer> m_Layers;
     };
 } // namespace Desert::Animation::Graph

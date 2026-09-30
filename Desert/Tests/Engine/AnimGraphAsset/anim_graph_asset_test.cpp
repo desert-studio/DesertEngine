@@ -352,3 +352,26 @@ int main( int argc, char** argv )
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
+
+// The linked-layer half of a graph (ANIM-I14) survives the file; a file without it is a graph without layers.
+TEST( AnimGraphAsset, LayerInterfacesAndImplementedLayersRoundTrip )
+{
+    namespace PG   = Desert::Animation::Graph;
+    AnimGraph graph = PG::MakeStateMachineGraph( "Rifle" );
+    PG::PoseNode input;
+    input.Name   = "In";
+    input.Kind   = static_cast<int>( PG::PoseNodeKind::LinkedInputPose );
+    graph.Layers = PG::AnimGraphLayers{ { PG::AnimLayerInterface{ "Weapon", { "UpperBody" } } },
+                                        { PG::AnimLayerGraph{ "Weapon", "UpperBody", { input }, "In" } } };
+
+    const auto read = PG::Deserialize( PG::Serialize( graph ) );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    ASSERT_TRUE( read.GetValue().Layers.has_value() );
+    ASSERT_EQ( read.GetValue().Layers->Implemented.size(), 1u );
+    EXPECT_EQ( read.GetValue().Layers->Interfaces[0].Layers, std::vector<std::string>{ "UpperBody" } );
+    EXPECT_EQ( read.GetValue().Layers->Implemented[0].Nodes[0].Kind, input.Kind );
+
+    const auto plain = PG::Deserialize( PG::Serialize( PG::MakeStateMachineGraph( "Plain" ) ) );
+    ASSERT_TRUE( plain.IsSuccess() ) << plain.GetError();
+    EXPECT_FALSE( plain.GetValue().Layers.has_value() );
+}

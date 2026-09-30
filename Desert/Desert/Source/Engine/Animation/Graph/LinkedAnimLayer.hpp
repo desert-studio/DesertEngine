@@ -1,77 +1,42 @@
 #pragma once
 
 /**
- * LINKED ANIM LAYERS — SWAPPABLE SUB-GRAPHS BEHIND A DECLARED INTERFACE (UE: Anim Layer Interface +
- * FAnimNode_LinkedAnimLayer + LinkAnimClassLayers).
+ * LINKED ANIM LAYERS — SWAPPABLE SUB-GRAPHS BEHIND A DECLARED INTERFACE (UE: UAnimLayerInterface +
+ * FAnimNode_LinkedAnimLayer + FAnimNode_LinkedInputPose + LinkAnimClassLayers).
  *
- * An INTERFACE asset declares layer functions by name, each with named input poses. A graph calls a layer
- * through a `LinkedAnimLayerNode` naming the function, never the implementation. At runtime an
- * IMPLEMENTING graph (an AnimGraph asset, by GUID) is linked for the interface — "armed with a rifle"
- * links the rifle graph, "unarmed" the default — and every node naming that interface's functions now
- * evaluates the implementing graph's function. Unlinked, a layer is the interface's DEFAULT: its first
- * input pose passed through, so a character with nothing linked still animates.
+ * An INTERFACE is a name and the names of its layers; every layer takes ONE input pose and returns a pose.
+ * A graph that CALLS layers declares the interface and places `LinkedAnimLayer` nodes naming interface +
+ * layer — never an implementation. A graph that IMPLEMENTS an interface declares it too and carries one
+ * layer graph per layer of it (`AnimLayerGraph`, AnimGraph.hpp): a small pose graph whose
+ * `LinkedInputPose` node is the pose the caller handed in. At runtime an implementing graph is LINKED on
+ * the character (`LinkedLayerTable::Link`, `Animator::LinkLayers`) — "armed with a rifle" links the rifle
+ * graph — and every node calling that interface's layers now evaluates the implementation's layer graph,
+ * without an edit to the calling graph. Unlinked, a layer is the interface's DEFAULT: its input pose passed
+ * through, so a character with nothing linked still animates.
  *
- * INVARIANTS: an implementation is linked only if it implements EVERY function of the interface (refused
- * by the missing name otherwise — a half-implemented interface is a T-pose on the first call); one
- * implementation per interface per instance at a time; linking is a runtime switch and stores nothing
- * in the graph asset.
+ * Interfaces match BY NAME, and a link is refused unless the two graphs declare the interface with the
+ * same layers (the name is the contract both sides were written against; UE's asset reference is that
+ * contract there). Declarations and implementations are optional in a .danimgraph: absent, the graph
+ * neither calls nor implements a layer.
  */
-
-#include <Common/Content/AssetEnvelope.hpp>
-#include <Common/Core/ResultStr.hpp>
 
 #include <string>
 #include <vector>
 
 namespace Desert::Animation::Graph
 {
-    struct AnimLayerFunction
-    {
-        std::string              Name;
-        std::vector<std::string> InputPoses; ///< named pose pins; empty = the layer takes no input
-        std::string              Group;      ///< UE's layer group: layers of one group share an instance
-    };
-
+    /// UE UAnimLayerInterface: a named set of layers, each taking one input pose.
     struct AnimLayerInterface
     {
-        Common::Content::AssetGuid     Guid;
-        std::string                    Name;
-        std::vector<AnimLayerFunction> Functions;
+        std::string              Name;
+        std::vector<std::string> Layers;
     };
 
-    /// The graph node. Stores names, resolves through the instance's `LinkedLayerTable`.
+    /// The payload of a LinkedAnimLayer node: which layer of which declared interface it calls. Pose pin 0
+    /// is the layer's input pose, and what the node outputs while no implementation is linked.
     struct LinkedAnimLayerNode
     {
-        Common::Content::AssetGuid Interface;
-        std::string                Function;
-    };
-
-    /// What an implementing graph declares it implements: the interface + its function names.
-    struct LayerImplementation
-    {
-        Common::Content::AssetGuid Graph;
-        Common::Content::AssetGuid Interface;
-        std::vector<std::string>   ImplementedFunctions;
-    };
-
-    /// Per anim-instance runtime table (UE: the linked instances of one UAnimInstance).
-    class LinkedLayerTable
-    {
-    public:
-        /// Refuses an implementation of another interface, and one missing a function (named).
-        [[nodiscard]] Common::BoolResultStr Link( const AnimLayerInterface&  anInterface,
-                                                  const LayerImplementation& implementation );
-        void                                Unlink( const Common::Content::AssetGuid& anInterface );
-
-        /// The graph implementing @p node's function, or a null GUID = the interface default (pass-through).
-        [[nodiscard]] Common::Content::AssetGuid Resolve( const LinkedAnimLayerNode& node ) const;
-
-    private:
-        struct Entry
-        {
-            Common::Content::AssetGuid Interface;
-            Common::Content::AssetGuid Graph;
-        };
-        std::vector<Entry> m_Links;
+        std::string Interface;
+        std::string Layer;
     };
 } // namespace Desert::Animation::Graph
