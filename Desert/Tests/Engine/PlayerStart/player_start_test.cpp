@@ -207,6 +207,38 @@ TEST( PlayerStartCapsule, TheGizmoDrawsTheLevelsDefaultPawnNotTheStructsDefaults
          << "a PlayerStart must wear its own icon (UE S_Player), not the generic spawn-point pin";
 }
 
+// UI-LIVE2: an edited Default Pawn prefab reached the capsule only after an editor restart - AssetManager kept
+// the payload it had parsed and nothing re-read it. UE reloads a saved or reimported asset and its readers see
+// the new version; here the asset hot reload re-reads every LOADED prefab whose file changed, in place, and
+// the capsule (like the spawn) asks the asset at use time.
+TEST( PlayerStartCapsule, AnEditedPawnPrefabIsReReadByTheAssetHotReload )
+{
+    const std::string reload = ReadSource( "Desert/Desert/Source/Engine/Runtime/AssetHotReload.cpp" );
+    const auto        tick   = reload.find( "void AssetHotReload::Tick(" );
+    ASSERT_NE( tick, std::string::npos );
+    const auto tickEnd = reload.find( "m_FirstScan = false;", tick );
+    const auto called  = reload.find( "PollPrefabs( assetManager );", tick );
+    EXPECT_TRUE( called != std::string::npos && called < tickEnd ) << "the hot reload tick never polls prefabs";
+
+    const auto poll = reload.find( "void AssetHotReload::PollPrefabs(" );
+    ASSERT_NE( poll, std::string::npos ) << "no prefab poll in the asset hot reload";
+    const auto        next = reload.find( "void AssetHotReload::", poll + 1 );
+    const std::string body = reload.substr( poll, next - poll );
+    EXPECT_NE( body.find( "FindAllByType<Assets::PrefabAsset>()" ), std::string::npos )
+         << "the poll must cover every prefab the asset manager holds, not one consumer's";
+    EXPECT_NE( body.find( "TouchWatched( path )" ), std::string::npos ) << "the poll must ask the file's stamp";
+    EXPECT_NE( body.find( "asset->Load()" ), std::string::npos ) << "a changed prefab must be re-read in place";
+    EXPECT_LT( body.find( "IsReloadableFromFile()" ), body.find( "asset->Load()" ) )
+         << "a capture not yet saved is the only copy of its payload and must not be overwritten by the file";
+
+    // The capsule reads the asset each time, never a copy of its records taken earlier.
+    const std::string engine = ReadSource( "Desert/Desert/Source/Engine/Core/PlayerStart.cpp" );
+    const auto        fn     = engine.find( "DefaultPawnCapsule(" );
+    ASSERT_NE( fn, std::string::npos );
+    EXPECT_NE( engine.find( "prefab.GetValue()->GetEntities()", fn ), std::string::npos )
+         << "the capsule must read the prefab asset's current payload";
+}
+
 // UI-FIX2b: the pawn's body is the CDO's (UE), nested prefabs included: a pawn prefab that nests the prefab
 // holding its CharacterController (PrefabPath) drew no capsule.
 namespace
