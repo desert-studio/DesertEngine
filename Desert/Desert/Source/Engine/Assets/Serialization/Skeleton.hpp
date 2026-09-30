@@ -9,8 +9,11 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Common/Json/Json.hpp>
+#include <Common/Utilities/FileSystem.hpp>
+#include <Common/Utilities/VFS.hpp>
 
 #include <array>
+#include <filesystem>
 #include <format>
 #include <optional>
 #include <span>
@@ -70,5 +73,29 @@ namespace Desert::Assets::Serialization
              !header )
             return Common::MakeError<SkeletonAssetData>( std::format( "skeleton {}", header.GetError() ) );
         return Common::MakeSuccess( parsed.GetValue() );
+    }
+
+    /// THE ONE READ OF A .skeleton FILE: through the VFS first, so a packaged build reads the rig out of its
+    /// .dpak like every other asset, then off the disk for a loose file the pak does not carry. Both readers of
+    /// a rig — SkeletonAsset and the built-in humanoid (ProceduralCharacterSkeleton) — come through here. An
+    /// error names the file.
+    [[nodiscard]] inline Common::ResultStr<SkeletonAssetData> ReadSkeletonFile( const std::filesystem::path& file )
+    {
+        std::string text;
+        if ( const auto packed =
+                  Common::Utils::VFS::Exists( file ) ? Common::Utils::VFS::ReadFile( file ) : std::nullopt;
+             packed.has_value() )
+            text = packed.value();
+        else
+        {
+            auto raw = Common::Utils::FileSystem::ReadFileContent( file );
+            if ( !raw )
+                return Common::MakeError<SkeletonAssetData>( std::format( "'{}': {}", file.string(), raw.GetError() ) );
+            text = raw.ExtractValue();
+        }
+        auto read = ReadSkeletonJson( text );
+        if ( !read )
+            return Common::MakeError<SkeletonAssetData>( std::format( "'{}': {}", file.string(), read.GetError() ) );
+        return read;
     }
 } // namespace Desert::Assets::Serialization

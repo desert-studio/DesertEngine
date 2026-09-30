@@ -4,9 +4,6 @@
 
 #include <Common/Content/TextAssetHeader.hpp>
 
-#include <Common/Utilities/FileSystem.hpp>
-#include <Common/Utilities/VFS.hpp>
-
 namespace Desert::Assets
 {
     SkeletonAsset::SkeletonAsset( const Common::Filepath& filepath ) : AssetBase( filepath, GetTypeID() )
@@ -24,24 +21,10 @@ namespace Desert::Assets
         // The old path of a moved asset reads the file where it now lives, through the registry - the same
         // file the constructor took the identity from (ReadTextAssetIdentity).
         const std::filesystem::path file = ContentRegistry::FileToOpen( m_Metadata.Filepath );
-        // Through the VFS first, so a packaged build reads the rig out of its .dpak like every other asset,
-        // then off the disk for a loose file the pak does not carry (T7e: it read only the disk).
-        std::string text;
-        if ( const auto packed =
-                  Common::Utils::VFS::Exists( file ) ? Common::Utils::VFS::ReadFile( file ) : std::nullopt;
-             packed.has_value() )
-            text = packed.value();
-        else
-        {
-            auto raw = Common::Utils::FileSystem::ReadFileContent( file );
-            if ( !raw )
-                return Common::MakeError( raw.GetError() );
-            text = raw.ExtractValue();
-        }
-
-        auto read = Serialization::ReadSkeletonJson( text );
+        // The one read of a rig file (VFS, then loose disk; T7e: it read only the disk).
+        auto read = Serialization::ReadSkeletonFile( file );
         if ( !read )
-            return Common::MakeFormattedError<bool>( "'{}': {}", file.string(), read.GetError() );
+            return Common::MakeError( read.GetError() );
 
         auto data = read.ExtractValue();
 
