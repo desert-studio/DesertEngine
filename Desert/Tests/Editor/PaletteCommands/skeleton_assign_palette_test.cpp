@@ -13,7 +13,7 @@ namespace
     using Desert::Editor::SkeletonAssignPaletteCommands;
 
     const Desert::Editor::SkeletonAssignFn kNeverCalled = []( const std::string&, const std::string& )
-    { return Desert::Common::MakeError( "the assignment must not run while the census is taken" ); };
+    { return Common::MakeError( "the assignment must not run while the census is taken" ); };
 
     std::vector<std::string> Labels( const std::vector<std::string>& selected,
                                      const std::vector<std::string>& skeletons )
@@ -60,7 +60,7 @@ TEST( SkeletonAssignPalette, AnEntryAssignsItsOwnPairAndCarriesTheRefusal )
     const Desert::Editor::SkeletonAssignFn assign = [&]( const std::string& subject, const std::string& skeleton )
     {
         calls.emplace_back( subject, skeleton );
-        return Desert::Common::MakeError( "'CesiumMan.skmesh': missing bones: Skeleton_torso_joint_1" );
+        return Common::MakeError( "'CesiumMan.skmesh': missing bones: Skeleton_torso_joint_1" );
     };
     const auto commands = SkeletonAssignPaletteCommands( { "A/CesiumMan.skmesh" },
                                                          { "B/Fox.skeleton", "C/Other.skeleton" }, assign );
