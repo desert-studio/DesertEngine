@@ -15,8 +15,8 @@
 // somebody reading only one of the two functions. There the radiance cube has two live runtime
 // consumers — the skybox draw (`MaterialSkybox::BindInputs`) and the material editor's cube ball
 // (`MaterialEditorPanel`) — and both measured alternatives to it lose: prefilter mip 0 is visibly
-// blockier (max delta 123/255 at zenith on real content) and sampling the panorama directly crawls under motion (rms 14.33 vs 10.60 at the zenith
-// under a 0.40 deg nudge). So `EnvironmentManager::Create` must keep it.
+// blockier (max delta 123/255 at zenith on real content) and sampling the panorama directly crawls under motion
+// (rms 14.33 vs 10.60 at the zenith under a 0.40 deg nudge). So `EnvironmentManager::Create` must keep it.
 //
 // WHAT A FUTURE MISTAKE LOOKS LIKE, precisely. It is NOT a use-after-free: `ImageService::Resolve` is
 // generation-checked, so a handle whose image has been unregistered answers `nullptr` and never somebody
@@ -220,7 +220,8 @@ TEST( ProceduralEnvironmentCube, TheHdrPathKeepsItsRadianceCube )
     EXPECT_EQ( body.find( "Unregister( radianceHandle )" ), std::string::npos )
          << "the .hdr path is freeing its radiance cube the way the procedural path does, and the two "
             "paths are not the same path. Here the cube has two live runtime consumers: the skybox "
-            "draw (MaterialSkybox::BindInputs) and the material editor's cube ball (MaterialEditorPanel). Both measured substitutes lose -- "
+            "draw (MaterialSkybox::BindInputs) and the material editor's cube ball (MaterialEditorPanel). Both "
+            "measured substitutes lose -- "
             "prefilter mip 0 is blockier (max delta 123/255 at the zenith) and the panorama sampled "
             "directly crawls under motion (rms 14.33 vs 10.60 under a 0.40 deg nudge).";
 }
