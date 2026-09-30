@@ -247,10 +247,10 @@ namespace
     LocalPose PoseAt( const Skeleton& rig, const Desert::Animation::AnimationClip& clip, double ticks )
     {
         LocalPose       local = BindPose( rig );
-        const FrameTime at{ Desert::Animation::FrameNumber{ clip.Sequence.Start.Value + static_cast<int32_t>( ticks ) },
-                            0.0F };
-        const auto      table   = Desert::Animation::Timeline::BindBones( clip.Sequence, rig );
-        const auto      sampled = Desert::Animation::Timeline::EvaluatePose( clip.Sequence, table, at, local );
+        const FrameTime at{
+             Desert::Animation::FrameNumber{ clip.Sequence.Start.Value + static_cast<int32_t>( ticks ) }, 0.0F };
+        const auto table   = Desert::Animation::Timeline::BindBones( clip.Sequence, rig );
+        const auto sampled = Desert::Animation::Timeline::EvaluatePose( clip.Sequence, table, at, local );
         EXPECT_TRUE( sampled.IsSuccess() ) << ( sampled.IsSuccess() ? "" : sampled.GetError() );
         return local;
     }

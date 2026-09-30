@@ -270,7 +270,8 @@ namespace
         const Desert::Animation::FrameTime playhead =
              Desert::Animation::SecondsToFrameTime( static_cast<double>( seconds ), clip.Sequence.TickRate );
         const Desert::Animation::FrameTime at{
-             Desert::Animation::FrameNumber{ clip.Sequence.Start.Value + playhead.Frame.Value }, playhead.Subframe };
+             Desert::Animation::FrameNumber{ clip.Sequence.Start.Value + playhead.Frame.Value },
+             playhead.Subframe };
         Desert::Animation::LocalPose sampled( bones.size() );
         const auto evaluated = Desert::Animation::Timeline::EvaluatePose( clip.Sequence, table, at, sampled );
         EXPECT_TRUE( evaluated.IsSuccess() ) << ( evaluated.IsSuccess() ? "" : evaluated.GetError() );

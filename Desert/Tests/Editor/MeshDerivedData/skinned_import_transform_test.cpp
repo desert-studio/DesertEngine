@@ -79,7 +79,7 @@ namespace
     // track, its one section's channel evaluated at the clip's first tick.
     Animation::BoneTransform ChildKey( const SkinnedFile& file, size_t index = 0 )
     {
-        const Animation::AnimationClip& clip  = file.Clips[index];
+        const Animation::AnimationClip&   clip  = file.Clips[index];
         const Animation::Timeline::Track* track = Animation::FindBoneTrack( clip.Sequence, "child" );
         EXPECT_NE( track, nullptr ) << "the clip lost the child's track";
         if ( track == nullptr || track->Sections.empty() )

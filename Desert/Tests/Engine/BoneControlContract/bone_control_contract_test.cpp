@@ -439,8 +439,8 @@ TEST( BoneControlContract, TheControlStageJoinsAndLeavesWithTheListAndAlwaysRuns
     // ORDER IS A PROPERTY OF THE PIPELINE, NOT OF THE INSERTION. A layer added after a control must still
     // run BEFORE it: a control corrects the pose the animation produced, so a layer that ran afterwards
     // would overwrite exactly the bones the control just solved.
-    Desert::Animation::AnimationClip clip =
-         ClipFixture::Clip( "layer", Desert::Animation::FrameNumber{ Desert::Animation::PROJECT_TICK_RATE.Numerator } );
+    Desert::Animation::AnimationClip clip = ClipFixture::Clip(
+         "layer", Desert::Animation::FrameNumber{ Desert::Animation::PROJECT_TICK_RATE.Numerator } );
     ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::FullBodyLayer( rig.GetBones()[0].Name ), clip ) );
 
     ASSERT_EQ( animator.GetStages().size(), 3U );
