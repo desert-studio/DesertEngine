@@ -257,4 +257,316 @@ namespace
         auto compiled = graph.Compile( kEstimate, PipeCapabilities{ true } );
         EXPECT_FALSE( compiled.IsSuccess() );
     }
+
+    const QueueOwnershipTransfer* FindTransfer( const CompileResult& result, uint32_t resource )
+    {
+        for ( const QueueOwnershipTransfer& transfer : result.OwnershipTransfers )
+            if ( transfer.Resource == resource )
+                return &transfer;
+        return nullptr;
+    }
+
+    // B(2): contents the destination pipe discards (a cleared attachment) are not transferred; the transition
+    // starts from Undefined. The same graph loading the attachment instead transfers it.
+    TEST( RenderGraphContracts, OwnershipTransferIsSkippedWhenTheDestinationDiscards )
+    {
+        for ( const bool load : { false, true } )
+        {
+            Builder         graph( "Discard" );
+            ExternalTexture output;
+            output.Desc = Tex2D( 64, 64 );
+            output.SubresourceStates.assign( 1, AccessState{} );
+            const TextureRef out = graph.RegisterExternal( output, "Output" );
+            const TextureRef t   = graph.CreateTexture( Tex2D( 64, 64 ), "T" );
+            const TextureRef u   = graph.CreateTexture( Tex2D( 64, 64 ), "U" );
+            graph.AddPass(
+                 "Fill", PassFlags::Compute | PassFlags::AsyncCompute,
+                 [&]( PassBuilder& p ) { p.Write( t, Access::StorageWrite ); }, Ok );
+            graph.AddPass(
+                 "Reduce", PassFlags::Compute | PassFlags::AsyncCompute,
+                 [&]( PassBuilder& p )
+                 {
+                     p.Read( t, Access::SampledCompute );
+                     p.Write( u, Access::StorageWrite );
+                 },
+                 Ok );
+            graph.AddPass(
+                 "Overwrite", PassFlags::Raster | PassFlags::NeverCull, [&]( PassBuilder& p )
+                 { p.ColorTarget( 0, t, load ? LoadOp::Load() : LoadOp::ClearColor( 0, 0, 0, 0 ) ); }, Ok );
+            graph.AddPass(
+                 "Final", PassFlags::Compute,
+                 [&]( PassBuilder& p )
+                 {
+                     p.Read( u, Access::SampledCompute );
+                     p.Write( out, Access::StorageWrite );
+                 },
+                 Ok );
+
+            auto compiled = graph.Compile( kEstimate, PipeCapabilities{ true } );
+            ASSERT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
+            const CompileResult& result    = compiled.GetValue();
+            const CompiledPass*  overwrite = result.FindPass( "Overwrite" );
+            ASSERT_NE( overwrite, nullptr );
+            const uint32_t overwriteAt = static_cast<uint32_t>( overwrite - result.Passes.data() );
+            // Reduce read T before Overwrite writes it: a join orders them either way.
+            EXPECT_TRUE( std::any_of( result.Syncs.begin(), result.Syncs.end(), [&]( const CrossPipeSync& s )
+                                      { return !s.IsFork && s.WaitPosition == overwriteAt; } ) );
+            ASSERT_NE( FindTransfer( result, u.Index ), nullptr ); // U is read by Final: transferred
+
+            const Barrier* barrier = FindBarrier( *overwrite, t.Index );
+            ASSERT_NE( barrier, nullptr );
+            if ( load )
+            {
+                ASSERT_NE( FindTransfer( result, t.Index ), nullptr );
+                EXPECT_EQ( barrier->BarrierType, BarrierKind::OwnershipAcquire );
+                continue;
+            }
+            EXPECT_EQ( FindTransfer( result, t.Index ), nullptr );
+            EXPECT_EQ( barrier->BarrierType, BarrierKind::Transition );
+            EXPECT_TRUE( barrier->DiscardContents );
+            EXPECT_EQ( barrier->Before.Layout, ImageLayout::Undefined );
+            for ( const CompiledPass& pass : result.Passes )
+                for ( const Barrier& release : pass.EpilogueBarriers )
+                    EXPECT_NE( release.Resource, t.Index );
+        }
+    }
+
+    // B(2): two raster passes on the same attachments merge into one render pass - unless a sync lies between
+    // them (here the first pass signals the fork of an async pass that reads its storage output).
+    TEST( RenderGraphContracts, NoRenderPassMergeAcrossASync )
+    {
+        for ( const bool separate : { false, true } )
+        {
+            Builder         graph( "Merge" );
+            ExternalTexture target;
+            target.Desc = Tex2D( 64, 64 );
+            target.SubresourceStates.assign( 1, AccessState{} );
+            ExternalTexture reduced;
+            reduced.Desc = Tex2D( 64, 64 );
+            reduced.SubresourceStates.assign( 1, AccessState{} );
+            const TextureRef color = graph.RegisterExternal( target, "Target" );
+            const TextureRef res   = graph.RegisterExternal( reduced, "Reduced" );
+            const BufferRef  s     = graph.CreateBuffer( BufferDesc{ 4096 }, "S" );
+            graph.AddPass(
+                 "Draw1", PassFlags::Raster,
+                 [&]( PassBuilder& p )
+                 {
+                     p.ColorTarget( 0, color, LoadOp::ClearColor( 0, 0, 0, 0 ) );
+                     p.Write( s, Access::StorageWrite );
+                 },
+                 Ok );
+            graph.AddPass(
+                 "Draw2", PassFlags::Raster, [&]( PassBuilder& p ) { p.ColorTarget( 0, color, LoadOp::Load() ); },
+                 Ok );
+            graph.AddPass(
+                 "Reduce", PassFlags::Compute | PassFlags::AsyncCompute,
+                 [&]( PassBuilder& p )
+                 {
+                     p.Read( s, Access::StorageRead );
+                     p.Write( res, Access::StorageWrite );
+                 },
+                 Ok );
+
+            auto compiled = graph.Compile( kEstimate, PipeCapabilities{ separate } );
+            ASSERT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
+            const CompileResult& result = compiled.GetValue();
+            const CompiledPass*  draw1  = result.FindPass( "Draw1" );
+            const CompiledPass*  draw2  = result.FindPass( "Draw2" );
+            ASSERT_TRUE( draw1 && draw2 );
+            EXPECT_EQ( draw1->SignalSyncs.empty(), !separate );
+            EXPECT_EQ( draw2->ContinuesRenderPass, !separate );
+            EXPECT_EQ( draw1->KeepsRenderPassOpen, !separate );
+        }
+    }
+
+    // B(4): a demoted AsyncCompute pass compiles to exactly the plan the graph has without the flag.
+    TEST( RenderGraphContracts, ADemotedPassGetsTheSamePlanAsNoAsync )
+    {
+        auto compile = []( bool async, PipeCapabilities pipes )
+        {
+            Builder         graph( "Demote" );
+            ExternalTexture output;
+            output.Desc = Tex2D( 64, 64 );
+            output.SubresourceStates.assign( 1, AccessState{} );
+            const TextureRef out   = graph.RegisterExternal( output, "Output" );
+            const TextureRef depth = graph.CreateTexture( Tex2D( 64, 64 ), "Depth" );
+            const TextureRef ao    = graph.CreateTexture( Tex2D( 64, 64 ), "AO" );
+            const TextureRef tmp   = graph.CreateTexture( Tex2D( 64, 64 ), "Tmp" );
+            graph.AddPass(
+                 "Prepass", PassFlags::Compute, [&]( PassBuilder& p ) { p.Write( depth, Access::StorageWrite ); },
+                 Ok );
+            graph.AddPass(
+                 "SSAO", async ? PassFlags::Compute | PassFlags::AsyncCompute : PassFlags::Compute,
+                 [&]( PassBuilder& p )
+                 {
+                     p.Read( depth, Access::SampledCompute );
+                     p.Write( ao, Access::StorageWrite );
+                 },
+                 Ok );
+            graph.AddPass(
+                 "Blur", PassFlags::Compute,
+                 [&]( PassBuilder& p )
+                 {
+                     p.Read( ao, Access::SampledCompute );
+                     p.Write( tmp, Access::StorageWrite );
+                 },
+                 Ok );
+            graph.AddPass(
+                 "Lighting", PassFlags::Compute,
+                 [&]( PassBuilder& p )
+                 {
+                     p.Read( tmp, Access::SampledCompute );
+                     p.Write( out, Access::StorageWrite );
+                 },
+                 Ok );
+            auto compiled = graph.Compile( kEstimate, pipes );
+            EXPECT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
+            return compiled.GetValue();
+        };
+        auto samePlan = []( const CompileResult& a, const CompileResult& b )
+        {
+            auto sameBarriers = []( const std::vector<Barrier>& x, const std::vector<Barrier>& y )
+            {
+                if ( x.size() != y.size() )
+                    return false;
+                for ( size_t i = 0; i < x.size(); ++i )
+                {
+                    if ( x[i].BarrierType != y[i].BarrierType || x[i].Resource != y[i].Resource ||
+                         x[i].Range.BaseMip != y[i].Range.BaseMip || x[i].Range.MipCount != y[i].Range.MipCount ||
+                         x[i].Range.BaseLayer != y[i].Range.BaseLayer ||
+                         x[i].Range.LayerCount != y[i].Range.LayerCount || !( x[i].Before == y[i].Before ) ||
+                         !( x[i].After == y[i].After ) || x[i].DiscardContents != y[i].DiscardContents )
+                        return false;
+                }
+                return true;
+            };
+            if ( a.Passes.size() != b.Passes.size() || a.Syncs.size() != b.Syncs.size() ||
+                 a.OwnershipTransfers.size() != b.OwnershipTransfers.size() ||
+                 a.Segments.size() != b.Segments.size() || a.Aliasing.Heaps.size() != b.Aliasing.Heaps.size() ||
+                 a.Aliasing.Allocations.size() != b.Aliasing.Allocations.size() ||
+                 a.Aliasing.TotalPeakBytes != b.Aliasing.TotalPeakBytes ||
+                 !sameBarriers( a.FinalBarriers, b.FinalBarriers ) )
+                return false;
+            for ( size_t i = 0; i < a.Passes.size(); ++i )
+            {
+                const CompiledPass& x = a.Passes[i];
+                const CompiledPass& y = b.Passes[i];
+                if ( x.Name != y.Name || x.OnPipe != y.OnPipe || x.WaitSyncs != y.WaitSyncs ||
+                     x.SignalSyncs != y.SignalSyncs || !sameBarriers( x.Barriers, y.Barriers ) ||
+                     !sameBarriers( x.EpilogueBarriers, y.EpilogueBarriers ) )
+                    return false;
+            }
+            for ( size_t i = 0; i < a.Aliasing.Allocations.size(); ++i )
+            {
+                const Allocation& x = a.Aliasing.Allocations[i];
+                const Allocation& y = b.Aliasing.Allocations[i];
+                if ( x.Resource != y.Resource || x.Heap != y.Heap || x.Offset != y.Offset ||
+                     x.AliasPredecessors != y.AliasPredecessors )
+                    return false;
+            }
+            for ( size_t i = 0; i < a.Segments.size(); ++i )
+            {
+                if ( a.Segments[i].OnPipe != b.Segments[i].OnPipe ||
+                     a.Segments[i].FirstPosition != b.Segments[i].FirstPosition ||
+                     a.Segments[i].LastPosition != b.Segments[i].LastPosition )
+                    return false;
+            }
+            return true;
+        };
+
+        const CompileResult plain    = compile( false, PipeCapabilities{} );
+        const CompileResult demoted  = compile( true, PipeCapabilities{ false } );
+        const CompileResult promoted = compile( true, PipeCapabilities{ true } );
+        EXPECT_TRUE( plain.DemotedAsyncPasses.empty() );
+        ASSERT_EQ( demoted.DemotedAsyncPasses.size(), 1u );
+        EXPECT_TRUE( samePlan( plain, demoted ) );
+        // The comparison sees a real schedule: the same graph on a separate family differs.
+        EXPECT_FALSE( samePlan( plain, promoted ) );
+    }
+
+    // A(1): allocations whose memory-type sets are disjoint go to separate heaps (and never alias); sets that
+    // intersect share a heap whose type set is the intersection, and alias inside it.
+    TEST( RenderGraphContracts, HeapsPackAcrossTwoMemoryTypes )
+    {
+        class TwoTypes final : public IMemoryRequirementsProvider
+        {
+        public:
+            Common::ResultStr<MemoryRequirements> GetTextureRequirements( const TextureDesc& desc,
+                                                                          uint32_t ) const override
+            {
+                const uint64_t bytes = uint64_t( desc.Size.Width ) * desc.Size.Height * 8u;
+                return Common::MakeSuccess(
+                     MemoryRequirements{ bytes, 0x10000u, desc.Size.Width == 256 ? 0x2u : 0x1u } );
+            }
+            Common::ResultStr<MemoryRequirements> GetBufferRequirements( const BufferDesc&,
+                                                                         uint32_t ) const override
+            {
+                return Common::MakeError<MemoryRequirements>( "no buffers in this test" );
+            }
+        };
+
+        Builder         graph( "Heaps" );
+        ExternalTexture output1;
+        output1.Desc = Tex2D( 64, 64 );
+        output1.SubresourceStates.assign( 1, AccessState{} );
+        ExternalTexture  output2 = output1;
+        const TextureRef o1      = graph.RegisterExternal( output1, "Out1" );
+        const TextureRef o2      = graph.RegisterExternal( output2, "Out2" );
+        const TextureRef x       = graph.CreateTexture( Tex2D( 128, 128 ), "X" ); // type 0x1
+        const TextureRef y       = graph.CreateTexture( Tex2D( 256, 256 ), "Y" ); // type 0x2
+        const TextureRef z       = graph.CreateTexture( Tex2D( 128, 128 ), "Z" ); // type 0x1, after X
+        graph.AddPass(
+             "WriteX", PassFlags::Compute, [&]( PassBuilder& p ) { p.Write( x, Access::StorageWrite ); }, Ok );
+        graph.AddPass(
+             "WriteY", PassFlags::Compute, [&]( PassBuilder& p ) { p.Write( y, Access::StorageWrite ); }, Ok );
+        graph.AddPass(
+             "ReadX", PassFlags::Compute,
+             [&]( PassBuilder& p )
+             {
+                 p.Read( x, Access::SampledCompute );
+                 p.Write( o1, Access::StorageWrite );
+             },
+             Ok );
+        graph.AddPass(
+             "ReadYWriteZ", PassFlags::Compute,
+             [&]( PassBuilder& p )
+             {
+                 p.Read( y, Access::SampledCompute );
+                 p.Write( z, Access::StorageWrite );
+             },
+             Ok );
+        graph.AddPass(
+             "ReadZ", PassFlags::Compute,
+             [&]( PassBuilder& p )
+             {
+                 p.Read( z, Access::SampledCompute );
+                 p.Write( o2, Access::StorageWrite );
+             },
+             Ok );
+
+        const TwoTypes provider;
+        auto           compiled = graph.Compile( provider, PipeCapabilities{ true } );
+        ASSERT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
+        const CompileResult& result = compiled.GetValue();
+        const Allocation*    ax     = result.FindAllocation( x.Index );
+        const Allocation*    ay     = result.FindAllocation( y.Index );
+        const Allocation*    az     = result.FindAllocation( z.Index );
+        ASSERT_TRUE( ax && ay && az );
+        ASSERT_EQ( result.Aliasing.Heaps.size(), 2u );
+        EXPECT_NE( ax->Heap, ay->Heap );
+        EXPECT_EQ( ax->Heap, az->Heap );
+        // X and Y overlap in time but live in different heaps: both start at 0.
+        EXPECT_EQ( ax->Offset, 0u );
+        EXPECT_EQ( ay->Offset, 0u );
+        // Z starts after X ended, in X's heap: it reuses X's bytes.
+        EXPECT_EQ( az->Offset, ax->Offset );
+        EXPECT_EQ( az->AliasPredecessors, std::vector<uint32_t>{ x.Index } );
+        const TransientHeapDesc& heapX = result.Aliasing.Heaps[ax->Heap];
+        const TransientHeapDesc& heapY = result.Aliasing.Heaps[ay->Heap];
+        EXPECT_EQ( heapX.MemoryTypeBits, 0x1u );
+        EXPECT_EQ( heapY.MemoryTypeBits, 0x2u );
+        EXPECT_EQ( heapX.Bytes, 128u * 128u * 8u );
+        EXPECT_EQ( heapY.Bytes, 256u * 256u * 8u );
+        EXPECT_EQ( result.Aliasing.TotalPeakBytes, heapX.Bytes + heapY.Bytes );
+    }
 } // namespace

@@ -14,6 +14,7 @@ project(test_name)
         -- is half of the proof that Compile is device-free (the include census in the test is the other half).
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/RDG/RDGBuilder.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/RDG/RDGCompile.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/RDG/RDGAsyncFallbackLog.cpp",
     }
 
     includedirs {

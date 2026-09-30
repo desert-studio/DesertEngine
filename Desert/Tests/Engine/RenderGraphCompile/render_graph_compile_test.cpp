@@ -90,6 +90,36 @@ namespace
 
     const FixedEstimate kEstimate;
 
+    // The recording backend creates no resources: BeginGraph never places, so nothing here is reached.
+    class NoPlacementAllocator final : public ITransientAllocator
+    {
+    public:
+        void BeginFrameSlot( uint32_t ) override
+        {
+        }
+        Common::BoolResultStr ReserveHeaps( std::string_view, std::span<const TransientHeapDesc> ) override
+        {
+            return Common::MakeSuccess( true );
+        }
+        Common::ResultStr<std::shared_ptr<IPhysicalTexture>> PlaceTexture( const Allocation&, const TextureDesc&,
+                                                                           uint32_t, std::string_view ) override
+        {
+            return Common::MakeError<std::shared_ptr<IPhysicalTexture>>( "the recording backend places nothing" );
+        }
+        Common::ResultStr<std::shared_ptr<IPhysicalBuffer>> PlaceBuffer( const Allocation&, const BufferDesc&,
+                                                                         uint32_t, std::string_view ) override
+        {
+            return Common::MakeError<std::shared_ptr<IPhysicalBuffer>>( "the recording backend places nothing" );
+        }
+        void EndGraph( std::string_view ) override
+        {
+        }
+        TransientAllocatorStats GetStats() const override
+        {
+            return {};
+        }
+    };
+
     // Records the call sequence Execute drives, one line per call; touches no device.
     class RecordingBackend final : public IBackend
     {
@@ -156,8 +186,46 @@ namespace
             return nullptr;
         }
 
-        std::vector<std::string> Calls;
+        ITransientAllocator& GetTransientAllocator() override
+        {
+            return m_Allocator;
+        }
+        PipeCapabilities GetPipeCapabilities() const override
+        {
+            return Pipes;
+        }
+        AsyncComputeFallbackLog& GetAsyncComputeFallbackLog() override
+        {
+            return m_FallbackLog;
+        }
+        Common::BoolResultStr BeginPipeSegment( const PipeSegment& segment ) override
+        {
+            Segments.push_back( std::format( "Begin {} {}..{}",
+                                             segment.OnPipe == Pipe::Graphics ? "Graphics" : "AsyncCompute",
+                                             segment.FirstPosition, segment.LastPosition ) );
+            return Common::MakeSuccess( true );
+        }
+        Common::BoolResultStr EndPipeSegment( const PipeSegment& ) override
+        {
+            Segments.push_back( "End" );
+            return Common::MakeSuccess( true );
+        }
+        void RecordEpilogueBarriers( std::span<const Barrier> barriers ) override
+        {
+            Calls.push_back( std::format( "Epilogue {}", barriers.size() ) );
+        }
 
+        std::vector<std::string> Calls;
+        std::vector<std::string> Segments; // Begin/EndPipeSegment, kept out of Calls
+        std::vector<std::string> FallbackLines;
+        PipeCapabilities         Pipes;
+
+    private:
+        NoPlacementAllocator    m_Allocator;
+        AsyncComputeFallbackLog m_FallbackLog{ [this]( std::string_view line )
+                                               { FallbackLines.emplace_back( line ); } };
+
+    public:
     private:
         const IMemoryRequirementsProvider& m_Memory;
     };
@@ -1307,9 +1375,11 @@ TEST( RenderGraphCompile, AliasingPlanUsesTheProvidersRequirements )
     EXPECT_EQ( allocA->Alignment, 4096u );
     EXPECT_EQ( allocA->MemoryTypeBits, 0x2u );
     EXPECT_EQ( allocB->MemoryTypeBits, 0x1u );
-    // B's lifetime is disjoint from A's, but no memory type holds both: it may not take A's bytes.
+    // B's lifetime is disjoint from A's, but no memory type holds both: it gets a heap of its own.
     EXPECT_EQ( allocA->Offset, 0u );
-    EXPECT_EQ( allocB->Offset, 4096u );
+    EXPECT_NE( allocB->Heap, allocA->Heap );
+    EXPECT_EQ( allocB->Offset, 0u );
+    EXPECT_EQ( allocC->Heap, allocA->Heap );
     // C shares a type with A and starts after A ended: it reuses A's bytes.
     EXPECT_EQ( allocC->Offset, 0u );
     EXPECT_EQ( allocC->AliasPredecessors, std::vector<uint32_t>{ a.Index } );
@@ -2362,4 +2432,51 @@ TEST( RenderGraphCompile, NoLegacyConstructRemainsInTheEngine )
     for ( const std::string& hit : found )
         std::format_to( std::back_inserter( list ), "\n  {}", hit );
     EXPECT_TRUE( found.empty() ) << found.size() << " legacy construct(s) remain:" << list;
+}
+
+// Execute compiles against the backend's pipes, brackets every segment, records ownership releases after
+// their pass, and announces demoted AsyncCompute passes once per backend however many graphs demote.
+TEST( RenderGraphCompile, ExecuteWalksSegmentsAndReportsDemotionOncePerBackend )
+{
+    RecordingBackend demoting;
+    for ( int frame = 0; frame < 2; ++frame )
+    {
+        ExternalTexture  out( Tex2D( 64, 64, ImageFormat::RGBA8F ), Access::None );
+        Builder          graph( "demoted" );
+        const TextureRef o = graph.RegisterExternal( out, "Out" );
+        graph.AddPass(
+             "Async", PassFlags::Compute | PassFlags::AsyncCompute,
+             [&]( PassBuilder& pass ) { pass.Write( o, Access::StorageWrite ); }, Ok );
+        Common::BoolResultStr executed = graph.Execute( demoting );
+        ASSERT_TRUE( executed.IsSuccess() ) << executed.GetError();
+    }
+    ASSERT_EQ( demoting.FallbackLines.size(), 1u );
+    EXPECT_NE( demoting.FallbackLines[0].find( "Async" ), std::string::npos );
+    EXPECT_EQ( demoting.Segments,
+               ( std::vector<std::string>{ "Begin Graphics 0..0", "End", "Begin Graphics 0..0", "End" } ) );
+
+    RecordingBackend separate;
+    separate.Pipes.SeparateComputeFamily = true;
+    ExternalTexture  out( Tex2D( 64, 64, ImageFormat::RGBA8F ), Access::None );
+    Builder          graph( "async" );
+    const TextureRef o = graph.RegisterExternal( out, "Out" );
+    const TextureRef t = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA8F ), "T" );
+    graph.AddPass(
+         "Produce", PassFlags::Compute, [&]( PassBuilder& pass ) { pass.Write( t, Access::StorageWrite ); }, Ok );
+    graph.AddPass(
+         "Consume", PassFlags::Compute | PassFlags::AsyncCompute,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( t, Access::SampledCompute );
+             pass.Write( o, Access::StorageWrite );
+         },
+         Ok );
+    Common::BoolResultStr executed = graph.Execute( separate );
+    ASSERT_TRUE( executed.IsSuccess() ) << executed.GetError();
+    EXPECT_TRUE( separate.FallbackLines.empty() );
+    EXPECT_EQ( separate.Segments,
+               ( std::vector<std::string>{ "Begin Graphics 0..0", "End", "Begin AsyncCompute 1..1", "End" } ) );
+    // Produce releases T and Out to the compute queue; Consume releases Out back to Graphics.
+    EXPECT_EQ( std::count( separate.Calls.begin(), separate.Calls.end(), "Epilogue 2" ), 1 );
+    EXPECT_EQ( std::count( separate.Calls.begin(), separate.Calls.end(), "Epilogue 1" ), 1 );
 }

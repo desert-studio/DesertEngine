@@ -36,6 +36,19 @@ namespace Desert::Graphic::RDG
             AccessState Before;
             AccessState After;
             bool        Discard = false;
+            // Ownership transfers carry their pipes and the position of the other half (the acquire's
+            // release position, the release's acquire position); every other transition keeps the defaults.
+            BarrierKind Kind    = BarrierKind::Transition;
+            Pipe        SrcPipe = Pipe::Graphics;
+            Pipe        DstPipe = Pipe::Graphics;
+            uint32_t    Partner = 0;
+
+            bool SameTransition( const RdgRawTransition& other ) const
+            {
+                return Before == other.Before && After == other.After && Discard == other.Discard &&
+                       Kind == other.Kind && SrcPipe == other.SrcPipe && DstPipe == other.DstPipe &&
+                       Partner == other.Partner;
+            }
         };
 
         // Per-subresource walk state while barriers are collected.
@@ -46,7 +59,45 @@ namespace Desert::Graphic::RDG
             AccessState Group;       // current (possibly merged) state
             uint32_t    GroupPosition = 0;
             int32_t     GroupRaw      = -1; // index of the group's transition in its pass's raw list
+            Pipe        GroupPipe     = Pipe::Graphics; // the pipe that owns the subresource now
+            uint32_t    LastTouch     = 0;              // last position that used it (on GroupPipe)
+            // When the group was opened by an ownership acquire: its release half, widened together with it.
+            int32_t  ReleaseRaw      = -1;
+            uint32_t ReleasePosition = 0;
         };
+
+        // A maximal run of consecutive executed passes on Pipe::AsyncCompute, with its fork and join.
+        struct RdgAsyncRun
+        {
+            uint32_t First        = 0;
+            uint32_t Last         = 0;
+            int32_t  ForkPosition = -1; // graphics position that signals the fork; -1: no fork
+            uint32_t JoinPosition = CrossPipeSync::kJoinAtGraphEnd;
+            int32_t  ForkSync     = -1; // index into CompileResult::Syncs
+            int32_t  JoinSync     = -1;
+            bool     NeedsFork    = false; // an external it consumes was never touched by this graph before
+        };
+
+        Barrier RdgMakeBarrier( const RdgRawTransition& raw, ResourceKind kind, const SubresourceRange& range )
+        {
+            Barrier barrier;
+            barrier.BarrierType     = raw.Kind;
+            barrier.SrcPipe         = raw.SrcPipe;
+            barrier.DstPipe         = raw.DstPipe;
+            barrier.Resource        = raw.Resource;
+            barrier.Kind            = kind;
+            barrier.Range           = range;
+            barrier.Before          = raw.Before;
+            barrier.After           = raw.After;
+            barrier.DiscardContents = raw.Discard;
+            // The release half makes nothing visible on its own queue and the acquire half waits for nothing
+            // on its own queue: the semaphore between them carries the dependency, the layouts match.
+            if ( raw.Kind == BarrierKind::OwnershipRelease )
+                barrier.After = AccessState{ PipelineStage_None, MemoryAccess_None, raw.After.Layout };
+            if ( raw.Kind == BarrierKind::OwnershipAcquire )
+                barrier.Before = AccessState{ PipelineStage_None, MemoryAccess_None, raw.Before.Layout };
+            return barrier;
+        }
 
         constexpr AccessState kRdgUntouchedState{ PipelineStage_None, MemoryAccess_None, ImageLayout::Undefined };
 
@@ -55,9 +106,10 @@ namespace Desert::Graphic::RDG
             return ( value + alignment - 1 ) / alignment * alignment;
         }
 
+        // The aliasing plan's view of a lifetime: widened over the fork..join window of its async users.
         bool RdgLifetimesIntersect( const ResourceLifetime& a, const ResourceLifetime& b )
         {
-            return a.FirstPosition <= b.LastPosition && b.FirstPosition <= a.LastPosition;
+            return a.AliasFirstPosition <= b.AliasLastPosition && b.AliasFirstPosition <= a.AliasLastPosition;
         }
 
         bool RdgBytesIntersect( uint64_t aOffset, uint64_t aSize, uint64_t bOffset, uint64_t bSize )
@@ -69,27 +121,32 @@ namespace Desert::Graphic::RDG
         // then identical runs on consecutive layers. A bloom chain's "mip i-1 to read, mip i to write"
         // stays two barriers; a cascade map's four layers entering the same state become one.
         void RdgAppendMergedBarriers( std::vector<RdgRawTransition>& raws, const TextureDesc* desc,
-                                      ResourceKind kind, std::vector<Barrier>& out )
+                                      ResourceKind kind, std::vector<Barrier>& out,
+                                      std::vector<uint32_t>& partners )
         {
             if ( kind == ResourceKind::Buffer )
             {
                 for ( const RdgRawTransition& raw : raws )
-                    out.push_back( { raw.Resource, kind, SubresourceRange{ 0, 1, 0, 1 }, raw.Before, raw.After,
-                                     raw.Discard } );
+                {
+                    out.push_back( RdgMakeBarrier( raw, kind, SubresourceRange{ 0, 1, 0, 1 } ) );
+                    partners.push_back( raw.Partner );
+                }
                 return;
             }
             // Local subresource index is layer-major, so sorting by it walks layer by layer, mip by mip.
             std::sort( raws.begin(), raws.end(),
                        []( const RdgRawTransition& a, const RdgRawTransition& b ) { return a.Sub < b.Sub; } );
             const size_t first = out.size();
+            // The raw each rectangle was made from: rectangles extend by the FULL transition, so the release
+            // and the acquire half of one transfer merge into the same rectangles.
+            std::vector<size_t> sourceOf;
             for ( size_t i = 0; i < raws.size(); )
             {
                 const uint32_t layer   = raws[i].Sub / desc->Mips;
                 const uint32_t baseMip = raws[i].Sub % desc->Mips;
                 size_t         end     = i + 1;
                 while ( end < raws.size() && raws[end].Sub == raws[end - 1].Sub + 1 &&
-                        raws[end].Sub / desc->Mips == layer && raws[end].Before == raws[i].Before &&
-                        raws[end].After == raws[i].After && raws[end].Discard == raws[i].Discard )
+                        raws[end].Sub / desc->Mips == layer && raws[end].SameTransition( raws[i] ) )
                     ++end;
                 const uint32_t mipCount = static_cast<uint32_t>( end - i );
 
@@ -98,22 +155,32 @@ namespace Desert::Graphic::RDG
                 {
                     Barrier& open = out[b];
                     if ( open.Range.BaseMip == baseMip && open.Range.MipCount == mipCount &&
-                         open.Range.BaseLayer + open.Range.LayerCount == layer && open.Before == raws[i].Before &&
-                         open.After == raws[i].After && open.DiscardContents == raws[i].Discard )
+                         open.Range.BaseLayer + open.Range.LayerCount == layer &&
+                         raws[sourceOf[b - first]].SameTransition( raws[i] ) )
                     {
                         ++open.Range.LayerCount;
                         extended = true;
                     }
                 }
                 if ( !extended )
-                    out.push_back( { raws[i].Resource, kind, SubresourceRange{ baseMip, mipCount, layer, 1 },
-                                     raws[i].Before, raws[i].After, raws[i].Discard } );
+                {
+                    out.push_back(
+                         RdgMakeBarrier( raws[i], kind, SubresourceRange{ baseMip, mipCount, layer, 1 } ) );
+                    partners.push_back( raws[i].Partner );
+                    sourceOf.push_back( i );
+                }
                 i = end;
             }
         }
     } // namespace
 
     Common::ResultStr<CompileResult> Builder::Compile( const IMemoryRequirementsProvider& memory ) const
+    {
+        return Compile( memory, PipeCapabilities{} );
+    }
+
+    Common::ResultStr<CompileResult> Builder::Compile( const IMemoryRequirementsProvider& memory,
+                                                       const PipeCapabilities&            pipes ) const
     {
         if ( !m_DeclarationError.empty() )
             return Common::MakeError<CompileResult>( m_DeclarationError );
@@ -306,6 +373,155 @@ namespace Desert::Graphic::RDG
             }
         }
 
+        // ── S1. Pipe choice. Passes are never reordered: the scheduler only picks a pipe per pass ─────────
+        result.Pipes = pipes;
+        std::vector<Pipe>     pipeAt( executedCount, Pipe::Graphics );
+        std::vector<uint32_t> positionOf( passCount, ~0u );
+        for ( uint32_t position = 0; position < executedCount; ++position )
+        {
+            const uint32_t p = executed[position];
+            positionOf[p]    = position;
+            if ( !HasFlag( m_Passes[p].Flags, PassFlags::AsyncCompute ) )
+                continue;
+            if ( pipes.SeparateComputeFamily )
+                pipeAt[position] = Pipe::AsyncCompute;
+            else
+                result.DemotedAsyncPasses.push_back( p );
+        }
+
+        // ── S2. Async runs and their fork / join (CrossPipeSync) ──────────────────────────────────────────
+        // A run is a maximal range of consecutive async positions. Its fork is the last graphics pass it
+        // depends on (any RAW / WAR / WAW edge, or the release of contents it takes over); its join the first
+        // graphics pass that depends on it or takes over its contents, or the end of the graph.
+        std::vector<RdgAsyncRun>           runs;
+        std::vector<int32_t>               runAt( executedCount, -1 );
+        std::vector<std::vector<uint32_t>> waitAt( executedCount );
+        std::vector<std::vector<uint32_t>> signalAt( executedCount );
+        for ( uint32_t position = 0; position < executedCount; ++position )
+        {
+            if ( pipeAt[position] != Pipe::AsyncCompute )
+                continue;
+            if ( position == 0 || pipeAt[position - 1] != Pipe::AsyncCompute )
+                runs.push_back( { position, position } );
+            runs.back().Last = position;
+            runAt[position]  = static_cast<int32_t>( runs.size() - 1 );
+        }
+        if ( !runs.empty() )
+        {
+            for ( const DependencyEdge& edge : result.Edges )
+            {
+                const uint32_t from = positionOf[edge.From];
+                const uint32_t to   = positionOf[edge.To];
+                if ( pipeAt[from] == pipeAt[to] )
+                    continue;
+                if ( pipeAt[to] == Pipe::AsyncCompute )
+                {
+                    RdgAsyncRun& run = runs[static_cast<size_t>( runAt[to] )];
+                    run.ForkPosition = std::max( run.ForkPosition, static_cast<int32_t>( from ) );
+                }
+                else
+                {
+                    RdgAsyncRun& run = runs[static_cast<size_t>( runAt[from] )];
+                    run.JoinPosition = std::min( run.JoinPosition, to );
+                }
+            }
+            // Contents that change owner - read after read included, which has no edge - release on the old
+            // pipe before the sync and acquire on the new one after it. The same walk the barrier tracker
+            // makes below: externals start the graph owned by Graphics, transients by no pipe.
+            std::vector<int32_t> lastTouch( subCount, -1 );
+            std::vector<Pipe>    owner( subCount, Pipe::Graphics );
+            std::vector<bool>    owned( subCount, false );
+            for ( uint32_t r = 0; r < resourceCount; ++r )
+            {
+                for ( uint32_t sub = subBase[r]; sub < subBase[r + 1]; ++sub )
+                    owned[sub] = m_Resources[r].IsExternal();
+            }
+            for ( uint32_t position = 0; position < executedCount; ++position )
+            {
+                const Pipe pipe = pipeAt[position];
+                for ( const RdgSubUse& use : passUses[executed[position]] )
+                {
+                    if ( owned[use.Sub] && owner[use.Sub] != pipe && use.Consumes )
+                    {
+                        if ( pipe == Pipe::AsyncCompute )
+                        {
+                            RdgAsyncRun& run = runs[static_cast<size_t>( runAt[position] )];
+                            if ( lastTouch[use.Sub] < 0 )
+                                run.NeedsFork = true;
+                            else
+                                run.ForkPosition = std::max( run.ForkPosition, lastTouch[use.Sub] );
+                        }
+                        else
+                        {
+                            RdgAsyncRun& run =
+                                 runs[static_cast<size_t>( runAt[static_cast<size_t>( lastTouch[use.Sub] )] )];
+                            run.JoinPosition = std::min( run.JoinPosition, position );
+                        }
+                    }
+                    owned[use.Sub]     = true;
+                    owner[use.Sub]     = pipe;
+                    lastTouch[use.Sub] = static_cast<int32_t>( position );
+                }
+            }
+
+            for ( RdgAsyncRun& run : runs )
+            {
+                // An external the run consumes untouched by this graph so far: the previous graph left it
+                // owned by Graphics; the graphics pass just before the run releases it and forks.
+                if ( run.NeedsFork && run.ForkPosition < 0 )
+                {
+                    if ( run.First == 0 )
+                        return Common::MakeFormattedError<CompileResult>(
+                             "graph '{}' AsyncCompute pass '{}' consumes an external resource before any graphics "
+                             "pass of the graph; no graphics pass can release it to the compute queue",
+                             m_Name, m_Passes[executed[run.First]].Name );
+                    run.ForkPosition = static_cast<int32_t>( run.First - 1 );
+                }
+
+                std::vector<bool>  touched( resourceCount, false );
+                PipelineStageFlags asyncStages = PipelineStage_None;
+                for ( uint32_t position = run.First; position <= run.Last; ++position )
+                {
+                    for ( const RdgSubUse& use : passUses[executed[position]] )
+                    {
+                        asyncStages |= use.State.Stages;
+                        touched[use.Resource] = true;
+                    }
+                }
+                if ( run.ForkPosition >= 0 )
+                {
+                    const uint32_t fork = static_cast<uint32_t>( run.ForkPosition );
+                    run.ForkSync        = static_cast<int32_t>( result.Syncs.size() );
+                    result.Syncs.push_back(
+                         { Pipe::Graphics, fork, Pipe::AsyncCompute, run.First, asyncStages, true } );
+                    signalAt[fork].push_back( static_cast<uint32_t>( run.ForkSync ) );
+                    waitAt[run.First].push_back( static_cast<uint32_t>( run.ForkSync ) );
+                }
+                // The semaphore wait blocks only the stages it names for everything after it on the graphics
+                // queue: every graphics access to anything the run touched, from the join on. A join at the
+                // graph end guards the final barriers, which take over the run's own last accesses.
+                PipelineStageFlags joinStages = PipelineStage_None;
+                if ( run.JoinPosition == CrossPipeSync::kJoinAtGraphEnd )
+                    joinStages = asyncStages;
+                for ( uint32_t position = run.Last + 1; position < executedCount; ++position )
+                {
+                    if ( pipeAt[position] != Pipe::Graphics )
+                        continue;
+                    for ( const RdgSubUse& use : passUses[executed[position]] )
+                    {
+                        if ( touched[use.Resource] )
+                            joinStages |= use.State.Stages;
+                    }
+                }
+                run.JoinSync = static_cast<int32_t>( result.Syncs.size() );
+                result.Syncs.push_back(
+                     { Pipe::AsyncCompute, run.Last, Pipe::Graphics, run.JoinPosition, joinStages, false } );
+                signalAt[run.Last].push_back( static_cast<uint32_t>( run.JoinSync ) );
+                if ( run.JoinPosition != CrossPipeSync::kJoinAtGraphEnd )
+                    waitAt[run.JoinPosition].push_back( static_cast<uint32_t>( run.JoinSync ) );
+            }
+        }
+
         // ── 3. Lifetimes and derived usage of graph-owned resources ───────────────────────────────────
         std::vector<int32_t> lifetimeOf( resourceCount, -1 );
         for ( uint32_t position = 0; position < executedCount; ++position )
@@ -325,6 +541,30 @@ namespace Desert::Graphic::RDG
                 result.Lifetimes[index].LastPosition = position;
                 result.Lifetimes[index].LastPass     = executed[position];
                 result.Usages[index].AccessMask |= use.AccessMask;
+            }
+        }
+        // The aliasing plan's range: widened over the fork..join window of every async run that uses it.
+        for ( ResourceLifetime& lifetime : result.Lifetimes )
+        {
+            lifetime.AliasFirstPosition = lifetime.FirstPosition;
+            lifetime.AliasLastPosition  = lifetime.LastPosition;
+        }
+        for ( const RdgAsyncRun& run : runs )
+        {
+            const uint32_t windowFirst = run.ForkPosition < 0 ? 0u : static_cast<uint32_t>( run.ForkPosition );
+            const uint32_t windowLast =
+                 run.JoinPosition == CrossPipeSync::kJoinAtGraphEnd ? executedCount - 1 : run.JoinPosition;
+            for ( uint32_t position = run.First; position <= run.Last; ++position )
+            {
+                for ( const RdgSubUse& use : passUses[executed[position]] )
+                {
+                    if ( lifetimeOf[use.Resource] < 0 )
+                        continue;
+                    ResourceLifetime& lifetime = result.Lifetimes[static_cast<size_t>( lifetimeOf[use.Resource] )];
+                    lifetime.UsedOnAsyncCompute = true;
+                    lifetime.AliasFirstPosition = std::min( lifetime.AliasFirstPosition, windowFirst );
+                    lifetime.AliasLastPosition  = std::max( lifetime.AliasLastPosition, windowLast );
+                }
             }
         }
         for ( DerivedUsage& usage : result.Usages )
@@ -383,8 +623,8 @@ namespace Desert::Graphic::RDG
                        {
                            const ResourceLifetime& la = result.Lifetimes[a.Lifetime];
                            const ResourceLifetime& lb = result.Lifetimes[b.Lifetime];
-                           if ( la.FirstPosition != lb.FirstPosition )
-                               return la.FirstPosition < lb.FirstPosition;
+                           if ( la.AliasFirstPosition != lb.AliasFirstPosition )
+                               return la.AliasFirstPosition < lb.AliasFirstPosition;
                            if ( a.Footprint.Size != b.Footprint.Size )
                                return a.Footprint.Size > b.Footprint.Size;
                            return la.Resource < lb.Resource;
@@ -396,15 +636,23 @@ namespace Desert::Graphic::RDG
                 const ResourceLifetime& lifetime = result.Lifetimes[candidate.Lifetime];
                 const Footprint&        fp       = candidate.Footprint;
 
-                // Bytes can be shared only by resources that could live in one memory type: a placed
-                // allocation with a disjoint type set conflicts for its whole lifetime, as if always alive.
+                // Bytes can be shared only by resources that could live in one memory type: the first heap of
+                // the class whose type set (the intersection of its allocations' sets) meets this one's takes
+                // it; a disjoint set opens a heap of its own and never aliases the others.
+                uint32_t heap = 0;
+                while ( heap < result.Aliasing.Heaps.size() &&
+                        ( result.Aliasing.Heaps[heap].Class != fp.Class ||
+                          ( result.Aliasing.Heaps[heap].MemoryTypeBits & fp.MemoryTypeBits ) == 0 ) )
+                    ++heap;
+                if ( heap == result.Aliasing.Heaps.size() )
+                    result.Aliasing.Heaps.push_back( { fp.Class, fp.MemoryTypeBits, 0, 1 } );
+
                 std::vector<const Allocation*> conflicts;
                 for ( size_t a = 0; a < result.Aliasing.Allocations.size(); ++a )
                 {
                     const Allocation& placed = result.Aliasing.Allocations[a];
-                    if ( placed.Class == fp.Class &&
-                         ( ( placed.MemoryTypeBits & fp.MemoryTypeBits ) == 0 ||
-                           RdgLifetimesIntersect( result.Lifetimes[placedLifetime[a]], lifetime ) ) )
+                    if ( placed.Heap == heap &&
+                         RdgLifetimesIntersect( result.Lifetimes[placedLifetime[a]], lifetime ) )
                         conflicts.push_back( &placed );
                 }
                 uint64_t offset  = 0;
@@ -429,21 +677,26 @@ namespace Desert::Graphic::RDG
                 allocation.Size           = fp.Size;
                 allocation.Alignment      = fp.Alignment;
                 allocation.MemoryTypeBits = fp.MemoryTypeBits;
+                allocation.Heap           = heap;
                 for ( size_t a = 0; a < result.Aliasing.Allocations.size(); ++a )
                 {
                     const Allocation& placed = result.Aliasing.Allocations[a];
-                    if ( placed.Class == fp.Class && ( placed.MemoryTypeBits & fp.MemoryTypeBits ) != 0 &&
-                         result.Lifetimes[placedLifetime[a]].LastPosition < lifetime.FirstPosition &&
+                    if ( placed.Heap == heap &&
+                         result.Lifetimes[placedLifetime[a]].AliasLastPosition < lifetime.AliasFirstPosition &&
                          RdgBytesIntersect( offset, fp.Size, placed.Offset, placed.Size ) )
                         allocation.AliasPredecessors.push_back( placed.Resource );
                 }
-                const uint32_t classIndex = static_cast<uint32_t>( fp.Class );
-                result.Aliasing.PeakBytes[classIndex] =
-                     std::max( result.Aliasing.PeakBytes[classIndex], offset + fp.Size );
+                TransientHeapDesc& heapDesc = result.Aliasing.Heaps[heap];
+                heapDesc.MemoryTypeBits &= fp.MemoryTypeBits;
+                heapDesc.Bytes     = std::max( heapDesc.Bytes, offset + fp.Size );
+                heapDesc.Alignment = std::max( heapDesc.Alignment, fp.Alignment );
                 result.Aliasing.UnaliasedBytes += fp.Size;
                 result.Aliasing.Allocations.push_back( std::move( allocation ) );
                 placedLifetime.push_back( candidate.Lifetime );
             }
+            // A class's peak is the memory its heaps hold together.
+            for ( const TransientHeapDesc& heapDesc : result.Aliasing.Heaps )
+                result.Aliasing.PeakBytes[static_cast<uint32_t>( heapDesc.Class )] += heapDesc.Bytes;
             for ( uint64_t peak : result.Aliasing.PeakBytes )
                 result.Aliasing.TotalPeakBytes += peak;
         }
@@ -451,6 +704,12 @@ namespace Desert::Graphic::RDG
         // ── 4+5. Barriers (merged read states) and load/store decisions ───────────────────────────────
         std::vector<RdgSubTrack>                   track( subCount );
         std::vector<std::vector<RdgRawTransition>> raws( executedCount );
+        std::vector<std::vector<RdgRawTransition>> epilogueRaws( executedCount ); // ownership releases
+        auto                                       isAliased = [&]( uint32_t resource )
+        {
+            const Allocation* allocation = result.FindAllocation( resource );
+            return allocation && !allocation->AliasPredecessors.empty();
+        };
 
         // The state a subresource is in before the graph touches it. For transient memory that is
         // "undefined", entered after whatever aliased predecessor last used the same bytes.
@@ -488,10 +747,31 @@ namespace Desert::Graphic::RDG
                 RdgSubTrack&          sub       = track[use.Sub];
                 const ResourceRecord& record    = m_Resources[use.Resource];
                 const bool            transient = !record.IsExternal();
+                const Pipe            pipe      = pipeAt[position];
                 auto addRaw = [&]( uint32_t at, const AccessState& before, const AccessState& after, bool discard )
                 {
                     raws[at].push_back( { use.Sub, use.Resource, before, after, discard } );
                     return static_cast<int32_t>( raws[at].size() - 1 );
+                };
+                // The subresource moves from pipe @p from to this pass's pipe. Contents the pass consumes are
+                // transferred (release after the last use on @p from, acquire here); contents it discards
+                // are not, and the transition starts from Undefined.
+                auto crossPipes = [&]( const AccessState& before, uint32_t releasePosition, Pipe from )
+                {
+                    sub.ReleaseRaw = -1;
+                    if ( !use.Consumes )
+                    {
+                        sub.GroupRaw = addRaw( position, kRdgUntouchedState, use.State, true );
+                        return;
+                    }
+                    raws[position].push_back( { use.Sub, use.Resource, before, use.State, false,
+                                                BarrierKind::OwnershipAcquire, from, pipe, releasePosition } );
+                    sub.GroupRaw = static_cast<int32_t>( raws[position].size() - 1 );
+                    epilogueRaws[releasePosition].push_back( { use.Sub, use.Resource, before, use.State, false,
+                                                               BarrierKind::OwnershipRelease, from, pipe,
+                                                               position } );
+                    sub.ReleaseRaw      = static_cast<int32_t>( epilogueRaws[releasePosition].size() - 1 );
+                    sub.ReleasePosition = releasePosition;
                 };
 
                 if ( !sub.Touched )
@@ -501,14 +781,33 @@ namespace Desert::Graphic::RDG
                     sub.Group         = use.State;
                     sub.GroupPosition = position;
                     sub.GroupRaw      = -1;
-                    // A buffer has no layout to transition: with no earlier user of its bytes there is
-                    // nothing to wait for either, so its first use needs no barrier at all.
-                    const bool nothingToWaitFor =
-                         record.Kind == ResourceKind::Buffer && sub.GroupBefore == kRdgUntouchedState;
-                    if ( !nothingToWaitFor && !IsCoveredReadState( sub.GroupBefore, use.State ) )
-                        sub.GroupRaw = addRaw( position, sub.GroupBefore, use.State, transient );
+                    sub.ReleaseRaw    = -1;
+                    if ( record.IsExternal() && pipe != Pipe::Graphics )
+                    {
+                        // Externals enter every graph owned by Graphics; the run's fork pass releases it.
+                        crossPipes(
+                             sub.GroupBefore,
+                             static_cast<uint32_t>( runs[static_cast<size_t>( runAt[position] )].ForkPosition ),
+                             Pipe::Graphics );
+                    }
+                    else
+                    {
+                        // A buffer has no layout to transition: with no earlier user of its bytes there is
+                        // nothing to wait for either, so its first use needs no barrier at all.
+                        const bool nothingToWaitFor =
+                             record.Kind == ResourceKind::Buffer && sub.GroupBefore == kRdgUntouchedState;
+                        if ( !nothingToWaitFor && !IsCoveredReadState( sub.GroupBefore, use.State ) )
+                        {
+                            sub.GroupRaw = addRaw( position, sub.GroupBefore, use.State, transient );
+                            // Bytes an aliased predecessor used: the acquire, from Undefined, with the union of
+                            // the predecessors' last accesses (initialState) as its source scope.
+                            if ( transient && isAliased( use.Resource ) )
+                                raws[position][static_cast<size_t>( sub.GroupRaw )].Kind =
+                                     BarrierKind::AliasAcquire;
+                        }
+                    }
                 }
-                else if ( sub.Group.IsReadOnly() && use.State.IsReadOnly() &&
+                else if ( sub.GroupPipe == pipe && sub.Group.IsReadOnly() && use.State.IsReadOnly() &&
                           ( record.Kind == ResourceKind::Buffer || sub.Group.Layout == use.State.Layout ) )
                 {
                     // A buffer has no layout, so any two of its reads merge (an indirect-argument read joins the
@@ -517,19 +816,31 @@ namespace Desert::Graphic::RDG
                     // this pass's stages too, so no barrier is needed between the readers.
                     sub.Group = MergeReadStates( sub.Group, use.State );
                     if ( sub.GroupRaw >= 0 )
+                    {
                         raws[sub.GroupPosition][static_cast<size_t>( sub.GroupRaw )].After = sub.Group;
+                        // An acquire widens with its release half, so both halves stay one transfer.
+                        if ( sub.ReleaseRaw >= 0 )
+                            epilogueRaws[sub.ReleasePosition][static_cast<size_t>( sub.ReleaseRaw )].After =
+                                 sub.Group;
+                    }
                     else if ( !IsCoveredReadState( sub.GroupBefore, sub.Group ) )
                         sub.GroupRaw = addRaw( sub.GroupPosition, sub.GroupBefore, sub.Group, false );
                 }
                 else
                 {
                     // Every other change - read to write (WAR), write to read (RAW), write to write (WAW),
-                    // or a read in another layout - is a barrier.
+                    // a read in another layout, or any use on the other pipe - is a barrier.
                     sub.GroupBefore   = sub.Group;
                     sub.Group         = use.State;
                     sub.GroupPosition = position;
-                    sub.GroupRaw      = addRaw( position, sub.GroupBefore, use.State, false );
+                    sub.ReleaseRaw    = -1;
+                    if ( sub.GroupPipe != pipe )
+                        crossPipes( sub.GroupBefore, sub.LastTouch, sub.GroupPipe );
+                    else
+                        sub.GroupRaw = addRaw( position, sub.GroupBefore, use.State, false );
                 }
+                sub.GroupPipe = pipe;
+                sub.LastTouch = position;
             }
 
             // Load: a transient attachment nothing has written yet has nothing to load.
@@ -537,7 +848,10 @@ namespace Desert::Graphic::RDG
             CompiledPass      compiled;
             compiled.Pass  = p;
             compiled.Name  = pass.Name;
-            compiled.Flags = pass.Flags;
+            compiled.Flags       = pass.Flags;
+            compiled.OnPipe      = pipeAt[position];
+            compiled.WaitSyncs   = waitAt[position];
+            compiled.SignalSyncs = signalAt[position];
             for ( const AttachmentRecord& attachment : pass.Attachments )
             {
                 const ResourceRecord& record     = m_Resources[attachment.Resource];
@@ -657,6 +971,11 @@ namespace Desert::Graphic::RDG
                     merge = merge && ( attachment.IsResolve || attachment.Load == LoadAction::Load );
                 for ( const RdgRawTransition& raw : raws[position] )
                     merge = merge && raw.Before == raw.After && isOwnAttachment( current, raw );
+                // Never across a sync or a pipe: a pass that waits or signals neither continues nor keeps open
+                // a render pass, and a release after the previous pass needs its render pass ended.
+                merge = merge && previous.OnPipe == current.OnPipe && previous.WaitSyncs.empty() &&
+                        previous.SignalSyncs.empty() && current.WaitSyncs.empty() && current.SignalSyncs.empty() &&
+                        epilogueRaws[position - 1].empty();
                 if ( !merge )
                 {
                     opener = position;
@@ -690,7 +1009,20 @@ namespace Desert::Graphic::RDG
             for ( uint32_t sub = subBase[r]; sub < subBase[r + 1]; ++sub )
             {
                 AccessState last = track[sub].Touched ? track[sub].Group : initialState( r, sub - subBase[r] );
-                if ( record.IsExtracted() )
+                if ( track[sub].Touched && track[sub].GroupPipe != Pipe::Graphics )
+                {
+                    // Every external and extraction target leaves the graph owned by Graphics: released after
+                    // its last async use, acquired in the final barriers after the run's join.
+                    const AccessState target = record.IsExtracted() ? GetAccessState( record.FinalAccess ) : last;
+                    const uint32_t    at     = track[sub].LastTouch;
+                    finalRaws.push_back( { sub, r, last, target, false, BarrierKind::OwnershipAcquire,
+                                           track[sub].GroupPipe, Pipe::Graphics, at } );
+                    epilogueRaws[at].push_back( { sub, r, last, target, false, BarrierKind::OwnershipRelease,
+                                                  track[sub].GroupPipe, Pipe::Graphics,
+                                                  CrossPipeSync::kJoinAtGraphEnd } );
+                    last = target;
+                }
+                else if ( record.IsExtracted() )
                 {
                     const AccessState target = GetAccessState( record.FinalAccess );
                     if ( !IsCoveredReadState( last, target ) )
@@ -703,7 +1035,9 @@ namespace Desert::Graphic::RDG
         }
 
         // Ranges: one barrier per rectangle of subresources sharing a transition, grouped by resource.
-        auto emit = [&]( std::vector<RdgRawTransition>& list, std::vector<Barrier>& out )
+        // @p partners receives, per barrier, the position of the other half of an ownership transfer.
+        auto emit =
+             [&]( std::vector<RdgRawTransition>& list, std::vector<Barrier>& out, std::vector<uint32_t>& partners )
         {
             std::stable_sort( list.begin(), list.end(), []( const RdgRawTransition& a, const RdgRawTransition& b )
                               { return a.Resource < b.Resource; } );
@@ -717,13 +1051,68 @@ namespace Desert::Graphic::RDG
                 const ResourceRecord&         record = m_Resources[list[i].Resource];
                 for ( RdgRawTransition& raw : group )
                     raw.Sub -= subBase[raw.Resource];
-                RdgAppendMergedBarriers( group, &record.Texture, record.Kind, out );
+                RdgAppendMergedBarriers( group, &record.Texture, record.Kind, out, partners );
                 i = end;
             }
         };
+        // One QueueOwnershipTransfer per acquire rectangle; its release has the same rectangle (the two
+        // halves carry the same full transition, so they merge alike).
+        auto addTransfers = [&]( const std::vector<Barrier>& barriers, const std::vector<uint32_t>& partners,
+                                 uint32_t acquirePosition )
+        {
+            for ( size_t b = 0; b < barriers.size(); ++b )
+            {
+                const Barrier& barrier = barriers[b];
+                if ( barrier.BarrierType != BarrierKind::OwnershipAcquire )
+                    continue;
+                QueueOwnershipTransfer transfer;
+                transfer.Resource        = barrier.Resource;
+                transfer.Kind            = barrier.Kind;
+                transfer.Range           = barrier.Range;
+                transfer.From            = barrier.SrcPipe;
+                transfer.To              = barrier.DstPipe;
+                transfer.ReleasePosition = partners[b];
+                transfer.AcquirePosition = acquirePosition;
+                const RdgAsyncRun& run   = barrier.SrcPipe == Pipe::Graphics
+                                                ? runs[static_cast<size_t>( runAt[acquirePosition] )]
+                                                : runs[static_cast<size_t>( runAt[transfer.ReleasePosition] )];
+                transfer.Sync =
+                     static_cast<uint32_t>( barrier.SrcPipe == Pipe::Graphics ? run.ForkSync : run.JoinSync );
+                result.OwnershipTransfers.push_back( transfer );
+            }
+        };
         for ( uint32_t position = 0; position < executedCount; ++position )
-            emit( raws[position], result.Passes[position].Barriers );
-        emit( finalRaws, result.FinalBarriers );
+        {
+            std::vector<uint32_t> partners;
+            emit( raws[position], result.Passes[position].Barriers, partners );
+            addTransfers( result.Passes[position].Barriers, partners, position );
+            std::vector<uint32_t> releasePartners;
+            emit( epilogueRaws[position], result.Passes[position].EpilogueBarriers, releasePartners );
+        }
+        {
+            std::vector<uint32_t> partners;
+            emit( finalRaws, result.FinalBarriers, partners );
+            addTransfers( result.FinalBarriers, partners, CrossPipeSync::kJoinAtGraphEnd );
+        }
+
+        // ── S3. Pipe segments: what the backend records into one command buffer and submits once ──────────
+        // An async segment is one run (fork wait at its first pass, join signal at its last); a graphics
+        // segment is split before a pass that waits on a join and after a pass that signals a fork. In
+        // position order, a segment comes after every segment it waits on.
+        for ( uint32_t position = 0; position < executedCount; ++position )
+        {
+            const CompiledPass& pass  = result.Passes[position];
+            const bool          split = position == 0 || pass.OnPipe != result.Passes[position - 1].OnPipe ||
+                               ( pass.OnPipe == Pipe::Graphics &&
+                                 ( !pass.WaitSyncs.empty() || !result.Passes[position - 1].SignalSyncs.empty() ) );
+            if ( split )
+                result.Segments.push_back( { pass.OnPipe, position, position } );
+            PipeSegment& segment = result.Segments.back();
+            segment.LastPosition = position;
+            segment.WaitSyncs.insert( segment.WaitSyncs.end(), pass.WaitSyncs.begin(), pass.WaitSyncs.end() );
+            segment.SignalSyncs.insert( segment.SignalSyncs.end(), pass.SignalSyncs.begin(),
+                                        pass.SignalSyncs.end() );
+        }
 
         return Common::MakeSuccess( std::move( result ) );
     }
