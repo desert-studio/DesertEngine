@@ -291,7 +291,7 @@ namespace Desert::Editor
         void BracketUIClipEditFromItem( ECS::UIAnimData& clip );
         // The Loop checkbox, which has already written the field by the time it answers true: the value is
         // put back for the length of one transaction so the entry's "before" is the state that was there.
-        void RecordUIClipToggle( ECS::UIAnimData& clip, bool loopBefore );
+        void RecordUIClipToggle( ECS::UIAnimData& clip, Animation::Timeline::LoopMode loop );
         // Close the open UI-clip transaction and say so if it refuses. A refusal here is a real defect (an
         // end with no begin) and the one thing a silent close would hide.
         void EndUIClipEdit();

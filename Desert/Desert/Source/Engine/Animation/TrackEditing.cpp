@@ -529,20 +529,27 @@ namespace Desert::Animation
         {
             return *channel;
         }
-        // BELOW every existing row: the new section fills the gap the tick fell in and hides nothing an
-        // animator authored (a later section on the same row would win everywhere it overlaps).
-        int32_t row = 0;
+        // THE GAP THE TICK FELL IN, and nothing wider: no section covers @p tick, so the new one spans from
+        // just after the nearest section ending before it to just before the nearest one starting after it
+        // (clamped to the playback range). It overlaps no authored section, so it hides nothing an animator
+        // authored and needs no row below theirs — AddSection gives it the first free row, which is >= 0
+        // like every row (UE's row index; SetSectionRow refuses a negative one).
+        FrameNumber gapStart = std::min( sequence.Start, tick );
+        FrameNumber gapEnd   = std::max( sequence.End, tick );
         for ( const Timeline::Section& section : track.Sections )
         {
-            row = std::min( row, section.Row - 1 );
+            if ( section.End < tick && gapStart < FrameNumber{ section.End.Value + 1 } )
+            {
+                gapStart = FrameNumber{ section.End.Value + 1 };
+            }
+            if ( tick < section.Start && FrameNumber{ section.Start.Value - 1 } < gapEnd )
+            {
+                gapEnd = FrameNumber{ section.Start.Value - 1 };
+            }
         }
-        Timeline::Section section;
-        section.Start   = sequence.Start;
-        section.End     = sequence.End;
-        section.Blend   = SectionBlendType::Absolute;
-        section.Row     = track.Sections.empty() ? 0 : row;
-        section.Content = Timeline::MakeChannel( Timeline::ChannelKind::Transform );
-        track.Sections.push_back( std::move( section ) );
+        Timeline::Section& section = Timeline::AddSection( track, gapStart, gapEnd );
+        section.Blend              = SectionBlendType::Absolute;
+        section.Content            = Timeline::MakeChannel( Timeline::ChannelKind::Transform );
         ++sequence.Revision;
         return *TransformOf( track.Sections.back() );
     }

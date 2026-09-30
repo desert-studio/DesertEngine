@@ -169,7 +169,9 @@ TEST( TimelineKeying, AKeyOutsideEverySectionFillsTheGapAndHidesNothing )
     const Track* after = FindBoneTrack( std::as_const( clip.Sequence ), "chest" );
     ASSERT_NE( after, nullptr );
     ASSERT_EQ( after->Sections.size(), 2U );
-    EXPECT_LT( after->Sections[1].Row, after->Sections[0].Row ) << "the new section goes BELOW the authored one";
+    EXPECT_EQ( after->Sections[1].Start.Value, 51 ) << "the new section fills the gap after the authored one";
+    EXPECT_EQ( after->Sections[1].End.Value, 100 ) << "and stops at the playback range";
+    EXPECT_GE( after->Sections[1].Row, 0 ) << "rows are never negative (UE's row index)";
     EXPECT_EQ( Played( clip, skeleton, 20 ).Translation.x, 5.0F )
          << "the authored section still wins where it covers";
     EXPECT_EQ( Played( clip, skeleton, 80 ).Translation.x, -3.0F );

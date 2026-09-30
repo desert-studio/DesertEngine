@@ -140,8 +140,9 @@ namespace Desert::Animation
     /// The channel a key at @p tick lands in (see the file note), or null when no section covers the tick.
     [[nodiscard]] Timeline::TransformChannel* KeyedChannelAt( Timeline::Track& track, FrameNumber tick );
 
-    /// `KeyedChannelAt`, or a new Absolute section over the whole clip below every existing row. Revision++
-    /// when a section is created.
+    /// `KeyedChannelAt`, or a new Absolute section over exactly the gap @p tick fell in (between the
+    /// neighbouring sections, within the playback range), on the first free row — so it overlaps and hides
+    /// nothing, and its row is >= 0. Revision++ when a section is created.
     [[nodiscard]] Timeline::TransformChannel& ChannelForKey( Timeline::Sequence& sequence, Timeline::Track& track,
                                                              FrameNumber tick );
 

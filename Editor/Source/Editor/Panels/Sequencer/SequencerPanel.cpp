@@ -16,6 +16,7 @@
 #include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Editor/Core/GizmoState.hpp>
 
+#include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -2111,13 +2112,14 @@ namespace Desert::Editor
         actions.push_back( DocumentAction{ "Select the next lane", [this]
                                            {
                                                const auto clip = ResolveUIClip();
-                                               if ( clip == nullptr || clip->Tracks.empty() )
+                                               if ( clip == nullptr || clip->Sequence.Tracks.empty() )
                                                {
                                                    ToastManager::Push( "this clip has no lane", ToastLevel::Error,
                                                                        6.0f );
                                                    return;
                                                }
-                                               const int count = static_cast<int>( clip->Tracks.size() );
+                                               const int count =
+                                                    static_cast<int>( clip->Sequence.Tracks.size() );
                                                m_UITrack       = ( m_UITrack + 1 ) % count;
                                                m_UIKey         = -1;
                                            } } );
@@ -2213,23 +2215,41 @@ namespace Desert::Editor
                      ToastManager::Push( "Clip NOT saved: " + saved.GetError(), ToastLevel::Error, 8.0f );
                  }
              } } );
+        // SECTIONS BELONG TO A TRACK (UE: UMovieSceneSection lives in its UMovieSceneTrack), so the palette
+        // picks the track first; every section command below refuses in words until one is picked.
+        actions.push_back( DocumentAction{ "Select the next track", [this]
+                                           {
+                                               const auto target = ResolveSectionTarget();
+                                               if ( !target || target->Clip->Sequence.Tracks.empty() )
+                                               {
+                                                   ToastManager::Push( "this clip has no track", ToastLevel::Error,
+                                                                       6.0f );
+                                                   return;
+                                               }
+                                               const int count =
+                                                    static_cast<int>( target->Clip->Sequence.Tracks.size() );
+                                               m_SelTrack = ( m_SelTrack + 1 ) % count;
+                                               m_SelKey   = -1;
+                                               SelectSection( -1 );
+                                           } } );
         actions.push_back( DocumentAction{ "Select the next section", [this]
                                            {
                                                const auto target = ResolveSectionTarget();
-                                               if ( !target || target->Clip->Sections.empty() )
+                                               if ( !target || target->Track == nullptr ||
+                                                    target->Track->Sections.empty() )
                                                {
-                                                   ToastManager::Push( "this clip states no section",
+                                                   ToastManager::Push( "the selected track states no section",
                                                                        ToastLevel::Error, 6.0f );
                                                    return;
                                                }
-                                               const int count = static_cast<int>( target->Clip->Sections.size() );
+                                               const int count = static_cast<int>( target->Track->Sections.size() );
                                                SelectSection( ( m_SelSection + 1 ) % count );
                                            } } );
         actions.push_back( DocumentAction{
              "Delete the selected section", [this]
              {
                  RunSectionEdit( "delete section", []( SectionTarget& target, size_t index )
-                                 { return Animation::RemoveSection( target.Clip->Sections, index ); } );
+                                 { return TL::RemoveSection( *target.Track, index ); } );
                  SelectSection( -1 );
              } } );
         actions.push_back( DocumentAction{ "Set the selected section's start to the playhead", [this]
@@ -2237,11 +2257,10 @@ namespace Desert::Editor
                                                RunSectionEdit( "section start",
                                                                []( SectionTarget& target, size_t index )
                                                                {
-                                                                   return Animation::SetSectionRange(
-                                                                        target.Clip->Sections, index,
+                                                                   return TL::SetSectionRange(
+                                                                        *target.Track, index,
                                                                         target.Animator->GetCurrentTick().Frame,
-                                                                        target.Clip->Sections[index].End,
-                                                                        target.Clip->DurationTicks );
+                                                                        target.Track->Sections[index].End );
                                                                } );
                                            } } );
         actions.push_back( DocumentAction{ "Set the selected section's end to the playhead", [this]
@@ -2249,11 +2268,10 @@ namespace Desert::Editor
                                                RunSectionEdit( "section end",
                                                                []( SectionTarget& target, size_t index )
                                                                {
-                                                                   return Animation::SetSectionRange(
-                                                                        target.Clip->Sections, index,
-                                                                        target.Clip->Sections[index].Start,
-                                                                        target.Animator->GetCurrentTick().Frame,
-                                                                        target.Clip->DurationTicks );
+                                                                   return TL::SetSectionRange(
+                                                                        *target.Track, index,
+                                                                        target.Track->Sections[index].Start,
+                                                                        target.Animator->GetCurrentTick().Frame );
                                                                } );
                                            } } );
         actions.push_back( DocumentAction{ "Set the selected section to Additive", [this]
@@ -2261,7 +2279,7 @@ namespace Desert::Editor
                                                RunSectionEdit( "section blend",
                                                                []( SectionTarget& target, size_t index )
                                                                {
-                                                                   target.Clip->Sections[index].Blend =
+                                                                   target.Track->Sections[index].Blend =
                                                                         Animation::SectionBlendType::Additive;
                                                                    return Common::MakeSuccess( true );
                                                                } );
@@ -2271,7 +2289,7 @@ namespace Desert::Editor
                                                RunSectionEdit( "section blend",
                                                                []( SectionTarget& target, size_t index )
                                                                {
-                                                                   target.Clip->Sections[index].Blend =
+                                                                   target.Track->Sections[index].Blend =
                                                                         Animation::SectionBlendType::Absolute;
                                                                    return Common::MakeSuccess( true );
                                                                } );
@@ -2284,8 +2302,8 @@ namespace Desert::Editor
                                                RunSectionEdit( "section weight",
                                                                []( SectionTarget& target, size_t index )
                                                                {
-                                                                   return Animation::SetSectionWeightKey(
-                                                                        target.Clip->Sections[index],
+                                                                   return TL::SetSectionWeightKey(
+                                                                        *target.Track, index,
                                                                         target.Animator->GetCurrentTick().Frame,
                                                                         0.0f );
                                                                } );
@@ -2295,8 +2313,8 @@ namespace Desert::Editor
                                                RunSectionEdit( "section weight",
                                                                []( SectionTarget& target, size_t index )
                                                                {
-                                                                   return Animation::SetSectionWeightKey(
-                                                                        target.Clip->Sections[index],
+                                                                   return TL::SetSectionWeightKey(
+                                                                        *target.Track, index,
                                                                         target.Animator->GetCurrentTick().Frame,
                                                                         1.0f );
                                                                } );
@@ -2305,51 +2323,7 @@ namespace Desert::Editor
                                            {
                                                RunSectionEdit( "clear fade",
                                                                []( SectionTarget& target, size_t index )
-                                                               {
-                                                                   Animation::ClearSectionWeight(
-                                                                        target.Clip->Sections[index] );
-                                                                   return Common::MakeSuccess( true );
-                                                               } );
-                                           } } );
-        actions.push_back( DocumentAction{
-             "Limit the selected section to the selected bone's track", [this]
-             {
-                 RunSectionEdit(
-                      "section tracks",
-                      []( SectionTarget& target, size_t index ) -> Common::BoolResultStr
-                      {
-                          const int bone = Core::ActiveAuthoringContext().SelectedBoneIndex();
-                          if ( bone < 0 ||
-                               bone >= static_cast<int>( target.Animator->GetSkeleton().GetBones().size() ) )
-                          {
-                              return Common::MakeError<bool>(
-                                   "no bone is selected — pick one in the lanes below" );
-                          }
-                          const std::string& name =
-                               target.Animator->GetSkeleton().GetBones()[static_cast<size_t>( bone )].Name;
-                          // The whole list is replaced rather than narrowed: "limit to
-                          // THIS one" is one statement, and doing it as a sequence of
-                          // removals would leave a different list behind on every rig.
-                          for ( const auto& track : target.Clip->Tracks )
-                          {
-                              if ( track.BoneName == name )
-                              {
-                                  target.Clip->Sections[index].Tracks = { name };
-                                  return Common::MakeSuccess( true );
-                              }
-                          }
-                          return Common::MakeFormattedError<bool>( "the clip has no track for bone '{}'", name );
-                      } );
-             } } );
-        actions.push_back( DocumentAction{ "Let the selected section speak for every track", [this]
-                                           {
-                                               RunSectionEdit( "section tracks",
-                                                               []( SectionTarget& target, size_t index )
-                                                               {
-                                                                   Animation::SetSectionSpeaksForEveryTrack(
-                                                                        target.Clip->Sections[index] );
-                                                                   return Common::MakeSuccess( true );
-                                                               } );
+                                                               { return TL::ClearSectionWeight( *target.Track, index ); } );
                                            } } );
         actions.push_back(
              DocumentAction{ "Raise the selected section's priority", [this] { ReorderSelectedSection( 1 ); } } );
@@ -2361,7 +2335,7 @@ namespace Desert::Editor
     void SequencerPanel::DrawCurveView( Animation::AnimationClip* clip, Animation::Animator* animator,
                                         float contentX0, float gutter, float laneW, float duration )
     {
-        if ( clip == nullptr || clip->Tracks.empty() )
+        if ( clip == nullptr || clip->Sequence.Tracks.empty() )
         {
             ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
             ImGui::TextDisabled( "This clip has no bone tracks." );
@@ -2380,20 +2354,31 @@ namespace Desert::Editor
         //
         // The fallback is LOCAL and does not write the selection: the dope sheet's own highlight is the
         // animator's, and a view that silently moved it would change what the next key edit applies to.
+        TL::Sequence& sequence    = clip->Sequence;
+        const auto    isBoneTrack = [&]( int index )
+        {
+            return index >= 0 && index < static_cast<int>( sequence.Tracks.size() ) &&
+                   BoneOfTrack( sequence, sequence.Tracks[static_cast<size_t>( index )] ) != nullptr;
+        };
         int viewTrack   = m_SelTrack;
         int viewChannel = m_SelChannel;
-        if ( viewTrack < 0 || viewTrack >= static_cast<int>( clip->Tracks.size() ) || viewChannel < 0 )
+        if ( !isBoneTrack( viewTrack ) || viewChannel < 0 )
         {
             viewTrack   = -1;
             viewChannel = 0;
-            for ( int ti = 0; ti < static_cast<int>( clip->Tracks.size() ) && viewTrack < 0; ++ti )
+            for ( int ti = 0; ti < static_cast<int>( sequence.Tracks.size() ) && viewTrack < 0; ++ti )
             {
-                if ( !clip->Tracks[ti].PositionKeys.empty() )
+                if ( !isBoneTrack( ti ) )
+                {
+                    continue;
+                }
+                const TL::Track& candidate = sequence.Tracks[static_cast<size_t>( ti )];
+                if ( !PartTicks( candidate, Animation::TrackChannel::Position ).empty() )
                 {
                     viewTrack   = ti;
                     viewChannel = 0;
                 }
-                else if ( !clip->Tracks[ti].ScaleKeys.empty() )
+                else if ( !PartTicks( candidate, Animation::TrackChannel::Scale ).empty() )
                 {
                     viewTrack   = ti;
                     viewChannel = 2;
@@ -2407,7 +2392,8 @@ namespace Desert::Editor
             }
         }
 
-        Animation::BoneTrack& track = clip->Tracks[viewTrack];
+        TL::Track&         track = sequence.Tracks[static_cast<size_t>( viewTrack )];
+        const std::string& bone  = *BoneOfTrack( sequence, track );
 
         // ROTATION IS REFUSED BY NAME rather than drawn as four meaningless lines. The same argument A6 used
         // to refuse a cubic rotation key: the four components of a quaternion are not four curves, and the
@@ -2426,17 +2412,40 @@ namespace Desert::Editor
 
         const Animation::TrackChannel channel =
              ( viewChannel == 0 ) ? Animation::TrackChannel::Position : Animation::TrackChannel::Scale;
-        const Animation::FrameRate tickRate    = clip->TickRate;
-        const Animation::FrameRate displayRate = clip->DisplayRate;
+        const Animation::FrameRate tickRate    = sequence.TickRate;
+        const Animation::FrameRate displayRate = sequence.DisplayRate;
+
+        // ONE SECTION'S CHANNEL IS ONE SET OF CURVES (UE's curve editor shows a section's channels): the
+        // selected section when it is on this track, else the section holding the selected key, else the
+        // first section with keys on this part. A view that merged sections would draw keys no edit can reach.
+        const bool            keyHere = viewTrack == m_SelTrack && m_SelKey >= 0;
+        TL::TransformChannel* shown   = nullptr;
+        if ( viewTrack == m_SelTrack && m_SelSection >= 0 &&
+             m_SelSection < static_cast<int>( track.Sections.size() ) )
+        {
+            shown = TransformOf( track.Sections[static_cast<size_t>( m_SelSection )] );
+        }
+        if ( shown == nullptr && keyHere )
+        {
+            shown = ChannelHoldingPartKey( track, channel, m_SelKeyTick );
+        }
+        for ( size_t si = 0; si < track.Sections.size() && shown == nullptr; ++si )
+        {
+            TL::TransformChannel* candidate = TransformOf( track.Sections[si] );
+            if ( candidate != nullptr && !Animation::LiftChannel( *candidate, channel, 0 ).empty() )
+            {
+                shown = candidate;
+            }
+        }
 
         // THE SAME SCALARS THE TANGENT RULES USE — see TrackEditing::LiftChannel. A view that built its own
         // would be a second statement of what a channel is.
         std::vector<Animation::ScalarKey> lifted[3];
-        for ( int component = 0; component < 3; ++component )
+        for ( int component = 0; component < 3 && shown != nullptr; ++component )
         {
-            lifted[component] = Animation::LiftChannel( track, channel, component );
+            lifted[component] = Animation::LiftChannel( *shown, channel, component );
         }
-        if ( lifted[0].empty() )
+        if ( shown == nullptr || lifted[0].empty() )
         {
             ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
             ImGui::TextDisabled( "This channel has no keys yet — add one from the dope sheet's + button." );
@@ -2490,7 +2499,7 @@ namespace Desert::Editor
         std::snprintf( label, sizeof( label ), "%.2f", m_CurveRange.x );
         dl->AddText( ImVec2( contentX0 + 6.0f, vp.Y1 - 16.0f ), IM_COL32( 170, 170, 180, 200 ), label );
         dl->AddText( ImVec2( contentX0 + 6.0f, vp.Y0 + plotH * 0.5f - 8.0f ), IM_COL32( 200, 200, 210, 220 ),
-                     track.BoneName.c_str() );
+                     bone.c_str() );
 
         // ---- the three component curves, sampled through the evaluator playback calls -------------------
         const ImU32   compCol[3] = { IM_COL32( 235, 110, 110, 255 ), IM_COL32( 130, 225, 130, 255 ),
@@ -2506,9 +2515,10 @@ namespace Desert::Editor
         {
             const double seconds = static_cast<double>( duration ) * static_cast<double>( sample ) / kSamples;
             const Animation::FrameTime at    = Animation::SecondsToFrameTime( seconds, tickRate );
-            const glm::vec3            value = ( channel == Animation::TrackChannel::Position )
-                                                    ? track.GetInterpolatedPosition( at, tickRate )
-                                                    : track.GetInterpolatedScale( at, tickRate );
+            const Animation::BoneTransform pose  = TL::Evaluate( *shown, at, tickRate );
+            const glm::vec3                value = ( channel == Animation::TrackChannel::Position )
+                                                        ? pose.Translation
+                                                        : pose.Scale;
             const float                x     = vp.TimeToX( seconds );
 
             for ( int component = 0; component < 3; ++component )
@@ -2549,7 +2559,7 @@ namespace Desert::Editor
             for ( int k = 0; k < static_cast<int>( keys.size() ); ++k )
             {
                 const ImVec2 p        = keyAt( keys[k] );
-                const bool   selected = ( k == m_SelKey );
+                const bool   selected = keyHere && keys[k].Tick == m_SelKeyTick;
                 dl->AddCircleFilled( p, selected ? 4.5f : 3.0f,
                                      selected ? IM_COL32( 255, 235, 160, 255 ) : compCol[component] );
 
@@ -2593,7 +2603,7 @@ namespace Desert::Editor
                     const ImVec2 p = keyAt( lifted[component][k] );
                     if ( std::abs( mouse.x - p.x ) < kGrab && std::abs( mouse.y - p.y ) < kGrab )
                     {
-                        m_SelKey             = k;
+                        SelectKey( viewTrack, viewChannel, lifted[component][k].Tick, sequence );
                         m_CurveDragKey       = k;
                         m_CurveDragComponent = component;
                         m_CurveDragHandle    = 0;
@@ -2606,7 +2616,7 @@ namespace Desert::Editor
         // edit below is the first thing that touches the track — so the transaction opens between them.
         if ( curveDragBefore < 0 && m_CurveDragKey >= 0 )
         {
-            if ( const auto began = m_ClipEdit.Begin( animator, clip ); !began.IsSuccess() )
+            if ( const auto began = m_ClipEdit.Begin( OwnerOf( clip ), animator ); !began.IsSuccess() )
             {
                 LOG_ERROR( "[Sequencer] curve edit not undoable: {}", began.GetError() );
             }
@@ -2684,59 +2694,29 @@ namespace Desert::Editor
         if ( edited )
         {
             const int  component = m_CurveDragComponent;
-            const bool written   = Animation::ApplyChannel( track, channel, component, lifted[component] );
+            const bool written   = Animation::ApplyChannel( *shown, channel, component, lifted[component] );
             if ( written )
             {
-                // The retime, if the drag was a retime: on the TRACK, where a key's tick lives, and after
-                // the values are in — so the two halves of one drag cannot half-apply.
-                if ( retimeKey >= 0 )
+                FinishChannelEdit( sequence, *shown );
+                // THE RETIME MOVES THE PART'S KEY IN EVERY COMPONENT (a position key is one key of three
+                // floats), through the one function the dope sheet's drag calls.
+                if ( retimeKey >= 0 && lifted[component][static_cast<size_t>( retimeKey )].Tick != retimeTo )
                 {
-                    if ( channel == Animation::TrackChannel::Position &&
-                         retimeKey < static_cast<int>( track.PositionKeys.size() ) )
+                    const Animation::FrameNumber from = lifted[component][static_cast<size_t>( retimeKey )].Tick;
+                    if ( Animation::MoveBoneKey( sequence, bone, channel, from, retimeTo ).IsSuccess() )
                     {
-                        track.PositionKeys[retimeKey].Tick = retimeTo;
-                    }
-                    else if ( channel == Animation::TrackChannel::Scale &&
-                              retimeKey < static_cast<int>( track.ScaleKeys.size() ) )
-                    {
-                        track.ScaleKeys[retimeKey].Tick = retimeTo;
-                    }
-                }
-                // A key may have crossed a neighbour: the channel is re-sorted and the whole channel's auto
-                // tangents recomputed, exactly as every other edit path does (§969 item 1).
-                if ( channel == Animation::TrackChannel::Position )
-                {
-                    std::sort( track.PositionKeys.begin(), track.PositionKeys.end() );
-                }
-                else
-                {
-                    std::sort( track.ScaleKeys.begin(), track.ScaleKeys.end() );
-                }
-                // THE SORT INVALIDATES THE INDEX THE MOUSE IS HOLDING. A key dragged past its neighbour
-                // changes place in the vector, and a drag that kept the old index would carry on moving
-                // whatever landed there instead — the key the animator is dragging would swap under the
-                // cursor. The dope sheet re-finds its key after a sort for the same reason; this one can
-                // do it by TICK exactly, because A5 put every key on one.
-                if ( retimeKey >= 0 )
-                {
-                    const auto& sorted = ( channel == Animation::TrackChannel::Position )
-                                              ? track.PositionKeys.size()
-                                              : track.ScaleKeys.size();
-                    for ( std::size_t i = 0; i < sorted; ++i )
-                    {
-                        const Animation::FrameNumber tick = ( channel == Animation::TrackChannel::Position )
-                                                                 ? track.PositionKeys[i].Tick
-                                                                 : track.ScaleKeys[i].Tick;
-                        if ( tick == retimeTo )
+                        const auto after = Animation::LiftChannel( *shown, channel, component );
+                        for ( size_t i = 0; i < after.size(); ++i )
                         {
-                            m_CurveDragKey = static_cast<int>( i );
-                            m_SelKey       = static_cast<int>( i );
-                            break;
+                            if ( after[i].Tick == retimeTo )
+                            {
+                                m_CurveDragKey = static_cast<int>( i );
+                                break;
+                            }
                         }
+                        SelectKey( viewTrack, viewChannel, retimeTo, sequence );
                     }
                 }
-
-                Animation::RefreshTangents( track, tickRate );
                 animator->SetTime( animator->GetCurrentTime() );
             }
         }
@@ -2749,68 +2729,188 @@ namespace Desert::Editor
                              "handle on a User/Break key to set its tangent." );
     }
 
+    namespace
+    {
+        // ── THE UI HOST'S KEYS, over Timeline (UE: UWidgetAnimation is a UMovieScene) ──────────────────
+        // A UI track is Float (Opacity) or Vector (Offset, Size, Color); a key of the track is a tick keyed
+        // in its components. These helpers are the only place the lanes and the inspector touch keys.
+        constexpr std::array<const char*, 4> kUIProperties = { "Offset", "Size", "Opacity", "Color" };
+
+        std::vector<Animation::FrameNumber> UIKeyTicks( TL::Track& track )
+        {
+            std::vector<Animation::FrameNumber> ticks;
+            for ( TL::Section& section : track.Sections )
+            {
+                if ( auto* channel = std::get_if<TL::Channel>( &section.Content ) )
+                {
+                    for ( const TL::FloatChannel* component : FloatsOf( *channel ) )
+                        for ( const Animation::ScalarKey& key : component->Keys )
+                            ticks.push_back( key.Tick );
+                }
+            }
+            std::ranges::sort( ticks, []( Animation::FrameNumber x, Animation::FrameNumber y ) { return x < y; } );
+            ticks.erase( std::unique( ticks.begin(), ticks.end() ), ticks.end() );
+            return ticks;
+        }
+
+        /// The section a key at @p tick belongs to: the one holding a key there, else the topmost covering it.
+        TL::Section* UISectionAt( TL::Track& track, Animation::FrameNumber tick )
+        {
+            for ( TL::Section& section : track.Sections )
+            {
+                if ( auto* channel = std::get_if<TL::Channel>( &section.Content ) )
+                    for ( const TL::FloatChannel* component : FloatsOf( *channel ) )
+                        for ( const Animation::ScalarKey& key : component->Keys )
+                            if ( key.Tick == tick )
+                                return &section;
+            }
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast) — TopmostAt only reads
+            return const_cast<TL::Section*>( TopmostAt( track, tick ) );
+        }
+
+        /// Moves the key on @p from to @p to in every component; refused when any component already has @p to.
+        bool MoveUIKey( TL::Track& track, Animation::FrameNumber from, Animation::FrameNumber to )
+        {
+            TL::Section* section = UISectionAt( track, from );
+            auto* channel = section != nullptr ? std::get_if<TL::Channel>( &section->Content ) : nullptr;
+            if ( channel == nullptr || from == to )
+                return false;
+            const auto components = FloatsOf( *channel );
+            for ( const TL::FloatChannel* component : components )
+                for ( const Animation::ScalarKey& key : component->Keys )
+                    if ( key.Tick == to )
+                        return false;
+            for ( TL::FloatChannel* component : components )
+            {
+                for ( Animation::ScalarKey& key : component->Keys )
+                    if ( key.Tick == from )
+                        key.Tick = to;
+                std::ranges::sort( component->Keys, []( const Animation::ScalarKey& x, const Animation::ScalarKey& y )
+                                   { return x.Tick < y.Tick; } );
+            }
+            return true;
+        }
+    } // namespace
+
     void SequencerPanel::DrawUITracks( ECS::Entity& entity )
     {
         namespace ImGui = ::ImGui;
 
-        // NO "ADD UI ANIMATION" BUTTON HERE ANY MORE. The clip IS this window's subject, so a window over
-        // an element that has none is a window over nothing — it cannot open at all (IsSubjectAlive), and
-        // it closes if the component is removed underneath it. Adding the clip is Details ▸ UI Layout ▸
-        // "Add UI Animation", which adds the component and opens this window on it in one press: the same
-        // create-then-open the terrain and cloud material rows use.
-        auto& clip = entity.GetComponent<ECS::UIAnimComponent>().Data;
+        // NO "ADD UI ANIMATION" BUTTON HERE: the clip IS this window's subject (Details ▸ UI Layout ▸
+        // "Add UI Animation" adds the component and opens this window on it).
+        auto&         clip     = entity.GetComponent<ECS::UIAnimComponent>().Data;
+        TL::Sequence& sequence = clip.Sequence;
 
-        // A TRANSACTION MUST NEVER SPAN TWO SUBJECTS. This window is a document over one element, but the
-        // component's ADDRESS moves when entt grows the pool, and a transaction opened last frame against
-        // the old address would commit a "before" that belongs to memory the registry has reused. The
-        // subject is therefore compared every frame, and a mismatch abandons the entry rather than
-        // guessing which clip it was about.
+        // A TRANSACTION MUST NEVER SPAN TWO SUBJECTS: the component's address moves when entt grows the pool.
         if ( m_UIClipEdit.Open() && m_UIClipEdit.Subject() != &clip )
         {
             m_UIClipEdit.Cancel();
         }
+        if ( !clip.Playback.has_value() )
+        {
+            clip.Playback.emplace( sequence.TickRate, sequence.Start, sequence.End );
+            clip.Playback->SetLoopMode( clip.Loop );
+        }
+        TL::Player&                  player   = *clip.Playback;
+        const Animation::FrameRate   tickRate = sequence.TickRate;
+        const Animation::FrameNumber playTick = player.Current().Frame;
 
         // --- transport -------------------------------------------------------------------------------
-        if ( ImGui::Button( clip.Playing ? ICON_MDI_PAUSE "  Pause" : ICON_MDI_PLAY "  Play" ) )
-            clip.Playing = !clip.Playing;
+        const bool playing = player.State() == TL::PlayState::Playing;
+        if ( ImGui::Button( playing ? ICON_MDI_PAUSE "  Pause" : ICON_MDI_PLAY "  Play" ) )
+        {
+            playing ? player.Pause() : player.Play();
+        }
         ImGui::SameLine();
         if ( ImGui::Button( ICON_MDI_STOP "  Rewind" ) )
-            clip.Time = 0.0f;
-        ImGui::SameLine();
-        if ( ImGui::Checkbox( "Loop", &clip.Loop ) )
         {
-            // The checkbox has ALREADY written the field, so the scope cannot bracket the write the way
-            // the other instantaneous edits do. The "before" is therefore reconstructed from the value in
-            // hand -- one bool, and the only field this edit can have touched.
-            RecordUIClipToggle( clip, !clip.Loop );
+            (void)player.JumpTo( Animation::FrameTime{ sequence.Start, 0.0f } );
         }
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 110.0f );
-        ImGui::DragFloat( "Duration", &clip.Duration, 0.05f, 0.05f, 120.0f, "%.2f s" );
+        if ( ImGui::BeginCombo( "Loop", TL::ToString( clip.Loop ) ) )
+        {
+            for ( const TL::LoopMode mode : TL::kLoopModes )
+            {
+                if ( ImGui::Selectable( TL::ToString( mode ), mode == clip.Loop ) && mode != clip.Loop )
+                {
+                    RecordUIClipToggle( clip, mode );
+                }
+            }
+            ImGui::EndCombo();
+        }
+        // THE PLAYBACK RANGE, in display frames (the sequence's End). Editing it drops the player so the next
+        // frame re-creates it on the new range (UIAnimData's contract).
+        const auto toFrame = [&]( Animation::FrameNumber tick )
+        { return static_cast<int>( std::lround( Animation::FrameTimeToSeconds( Animation::FrameTime{ tick, 0.0f }, tickRate ) *
+                                                sequence.DisplayRate.AsDouble() ) ); };
+        const auto toTick = [&]( int frame )
+        { return SecondsToSnappedTick( static_cast<float>( frame / sequence.DisplayRate.AsDouble() ), tickRate,
+                                       sequence.DisplayRate ); };
+        int endFrame = toFrame( sequence.End );
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth( 110.0f );
+        if ( ImGui::DragInt( "End frame", &endFrame, 1.0f, toFrame( sequence.Start ) + 1, 100000 ) )
+        {
+            sequence.End = toTick( endFrame );
+            clip.Playback.reset();
+        }
         BracketUIClipEditFromItem( clip );
+        const float duration = std::max(
+             0.05f, static_cast<float>( Animation::FrameTimeToSeconds( Animation::FrameTime{ sequence.End, 0.0f }, tickRate ) ) );
+        float now = static_cast<float>( Animation::FrameTimeToSeconds( Animation::FrameTime{ playTick, 0.0f }, tickRate ) );
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 140.0f );
-        ImGui::SliderFloat( "Time", &clip.Time, 0.0f, std::max( 0.05f, clip.Duration ), "%.2f s" );
-        if ( ImGui::IsItemActive() )
-            clip.Playing = false; // scrubbing takes over from playback, as a timeline should
+        if ( ImGui::SliderFloat( "Time", &now, 0.0f, duration, "%.2f s" ) && clip.Playback.has_value() )
+        {
+            clip.Playback->Pause(); // scrubbing takes over from playback, as a timeline should
+            (void)clip.Playback->JumpTo( Animation::SecondsToFrameTime( now, tickRate ) );
+        }
 
-        // --- add a lane ------------------------------------------------------------------------------
-        const char* const propNames[] = { "Offset", "Size", "Opacity", "Color" };
+        // --- add a track: a Widget binding naming this element + (property, kind) ------------------------
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 120.0f );
         static int newProp = 0;
-        ImGui::Combo( "##uiprop", &newProp, propNames, 4 );
+        ImGui::Combo( "##uiprop", &newProp, kUIProperties.data(), static_cast<int>( kUIProperties.size() ) );
         ImGui::SameLine();
         if ( ImGui::Button( ICON_MDI_PLUS "  Track" ) )
         {
-            const ScopedUIClipEdit step( m_UIClipEdit, &clip );
-            ECS::UIAnimTrack       tr;
-            tr.Property = static_cast<ECS::UITweenProperty>( newProp );
-            tr.Keys.push_back( { 0.0f, glm::vec4( 0.0f ), ECS::UIEasing::CubicOut } );
-            clip.Tracks.push_back( std::move( tr ) );
+            const std::string locator  = entity.GetComponent<ECS::UUIDComponent>().UUID.ToString();
+            const char*       property = kUIProperties[static_cast<size_t>( newProp )];
+            TL::BindingGuid   guid;
+            for ( const TL::Binding& binding : sequence.Bindings )
+                if ( binding.Kind == TL::BindingKind::Widget && binding.Locator == locator )
+                    guid = binding.Guid;
+            if ( !guid.IsNull() && TL::FindTrack( sequence, guid, property ) != nullptr )
+            {
+                ToastManager::Push( std::format( "add track: this element already animates {}", property ),
+                                    ToastLevel::Error, 6.0f );
+            }
+            else
+            {
+                const ScopedSequenceEdit step( m_UIClipEdit, OwnerOf( &clip ) );
+                if ( guid.IsNull() )
+                {
+                    TL::Binding binding;
+                    binding.Guid    = TL::BindingGuid::Generate();
+                    binding.Kind    = TL::BindingKind::Widget;
+                    binding.Locator = locator;
+                    binding.Label   = entity.HasComponent<ECS::TagComponent>() ? entity.GetComponent<ECS::TagComponent>().Tag
+                                                                                 : locator;
+                    guid            = binding.Guid;
+                    sequence.Bindings.push_back( std::move( binding ) );
+                }
+                TL::Track track;
+                track.Binding  = guid;
+                track.Property = property;
+                track.Kind     = newProp == 2 ? TL::TrackKind::Float : TL::TrackKind::Vector;
+                sequence.Tracks.push_back( std::move( track ) );
+                (void)TL::AddSection( sequence.Tracks.back(), sequence.Start, sequence.End );
+                ++sequence.Revision;
+            }
         }
 
-        if ( clip.Tracks.empty() )
+        if ( sequence.Tracks.empty() )
         {
             ImGui::Separator();
             ImGui::TextDisabled( "No tracks. Pick a property above and press + Track." );
@@ -2818,35 +2918,42 @@ namespace Desert::Editor
         }
 
         // --- lanes -----------------------------------------------------------------------------------
-        const float duration = std::max( 0.05f, clip.Duration );
-        const float gutter   = 120.0f;
-        const float laneH    = 22.0f;
+        const float gutter = 160.0f;
+        const float laneH  = 22.0f;
 
         ImGui::Separator();
         const float contentX0 = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMin().x;
         const float laneW     = std::max( 120.0f, ImGui::GetContentRegionAvail().x - gutter - 12.0f );
         const float laneX0    = contentX0 + gutter;
-        const auto  timeToX   = [&]( float t ) { return laneX0 + ( t / duration ) * laneW; };
-        const auto  xToTime   = [&]( float x )
-        { return std::clamp( ( x - laneX0 ) / laneW * duration, 0.0f, duration ); };
+        const auto  tickToX   = [&]( Animation::FrameNumber tick )
+        {
+            const auto seconds = Animation::FrameTimeToSeconds( Animation::FrameTime{ tick, 0.0f }, tickRate );
+            return laneX0 + ( static_cast<float>( seconds ) / duration ) * laneW;
+        };
+        const auto xToTick = [&]( float x )
+        {
+            const float seconds = std::clamp( ( x - laneX0 ) / laneW * duration, 0.0f, duration );
+            return SecondsToSnappedTick( seconds, tickRate, sequence.DisplayRate );
+        };
 
         ImGui::BeginChild( "##uiTracks",
-                           ImVec2( gutter + laneW, std::min( 260.0f, 12.0f + clip.Tracks.size() * laneH ) ),
+                           ImVec2( gutter + laneW, std::min( 260.0f, 12.0f + sequence.Tracks.size() * laneH ) ),
                            false );
         ImDrawList* dl = ImGui::GetWindowDrawList();
 
         int deleteTrack = -1;
-        for ( int ti = 0; ti < static_cast<int>( clip.Tracks.size() ); ++ti )
+        for ( int ti = 0; ti < static_cast<int>( sequence.Tracks.size() ); ++ti )
         {
-            ECS::UIAnimTrack& tr    = clip.Tracks[ti];
+            TL::Track&        track = sequence.Tracks[static_cast<size_t>( ti )];
             const ImVec2      rp    = ImGui::GetCursorScreenPos();
             const float       laneY = rp.y;
+            const TL::Binding* binding = TL::FindBinding( sequence, track.Binding );
+            const std::string label =
+                 std::format( "{} {}", binding != nullptr ? binding->Label : std::string( "?" ), track.Property );
             dl->AddRectFilled( ImVec2( laneX0, laneY ), ImVec2( laneX0 + laneW, laneY + laneH - 3.0f ),
                                ( ti % 2 ) ? IM_COL32( 40, 40, 46, 255 ) : IM_COL32( 33, 33, 39, 255 ) );
-            dl->AddText( ImVec2( contentX0 + 6.0f, laneY + 3.0f ), IM_COL32( 205, 205, 215, 255 ),
-                         propNames[static_cast<int>( tr.Property )] );
+            dl->AddText( ImVec2( contentX0 + 6.0f, laneY + 3.0f ), IM_COL32( 205, 205, 215, 255 ), label.c_str() );
 
-            // per-lane: key at the playhead, and drop the lane
             ImGui::SetCursorScreenPos( ImVec2( contentX0 + gutter - 46.0f, laneY ) );
             ImGui::PushID( ti * 8192 + 7 );
             if ( ImGui::SmallButton( "+" ) )
@@ -2858,10 +2965,11 @@ namespace Desert::Editor
                 deleteTrack = ti;
             ImGui::PopID();
 
-            // keys as diamonds; drag horizontally to retime
-            for ( int ki = 0; ki < static_cast<int>( tr.Keys.size() ); ++ki )
+            // keys as diamonds; drag horizontally to retime (snapped to the display grid)
+            const auto ticks = UIKeyTicks( track );
+            for ( int ki = 0; ki < static_cast<int>( ticks.size() ); ++ki )
             {
-                const float  kx = timeToX( tr.Keys[ki].Time );
+                const float  kx = tickToX( ticks[static_cast<size_t>( ki )] );
                 const ImVec2 c( kx, laneY + ( laneH - 3.0f ) * 0.5f );
                 const bool   sel = ( ti == m_UITrack && ki == m_UIKey );
                 dl->AddNgonFilled( c, sel ? 7.0f : 5.5f,
@@ -2874,31 +2982,25 @@ namespace Desert::Editor
                 {
                     m_UITrack = ti;
                     m_UIKey   = ki;
-                    if ( const auto began = m_UIClipEdit.Begin( &clip ); !began.IsSuccess() )
+                    if ( const auto began = m_UIClipEdit.Begin( OwnerOf( &clip ) ); !began.IsSuccess() )
                     {
                         LOG_ERROR( "[UIClipUndo] this key drag will not be undoable: {}", began.GetError() );
                     }
                 }
                 if ( ImGui::IsItemActive() && ImGui::IsMouseDragging( ImGuiMouseButton_Left ) )
                 {
-                    tr.Keys[ki].Time = xToTime( ImGui::GetIO().MousePos.x );
-                    clip.Playing     = false;
-                    clip.Time        = tr.Keys[ki].Time; // the pose follows the key being moved
+                    const Animation::FrameNumber to = xToTick( ImGui::GetIO().MousePos.x );
+                    if ( MoveUIKey( track, ticks[static_cast<size_t>( ki )], to ) )
+                    {
+                        ++sequence.Revision;
+                        const auto moved = UIKeyTicks( track );
+                        m_UIKey = static_cast<int>( std::ranges::find( moved, to ) - moved.begin() );
+                        player.Pause();
+                        (void)player.JumpTo( Animation::FrameTime{ to, 0.0f } ); // the pose follows the key
+                    }
                 }
                 if ( ImGui::IsItemDeactivated() )
                 {
-                    const float moved = tr.Keys[ki].Time;
-                    std::sort( tr.Keys.begin(), tr.Keys.end(),
-                               []( const ECS::UIAnimKey& a, const ECS::UIAnimKey& b )
-                               { return a.Time < b.Time; } );
-                    for ( int i = 0; i < static_cast<int>( tr.Keys.size() ); ++i )
-                        if ( tr.Keys[i].Time == moved )
-                        {
-                            m_UIKey = i; // keep the dragged key selected after the re-sort
-                            break;
-                        }
-                    // CLOSED AFTER THE SORT, not before it: the sort is part of what the drag did, and an
-                    // entry recorded before it would hold an ordering the lane never had.
                     EndUIClipEdit();
                 }
                 ImGui::PopID();
@@ -2908,7 +3010,7 @@ namespace Desert::Editor
         }
 
         // playhead over every lane
-        const float playX = timeToX( clip.Time );
+        const float playX = tickToX( playTick );
         dl->AddLine( ImVec2( playX, ImGui::GetWindowPos().y ),
                      ImVec2( playX, ImGui::GetWindowPos().y + ImGui::GetWindowSize().y ),
                      IM_COL32( 255, 120, 90, 220 ), 2.0f );
@@ -2916,70 +3018,95 @@ namespace Desert::Editor
 
         if ( deleteTrack >= 0 )
         {
-            const ScopedUIClipEdit step( m_UIClipEdit, &clip );
-            clip.Tracks.erase( clip.Tracks.begin() + deleteTrack );
+            const ScopedSequenceEdit step( m_UIClipEdit, OwnerOf( &clip ) );
+            sequence.Tracks.erase( sequence.Tracks.begin() + deleteTrack );
+            ++sequence.Revision;
             m_UITrack = m_UIKey = -1;
         }
 
         // --- selected key ----------------------------------------------------------------------------
-        if ( m_UITrack >= 0 && m_UITrack < static_cast<int>( clip.Tracks.size() ) )
+        if ( m_UITrack >= 0 && m_UITrack < static_cast<int>( sequence.Tracks.size() ) )
         {
-            ECS::UIAnimTrack& tr = clip.Tracks[m_UITrack];
-            if ( m_UIKey >= 0 && m_UIKey < static_cast<int>( tr.Keys.size() ) )
+            TL::Track& track = sequence.Tracks[static_cast<size_t>( m_UITrack )];
+            const auto ticks = UIKeyTicks( track );
+            TL::Section* section =
+                 m_UIKey >= 0 && m_UIKey < static_cast<int>( ticks.size() )
+                      ? UISectionAt( track, ticks[static_cast<size_t>( m_UIKey )] )
+                      : nullptr;
+            auto* channel = section != nullptr ? std::get_if<TL::Channel>( &section->Content ) : nullptr;
+            if ( channel != nullptr )
             {
-                ECS::UIAnimKey& k = tr.Keys[m_UIKey];
+                const Animation::FrameNumber tick       = ticks[static_cast<size_t>( m_UIKey )];
+                const auto                   components = FloatsOf( *channel );
+                std::array<float, 4>         value{};
+                Animation::ScalarKey         shape;
+                for ( size_t i = 0; i < components.size() && i < value.size(); ++i )
+                {
+                    value[i] = TL::Evaluate( *components[i], Animation::FrameTime{ tick, 0.0f }, tickRate );
+                    for ( const Animation::ScalarKey& key : components[i]->Keys )
+                        if ( key.Tick == tick )
+                            shape = key;
+                }
                 ImGui::Separator();
-                ImGui::Text( "Key %d of %s", m_UIKey, propNames[static_cast<int>( tr.Property )] );
-                ImGui::SetNextItemWidth( 120.0f );
-                if ( ImGui::DragFloat( "Time", &k.Time, 0.01f, 0.0f, duration, "%.2f s" ) )
-                    clip.Time = k.Time;
-                BracketUIClipEditFromItem( clip );
+                ImGui::Text( "Key %d of %s", m_UIKey, track.Property.c_str() );
 
                 // The value is read per property, exactly as the renderer reads it.
-                switch ( tr.Property )
+                bool changed = false;
+                ImGui::SetNextItemWidth( 200.0f );
+                if ( track.Property == "Opacity" )
+                    changed = ImGui::SliderFloat( "Opacity", value.data(), 0.0f, 1.0f );
+                else if ( track.Property == "Color" )
+                    changed = ImGui::ColorEdit3( "Color", value.data() );
+                else
+                    changed = ImGui::DragFloat2( "Value (px)", value.data(), 1.0f );
+                if ( changed )
                 {
-                    case ECS::UITweenProperty::Offset:
-                    case ECS::UITweenProperty::Size:
-                        ImGui::SetNextItemWidth( 200.0f );
-                        ImGui::DragFloat2( "Value (px)", &k.Value.x, 1.0f );
-                        BracketUIClipEditFromItem( clip );
-                        break;
-                    case ECS::UITweenProperty::Opacity:
-                        ImGui::SetNextItemWidth( 200.0f );
-                        ImGui::SliderFloat( "Opacity", &k.Value.x, 0.0f, 1.0f );
-                        BracketUIClipEditFromItem( clip );
-                        break;
-                    case ECS::UITweenProperty::Color:
-                        ImGui::SetNextItemWidth( 200.0f );
-                        ImGui::ColorEdit3( "Color", &k.Value.x );
-                        BracketUIClipEditFromItem( clip );
-                        break;
+                    for ( size_t i = 0; i < components.size() && i < value.size(); ++i )
+                        SetComponentValue( *components[i], tick, value[i], shape );
+                    ++sequence.Revision;
                 }
+                BracketUIClipEditFromItem( clip );
 
+                // EASING SHAPES THE SEGMENT ENDING AT THIS KEY (Timeline::ApplyEasingPreset, UIEasing's one
+                // table via PresetOf) — the same preset the UI lift and UITween use.
                 const char* const easeNames[] = { "Linear",   "QuadIn",     "QuadOut", "QuadInOut",  "CubicIn",
                                                   "CubicOut", "CubicInOut", "BackOut", "ElasticOut", "BounceOut" };
-                int               ease        = static_cast<int>( k.Easing );
+                static int        ease        = 5;
                 ImGui::SetNextItemWidth( 140.0f );
-                if ( ImGui::Combo( "Ease in", &ease, easeNames, 10 ) )
+                ImGui::Combo( "##ease", &ease, easeNames, 10 );
+                ImGui::SameLine();
+                if ( ImGui::SmallButton( "Ease into this key" ) )
                 {
-                    const ScopedUIClipEdit step( m_UIClipEdit, &clip );
-                    k.Easing = static_cast<ECS::UIEasing>( ease );
+                    const ScopedSequenceEdit step( m_UIClipEdit, OwnerOf( &clip ) );
+                    for ( TL::FloatChannel* component : components )
+                    {
+                        const auto end = std::ranges::find_if( component->Keys, [&]( const Animation::ScalarKey& k )
+                                                               { return k.Tick == tick; } );
+                        const auto index = static_cast<size_t>( end - component->Keys.begin() );
+                        if ( end == component->Keys.end() || index == 0 )
+                            continue;
+                        const auto eased = TL::ApplyEasingPreset( component->Keys, index,
+                                                                  TL::PresetOf( static_cast<ECS::UIEasing>( ease ) ),
+                                                                  tickRate, sequence.DisplayRate );
+                        if ( !eased.IsSuccess() )
+                            ToastManager::Push( "ease: " + eased.GetError(), ToastLevel::Error, 6.0f );
+                    }
+                    ++sequence.Revision;
                 }
                 ImGui::SameLine();
                 if ( ImGui::SmallButton( "Delete key" ) )
                 {
-                    const ScopedUIClipEdit step( m_UIClipEdit, &clip );
-                    tr.Keys.erase( tr.Keys.begin() + m_UIKey );
+                    const ScopedSequenceEdit step( m_UIClipEdit, OwnerOf( &clip ) );
+                    for ( TL::FloatChannel* component : components )
+                        std::erase_if( component->Keys, [&]( const Animation::ScalarKey& k ) { return k.Tick == tick; } );
+                    ++sequence.Revision;
                     m_UIKey = -1;
                 }
             }
         }
 
-        // THE SWEEP, and it is the same one PoseEditTransaction::OpenExplicitly exists for. Every opener
-        // above is a WIDGET being held, so a transaction still open while ImGui reports no active item has
-        // lost its closer -- the lane it belonged to was deleted, or the property combo changed the branch
-        // that was drawing the field. Leaving it open would swallow every later edit into one enormous
-        // undo step, which is worse than having none.
+        // THE SWEEP: every opener above is a held widget, so a transaction open while no item is active has
+        // lost its closer; leaving it open would swallow every later edit into one undo step.
         if ( m_UIClipEdit.Open() && !ImGui::IsAnyItemActive() )
         {
             EndUIClipEdit();
@@ -2988,35 +3115,46 @@ namespace Desert::Editor
 
     void SequencerPanel::AddUIKeyAtPlayhead( ECS::UIAnimData& clip, int lane )
     {
-        // ONE BODY FOR THE BUTTON AND THE COMMAND, for the reason RunSectionEdit above exists: two copies
-        // of "add a key" are two answers that drift, and the command is the ONLY one of the two that an
-        // unattended run can reach -- so a drift would be invisible in exactly the run that checks it.
-        if ( lane < 0 || lane >= static_cast<int>( clip.Tracks.size() ) )
+        // ONE BODY FOR THE BUTTON AND THE COMMAND: the command is the only one an unattended run can reach.
+        TL::Sequence& sequence = clip.Sequence;
+        if ( lane < 0 || lane >= static_cast<int>( sequence.Tracks.size() ) )
         {
             ToastManager::Push( "add UI key: no lane is selected", ToastLevel::Error, 6.0f );
             return;
         }
-        const ScopedUIClipEdit step( m_UIClipEdit, &clip );
-        ECS::UIAnimTrack&      track = clip.Tracks[lane];
-        track.Keys.push_back( { clip.Time, track.Keys.empty() ? glm::vec4( 0.0f ) : track.Keys.back().Value,
-                                ECS::UIEasing::CubicOut } );
-        std::sort( track.Keys.begin(), track.Keys.end(),
-                   []( const ECS::UIAnimKey& a, const ECS::UIAnimKey& b ) { return a.Time < b.Time; } );
+        TL::Track&                   track = sequence.Tracks[static_cast<size_t>( lane )];
+        const Animation::FrameNumber tick =
+             clip.Playback.has_value() ? clip.Playback->Current().Frame : sequence.Start;
+        const ScopedSequenceEdit step( m_UIClipEdit, OwnerOf( &clip ) );
+        TL::Section* section = UISectionAt( track, tick );
+        if ( section == nullptr )
+        {
+            section = &TL::AddSection( track, sequence.Start, sequence.End ); // the first free row, >= 0
+        }
+        auto* channel = std::get_if<TL::Channel>( &section->Content );
+        if ( channel == nullptr )
+        {
+            return;
+        }
+        // THE KEY HOLDS WHAT THE TRACK SHOWS THERE, so keying does not move the element on this frame.
+        for ( TL::FloatChannel* component : FloatsOf( *channel ) )
+        {
+            const float here = TL::Evaluate( *component, Animation::FrameTime{ tick, 0.0f }, sequence.TickRate );
+            SetComponentValue( *component, tick, here, Animation::ScalarKey{} );
+        }
+        ++sequence.Revision;
+        m_UITrack       = lane;
+        const auto keys = UIKeyTicks( track );
+        m_UIKey         = static_cast<int>( std::ranges::find( keys, tick ) - keys.begin() );
     }
 
     void SequencerPanel::BracketUIClipEditFromItem( ECS::UIAnimData& clip )
     {
-        // ONE PLACE FOR THE TWO EDGES OF A HELD WIDGET. Written as a member rather than as a lambda at
-        // each call site because there are six of them and six copies is six chances to bracket only one
-        // end -- which produces an undo step that begins in one interaction and ends in another.
-        //
-        // IsItemDeactivated, NOT IsItemDeactivatedAfterEdit: a widget grabbed and released without a
-        // change fires only the former, and a transaction closed by the latter alone would stay open into
-        // the next interaction. The "nothing changed" case costs nothing -- End() answers 0 and pushes no
-        // entry, which is the contract that makes closing on every release safe.
+        // ONE PLACE FOR THE TWO EDGES OF A HELD WIDGET. IsItemDeactivated, NOT IsItemDeactivatedAfterEdit: a
+        // widget released without a change fires only the former; End() then answers 0 and pushes nothing.
         if ( ::ImGui::IsItemActivated() )
         {
-            if ( const auto began = m_UIClipEdit.Begin( &clip ); !began.IsSuccess() )
+            if ( const auto began = m_UIClipEdit.Begin( OwnerOf( &clip ) ); !began.IsSuccess() )
             {
                 LOG_ERROR( "[UIClipUndo] this edit will not be undoable: {}", began.GetError() );
             }
@@ -3027,13 +3165,14 @@ namespace Desert::Editor
         }
     }
 
-    void SequencerPanel::RecordUIClipToggle( ECS::UIAnimData& clip, bool loopBefore )
+    void SequencerPanel::RecordUIClipToggle( ECS::UIAnimData& clip, TL::LoopMode loop )
     {
-        const bool loopAfter = clip.Loop;
-        clip.Loop            = loopBefore;
+        // The loop mode lives beside the Sequence on UIAnimData; the step brackets the one write.
+        const ScopedSequenceEdit step( m_UIClipEdit, OwnerOf( &clip ) );
+        clip.Loop = loop;
+        if ( clip.Playback.has_value() )
         {
-            const ScopedUIClipEdit step( m_UIClipEdit, &clip );
-            clip.Loop = loopAfter;
+            clip.Playback->SetLoopMode( loop );
         }
     }
 
