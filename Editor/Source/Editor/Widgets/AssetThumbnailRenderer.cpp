@@ -409,7 +409,7 @@ namespace Desert::Editor
         {
             using Slots = std::vector<Assets::AssetHandle>;
             auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( meshHandle );
-            if ( !asset )
+            if ( asset == nullptr )
                 return Common::MakeFormattedError<Slots>( "mesh {} has no asset in the MeshService to read its "
                                                           "material slots from",
                                                           static_cast<uint64_t>( meshHandle ) );

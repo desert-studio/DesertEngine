@@ -487,12 +487,18 @@ namespace Desert::Editor::ImportOptions
         if ( assetPath.extension() == ".anim" ) // `<stem>_<clip>.anim` has no inverse: the clip names its source
         {
             const auto text = Common::Utils::FileSystem::ReadFileContentIfExists( assetPath );
-            if ( !text || !text.GetValue() )
+            if ( !text )
                 return std::nullopt;
-            const auto clip = Assets::Serialization::ReadAnimationJson( *text.GetValue() );
-            if ( !clip || !clip.GetValue().Import || clip.GetValue().Import->Source.empty() )
+            const auto& contents = text.GetValue();
+            if ( !contents.has_value() )
                 return std::nullopt;
-            std::filesystem::path source = assetPath.parent_path() / clip.GetValue().Import->Source;
+            const auto clip = Assets::Serialization::ReadAnimationJson( *contents );
+            if ( !clip )
+                return std::nullopt;
+            const auto& import = clip.GetValue().Import;
+            if ( !import.has_value() || import->Source.empty() )
+                return std::nullopt;
+            std::filesystem::path source = assetPath.parent_path() / import->Source;
             std::error_code       ec;
             if ( !std::filesystem::is_regular_file( source, ec ) )
                 return std::nullopt;

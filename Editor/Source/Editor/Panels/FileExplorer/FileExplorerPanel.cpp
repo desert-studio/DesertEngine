@@ -2925,7 +2925,7 @@ namespace Desert::Editor
             if ( !g.PreviewPng.empty() && m_Thumbnails && m_UIHelper &&
                  ThumbnailService::Get().PreviewLanded( g.PreviewKey ) )
                 if ( const auto img = m_Thumbnails->Get( g.PreviewPng ) )
-                    if ( const ImTextureID tex = m_UIHelper->GetTextureID( img ); tex != nullptr )
+                    if ( ImTextureID tex = m_UIHelper->GetTextureID( img ); tex != nullptr )
                         ImGui::GetWindowDrawList()->AddImage( tex, min, max );
 
             const bool wheelRests = g.Wheel != 0.0f && ImGui::GetTime() - g.LastWheel > kThumbnailWheelRestSeconds;

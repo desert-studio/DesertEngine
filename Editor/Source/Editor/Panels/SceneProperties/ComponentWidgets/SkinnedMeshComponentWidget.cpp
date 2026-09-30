@@ -113,7 +113,7 @@ namespace Desert::Editor
                     ThumbnailService::Get().RequestPose( subject.GetValue() );
             }
         }
-        const ImTextureID picture = thumb && m_UI != nullptr ? m_UI->GetTextureID( thumb ) : nullptr;
+        ImTextureID picture = thumb && m_UI != nullptr ? m_UI->GetTextureID( thumb ) : nullptr;
         DrawAssetBox( size, ICON_MDI_HUMAN, filled, kSkeletalMeshTint, picture );
     }
 

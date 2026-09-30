@@ -305,8 +305,12 @@ namespace Desert::Editor
         const std::string png      = ThumbnailKey::DiskPath( assetPath );
         if ( ShouldQueue( identity, png, SourceHash( Kind::Skybox, assetPath ) ) )
         {
+            // Every field stated: a skybox is framed by the dome camera alone - no preview primitive, no preview
+            // mesh, no thumbnail info, no clip.
             m_Queue.push_back( { Kind::Skybox, skybox, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ), identity,
-                                 assetPath, png } );
+                                 assetPath, png, ThumbnailSubject::Preview::Sphere,
+                                 Assets::AssetHandle( static_cast<uint64_t>( 0 ) ), Assets::ThumbnailInfo{},
+                                 nullptr } );
             m_Queued.insert( identity );
             HoldSubjects();
         }

@@ -56,6 +56,9 @@ namespace
     using Desert::Editor::kFileExtensions;
 
     constexpr const char* kBrowserTable = "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp";
+    // The Details panel's Skybox row, which asks ThumbnailService for the skybox picture.
+    constexpr const char* kSkyboxDetailsRow =
+         "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkyboxComponent.cpp";
 
     std::string RepoRoot()
     {
@@ -508,8 +511,7 @@ TEST( ThumbnailFormats, ASkyboxIsItsOwnKindWithARenderedPicture )
          << "the browser no longer draws a skybox tile through its producer";
     EXPECT_NE( panel.find( "RequestSkybox(" ), std::string::npos )
          << "the browser tile no longer asks the service";
-    const std::string details =
-         ReadFile( root + "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkyboxComponent.cpp" );
+    const std::string details = ReadFile( std::format( "{}{}", root, kSkyboxDetailsRow ) );
     ASSERT_FALSE( details.empty() );
     EXPECT_NE( details.find( "RequestSkybox(" ), std::string::npos )
          << "the Details Skybox row no longer asks ThumbnailService for the skybox picture";

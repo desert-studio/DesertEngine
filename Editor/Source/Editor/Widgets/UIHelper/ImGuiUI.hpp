@@ -31,6 +31,6 @@ namespace Desert::Editor::UI
         ImTextureID GetTextureID( const std::shared_ptr<Graphic::Image2D>& image );
 
     private:
-        std::unique_ptr<UICacheTextureImGui> m_CacherTexture;
+        UICacheTextureImGui* m_CacherTexture = nullptr; // the process-wide cache (UICacheTextureImGui::Get)
     };
 } // namespace Desert::Editor::UI
