@@ -10,13 +10,12 @@
 #include <format>
 
 using namespace TimelineFixtures;
-using namespace TimelineFixtures;
 
 namespace
 {
     float EvaluateOnlyFloat( const Sequence& sequence, FrameTime at )
     {
-        Evaluator      evaluator( sequence );
+        const Evaluator evaluator( sequence );
         EvaluatedFrame frame;
         evaluator.Evaluate( TimeStep{ at, at }, frame );
         EXPECT_EQ( frame.Values.size(), 1U );
@@ -133,7 +132,7 @@ TEST( TimelineEvaluator, AMutedTrackIsAbsentNotDefaulted )
 {
     Sequence sequence        = OneFloatTrack( FloatChannel{ { Key( 0, 1.0F ) }, 0.0F } );
     sequence.Tracks[0].Muted = true;
-    Evaluator      evaluator( sequence );
+    const Evaluator evaluator( sequence );
     EvaluatedFrame frame;
     evaluator.Evaluate( TimeStep{ At( 0 ), At( 0 ) }, frame );
     EXPECT_TRUE( frame.Values.empty() );
@@ -173,14 +172,14 @@ TEST( TimelineFormat, WriteReadRoundTripsAndATruncatedBlockIsRefused )
     const size_t stated = text.find( statedAs( 2 ) );
     ASSERT_NE( stated, std::string::npos ) << text;
     text.replace( stated, statedAs( 2 ).size(), statedAs( 3 ) );
-    const auto newer = ReadSequence( std::span( reinterpret_cast<const uint8_t*>( text.data() ), text.size() ) );
+    const auto newer = ReadSequence( std::vector<uint8_t>( text.begin(), text.end() ) );
     ASSERT_FALSE( newer.IsSuccess() );
     EXPECT_NE( newer.GetError().find( "TMLN v3" ), std::string::npos ) << newer.GetError();
 
     // v1 (a key's mode shaped the segment ARRIVING at it) has v2's layout and is refused by name all the
     // same: only SceneMigrator reads it (ANIM-FMT).
     text.replace( stated, statedAs( 3 ).size(), statedAs( 1 ) );
-    const auto older = ReadSequence( std::span( reinterpret_cast<const uint8_t*>( text.data() ), text.size() ) );
+    const auto older = ReadSequence( std::vector<uint8_t>( text.begin(), text.end() ) );
     ASSERT_FALSE( older.IsSuccess() );
     EXPECT_NE( older.GetError().find( "TMLN v1" ), std::string::npos ) << older.GetError();
     EXPECT_NE( older.GetError().find( "SceneMigrator" ), std::string::npos ) << older.GetError();

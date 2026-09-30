@@ -68,6 +68,7 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -1284,13 +1285,16 @@ TEST( RetargetAssetTest, TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstr
         const Timeline::TransformChannel* fromBuild = BoneChannel( built, bone );
         ASSERT_NE( fromFile, nullptr ) << bone << " has no one-section Transform track in the shipped clip";
         ASSERT_NE( fromBuild, nullptr ) << bone;
-        sameKeys( fromFile->Translation.X, fromBuild->Translation.X, 1.0e-2F, bone + " translation X" );
-        sameKeys( fromFile->Translation.Y, fromBuild->Translation.Y, 1.0e-2F, bone + " translation Y" );
-        sameKeys( fromFile->Translation.Z, fromBuild->Translation.Z, 1.0e-2F, bone + " translation Z" );
-        sameKeys( fromFile->Rotation.X, fromBuild->Rotation.X, 1.0e-3F, bone + " rotation X" );
-        sameKeys( fromFile->Rotation.Y, fromBuild->Rotation.Y, 1.0e-3F, bone + " rotation Y" );
-        sameKeys( fromFile->Rotation.Z, fromBuild->Rotation.Z, 1.0e-3F, bone + " rotation Z" );
-        sameKeys( fromFile->Rotation.W, fromBuild->Rotation.W, 1.0e-3F, bone + " rotation W" );
+        sameKeys( fromFile->Translation.X, fromBuild->Translation.X, 1.0e-2F,
+                  std::format( "{} translation X", bone ) );
+        sameKeys( fromFile->Translation.Y, fromBuild->Translation.Y, 1.0e-2F,
+                  std::format( "{} translation Y", bone ) );
+        sameKeys( fromFile->Translation.Z, fromBuild->Translation.Z, 1.0e-2F,
+                  std::format( "{} translation Z", bone ) );
+        sameKeys( fromFile->Rotation.X, fromBuild->Rotation.X, 1.0e-3F, std::format( "{} rotation X", bone ) );
+        sameKeys( fromFile->Rotation.Y, fromBuild->Rotation.Y, 1.0e-3F, std::format( "{} rotation Y", bone ) );
+        sameKeys( fromFile->Rotation.Z, fromBuild->Rotation.Z, 1.0e-3F, std::format( "{} rotation Z", bone ) );
+        sameKeys( fromFile->Rotation.W, fromBuild->Rotation.W, 1.0e-3F, std::format( "{} rotation W", bone ) );
     }
 }
 

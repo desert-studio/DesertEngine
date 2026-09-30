@@ -314,7 +314,7 @@ TEST( AnimatorBlending, ABoneOutsideTheBranchDoesNotMoveByOneBit )
 
     // The layer keys the ROOT only; its branch is the spine's. The root, outside the branch, must keep the
     // base's transform bit for bit; the spine, inside it, takes the layer's (its bind, the layer not keying it).
-    AnimationClip base  = StaticClip( "Base", "spine", glm::vec3( 0.0F, 60.0F, 0.0F ) ); // not the bind's 30
+    const AnimationClip base  = StaticClip( "Base", "spine", glm::vec3( 0.0F, 60.0F, 0.0F ) ); // not the bind's 30
     AnimationClip layer = StaticClip( "Layer", "root", glm::vec3( 500.0F, 0.0F, 0.0F ) );
 
     animator.Play( base );
@@ -361,7 +361,7 @@ TEST( AnimatorBlending, AnUnknownFilterBoneIsRefusedByNameRatherThanReachingNoth
 {
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
-    AnimationClip  clip = StaticClip( "Layer", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
+    const AnimationClip clip = StaticClip( "Layer", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
 
     const auto set =
          PoseGraphFixture::Drive( animator, PoseGraphFixture::OneLayerGraph( { { "no_such_bone", 0 } } ), clip );
@@ -781,9 +781,9 @@ namespace
 TEST( AnimatorBlending, ALayerPlayersNotifyIsHeardAtFullWeightAndSilentAtZero )
 {
     const Skeleton skeleton = MakeRig();
-    AnimationClip  base =
+    const AnimationClip base =
          StaticClip( "Base", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
-    AnimationClip layer = SteppingClip( "Layer" );
+    const AnimationClip layer = SteppingClip( "Layer" );
 
     for ( const float weight : { 1.0F, 0.0F } )
     {
@@ -804,9 +804,9 @@ TEST( AnimatorBlending, ALayerPlayersNotifyIsHeardAtFullWeightAndSilentAtZero )
 TEST( AnimatorBlending, AnAdditivePlayerAtAlphaZeroIsSilentAndAtOneIsHeard )
 {
     const Skeleton skeleton = MakeRig();
-    AnimationClip  base =
+    const AnimationClip base =
          StaticClip( "Base", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
-    AnimationClip added = SteppingClip( "Additive" );
+    const AnimationClip added = SteppingClip( "Additive" );
 
     for ( const float alpha : { 1.0F, 0.0F } )
     {
@@ -825,7 +825,7 @@ TEST( AnimatorBlending, ALayerPlayersNotifyStateEndsWhenItsWeightFallsToZero )
 {
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
-    AnimationClip  base =
+    const AnimationClip base =
          StaticClip( "Base", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
     AnimationClip layer =
          StaticClip( "Layer", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
@@ -865,18 +865,29 @@ TEST( AnimatorBlending, TwoPlayersCurvesAtFullWeightNormalizeToTheirMean )
     FlatCurve( layer, "Only", 3.0F );
 
     auto graph                              = PoseGraphFixture::FullBodyLayer( "root" );
-    graph.Nodes[2].LayeredBlend->CurveBlend =
-         static_cast<int>( Animation::Graph::CurveBlendOption::NormalizeByWeight );
+    auto& blend                              = graph.Nodes[2];
+    if ( !blend.LayeredBlend )
+    {
+        FAIL() << "the full-body layer graph's node 2 is its Layered Blend";
+    }
+    blend.LayeredBlend->CurveBlend = static_cast<int>( Animation::Graph::CurveBlendOption::NormalizeByWeight );
     animator.Play( base, false );
     ASSERT_TRUE( PoseGraphFixture::Drive( animator, graph, layer, 1.0F, false ) );
     animator.Update( Timestep( 0.25F ) );
 
-    ASSERT_TRUE( animator.GetCurveValue( "Blink" ).has_value() )
-         << "the graph's curves never reached GetCurveValue";
-    EXPECT_NEAR( *animator.GetCurveValue( "Blink" ), 4.0F, 1e-5F )
+    const auto blink = animator.GetCurveValue( "Blink" );
+    if ( !blink )
+    {
+        FAIL() << "the graph's curves never reached GetCurveValue";
+    }
+    EXPECT_NEAR( *blink, 4.0F, 1e-5F )
          << "base 1 and layer 1, normalized by weight: the mean — the curves were not blended with the pose";
-    ASSERT_TRUE( animator.GetCurveValue( "Only" ).has_value() ) << "a curve only the layer has was dropped";
-    EXPECT_NEAR( *animator.GetCurveValue( "Only" ), 3.0F, 1e-5F );
+    const auto only = animator.GetCurveValue( "Only" );
+    if ( !only )
+    {
+        FAIL() << "a curve only the layer has was dropped";
+    }
+    EXPECT_NEAR( *only, 3.0F, 1e-5F );
     EXPECT_FALSE( animator.GetCurveValue( "Missing" ).has_value() );
 }
 
@@ -922,7 +933,7 @@ namespace
 TEST( AnimatorBlending, ABasePlayerAtGraphWeightZeroIsSilentAndAtOneIsHeard )
 {
     const Skeleton skeleton = MakeRig();
-    AnimationClip  base     = SteppingClip( "Base" );
+    const AnimationClip base     = SteppingClip( "Base" );
 
     for ( const bool replaced : { false, true } )
     {
@@ -942,7 +953,7 @@ TEST( AnimatorBlending, ABasePlayerAtGraphWeightZeroIsSilentAndAtOneIsHeard )
 TEST( AnimatorBlending, ACrossFadesOutgoingNotifyIsHeardUntilItsWeightReachesZero )
 {
     const Skeleton skeleton = MakeRig();
-    AnimationClip  outgoing = SteppingClip( "Out" ); // "Step" at 0.5 s
+    const AnimationClip outgoing = SteppingClip( "Out" ); // "Step" at 0.5 s
     AnimationClip  incoming =
          StaticClip( "In", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
     ClipFixture::AddNotify( incoming, "Land", At( 0.2 ) );

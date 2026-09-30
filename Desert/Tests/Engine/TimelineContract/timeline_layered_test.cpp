@@ -8,6 +8,7 @@
 #include <Engine/Animation/Graph/PoseGraphInstance.hpp>
 
 using namespace TimelineFixtures;
+namespace G = Desert::Animation::Graph;
 
 // ── 9a. Layered Blend Per Bone ────────────────────────────────────────────────────────────────────────
 
@@ -290,7 +291,12 @@ namespace
 TEST( PoseGraphInstance, ABlendOfBlendsEvaluatesEachNodeFromItsInputsPoses )
 {
     const Skeleton skeleton = FiveBones();
-    const uint32_t spine    = skeleton.FindBoneIndex( "spine" ).value();
+    const auto     spineBone = skeleton.FindBoneIndex( "spine" );
+    if ( !spineBone )
+    {
+        FAIL() << "FiveBones names a spine";
+    }
+    const uint32_t spine = *spineBone;
 
     G::AnimGraph graph;
     graph.Name = "BlendOfBlends";
@@ -337,7 +343,12 @@ TEST( PoseGraphInstance, AnAdditiveOverALayeredBlendAndARefusedFilterBone )
     EXPECT_NEAR( out.Pose[0].Translation.x, 1.0F + 3.0F, 1e-6F )
          << "the root: L0 (outside the spine branch) plus the whole additive L2 (alpha unbound = 1)";
 
-    graph.Nodes[3].LayeredBlend->Layers[0].Filters[0].BoneName = "no_such_bone";
+    auto& blend = graph.Nodes[3];
+    if ( !blend.LayeredBlend )
+    {
+        FAIL() << "node 3 is the Layered Blend";
+    }
+    blend.LayeredBlend->Layers[0].Filters[0].BoneName          = "no_such_bone";
     const auto refused                                         = instance.Bind( graph, skeleton );
     ASSERT_FALSE( refused.IsSuccess() );
     EXPECT_NE( refused.GetError().find( "Upper" ), std::string::npos ) << refused.GetError();
@@ -410,7 +421,12 @@ namespace
 TEST( LinkedAnimLayer, UnlinkedPassesTheInputAndLinkingSwapsTheLayerWithoutEditingTheGraph )
 {
     const Skeleton     skeleton  = FiveBones();
-    const uint32_t     spine     = skeleton.FindBoneIndex( "spine" ).value();
+    const auto         spineBone = skeleton.FindBoneIndex( "spine" );
+    if ( !spineBone )
+    {
+        FAIL() << "FiveBones names a spine";
+    }
+    const uint32_t     spine     = *spineBone;
     const G::AnimGraph character = Character();
 
     G::PoseGraphInstance instance;
@@ -450,7 +466,11 @@ TEST( LinkedAnimLayer, ALinkIsRefusedByNameAndLeavesTheTableAsItWas )
     EXPECT_NE( undeclared.GetError().find( "'Weapon'" ), std::string::npos ) << undeclared.GetError();
 
     G::AnimGraph otherLayers = Character();
-    otherLayers.Layers->Interfaces[0].Layers.push_back( "Hands" );
+    if ( !otherLayers.Layers )
+    {
+        FAIL() << "Character declares its layer interface";
+    }
+    otherLayers.Layers->Interfaces[0].Layers.emplace_back( "Hands" );
     EXPECT_FALSE( table.Link( otherLayers, 101, Rifle(), skeleton ).IsSuccess() ) << "the interfaces disagree";
 
     G::AnimGraph noAim = Character();
@@ -460,7 +480,16 @@ TEST( LinkedAnimLayer, ALinkIsRefusedByNameAndLeavesTheTableAsItWas )
     EXPECT_NE( unread.GetError().find( "'Aim'" ), std::string::npos ) << unread.GetError();
 
     G::AnimGraph badBone                                                                = Rifle();
-    badBone.Layers->Implemented[0].Nodes[2].LayeredBlend->Layers[0].Filters[0].BoneName = "no_such_bone";
+    if ( !badBone.Layers )
+    {
+        FAIL() << "Rifle implements its layer";
+    }
+    auto& rifleBlend = badBone.Layers->Implemented[0].Nodes[2];
+    if ( !rifleBlend.LayeredBlend )
+    {
+        FAIL() << "Rifle's node 2 is its Layered Blend";
+    }
+    rifleBlend.LayeredBlend->Layers[0].Filters[0].BoneName = "no_such_bone";
     const auto unbound = table.Link( Character(), 101, badBone, skeleton );
     ASSERT_FALSE( unbound.IsSuccess() );
     EXPECT_NE( unbound.GetError().find( "no_such_bone" ), std::string::npos ) << unbound.GetError();
@@ -472,7 +501,12 @@ TEST( LinkedAnimLayer, ALinkIsRefusedByNameAndLeavesTheTableAsItWas )
 TEST( LinkedAnimLayer, UnlinkMatchesTheGraphGuidNotItsName )
 {
     const Skeleton       skeleton  = FiveBones();
-    const uint32_t       spine     = skeleton.FindBoneIndex( "spine" ).value();
+    const auto           spineBone = skeleton.FindBoneIndex( "spine" );
+    if ( !spineBone )
+    {
+        FAIL() << "FiveBones names a spine";
+    }
+    const uint32_t       spine     = *spineBone;
     const G::AnimGraph   character = Character();
     G::PoseGraphInstance instance;
     ASSERT_TRUE( instance.Bind( character, skeleton ).IsSuccess() );
@@ -493,35 +527,56 @@ TEST( LinkedAnimLayer, UnlinkMatchesTheGraphGuidNotItsName )
 TEST( LinkedAnimLayer, ALayerMayHoldAStateMachineAndCallANestedLayerButNotACycle )
 {
     const Skeleton skeleton  = FiveBones();
-    const uint32_t spine     = skeleton.FindBoneIndex( "spine" ).value();
+    const auto     spineBone = skeleton.FindBoneIndex( "spine" );
+    if ( !spineBone )
+    {
+        FAIL() << "FiveBones names a spine";
+    }
+    const uint32_t spine     = *spineBone;
     G::AnimGraph   character = Character();
+    if ( !character.Layers )
+    {
+        FAIL() << "Character declares its layer interface";
+    }
     character.Layers->Interfaces.push_back( G::AnimLayerInterface{ "Hands", { "Grip" } } );
     G::PoseGraphInstance instance;
     ASSERT_TRUE( instance.Bind( character, skeleton ).IsSuccess() );
 
     // Rifle's UpperBody: a state machine blended over the input, then a nested call of Hands.Grip.
     G::AnimGraph rifle = Rifle();
-    rifle.Layers->Interfaces.push_back( G::AnimLayerInterface{ "Hands", { "Grip" } } );
+    if ( !rifle.Layers )
+    {
+        FAIL() << "Rifle implements its layer";
+    }
+    G::AnimGraphLayers& rifleLayers = *rifle.Layers;
+    rifleLayers.Interfaces.push_back( G::AnimLayerInterface{ "Hands", { "Grip" } } );
     G::PoseNode machine = Leaf( "Aim" );
     machine.Kind        = static_cast<int>( G::PoseNodeKind::StateMachine );
     machine.Sequence.reset();
-    machine.Machine = G::StateMachine{ "Hold", { G::State{ .Name = "Hold", .Clip = "RifleHold" } } };
-    rifle.Layers->Implemented[0].Nodes[1] = machine;
+    G::State hold;
+    hold.Name                           = "Hold";
+    hold.Clip                           = "RifleHold";
+    machine.Machine                     = G::StateMachine{ "Hold", { hold } };
+    rifleLayers.Implemented[0].Nodes[1] = machine;
     G::PoseNode nested;
     nested.Name        = "Grip";
     nested.Kind        = static_cast<int>( G::PoseNodeKind::LinkedAnimLayer );
     nested.PoseInputs  = { "Upper" };
     nested.LinkedLayer = G::LinkedAnimLayerNode{ "Hands", "Grip" };
-    rifle.Layers->Implemented[0].Nodes.push_back( nested );
-    rifle.Layers->Implemented[0].OutputPose = "Grip";
+    rifleLayers.Implemented[0].Nodes.push_back( nested );
+    rifleLayers.Implemented[0].OutputPose   = "Grip";
     const auto planned                      = G::PlanPoseGraph( rifle );
     ASSERT_TRUE( planned.IsSuccess() ) << planned.GetError();
 
     G::LinkedLayerTable table;
     const auto          linked = table.Link( character, 301, rifle, skeleton );
     ASSERT_TRUE( linked.IsSuccess() ) << linked.GetError();
-    ASSERT_TRUE( table.Layers()[0].Machines.has_value() ) << "the layer's machine has its own evaluator";
-    EXPECT_EQ( table.Layers()[0].Machines->CurrentState( "Aim" )->Name, "Hold" );
+    const auto& machines = table.Layers()[0].Machines;
+    if ( !machines )
+    {
+        FAIL() << "the layer's machine has its own evaluator";
+    }
+    EXPECT_EQ( machines->CurrentState( "Aim" )->Name, "Hold" );
     const LocalPose reference( skeleton.GetBones().size() );
     G::GraphPose    out;
     instance.Evaluate( LinkedLeaves( reference, table ), skeleton, out );

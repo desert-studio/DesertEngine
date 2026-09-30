@@ -447,7 +447,10 @@ TEST( UICanvasContext, OnlyTheDrivingViewAdvancesTheScenesAnimationPlayhead )
 
     Frame( viewport, f, At( 900.0f, 900.0f, /*down=*/false ) );
     Frame( preview, f, nullptr );
-    ASSERT_TRUE( clip.Playback.has_value() ) << "the first frame did not give the clip its player";
+    if ( !clip.Playback )
+    {
+        FAIL() << "the first frame did not give the clip its player";
+    }
     (void)clip.Playback->JumpTo( AN::SecondsToFrameTime( 5.0, clip.Sequence.TickRate ) );
 
     RewindClock( preview, 0.05f );
@@ -483,6 +486,10 @@ TEST( UICanvasContext, AClipMovesTheElementItsBindingNamesInEveryView )
     UIViewContext preview;
     preview.DrivesSceneAnimation = false;
     Frame( viewport, f, At( 900.0f, 900.0f, /*down=*/false ) );
+    if ( !clip.Playback )
+    {
+        FAIL() << "the first frame did not give the clip its player";
+    }
     (void)clip.Playback->JumpTo( AN::SecondsToFrameTime( 0.5, clip.Sequence.TickRate ) );
     Frame( preview, f, nullptr );
 

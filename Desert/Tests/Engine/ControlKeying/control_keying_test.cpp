@@ -165,12 +165,12 @@ namespace
 
     glm::vec3 KeyValue( const VectorChannel& part, size_t i )
     {
-        return glm::vec3( part.X.Keys[i].Value, part.Y.Keys[i].Value, part.Z.Keys[i].Value );
+        return { part.X.Keys[i].Value, part.Y.Keys[i].Value, part.Z.Keys[i].Value };
     }
 
     glm::quat KeyValue( const RotationChannel& part, size_t i )
     {
-        return glm::quat( part.W.Keys[i].Value, part.X.Keys[i].Value, part.Y.Keys[i].Value, part.Z.Keys[i].Value );
+        return { part.W.Keys[i].Value, part.X.Keys[i].Value, part.Y.Keys[i].Value, part.Z.Keys[i].Value };
     }
 
     /// What playback reads from the track at @p tick — the evaluator's fold, not a key read.

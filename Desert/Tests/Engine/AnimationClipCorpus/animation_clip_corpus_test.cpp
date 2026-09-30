@@ -200,16 +200,22 @@ TEST( AnimationClipCorpus, EveryClipInTheRepositoryIsATimelineClipThatValidates 
 {
     using namespace Desert::Assets::Serialization;
     const auto clips = TrackedClips();
-    ASSERT_TRUE( clips.has_value() ) << "git ls-files failed from " << RepoRoot();
+    if ( !clips )
+    {
+        FAIL() << "git ls-files failed from " << RepoRoot();
+    }
     std::size_t read = 0;
     for ( const std::string& path : *clips )
     {
         const auto data = ReadAnimationJson( ReadFile( path ) );
         ASSERT_TRUE( data.IsSuccess() ) << path << ": " << data.GetError();
-        ASSERT_TRUE( data.GetValue().Header.has_value() ) << path;
-        EXPECT_EQ(
-             Common::Content::TextHeaderVersion( *data.GetValue().Header, Desert::Assets::kAnimationSchemaTag ),
-             std::optional<uint32_t>( Desert::Assets::kAnimationSchemaVersion ) )
+        const auto& header = data.GetValue().Header;
+        if ( !header )
+        {
+            FAIL() << path;
+        }
+        EXPECT_EQ( Common::Content::TextHeaderVersion( *header, Desert::Assets::kAnimationSchemaTag ),
+                   std::optional<uint32_t>( Desert::Assets::kAnimationSchemaVersion ) )
              << path;
         const auto clip = BuildClipFromAssetData( data.GetValue() );
         ASSERT_TRUE( clip.IsSuccess() ) << path << ": " << clip.GetError();
@@ -229,7 +235,10 @@ TEST( AnimationClipCorpus, EveryClipIsWhatTheOneWriterWritesForIt )
 {
     using namespace Desert::Assets::Serialization;
     const auto clips = TrackedClips();
-    ASSERT_TRUE( clips.has_value() );
+    if ( !clips )
+    {
+        FAIL() << "git ls-files failed from " << RepoRoot();
+    }
     for ( const std::string& path : *clips )
     {
         const std::string text = ReadFile( path );

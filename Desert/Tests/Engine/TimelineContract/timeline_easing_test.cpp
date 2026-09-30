@@ -70,8 +70,10 @@ TEST( TimelineEasing, EveryOneCubicPresetIsTheFormulaExactly )
         EXPECT_EQ( result.GetValue().InsertedKeys, 0U );
         EXPECT_EQ( result.GetValue().MaxDeviation, 0.0F );
         const FloatChannel channel{ keys, 0.0F };
-        EXPECT_NEAR( Evaluate( channel, At( 15 ), rate ), 2.0F + 4.0F * c.At15, 1e-4F ) << int( c.Preset );
-        EXPECT_NEAR( Evaluate( channel, At( 30 ), rate ), 2.0F + 4.0F * c.At30, 1e-4F ) << int( c.Preset );
+        EXPECT_NEAR( Evaluate( channel, At( 15 ), rate ), 2.0F + 4.0F * c.At15, 1e-4F )
+             << static_cast<int>( c.Preset );
+        EXPECT_NEAR( Evaluate( channel, At( 30 ), rate ), 2.0F + 4.0F * c.At30, 1e-4F )
+             << static_cast<int>( c.Preset );
     }
 }
 

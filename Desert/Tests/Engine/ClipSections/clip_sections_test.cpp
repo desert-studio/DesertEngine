@@ -558,7 +558,7 @@ TEST( ClipSections, RemovingEveryWeightKeyIsFullWeightAndNotSilence )
 {
     AnimationClip clip    = MovingClip( "arm" );
     Track&        track   = TrackOf( clip, "arm" );
-    Section&      section = track.Sections[0];
+    const Section& section = track.Sections[0];
     ASSERT_TRUE( SetSectionWeightKey( track, 0, FrameNumber{ 0 }, 0.0F ).IsSuccess() );
     ASSERT_FLOAT_EQ( WeightAt( section, At( 0 ), PROJECT_TICK_RATE ), 0.0F );
 
