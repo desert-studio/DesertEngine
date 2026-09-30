@@ -320,13 +320,16 @@ namespace Desert::Migration
     {
         auto envelope = Common::Json::Read<TimelineEnvelope>( block );
         if ( !envelope )
-            return Common::MakeFormattedError<Timeline::Sequence>( "not a TMLN document: {}", envelope.GetError() );
+            return Common::MakeFormattedError<Timeline::Sequence>( "not a TMLN document: {}",
+                                                                   envelope.GetError() );
         TimelineEnvelope raised = envelope.ExtractValue();
-        const auto stated = raised.Header.Versions.find( Common::Content::FourCCToString( Assets::kTimelineSchemaTag ) );
-        if ( stated == raised.Header.Versions.end() || stated->second != Timeline::kTimelineLastArrivingInterpVersion )
-            return Common::MakeFormattedError<Timeline::Sequence>(
-                 "the timeline block is not TMLN v{}", Timeline::kTimelineLastArrivingInterpVersion );
-        stated->second          = Timeline::kTimelineFormatVersion;
+        const auto       stated =
+             raised.Header.Versions.find( Common::Content::FourCCToString( Assets::kTimelineSchemaTag ) );
+        if ( stated == raised.Header.Versions.end() ||
+             stated->second != Timeline::kTimelineLastArrivingInterpVersion )
+            return Common::MakeFormattedError<Timeline::Sequence>( "the timeline block is not TMLN v{}",
+                                                                   Timeline::kTimelineLastArrivingInterpVersion );
+        stated->second         = Timeline::kTimelineFormatVersion;
         const std::string text = Common::Json::Write( raised );
         return Timeline::ReadSequence(
              std::span<const uint8_t>( reinterpret_cast<const uint8_t*>( text.data() ), text.size() ) );

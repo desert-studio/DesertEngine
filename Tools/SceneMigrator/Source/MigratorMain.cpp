@@ -565,9 +565,8 @@ namespace Desert::Migration
                      tiles, sequences, out );
 
         if ( scenes.empty() && materials.empty() && prefabs.empty() && clips.empty() && sequences.empty() &&
-             texts.empty() &&
-             meshes.empty() && layouts.empty() && noises.empty() && models.empty() && shaders.empty() &&
-             tiles.empty() )
+             texts.empty() && meshes.empty() && layouts.empty() && noises.empty() && models.empty() &&
+             shaders.empty() && tiles.empty() )
         {
             err << "SceneMigrator: no " << kSceneExtension << ", " << kMaterialExtension << ", "
                 << kPrefabExtension << ", " << kClipExtension
@@ -1109,8 +1108,8 @@ namespace Desert::Migration
             auto header  = Desert::Common::Json::Read<Desert::Migration::TimelineEnvelope>( source );
             if ( !shifted || !header )
             {
-                err << "FAIL   " << path.string() << " — "
-                    << ( !shifted ? shifted.GetError() : header.GetError() ) << "\n";
+                err << "FAIL   " << path.string() << " — " << ( !shifted ? shifted.GetError() : header.GetError() )
+                    << "\n";
                 ++failed;
                 continue;
             }

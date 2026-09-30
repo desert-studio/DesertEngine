@@ -47,5 +47,6 @@ namespace Desert::Migration
 
     // THE `.anim` STEP TMLN v1 -> v2 (ANIM-FMT) of an ANIM v6 clip: its modes were shifted at v6, so only the
     // block's number moves. Empty when the block already states v2.
-    [[nodiscard]] Common::ResultStr<std::optional<std::string>> MigrateClipTimelineV1ToV2( const std::string& text );
+    [[nodiscard]] Common::ResultStr<std::optional<std::string>>
+    MigrateClipTimelineV1ToV2( const std::string& text );
 } // namespace Desert::Migration

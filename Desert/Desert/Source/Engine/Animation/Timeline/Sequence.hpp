@@ -55,7 +55,7 @@ namespace Desert::Animation::Timeline
     // v2 (ANIM-FMT): a key's `KeyInterp` shapes the segment LEAVING it (UE's rule, Channel.cpp). v1 stated the
     // segment ARRIVING at it, in the same layout; the reader refuses v1 by name and only SceneMigrator reads it
     // (ClipInterpShift.hpp shifts the modes one key back in every host: .anim, a scene's UIAnim, .dseq).
-    inline constexpr uint32_t kTimelineFormatVersion          = 2;
+    inline constexpr uint32_t kTimelineFormatVersion             = 2;
     inline constexpr uint32_t kTimelineLastArrivingInterpVersion = 1;
 
     struct Sequence

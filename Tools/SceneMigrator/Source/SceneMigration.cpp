@@ -490,8 +490,9 @@ namespace Desert::Migration
                                 std::string( reinterpret_cast<const char*>( bytes.data() ), bytes.size() ) );
                            if ( !next )
                            {
-                               report.Refused.push_back( "entity " + who + ": the TMLN writer's text does not read: " +
-                                                         next.error().what() );
+                               report.Refused.push_back(
+                                    "entity " + who +
+                                    ": the TMLN writer's text does not read: " + next.error().what() );
                                return false;
                            }
                            block["Sequence"] = next.value();

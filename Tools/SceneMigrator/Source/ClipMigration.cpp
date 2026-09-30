@@ -88,7 +88,8 @@ namespace Desert::Migration
             using namespace Assets::Serialization;
             if ( sequence.Host != Animation::Timeline::SequenceHost::AnimationClip )
                 return Common::MakeFormattedError<std::string>( "clip '{}': its timeline block is a {} sequence",
-                                                                source.Name, Animation::Timeline::ToString( sequence.Host ) );
+                                                                source.Name,
+                                                                Animation::Timeline::ToString( sequence.Host ) );
             Animation::AnimationClip clip;
             clip.AnimationName     = source.Name;
             clip.SkeletonSignature = source.SkeletonSignature;
@@ -112,9 +113,10 @@ namespace Desert::Migration
         if ( !parsed )
             return Common::MakeFormattedError<InterpShiftOutcome>( "not an ANIM v5 clip: {}", parsed.GetError() );
         const AnimationAssetData& source = parsed.GetValue();
-        auto shifted = ShiftTimelineV1( Common::Json::Write( source.Sequence ) );
+        auto                      shifted = ShiftTimelineV1( Common::Json::Write( source.Sequence ) );
         if ( !shifted )
-            return Common::MakeFormattedError<InterpShiftOutcome>( "clip '{}': {}", source.Name, shifted.GetError() );
+            return Common::MakeFormattedError<InterpShiftOutcome>( "clip '{}': {}", source.Name,
+                                                                   shifted.GetError() );
         TimelineShift      shift = shifted.ExtractValue();
         InterpShiftOutcome outcome;
         outcome.KeyLists      = shift.KeyLists;
@@ -132,20 +134,20 @@ namespace Desert::Migration
         auto parsed = Common::Json::Read<AnimationAssetData>( text );
         if ( !parsed )
             return Common::MakeFormattedError<std::optional<std::string>>( "not an ANIM v6 clip: {}",
-                                                                          parsed.GetError() );
+                                                                           parsed.GetError() );
         const AnimationAssetData& source = parsed.GetValue();
         const std::string         block  = Common::Json::Write( source.Sequence );
         const auto                stated = StatedTimelineVersion( block );
         if ( !stated )
             return Common::MakeFormattedError<std::optional<std::string>>( "clip '{}': {}", source.Name,
-                                                                          stated.GetError() );
+                                                                           stated.GetError() );
         if ( stated.GetValue() != Animation::Timeline::kTimelineLastArrivingInterpVersion )
             return Common::MakeSuccess( std::optional<std::string>{} );
         // ANIM v6 already shifted the modes (MigrateClipInterpShift, LiftClip): the number alone moves.
         auto sequence = ReadTimelineV1( block );
         if ( !sequence )
             return Common::MakeFormattedError<std::optional<std::string>>( "clip '{}': {}", source.Name,
-                                                                          sequence.GetError() );
+                                                                           sequence.GetError() );
         auto written = WriteClip( source, sequence.ExtractValue() );
         if ( !written )
             return Common::MakeFormattedError<std::optional<std::string>>( "{}", written.GetError() );
