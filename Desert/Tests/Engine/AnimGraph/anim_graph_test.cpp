@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 using Desert::Animation::Graph::AnimGraph;
 using Desert::Animation::Graph::CompareOp;
 using Desert::Animation::Graph::Condition;
@@ -278,4 +280,104 @@ TEST( PoseGraph, AnUnplannableGraphUpdatesNothingAndSaysWhy )
     Evaluator eval( graph );
     EXPECT_NE( eval.GetStructureError().find( "'Gone'" ), std::string::npos ) << eval.GetStructureError();
     EXPECT_EQ( eval.Update( 0.0f ).Current, nullptr );
+}
+
+// ── The pose graph evaluates node by node (ANIM-I13b): any composition plans, a loop is refused by name ──
+namespace
+{
+    PG::PoseNode SequenceNode( std::string name, std::string clip )
+    {
+        PG::PoseNode node;
+        node.Name     = std::move( name );
+        node.Kind     = static_cast<int>( PG::PoseNodeKind::SequencePlayer );
+        node.Sequence = PG::SequencePlayerNode{ .Clip = std::move( clip ), .Loop = true };
+        return node;
+    }
+
+    PG::PoseNode LayeredNode( std::string name, std::string base, std::string layer )
+    {
+        PG::PoseNode node;
+        node.Name         = std::move( name );
+        node.Kind         = static_cast<int>( PG::PoseNodeKind::LayeredBlendPerBone );
+        node.PoseInputs   = { std::move( base ), std::move( layer ) };
+        node.LayeredBlend = PG::LayeredBlendPerBoneNode{};
+        node.LayeredBlend->Layers.push_back( PG::LayerSetup{ { PG::BranchFilter{ "spine", 0 } } } );
+        return node;
+    }
+
+    PG::PoseNode AdditiveNode( std::string name, std::string base, std::string additive )
+    {
+        PG::PoseNode node;
+        node.Name       = std::move( name );
+        node.Kind       = static_cast<int>( PG::PoseNodeKind::ApplyAdditive );
+        node.PoseInputs = { std::move( base ), std::move( additive ) };
+        return node;
+    }
+} // namespace
+
+TEST( PoseGraph, ABlendOfBlendsAndAnAdditiveOverItArePlannedAndPlayed )
+{
+    AnimGraph graph = PG::MakeStateMachineGraph( "Hero" );
+    State     idle;
+    idle.Name                          = "Idle";
+    PG::OutputMachine( graph )->States = { idle };
+    graph.Nodes.push_back( SequenceNode( "Aim", "aim" ) );
+    graph.Nodes.push_back( SequenceNode( "Wave", "wave" ) );
+    graph.Nodes.push_back( SequenceNode( "Breathe", "breathe" ) );
+    graph.Nodes.push_back( LayeredNode( "Inner", std::string( PG::kDefaultStateMachineNode ), "Aim" ) );
+    graph.Nodes.push_back( LayeredNode( "Outer", "Inner", "Wave" ) ); // a blend whose base is a blend
+    graph.Nodes.push_back( AdditiveNode( "Add", "Outer", "Breathe" ) );
+    graph.OutputPose = "Add";
+
+    const auto plan = PG::PlanPoseGraph( graph );
+    ASSERT_TRUE( plan.IsSuccess() ) << plan.GetError();
+    ASSERT_EQ( plan.GetValue().size(), 7U );
+    EXPECT_EQ( plan.GetValue().back(), 6 ) << "Output Pose's node is evaluated last";
+
+    const auto position = [&]( int node )
+    { return std::find( plan.GetValue().begin(), plan.GetValue().end(), node ) - plan.GetValue().begin(); };
+    EXPECT_LT( position( 4 ), position( 5 ) ) << "the inner blend has to be evaluated before the blend reading it";
+
+    Evaluator eval( graph );
+    EXPECT_TRUE( eval.GetStructureError().empty() )
+         << "the evaluator still refuses a composition: " << eval.GetStructureError();
+    ASSERT_NE( PG::BaseSourceNode( graph ), nullptr );
+    EXPECT_EQ( PG::BaseSourceNode( graph )->Name, PG::kDefaultStateMachineNode )
+         << "the base chain runs down pin 0 of the additive and of both blends";
+    ASSERT_NE( eval.Update( 0.0f ).Current, nullptr );
+}
+
+TEST( PoseGraph, ALoopThroughBlendNodesIsRefusedNamingItsNodes )
+{
+    AnimGraph graph = PG::MakeStateMachineGraph( "Hero" );
+    graph.Nodes.push_back( LayeredNode( "Upper", "Plus", std::string( PG::kDefaultStateMachineNode ) ) );
+    graph.Nodes.push_back( AdditiveNode( "Plus", "Upper", std::string( PG::kDefaultStateMachineNode ) ) );
+    graph.OutputPose = "Upper";
+
+    const auto plan = PG::PlanPoseGraph( graph );
+    ASSERT_FALSE( plan.IsSuccess() ) << "a pose graph with a loop has no first node";
+    EXPECT_NE( plan.GetError().find( "Upper" ), std::string::npos ) << plan.GetError();
+    EXPECT_NE( plan.GetError().find( "Plus" ), std::string::npos ) << plan.GetError();
+    EXPECT_NE( plan.GetError().find( "->" ), std::string::npos ) << plan.GetError();
+    EXPECT_FALSE( Evaluator( graph ).GetStructureError().empty() );
+}
+
+TEST( PoseGraph, ASequencePlayerWithNoClipAndAnAdditiveMissingAWireAreRefusedByName )
+{
+    AnimGraph noClip = PG::MakeStateMachineGraph( "Hero" );
+    noClip.Nodes.push_back( SequenceNode( "Silent", "" ) );
+    noClip.OutputPose = "Silent";
+    const auto silent = PG::PlanPoseGraph( noClip );
+    ASSERT_FALSE( silent.IsSuccess() );
+    EXPECT_NE( silent.GetError().find( "Silent" ), std::string::npos ) << silent.GetError();
+
+    AnimGraph oneWire = PG::MakeStateMachineGraph( "Hero" );
+    PG::PoseNode add  = AdditiveNode( "Add", std::string( PG::kDefaultStateMachineNode ), "x" );
+    add.PoseInputs.pop_back();
+    oneWire.Nodes.push_back( add );
+    oneWire.OutputPose = "Add";
+    const auto missing = PG::PlanPoseGraph( oneWire );
+    ASSERT_FALSE( missing.IsSuccess() );
+    EXPECT_NE( missing.GetError().find( "'Add' (ApplyAdditive) has 2 Pose pin(s) and 1 wire(s)" ), std::string::npos )
+         << missing.GetError();
 }

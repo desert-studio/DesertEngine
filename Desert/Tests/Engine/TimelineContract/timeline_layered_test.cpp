@@ -5,6 +5,8 @@
 
 #include <glm/gtc/quaternion.hpp>
 
+#include <Engine/Animation/Graph/PoseGraphInstance.hpp>
+
 using namespace TimelineFixtures;
 
 // ── 9a. Layered Blend Per Bone ────────────────────────────────────────────────────────────────────────
@@ -211,4 +213,133 @@ TEST( LayeredBlendPerBone, CurvesCombineByTheNodesRule )
     EXPECT_FLOAT_EQ( blinkWith( G::CurveBlendOption::UseMinValue ), 0.2F );
     EXPECT_FLOAT_EQ( blinkWith( G::CurveBlendOption::BlendByWeight ), 0.2F + 0.4F );
     EXPECT_FLOAT_EQ( blinkWith( G::CurveBlendOption::NormalizeByWeight ), 0.6F / 1.5F );
+}
+
+// ── 9b. The pose graph evaluated node by node (ANIM-I13b): Apply Additive, a blend of blends ─────────────
+
+TEST( ApplyAdditive, AddsTheDifferenceFromTheReferenceScaledByAlpha )
+{
+    G::GraphPose base;
+    base.Pose                = LocalPose( 5 );
+    base.Pose[1].Translation = glm::vec3( 1.0F, 0.0F, 0.0F );
+    base.CurveNames          = { "Blink" };
+    base.CurveValues         = { 0.25F };
+    G::GraphPose additive;
+    additive.Pose                = LocalPose( 5 );
+    additive.Pose[1].Translation = glm::vec3( 0.0F, 5.0F, 0.0F );
+    additive.Pose[2].Rotation    = glm::angleAxis( glm::radians( 90.0F ), glm::vec3( 0.0F, 1.0F, 0.0F ) );
+    additive.CurveNames          = { "Blink", "Jaw" };
+    additive.CurveValues         = { 0.5F, 1.0F };
+    LocalPose reference( 5 );
+    reference[1].Translation = glm::vec3( 0.0F, 2.0F, 0.0F );
+
+    G::GraphPose out;
+    ASSERT_TRUE( G::ApplyAdditive( base, additive, reference, 0.5F, out ).IsSuccess() );
+    EXPECT_NEAR( glm::length( out.Pose[1].Translation - glm::vec3( 1.0F, 1.5F, 0.0F ) ), 0.0F, 1e-5F )
+         << "half of the additive's difference from the reference (5 - 2) on top of the base";
+    const float angle = glm::degrees( glm::angle( out.Pose[2].Rotation ) );
+    EXPECT_NEAR( angle, 45.0F, 1e-3F ) << "alpha 0.5 of a 90 degree additive rotation";
+    ASSERT_EQ( out.CurveNames.size(), 2U );
+    EXPECT_NEAR( out.CurveValues[0], 0.5F, 1e-6F ) << "a curve both have: base + alpha x additive";
+    EXPECT_NEAR( out.CurveValues[1], 0.5F, 1e-6F ) << "a curve only the additive has enters from 0";
+
+    ASSERT_TRUE( G::ApplyAdditive( base, additive, reference, 0.0F, out ).IsSuccess() );
+    EXPECT_EQ( out.Pose[1].Translation, base.Pose[1].Translation ) << "alpha 0 is the base bit for bit";
+    EXPECT_EQ( out.Pose[2].Rotation, base.Pose[2].Rotation );
+
+    EXPECT_FALSE( G::ApplyAdditive( base, additive, LocalPose( 4 ), 1.0F, out ).IsSuccess() );
+}
+
+namespace
+{
+    /// Leaf node i poses every bone at translation (i + 1, 0, 0), so the output says which leaf reached a bone.
+    G::PoseGraphSources NumberedLeaves( const LocalPose& reference )
+    {
+        G::PoseGraphSources sources;
+        sources.Sample = []( size_t node, G::GraphPose& out )
+        {
+            for ( size_t b = 0; b < out.Pose.Size(); ++b )
+                out.Pose[b].Translation = glm::vec3( static_cast<float>( node + 1 ), 0.0F, 0.0F );
+        };
+        sources.Parameter         = []( const std::string& ) { return 0.5F; };
+        sources.AdditiveReference = &reference;
+        return sources;
+    }
+
+    G::PoseNode Leaf( std::string name )
+    {
+        G::PoseNode node;
+        node.Name     = std::move( name );
+        node.Kind     = static_cast<int>( G::PoseNodeKind::SequencePlayer );
+        node.Sequence = G::SequencePlayerNode{ .Clip = "clip", .Loop = true };
+        return node;
+    }
+
+    G::PoseNode Blend( std::string name, std::string base, std::string layer, std::string filterBone )
+    {
+        G::PoseNode node;
+        node.Name         = std::move( name );
+        node.Kind         = static_cast<int>( G::PoseNodeKind::LayeredBlendPerBone );
+        node.PoseInputs   = { std::move( base ), std::move( layer ) };
+        node.LayeredBlend = G::LayeredBlendPerBoneNode{};
+        node.LayeredBlend->Layers.push_back( G::LayerSetup{ { G::BranchFilter{ std::move( filterBone ), 0 } } } );
+        return node;
+    }
+} // namespace
+
+TEST( PoseGraphInstance, ABlendOfBlendsEvaluatesEachNodeFromItsInputsPoses )
+{
+    const Skeleton skeleton = FiveBones();
+    const uint32_t spine    = skeleton.FindBoneIndex( "spine" ).value();
+
+    G::AnimGraph graph;
+    graph.Name = "BlendOfBlends";
+    graph.Parameters.push_back(
+         G::Parameter{ .Name = "W", .Type = static_cast<int>( G::ParamType::Float ), .Default = 1.0F } );
+    graph.Nodes = { Leaf( "L0" ), Leaf( "L1" ), Leaf( "L2" ),
+                    Blend( "Inner", "L0", "L1", skeleton.GetBones()[0].Name ), // the whole body from L1
+                    Blend( "Outer", "Inner", "L2", "spine" ) };                 // the spine branch from L2
+    graph.Nodes[4].ParameterInputs.push_back( G::ParameterPin{ G::LayerWeightPin( 0 ), "W" } );
+    graph.OutputPose = "Outer";
+
+    G::PoseGraphInstance instance;
+    const auto           bound = instance.Bind( graph, skeleton );
+    ASSERT_TRUE( bound.IsSuccess() ) << bound.GetError();
+
+    const LocalPose reference( skeleton.GetBones().size() );
+    G::GraphPose    out;
+    instance.Evaluate( NumberedLeaves( reference ), skeleton, out );
+    ASSERT_EQ( out.Pose.Size(), skeleton.GetBones().size() );
+    EXPECT_NEAR( out.Pose[0].Translation.x, 2.0F, 1e-6F ) << "the root is the inner blend's: L1 over L0";
+    EXPECT_NEAR( out.Pose[spine].Translation.x, 2.5F, 1e-6F )
+         << "the spine is the outer blend's at the bound weight 0.5: halfway from the inner blend (2) to L2 (3)";
+}
+
+TEST( PoseGraphInstance, AnAdditiveOverALayeredBlendAndARefusedFilterBone )
+{
+    const Skeleton skeleton = FiveBones();
+
+    G::AnimGraph graph;
+    graph.Name  = "AdditiveOverBlend";
+    graph.Nodes = { Leaf( "L0" ), Leaf( "L1" ), Leaf( "L2" ), Blend( "Upper", "L0", "L1", "spine" ) };
+    G::PoseNode add;
+    add.Name       = "Add";
+    add.Kind       = static_cast<int>( G::PoseNodeKind::ApplyAdditive );
+    add.PoseInputs = { "Upper", "L2" };
+    graph.Nodes.push_back( add );
+    graph.OutputPose = "Add";
+
+    G::PoseGraphInstance instance;
+    ASSERT_TRUE( instance.Bind( graph, skeleton ).IsSuccess() );
+    const LocalPose reference( skeleton.GetBones().size() );
+    G::GraphPose    out;
+    instance.Evaluate( NumberedLeaves( reference ), skeleton, out );
+    EXPECT_NEAR( out.Pose[0].Translation.x, 1.0F + 3.0F, 1e-6F )
+         << "the root: L0 (outside the spine branch) plus the whole additive L2 (alpha unbound = 1)";
+
+    graph.Nodes[3].LayeredBlend->Layers[0].Filters[0].BoneName = "no_such_bone";
+    const auto refused = instance.Bind( graph, skeleton );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "Upper" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "no_such_bone" ), std::string::npos ) << refused.GetError();
 }

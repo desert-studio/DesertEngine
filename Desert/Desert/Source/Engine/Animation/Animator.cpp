@@ -21,8 +21,8 @@ namespace Desert::Animation
         {
             case PoseStage::Source:
                 return "Source";
-            case PoseStage::LayeredBlend:
-                return "LayeredBlend";
+            case PoseStage::Graph:
+                return "Graph";
             case PoseStage::Controls:
                 return "Controls";
             case PoseStage::Rig:
@@ -242,10 +242,10 @@ namespace Desert::Animation
             m_BlendTime += deltaTime;
         }
 
-        if ( m_LayeredBlend )
-            for ( auto& input : m_LayeredBlend->Inputs )
-                if ( input.Playback.IsValid() )
-                    UpdatePlayback( input.Playback, deltaTime );
+        if ( m_PoseGraph )
+            for ( auto& source : m_PoseGraph->Sources )
+                if ( source.IsValid() )
+                    UpdatePlayback( source, deltaTime );
 
         EvaluatePipeline();
 
@@ -277,8 +277,8 @@ namespace Desert::Animation
                 case PoseStage::Source:
                     EvaluateSource( m_EvaluatedPose );
                     break;
-                case PoseStage::LayeredBlend:
-                    EvaluateLayeredBlend( m_EvaluatedPose );
+                case PoseStage::Graph:
+                    EvaluateGraph( m_EvaluatedPose );
                     break;
                 case PoseStage::Controls:
                     EvaluateControls( m_EvaluatedPose );
@@ -317,50 +317,59 @@ namespace Desert::Animation
         static_cast<void>( m_Retarget->Run( m_Skeleton, sourcePose, pose ) );
     }
 
-    void Animator::EvaluateLayeredBlend( LocalPose& pose )
+    void Animator::EvaluateGraph( LocalPose& pose )
     {
-        LayeredBlendState& state = *m_LayeredBlend;
+        PoseGraphState&    state = *m_PoseGraph;
         const size_t       n     = m_Skeleton.GetBones().size();
-        const size_t       count = state.Inputs.size();
+        const Graph::AnimGraph& graph = state.Instance.Graph();
 
-        state.Base.Pose = pose;
-        state.LayerPoses.resize( count );
-        state.LayerWeights.assign( count, 0.0F );
-        for ( size_t layer = 0; layer < count; ++layer )
+        Graph::PoseGraphSources sources;
+        sources.Sample = [&]( size_t node, Graph::GraphPose& out )
         {
-            const LayeredBlendInput& input = state.Inputs[layer];
-            LocalPose&               out   = state.LayerPoses[layer].Pose;
-            out.Resize( n );
-            if ( !input.Playback.IsValid() || input.Weight <= 0.0F )
-                continue; // weight 0: the node short-circuits it and never reads the pose
-
-            // UNDER A RETARGET THE LAYER IS RETARGETED WHOLE, BEFORE THE BLEND, and it has to be whole: the
-            // retarget equation reads a bone's chain to place it, so retargeting the filtered bones alone
-            // would place them against a source pose that had never been resolved.
+            // THE BASE SOURCE IS THE SOURCE STAGE: its crossfade, notifies and root motion are the Animator's.
+            if ( static_cast<int>( node ) == state.BaseSource )
+            {
+                out.Pose = pose;
+                return;
+            }
+            const ClipPlayback& playback = state.Sources[node];
+            if ( !playback.IsValid() )
+            {
+                out.Pose = m_BindPose; // a source with no clip yet (still loading) stands in the bind pose
+                return;
+            }
+            // UNDER A RETARGET THE SOURCE IS RETARGETED WHOLE, BEFORE ANY NODE READS IT: the retarget equation
+            // reads a bone's chain to place it, so retargeting only the bones a blend keeps would place them
+            // against a source pose that had never been resolved.
             if ( m_Retarget )
             {
                 const RigSampling rig        = SourceSampling();
                 LocalPose&        sourcePose = m_Retarget->SourceScratch();
                 for ( uint32_t b = 0; b < sourcePose.Size(); ++b )
-                    sourcePose[b] = SampleLocalTransform( rig, input.Playback.Clip, b, input.Playback.Time );
-                // SKIPPED, NOT BLENDED FROM THE SOURCE RIG: `Run` has reported the reason, and blending the
-                // un-retargeted pose would write source-rig local transforms onto target bones.
-                if ( !m_Retarget->Run( m_Skeleton, sourcePose, out ) )
-                    continue;
+                    sourcePose[b] = SampleLocalTransform( rig, playback.Clip, b, playback.Time );
+                // THE BIND POSE, NOT THE SOURCE RIG'S TRANSFORMS: `Run` has reported the reason, and source-rig
+                // local transforms written onto target bones are the proportion defect a retarget removes.
+                if ( !m_Retarget->Run( m_Skeleton, sourcePose, out.Pose ) )
+                    out.Pose = m_BindPose;
+                return;
             }
-            else
-            {
-                const RigSampling rig = TargetSampling();
-                for ( uint32_t b = 0; b < n; ++b )
-                    out[b] = SampleLocalTransform( rig, input.Playback.Clip, b, input.Playback.Time );
-            }
-            state.LayerWeights[layer] = input.Weight;
-        }
+            const RigSampling rig = TargetSampling();
+            for ( uint32_t b = 0; b < n; ++b )
+                out.Pose[b] = SampleLocalTransform( rig, playback.Clip, b, playback.Time );
+        };
+        sources.Parameter = [&]( const std::string& name )
+        {
+            for ( size_t p = 0; p < graph.Parameters.size(); ++p )
+                if ( graph.Parameters[p].Name == name )
+                    return state.Parameters[p];
+            return 0.0F; // PlanPoseGraph refused a pin bound to an undeclared parameter
+        };
+        // THE REST POSE THE ADDITIVE WAS AUTHORED AGAINST, ON THIS RIG: under a retarget the additive clip is
+        // on the source rig, so its difference is taken from the source rest retargeted the same way.
+        sources.AdditiveReference = m_Retarget ? &m_Retarget->GetRetargetedRest() : &m_BindPose;
 
-        // DISCARDED DELIBERATELY: every size the node checks is fixed by SetLayeredBlend against this
-        // skeleton, so a refusal here cannot happen; were it to, `pose` is left as the Source stage made it.
-        if ( Graph::BlendLayeredPerBone( state.Node, state.Weights, m_Skeleton, state.Base, state.LayerPoses,
-                                         state.LayerWeights, state.Out ) )
+        state.Instance.Evaluate( sources, m_Skeleton, state.Out );
+        if ( state.Out.Pose.Size() == n )
             pose = state.Out.Pose;
     }
 
@@ -410,9 +419,9 @@ namespace Desert::Animation
         // so it is written once, here, and membership stays data.
         m_Stages.clear();
         m_Stages.push_back( PoseStage::Source ); // unconditional: something has to produce a pose
-        if ( m_LayeredBlend )
+        if ( m_PoseGraph )
         {
-            m_Stages.push_back( PoseStage::LayeredBlend );
+            m_Stages.push_back( PoseStage::Graph );
         }
         if ( !m_Controls.empty() )
         {
@@ -678,41 +687,56 @@ namespace Desert::Animation
     // Layers
     // ============================================================
 
-    Common::BoolResultStr Animator::SetLayeredBlend( const Graph::LayeredBlendPerBoneNode& node )
+    Common::BoolResultStr Animator::SetPoseGraph( const Graph::AnimGraph& graph )
     {
-        auto weights = Graph::BuildPerBoneWeights( node, m_Skeleton );
-        if ( !weights )
+        PoseGraphState state;
+        if ( const auto bound = state.Instance.Bind( graph, m_Skeleton ); !bound )
         {
-            ClearLayeredBlend();
-            return Common::MakeError<bool>( weights.GetError() );
+            ClearPoseGraph();
+            return bound;
         }
-        LayeredBlendState state;
-        state.Node    = node;
-        state.Weights = std::move( weights.GetValue() );
-        state.Inputs.resize( node.Layers.size() );
-        // A node re-set with the same number of layers keeps each layer's clock: the graph re-sends its node
-        // after every edit, and a layer that restarted on each edit would stutter while it is being authored.
-        if ( m_LayeredBlend && m_LayeredBlend->Inputs.size() == state.Inputs.size() )
-            state.Inputs = std::move( m_LayeredBlend->Inputs );
-        m_LayeredBlend = std::move( state );
+        const Graph::AnimGraph& bound = state.Instance.Graph();
+        state.Sources.resize( bound.Nodes.size() );
+        state.Parameters.resize( bound.Parameters.size() );
+        for ( size_t p = 0; p < bound.Parameters.size(); ++p )
+            state.Parameters[p] = bound.Parameters[p].Default;
+        if ( const Graph::PoseNode* base = Graph::BaseSourceNode( bound ) )
+            state.BaseSource = static_cast<int>( base - bound.Nodes.data() );
+        // A graph re-set with the same nodes keeps each source's clock and the parameters: the graph is
+        // re-sent after every edit, and a source that restarted on each edit would stutter while authored.
+        if ( m_PoseGraph && m_PoseGraph->Sources.size() == state.Sources.size() )
+            state.Sources = std::move( m_PoseGraph->Sources );
+        if ( m_PoseGraph && m_PoseGraph->Parameters.size() == state.Parameters.size() )
+            state.Parameters = std::move( m_PoseGraph->Parameters );
+        m_PoseGraph = std::move( state );
         SyncStages();
         return Common::MakeSuccess( true );
     }
 
-    void Animator::SetLayeredBlendInput( size_t layer, const AnimationClip& clip, float weight, bool loop )
+    void Animator::SetPoseGraphSource( size_t node, const AnimationClip& clip, bool loop )
     {
-        if ( !m_LayeredBlend || layer >= m_LayeredBlend->Inputs.size() )
+        if ( !m_PoseGraph || node >= m_PoseGraph->Sources.size() || static_cast<int>( node ) == m_PoseGraph->BaseSource ||
+             !Graph::IsSourceKind( static_cast<Graph::PoseNodeKind>( m_PoseGraph->Instance.Graph().Nodes[node].Kind ) ) )
             return;
-        LayeredBlendInput& input = m_LayeredBlend->Inputs[layer];
-        if ( input.Playback.Clip != &clip )
-            input.Playback = { &clip, FrameTime{}, loop };
-        input.Playback.Loop = loop;
-        input.Weight        = weight;
+        ClipPlayback& playback = m_PoseGraph->Sources[node];
+        if ( playback.Clip != &clip )
+            playback = { &clip, FrameTime{}, loop };
+        playback.Loop = loop;
     }
 
-    void Animator::ClearLayeredBlend()
+    void Animator::SetPoseGraphParameter( std::string_view name, float value )
     {
-        m_LayeredBlend.reset();
+        if ( !m_PoseGraph )
+            return;
+        const auto& parameters = m_PoseGraph->Instance.Graph().Parameters;
+        for ( size_t p = 0; p < parameters.size(); ++p )
+            if ( parameters[p].Name == name )
+                m_PoseGraph->Parameters[p] = value;
+    }
+
+    void Animator::ClearPoseGraph()
+    {
+        m_PoseGraph.reset();
         SyncStages();
     }
 

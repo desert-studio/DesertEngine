@@ -133,10 +133,14 @@ namespace Desert::ECS
 
                 // AnimGraph path: the state machine PICKS the clip; the Animator just plays it. Falls back to
                 // the CurrentClip path below when no graph is attached.
-                // The machine wired into Output Pose picks the clip; with no states there it picks nothing.
+                // The base source of Output Pose (Graph::BaseSourceNode) plays in the Source stage: a machine
+                // picks its clip (with no states it picks nothing), a sequence player names it.
+                const Animation::Graph::PoseNode* baseSource =
+                     anim.Graph ? Animation::Graph::BaseSourceNode( *anim.Graph ) : nullptr;
                 const Animation::Graph::StateMachine* outputMachine =
                      anim.Graph ? Animation::Graph::OutputMachine( *anim.Graph ) : nullptr;
-                if ( outputMachine != nullptr && !outputMachine->States.empty() )
+                const bool baseIsSequence = baseSource != nullptr && baseSource->Sequence.has_value();
+                if ( baseIsSequence || ( outputMachine != nullptr && !outputMachine->States.empty() ) )
                 {
                     bool graphRebuilt = true;
                     if ( !anim.GraphEvaluator )
@@ -206,13 +210,21 @@ namespace Desert::ECS
                             }
                             anim.Animator->SetPlaybackSpeed( anim.PlaybackSpeed * res.Current->Speed );
                         }
+                        else if ( baseIsSequence )
+                        {
+                            PlaySequence( anim, clipRig, *baseSource );
+                        }
 
-                        DriveLayeredBlend( anim, clipRig, graphRebuilt );
+                        DrivePoseGraph( anim, clipRig, graphRebuilt );
                         anim.Animator->Update( animTs );
                         anim.PendingNotifies = anim.Animator->ConsumeNotifyEvents();
                     }
                     continue;
                 }
+
+                // NO GRAPH PLAYS: a pose graph the entity had (its graph removed or emptied) leaves with it.
+                if ( anim.Animator->GetPoseGraph() != nullptr )
+                    anim.Animator->ClearPoseGraph();
 
                 if ( !anim.CurrentClip.empty() )
                 {
@@ -347,45 +359,78 @@ namespace Desert::ECS
          * The read side cannot refuse (Evaluator::GetFloat is called per condition per frame), so the
          * report lives here — at the one place per frame that holds the evaluator and a logger.
          */
-        /**
-         * @brief The graph's Layered Blend Per Bone at Output Pose -> the Animator's LayeredBlend stage: the
-         *        node (its per-bone table built only when the graph was rebuilt or the Animator lost it), then
-         *        each layer's clip and weight this tick, from the machine wired into the layer's pin.
-         *
-         * The base is not here: it is the machine down the node's base pin, which `Update` reported and the
-         * code above already played. A graph with no layered blend at its output clears the stage.
-         */
-        void DriveLayeredBlend( ECS::AnimationComponent& anim, const Animation::Skeleton& clipRig,
-                                bool graphRebuilt )
+        /// A SequencePlayer at the base of Output Pose: its clip in the Source stage, started once (a clip
+        /// already playing keeps its clock).
+        void PlaySequence( ECS::AnimationComponent& anim, const Animation::Skeleton& clipRig,
+                           const Animation::Graph::PoseNode& node )
         {
-            const Animation::Graph::Evaluator&               evaluator = *anim.GraphEvaluator;
-            const Animation::Graph::LayeredBlendPerBoneNode* node      = evaluator.OutputLayeredBlend();
-            if ( node == nullptr )
+            const auto found = m_AnimationLibrary->FindForSkeleton( clipRig, node.Sequence->Clip );
+            if ( !found )
             {
-                if ( anim.Animator->GetLayeredBlend() != nullptr )
-                    anim.Animator->ClearLayeredBlend();
+                if ( !m_AnimationLibrary->HasPending( node.Sequence->Clip ) )
+                    ReportUnplayableState( clipRig, node.Name, node.Sequence->Clip, found.GetError() );
                 return;
             }
-            if ( graphRebuilt || anim.Animator->GetLayeredBlend() == nullptr )
+            const auto& clip = found.GetValue()->GetClip();
+            const auto* cur  = anim.Animator->GetCurrentClip();
+            if ( !cur || cur->AnimationName != clip.AnimationName )
+                anim.Animator->Play( clip, node.Sequence->Loop );
+            anim.Animator->SetPlaybackSpeed( anim.PlaybackSpeed );
+        }
+
+        /**
+         * @brief The graph's pose graph -> the Animator's Graph stage: the graph (its per-bone tables built only
+         *        when the graph was rebuilt or the Animator lost it), then this tick's clip of every source
+         *        node other than the base — a machine's running state's, a sequence player's — and the
+         *        parameters its pins read.
+         *
+         * The base source is not here: `Update` reported it (or PlaySequence played it) into the Source stage
+         * above. A graph whose Output Pose IS a source has nothing to blend and clears the stage.
+         */
+        void DrivePoseGraph( ECS::AnimationComponent& anim, const Animation::Skeleton& clipRig, bool graphRebuilt )
+        {
+            namespace AG                   = Animation::Graph;
+            const AG::Evaluator& evaluator = *anim.GraphEvaluator;
+            const AG::AnimGraph& graph     = evaluator.Graph();
+            const AG::PoseNode*  output    = AG::FindNode( graph, graph.OutputPose );
+            if ( output == nullptr || AG::IsSourceKind( static_cast<AG::PoseNodeKind>( output->Kind ) ) )
             {
-                if ( const auto set = anim.Animator->SetLayeredBlend( *node ); !set )
+                if ( anim.Animator->GetPoseGraph() != nullptr )
+                    anim.Animator->ClearPoseGraph();
+                return;
+            }
+            if ( graphRebuilt || anim.Animator->GetPoseGraph() == nullptr )
+            {
+                if ( const auto set = anim.Animator->SetPoseGraph( graph ); !set )
                 {
-                    ReportOnce( fmt::format( "layered:{}", evaluator.Graph().Name ),
-                                fmt::format( "AnimGraph '{}': {}", evaluator.Graph().Name, set.GetError() ) );
+                    ReportOnce( fmt::format( "posegraph:{}", graph.Name ), set.GetError() );
                     return;
                 }
             }
-            for ( size_t layer = 0; layer < node->Layers.size(); ++layer )
+            for ( const AG::Parameter& parameter : graph.Parameters )
+                anim.Animator->SetPoseGraphParameter( parameter.Name, evaluator.GetFloat( parameter.Name ) );
+            for ( size_t n = 0; n < graph.Nodes.size(); ++n )
             {
-                const auto drive = evaluator.OutputLayer( layer );
-                if ( drive.Current == nullptr )
+                const AG::PoseNode* node    = &graph.Nodes[n];
+                std::string         clip    = node->Sequence ? node->Sequence->Clip : std::string();
+                std::string         owner   = node->Name;
+                bool                loop    = node->Sequence ? node->Sequence->Loop : true;
+                if ( node->Machine )
+                {
+                    const AG::State* current = evaluator.CurrentState( node->Name );
+                    if ( current == nullptr )
+                        continue;
+                    clip  = current->Clip;
+                    owner = current->Name;
+                    loop  = current->Loop;
+                }
+                if ( clip.empty() )
                     continue;
-                const auto found = m_AnimationLibrary->FindForSkeleton( clipRig, drive.Current->Clip );
+                const auto found = m_AnimationLibrary->FindForSkeleton( clipRig, clip );
                 if ( found )
-                    anim.Animator->SetLayeredBlendInput( layer, found.GetValue()->GetClip(), drive.Weight,
-                                                         drive.Current->Loop );
-                else if ( !m_AnimationLibrary->HasPending( drive.Current->Clip ) )
-                    ReportUnplayableState( clipRig, drive.Current->Name, drive.Current->Clip, found.GetError() );
+                    anim.Animator->SetPoseGraphSource( n, found.GetValue()->GetClip(), loop );
+                else if ( !m_AnimationLibrary->HasPending( clip ) )
+                    ReportUnplayableState( clipRig, owner, clip, found.GetError() );
             }
         }
 

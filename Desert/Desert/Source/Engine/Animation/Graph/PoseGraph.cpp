@@ -44,6 +44,10 @@ namespace Desert::Animation::Graph
                 return "StateMachine";
             case PoseNodeKind::LayeredBlendPerBone:
                 return "LayeredBlendPerBone";
+            case PoseNodeKind::SequencePlayer:
+                return "SequencePlayer";
+            case PoseNodeKind::ApplyAdditive:
+                return "ApplyAdditive";
         }
         return "?";
     }
@@ -60,8 +64,22 @@ namespace Desert::Animation::Graph
                 // The base pin; the layers' pose and weight pins grow with the payload (PoseInputCountOf,
                 // HasParameterPin), so the kind alone has no fixed parameter pins.
                 return PoseNodePins{ .PoseInputs = 1, .ParameterPins = {} };
+            case PoseNodeKind::SequencePlayer:
+                // A clip on its own clock: a leaf, like the state machine.
+                return PoseNodePins{ .PoseInputs = 0, .ParameterPins = {} };
+            case PoseNodeKind::ApplyAdditive:
+            {
+                // Pin 0 Base, pin 1 Additive; Alpha scales the additive (UE's exposed Alpha pin).
+                static constexpr std::array<const char*, 1> kPins{ kApplyAdditiveAlphaPin.data() };
+                return PoseNodePins{ .PoseInputs = 2, .ParameterPins = kPins };
+            }
         }
         return PoseNodePins{};
+    }
+
+    bool IsSourceKind( PoseNodeKind kind )
+    {
+        return kind == PoseNodeKind::StateMachine || kind == PoseNodeKind::SequencePlayer;
     }
 
     std::string LayerWeightPin( size_t layer )
@@ -116,22 +134,29 @@ namespace Desert::Animation::Graph
         return const_cast<PoseNode*>( FindNode( std::as_const( graph ), name ) );
     }
 
+    const PoseNode* BaseSourceNode( const AnimGraph& graph )
+    {
+        // Down the base pin (pin 0) of each blend node; bounded by the node count so a cycle (which
+        // PlanPoseGraph refuses, but an editor may be holding one mid-edit) ends the walk.
+        const PoseNode* node = FindNode( graph, graph.OutputPose );
+        for ( size_t hops = 0; node != nullptr && hops <= graph.Nodes.size(); ++hops )
+        {
+            if ( IsSourceKind( static_cast<PoseNodeKind>( node->Kind ) ) )
+                return node;
+            if ( node->PoseInputs.empty() )
+                return nullptr;
+            node = FindNode( graph, node->PoseInputs.front() );
+        }
+        return nullptr;
+    }
+
     const StateMachine* OutputMachine( const AnimGraph& graph )
     {
-        // Down the base pin of each Layered Blend Per Bone; bounded by the node count so a cycle (which
-        // PlanPoseGraph refuses, but an editor may be holding one mid-edit) ends the walk.
-        const PoseNode* output = FindNode( graph, graph.OutputPose );
-        for ( size_t hops = 0; output != nullptr && hops < graph.Nodes.size(); ++hops )
-        {
-            if ( static_cast<PoseNodeKind>( output->Kind ) != PoseNodeKind::LayeredBlendPerBone ||
-                 output->PoseInputs.empty() )
-                break;
-            output = FindNode( graph, output->PoseInputs.front() );
-        }
-        if ( output == nullptr || static_cast<PoseNodeKind>( output->Kind ) != PoseNodeKind::StateMachine ||
-             !output->Machine )
+        const PoseNode* source = BaseSourceNode( graph );
+        if ( source == nullptr || static_cast<PoseNodeKind>( source->Kind ) != PoseNodeKind::StateMachine ||
+             !source->Machine )
             return nullptr;
-        return &*output->Machine;
+        return &*source->Machine;
     }
 
     StateMachine* OutputMachine( AnimGraph& graph )
@@ -171,6 +196,17 @@ namespace Desert::Animation::Graph
                 return std::format( "AnimGraph '{}': node '{}' ({}) carries a layer setup, which only a "
                                     "LayeredBlendPerBone node has",
                                     graph.Name, node.Name, KindName( kind ) );
+
+            if ( kind == PoseNodeKind::SequencePlayer && !node.Sequence )
+                return std::format( "AnimGraph '{}': node '{}' is a SequencePlayer node with no clip setup in it",
+                                    graph.Name, node.Name );
+            if ( kind != PoseNodeKind::SequencePlayer && node.Sequence )
+                return std::format( "AnimGraph '{}': node '{}' ({}) carries a sequence player setup, which only a "
+                                    "SequencePlayer node has",
+                                    graph.Name, node.Name, KindName( kind ) );
+            if ( kind == PoseNodeKind::SequencePlayer && node.Sequence->Clip.empty() )
+                return std::format( "AnimGraph '{}': SequencePlayer node '{}' names no clip", graph.Name,
+                                    node.Name );
 
             const int poseInputs = PoseInputCountOf( node );
             if ( static_cast<int>( node.PoseInputs.size() ) != poseInputs )

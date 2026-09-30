@@ -102,6 +102,19 @@ namespace Desert::Animation::Graph
     {
         StateMachine        = 0,
         LayeredBlendPerBone = 1, ///< UE FAnimNode_LayeredBoneBlend: a base pose and one pose per layer
+        SequencePlayer      = 2, ///< UE FAnimNode_SequencePlayer: one clip on its own clock, no Pose input
+        ApplyAdditive       = 3, ///< UE FAnimNode_ApplyAdditive: Base + Alpha x (Additive - reference pose)
+    };
+
+    /// The Apply Additive node's pins: pin 0 Base, pin 1 Additive, and the `Alpha` parameter pin (unbound: 1).
+    inline constexpr std::string_view kApplyAdditiveAlphaPin = "Alpha";
+
+    /// The payload of a SequencePlayer node: which clip it plays (by name, resolved against the
+    /// AnimationLibrary at runtime, as a State's clip is) and how.
+    struct SequencePlayerNode
+    {
+        std::string Clip;
+        bool        Loop = true;
     };
 
     [[nodiscard]] const char* KindName( PoseNodeKind kind );
@@ -147,6 +160,7 @@ namespace Desert::Animation::Graph
         /// The payload, present exactly when Kind == LayeredBlendPerBone. Pose pin 0 is the base, pin i+1
         /// layer i's pose; LayerWeightPin(i) its weight.
         std::optional<LayeredBlendPerBoneNode> LayeredBlend;
+        std::optional<SequencePlayerNode>      Sequence; // the payload, present exactly when Kind == SequencePlayer
         float                       X = 0.0f;        // node editor canvas position (persisted, unused at runtime)
         float                       Y = 0.0f;
     };
@@ -182,12 +196,20 @@ namespace Desert::Animation::Graph
     [[nodiscard]] const PoseNode* FindNode( const AnimGraph& graph, std::string_view name );
     [[nodiscard]] PoseNode*       FindNode( AnimGraph& graph, std::string_view name );
 
-    /// The state machine whose pose is the BASE of Output Pose: the node at the output when it is a machine,
-    /// or, through a Layered Blend Per Bone at the output, the machine down its base pin (pin 0). nullptr
-    /// when that chain ends in no machine. The machine the state machine editor edits until the node editor
-    /// lets one pick a node, and the one whose clip the Animator's Source stage plays.
+    /// The SOURCE node (a StateMachine or a SequencePlayer) at the bottom of Output Pose's base chain: the
+    /// output node when it is a source, else down pin 0 (the base pin of a Layered Blend Per Bone and of an
+    /// Apply Additive) until one is reached. nullptr when the chain ends in no source. Its pose is the one
+    /// the Animator's Source stage plays — with the crossfade, notifies, curves and root motion — and the
+    /// pose graph reads it as that node's pose.
+    [[nodiscard]] const PoseNode* BaseSourceNode( const AnimGraph& graph );
+
+    /// `BaseSourceNode`'s machine, or nullptr when that node is not a state machine. The machine the state
+    /// machine editor edits until the node editor lets one pick a node.
     [[nodiscard]] const StateMachine* OutputMachine( const AnimGraph& graph );
     [[nodiscard]] StateMachine*       OutputMachine( AnimGraph& graph );
+
+    /// Whether `kind` produces a pose from clips with no Pose input (UE: a leaf of the AnimGraph).
+    [[nodiscard]] bool IsSourceKind( PoseNodeKind kind );
 
     /**
      * @brief The evaluation order of the pose graph: node indices, every node AFTER the nodes wired into
@@ -296,19 +318,6 @@ namespace Desert::Animation::Graph
         /// The running state of the state machine node `node`, or nullptr (no such machine, no states).
         [[nodiscard]] const State* CurrentState( std::string_view node ) const;
 
-        /// The Layered Blend Per Bone node at Output Pose, or nullptr when the output is another kind. Its
-        /// base pin's machine is the one `Update` reports; its layers are read through `OutputLayer`.
-        [[nodiscard]] const LayeredBlendPerBoneNode* OutputLayeredBlend() const;
-
-        /// What drives one layer of the Layered Blend Per Bone at Output Pose this tick.
-        struct LayerDrive
-        {
-            const State* Current = nullptr; ///< the running state of the machine wired into the layer's pin
-            float        Weight  = 0.0f;    ///< the bound parameter's live value, or 1 when unbound (UE)
-        };
-        /// Layer `layer` of `OutputLayeredBlend()`; an empty drive when there is none or `layer` is past it.
-        [[nodiscard]] LayerDrive OutputLayer( size_t layer ) const;
-
         /// Состояние, из которого пришёл последний сработавший переход машины на выходе, или nullptr
         /// до первого. Нужно, чтобы показать переход как «откуда → куда», а не только «куда».
         [[nodiscard]] const State* PreviousState() const;
@@ -345,8 +354,7 @@ namespace Desert::Animation::Graph
         std::unordered_map<std::string, float> m_Params;
         std::vector<int>                       m_Plan; ///< PlanPoseGraph's order; empty when refused
         std::vector<MachineRun>                m_Runs; ///< one per node, parallel to m_Graph.Nodes
-        int m_Output        = -1; ///< the machine whose pose is Output Pose's base (OutputMachine), when planned
-        int m_OutputLayered = -1; ///< the Layered Blend Per Bone node at Output Pose, when it is one
+        int m_Output = -1; ///< the machine whose pose is Output Pose's base (OutputMachine), when planned
         std::string                            m_StructureError;
     };
 } // namespace Desert::Animation::Graph

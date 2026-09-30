@@ -1,5 +1,5 @@
-// The half of the Animator that had no test at all: CrossFade, AddLayer / layer composition,
-// SetLayerMaskByNames, ResolveTrack and notify firing. `grep -rln "AddLayer\|CrossFade\|SetLayerMask"
+// The half of the Animator that had no test at all: CrossFade, the pose graph's layer and additive nodes
+// (they replaced AddLayer / SetLayerMaskByNames), ResolveTrack and notify firing. `grep -rln "AddLayer\|CrossFade\|SetLayerMask"
 // Desert/Tests` returned nothing before this file, while `Animator.cpp` spent 300 of its 576 lines on
 // exactly those.
 //
@@ -18,6 +18,8 @@
 #include <glm/gtc/quaternion.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
+
+#include "../PoseGraphFixture.hpp"
 
 #include <gtest/gtest.h>
 
@@ -131,7 +133,7 @@ namespace
 
 // ── The pipeline is a list, and its membership is data ──────────────────────────────────────────────
 
-TEST( AnimatorBlending, TheLayerStageJoinsAndLeavesWithTheLayerStack )
+TEST( AnimatorBlending, TheGraphStageJoinsAndLeavesWithThePoseGraph )
 {
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
@@ -141,13 +143,13 @@ TEST( AnimatorBlending, TheLayerStageJoinsAndLeavesWithTheLayerStack )
     EXPECT_EQ( animator.GetStages()[0], PoseStage::Source )
          << "something has to produce a pose; Source is not optional";
 
-    animator.AddLayer( clip, 1.0F );
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::FullBodyLayer( "root" ), clip ) );
     ASSERT_EQ( animator.GetStages().size(), 2U );
-    EXPECT_EQ( animator.GetStages()[1], PoseStage::Layers )
+    EXPECT_EQ( animator.GetStages()[1], PoseStage::Graph )
          << "layers must run AFTER the source — an order this test exists to state, because the previous "
             "code expressed it only as statement order inside Update()";
 
-    animator.ClearLayers();
+    animator.ClearPoseGraph();
     EXPECT_EQ( animator.GetStages().size(), 1U )
          << "a stage with nothing to do stayed in the list, so the list stopped describing what runs";
 }
@@ -247,7 +249,7 @@ TEST( AnimatorBlending, AnOverrideLayerAtFullWeightReplacesTheBase )
     const glm::mat4 pureLayer = animator.GetPose().Matrices[1];
 
     animator.Play( base );
-    animator.AddLayer( layer, 1.0F );
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::FullBodyLayer( "root" ), layer, 1.0F ) );
     animator.Update( Timestep( 0.0F ) );
 
     EXPECT_TRUE( MatNear( animator.GetPose().Matrices[1], pureLayer ) )
@@ -266,7 +268,7 @@ TEST( AnimatorBlending, AnOverrideLayerAtZeroWeightChangesNothing )
     animator.Update( Timestep( 0.0F ) );
     const auto without = animator.GetPose().Matrices;
 
-    animator.AddLayer( layer, 0.0F );
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::FullBodyLayer( "root" ), layer, 0.0F ) );
     animator.Update( Timestep( 0.0F ) );
 
     for ( size_t i = 0; i < without.size(); ++i )
@@ -276,7 +278,7 @@ TEST( AnimatorBlending, AnOverrideLayerAtZeroWeightChangesNothing )
     }
 }
 
-TEST( AnimatorBlending, AnAdditiveLayerAddsItsDeltaFromBindAndNotItsPose )
+TEST( AnimatorBlending, AnApplyAdditiveNodeAddsItsDeltaFromBindAndNotItsPose )
 {
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
@@ -288,7 +290,7 @@ TEST( AnimatorBlending, AnAdditiveLayerAddsItsDeltaFromBindAndNotItsPose )
     AnimationClip additive = StaticClip( "Add", "spine", glm::vec3( 0.0F, 45.0F, 0.0F ) );
 
     animator.Play( base );
-    animator.AddLayer( additive, 1.0F, /*additive=*/true );
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::AdditiveGraph(), additive, 1.0F ) );
     animator.Update( Timestep( 0.0F ) );
 
     const glm::vec3 spine = BonePosition( animator, 1 );
@@ -306,7 +308,7 @@ TEST( AnimatorBlending, HalfWeightIsBetweenTheTwoAndOnTheSegment )
     AnimationClip layer = StaticClip( "Layer", "spine", glm::vec3( 0.0F, 100.0F, 0.0F ) );
 
     animator.Play( base );
-    animator.AddLayer( layer, 0.5F );
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::FullBodyLayer( "root" ), layer, 0.5F ) );
     animator.Update( Timestep( 0.0F ) );
 
     const glm::vec3 spine = BonePosition( animator, 1 );
@@ -316,76 +318,65 @@ TEST( AnimatorBlending, HalfWeightIsBetweenTheTwoAndOnTheSegment )
 
 // ── Masks ───────────────────────────────────────────────────────────────────────────────────────────
 
-TEST( AnimatorBlending, ABoneOutsideTheMaskDoesNotMoveByOneBit )
+TEST( AnimatorBlending, ABoneOutsideTheBranchDoesNotMoveByOneBit )
 {
-    const Skeleton skeleton = MakeRig();
+    const Skeleton skeleton = MakeRig(); // root -> spine -> arm
     Animator       animator( skeleton );
 
-    AnimationClip base  = StaticClip( "Base", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
+    // The layer keys the ROOT only; its branch is the spine's. The root, outside the branch, must keep the
+    // base's transform bit for bit; the spine, inside it, takes the layer's (its bind, the layer not keying it).
+    AnimationClip base  = StaticClip( "Base", "spine", glm::vec3( 0.0F, 60.0F, 0.0F ) ); // not the bind's 30
     AnimationClip layer = StaticClip( "Layer", "root", glm::vec3( 500.0F, 0.0F, 0.0F ) );
 
     animator.Play( base );
     animator.Update( Timestep( 0.0F ) );
+    const Desert::Animation::BoneTransform rootWithout  = animator.GetLocalPose()[0];
     const Desert::Animation::BoneTransform spineWithout = animator.GetLocalPose()[1];
 
-    const int index = animator.AddLayer( layer, 1.0F );
-    animator.SetLayerMaskByNames( index, { "root" }, /*includeChildren=*/false );
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::OneLayerGraph( { { "spine", 0 } } ), layer ) );
     animator.Update( Timestep( 0.0F ) );
 
-    EXPECT_FALSE( animator.IsBoneInLayerMask( index, 1 ) );
+    const Desert::Animation::BoneTransform rootWith = animator.GetLocalPose()[0];
+    EXPECT_EQ( rootWith.Translation, rootWithout.Translation )
+         << "a bone outside the layer's branch changed; the per-bone table is not being consulted";
+    EXPECT_EQ( rootWith.Rotation, rootWithout.Rotation );
+    EXPECT_EQ( rootWith.Scale, rootWithout.Scale );
 
-    // ASSERTED ON THE LOCAL POSE, AND THAT IS THE POINT OF THE SUBSTRATE. A mask says which bones the layer
-    // may MODIFY; it cannot say which bones move on screen, because a masked-out child is still carried by a
-    // masked-IN parent — here the layer shifts the root 500 units and the spine goes with it, correctly.
-    // Before the local pose existed there was nothing to make that statement about: the only thing the
-    // Animator kept was the skinning matrix, in which "this bone was not modified" and "this bone did not
-    // move" are indistinguishable.
-    const Desert::Animation::BoneTransform spineWith = animator.GetLocalPose()[1];
-    EXPECT_EQ( spineWith.Translation, spineWithout.Translation )
-         << "a masked-OUT bone's own transform changed; the mask is not being consulted";
-    EXPECT_EQ( spineWith.Rotation, spineWithout.Rotation );
-    EXPECT_EQ( spineWith.Scale, spineWithout.Scale );
-
-    // And the negative control: the masked-IN bone did move.
-    EXPECT_NE( animator.GetLocalPose()[0].Translation.x, 0.0F )
+    EXPECT_NE( animator.GetLocalPose()[1].Translation, spineWithout.Translation )
          << "the layer changed nothing at all, so the test above proves nothing";
 }
 
-TEST( AnimatorBlending, MaskingABoneMasksItsDescendantsByDefault )
+TEST( AnimatorBlending, ABranchFilterReachesItsDescendantsAndANegativeDepthExcludes )
 {
+    namespace G             = Desert::Animation::Graph;
     const Skeleton skeleton = MakeRig(); // root -> spine -> arm
-    Animator       animator( skeleton );
-    AnimationClip  clip = StaticClip( "Layer", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
 
-    const int index = animator.AddLayer( clip, 1.0F );
-    animator.SetLayerMaskByNames( index, { "spine" } );
+    G::LayeredBlendPerBoneNode node;
+    node.Layers.push_back( G::LayerSetup{ { { "spine", 0 } } } );
+    const auto whole = G::BuildPerBoneWeights( node, skeleton );
+    ASSERT_TRUE( whole ) << whole.GetError();
+    EXPECT_EQ( whole.GetValue()[0].Layer, -1 ) << "the PARENT was reached";
+    EXPECT_EQ( whole.GetValue()[1].Layer, 0 );
+    EXPECT_EQ( whole.GetValue()[2].Layer, 0 ) << "a spine branch has to take the arm, or 'upper body' is unsayable";
+    EXPECT_EQ( whole.GetValue()[2].Weight, 1.0F );
 
-    EXPECT_FALSE( animator.IsBoneInLayerMask( index, 0 ) ) << "the PARENT was masked in";
-    EXPECT_TRUE( animator.IsBoneInLayerMask( index, 1 ) );
-    EXPECT_TRUE( animator.IsBoneInLayerMask( index, 2 ) )
-         << "masking a shoulder has to mask the arm, or 'upper body' is unsayable";
-
-    animator.SetLayerMaskByNames( index, { "spine" }, /*includeChildren=*/false );
-    EXPECT_FALSE( animator.IsBoneInLayerMask( index, 2 ) );
+    node.Layers[0].Filters.push_back( { "arm", -1 } );
+    const auto excluded = G::BuildPerBoneWeights( node, skeleton );
+    ASSERT_TRUE( excluded ) << excluded.GetError();
+    EXPECT_EQ( excluded.GetValue()[2].Weight, 0.0F ) << "a negative depth did not exclude the arm";
 }
 
-TEST( AnimatorBlending, AnUnknownBoneNameMasksNothingRatherThanEverything )
+TEST( AnimatorBlending, AnUnknownFilterBoneIsRefusedByNameRatherThanReachingNothing )
 {
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
-    AnimationClip  clip  = StaticClip( "Layer", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
-    const int      index = animator.AddLayer( clip, 1.0F );
+    AnimationClip  clip = StaticClip( "Layer", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
 
-    animator.SetLayerMaskByNames( index, { "no_such_bone" } );
-    for ( uint32_t bone = 0; bone < 3; ++bone )
-    {
-        EXPECT_FALSE( animator.IsBoneInLayerMask( index, bone ) )
-             << "a mask naming only bones this rig does not have came out EMPTY, and an empty mask means "
-                "every bone — so a typo turns an upper-body layer into a full-body one";
-    }
+    const auto set = PoseGraphFixture::Drive( animator, PoseGraphFixture::OneLayerGraph( { { "no_such_bone", 0 } } ), clip );
+    ASSERT_FALSE( set ) << "a layer naming a bone the rig lacks was accepted — a typo is a layer that does nothing";
+    EXPECT_NE( set.GetError().find( "no_such_bone" ), std::string::npos ) << set.GetError();
+    EXPECT_EQ( animator.GetPoseGraph(), nullptr );
 }
-
-// ── T0.4: layers through a crossfade ────────────────────────────────────────────────────────────────
 
 TEST( AnimatorBlending, LayersKeepRunningThroughACrossFade )
 {
@@ -399,7 +390,7 @@ TEST( AnimatorBlending, LayersKeepRunningThroughACrossFade )
     AnimationClip layer = StaticClip( "Layer", "spine", glm::vec3( 0.0F, 400.0F, 0.0F ) );
 
     animator.Play( a );
-    animator.AddLayer( layer, 1.0F );
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::FullBodyLayer( "root" ), layer ) );
     animator.CrossFade( b, 1.0F );
 
     animator.Update( Timestep( 0.25F ) ); // mid-blend

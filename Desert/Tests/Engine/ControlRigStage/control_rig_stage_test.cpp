@@ -27,6 +27,8 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include "../PoseGraphFixture.hpp"
+
 #include <gtest/gtest.h>
 
 #include <cmath>
@@ -388,9 +390,10 @@ TEST( ControlRigStageTest, TheRigIsTheLastStageAndTheWholeOrderIsAsserted )
     ik->SetEndBone( "Hand" );
     ASSERT_GE( animator.AddControl( std::move( ik ) ), 0 );
 
-    ASSERT_GE( animator.AddLayer( layer, 1.0F, false, false ), 0 );
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::FullBodyLayer( skeleton.GetBones()[0].Name ),
+                                          layer, 1.0F, false ) );
 
-    EXPECT_EQ( animator.GetStages(), std::vector<PoseStage>( { PoseStage::Source, PoseStage::Layers,
+    EXPECT_EQ( animator.GetStages(), std::vector<PoseStage>( { PoseStage::Source, PoseStage::Graph,
                                                                PoseStage::Controls, PoseStage::Rig } ) );
 }
 
@@ -406,13 +409,15 @@ TEST( ControlRigStageTest, TheRigRunsAfterTheLayerAndWinsOnABoneTheyShare )
     // and not about a layer that was never applied.
     Animator layerOnly( skeleton );
     layerOnly.Play( clip, false );
-    ASSERT_GE( layerOnly.AddLayer( layer, 1.0F, false, false ), 0 );
+    ASSERT_TRUE( PoseGraphFixture::Drive( layerOnly, PoseGraphFixture::FullBodyLayer( skeleton.GetBones()[0].Name ),
+                                          layer, 1.0F, false ) );
     layerOnly.SetTick( FrameTime{ FrameNumber{ 0 } } );
     const glm::mat4 handFromLayer = layerOnly.GetBoneModelMatrix( kHand );
 
     Animator both( skeleton );
     both.Play( clip, false );
-    ASSERT_GE( both.AddLayer( layer, 1.0F, false, false ), 0 );
+    ASSERT_TRUE( PoseGraphFixture::Drive( both, PoseGraphFixture::FullBodyLayer( skeleton.GetBones()[0].Name ),
+                                          layer, 1.0F, false ) );
     const auto attached = both.AttachRig( HandRig( skeleton, BoneTransform{}, pose, nullptr ) );
     ASSERT_TRUE( attached.IsSuccess() ) << attached.GetError();
     both.SetTick( FrameTime{ FrameNumber{ 0 } } );

@@ -42,6 +42,8 @@
  * `TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstructs`. No measurement in this file reads them.
  */
 
+#include "../PoseGraphFixture.hpp"
+
 #include <gtest/gtest.h>
 
 #include <Common/Core/Serialization/GlmReflection.hpp>
@@ -989,7 +991,7 @@ TEST( RetargetAssetTest, AnAdditiveLayerOfNothingIsANoOpOnlyBecauseItsReferenceI
     animator.SetTick( FrameTime{ FrameNumber{ kMovingTick } } );
     const std::vector<glm::mat4> withoutLayer = animator.GetPose().Matrices;
 
-    ASSERT_GE( animator.AddLayer( empty, 1.0F, /*additive=*/true, /*loop=*/false ), 0 );
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::AdditiveGraph(), empty, 1.0F, false ) );
     animator.SetTick( FrameTime{ FrameNumber{ kMovingTick } } );
 
     float worst = 0.0F;
@@ -1071,7 +1073,8 @@ TEST( RetargetAssetTest, ALayerIsRetargetedTooAndNotFoldedFromTheSourceRig )
     // assertion below is protecting against is measured rather than assumed.
     Animator naive( target );
     naive.Play( clip, false );
-    ASSERT_GE( naive.AddLayer( clip, 1.0F, false, false ), 0 );
+    ASSERT_TRUE( PoseGraphFixture::Drive( naive, PoseGraphFixture::FullBodyLayer( target.GetBones()[0].Name ), clip,
+                                          1.0F, false ) );
     naive.SetTick( FrameTime{ FrameNumber{ kMovingTick } } );
     const float naiveError = WorstSegmentErrorPercent( target, naive.GetLocalPose() );
     ASSERT_GT( naiveError, 10.0F ) << "if an un-retargeted layer no longer breaks the limb lengths, this "
@@ -1083,7 +1086,8 @@ TEST( RetargetAssetTest, ALayerIsRetargetedTooAndNotFoldedFromTheSourceRig )
     animator.SetTick( FrameTime{ FrameNumber{ kMovingTick } } );
     const float baseError = WorstSegmentErrorPercent( target, animator.GetLocalPose() );
 
-    ASSERT_GE( animator.AddLayer( clip, 1.0F, /*additive=*/false, /*loop=*/false ), 0 );
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::FullBodyLayer( target.GetBones()[0].Name ),
+                                          clip, 1.0F, false ) );
     animator.SetTick( FrameTime{ FrameNumber{ kMovingTick } } );
     const float overrideError = WorstSegmentErrorPercent( target, animator.GetLocalPose() );
     EXPECT_LT( overrideError, 0.01F ) << "an override layer folded from the source rig would stretch the "
@@ -1092,13 +1096,13 @@ TEST( RetargetAssetTest, ALayerIsRetargetedTooAndNotFoldedFromTheSourceRig )
     // ADDITIVE IS THE OTHER HALF, and it is what makes the additive REFERENCE observable: an additive
     // layer measures its delta against the rest its clips are expressed relative to, and under a retarget
     // that is the target's retarget pose rather than its bind pose.
-    animator.ClearLayers();
-    ASSERT_GE( animator.AddLayer( clip, 1.0F, /*additive=*/true, /*loop=*/false ), 0 );
+    animator.ClearPoseGraph();
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::AdditiveGraph(), clip, 1.0F, false ) );
     animator.SetTick( FrameTime{ FrameNumber{ kMovingTick } } );
     const float additiveError = WorstSegmentErrorPercent( target, animator.GetLocalPose() );
     EXPECT_LT( additiveError, 0.01F );
 
-    animator.ClearLayers();
+    animator.ClearPoseGraph();
     animator.SetTick( FrameTime{ FrameNumber{ kMovingTick } } );
     EXPECT_NEAR( WorstSegmentErrorPercent( target, animator.GetLocalPose() ), baseError, 1.0e-4F )
          << "clearing the layers must leave the base exactly as it was";

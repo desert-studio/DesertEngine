@@ -6,7 +6,7 @@
 #include "AnimationClip.hpp"
 #include "BoneControl.hpp"
 #include "Pose.hpp"
-#include "Graph/LayeredBlendPerBone.hpp"
+#include "Graph/PoseGraphInstance.hpp"
 #include "Rig/ControlRigStage.hpp"
 #include "Retarget/RetargetSource.hpp"
 
@@ -28,8 +28,8 @@ namespace Desert::Animation
      * (report 05 §652: "the rig is a pose -> pose operator appended after the animation source") or an IK
      * solver could not be attached without rewriting the function.
      *
-     * Membership is DATA, not a branch: `SetLayeredBlend` puts `LayeredBlend` into the list and
-     * `ClearLayeredBlend` takes it out, so the list says what will run rather than the code deciding again every
+     * Membership is DATA, not a branch: `SetPoseGraph` puts `Graph` into the list and
+     * `ClearPoseGraph` takes it out, so the list says what will run rather than the code deciding again every
      * frame. The resolve-to-component-space and multiply-by-offset tail is NOT a stage — it is the pipeline's
      * output and there is nothing after it to reorder against.
      *
@@ -43,8 +43,7 @@ namespace Desert::Animation
     enum class PoseStage : uint8_t
     {
         Source,       ///< the base clip, or the crossfade of the outgoing and incoming clips
-        LayeredBlend, ///< the AnimGraph's Layered Blend Per Bone at Output Pose: base x each layer's clip, per
-                      ///< bone
+        Graph,        ///< the AnimGraph's pose graph, node by node; the Source stage's pose is its base source's
         Controls,     ///< skeletal controls (IK and friends): sparse component-space overrides, blended locally
         Rig,          ///< a control rig: the animator's controls, resolved and written onto the bones they drive
     };
@@ -229,26 +228,30 @@ namespace Desert::Animation
          */
         [[nodiscard]] std::optional<float> GetCurveValue( std::string_view name ) const;
 
-        // --- Layered Blend Per Bone (the AnimGraph node, UE FAnimNode_LayeredBoneBlend) ----------------
-        // THE ANIMATOR'S OLD LAYER STACK WAS THIS NODE with its inputs hard-wired to clips and its mask stuck
-        // at 0/1; the node (Graph/LayeredBlendPerBone.hpp) now owns the blend — branch filters with depth,
-        // mesh-space rotation/scale — and the Animator only keeps what the node cannot: each layer's clip
-        // CLOCK, and the sampling (and retarget) of that clip. The graph says which clip and what weight
-        // (Graph::Evaluator::OutputLayer, driven by AnimationECSSystem); the base is the Source stage.
+        // --- The pose graph (the AnimGraph's nodes, UE FAnimNode_Base::Evaluate) ------------------------
+        // The graph is evaluated node by node by `Graph::PoseGraphInstance`; the Animator keeps what the nodes
+        // cannot: the CLOCK of every source node (a state machine's running clip, a sequence player's clip)
+        // and the sampling (and retarget) of its clip, and the graph's parameter values. The BASE source
+        // (`Graph::BaseSourceNode`) is the Source stage — Play/CrossFade, with its crossfade, notifies, curves
+        // and root motion; every other source node has its own clock here. AnimationECSSystem drives it: which
+        // clip each source plays this tick (from Graph::Evaluator) and the parameters.
         //
-        // `SetLayeredBlend` builds the per-bone table ONCE and refuses a filter bone the skeleton lacks, by
-        // name; the inputs are then sized to the node's layers, each empty (weight 0) until driven.
-        [[nodiscard]] Common::BoolResultStr SetLayeredBlend( const Graph::LayeredBlendPerBoneNode& node );
-        /// Layer `layer`'s clip (its clock restarts when the clip changes) and weight this tick. Ignored past
-        /// the node's layers; with no node set there are none.
-        void SetLayeredBlendInput( size_t layer, const AnimationClip& clip, float weight, bool loop = true );
-        /// Deleted for `Play`'s reason: the input keeps the clip's address.
-        void SetLayeredBlendInput( size_t layer, AnimationClip&& clip, float weight, bool loop = true ) = delete;
-        void ClearLayeredBlend();
-        /// The node the stage runs, or nullptr when none is set.
-        [[nodiscard]] const Graph::LayeredBlendPerBoneNode* GetLayeredBlend() const
+        // `SetPoseGraph` builds the per-bone tables ONCE and refuses an unplannable graph or a filter bone
+        // the skeleton lacks, by name.
+        [[nodiscard]] Common::BoolResultStr SetPoseGraph( const Graph::AnimGraph& graph );
+        /// Source node `node`'s clip (its clock restarts when the clip changes). Ignored for the base source
+        /// (the Source stage plays it), for a node that is no source and with no graph set.
+        void SetPoseGraphSource( size_t node, const AnimationClip& clip, bool loop = true );
+        /// Deleted for `Play`'s reason: the source keeps the clip's address.
+        void SetPoseGraphSource( size_t node, AnimationClip&& clip, bool loop = true ) = delete;
+        /// The live value of a declared graph parameter (a pin bound to it reads it). Ignored for an undeclared
+        /// name: Graph::Evaluator's setters have refused it by name already.
+        void SetPoseGraphParameter( std::string_view name, float value );
+        void ClearPoseGraph();
+        /// The graph the stage runs, or nullptr when none is set.
+        [[nodiscard]] const Graph::AnimGraph* GetPoseGraph() const
         {
-            return m_LayeredBlend ? &m_LayeredBlend->Node : nullptr;
+            return m_PoseGraph ? &m_PoseGraph->Instance.Graph() : nullptr;
         }
 
         // --- Skeletal controls (IK and friends) ---------------------------------------------------------
@@ -258,7 +261,7 @@ namespace Desert::Animation
         // animation produced — running one before the clip that overwrites its bones would be writing into
         // a buffer that is about to be filled again.
         //
-        // The stage joins and leaves the pipeline with the list (SyncStages), exactly as LayeredBlend does.
+        // The stage joins and leaves the pipeline with the list (SyncStages), exactly as Graph does.
         int                  AddControl( std::unique_ptr<BoneControl> control );
         void                 RemoveControl( int index );
         void                 ClearControls();
@@ -274,7 +277,7 @@ namespace Desert::Animation
         // THE LAST STAGE, AND REPORT 05 §658 IS WHY. Sequencer does not put a Control Rig inside the
         // character's AnimGraph; it wraps the whole graph in a layer instance whose input pose IS that
         // graph's output, so the rig runs "after the AnimBP produces its pose and before the pose reaches
-        // the mesh, as a post-process stack". `Source` + `LayeredBlend` + `Controls` are our AnimBP — the clips,
+        // the mesh, as a post-process stack". `Source` + `Graph` + `Controls` are our AnimBP — the clips,
         // the layering and the skeletal-control stack UE also puts inside it — so the rig goes after all
         // three, and an animator's hand-authored control beats the procedural IK on a bone they share.
         // That is the intended reading, not an accident of push_back order: see SyncStages.
@@ -301,7 +304,7 @@ namespace Desert::Animation
         //   Source   the base clip (and the crossfade's second clip) is sampled on the SOURCE rig, then
         //            retargeted onto this one. Both clips, because both come from the same library through
         //            the same component and are therefore on the same rig by construction.
-        //   LayeredBlend   each layer's clip is sampled and retargeted the same way before it is blended.
+        //   Graph    each other source node's clip is sampled and retargeted the same way before it is blended.
         //            Not retargeting them would blend source-rig local transforms straight onto target bones —
         //            exactly the proportion defect this tier exists to remove — and there is no third
         //            possibility, because one component names one source rig for the whole entity.
@@ -330,22 +333,15 @@ namespace Desert::Animation
             }
         };
 
-        /// One layer input of the layered blend: the clip the graph picked for it, its clock and weight.
-        struct LayeredBlendInput
+        /// The pose graph, its source clocks (one per node; the base source's and the blend nodes' unused), the
+        /// parameter values (parallel to the graph's Parameters) and the per-frame scratch.
+        struct PoseGraphState
         {
-            ClipPlayback Playback;
-            float        Weight = 0.0F;
-        };
-
-        /// The node, its per-bone table (built once per node), its inputs and the per-frame scratch poses.
-        struct LayeredBlendState
-        {
-            Graph::LayeredBlendPerBoneNode         Node;
-            std::vector<Graph::PerBoneBlendWeight> Weights;
-            std::vector<LayeredBlendInput>         Inputs;
-            Graph::GraphPose                       Base, Out;
-            std::vector<Graph::GraphPose>          LayerPoses;
-            std::vector<float>                     LayerWeights;
+            Graph::PoseGraphInstance  Instance;
+            std::vector<ClipPlayback> Sources;
+            std::vector<float>        Parameters;
+            int                       BaseSource = -1;
+            Graph::GraphPose          Out;
         };
 
     private:
@@ -363,9 +359,9 @@ namespace Desert::Animation
         /// retarget this samples into the source scratch and runs the retargeter, both of which are state.
         void EvaluateSource( LocalPose& pose );
 
-        /// PoseStage::LayeredBlend — samples each layer's clip and runs the node over `pose`. NOT const for
-        /// EvaluateSource's reason.
-        void EvaluateLayeredBlend( LocalPose& pose );
+        /// PoseStage::Graph — evaluates the pose graph; its base source reads `pose` (the Source stage's), every
+        /// other source samples its own clip. NOT const for EvaluateSource's reason.
+        void EvaluateGraph( LocalPose& pose );
 
         /// PoseStage::Controls — runs each control over `pose`. NOT const: a control reads the pose in
         /// component space, which is a cache fill on m_Component, and writes back through the blend.
@@ -489,8 +485,8 @@ namespace Desert::Animation
         /// Ends every active state: the clip they belong to stops being the current one.
         void RetireNotifyStates();
 
-        // The layered blend, run by PoseStage::LayeredBlend; absent = the stage is not in the list.
-        std::optional<LayeredBlendState> m_LayeredBlend;
+        // The pose graph, run by PoseStage::Graph; absent = the stage is not in the list.
+        std::optional<PoseGraphState> m_PoseGraph;
 
         // Skeletal controls, run by PoseStage::Controls. `unique_ptr` because a control is polymorphic and
         // holds its own resolved bone indices; the Animator is its one owner and outlives it by definition.
