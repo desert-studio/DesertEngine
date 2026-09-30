@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -119,6 +120,16 @@ namespace Common::DDC
     // the file system's own reason (path + errno text), so the caller can say WHY the cache stays cold.
     std::optional<std::string> Get( const Deriver& deriver, uint64_t key );
     Common::BoolResultStr      Put( const Deriver& deriver, uint64_t key, std::string_view bytes );
+
+    // Get, and on a miss build and Put — ONCE per key, however many callers ask at the same time (UE's
+    // DDC build is single-flight per key). The key is content-addressed, so two assets with identical
+    // source (Blockout_1/2, 09-30) ask for the same entry from two loader threads: the first caller builds
+    // and writes, every concurrent caller of that key waits for the first one's outcome instead of
+    // building and writing the same entry beside it. A build failure is returned to all of them; a Put
+    // failure is an error too ("built but not cached", with the file system's reason), because a cache
+    // that silently stays cold rebuilds on every load.
+    Common::ResultStr<std::string> GetOrBuild( const Deriver& deriver, uint64_t key,
+                                               const std::function<Common::ResultStr<std::string>()>& build );
 
     // Root() / "Buckets" / bucket — for derivers whose entries are not addressed by MakeKey (thumbnails, see
     // there).

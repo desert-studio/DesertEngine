@@ -66,7 +66,11 @@ namespace Desert::Editor
         const auto texture = [&]( aiTextureType type ) -> std::optional<SourceTexture>
         {
             aiString path;
-            if ( mat.GetTextureCount( type ) == 0 || mat.GetTexture( type, 0, &path ) != AI_SUCCESS )
+            // The file key alone, not aiMaterial::GetTexture: that also reads AI_MATKEY_MAPPING ("$tex.mapping"),
+            // and assimp finds keys by PREFIX (MaterialSystem.cpp aiGetMaterialProperty, strncmp), so on a glTF it
+            // hits the string "$tex.mappingname" and logs "is a string; failed to parse an integer array" on
+            // every import. The mapping is never used here (glTF, FBX and OBJ are all UV-mapped).
+            if ( mat.GetTextureCount( type ) == 0 || mat.Get( AI_MATKEY_TEXTURE( type, 0 ), path ) != AI_SUCCESS )
                 return std::nullopt;
             std::filesystem::path found = findTexture( path.C_Str() );
             if ( found.empty() )

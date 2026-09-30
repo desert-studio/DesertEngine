@@ -158,6 +158,17 @@ namespace Common::Utils
         [[nodiscard]] static Common::BoolResultStr WriteBytesToFileAtomic( const std::filesystem::path& filepath,
                                                                            std::span<const std::byte>   content );
 
+        // The same primitive with the working file named by the caller. The default `<file>.tmp` is right
+        // for a file with ONE writer (a scene, a preference file, a document): it is predictable, so a
+        // leftover is recognisable and the tests can block it. A store with SEVERAL writers of one path —
+        // the derived data cache, where two assets with identical source share a content-addressed key,
+        // and two processes may share the cache — must give every writer its own working file (UE
+        // FFileSystemCacheStore writes to a unique temp): one `.tmp` for two writers let the second
+        // rename find the first one's file already gone (Blockout_1/2, 09-30).
+        [[nodiscard]] static Common::BoolResultStr WriteBytesToFileAtomic( const std::filesystem::path& filepath,
+                                                                           std::span<const std::byte>   content,
+                                                                           const std::filesystem::path& workingFile );
+
         [[nodiscard]] static Common::BoolResultStr WriteContentToFileAtomic( const std::filesystem::path& filepath,
                                                                              const std::string& content );
 

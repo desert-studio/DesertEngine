@@ -378,11 +378,17 @@ namespace Common::Utils
     Common::BoolResultStr FileSystem::WriteBytesToFileAtomic( const std::filesystem::path& filepath,
                                                               std::span<const std::byte>   content )
     {
-        // Contract and the reasoning behind every step are in the header. In one line: the original
-        // file must survive a failure at ANY point, so nothing here ever opens the original for write.
         std::filesystem::path temp = filepath;
         temp += ".tmp";
+        return WriteBytesToFileAtomic( filepath, content, temp );
+    }
 
+    Common::BoolResultStr FileSystem::WriteBytesToFileAtomic( const std::filesystem::path& filepath,
+                                                              std::span<const std::byte>   content,
+                                                              const std::filesystem::path& temp )
+    {
+        // Contract and the reasoning behind every step are in the header. In one line: the original
+        // file must survive a failure at ANY point, so nothing here ever opens the original for write.
         std::ofstream out( temp, std::ios::binary | std::ios::trunc );
         if ( !out )
         {
