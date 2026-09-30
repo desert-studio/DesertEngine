@@ -247,7 +247,9 @@ namespace Common::Content
                                                  "other key is the rest of that prefab, not damage" )
     } // namespace StatedMembers
 
-    namespace
+    // NAMED, not anonymous: reflect-cpp reads the clip-skeleton structs below through a member-count probe that
+    // clang refuses for a type of internal linkage ("used but not defined in this translation unit").
+    namespace ContentScanDetail
     {
         // The string a JSON document states under its top-level `member`, or empty. The document is parsed as a
         // generic tree and nothing is built from it — the asset stays unloaded; the files carrying a name are
@@ -331,7 +333,8 @@ namespace Common::Content
             const auto name = value.value().to_string();
             return name ? name.value() : std::string();
         }
-    } // namespace
+    } // namespace ContentScanDetail
+    using namespace ContentScanDetail;
 
     namespace
     {
