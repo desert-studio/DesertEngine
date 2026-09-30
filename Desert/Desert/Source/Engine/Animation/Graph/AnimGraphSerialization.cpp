@@ -7,6 +7,24 @@
 #include <array>
 #include <format>
 
+// CurveBlendOption is a uint8_t enum in the node's contract header; reflect-cpp's enum-name reflection does
+// not instantiate for it (min/max over mixed integer types). Stored as int instead, the way every enum
+// of this format is ("enums are stored as int", AnimGraph.hpp). Values are append only, so the int is stable.
+template <>
+struct rfl::Reflector<Desert::Animation::Graph::CurveBlendOption>
+{
+    using ReflType = int;
+    static Desert::Animation::Graph::CurveBlendOption to( const int& value ) noexcept
+    {
+        return static_cast<Desert::Animation::Graph::CurveBlendOption>( value );
+    }
+    static int from( const Desert::Animation::Graph::CurveBlendOption& value )
+    {
+        return static_cast<int>( value );
+    }
+};
+
+
 // Common::Json round-trip for the AnimGraph (all plain structs), read STRICTLY: a field missing from a
 // .danimgraph is an error naming its path, never a default filled in behind the reader's back. A field added
 // later is either std::optional (its absence means something) or moved into the files by a migration. The
