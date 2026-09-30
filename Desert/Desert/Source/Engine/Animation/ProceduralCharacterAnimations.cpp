@@ -58,7 +58,7 @@ namespace Desert::Animation
                 const glm::vec3 bindPos = glm::vec3( bones[idx].LocalBindTransform[3] );
 
                 Timeline::Binding binding;
-                binding.Guid    = Timeline::BindingGuid::Generate();
+                binding.Guid    = Timeline::BindingGuid::ForObject( Timeline::BindingKind::Bone, boneName );
                 binding.Kind    = Timeline::BindingKind::Bone;
                 binding.Locator = boneName;
                 binding.Label   = boneName;

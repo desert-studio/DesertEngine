@@ -386,10 +386,10 @@ namespace Desert::ECS
          */
         /// A SequencePlayer at the base of Output Pose: its clip in the Source stage, started once (a clip
         /// already playing keeps its clock).
-        void PlaySequence( ECS::AnimationComponent& anim, const Animation::Skeleton& clipRig,
+        void PlaySequence( ECS::AnimationComponent& anim, const Animation::MeshSkeletonIdentity& clipRig,
                            const Animation::Graph::PoseNode& node )
         {
-            const auto found = m_AnimationLibrary->FindForSkeleton( clipRig, node.Sequence->Clip );
+            const auto found = m_AnimationLibrary->FindForMesh( clipRig, node.Sequence->Clip );
             if ( !found )
             {
                 if ( !m_AnimationLibrary->HasPending( node.Sequence->Clip ) )
@@ -412,7 +412,8 @@ namespace Desert::ECS
          * The base source is not here: `Update` reported it (or PlaySequence played it) into the Source stage
          * above. A graph whose Output Pose IS a source has nothing to blend and clears the stage.
          */
-        void DrivePoseGraph( ECS::AnimationComponent& anim, const Animation::Skeleton& clipRig, bool graphRebuilt )
+        void DrivePoseGraph( ECS::AnimationComponent& anim, const Animation::MeshSkeletonIdentity& clipRig,
+                             bool graphRebuilt )
         {
             namespace AG                   = Animation::Graph;
             const AG::Evaluator& evaluator = *anim.GraphEvaluator;
@@ -453,7 +454,7 @@ namespace Desert::ECS
                 }
                 if ( clip.empty() )
                     continue;
-                const auto found = m_AnimationLibrary->FindForSkeleton( clipRig, clip );
+                const auto found = m_AnimationLibrary->FindForMesh( clipRig, clip );
                 if ( found )
                     anim.Animator->SetPoseGraphSource( n, found.GetValue()->GetClip(), loop );
                 else if ( !m_AnimationLibrary->HasPending( clip ) )
@@ -514,7 +515,7 @@ namespace Desert::ECS
                     }
                     if ( clip.empty() )
                         continue;
-                    const auto found = m_AnimationLibrary->FindForSkeleton( clipRig, clip );
+                    const auto found = m_AnimationLibrary->FindForMesh( clipRig, clip );
                     if ( found )
                         anim.Animator->SetLinkedLayerSource( slot, n, found.GetValue()->GetClip(), loop );
                     else if ( !m_AnimationLibrary->HasPending( clip ) )
