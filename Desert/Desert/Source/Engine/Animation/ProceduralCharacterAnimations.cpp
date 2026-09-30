@@ -4,6 +4,7 @@
 #include <Engine/Animation/BoneInfo.hpp>
 #include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Geometry/ProceduralCharacterFactory.hpp>
 
@@ -13,6 +14,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <cmath>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <unordered_map>
@@ -47,7 +49,7 @@ namespace Desert::Animation
             clip.AnimationName     = name;
             clip.DurationTicks     = durationTicks;
             clip.TickRate          = PROJECT_TICK_RATE;
-            clip.Skeleton          = Geometry::ProceduralCharacterFactory::GetHumanoidSkeletonGuid();
+            // clip.Skeleton is bound by RegisterClips, from the humanoid skeleton asset's header GUID.
             clip.Tracks.resize( bones.size() ); // empty tracks fall back to LocalBindTransform
 
             for ( const auto& [boneName, fn] : angleFns )
@@ -158,14 +160,27 @@ namespace Desert::Animation
     {
         const AnimationClip* clips[] = { &Idle(), &Walk(), &Run(), &Jump() };
 
+        // THE HUMANOID'S SKELETON IS AN ASSET (engine content, Humanoid.skeleton): its identity is the GUID its
+        // header states, read from the content registry's row of that file — the same GUID a picker or a
+        // clip's Skeleton reference names it by. No row, or a row without a GUID, is refused by path: the
+        // built-in character then has no clips rather than clips bound to an identity no file carries.
+        const std::filesystem::path skeletonFile = Geometry::ProceduralCharacterFactory::HumanoidSkeletonFile();
+        const auto skeletonRow = Assets::ContentRegistry::RowOfPath( Common::Content::ContentKind::Skeleton,
+                                                                     skeletonFile );
+        if ( !skeletonRow || !skeletonRow->Guid || skeletonRow->Guid->IsNull() )
+        {
+            LOG_ERROR( "[Animation] the built-in humanoid's skeleton asset '{}' {}; the procedural humanoid "
+                       "registers no clips.",
+                       skeletonFile.generic_string(),
+                       skeletonRow ? "states no GUID in its header" : "is not in the content registry" );
+            return 0;
+        }
+        const Common::Content::AssetGuid skeleton = *skeletonRow->Guid;
+
         // The humanoid mesh is procedural (no SkinnedMeshAsset to state its skeleton), so its skeleton reference
         // is stated here, beside the clips that reference the same GUID.
-        library.RegisterMeshSkeleton(
-             Geometry::ProceduralCharacterFactory::GetHumanoidMesh(),
-             MeshSkeletonIdentity{
-                  SkeletonAssetRef{ Geometry::ProceduralCharacterFactory::GetHumanoidSkeletonGuid(),
-                                    "built-in humanoid skeleton" },
-                  {} } );
+        library.RegisterMeshSkeleton( Geometry::ProceduralCharacterFactory::GetHumanoidMesh(),
+                                      MeshSkeletonIdentity{ SkeletonAssetRef{ skeleton, skeletonRow->Key }, {} } );
 
         size_t registered = 0;
         for ( const AnimationClip* clip : clips )
@@ -183,7 +198,9 @@ namespace Desert::Animation
                 continue;
             }
 
-            asset->SetInMemoryClip( *clip );
+            AnimationClip bound = *clip;
+            bound.Skeleton      = skeleton;
+            asset->SetInMemoryClip( bound );
             library.Register( asset );
             ++registered;
         }
