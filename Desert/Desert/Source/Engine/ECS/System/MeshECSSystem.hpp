@@ -95,9 +95,10 @@ namespace Desert::ECS
 
                          if ( !targetMesh )
                              return;
+
+
                          // --- Auto-Initialize Material Slots --- (the one rule, AdoptMeshMaterialSlots)
                          AdoptMeshMaterialSlots( mesh.MaterialSlots, mesh.MeshHandle );
-                         }
 
                          // A MaterialService::Invalidate() this frame dropped some runtime Material —
                          // rebuild every cached instance set (parents may be graveyarded). One uint
