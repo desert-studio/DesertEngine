@@ -6,6 +6,8 @@
 #include <Engine/ECS/Components.hpp>
 
 #include <algorithm>
+#include <cstdio>
+#include <exception>
 #include <utility>
 #include <variant>
 
@@ -283,12 +285,14 @@ namespace Desert::Editor
         // Check the pose half BEFORE writing anything: an entry that can restore only one half must restore
         // neither, or the skeleton on screen and the clip disagree.
         std::optional<Animation::LocalPose> pose;
+        Animation::Animator*                posed = nullptr;
         if ( m_Pose.has_value() )
         {
             if ( m_Pose->Animator == nullptr )
             {
                 return false;
             }
+            posed               = m_Pose->Animator;
             const size_t wanted = undo ? m_Pose->SizeBefore : m_Pose->SizeAfter;
             pose                = m_Pose->Animator->GetAuthoringPose();
             if ( pose->Size() != wanted )
@@ -325,14 +329,14 @@ namespace Desert::Editor
         // A restored binding list or track set is a structural edit to whoever cached against this copy.
         sequence->Revision = revision + 1;
 
-        if ( pose.has_value() )
+        if ( pose.has_value() && posed != nullptr )
         {
-            if ( const auto installed = m_Pose->Animator->SetAuthoringPose( *pose ); !installed.IsSuccess() )
+            if ( const auto installed = posed->SetAuthoringPose( *pose ); !installed.IsSuccess() )
             {
                 LOG_ERROR( "[SequenceUndo] {}", installed.GetError() );
                 return false;
             }
-            m_Pose->Animator->ApplyLocalPose();
+            posed->ApplyLocalPose();
         }
         if ( m_Owner.AfterRestore )
         {
@@ -532,9 +536,27 @@ namespace Desert::Editor
         {
             return;
         }
-        if ( const auto ended = m_Transaction.End(); !ended.IsSuccess() )
+        // A destructor may not throw: the edit inside the scope already happened, so a failed End loses only
+        // its undo entry, and the author is told so.
+        try
         {
-            LOG_ERROR( "[SequenceUndo] {}", ended.GetError() );
+            try
+            {
+                if ( const auto ended = m_Transaction.End(); !ended.IsSuccess() )
+                {
+                    LOG_ERROR( "[SequenceUndo] {}", ended.GetError() );
+                }
+            }
+            catch ( const std::exception& error )
+            {
+                LOG_ERROR( "[SequenceUndo] this edit will not be undoable: {}", error.what() );
+            }
+        }
+        catch ( ... )
+        {
+            // The logger itself threw: stderr is the channel left to say the entry is gone.
+            (void)std::fputs( "[SequenceUndo] an edit's undo entry was lost and the logger failed to report why\n",
+                              stderr );
         }
     }
 

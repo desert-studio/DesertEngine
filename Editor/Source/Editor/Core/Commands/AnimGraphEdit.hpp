@@ -69,7 +69,7 @@ namespace Desert::Editor
 
         bool Undo() override;
         bool Redo() override;
-        bool IsVolatile() const override
+        [[nodiscard]] bool IsVolatile() const override
         {
             return m_Owner.Volatile;
         }
@@ -77,10 +77,10 @@ namespace Desert::Editor
         {
             return m_Owner.Identity;
         }
-        std::string GetLabel() const override;
+        [[nodiscard]] std::string GetLabel() const override;
 
     private:
-        [[nodiscard]] bool Apply( const Animation::Graph::AnimGraph& value );
+        [[nodiscard]] bool Apply( const Animation::Graph::AnimGraph& value ) const;
 
         AnimGraphOwner              m_Owner;
         Animation::Graph::AnimGraph m_Before;

@@ -52,7 +52,9 @@
 #include <cstdio>
 #include <filesystem>
 #include <format>
+#include <iterator>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -196,6 +198,12 @@ namespace Desert::Editor
         // these helpers only FIND things in that model. Every structural edit (insert, remove, retime a key;
         // add, move, resize, re-row a section) is an engine function — TrackEditing's or Timeline/Track's.
 
+        /// "<what>: <why>" as an error toast: the one form every refused Sequencer edit is reported in.
+        void ToastRefusal( std::string_view what, std::string_view why, float seconds )
+        {
+            ToastManager::Push( std::format( "{}: {}", what, why ), ToastLevel::Error, seconds );
+        }
+
         /// The bone a track animates, or null when it is not a bone's Transform track.
         const std::string* BoneOfTrack( const TL::Sequence& sequence, const TL::Track& track )
         {
@@ -216,7 +224,7 @@ namespace Desert::Editor
                                               : std::string( TL::ToString( track.Kind ) );
             if ( !track.Property.empty() )
             {
-                label += "." + track.Property;
+                std::format_to( std::back_inserter( label ), ".{}", track.Property );
             }
             return label;
         }
@@ -233,9 +241,10 @@ namespace Desert::Editor
             return channel != nullptr ? std::get_if<TL::TransformChannel>( channel ) : nullptr;
         }
 
-        /// The part's components: x, y, z (and w for a rotation; null otherwise).
-        std::array<TL::FloatChannel*, 4> ComponentsOf( TL::TransformChannel&   channel,
-                                                       Animation::TrackChannel part )
+        /// The part's components: x, y, z (and w for a rotation; null otherwise), as const as @p channel.
+        template <typename TransformChannelT>
+        auto ComponentsOf( TransformChannelT&      channel,
+                           Animation::TrackChannel part ) -> std::array<decltype( &channel.Translation.X ), 4>
         {
             switch ( part )
             {
@@ -266,9 +275,7 @@ namespace Desert::Editor
                 {
                     continue;
                 }
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast) — ComponentsOf only takes addresses
-                for ( const TL::FloatChannel* component :
-                      ComponentsOf( const_cast<TL::TransformChannel&>( *channel ), part ) )
+                for ( const TL::FloatChannel* component : ComponentsOf( *channel, part ) )
                 {
                     if ( component == nullptr )
                         continue;
@@ -731,7 +738,7 @@ namespace Desert::Editor
                 if ( saved )
                     ToastManager::Push( "Saved clip to " + saved.GetValue(), ToastLevel::Success );
                 else
-                    ToastManager::Push( "Clip NOT saved: " + saved.GetError(), ToastLevel::Error, 8.0f );
+                    ToastRefusal( "Clip NOT saved", saved.GetError(), 8.0f );
             }
             Utils::ImGuiUtilities::Tooltip(
                  "Write this clip to Assets/Animations/<name>.anim so it survives a restart\n"
@@ -1139,7 +1146,7 @@ namespace Desert::Editor
                 const Animation::TrackChannel part  = ChannelOfLane( ch );
                 const ImVec2                  rp    = ImGui::GetCursorScreenPos();
                 const float                   laneY = rp.y;
-                const ImU32 strip = ( ti % 2 ) ? IM_COL32( 40, 40, 46, 255 ) : IM_COL32( 33, 33, 39, 255 );
+                const ImU32 strip = ( ti % 2 ) != 0 ? IM_COL32( 40, 40, 46, 255 ) : IM_COL32( 33, 33, 39, 255 );
                 dl->AddRectFilled( ImVec2( laneX0, laneY ), ImVec2( laneX0 + laneW, laneY + laneH - 2.0f ),
                                    strip );
 
@@ -1444,7 +1451,7 @@ namespace Desert::Editor
                 if ( const auto removed = Animation::RemoveBoneKey( sequence, bone, part, tick );
                      !removed.IsSuccess() )
                 {
-                    ToastManager::Push( "delete key: " + removed.GetError(), ToastLevel::Error, 6.0f );
+                    ToastRefusal( "delete key", removed.GetError(), 6.0f );
                 }
                 m_SelKey = -1;
                 changed  = true;
@@ -1462,7 +1469,7 @@ namespace Desert::Editor
                 const ScopedSequenceEdit undoStep( m_ClipEdit, OwnerOf( clip ), animator );
                 if ( const auto added = KeyPartAtTick( *clip, *animator, bone, part, t ); !added.IsSuccess() )
                 {
-                    ToastManager::Push( "add key: " + added.GetError(), ToastLevel::Error, 6.0f );
+                    ToastRefusal( "add key", added.GetError(), 6.0f );
                 }
             }
             SelectKey( m_SelTrack, m_SelChannel, t, sequence );
@@ -1562,8 +1569,7 @@ namespace Desert::Editor
         }
         if ( target->Track == nullptr )
         {
-            ToastManager::Push( std::string( what ) + ": select a track first — sections belong to a track",
-                                ToastLevel::Error, 6.0f );
+            ToastRefusal( what, "select a track first — sections belong to a track", 6.0f );
             return;
         }
         if ( m_SelSection < 0 || m_SelSection >= static_cast<int>( target->Track->Sections.size() ) )
@@ -1590,7 +1596,7 @@ namespace Desert::Editor
         if ( !done.IsSuccess() )
         {
             LOG_ERROR( "[Sequencer] {}: {}", what, done.GetError() );
-            ToastManager::Push( std::string( what ) + ": " + done.GetError(), ToastLevel::Error, 8.0f );
+            ToastRefusal( what, done.GetError(), 8.0f );
         }
     }
 
@@ -1621,7 +1627,8 @@ namespace Desert::Editor
         const Animation::FrameRate     rate = sequence.TickRate;
 
         dl->AddRectFilled( ImVec2( laneX0, y0 ), ImVec2( laneX0 + laneW, y1 ), IM_COL32( 20, 20, 24, 255 ) );
-        const std::string title = track != nullptr ? "SECTIONS  " + TrackLabel( sequence, *track ) : "SECTIONS";
+        const std::string title =
+             track != nullptr ? std::format( "SECTIONS  {}", TrackLabel( sequence, *track ) ) : "SECTIONS";
         dl->PushClipRect( ImVec2( contentX0, y0 ), ImVec2( laneX0 - 4.0f, y1 ), true );
         dl->AddText( ImVec2( contentX0 + 6.0f, y0 + 7.0f ), IM_COL32( 170, 170, 180, 255 ), title.c_str() );
         dl->PopClipRect();
@@ -1707,16 +1714,16 @@ namespace Desert::Editor
             m_SectionDrag         = -1;
             // TOPMOST FIRST — the reverse of the draw order — so a click lands on the section the animator
             // is looking at, not one hidden under it.
-            for ( auto it = order.rbegin(); it != order.rend(); ++it )
+            for ( const auto index : std::views::reverse( order ) )
             {
-                const TL::Section& section = track->Sections[*it];
+                const TL::Section& section = track->Sections[index];
                 const float        xa      = axis.TimeToX( TickToSeconds( section.Start, rate ) );
                 const float        xb      = axis.TimeToX( TickToSeconds( section.End, rate ) );
                 if ( mx < xa - kGrab || mx > xb + kGrab )
                 {
                     continue;
                 }
-                m_SectionDrag     = static_cast<int>( *it );
+                m_SectionDrag     = static_cast<int>( index );
                 m_SectionDragEdge = ( mx <= xa + kGrab ) ? 1 : ( mx >= xb - kGrab ? 2 : 0 );
                 break;
             }
@@ -2211,7 +2218,7 @@ namespace Desert::Editor
                  }
                  else
                  {
-                     ToastManager::Push( "Clip NOT saved: " + saved.GetError(), ToastLevel::Error, 8.0f );
+                     ToastRefusal( "Clip NOT saved", saved.GetError(), 8.0f );
                  }
              } } );
         // SECTIONS BELONG TO A TRACK (UE: UMovieSceneSection lives in its UMovieSceneTrack), so the palette
@@ -2858,7 +2865,7 @@ namespace Desert::Editor
         BracketUIClipEditFromItem( clip );
         const float duration = std::max( 0.05f, static_cast<float>( Animation::FrameTimeToSeconds(
                                                      Animation::FrameTime{ sequence.End, 0.0f }, tickRate ) ) );
-        float       now      = static_cast<float>(
+        auto        now      = static_cast<float>(
              Animation::FrameTimeToSeconds( Animation::FrameTime{ playTick, 0.0f }, tickRate ) );
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 140.0f );
@@ -2938,9 +2945,11 @@ namespace Desert::Editor
             return SecondsToSnappedTick( seconds, tickRate, sequence.DisplayRate );
         };
 
-        ImGui::BeginChild( "##uiTracks",
-                           ImVec2( gutter + laneW, std::min( 260.0f, 12.0f + sequence.Tracks.size() * laneH ) ),
-                           false );
+        ImGui::BeginChild(
+             "##uiTracks",
+             ImVec2( gutter + laneW,
+                     std::min( 260.0f, 12.0f + static_cast<float>( sequence.Tracks.size() ) * laneH ) ),
+             false );
         ImDrawList* dl = ImGui::GetWindowDrawList();
 
         int deleteTrack = -1;
@@ -2953,7 +2962,7 @@ namespace Desert::Editor
             const std::string  label =
                  std::format( "{} {}", binding != nullptr ? binding->Label : std::string( "?" ), track.Property );
             dl->AddRectFilled( ImVec2( laneX0, laneY ), ImVec2( laneX0 + laneW, laneY + laneH - 3.0f ),
-                               ( ti % 2 ) ? IM_COL32( 40, 40, 46, 255 ) : IM_COL32( 33, 33, 39, 255 ) );
+                               ( ti % 2 ) != 0 ? IM_COL32( 40, 40, 46, 255 ) : IM_COL32( 33, 33, 39, 255 ) );
             dl->AddText( ImVec2( contentX0 + 6.0f, laneY + 3.0f ), IM_COL32( 205, 205, 215, 255 ), label.c_str() );
 
             ImGui::SetCursorScreenPos( ImVec2( contentX0 + gutter - 46.0f, laneY ) );
@@ -3090,7 +3099,7 @@ namespace Desert::Editor
                              component->Keys, index, TL::PresetOf( static_cast<ECS::UIEasing>( ease ) ), tickRate,
                              sequence.DisplayRate );
                         if ( !eased.IsSuccess() )
-                            ToastManager::Push( "ease: " + eased.GetError(), ToastLevel::Error, 6.0f );
+                            ToastRefusal( "ease", eased.GetError(), 6.0f );
                     }
                     ++sequence.Revision;
                 }

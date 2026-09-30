@@ -181,7 +181,7 @@ namespace Desert::Editor
         bool Undo() override;
         bool Redo() override;
 
-        bool IsVolatile() const override
+        [[nodiscard]] bool IsVolatile() const override
         {
             return m_Owner.Volatile || m_Pose.has_value();
         }
@@ -191,7 +191,7 @@ namespace Desert::Editor
             return m_Owner.Identity;
         }
 
-        std::string GetLabel() const override;
+        [[nodiscard]] std::string GetLabel() const override;
 
         /// The animator whose authoring pose Undo/Redo write, or null: `DropPoseRecordsFor` matches on it.
         [[nodiscard]] const Animation::Animator* PosedAnimator() const

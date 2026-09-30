@@ -103,7 +103,7 @@ namespace Desert::Editor
 
     void AnimGraphPanel::AddPoseNode( G::PoseNodeKind kind, const std::optional<glm::vec2>& where )
     {
-        AnimGraphEditTransaction::Scope transaction( m_GraphEdit, GraphOwner() );
+        const AnimGraphEditTransaction::Scope transaction( m_GraphEdit, GraphOwner() );
         ECS::AnimationComponent*        anim = ResolveComponent();
         if ( anim == nullptr || !anim->Graph )
         {
@@ -133,7 +133,7 @@ namespace Desert::Editor
 
     void AnimGraphPanel::WirePose( const std::string& from, const std::string& to, int pin )
     {
-        AnimGraphEditTransaction::Scope transaction( m_GraphEdit, GraphOwner() );
+        const AnimGraphEditTransaction::Scope transaction( m_GraphEdit, GraphOwner() );
         ECS::AnimationComponent*        anim = ResolveComponent();
         if ( anim == nullptr || !anim->Graph )
             return;
@@ -145,7 +145,7 @@ namespace Desert::Editor
 
     void AnimGraphPanel::RemovePoseNode( const std::string& name )
     {
-        AnimGraphEditTransaction::Scope transaction( m_GraphEdit, GraphOwner() );
+        const AnimGraphEditTransaction::Scope transaction( m_GraphEdit, GraphOwner() );
         ECS::AnimationComponent*        anim = ResolveComponent();
         if ( anim == nullptr || !anim->Graph )
             return;
@@ -181,18 +181,20 @@ namespace Desert::Editor
         const std::vector<G::PoseNode>& nodes = *target.Nodes;
         for ( const G::PoseNode& node : nodes )
         {
-            const std::string name = node.Name;
-            actions.push_back( { std::format( "Select Node '{}'", name ), [this, name]
+            // INIT-CAPTURED, not copied from a const local: a const member makes the closure's move a copy that
+            // may throw, and the action list moves its closures.
+            const std::string& name = node.Name;
+            actions.push_back( { std::format( "Select Node '{}'", name ), [this, name = node.Name]
                                  {
                                      m_EditingMachine    = false;
                                      m_SelectedPoseNode  = name;
                                      m_PoseSelectPending = true;
                                  } } );
-            actions.push_back(
-                 { std::format( "Delete Node '{}'", name ), [this, name] { RemovePoseNode( name ); } } );
+            actions.push_back( { std::format( "Delete Node '{}'", name ),
+                                 [this, name = node.Name] { RemovePoseNode( name ); } } );
             if ( *target.Output != name )
                 actions.push_back( { std::format( "Wire '{}' Into Output Pose", name ),
-                                     [this, name] { WirePose( name, std::string(), 0 ); } } );
+                                     [this, name = node.Name] { WirePose( name, std::string(), 0 ); } } );
             // Only the wires the unit would accept: an unwired pin of another node, no loop closed.
             for ( const G::PoseNode& into : nodes )
             {
@@ -203,10 +205,10 @@ namespace Desert::Editor
                     std::vector<G::PoseNode> trial = nodes;
                     if ( !Graph::ConnectPose( trial, name, into.Name, pin ).IsSuccess() )
                         continue;
-                    const std::string to = into.Name;
-                    actions.push_back(
-                         { std::format( "Wire '{}' Into '{}' {}", name, to, Graph::PosePinLabel( into, pin ) ),
-                           [this, name, to, pin] { WirePose( name, to, pin ); } } );
+                    actions.push_back( { std::format( "Wire '{}' Into '{}' {}", name, into.Name,
+                                                      Graph::PosePinLabel( into, pin ) ),
+                                         [this, name = node.Name, to = into.Name, pin]
+                                         { WirePose( name, to, pin ); } } );
                 }
             }
         }
@@ -284,7 +286,8 @@ namespace Desert::Editor
         // --- Wire by dragging Pose -> a Pose pin: the unit decides, on a copy, before the drop ---
         if ( ed::BeginCreate() )
         {
-            ed::PinId a, b;
+            ed::PinId a;
+            ed::PinId b;
             if ( ed::QueryNewLink( &a, &b ) && a && b )
             {
                 Graph::PosePinRef out = Graph::PinOf( m_PoseCanvas, a.Get() );

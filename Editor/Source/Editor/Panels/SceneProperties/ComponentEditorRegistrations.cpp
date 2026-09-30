@@ -1861,17 +1861,18 @@ namespace Desert::Editor
             };
 
             const auto sequence =
-                 actor.Sequence ? manager->FindByHandle<::Desert::Assets::LevelSequenceAsset>( actor.Sequence )
-                                : nullptr;
+                 actor.Sequence != 0
+                      ? manager->FindByHandle<::Desert::Assets::LevelSequenceAsset>( actor.Sequence )
+                      : nullptr;
             const auto rows =
                  ::Desert::Assets::ContentRegistry::Rows( ::Common::Content::ContentKind::LevelSequence );
             std::string slotText = "None";
             for ( const auto& row : rows )
-                if ( actor.Sequence && row.Handle == actor.Sequence )
+                if ( actor.Sequence != 0 && row.Handle == actor.Sequence )
                     slotText = ::Desert::Editor::PickerDisplayName( row );
             if ( slotText == "None" && sequence )
                 slotText = sequence->GetMetadata().Filepath.stem().string();
-            const bool     emptySlot = !actor.Sequence;
+            const bool     emptySlot = actor.Sequence == 0;
             const uint64_t handle    = emptySlot ? 0 : static_cast<uint64_t>( actor.Sequence );
 
             U::ImGuiUtilities::ResetPropertyRows();
@@ -1930,10 +1931,10 @@ namespace Desert::Editor
             // The scene's entities by UUID, named by their Tag: what an override may point at.
             const auto entityName = [&]( const ::Common::UUID& uuid ) -> std::string
             {
-                if ( scene )
+                if ( scene != nullptr )
                     if ( const auto found = scene->FindEntityByID( uuid ) )
                     {
-                        ::Desert::ECS::Entity entity = found->get();
+                        const ::Desert::ECS::Entity entity = found->get();
                         return entity.HasComponent<::Desert::ECS::TagComponent>()
                                     ? entity.GetComponent<::Desert::ECS::TagComponent>().Tag
                                     : std::string( "Entity" );
@@ -1943,7 +1944,7 @@ namespace Desert::Editor
             // Draws the scene's entities with a search; true when one was picked into @p picked.
             const auto entityList = [&]( ::Common::UUID& picked ) -> bool
             {
-                if ( !scene )
+                if ( scene == nullptr )
                 {
                     ImGui::TextDisabled( "No scene" );
                     return false;
@@ -1954,7 +1955,7 @@ namespace Desert::Editor
                 auto& registry = scene->GetRegistry();
                 for ( auto h : registry.view<::Desert::ECS::UUIDComponent>() )
                 {
-                    ::Desert::ECS::Entity candidate( h, registry );
+                    const ::Desert::ECS::Entity candidate( h, registry );
                     const auto            uuid = candidate.GetComponent<::Desert::ECS::UUIDComponent>().UUID;
                     const std::string     name = candidate.HasComponent<::Desert::ECS::TagComponent>()
                                                       ? candidate.GetComponent<::Desert::ECS::TagComponent>().Tag
@@ -1980,10 +1981,10 @@ namespace Desert::Editor
             for ( std::size_t i = 0; i < actor.BindingOverrides.size(); )
             {
                 auto&             over    = actor.BindingOverrides[i];
-                const T::Binding* binding = loaded ? T::FindBinding( *loaded, over.Binding ) : nullptr;
+                const T::Binding* binding = loaded != nullptr ? T::FindBinding( *loaded, over.Binding ) : nullptr;
                 ImGui::PushID( static_cast<int>( i ) );
-                U::ImGuiUtilities::BeginPropertyRow( binding ? binding->Label.c_str()
-                                                             : "(binding not in the sequence)",
+                U::ImGuiUtilities::BeginPropertyRow( binding != nullptr ? binding->Label.c_str()
+                                                                        : "(binding not in the sequence)",
                                                      "The entity of this scene the binding plays on" );
                 const std::string target = entityName( over.Entity );
                 if ( U::ImGuiUtilities::AssetSlot( "overrideentity", target.c_str(), false ) )
@@ -2012,9 +2013,9 @@ namespace Desert::Editor
                 ImGui::OpenPopup( "add_binding_override" );
             if ( ImGui::BeginPopup( "add_binding_override" ) )
             {
-                const auto open = loaded ? ::Desert::ECS::OverridableBindings( *loaded, actor )
-                                         : std::vector<const T::Binding*>{};
-                if ( !loaded )
+                const auto open = loaded != nullptr ? ::Desert::ECS::OverridableBindings( *loaded, actor )
+                                                    : std::vector<const T::Binding*>{};
+                if ( loaded == nullptr )
                     ImGui::TextDisabled( "Choose a sequence (loaded) first" );
                 else if ( open.empty() )
                     ImGui::TextDisabled( "Every entity binding already has an override" );

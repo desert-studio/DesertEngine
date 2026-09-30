@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <iterator>
 
 namespace Desert::Editor::Graph
 {
@@ -21,26 +22,38 @@ namespace Desert::Editor::Graph
             return -1;
         }
 
-        /// The chain of names from @p start down its Pose wires to @p target, empty when @p target is not
-        /// reached: what a wire target <- start would close into a loop.
-        bool PathDown( const std::vector<G::PoseNode>& nodes, int start, int target, std::vector<int>& path,
-                       std::vector<bool>& seen )
+        /// The chain of node indices from @p start down its Pose wires to @p target, empty when @p target is not
+        /// reached: what a wire target <- start would close into a loop. A walk with its own stack, so a deep
+        /// hand-edited chain cannot run the call stack out.
+        std::vector<int> PathDown( const std::vector<G::PoseNode>& nodes, int start, int target )
         {
-            path.push_back( start );
-            if ( start == target )
-                return true;
-            if ( !seen[static_cast<size_t>( start )] )
+            std::vector<int>  cameFrom( nodes.size(), -1 );
+            std::vector<bool> seen( nodes.size(), false );
+            std::vector<int>  open{ start };
+            seen[static_cast<size_t>( start )] = true;
+            while ( !open.empty() )
             {
-                seen[static_cast<size_t>( start )] = true;
-                for ( const std::string& input : nodes[static_cast<size_t>( start )].PoseInputs )
+                const int at = open.back();
+                open.pop_back();
+                if ( at == target )
+                {
+                    std::vector<int> path;
+                    for ( int step = at; step >= 0; step = cameFrom[static_cast<size_t>( step )] )
+                        path.push_back( step );
+                    std::reverse( path.begin(), path.end() );
+                    return path;
+                }
+                for ( const std::string& input : nodes[static_cast<size_t>( at )].PoseInputs )
                 {
                     const int next = IndexOf( nodes, input );
-                    if ( next >= 0 && PathDown( nodes, next, target, path, seen ) )
-                        return true;
+                    if ( next < 0 || seen[static_cast<size_t>( next )] )
+                        continue;
+                    seen[static_cast<size_t>( next )]     = true;
+                    cameFrom[static_cast<size_t>( next )] = at;
+                    open.push_back( next );
                 }
             }
-            path.pop_back();
-            return false;
+            return {};
         }
 
         constexpr float kPoseGridStepX = 260.0f;
@@ -160,13 +173,11 @@ namespace Desert::Editor::Graph
                               into.Name ) );
 
         // The wire makes `to` read `from`; it closes a loop exactly when `from` already reads `to`.
-        std::vector<int>  path;
-        std::vector<bool> seen( nodes.size(), false );
-        if ( PathDown( nodes, source, target, path, seen ) )
+        if ( const std::vector<int> path = PathDown( nodes, source, target ); !path.empty() )
         {
             std::string loop = std::string( to );
             for ( const int step : path ) // `to` reads `from`, which reads down to `to` again
-                loop += " -> " + nodes[static_cast<size_t>( step )].Name;
+                std::format_to( std::back_inserter( loop ), " -> {}", nodes[static_cast<size_t>( step )].Name );
             return Common::MakeError<bool>( std::format(
                  "wiring '{}' into '{}' would close a cycle in the pose graph: {}. A pose graph with a loop has "
                  "no first node",
@@ -304,7 +315,7 @@ namespace Desert::Editor::Graph
         {
             const G::PoseNode& node     = nodes[i];
             const Resolved     resolved = ids.Resolve( ElementKind::Node, node.Name );
-            canvas.OutPins[i]           = ids.Resolve( ElementKind::Pin, node.Name + "\x1f>" ).Id;
+            canvas.OutPins[i]           = ids.Resolve( ElementKind::Pin, std::format( "{}\x1f>", node.Name ) ).Id;
             // The wire slots, not the kind's count: a hand-edited file with too few wires still draws, and
             // the plan's refusal in the strip says what is wrong with it.
             const int pins = std::max( G::PoseInputCountOf( node ), static_cast<int>( node.PoseInputs.size() ) );
@@ -396,8 +407,10 @@ namespace Desert::Editor::Graph
     {
         for ( int cell = 0;; ++cell )
         {
-            const float x     = static_cast<float>( cell % kPoseGridCols ) * kPoseGridStepX;
-            const float y     = static_cast<float>( cell / kPoseGridCols ) * kPoseGridStepY;
+            const int   column = cell % kPoseGridCols;
+            const int   row    = cell / kPoseGridCols; // whole rows: the grid is filled row by row
+            const float x      = static_cast<float>( column ) * kPoseGridStepX;
+            const float y      = static_cast<float>( row ) * kPoseGridStepY;
             const bool  taken = std::any_of( nodes.begin(), nodes.end(),
                                              [&]( const G::PoseNode& n ) {
                                                 return std::abs( n.X - x ) < kPoseGridStepX * 0.5f &&

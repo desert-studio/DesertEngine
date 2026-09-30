@@ -35,6 +35,7 @@
 #include <Engine/Animation/TrackEditing.hpp>
 
 #include <cmath>
+#include <format>
 
 #include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/ImportManager.hpp>
@@ -914,7 +915,8 @@ namespace Desert::Editor
             // ChannelForKey, the path an edit takes), so the import writes through the same BuildAssetDataFromClip
             // every other producer does and has no clip format of its own.
             Animation::AnimationClip clip;
-            clip.AnimationName = anim->mName.length > 0 ? anim->mName.C_Str() : "Animation_" + std::to_string( i );
+            clip.AnimationName =
+                 anim->mName.length > 0 ? std::string( anim->mName.C_Str() ) : std::format( "Animation_{}", i );
 
             // ---- the tick grid, and what crossing it costs ------------------------------------------
             //
