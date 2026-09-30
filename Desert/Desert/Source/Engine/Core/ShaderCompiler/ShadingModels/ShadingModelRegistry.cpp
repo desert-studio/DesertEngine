@@ -188,7 +188,8 @@ namespace Desert::Core::ShadingModels
                          std::format( "{}: Inputs field '{}' is not a field of SurfaceOutput "
                                       "(Mesh/Surface/SurfaceTypes.glslh)",
                                       FileName( m ), input ) );
-            for ( const std::string_view function : { std::string_view( "Evaluate" ), "EvaluateAmbient" } )
+            for ( const std::string_view function :
+                  { std::string_view( "Evaluate" ), std::string_view( "EvaluateAmbient" ) } )
                 if ( !NamesFunction( m.Body, function ) )
                     return Common::MakeError<ShadingModelRegistry>(
                          std::format( "{}: the body does not define {} (ShadingModels/ShadingModelContract.glslh "

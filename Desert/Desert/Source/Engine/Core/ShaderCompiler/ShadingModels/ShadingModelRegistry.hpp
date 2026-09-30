@@ -25,7 +25,8 @@
 //
 // A material template's `ShadingModel <Name>` resolves through FindByName to the Guid; a template without the
 // directive gets kDefaultLitGuid. A template that does not write one of the model's Inputs is refused at build,
-// naming the field (MissingInput).
+// naming the field (MissingInput). A surface built from DefaultSurfaceOutput() writes every field (UE: an
+// unconnected pin takes its default), so only a bare `SurfaceOutput o;` can miss one.
 
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.hpp>
 

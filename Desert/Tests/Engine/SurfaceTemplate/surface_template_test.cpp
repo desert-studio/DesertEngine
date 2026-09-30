@@ -199,6 +199,16 @@ TEST_F( SurfaceTemplateFixture, TheTemplateSettingsAreRefusedWhereTheyCannotAppl
          << "an opaque one-sided template is the plain case";
 }
 
+TEST_F( SurfaceTemplateFixture, ASurfaceWithoutItsModelsInputIsRefusedNamingTheField )
+{
+    // DefaultSurfaceOutput() gives every field (above: accepted); a bare output that never assigns BaseColor
+    // leaves DefaultLit reading an undefined value.
+    const std::string error = ParseError( R"(Shader "M" { Domain Surface
+        Surface { SurfaceOutput EvaluateSurface( SurfaceInput i ) { SurfaceOutput o; o.Metallic = 0.0;
+                  o.Roughness = 0.5; return o; } } })" );
+    EXPECT_NE( error.find( "BaseColor" ), std::string::npos ) << error;
+}
+
 TEST_F( SurfaceTemplateFixture, EditingAnyCellHeaderMovesTheKeyOfEveryCell )
 {
     // A private copy of the shader root, so the edit never touches the repository's headers.
