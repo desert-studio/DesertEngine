@@ -29,7 +29,7 @@ TEST( ContentCreateCommands, NewLevelSequenceIsOfferedAndRunsTheCreationItWasHan
          [&calls]
          {
              ++calls;
-             return Desert::Common::MakeSuccess( true );
+             return Common::MakeSuccess( true );
          } );
     const PaletteCommand* command = FindNewLevelSequence( commands );
     ASSERT_NE( command, nullptr ) << "no \"Assets / New Level Sequence\" palette entry";
@@ -42,7 +42,7 @@ TEST( ContentCreateCommands, NewLevelSequenceIsOfferedAndRunsTheCreationItWasHan
 TEST( ContentCreateCommands, ACreationThatFailedAnswersWithItsOwnReason )
 {
     const auto commands = ContentCreatePaletteCommands(
-         [] { return Desert::Common::MakeError( "New Level Sequence: the Assets window has no folder open" ); } );
+         [] { return Common::MakeError( "New Level Sequence: the Assets window has no folder open" ); } );
     const PaletteCommand* command = FindNewLevelSequence( commands );
     ASSERT_NE( command, nullptr );
     const auto outcome = command->Run();
