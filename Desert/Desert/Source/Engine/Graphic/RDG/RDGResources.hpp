@@ -153,10 +153,13 @@ namespace Desert::Graphic::RDG
         // The image itself. Set by whoever owns the texture before registering it; for an extraction
         // target, Execute sets it to the transient's image.
         std::shared_ptr<IPhysicalTexture> Physical;
-        // Set when the texture is imported from an engine image that records its own layout: Execute hands
-        // it the final states, so code outside the graph and the next frame see the layout the graph left.
-        // An error it returns fails Execute.
-        std::function<Common::BoolResultStr( const std::vector<AccessState>& )> RecordFinalStates;
+        // Set when the texture is imported from an engine image that records its own layout. The record never
+        // disagrees with the GPU: Execute calls it after EVERY barrier batch that touches the texture (with
+        // @p graphEnded false, SubresourceStates already updated to each barrier's After state), so code that
+        // reads the image's record inside a pass sees the layout the barrier just left, and once more after
+        // the graph's final barriers with the final states (@p graphEnded true), which the next frame starts
+        // from. An error it returns fails Execute.
+        std::function<Common::BoolResultStr( const std::vector<AccessState>&, bool graphEnded )> RecordStates;
 
         ExternalTexture() = default;
         ExternalTexture( const TextureDesc& desc, Access initial )

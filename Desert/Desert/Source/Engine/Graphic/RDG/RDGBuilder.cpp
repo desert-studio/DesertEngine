@@ -528,6 +528,46 @@ namespace Desert::Graphic::RDG
 
     // ── Execute ────────────────────────────────────────────────────────────────────────────────────────
 
+    // Mirrors one barrier batch into the imported textures it touches: each covered subresource takes the
+    // barrier's After state, then the owner's record hook sees the new states at once. The image's own layout
+    // record (read by descriptor binds and by code outside the graph) therefore follows the GPU barrier by
+    // barrier instead of catching up at the end of Execute.
+    Common::BoolResultStr Builder::RecordExternalStates( std::span<const Barrier> barriers )
+    {
+        std::vector<uint32_t> touched; // resources, one per external texture
+        for ( const Barrier& barrier : barriers )
+        {
+            if ( barrier.Kind != ResourceKind::Texture )
+                continue;
+            const ResourceRecord&  record   = m_Resources[barrier.Resource];
+            ExternalTexture* const external = record.ExternalTex;
+            if ( external == nullptr )
+                continue;
+            const TextureDesc& desc   = external->Desc;
+            const uint32_t     mips   = barrier.Range.MipCount == kAllRemaining ? desc.Mips - barrier.Range.BaseMip
+                                                                                : barrier.Range.MipCount;
+            const uint32_t     layers = barrier.Range.LayerCount == kAllRemaining
+                                             ? desc.Layers - barrier.Range.BaseLayer
+                                             : barrier.Range.LayerCount;
+            for ( uint32_t layer = barrier.Range.BaseLayer; layer < barrier.Range.BaseLayer + layers; ++layer )
+                for ( uint32_t mip = barrier.Range.BaseMip; mip < barrier.Range.BaseMip + mips; ++mip )
+                    external->SubresourceStates[desc.SubresourceIndex( mip, layer )] = barrier.After;
+            if ( std::find( touched.begin(), touched.end(), barrier.Resource ) == touched.end() )
+                touched.push_back( barrier.Resource );
+        }
+        for ( const uint32_t resource : touched )
+        {
+            const ResourceRecord& record = m_Resources[resource];
+            if ( !record.ExternalTex->RecordStates )
+                continue;
+            Common::BoolResultStr recorded =
+                 record.ExternalTex->RecordStates( record.ExternalTex->SubresourceStates, false );
+            if ( !recorded )
+                return Common::MakeFormattedError( "texture '{}': {}", record.Name, recorded.GetError() );
+        }
+        return Common::MakeSuccess( true );
+    }
+
     Common::BoolResultStr Builder::Execute( IBackend& backend )
     {
         if ( m_Executed )
@@ -571,7 +611,16 @@ namespace Desert::Graphic::RDG
         {
             backend.BeginPass( compiledPass );
             if ( !compiledPass.Barriers.empty() )
+            {
                 backend.RecordBarriers( compiledPass.Barriers );
+                Common::BoolResultStr recorded = RecordExternalStates( compiledPass.Barriers );
+                if ( !recorded )
+                {
+                    backend.AbandonGraph();
+                    return Common::MakeFormattedError( "graph '{}' pass '{}': {}", m_Name, compiledPass.Name,
+                                                       recorded.GetError() );
+                }
+            }
             const bool rendering =
                  HasFlag( compiledPass.Flags, PassFlags::Raster ) && !compiledPass.Attachments.empty();
             if ( rendering && !compiledPass.ContinuesRenderPass )
@@ -624,9 +673,11 @@ namespace Desert::Graphic::RDG
                 ExternalTexture* target   = record.ExternalTex ? record.ExternalTex : record.ExtractTex;
                 target->Desc              = record.Texture;
                 target->SubresourceStates = final.SubresourceStates;
-                if ( target->RecordFinalStates )
+                // The layouts match the last barrier's (already recorded); the final states add the stages and
+                // accesses of the reads merged after it, and the owner checks the image can record them.
+                if ( target->RecordStates )
                 {
-                    Common::BoolResultStr recorded = target->RecordFinalStates( target->SubresourceStates );
+                    Common::BoolResultStr recorded = target->RecordStates( target->SubresourceStates, true );
                     if ( !recorded && recordError.empty() )
                         recordError = std::format( "graph '{}' texture '{}': {}", m_Name, record.Name,
                                                    recorded.GetError() );

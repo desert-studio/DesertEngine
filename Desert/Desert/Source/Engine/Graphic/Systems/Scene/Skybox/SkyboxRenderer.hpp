@@ -152,16 +152,17 @@ namespace Desert::Graphic::System
         // @p inFrame picks the recording path: true records into the current frame's command buffer
         // (ExecuteAtmosphereLuts' slot), false submits immediate dispatches — the bake path, which runs
         // OUTSIDE a frame and cannot wait for the in-frame slot that only comes later.
-        void DispatchCachedAtmosphereLuts( bool inFrame );
-        void DispatchTransmittanceLut( bool inFrame );
-        void DispatchMultiScatterLut( bool inFrame );
+        // Recorded by the SkyAtmosphereLuts graph nodes only: the graph places every barrier and records the
+        // layout each LUT is left in. Nothing dispatches them outside the frame graph.
+        void DispatchTransmittanceLut();
+        void DispatchMultiScatterLut();
         void DispatchSkyViewLut();
         void DispatchAerialPerspectiveLut();
         void DispatchDistantLight();
 
-        // The bake path's guarantee: when the physical model is active, the cached LUTs hold valid
-        // texels BEFORE CreateProcedural marches them. Returns false when the LUTs cannot exist.
-        bool EnsureCachedLutsForBake();
+        // True when an earlier frame's graph has written the transmittance and multi-scattering LUTs for the
+        // atmosphere's current parameters, so the environment bake (outside the graph) may sample them.
+        bool CachedLutsCurrent() const;
 
     private:
         std::weak_ptr<MaterialSkybox> m_MaterialSkybox;
@@ -212,6 +213,12 @@ namespace Desert::Graphic::System
         std::shared_ptr<Image2D>         m_DistantLight;
         AtmosphereLutFingerprint         m_LutBaked;
         bool                             m_LutsValid                        = false;
+        // The sky-view LUT has been written by an earlier frame's SkyAtmosphereLuts node (it is refilled every
+        // frame after that). The SkyboxPass samples the LUTs only once this holds, see RegisterPasses.
+        bool m_SkyViewLutFilled = false;
+        // Decided by the SkyboxPass's Declare and read by its Render in the same frame: the pass binds the LUTs
+        // only when it declared them.
+        bool                             m_SkyPassSamplesLuts               = false;
         bool                             m_LutResourcesFailed               = false;
         bool                             m_SkyViewResourcesFailed           = false;
         bool                             m_AerialPerspectiveResourcesFailed = false;

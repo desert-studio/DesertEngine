@@ -26,6 +26,36 @@ namespace Desert::Graphic::API::Vulkan
         VkImageLayout         Layout       = VK_IMAGE_LAYOUT_UNDEFINED;
         uint32_t              MipLevels    = 1;
         uint32_t              LayerCount   = 1;
+        // While a render graph has the subresources in different layouts (a mip chain mid-walk: the bloom
+        // pyramid, a mip generation) no single layout is true: Layout is UNDEFINED and this holds each
+        // subresource's layout, in RDG::TextureDesc::SubresourceIndex order (layer-major). Empty whenever every
+        // subresource is in Layout.
+        std::vector<VkImageLayout> SubresourceLayouts;
+
+        // The layout subresource @p index (RDG::TextureDesc::SubresourceIndex) is in.
+        [[nodiscard]] VkImageLayout LayoutOf( uint32_t index ) const
+        {
+            if ( Layout == VK_IMAGE_LAYOUT_UNDEFINED && index < SubresourceLayouts.size() )
+                return SubresourceLayouts[index];
+            return Layout;
+        }
+
+        // The render graph's write-back, one layout per subresource: one shared layout collapses to Layout.
+        void RecordLayouts( std::vector<VkImageLayout> layouts )
+        {
+            if ( layouts.empty() )
+                return;
+            const bool uniform = std::all_of( layouts.begin(), layouts.end(),
+                                              [&]( VkImageLayout layout ) { return layout == layouts.front(); } );
+            if ( uniform )
+            {
+                Layout = layouts.front();
+                SubresourceLayouts.clear();
+                return;
+            }
+            Layout             = VK_IMAGE_LAYOUT_UNDEFINED;
+            SubresourceLayouts = std::move( layouts );
+        }
 
         VkDescriptorImageInfo GetDescriptorInfo() const
         {
@@ -73,9 +103,10 @@ namespace Desert::Graphic::API::Vulkan
         // format, mips, layers and samples. Barrier ranges and views follow from it (VulkanRdgTexture).
         [[nodiscard]] virtual RDG::TextureDesc GetGraphDesc() const = 0;
 
-        // The render graph's write-back: after a graph that imported this image, the layout it left the image
-        // in, so TransitionLayout and descriptor binds outside the graph start from the truth.
-        virtual void RecordLayout( VkImageLayout layout ) = 0;
+        // The render graph's write-back after every barrier batch that touches this image: the layout each
+        // subresource is in (RDG::TextureDesc::SubresourceIndex order), so TransitionLayout, descriptor binds
+        // and the next import start from the truth, one mip at a time while a mip chain is mid-walk.
+        virtual void RecordLayouts( std::vector<VkImageLayout> layouts ) = 0;
 
         // The graph's handle on this image, kept for the image's lifetime so the views and framebuffers the
         // graph builds on it are made once, not every frame. Dropped with the VkImage (each kind's Release).
@@ -153,9 +184,9 @@ namespace Desert::Graphic::API::Vulkan
             desc.Samples = std::max( 1u, m_Specification.Samples );
             return desc;
         }
-        void RecordLayout( VkImageLayout layout ) override
+        void RecordLayouts( std::vector<VkImageLayout> layouts ) override
         {
-            m_Resource.Layout = layout;
+            m_Resource.RecordLayouts( std::move( layouts ) );
         }
 
     private:
@@ -223,9 +254,9 @@ namespace Desert::Graphic::API::Vulkan
             desc.Dim    = RDG::TextureDim::Cube;
             return desc;
         }
-        void RecordLayout( VkImageLayout layout ) override
+        void RecordLayouts( std::vector<VkImageLayout> layouts ) override
         {
-            m_Resource.Layout = layout;
+            m_Resource.RecordLayouts( std::move( layouts ) );
         }
 
         // --- Vulkan Specific ---
@@ -314,9 +345,9 @@ namespace Desert::Graphic::API::Vulkan
             desc.Dim    = RDG::TextureDim::Tex3D;
             return desc;
         }
-        void RecordLayout( VkImageLayout layout ) override
+        void RecordLayouts( std::vector<VkImageLayout> layouts ) override
         {
-            m_Resource.Layout = layout;
+            m_Resource.RecordLayouts( std::move( layouts ) );
         }
 
         // --- Vulkan Specific ---

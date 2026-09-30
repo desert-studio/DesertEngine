@@ -1910,10 +1910,15 @@ namespace Desert::Graphic::System
         // The march: samples the scene depth, the cloud volumes, the sky occlusion written above and the
         // atmosphere's LUTs; writes the half-resolution trace and its guide.
         // Single-sample: the scene depth at MSAA 1, SceneDepthResolved at MSAA > 1 (a sampler2D over a
-        // multisampled image is invalid).
+        // multisampled image is invalid). With a depth target it always exists: at MSAA > 1 the resolve is part
+        // of the renderer, and a resolve that failed to build said so at startup and is said again here.
         const std::shared_ptr<Image2D> depth = m_SceneRenderer->GetComputeSceneDepth();
         if ( !depth )
+        {
+            LOG_ERROR( "[Clouds] the cloud march has no single-sample scene depth: SceneDepthResolve was not "
+                       "built for the multisampled scene target (see the startup error)" );
             return {};
+        }
         const uint32_t                 traceWidth  = HalfExtent( m_HalfWidth );
         const uint32_t                 traceHeight = HalfExtent( m_HalfHeight );
         ComputeNodeDeclaration         march;

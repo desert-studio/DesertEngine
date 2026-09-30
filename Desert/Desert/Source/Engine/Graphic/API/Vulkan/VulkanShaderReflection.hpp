@@ -27,6 +27,10 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
     enum class ImageKind
     {
         Image2D,
+        // sampler2DMS: a combined image sampler over a 2D view of a multisampled image, read with texelFetch
+        // (e.g. the MSAA scene depth into its single-sample resolve). Same descriptor and same view type as
+        // Image2D, so it binds through the Image2D bucket; the image bound to it must be multisampled.
+        Image2DMultisample,
         Image3D,
         ImageCube,
         Unsupported

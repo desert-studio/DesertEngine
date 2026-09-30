@@ -998,8 +998,9 @@ TEST( RenderGraphCompile, AFailingPassAbandonsTheGraph )
     ASSERT_FALSE( backend.Calls.empty() );
     EXPECT_EQ( backend.Calls.back(), "AbandonGraph" );
     EXPECT_EQ( std::count( backend.Calls.begin(), backend.Calls.end(), "EndRenderPass" ), 0 );
-    // The external keeps the state it had: nothing was written back.
-    EXPECT_EQ( out.SubresourceStates.front(), GetAccessState( Access::None ) );
+    // The barrier recorded before the failing pass is in the command buffer, so the external holds the state it
+    // left (the record follows every barrier); the end-of-graph write-back did not run.
+    EXPECT_EQ( out.SubresourceStates.front().Layout, ImageLayout::ColorAttachment );
 }
 
 // The aliasing plan takes size, alignment and memory types from the provider, asked with the usage the
@@ -1210,14 +1211,15 @@ TEST( RenderGraphCompile, LegacyPassesRunInTheOrderAddedAndNoneIsCulled )
     EXPECT_EQ( executed, added );
 }
 
-// WHICH ORDER SceneRenderer ADDS. The pass sequence of SceneRenderer::OnUpdate, read from the source: the
-// name of every AddLegacy wrapper and, for AddGraphPhasePasses, its phase selector (it adds one wrapper per
-// RenderGraphBuilder::GetSortedPasses entry the selector admits, in that order). The table is the frame
-// order before RDG3 (c303909f9, SceneRenderer::OnUpdate): its DESERT_PROFILE_PASS scopes and direct calls in
-// sequence, ExecuteRenderGraph = every phase but the deferred overlays, then ExecuteTransparency,
-// ExecuteDebugOverlay and ExecuteUI one phase each. With the test above, the frame the graph runs is this
-// table: moving a pass changes the picture and has to change the table on purpose.
-TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
+// WHICH ORDER SceneRenderer ADDS. The pass sequence of SceneRenderer::OnUpdate, read from the source: every
+// graph node call (graph.AddPass, AddRaster, the DeferredFrameNodes declarations it calls) by its name, every
+// system's compute nodes by the declaring call, every AddLegacy wrapper by its name and, for
+// AddGraphPhasePasses, its phase selector (it adds one wrapper per RenderGraphBuilder::GetSortedPasses entry the
+// selector admits, in that order). A node added only at some sample counts (Deferred: DepthResolve at 1x,
+// Deferred: DepthExpand and Scene: DepthResolve at MSAA) is listed where its call stands. With the test above,
+// the frame the graph runs is this table: moving a pass changes the picture and has to change the table on
+// purpose.
+TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "run from inside the repository";
@@ -1237,6 +1239,29 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
                             comment == std::string::npos ? line : line.substr( 0, comment ) );
         }
     }
+    // The deferred frame's node declarations are templates in DeferredFrameNodes.hpp (RenderGraphCompile
+    // compiles them device-free); an AddFrame member that calls DeferredFrameNodes::Add<X> adds the nodes of
+    // that body, in its order.
+    std::string nodesSource;
+    {
+        std::ifstream file( root / "Desert/Desert/Source/Engine/Graphic/DeferredFrameNodes.hpp" );
+        ASSERT_TRUE( file ) << "DeferredFrameNodes.hpp is gone";
+        std::string line;
+        while ( std::getline( file, line ) )
+        {
+            const size_t comment = line.find( "//" );
+            std::format_to( std::back_inserter( nodesSource ), "{}\n",
+                            comment == std::string::npos ? line : line.substr( 0, comment ) );
+        }
+    }
+    const auto nodesBodyOf = [&nodesSource]( std::string_view function ) -> std::string
+    {
+        const size_t begin = nodesSource.find( std::format( "void {}(", function ) );
+        if ( begin == std::string::npos )
+            return {};
+        const size_t end = std::min( nodesSource.find( "template <", begin ), nodesSource.find( "\n}", begin ) );
+        return nodesSource.substr( begin, end == std::string::npos ? std::string::npos : end - begin );
+    };
     const auto bodyOf = [&source]( std::string_view function ) -> std::string
     {
         // A definition returns void, or the graph handle it made (AddFrameBackdropBlur hands the UI its pyramid).
@@ -1272,6 +1297,8 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
             size_t       raster = text.find( "AddRaster(", at );
             // A system's compute nodes (AddComputeNodes): the entry names the system call that declares them.
             const size_t compute = text.find( "AddComputeNodes(", at );
+            // A DeferredFrameNodes declaration: followed into its body in DeferredFrameNodes.hpp.
+            const size_t deferred = text.find( "DeferredFrameNodes::Add", at );
             // A graph node: its name is the first string literal of the call (a std::format loop name keeps
             // its "{}", one entry per call site).
             size_t node = text.find( "graph.AddPass(", at );
@@ -1280,7 +1307,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
             // A call names its node first (a quote before the call's first ')'); the helper's definition does not.
             while ( raster != std::string::npos && text.find( '"', raster ) > text.find( ')', raster ) )
                 raster = text.find( "AddRaster(", raster + 1 );
-            const size_t first = std::min( { legacy, phases, frame, raster, node, compute } );
+            const size_t first = std::min( { legacy, phases, frame, raster, node, compute, deferred } );
             if ( first == std::string::npos )
                 return;
             if ( first == frame )
@@ -1289,6 +1316,16 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
                 const std::string callee = text.substr( frame, open - frame );
                 const std::string called = bodyOf( callee );
                 ASSERT_FALSE( called.empty() ) << "no definition of SceneRenderer::" << callee;
+                collect( called, called.find( '(' ) + 1 );
+                at = open + 1;
+            }
+            else if ( first == deferred )
+            {
+                const size_t      name   = deferred + std::string_view( "DeferredFrameNodes::" ).size();
+                const size_t      open   = text.find( '(', name );
+                const std::string callee = text.substr( name, open - name );
+                const std::string called = nodesBodyOf( callee );
+                ASSERT_FALSE( called.empty() ) << "no definition of DeferredFrameNodes::" << callee;
                 collect( called, called.find( '(' ) + 1 );
                 at = open + 1;
             }
@@ -1323,7 +1360,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
     };
     collect( body, 0 );
 
-    const std::vector<std::string> legacyOrder = {
+    const std::vector<std::string> frameOrder = {
          "ClearMainFramebuffer",
          "Particles: Simulate",
          "compute[clouds->DeclareShadowMapNodes()]",
@@ -1331,6 +1368,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
          "Deferred: GBuffer",
          "TerrainGBuffer",
          "Deferred: DepthResolve",
+         "Deferred: DepthExpand",
          "Deferred: SSAO",
          "Deferred: RSM",
          "Deferred: GIResolve",
@@ -1343,6 +1381,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
          "Deferred: SSRResolve",
          "Deferred: SSRComposite",
          "Deferred: Glass",
+         "Scene: DepthResolve",
          "compute[sky->DeclareAtmosphereLutNodes()]",
          "compute[fog->DeclareFrameNodes()]",
          "compute[clouds->DeclareFrameNodes()]",
@@ -1370,7 +1409,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
          "PostFX: SMAAWeights",
          "PostFX: SMAABlend",
     };
-    EXPECT_EQ( added, legacyOrder );
+    EXPECT_EQ( added, frameOrder );
 
     // RDG-LEG1-L2: the deferred passes are graph nodes with declared accesses, not legacy wrappers.
     const auto declares = [&]( std::string_view function, std::initializer_list<std::string_view> needles )
@@ -1501,8 +1540,10 @@ namespace
         texture.SubresourceStates = { RecordedLayoutState( layout ) };
         if ( writtenBack )
         {
-            texture.RecordFinalStates = [writtenBack]( const std::vector<AccessState>& states )
+            texture.RecordStates = [writtenBack]( const std::vector<AccessState>& states, bool graphEnded )
             {
+                if ( !graphEnded )
+                    return Common::BoolResultStr( Common::MakeSuccess( true ) );
                 for ( const AccessState& state : states )
                     writtenBack->push_back( state.Layout );
                 return Common::BoolResultStr( Common::MakeSuccess( true ) );
@@ -1560,7 +1601,7 @@ TEST( RenderGraphCompile, ImportedFramebufferStartsFromTheRecordedLayoutsAndWrit
 TEST( RenderGraphCompile, AFailedLayoutWriteBackFailsExecuteNamingTheTexture )
 {
     ExternalTexture color   = Recorded( ImageFormat::RGBA8F, ImageLayout::ShaderReadOnly, nullptr );
-    color.RecordFinalStates = []( const std::vector<AccessState>& )
+    color.RecordStates      = []( const std::vector<AccessState>&, bool )
     { return Common::BoolResultStr( Common::MakeError( "record gone" ) ); };
     Builder                   graph( "import" );
     ExternalTexture* const    colors[] = { &color };
