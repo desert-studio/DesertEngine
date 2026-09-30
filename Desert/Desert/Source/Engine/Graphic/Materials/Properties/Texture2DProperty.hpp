@@ -6,6 +6,9 @@
 #include <Engine/ShaderResources/UniformImage2D.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <Engine/Graphic/RDG/RDGAccess.hpp>
+
+#include <optional>
 
 namespace Desert::Graphic
 {
@@ -24,7 +27,7 @@ namespace Desert::Graphic
             // The uniform is shared by every view, so it is re-pointed once per write, not per view.
             if ( m_UniformVersion != GetVersion() )
             {
-                m_Uniform->SetImage2D( m_Texture );
+                m_Uniform->SetImage2D( m_Texture, m_Declared );
                 m_UniformVersion = GetVersion();
             }
             // Asked every time: whether THIS view's set is behind is the set's record, not a flag here.
@@ -54,8 +57,27 @@ namespace Desert::Graphic
                 return;
             }
 
-            m_Texture = texture;
+            m_Texture  = texture;
+            m_Declared = std::nullopt;
             NoteWritten();
+        }
+        /// Point this sampler at @p texture, an image the graph node that draws with this material declared as
+        /// @p declared. The descriptor names the layout that access leaves the image in, which is the layout
+        /// the graph has put it in when the node's draws run; the image's own record is stale until the graph
+        /// ends. An access that does not leave the image sampleable is refused and the binding keeps its image.
+        void SetImage( const Image2D* texture, RDG::Access declared )
+        {
+            const RDG::ImageLayout layout = RDG::GetAccessState( declared ).Layout;
+            if ( layout != RDG::ImageLayout::ShaderReadOnly && layout != RDG::ImageLayout::General )
+            {
+                LOG_ERROR( "[Materials] Texture2DProperty at binding {} was given an image declared as {}, which "
+                           "does not leave it sampleable; the binding keeps its previous image",
+                           m_Uniform ? m_Uniform->GetBinding() : 0u, RDG::GetAccessName( declared ) );
+                return;
+            }
+            SetImage( texture );
+            if ( m_Texture == texture )
+                m_Declared = declared;
         }
 
         const auto& GetUniform() const
@@ -66,6 +88,7 @@ namespace Desert::Graphic
     private:
         std::shared_ptr<ShaderResources::UniformImage2D> m_Uniform;
         const Image2D*                                   m_Texture        = nullptr;
+        std::optional<RDG::Access>                       m_Declared; // the graph access m_Texture is read under
         uint64_t                                         m_UniformVersion = PropertyVersion::kNeverWritten;
     };
 } // namespace Desert::Graphic
