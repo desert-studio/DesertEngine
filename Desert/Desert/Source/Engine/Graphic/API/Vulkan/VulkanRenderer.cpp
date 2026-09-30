@@ -206,6 +206,7 @@ namespace Desert::Graphic::API::Vulkan
         VKUtils::BeginDebugLabel( m_CurrentCommandBuffer,
                                   renderPass->GetSpecification().DebugName.c_str() );
 
+        VulkanPipeline::s_OpenPassSamples = std::max( 1u, framebuffer->GetSpecification().Samples );
         vkCmdBeginRenderPass( m_CurrentCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
         SetViewportAndScissor( framebuffer->GetFramebufferWidth(), framebuffer->GetFramebufferHeight() );
 
@@ -240,6 +241,7 @@ namespace Desert::Graphic::API::Vulkan
         // leave the labels unbalanced.
         VKUtils::BeginDebugLabel( m_CurrentCommandBuffer, "SwapChainPass" );
 
+        VulkanPipeline::s_OpenPassSamples = static_cast<uint32_t>( vulkanSwap->GetMSAASamples() );
         vkCmdBeginRenderPass( m_CurrentCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
         SetViewportAndScissor( framebuffer->GetFramebufferWidth(), framebuffer->GetFramebufferHeight() );
 
@@ -295,11 +297,13 @@ namespace Desert::Graphic::API::Vulkan
         if ( !pipeline )
             return false;
 
-        const auto* vulkanPipeline = static_cast<const VulkanPipeline*>( pipeline );
-        if ( vulkanPipeline->GetVkPipeline() != VK_NULL_HANDLE )
+        // Not const: a render pass at another sample count than the pipeline was built at creates (once) the
+        // variant for it (VulkanPipeline::GetVkPipelineForSamples).
+        auto* vulkanPipeline = const_cast<VulkanPipeline*>( static_cast<const VulkanPipeline*>( pipeline ) );
+        if ( const VkPipeline bound = vulkanPipeline->GetVkPipelineForSamples( VulkanPipeline::s_OpenPassSamples );
+             bound != VK_NULL_HANDLE )
         {
-            vkCmdBindPipeline( m_CurrentCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                               vulkanPipeline->GetVkPipeline() );
+            vkCmdBindPipeline( m_CurrentCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, bound );
             return true;
         }
         // Still in the driver (PSO1): not an error, and not drawn. An ENGINE pipeline is counted by

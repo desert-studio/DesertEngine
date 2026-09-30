@@ -123,6 +123,45 @@ namespace Desert::Graphic
 #endif
     }
 
+    uint32_t SceneRenderer::SupportedSceneSamples( const int requested )
+    {
+        // Clamped to the device's ceiling, then down to a count its sample MASK has: support is a bitmask,
+        // so a device can offer 1/4/8 and not 2.
+        uint32_t samples =
+             static_cast<uint32_t>( std::clamp( requested, 1, RenderConfig::MaxMSAASamples.load() ) );
+        const uint32_t mask = EngineContext::GetInstance().GetCapabilities().MSAASampleMask;
+        while ( samples > 1 && !( mask & samples ) )
+            samples >>= 1;
+        return std::max( 1u, samples );
+    }
+
+    void SceneRenderer::ApplySceneSampleCount( const uint32_t samples )
+    {
+        if ( !m_TargetFramebuffer || m_TargetFramebuffer->GetSpecification().Samples == samples )
+            return;
+
+        // THE ANTI-ALIASING METHOD CHANGED THE SAMPLE COUNT: the same path as a resize. The frames in flight
+        // finish, the scene target is recreated at the new count, and the two MSAA-only helpers (DepthExpand,
+        // SceneDepthResolve) rebuild for it. Pipelines are not rebuilt: each binds its variant for the open
+        // render pass's count (VulkanPipeline::GetVkPipelineForSamples).
+        const uint32_t before = m_TargetFramebuffer->GetSpecification().Samples;
+        Renderer::GetInstance().WaitDeviceIdle();
+        if ( const auto set = m_TargetFramebuffer->SetSamples( samples ); !set )
+        {
+            LOG_ERROR( "[SceneRenderer] the scene target was not recreated at {}x: {}", samples, set.GetError() );
+            return;
+        }
+        if ( const auto expand = m_RenderSystems.find( "DepthExpandSystem" ); expand != m_RenderSystems.end() )
+            if ( const auto init = SP_CAST( System::DepthExpandRenderer, expand->second )->Initialize(); !init )
+                LOG_ERROR( "[SceneRenderer] DepthExpand unavailable at {}x: {}", samples, init.GetError() );
+        if ( const auto resolve = m_RenderSystems.find( "SceneDepthResolveSystem" );
+             resolve != m_RenderSystems.end() )
+            if ( const auto init = SP_CAST( System::SceneDepthResolveRenderer, resolve->second )->Initialize();
+                 !init )
+                LOG_ERROR( "[SceneRenderer] SceneDepthResolve unavailable at {}x: {}", samples, init.GetError() );
+        LOG_INFO( "[SceneRenderer] scene samples {}x -> {}x (anti-aliasing method)", before, samples );
+    }
+
     bool SceneRenderer::EnsureRendererResources()
     {
         if ( m_RendererResourcesBuilt )
@@ -148,30 +187,15 @@ namespace Desert::Graphic
         const uint32_t width  = m_ViewExtent.Width;
         const uint32_t height = m_ViewExtent.Height;
 
-        // Framebuffer. MSAA applies HERE only: every scene system renders into this target at N
-        // samples and the render pass resolves to single-sample for the post stack. Read once —
-        // pipelines bake their sample count, so a change applies on the next start.
+        // Framebuffer. MSAA applies HERE only: every scene system renders into this target at N samples and
+        // the render pass resolves to single-sample for the post stack. The count follows the anti-aliasing
+        // method every frame (ApplySceneSampleCount, from BeginScene); this is the count it starts at.
         //
-        // READ FROM THE MACHINE STORE DIRECTLY, not from m_Quality and not from a copy in RenderConfig.
-        // Not m_Quality because SetQuality is a per-frame push and Init runs before the first one; not a
-        // RenderConfig copy because that copy had exactly one writer, Editor::EditorPreferences, so a
-        // packaged game ran with MSAA nailed to 1 whatever its player had chosen.
+        // READ FROM THE MACHINE STORE DIRECTLY, not from m_Quality: SetQuality is a per-frame push and Init
+        // runs before the first one.
         FramebufferSpecification fbSpec;
         fbSpec.DebugName = "Composite framebuffer";
-        fbSpec.Samples   = static_cast<uint32_t>( std::clamp( Common::Settings::MachineSettings::Get().MSAASamples,
-                                                              1, RenderConfig::MaxMSAASamples.load() ) );
-        // Validate against the device's actual sample MASK, not a hardcoded 1/2/4/8 list. Clamping to the
-        // maximum is not enough: support is a bitmask, so a device can offer 1/4/8 and not 2 — the old
-        // check accepted 2 there and the framebuffer failed to create. Fall back to the next lower
-        // supported count rather than dropping straight to 1.
-        {
-            const uint32_t mask = EngineContext::GetInstance().GetCapabilities().MSAASampleMask;
-            while ( fbSpec.Samples > 1 && !( mask & fbSpec.Samples ) )
-                fbSpec.Samples >>= 1;
-            if ( fbSpec.Samples < 1 )
-                fbSpec.Samples = 1;
-        }
-        RenderConfig::MSAASamplesActive = static_cast<int>( fbSpec.Samples );
+        fbSpec.Samples = SupportedSceneSamples( Common::Settings::MachineSettings::Get().EffectiveMSAASamples() );
         fbSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSceneColor );
         // DEPTH32F, AND THE FLOAT IS THE POINT. Reversed-Z (Core/Projection.hpp) works by lining the
         // 1/z curve up against the float exponent so the two cancel; on a UNORM24 attachment, which
@@ -604,7 +628,8 @@ namespace Desert::Graphic
         // setting" has to be able to SEE the read (Desert/Tests/Engine/ConfigOwnership).
         const Common::Settings::MachineSettings& quality = m_Quality;
 
-        m_AAMode = quality.AA;
+        m_AAMode = quality.PostProcessAA();
+        ApplySceneSampleCount( SupportedSceneSamples( quality.EffectiveMSAASamples() ) );
         // TWO FORWARD-ONLY DEBUG VIEWS, and they force the path for the same reason.
         //
         // Wireframe has no deferred variant: the G-buffer pipeline has no wireframe polygon mode, which is
@@ -932,11 +957,11 @@ namespace Desert::Graphic
         AddFrameLensFlare( graph, textures, sceneColor(), values );
         AddFrameTonemap( graph, textures );
 
-        if ( m_AAMode == Common::Settings::AntiAliasingMode::FXAA )
+        if ( m_AAMode == Common::Settings::AntiAliasingMethod::FXAA )
         {
             AddFrameFXAA( graph, textures );
         }
-        else if ( m_AAMode == Common::Settings::AntiAliasingMode::SMAA )
+        else if ( m_AAMode == Common::Settings::AntiAliasingMethod::SMAA )
         {
             AddFrameSMAA( graph, textures );
         }
@@ -1351,9 +1376,9 @@ namespace Desert::Graphic
     const std::shared_ptr<Desert::Graphic::Image2D> SceneRenderer::GetFinalImage()
     {
         // FXAA/SMAA write their own framebuffer downstream of tonemap; otherwise tonemap output IS final.
-        const char* finalSystem = ( m_AAMode == Common::Settings::AntiAliasingMode::FXAA )   ? "FXAASystem"
-                                  : ( m_AAMode == Common::Settings::AntiAliasingMode::SMAA ) ? "SMAASystem"
-                                                                                             : "TonemapSystem";
+        const char* finalSystem = ( m_AAMode == Common::Settings::AntiAliasingMethod::FXAA )   ? "FXAASystem"
+                                  : ( m_AAMode == Common::Settings::AntiAliasingMethod::SMAA ) ? "SMAASystem"
+                                                                                               : "TonemapSystem";
 
         return std::static_pointer_cast<System::RenderSystem>( m_RenderSystems[finalSystem] )
              ->GetSystemFramebuffer()

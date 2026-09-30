@@ -386,7 +386,7 @@ namespace
          // "rendered worse" side: MeshLOD off is byte-identical geometry near the camera, Anisotropy 1 and
          // Nearest filtering and AA None are the same picture blurrier or harsher, and CloudQuality High
          // reproduces the calibrated constants to the digit.
-         { "AA", Owner::Machine, kSceneRendererImpl },
+         { "AAMethod", Owner::Machine, kSceneRendererImpl },
          { "MeshLOD", Owner::Machine, kSceneRendererImpl },
          { "TextureFilterMode", Owner::Machine, kSceneRendererImpl },
          { "Anisotropy", Owner::Machine, kSceneRendererImpl },
@@ -1176,7 +1176,7 @@ TEST( ConfigOwnershipCorpus, LoweringTheQualityOnThisMachineChangesNoByteOfAnySc
 
     auto& quality             = Common::Settings::MachineSettings::Get();
     quality.MSAASamples       = 1;
-    quality.AA                = Common::Settings::AntiAliasingMode::None;
+    quality.AAMethod          = Common::Settings::AntiAliasingMethod::None;
     quality.MeshLOD           = false;
     quality.TextureFilterMode = Common::Settings::TextureFilter::Nearest;
     quality.Anisotropy        = 1;
@@ -1205,7 +1205,7 @@ TEST( ConfigOwnership, TheSerializedSettingsBlockDoesNotMoveWhenTheMachineQualit
 
     auto& quality             = Common::Settings::MachineSettings::Get();
     quality.MSAASamples       = 8;
-    quality.AA                = Common::Settings::AntiAliasingMode::SMAA;
+    quality.AAMethod          = Common::Settings::AntiAliasingMethod::MSAA;
     quality.MeshLOD           = false;
     quality.TextureFilterMode = Common::Settings::TextureFilter::Nearest;
     quality.Anisotropy        = 16;
@@ -1278,4 +1278,60 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// AA1: the retired pair `AA` + `MSAASamples` becomes the one method, in the loader, and only the new keys are
+// written back.
+namespace
+{
+    Common::Settings::MachineSettings ReadMigrated( const std::string& raw )
+    {
+        auto parsed = Common::Json::Read<Common::Settings::MachineSettings>( raw );
+        EXPECT_TRUE( parsed.IsSuccess() );
+        Common::Settings::MachineSettings settings = parsed.ExtractValue();
+        EXPECT_TRUE( Common::Settings::MachineSettings::MigrateRetiredKeys( settings, raw ) );
+        return settings;
+    }
+} // namespace
+
+TEST( ConfigOwnership, RetiredMsaaCountBecomesTheMsaaMethod )
+{
+    const auto settings = ReadMigrated( R"({"MSAASamples":4,"AA":"None","MeshLOD":true})" );
+    EXPECT_EQ( settings.AAMethod, Common::Settings::AntiAliasingMethod::MSAA );
+    EXPECT_EQ( settings.MSAASamples, 4 );
+    EXPECT_EQ( settings.EffectiveMSAASamples(), 4 );
+    EXPECT_EQ( settings.PostProcessAA(), Common::Settings::AntiAliasingMethod::None );
+
+    const std::string written = Common::Json::Write( settings );
+    EXPECT_EQ( written.find( "\"AA\"" ), std::string::npos ) << written;
+    EXPECT_NE( written.find( "\"AAMethod\":\"MSAA\"" ), std::string::npos ) << written;
+
+    // Round trip: the written text reads back as the same method and is not migrated again.
+    auto again = Common::Json::Read<Common::Settings::MachineSettings>( written );
+    ASSERT_TRUE( again.IsSuccess() );
+    Common::Settings::MachineSettings reread = again.ExtractValue();
+    EXPECT_FALSE( Common::Settings::MachineSettings::MigrateRetiredKeys( reread, written ) );
+    EXPECT_EQ( Common::Json::Write( reread ), written );
+}
+
+TEST( ConfigOwnership, RetiredPostAAWithoutMsaaBecomesThatMethod )
+{
+    const auto smaa = ReadMigrated( R"({"MSAASamples":1,"AA":"SMAA"})" );
+    EXPECT_EQ( smaa.AAMethod, Common::Settings::AntiAliasingMethod::SMAA );
+    EXPECT_EQ( smaa.EffectiveMSAASamples(), 1 );
+    EXPECT_EQ( smaa.PostProcessAA(), Common::Settings::AntiAliasingMethod::SMAA );
+    EXPECT_EQ( smaa.MSAASamples, 4 );
+
+    const auto none = ReadMigrated( R"({"MSAASamples":1,"AA":"None"})" );
+    EXPECT_EQ( none.AAMethod, Common::Settings::AntiAliasingMethod::None );
+    EXPECT_EQ( none.EffectiveMSAASamples(), 1 );
+}
+
+TEST( ConfigOwnership, AnOlderBuildsRetiredKeyNeverOverridesTheMethod )
+{
+    const auto settings = ReadMigrated( R"({"AAMethod":"FXAA","MSAASamples":8,"AA":"SMAA"})" );
+    EXPECT_EQ( settings.AAMethod, Common::Settings::AntiAliasingMethod::FXAA );
+    // A count kept for MSAA is not a sample count under any other method.
+    EXPECT_EQ( settings.EffectiveMSAASamples(), 1 );
+    EXPECT_EQ( settings.UnknownKeys.size(), 0u );
 }

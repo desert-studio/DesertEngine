@@ -12,6 +12,10 @@
 #include <Engine/Core/EngineContext.hpp>
 
 #include <Engine/Graphic/VertexBuffer.hpp>
+#include <Engine/Graphic/Image.hpp>
+
+#include <format>
+#include <optional>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -140,11 +144,15 @@ namespace Desert::Graphic::API::Vulkan
         m_State.store( BuildState::Unbuilt, std::memory_order_release );
 
         if ( m_Pipeline == VK_NULL_HANDLE && m_PipelineLayout == VK_NULL_HANDLE &&
-             m_CompatibleRenderPass == VK_NULL_HANDLE )
+             m_CompatibleRenderPass == VK_NULL_HANDLE && m_SampleVariants.empty() )
             return;
 
         VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
                               ->GetVulkanLogicalDevice();
+        for ( const auto& [samples, variant] : m_SampleVariants )
+            if ( variant != VK_NULL_HANDLE )
+                vkDestroyPipeline( device, variant, nullptr );
+        m_SampleVariants.clear();
         if ( m_Pipeline != VK_NULL_HANDLE )
         {
             vkDestroyPipeline( device, m_Pipeline, nullptr );
@@ -377,10 +385,83 @@ namespace Desert::Graphic::API::Vulkan
                                       ? m_Specification.Framebuffer->GetSpecification().Samples
                                  : m_Specification.TargetLayout ? m_Specification.TargetLayout->Samples
                                                                 : 1;
-        m_Multisampling = VkPipelineMultisampleStateCreateInfo{
-             .sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-             .rasterizationSamples = static_cast<VkSampleCountFlagBits>( samples > 1 ? samples : 1 ),
-             .sampleShadingEnable  = VK_FALSE };
+        m_BuiltSamples         = samples > 1 ? samples : 1;
+        m_Multisampling        = VkPipelineMultisampleStateCreateInfo{
+                    .sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+                    .rasterizationSamples = static_cast<VkSampleCountFlagBits>( m_BuiltSamples ),
+                    .sampleShadingEnable  = VK_FALSE };
+    }
+
+    VkPipeline VulkanPipeline::GetVkPipelineForSamples( const uint32_t samples )
+    {
+        const VkPipeline base = GetVkPipeline();
+        if ( base == VK_NULL_HANDLE || samples == m_BuiltSamples )
+            return base;
+        if ( const auto found = m_SampleVariants.find( samples ); found != m_SampleVariants.end() )
+            return found->second;
+
+        VkDevice device =
+             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
+
+        // A render pass COMPATIBLE with the open one: same formats, the requested count. A pipeline does not
+        // keep its render pass, so this one is destroyed right after the create.
+        std::vector<VkFormat>                     colourFormats;
+        std::optional<Core::Formats::ImageFormat> depth;
+        if ( m_Specification.Framebuffer )
+        {
+            for ( const auto& attachment :
+                  m_Specification.Framebuffer->GetSpecification().Attachments.Attachments )
+            {
+                if ( Graphic::Utils::IsDepthFormat( attachment.Format ) )
+                    depth = attachment.Format;
+                else
+                    colourFormats.push_back( API::Vulkan::GetImageVulkanFormat( attachment.Format ) );
+            }
+        }
+        else
+        {
+            for ( const Core::Formats::ImageFormat format : m_Specification.TargetLayout->ColorFormats )
+                colourFormats.push_back( API::Vulkan::GetImageVulkanFormat( format ) );
+            depth = m_Specification.TargetLayout->DepthFormat;
+        }
+        const VkFormat depthFormat = depth ? API::Vulkan::GetImageVulkanFormat( *depth ) : VK_FORMAT_UNDEFINED;
+        const bool     hasStencil =
+             depth && ( API::Vulkan::GetImageVulkanAspect( *depth ) & VK_IMAGE_ASPECT_STENCIL_BIT ) != 0;
+        const Common::ResultStr<VkRenderPass> pass = API::Vulkan::CreateRdgRenderPass(
+             device, API::Vulkan::RdgCompatibleRenderPassKey( colourFormats, depthFormat, hasStencil, samples ) );
+        if ( !pass )
+        {
+            LOG_ERROR( "[Pipeline] '{}': no {}x variant, its render pass was not created: {}",
+                       m_Specification.DebugName, samples, pass.GetError() );
+            m_SampleVariants.emplace( samples, VK_NULL_HANDLE );
+            return VK_NULL_HANDLE;
+        }
+
+        VkPipelineMultisampleStateCreateInfo multisampling = m_Multisampling;
+        multisampling.rasterizationSamples                 = static_cast<VkSampleCountFlagBits>( samples );
+        VkGraphicsPipelineCreateInfo info                  = m_PipelineInfo;
+        info.pMultisampleState                             = &multisampling;
+        info.renderPass                                    = pass.GetValue();
+
+        VkPipeline      variant = VK_NULL_HANDLE;
+        VkPipelineCache cache =
+             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetPipelineCache();
+        const VkResult result = vkCreateGraphicsPipelines( device, cache, 1, &info, nullptr, &variant );
+        vkDestroyRenderPass( device, pass.GetValue(), nullptr );
+        if ( result != VK_SUCCESS )
+        {
+            LOG_ERROR( "[Pipeline] '{}': the {}x variant was not created: vkCreateGraphicsPipelines = {}",
+                       m_Specification.DebugName, samples, VkResultToString( result ) );
+            variant = VK_NULL_HANDLE;
+        }
+        else if ( !m_Specification.DebugName.empty() )
+        {
+            VKUtils::SetDebugUtilsObjectName( device, VK_OBJECT_TYPE_PIPELINE,
+                                              std::format( "{} ({}x)", m_Specification.DebugName, samples ),
+                                              variant );
+        }
+        m_SampleVariants.emplace( samples, variant );
+        return variant;
     }
 
     void VulkanPipeline::CreateDepthStencilState()

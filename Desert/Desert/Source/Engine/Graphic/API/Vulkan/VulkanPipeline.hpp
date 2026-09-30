@@ -1,5 +1,7 @@
 #pragma once
 
+#include <unordered_map>
+
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
 
@@ -66,6 +68,17 @@ namespace Desert::Graphic::API::Vulkan
             return GetBuildState() == BuildState::Built ? m_Pipeline : VK_NULL_HANDLE;
         }
 
+        // THE PIPELINE FOR THE RENDER PASS OPEN NOW, keyed by its sample count. The pipeline is built at the
+        // sample count of its target when it is created; a render pass at another count (the scene target
+        // after an anti-aliasing change) gets a variant, created here on first use and cached until the
+        // pipeline is rebuilt or released — switching back costs nothing. Null while the base is not built
+        // or when the variant could not be created (logged once per count).
+        VkPipeline GetVkPipelineForSamples( uint32_t samples );
+
+        // The sample count of the render pass currently open on the recording thread: set by every
+        // vkCmdBeginRenderPass site (VulkanRendererAPI, VulkanRdgBackend) and read at bind time.
+        static inline thread_local uint32_t s_OpenPassSamples = 1;
+
         VkPipelineLayout GetVkPipelineLayout() const
         {
             return m_PipelineLayout;
@@ -128,6 +141,9 @@ namespace Desert::Graphic::API::Vulkan
         // TargetLayout: the canonical render pass (formats and samples, load/store DONT_CARE) the pipeline
         // is built against; compatible with every render pass the graph builds for those formats.
         VkRenderPass                          m_CompatibleRenderPass = VK_NULL_HANDLE;
+        // The sample count m_Pipeline was built at, and the variants for every other count asked for.
+        uint32_t                                 m_BuiltSamples = 1;
+        std::unordered_map<uint32_t, VkPipeline> m_SampleVariants;
         std::atomic<BuildState>               m_State{ BuildState::Unbuilt };
         PipelineRole                          m_Role = PipelineRole::Engine;
         std::future<void>                     m_Compile;

@@ -125,7 +125,11 @@ namespace Common::Settings
 
             MachineSettings fromDisk = parsed.ExtractValue();
 
-            const std::string canonical        = Json::Write( fromDisk );
+            // Taken BEFORE the migration: a file still holding the retired key differs from what Save()
+            // writes, so it is rewritten.
+            const std::string canonical = Json::Write( fromDisk );
+            // The retired key must not be adopted back as "another build's key", or the file would keep it.
+            MachineSettings::MigrateRetiredKeys( fromDisk, raw.GetValue() );
             MachineSettings::Get().UnknownKeys = std::move( fromDisk.UnknownKeys );
             return canonical;
         }
@@ -184,16 +188,24 @@ namespace Common::Settings
         Get() = parsed.ExtractValue();
         // The canonical form of what the file holds, NOT the raw bytes: an older build's key order or
         // spacing is not a settings change, and a memo taken from the raw text would report the whole
-        // struct as changed on the first save after an upgrade.
-        s_OnDisk = Json::Write( Get() );
+        // struct as changed on the first save after an upgrade. Taken before the migration, for the same
+        // reason as in AdoptUnknownKeysFromDisk.
+        s_OnDisk            = Json::Write( Get() );
+        const bool migrated = MigrateRetiredKeys( Get(), raw.GetValue() );
 
         // NAMED, not numbered: this line is what a support ticket's engine_log.txt has to answer "what
         // was this machine actually rendering at" with, and `2` is not an answer. The names come from the
         // same rfl call that writes them to the file, so the log and the file cannot disagree.
-        LOG_INFO( "[Machine] {} — MSAA {}x, post AA {}, mesh LOD {}, filter {} {}x, clouds {}", s_File.string(),
-                  Get().MSAASamples, rfl::enum_to_string( Get().AA ), Get().MeshLOD ? "on" : "off",
-                  rfl::enum_to_string( Get().TextureFilterMode ), Get().Anisotropy,
-                  rfl::enum_to_string( Get().CloudQualityTier ) );
+        LOG_INFO( "[Machine] {} — AA {} (MSAA samples {}), mesh LOD {}, filter {} {}x, clouds {}{}",
+                  s_File.string(), rfl::enum_to_string( Get().AAMethod ), Get().EffectiveMSAASamples(),
+                  Get().MeshLOD ? "on" : "off", rfl::enum_to_string( Get().TextureFilterMode ), Get().Anisotropy,
+                  rfl::enum_to_string( Get().CloudQualityTier ),
+                  migrated ? " — migrated from the retired AA/MSAASamples pair; the next save drops `AA`" : "" );
+
+        // The migration is written back NOW, not at the user's next change (contract §4: no legacy key
+        // left in the file).
+        if ( migrated )
+            Save();
 
         // CARRYING A KEY WE DO NOT UNDERSTAND IS AN EVENT, NOT A DETAIL: another build owns settings this
         // binary cannot show or edit. Named rather than counted, because a count tells a reader nothing
@@ -208,6 +220,62 @@ namespace Common::Settings
                       "build and are preserved on save, not dropped.",
                       s_File.string(), Get().UnknownKeys.size(), names );
         }
+    }
+
+    int MachineSettings::EffectiveMSAASamples() const
+    {
+        return AAMethod == AntiAliasingMethod::MSAA ? MSAASamples : 1;
+    }
+
+    AntiAliasingMethod MachineSettings::PostProcessAA() const
+    {
+        return AAMethod == AntiAliasingMethod::MSAA ? AntiAliasingMethod::None : AAMethod;
+    }
+
+    bool MachineSettings::MigrateRetiredKeys( MachineSettings& settings, std::string_view rawJson )
+    {
+        constexpr std::string_view kRetiredPostAA = "AA";
+
+        const auto members = Json::ObjectMembers( rawJson );
+        if ( !members )
+            return false;
+
+        const std::string* retiredValue = nullptr;
+        bool               hasMethod    = false;
+        for ( const auto& [name, value] : members.GetValue() )
+        {
+            if ( name == kRetiredPostAA )
+                retiredValue = &value;
+            else if ( name == "AAMethod" )
+                hasMethod = true;
+        }
+        if ( retiredValue == nullptr )
+            return false;
+
+        Json::CarriedKeys kept;
+        for ( const auto& [name, value] : settings.UnknownKeys )
+            if ( name != kRetiredPostAA )
+                kept.insert( name, value );
+        settings.UnknownKeys = std::move( kept );
+
+        if ( hasMethod )
+            return true;
+
+        if ( settings.MSAASamples > 1 )
+        {
+            settings.AAMethod = AntiAliasingMethod::MSAA;
+            return true;
+        }
+
+        // ObjectMembers re-writes every value compactly, so a string arrives with its quotes.
+        if ( *retiredValue == "\"FXAA\"" )
+            settings.AAMethod = AntiAliasingMethod::FXAA;
+        else if ( *retiredValue == "\"SMAA\"" )
+            settings.AAMethod = AntiAliasingMethod::SMAA;
+        else
+            settings.AAMethod = AntiAliasingMethod::None;
+        settings.MSAASamples = 4;
+        return true;
     }
 
     bool MachineSettings::Save()

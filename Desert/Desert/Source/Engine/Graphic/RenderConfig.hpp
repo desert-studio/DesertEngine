@@ -40,8 +40,5 @@ namespace Desert::Graphic
         // Device supports line widths > 1 (VkPhysicalDeviceFeatures.wideLines). MoltenVK does NOT —
         // setting a wider line then is a validation error, so the debug-line paths clamp to 1.0.
         static inline std::atomic<bool> WideLines{ false };
-        // What the running renderer actually baked at Init (the UI compares against this to show its
-        // "restart to apply" note; MachineSettings::MSAASamples may already hold the NEXT start's choice).
-        static inline std::atomic<int> MSAASamplesActive{ 1 };
     };
 } // namespace Desert::Graphic

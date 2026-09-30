@@ -282,4 +282,12 @@ namespace Desert::Graphic::API::Vulkan
         return RT_Invalidate();
     }
 
+    Common::BoolResultStr VulkanFramebuffer::SetSamples( const uint32_t samples )
+    {
+        if ( m_FramebufferSpecification.Samples == samples )
+            return BOOLSUCCESS;
+        m_FramebufferSpecification.Samples = samples;
+        return RT_Invalidate();
+    }
+
 } // namespace Desert::Graphic::API::Vulkan

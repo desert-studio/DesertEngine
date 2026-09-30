@@ -1,3 +1,4 @@
+#include <Engine/Graphic/API/Vulkan/VulkanPipeline.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanFormat.hpp>
@@ -936,6 +937,8 @@ namespace Desert::Graphic::API::Vulkan
         begin.pClearValues    = clears.data();
         vkCmdBeginRenderPass( m_CommandBuffer, &begin, VK_SUBPASS_CONTENTS_INLINE );
         m_RenderPassOpen = true;
+        // Graphics pipelines bound inside this pass take their variant for its sample count.
+        VulkanPipeline::s_OpenPassSamples = key.Samples;
 
         // The whole target: what nearly every pass wants, set once here instead of in every exec lambda. The
         // engine's convention (VulkanRendererAPI::SetViewportAndScissor): negative height, so +Y is up and the

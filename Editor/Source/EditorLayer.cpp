@@ -1,5 +1,7 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
+#include <Editor/Panels/Scalability/AntiAliasingPaletteCommands.hpp>
+#include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Editor/Core/Control/PointerDrag.hpp>
 #include <Engine/Core/Glfw.hpp>
@@ -4640,6 +4642,11 @@ namespace Desert::Editor
             for ( PaletteCommand& command : PanelMaximizePaletteCommands( m_PanelMaximize, docked ) )
                 commands.push_back( std::move( command ) );
         }
+
+        // Anti-aliasing method (AA1): the Scalability panel's choice, reachable from the control channel.
+        for ( PaletteCommand& command :
+              AntiAliasingPaletteCommands( Graphic::RenderConfig::MaxMSAASamples.load() ) )
+            commands.push_back( std::move( command ) );
 
         // Details: scroll to a field / open an asset picker, as the last Details frame drew them (CTL2).
         for ( PaletteCommand& command : DetailsPaletteCommands( GetDetailsNavigation() ) )

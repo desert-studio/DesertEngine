@@ -52,6 +52,11 @@ namespace Desert::Graphic::System
             if ( !target )
                 return Common::MakeError( "SceneDepthResolve: scene target framebuffer missing" );
             const FramebufferSpecification spec = target->GetSpecification();
+            // Called again when the scene's sample count changes (SceneRenderer::ApplySceneSampleCount):
+            // what was built for the previous count goes first.
+            m_Resolved.reset();
+            m_Pipeline.reset();
+            m_Material.reset();
             if ( spec.Samples <= 1 || target->GetDepthAttachmentCount() == 0 )
                 return BOOLSUCCESS;
 
