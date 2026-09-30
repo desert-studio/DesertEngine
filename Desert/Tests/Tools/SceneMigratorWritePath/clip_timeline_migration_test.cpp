@@ -156,7 +156,7 @@ namespace
     std::string ReadRaw( const fs::path& p )
     {
         const std::ifstream in( p, std::ios::binary );
-        std::ostringstream buffer;
+        std::ostringstream  buffer;
         buffer << in.rdbuf();
         return buffer.str();
     }

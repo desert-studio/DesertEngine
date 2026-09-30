@@ -178,7 +178,7 @@ TEST_F( ClipEditUndo, ASectionEditThroughTheTrackFunctionsIsUndoneByValueAndBump
     const Timeline::Sequence before = m_Clip.Sequence;
     {
         const ScopedSequenceEdit edit( m_Transaction, OwnerOf( &m_Clip ) );
-        Timeline::Track&   track = m_Clip.Sequence.Tracks.front();
+        Timeline::Track&         track = m_Clip.Sequence.Tracks.front();
         ASSERT_TRUE( Timeline::SetSectionRow( track, 0, 3 ).IsSuccess() );
     }
     ASSERT_NE( Top(), nullptr );
@@ -249,7 +249,7 @@ TEST( UIAnimationUndo, ABindingAndATrackAddedToAUIAnimationAreOneStepAndUndoRese
     SequenceEditTransaction transaction;
     {
         const ScopedSequenceEdit edit( transaction, OwnerOf( &animation ) );
-        Timeline::Binding  binding;
+        Timeline::Binding        binding;
         binding.Guid    = Timeline::BindingGuid::Generate();
         binding.Kind    = Timeline::BindingKind::Widget;
         binding.Locator = "1234";

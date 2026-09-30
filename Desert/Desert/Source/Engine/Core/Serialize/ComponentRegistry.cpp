@@ -1986,11 +1986,11 @@ namespace Desert::Core::Serialize
                 if ( guidText.empty() && path.empty() )
                     return; // an actor whose sequence was never chosen: authored so, saved so
 
-                const auto guid    = Common::Content::AssetGuidFromText( guidText );
+                const auto guid = Common::Content::AssetGuidFromText( guidText );
                 // A deserializer is handed the registry as const, and creating the asset it names is a write
                 // (the same cast the FoliageType row below and FromPath make).
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-                auto&      manager = const_cast<Assets::AssetManager&>( assetManager );
+                auto& manager = const_cast<Assets::AssetManager&>( assetManager );
                 Assets::Asset<Assets::LevelSequenceAsset> sequence;
                 if ( guid )
                 {

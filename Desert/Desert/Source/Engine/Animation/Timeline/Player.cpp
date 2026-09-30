@@ -64,9 +64,9 @@ namespace Desert::Animation::Timeline
 
     TimeStep Player::JumpTo( const FrameTime at )
     {
-        const auto start   = static_cast<double>( m_Start.Value );
-        const auto end     = static_cast<double>( m_End.Value );
-        m_Current          = FrameTime::FromTicks( std::clamp( at.AsTicks(), start, end ) );
+        const auto start = static_cast<double>( m_Start.Value );
+        const auto end   = static_cast<double>( m_End.Value );
+        m_Current        = FrameTime::FromTicks( std::clamp( at.AsTicks(), start, end ) );
         return TimeStep{ m_Current, m_Current };
     }
 

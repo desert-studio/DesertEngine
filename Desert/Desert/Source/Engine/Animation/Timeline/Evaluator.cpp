@@ -300,8 +300,8 @@ namespace Desert::Animation::Timeline
             for ( size_t i = first + 1; i < events.size(); ++i )
             {
                 const FiredEvent moving = events[i];
-                const double key    = Along( leg, moving, start, end );
-                size_t       j      = i;
+                const double     key    = Along( leg, moving, start, end );
+                size_t           j      = i;
                 while ( j > first && Along( leg, events[j - 1], start, end ) > key )
                 {
                     events[j] = events[j - 1];

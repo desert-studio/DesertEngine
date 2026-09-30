@@ -16,7 +16,7 @@ namespace
     float EvaluateOnlyFloat( const Sequence& sequence, FrameTime at )
     {
         const Evaluator evaluator( sequence );
-        EvaluatedFrame frame;
+        EvaluatedFrame  frame;
         evaluator.Evaluate( TimeStep{ at, at }, frame );
         EXPECT_EQ( frame.Values.size(), 1U );
         return frame.Values.empty() ? NAN : std::get<float>( frame.Values[0].Value );
@@ -133,7 +133,7 @@ TEST( TimelineEvaluator, AMutedTrackIsAbsentNotDefaulted )
     Sequence sequence        = OneFloatTrack( FloatChannel{ { Key( 0, 1.0F ) }, 0.0F } );
     sequence.Tracks[0].Muted = true;
     const Evaluator evaluator( sequence );
-    EvaluatedFrame frame;
+    EvaluatedFrame  frame;
     evaluator.Evaluate( TimeStep{ At( 0 ), At( 0 ) }, frame );
     EXPECT_TRUE( frame.Values.empty() );
 }

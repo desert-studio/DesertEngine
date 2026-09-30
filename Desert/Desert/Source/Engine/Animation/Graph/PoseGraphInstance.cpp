@@ -181,7 +181,7 @@ namespace Desert::Animation::Graph
                 {
                     // UE FAnimNode_LinkedAnimLayer: the linked implementation's layer graph on this node's input,
                     // or — nothing linked — the input itself (the interface's default).
-                    const GraphPose& in = m_Poses[static_cast<size_t>( wired[0] )];
+                    const GraphPose& in     = m_Poses[static_cast<size_t>( wired[0] )];
                     const auto       linked = FindLinked( sources, node );
                     if ( linked )
                         sources.Linked->At( *linked ).Instance.EvaluateLayer( sources, skeleton, *linked, in,

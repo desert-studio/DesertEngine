@@ -441,7 +441,7 @@ namespace Desert::Migration
                               std::format( "entity {}: the TMLN writer refused: {}", who, written.GetError() ) );
                          return false;
                      }
-                     const std::vector<uint8_t> bytes    = written.ExtractValue();
+                     const std::vector<uint8_t> bytes = written.ExtractValue();
                      const auto sequence = rfl::json::read<rfl::Generic>( std::string( Common::TextOf( bytes ) ) );
                      if ( !sequence )
                      {
@@ -477,51 +477,50 @@ namespace Desert::Migration
         UIAnimationTimelinesReport report;
         const auto shift = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
         {
-            EditBlock( components, "UIAnim",
-                       [&]( rfl::Generic::Object& block )
-                       {
-                           const auto sequence = block.get( "Sequence" );
-                           if ( !sequence )
-                               return false; // an override restating Loop/AutoPlay only
-                           const std::string text   = rfl::json::write( sequence.value() );
-                           const auto        stated = StatedTimelineVersion( text );
-                           if ( !stated )
-                           {
-                               report.Refused.push_back(
-                                    std::format( "entity {}: UIAnim: {}", who, stated.GetError() ) );
-                               return false;
-                           }
-                           if ( stated.GetValue() != Animation::Timeline::kTimelineLastArrivingInterpVersion )
-                               return false;
-                           auto shifted = ShiftTimelineV1( text );
-                           if ( !shifted )
-                           {
-                               report.Refused.push_back(
-                                    std::format( "entity {}: UIAnim: {}", who, shifted.GetError() ) );
-                               return false;
-                           }
-                           auto written = Animation::Timeline::WriteSequence( shifted.GetValue().Shifted );
-                           if ( !written )
-                           {
-                               report.Refused.push_back( std::format( "entity {}: the TMLN writer refused: {}",
-                                                                      who, written.GetError() ) );
-                               return false;
-                           }
-                           const std::vector<uint8_t> bytes = written.ExtractValue();
-                           const auto                 next =
-                                rfl::json::read<rfl::Generic>( std::string( Common::TextOf( bytes ) ) );
-                           if ( !next )
-                           {
-                               report.Refused.push_back(
-                                    std::format( "entity {}: the TMLN writer's text does not read: {}", who,
-                                                 next.error().what() ) );
-                               return false;
-                           }
-                           block["Sequence"] = next.value();
-                           ++report.Clips;
-                           report.SamplesProved += shifted.GetValue().SamplesProved;
-                           return true;
-                       } );
+            EditBlock(
+                 components, "UIAnim",
+                 [&]( rfl::Generic::Object& block )
+                 {
+                     const auto sequence = block.get( "Sequence" );
+                     if ( !sequence )
+                         return false; // an override restating Loop/AutoPlay only
+                     const std::string text   = rfl::json::write( sequence.value() );
+                     const auto        stated = StatedTimelineVersion( text );
+                     if ( !stated )
+                     {
+                         report.Refused.push_back(
+                              std::format( "entity {}: UIAnim: {}", who, stated.GetError() ) );
+                         return false;
+                     }
+                     if ( stated.GetValue() != Animation::Timeline::kTimelineLastArrivingInterpVersion )
+                         return false;
+                     auto shifted = ShiftTimelineV1( text );
+                     if ( !shifted )
+                     {
+                         report.Refused.push_back(
+                              std::format( "entity {}: UIAnim: {}", who, shifted.GetError() ) );
+                         return false;
+                     }
+                     auto written = Animation::Timeline::WriteSequence( shifted.GetValue().Shifted );
+                     if ( !written )
+                     {
+                         report.Refused.push_back(
+                              std::format( "entity {}: the TMLN writer refused: {}", who, written.GetError() ) );
+                         return false;
+                     }
+                     const std::vector<uint8_t> bytes = written.ExtractValue();
+                     const auto next = rfl::json::read<rfl::Generic>( std::string( Common::TextOf( bytes ) ) );
+                     if ( !next )
+                     {
+                         report.Refused.push_back( std::format(
+                              "entity {}: the TMLN writer's text does not read: {}", who, next.error().what() ) );
+                         return false;
+                     }
+                     block["Sequence"] = next.value();
+                     ++report.Clips;
+                     report.SamplesProved += shifted.GetValue().SamplesProved;
+                     return true;
+                 } );
         };
         for ( auto& entity : entities )
         {

@@ -434,8 +434,8 @@ TEST( LinkedAnimLayer, ACallPlansAndAnUnknownInterfaceOrLayerIsRefusedByName )
     {
         FAIL() << "the calling graph's node 1 is the layer call";
     }
-    call.LinkedLayer->Layer           = "Legs";
-    const auto noLayer                = PG::PlanPoseGraph( graph );
+    call.LinkedLayer->Layer = "Legs";
+    const auto noLayer      = PG::PlanPoseGraph( graph );
     ASSERT_FALSE( noLayer.IsSuccess() );
     EXPECT_NE( noLayer.GetError().find( "'Legs'" ), std::string::npos ) << noLayer.GetError();
     EXPECT_NE( noLayer.GetError().find( "'UpperBody'" ), std::string::npos )
@@ -474,16 +474,16 @@ TEST( LinkedAnimLayer, AnImplementationIsWholeAndAnInputPoseLivesOnlyInALayerGra
     layers.Implemented.pop_back();
 
     layers.Implemented[0].Nodes.push_back( KindNode( "Nested", PG::PoseNodeKind::LinkedAnimLayer, { "In" } ) );
-    layers.Implemented[0].Nodes.back().LinkedLayer        = PG::LinkedAnimLayerNode{ "Weapon", "Hands" };
-    layers.Implemented[0].OutputPose                      = "Nested";
-    const auto nestedPlan                                 = PG::PlanPoseGraph( graph );
+    layers.Implemented[0].Nodes.back().LinkedLayer = PG::LinkedAnimLayerNode{ "Weapon", "Hands" };
+    layers.Implemented[0].OutputPose               = "Nested";
+    const auto nestedPlan                          = PG::PlanPoseGraph( graph );
     EXPECT_TRUE( nestedPlan.IsSuccess() ) << "a layer graph may call another layer: " << nestedPlan.GetError();
 
     // UpperBody calls Hands and Hands calls UpperBody: a cycle within the graph, refused with its path.
     layers.Implemented[1].Nodes.push_back( KindNode( "Back", PG::PoseNodeKind::LinkedAnimLayer, { "In" } ) );
-    layers.Implemented[1].Nodes.back().LinkedLayer        = PG::LinkedAnimLayerNode{ "Weapon", "UpperBody" };
-    layers.Implemented[1].OutputPose                      = "Back";
-    const auto cycle                                      = PG::PlanPoseGraph( graph );
+    layers.Implemented[1].Nodes.back().LinkedLayer = PG::LinkedAnimLayerNode{ "Weapon", "UpperBody" };
+    layers.Implemented[1].OutputPose               = "Back";
+    const auto cycle                               = PG::PlanPoseGraph( graph );
     ASSERT_FALSE( cycle.IsSuccess() );
     EXPECT_NE( cycle.GetError().find( "Weapon.UpperBody -> Weapon.Hands -> Weapon.UpperBody" ), std::string::npos )
          << cycle.GetError();

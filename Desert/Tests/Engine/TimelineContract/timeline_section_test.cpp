@@ -135,7 +135,7 @@ TEST( TimelineSequence, FindBindingAndFindTrackAnswerByGuidAndProperty )
 TEST( TimelineSequence, TheErrorNamesTheTrackAndTheSection )
 {
     const Sequence sequence = OneFloatTrack( FloatChannel{ { Key( 20, 1.0F ), Key( 10, 2.0F ) }, 0.0F } );
-    const auto valid    = Validate( sequence );
+    const auto     valid    = Validate( sequence );
     ASSERT_FALSE( valid.IsSuccess() );
     EXPECT_NE( valid.GetError().find( "track 'Door' / 'Opacity': section 0:" ), std::string::npos )
          << valid.GetError();

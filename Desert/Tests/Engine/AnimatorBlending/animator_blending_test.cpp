@@ -780,7 +780,7 @@ namespace
 
 TEST( AnimatorBlending, ALayerPlayersNotifyIsHeardAtFullWeightAndSilentAtZero )
 {
-    const Skeleton skeleton = MakeRig();
+    const Skeleton      skeleton = MakeRig();
     const AnimationClip base =
          StaticClip( "Base", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
     const AnimationClip layer = SteppingClip( "Layer" );
@@ -803,7 +803,7 @@ TEST( AnimatorBlending, ALayerPlayersNotifyIsHeardAtFullWeightAndSilentAtZero )
 
 TEST( AnimatorBlending, AnAdditivePlayerAtAlphaZeroIsSilentAndAtOneIsHeard )
 {
-    const Skeleton skeleton = MakeRig();
+    const Skeleton      skeleton = MakeRig();
     const AnimationClip base =
          StaticClip( "Base", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
     const AnimationClip added = SteppingClip( "Additive" );
@@ -823,8 +823,8 @@ TEST( AnimatorBlending, AnAdditivePlayerAtAlphaZeroIsSilentAndAtOneIsHeard )
 
 TEST( AnimatorBlending, ALayerPlayersNotifyStateEndsWhenItsWeightFallsToZero )
 {
-    const Skeleton skeleton = MakeRig();
-    Animator       animator( skeleton );
+    const Skeleton      skeleton = MakeRig();
+    Animator            animator( skeleton );
     const AnimationClip base =
          StaticClip( "Base", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
     AnimationClip layer =
@@ -864,8 +864,8 @@ TEST( AnimatorBlending, TwoPlayersCurvesAtFullWeightNormalizeToTheirMean )
     FlatCurve( layer, "Blink", 6.0F );
     FlatCurve( layer, "Only", 3.0F );
 
-    auto graph                              = PoseGraphFixture::FullBodyLayer( "root" );
-    auto& blend                              = graph.Nodes[2];
+    auto  graph = PoseGraphFixture::FullBodyLayer( "root" );
+    auto& blend = graph.Nodes[2];
     if ( !blend.LayeredBlend )
     {
         FAIL() << "the full-body layer graph's node 2 is its Layered Blend";
@@ -932,7 +932,7 @@ namespace
 
 TEST( AnimatorBlending, ABasePlayerAtGraphWeightZeroIsSilentAndAtOneIsHeard )
 {
-    const Skeleton skeleton = MakeRig();
+    const Skeleton      skeleton = MakeRig();
     const AnimationClip base     = SteppingClip( "Base" );
 
     for ( const bool replaced : { false, true } )
@@ -952,9 +952,9 @@ TEST( AnimatorBlending, ABasePlayerAtGraphWeightZeroIsSilentAndAtOneIsHeard )
 
 TEST( AnimatorBlending, ACrossFadesOutgoingNotifyIsHeardUntilItsWeightReachesZero )
 {
-    const Skeleton skeleton = MakeRig();
+    const Skeleton      skeleton = MakeRig();
     const AnimationClip outgoing = SteppingClip( "Out" ); // "Step" at 0.5 s
-    AnimationClip  incoming =
+    AnimationClip       incoming =
          StaticClip( "In", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
     ClipFixture::AddNotify( incoming, "Land", At( 0.2 ) );
     AddState( incoming, "Trail", 0.1, 0.9 );

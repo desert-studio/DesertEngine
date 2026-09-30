@@ -290,7 +290,7 @@ namespace
 
 TEST( PoseGraphInstance, ABlendOfBlendsEvaluatesEachNodeFromItsInputsPoses )
 {
-    const Skeleton skeleton = FiveBones();
+    const Skeleton skeleton  = FiveBones();
     const auto     spineBone = skeleton.FindBoneIndex( "spine" );
     if ( !spineBone )
     {
@@ -348,8 +348,8 @@ TEST( PoseGraphInstance, AnAdditiveOverALayeredBlendAndARefusedFilterBone )
     {
         FAIL() << "node 3 is the Layered Blend";
     }
-    blend.LayeredBlend->Layers[0].Filters[0].BoneName          = "no_such_bone";
-    const auto refused                                         = instance.Bind( graph, skeleton );
+    blend.LayeredBlend->Layers[0].Filters[0].BoneName = "no_such_bone";
+    const auto refused                                = instance.Bind( graph, skeleton );
     ASSERT_FALSE( refused.IsSuccess() );
     EXPECT_NE( refused.GetError().find( "Upper" ), std::string::npos ) << refused.GetError();
     EXPECT_NE( refused.GetError().find( "no_such_bone" ), std::string::npos ) << refused.GetError();
@@ -420,8 +420,8 @@ namespace
 
 TEST( LinkedAnimLayer, UnlinkedPassesTheInputAndLinkingSwapsTheLayerWithoutEditingTheGraph )
 {
-    const Skeleton     skeleton  = FiveBones();
-    const auto         spineBone = skeleton.FindBoneIndex( "spine" );
+    const Skeleton skeleton  = FiveBones();
+    const auto     spineBone = skeleton.FindBoneIndex( "spine" );
     if ( !spineBone )
     {
         FAIL() << "FiveBones names a spine";
@@ -479,7 +479,7 @@ TEST( LinkedAnimLayer, ALinkIsRefusedByNameAndLeavesTheTableAsItWas )
     ASSERT_FALSE( unread.IsSuccess() );
     EXPECT_NE( unread.GetError().find( "'Aim'" ), std::string::npos ) << unread.GetError();
 
-    G::AnimGraph badBone                                                                = Rifle();
+    G::AnimGraph badBone = Rifle();
     if ( !badBone.Layers )
     {
         FAIL() << "Rifle implements its layer";
@@ -490,7 +490,7 @@ TEST( LinkedAnimLayer, ALinkIsRefusedByNameAndLeavesTheTableAsItWas )
         FAIL() << "Rifle's node 2 is its Layered Blend";
     }
     rifleBlend.LayeredBlend->Layers[0].Filters[0].BoneName = "no_such_bone";
-    const auto unbound = table.Link( Character(), 101, badBone, skeleton );
+    const auto unbound                                     = table.Link( Character(), 101, badBone, skeleton );
     ASSERT_FALSE( unbound.IsSuccess() );
     EXPECT_NE( unbound.GetError().find( "no_such_bone" ), std::string::npos ) << unbound.GetError();
     EXPECT_TRUE( table.Layers().empty() ) << "every refusal left nothing linked";
@@ -500,8 +500,8 @@ TEST( LinkedAnimLayer, ALinkIsRefusedByNameAndLeavesTheTableAsItWas )
 
 TEST( LinkedAnimLayer, UnlinkMatchesTheGraphGuidNotItsName )
 {
-    const Skeleton       skeleton  = FiveBones();
-    const auto           spineBone = skeleton.FindBoneIndex( "spine" );
+    const Skeleton skeleton  = FiveBones();
+    const auto     spineBone = skeleton.FindBoneIndex( "spine" );
     if ( !spineBone )
     {
         FAIL() << "FiveBones names a spine";
@@ -564,8 +564,8 @@ TEST( LinkedAnimLayer, ALayerMayHoldAStateMachineAndCallANestedLayerButNotACycle
     nested.PoseInputs  = { "Upper" };
     nested.LinkedLayer = G::LinkedAnimLayerNode{ "Hands", "Grip" };
     rifleLayers.Implemented[0].Nodes.push_back( nested );
-    rifleLayers.Implemented[0].OutputPose   = "Grip";
-    const auto planned                      = G::PlanPoseGraph( rifle );
+    rifleLayers.Implemented[0].OutputPose = "Grip";
+    const auto planned                    = G::PlanPoseGraph( rifle );
     ASSERT_TRUE( planned.IsSuccess() ) << planned.GetError();
 
     G::LinkedLayerTable table;
