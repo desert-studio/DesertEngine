@@ -118,6 +118,60 @@ TEST_F( AnimationLibraryOnDemand, ALookupRequestsOnlyTheNamedClipAndItBecomesPla
     EXPECT_FALSE( library.HasPending( kClip ) ) << "a read clip is still reported as pending";
 }
 
+// THM1l-b11: UE's OnAssetAdded reaching the index. On real rigs (Fox, CesiumMan) the import wrote Fox_Walk.anim
+// with the rig's signature and the character still stood in its bind pose: the library had indexed the rows
+// once, at population, and a clip the import wrote afterwards never reached it. The cook's NoteFile is the
+// import's write; nothing else is called here, and the library must offer the clip, and offer it ONCE when
+// the import rewrites it.
+TEST_F( AnimationLibraryOnDemand, AClipAnImportWritesAfterPopulationIsOffered )
+{
+    const fs::path source = RepoRoot() / "Editor/Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim";
+    const fs::path project =
+         fs::temp_directory_path() /
+         ( "anim_library_import_" + std::to_string( ::testing::UnitTest::GetInstance()->random_seed() ) );
+    fs::remove_all( project );
+    const fs::path clipDir = project / "Resources/Assets/Meshes/Skinned";
+    fs::create_directories( clipDir );
+    Path::SetProjectRoot( project, "Resources/Assets" );
+    Assets::ContentRegistry::ResetForTest();
+    std::vector<std::string> refused;
+    ASSERT_TRUE( Assets::ContentRegistry::Gather( &refused ) );
+
+    Animation::AnimationLibrary library( &m_Manager );
+    ASSERT_EQ( library.IndexRegistryRows(), 0U ) << "the empty project already has clips";
+    EXPECT_FALSE( library.HasPending( kClip ) );
+
+    // The import writes the clip.
+    const fs::path written = clipDir / "Imported_Tilt.anim";
+    fs::copy_file( source, written, fs::copy_options::overwrite_existing );
+    Assets::ContentRegistry::NoteFile( written );
+
+    EXPECT_TRUE( library.HasPending( kClip ) ) << "the clip the import wrote never reached the library";
+    const Animation::Skeleton none( std::vector<Animation::BoneInfo>{} );
+    EXPECT_FALSE( library.FindForSkeleton( none, kClip ) );
+    ASSERT_EQ( ClipAssets(), 1U );
+    const auto asset = m_Manager.FindAllByType<Assets::AnimationAsset>().begin()->second;
+    ASSERT_TRUE( Assets::AsyncAssetLoader::Get().FlushOne( asset->GetMetadata().Handle ) );
+
+    std::vector<Animation::BoneInfo> bones;
+    for ( const auto& track : asset->GetClip().Tracks )
+        if ( !track.BoneName.empty() )
+            bones.push_back( Animation::BoneInfo{ .Name = track.BoneName } );
+    ASSERT_FALSE( bones.empty() );
+    const Animation::Skeleton rig( std::move( bones ) );
+    EXPECT_EQ( library.GetForSkeleton( rig ).size(), 1U )
+         << "the rig the imported clip animates is offered nothing";
+    EXPECT_TRUE( library.FindForSkeleton( rig, kClip ) );
+
+    // The import rewrites it (a reimport): still one clip, re-registered from the asset read in place.
+    fs::copy_file( source, written, fs::copy_options::overwrite_existing );
+    Assets::ContentRegistry::NoteFile( written );
+    EXPECT_EQ( library.GetForSkeleton( rig ).size(), 1U ) << "a rewritten clip is offered twice or not at all";
+    EXPECT_FALSE( library.HasPending( kClip ) );
+
+    fs::remove_all( project );
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

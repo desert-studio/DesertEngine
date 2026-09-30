@@ -492,6 +492,18 @@ namespace Desert::ECS
         uint32_t BuiltRigRevision  = 0;
         uint64_t BuiltRigSignature = 0;
 
+        /**
+         * @brief The signature of the skeleton `Animator` was constructed on. TRANSIENT, same shape as the
+         *        stamps above.
+         *
+         * A reimport re-reads the rig AT THE SAME ADDRESS (SkeletonAsset::LoadFromFile), so the Animator's
+         * `const Skeleton&` stays valid while its bind pose, pose buffers and clip bindings were all sized
+         * from the OLD bone list. The address cannot tell a reimported rig from the one it was built on; the
+         * signature can. AnimationECSSystem rebuilds the Animator when this differs (UE: the anim instance is
+         * re-initialised when the skeleton changes).
+         */
+        uint64_t BuiltSkeletonSignature = 0;
+
         AnimationComponent() = default;
 
         explicit AnimationComponent( std::unique_ptr<Animation::Animator>&& animator )

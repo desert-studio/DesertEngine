@@ -6,6 +6,7 @@
 // fixture stands in for what the importer hands over for a three-node glTF - three tufts, their node world
 // transforms already baked, in a row along x - and the source file on disk is that glTF's text.
 
+#include <Common/Content/ImportRecord.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Editor/Import/CookPaths.hpp>
@@ -163,29 +164,22 @@ TEST( NodeMeshSplit, CombineMeshesKeepsTheOneMesh )
     const auto [data, nodes] = project.Import( { "TuftA", "TuftB", "TuftC" } );
     const auto box           = Ser::MeshDataBounds( data );
     ASSERT_TRUE( box.has_value() );
-    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, *box ).IsSuccess() );
-    const auto combineDefault = Ser::ReadImportRecordCombineMeshes( project.Source );
+    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, *box,
+                                          Assets::SourceImportSettings{} )
+                      .IsSuccess() );
+    const auto combineDefault = Ser::ReadImportRecordSettings( project.Source );
     ASSERT_TRUE( combineDefault.IsSuccess() ) << combineDefault.GetError();
-    ASSERT_FALSE( combineDefault.GetValue() ) << "UE's default is off";
+    ASSERT_FALSE( combineDefault.GetValue().CombineMeshes ) << "UE's default is off";
 
-    const fs::path record = Common::Content::ImportRecordPathFor( project.Source );
-    const auto     text   = Common::Utils::FileSystem::ReadFileContent( record );
-    ASSERT_TRUE( text.IsSuccess() );
-    auto parsed = Ser::ParseImportRecord( text.GetValue() );
-    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
-    Ser::ImportRecordData data2 = parsed.GetValue();
-    data2.CombineMeshes         = true;
-    std::ofstream( record, std::ios::binary | std::ios::trunc ) << Ser::WriteImportRecord( data2 );
+    // The import writes the options it runs with into the record, which every later reader reads.
+    Assets::SourceImportSettings on;
+    on.CombineMeshes = true;
+    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh,
+                                          Common::Math::AABB{ { 0, 0, 0 }, { 1, 1, 1 } }, on )
+                      .IsSuccess() );
     {
-        const auto combine = Ser::ReadImportRecordCombineMeshes( project.Source );
-        ASSERT_TRUE( combine.IsSuccess() && combine.GetValue() );
-    }
-
-    // The option survives a re-import that rewrites the record's box.
-    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, { { 0, 0, 0 }, { 1, 1, 1 } } ).IsSuccess() );
-    {
-        const auto combine = Ser::ReadImportRecordCombineMeshes( project.Source );
-        ASSERT_TRUE( combine.IsSuccess() && combine.GetValue() );
+        const auto combine = Ser::ReadImportRecordSettings( project.Source );
+        ASSERT_TRUE( combine.IsSuccess() && combine.GetValue() == on );
     }
 
     const auto meshes = Editor::NodeMeshesOfImport( data, nodes, project.Source );
@@ -216,7 +210,7 @@ TEST( NodeMeshSplit, ASplitImportWritesNoCombinedMesh )
     fs::create_directories( material.parent_path() );
     std::ofstream( material ) << "{}";
 
-    auto split = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source );
+    auto split = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source, {} );
     ASSERT_TRUE( split.IsSuccess() ) << split.GetError();
     ASSERT_EQ( split.GetValue().size(), 3u );
     EXPECT_FALSE( Editor::ImportedMeshAssetIsFresh( project.Source ) ) << "a split import wrote the combined mesh";
@@ -230,11 +224,9 @@ TEST( NodeMeshSplit, ASplitImportWritesNoCombinedMesh )
     EXPECT_FALSE( Editor::ImportedMeshAssetIsCurrent( project.Source ) ) << "a deleted node mesh re-imports";
 
     // Combine Meshes on: the one combined mesh, the node list cleared.
-    Ser::ImportRecordData on = *record.GetValue();
-    on.CombineMeshes         = true;
-    std::ofstream( Common::Content::ImportRecordPathFor( project.Source ), std::ios::binary | std::ios::trunc )
-         << Ser::WriteImportRecord( on );
-    auto combined = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source );
+    Assets::SourceImportSettings on;
+    on.CombineMeshes = true;
+    auto combined    = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source, on );
     ASSERT_TRUE( combined.IsSuccess() ) << combined.GetError();
     EXPECT_TRUE( combined.GetValue().empty() );
     EXPECT_TRUE( Editor::ImportedMeshAssetIsFresh( project.Source ) );
@@ -363,4 +355,106 @@ TEST( MaterialThumbnailEdit, SetMaterialFileThumbnailWritesTheInfoAndTheDefaultA
     ASSERT_TRUE( back ) << back.GetError();
     EXPECT_FALSE( back.GetValue().Thumbnail.has_value() );
     std::filesystem::remove_all( dir );
+}
+
+// THM1l: the Details' Import Settings + Reimport. Changing an option and importing again changes what the import
+// writes - Combine Meshes the NUMBER of meshes, Uniform Scale / Up Axis / LOD the options each mesh is built with
+// - and the record keeps the options for the next re-import.
+TEST( NodeMeshSplit, ReimportWithChangedSettingsChangesTheMeshes )
+{
+    const GrassProject project;
+    const auto [data, nodes] = project.Import( { "TuftA", "TuftB", "TuftC" } );
+    const fs::path material  = Editor::MaterialAdoption::MaterialAssetPath( project.Source, "GrassAtlas" );
+    fs::create_directories( material.parent_path() );
+    std::ofstream( material ) << "{}";
+
+    Assets::SourceImportSettings split;
+    split.Mesh.UniformScale = 2.0f;
+    split.Mesh.UpAxis       = Assets::MeshSourceUpAxis::Z;
+    auto first              = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source, split );
+    ASSERT_TRUE( first.IsSuccess() ) << first.GetError();
+    ASSERT_EQ( first.GetValue().size(), 3u ) << "Combine Meshes off: one static mesh per node";
+    const auto nodeMesh = Assets::ReadMeshSourceAssetFile( first.GetValue().front().second );
+    ASSERT_TRUE( nodeMesh.IsSuccess() ) << nodeMesh.GetError();
+    EXPECT_EQ( nodeMesh.GetValue().Import.Settings, split.Mesh ) << "the node mesh is built with the options";
+
+    // The Details panel's edit: Combine Meshes on, then Reimport with the record's options.
+    auto stored = Ser::ReadImportRecordSettings( project.Source );
+    ASSERT_TRUE( stored.IsSuccess() && stored.GetValue() == split ) << "the record keeps the options";
+    Assets::SourceImportSettings combine = stored.GetValue();
+    combine.CombineMeshes                = true;
+    combine.Mesh.LodPolicy               = Assets::MeshLodPolicy::None;
+    auto second = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source, combine );
+    ASSERT_TRUE( second.IsSuccess() ) << second.GetError();
+    EXPECT_TRUE( second.GetValue().empty() ) << "Combine Meshes on: the one combined mesh, no node meshes";
+    EXPECT_TRUE( Editor::ImportedMeshAssetIsFresh( project.Source ) );
+    const auto after = Ser::ReadImportRecordSettings( project.Source );
+    ASSERT_TRUE( after.IsSuccess() && after.GetValue() == combine );
+
+    // Back off again: the same bytes, three meshes - the options, not the file, decided the count.
+    auto third = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source, split );
+    ASSERT_TRUE( third.IsSuccess() ) << third.GetError();
+    EXPECT_EQ( third.GetValue().size(), 3u );
+}
+
+// THM1l-b5: a SKINNED import is recorded like a static one (UE: every import leaves its AssetImportData). The
+// Import Options window's skinned import used to write no record, so the next drop found the file "new" and
+// offered the window forever. RecordImport is the one writer: the options are the record's, the source is no
+// longer new, and a file with no mesh (a skeleton and its clips) is recorded without a box.
+TEST( NodeMeshSplit, ASkinnedImportIsRecordedWithItsOptions )
+{
+    const GrassProject project;
+    Ser::MeshAssetData skinned;
+    skinned.IsSkinned = true;
+    Ser::SkinnedVertexData v{};
+    v.Position = { 0.0f, 10.0f, 20.0f };
+    skinned.SkinnedVertices.push_back( v );
+    Ser::SubmeshData sub{};
+    sub.VertexCount = 1;
+    sub.Transform   = glm::mat4( 1.0f );
+    sub.BoundingBox = { { 0.0f, 10.0f, 20.0f }, { 0.0f, 10.0f, 20.0f } };
+    skinned.Submeshes.push_back( sub );
+
+    const fs::path record = Common::Content::ImportRecordPathFor( project.Source );
+    ASSERT_FALSE( fs::exists( record ) ) << "the fixture's source starts new";
+
+    Assets::SourceImportSettings chosen;
+    chosen.Mesh.UniformScale = 100.0f;
+    chosen.Mesh.UpAxis       = Assets::MeshSourceUpAxis::Z;
+    const auto recorded =
+         Editor::RecordImport( project.Source, Common::Content::ContentKind::SkinnedMesh, &skinned, chosen );
+    ASSERT_TRUE( recorded.IsSuccess() ) << recorded.GetError();
+    EXPECT_TRUE( fs::is_regular_file( record ) )
+         << "a recorded source is not new: the window is not offered again";
+    const auto stored = Ser::ReadImportRecordSettings( project.Source );
+    ASSERT_TRUE( stored.IsSuccess() ) << stored.GetError();
+    EXPECT_EQ( stored.GetValue(), chosen ) << "Reimport reads the options the window confirmed";
+    const auto whole = Ser::ReadImportRecord( project.Source );
+    ASSERT_TRUE( whole.IsSuccess() && whole.GetValue() && whole.GetValue()->Bounds );
+    // The box the placed mesh has: (x, y, z) -> (x, z, -y) for Z up, times 100.
+    EXPECT_NEAR( whole.GetValue()->Bounds->Min[1], 2000.0f, 1e-2f )
+         << "the box is the placed mesh's, the options applied";
+    EXPECT_NEAR( whole.GetValue()->Bounds->Min[2], -1000.0f, 1e-2f );
+    ASSERT_TRUE( whole.GetValue()->Header.has_value() );
+    EXPECT_EQ( whole.GetValue()->Header->Kind, "SkinnedMesh" )
+         << "a skinned source's record says what it imports as";
+    const auto kind = Ser::ReadImportRecordKind( project.Source );
+    ASSERT_TRUE( kind.IsSuccess() ) << kind.GetError();
+    EXPECT_EQ( kind.GetValue(), Common::Content::ContentKind::SkinnedMesh )
+         << "the Details' Import Settings show the skeletal mesh's fields for it";
+    const auto guid = Ser::ReadImportRecordGuid( project.Source );
+    ASSERT_TRUE( guid.IsSuccess() ) << guid.GetError();
+
+    // A second import (Reimport with other options) keeps the identity; one with no mesh keeps the box.
+    Assets::SourceImportSettings again;
+    ASSERT_TRUE( Editor::RecordImport( project.Source, Common::Content::ContentKind::SkinnedMesh, nullptr, again )
+                      .IsSuccess() );
+    const auto after = Ser::ReadImportRecord( project.Source );
+    ASSERT_TRUE( after.IsSuccess() && after.GetValue() && after.GetValue()->Bounds );
+    const auto againStored = Ser::ReadImportRecordSettings( project.Source );
+    ASSERT_TRUE( againStored.IsSuccess() ) << againStored.GetError();
+    EXPECT_EQ( againStored.GetValue(), again );
+    const auto sameGuid = Ser::ReadImportRecordGuid( project.Source );
+    ASSERT_TRUE( sameGuid.IsSuccess() ) << sameGuid.GetError();
+    EXPECT_EQ( sameGuid.GetValue(), guid.GetValue() );
 }

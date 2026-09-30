@@ -70,12 +70,19 @@ namespace Desert::Animation
         };
 
         void RequestUnread( const std::string& clipName ) const;
+        // UE: the registry's OnAssetAdded/OnAssetUpdated reaching the index. A `.anim` an import (or any cook)
+        // wrote after this library indexed the rows is indexed now, on the same terms as IndexRegistryRows:
+        // a clip already read in place (the importer re-reads rewritten clips) goes through Register, any
+        // other becomes an unread row. A rewritten clip loses its old record first, since its rig may differ.
+        void CatchUpWrites() const;
         void RequestRead( const Assets::Asset<Assets::AnimationAsset>& asset ) const;
 
         Assets::AssetManager* m_AssetManager;
         // Rows indexed but not yet read, and the reads in flight. Mutable: a const lookup is what asks.
         mutable std::vector<UnreadRow>                                       m_Unread;
         mutable std::unordered_map<Assets::AssetHandle, Assets::LoadRequest> m_Requests;
+        // The registry write serial this library has indexed up to (ContentRegistry::WriteSerial).
+        mutable uint64_t m_SeenWrites = 0;
 
         // ONE record per registered clip, holding everything the match rule is allowed to look at. There used
         // to be two indexes of the same clips — a signature map and this list — and Clear() emptied only one

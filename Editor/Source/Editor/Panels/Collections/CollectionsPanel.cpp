@@ -5,6 +5,7 @@
 #endif
 #include <rflcpp/rfl.hpp>
 #include <Editor/Core/DragPayloads.hpp>
+#include <Editor/Import/TextureDnD.hpp>
 #include <Common/Json/Json.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
@@ -158,7 +159,7 @@ namespace Desert::Editor
             {
                 if ( !path || path->empty() )
                     return Common::UUID::Null();
-                return importer.ImportAndRegisterTexture( mgr, *path );
+                return TextureDnD::ImportAndRegister( importer, mgr, *path );
             };
 
             // Dereferenced through a local empty list rather than `*manifest.Materials`: the early

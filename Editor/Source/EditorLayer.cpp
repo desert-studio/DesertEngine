@@ -43,6 +43,7 @@
 #include <Common/Core/Profiler.hpp>
 #include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/MeshDnD.hpp>
+#include <Editor/Import/ImportOptionsDialog.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Common/Core/JobSystem.hpp>
@@ -4427,6 +4428,7 @@ namespace Desert::Editor
         DrawRecoveryPopup();
         DrawLayoutSavePopup();
         DrawOpenRefusedPopup();
+        ImportOptions::DrawWindow(); // a dropped file never imported asks for its options first (THM1l)
         DrawCloseQuestionPopup();
 
         // Transient bottom-right notifications (save/import/validation). Drawn last so they float on top.
@@ -6179,17 +6181,106 @@ namespace Desert::Editor
                        ::Desert::Core::EditorCamera* camera = ActiveEditorCamera();
                        if ( camera == nullptr || !m_MainScene )
                            return PaletteCommandOutcome( false, "no viewport camera or no scene" );
+                       // The view centre's ray: the surface it meets, or UE's background drop distance.
                        const Common::Math::Ray    ray( camera->GetPosition(), camera->GetDirection() );
                        ::Desert::Core::RaycastHit hit;
-                       if ( !m_MainScene->Raycast( ray, hit ) )
-                           return PaletteCommandOutcome( false, "the viewport centre looks at no surface" );
-                       const auto dropped = ViewportPanel::DropMeshIntoActiveViewport( path, hit.Point );
+                       const bool                 met     = m_MainScene->Raycast( ray, hit );
+                       const auto                 dropped = ViewportPanel::DropMeshIntoActiveViewport(
+                            path, ActorDrop::TargetFor( met ? std::optional<glm::vec3>( hit.Point ) : std::nullopt,
+                                                        hit.Normal, ray.Origin, ray.Direction ) );
                        if ( !dropped )
                            return Common::MakeError<bool>( dropped.GetError() );
                        return PaletteCommandDone();
                    } } );
             // NOLINTEND(bugprone-exception-escape)
         }
+        // THE IMPORT OPTIONS WINDOW WITHOUT A MOUSE: its three buttons, each running the button's own body.
+        const auto importOptionsCommand = [&commands]( const char* label, Common::BoolResultStr ( *answer )() )
+        {
+            commands.push_back( { "Assets", label, [answer]
+                                  {
+                                      if ( const auto answered = answer(); !answered )
+                                          return Common::MakeError<bool>( answered.GetError() );
+                                      return PaletteCommandDone();
+                                  } } );
+        };
+        importOptionsCommand( "Import Options: Import", [] { return ImportOptions::ConfirmImport( false ); } );
+        importOptionsCommand( "Import Options: Import All", [] { return ImportOptions::ConfirmImport( true ); } );
+        importOptionsCommand( "Import Options: Cancel", [] { return ImportOptions::CancelImport(); } );
+        // ITS FIELDS WITHOUT A MOUSE: the same edits the fields make (ImportOptions::SetShown*), on the options
+        // the window shows. Uniform Scale offers the unit conversions (metres, decimetres, centimetres, ...).
+        for ( const float scale : { 0.01f, 0.1f, 1.0f, 10.0f, 100.0f } )
+            commands.push_back( { "Assets", std::format( "Import Options: Uniform Scale {}", scale ),
+                                  [scale] { return ImportOptions::SetShownUniformScale( scale ); } } );
+        for ( const auto& [label, axis] :
+              { std::pair{ "From File", Assets::MeshSourceUpAxis::FromFile },
+                std::pair{ "Y", Assets::MeshSourceUpAxis::Y }, std::pair{ "Z", Assets::MeshSourceUpAxis::Z } } )
+            commands.push_back( { "Assets", std::format( "Import Options: Up Axis {}", label ),
+                                  [axis] { return ImportOptions::SetShownUpAxis( axis ); } } );
+        for ( const bool on : { true, false } )
+            commands.push_back( { "Assets", std::format( "Import Options: Combine Meshes {}", on ? "on" : "off" ),
+                                  [on] { return ImportOptions::SetShownCombineMeshes( on ); } } );
+        // The Details' Import Settings Reimport, for the selected entity's mesh - static or skinned (UE: Reimport
+        // on a skeletal mesh actor reimports its USkeletalMesh with the skeleton and the clips): the button's own
+        // body.
+        // The selected entity's mesh asset, static or skinned: what the Details' Import Settings section shows.
+        const auto selectedMeshAsset = [this]() -> Common::ResultStr<std::filesystem::path>
+        {
+            const auto selected = Core::SelectionManager::GetSelected();
+            if ( !m_MainScene || !selected.has_value() )
+                return Common::MakeError<std::filesystem::path>( "no entity is selected" );
+            auto ref = m_MainScene->FindEntityByID( *selected );
+            if ( !ref )
+                return Common::MakeError<std::filesystem::path>( "the selected entity is not in the scene" );
+            Assets::AssetHandle handle;
+            if ( ref->get().HasComponent<ECS::StaticMeshComponent>() )
+                handle = ref->get().GetComponent<ECS::StaticMeshComponent>().MeshHandle;
+            else if ( ref->get().HasComponent<ECS::SkinnedMeshComponent>() )
+                handle = ref->get().GetComponent<ECS::SkinnedMeshComponent>().MeshHandle;
+            else
+                return Common::MakeError<std::filesystem::path>(
+                     "the selected entity has no static or skinned mesh" );
+            const auto asset = handle ? m_AssetManager->FindByHandle<Assets::MeshAsset>( handle ) : nullptr;
+            if ( !asset )
+                return Common::MakeError<std::filesystem::path>( "the selected entity's mesh is not loaded" );
+            return Common::MakeSuccess( asset->GetMetadata().Filepath );
+        };
+        commands.push_back( { "Assets", "Reimport selected", [selectedMeshAsset]() -> Common::BoolResultStr
+                              {
+                                  const auto asset = selectedMeshAsset();
+                                  if ( !asset )
+                                      return Common::MakeError<bool>( asset.GetError() );
+                                  return ImportOptions::Reimport( asset.GetValue() );
+                              } } );
+        // THE SECTION'S FIELDS WITHOUT A MOUSE (UE: the Import Settings category's properties): the fields' own
+        // edits on the working copy Reimport imports with, for the selected entity's mesh.
+        for ( const float scale : { 0.01f, 0.1f, 1.0f, 10.0f, 100.0f } )
+            commands.push_back( { "Details", std::format( "Import Settings: Uniform Scale {}", scale ),
+                                  [selectedMeshAsset, scale]() -> Common::BoolResultStr
+                                  {
+                                      const auto asset = selectedMeshAsset();
+                                      if ( !asset )
+                                          return Common::MakeError<bool>( asset.GetError() );
+                                      if ( const auto set =
+                                                ImportOptions::SetSectionUniformScale( asset.GetValue(), scale );
+                                           !set )
+                                          return set;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const auto& [label, axis] :
+              { std::pair{ "From File", Assets::MeshSourceUpAxis::FromFile },
+                std::pair{ "Y", Assets::MeshSourceUpAxis::Y }, std::pair{ "Z", Assets::MeshSourceUpAxis::Z } } )
+            commands.push_back(
+                 { "Details", std::format( "Import Settings: Up Axis {}", label ),
+                   [selectedMeshAsset, axis]() -> Common::BoolResultStr
+                   {
+                       const auto asset = selectedMeshAsset();
+                       if ( !asset )
+                           return Common::MakeError<bool>( asset.GetError() );
+                       if ( const auto set = ImportOptions::SetSectionUpAxis( asset.GetValue(), axis ); !set )
+                           return set;
+                       return PaletteCommandDone();
+                   } } );
         // THE FOLIAGE PALETTE WITHOUT A MOUSE: the mode, and one entry per collection running the palette's own
         // collection drop (FO-2), so a frame can show types that came from a collection unattended.
         commands.push_back( { "Foliage", "Foliage mode", []

@@ -10,6 +10,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Editor/Import/CookPaths.hpp>
+#include <Editor/Import/ImportSettingsEdits.hpp>
 #include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Import/MaterialAdoption.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
@@ -18,6 +19,7 @@
 #include <gtest/gtest.h>
 
 #include <fstream>
+#include <sstream>
 
 namespace fs = std::filesystem;
 using namespace Desert;
@@ -146,7 +148,8 @@ TEST( ImportRecord, TheRecordStatesTheImportedBoxAndTheRegistryReadsItWithoutThe
     const auto    expected = Ser::MeshDataBounds( Quad() );
     ASSERT_TRUE( expected.has_value() );
     // A cold DDC: only the record exists - no envelope was ever cached for this source.
-    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, *expected ) );
+    ASSERT_TRUE(
+         Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, *expected, {} ) );
     ASSERT_FALSE( Editor::ImportedMeshAssetIsFresh( project.Source ) ) << "the DDC is not cold";
 
     const auto described =
@@ -160,6 +163,50 @@ TEST( ImportRecord, TheRecordStatesTheImportedBoxAndTheRegistryReadsItWithoutThe
     const auto row = RowOf( project.Asset() );
     ASSERT_TRUE( row.has_value() && row->Bounds.has_value() ) << "the registry row carries no box";
     EXPECT_EQ( row->Bounds->Max, expected->Max );
+}
+
+// THM1l-b11: THE DETAILS' WORKING COPY IS KEPT WITH ITS RECORD. Live, on a real rig: UniformScale edited 10 -> 1
+// in the .deimport, then Reimport - and the record came back as 10, rewritten from the copy the section had read
+// once for the session. Reimport takes EditOf's copy, so the copy must be the record's whenever the record is
+// newer, and must keep an edit not yet applied while the record has not moved.
+TEST( ImportRecord, TheDetailsCopyIsReadAgainWhenTheRecordOnDiskIsNewer )
+{
+    const Project project( "details_copy" );
+    const auto    box = Ser::MeshDataBounds( Quad() );
+    ASSERT_TRUE( box.has_value() );
+    Assets::SourceImportSettings imported;
+    imported.Mesh.UniformScale = 10.0f;
+    ASSERT_TRUE(
+         Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, *box, imported ) );
+
+    const auto first = Editor::ImportOptions::EditOf( project.Source );
+    ASSERT_TRUE( first ) << first.GetError();
+    EXPECT_EQ( first.GetValue()->Edit.Mesh.UniformScale, 10.0f );
+    first.GetValue()->Edit.Mesh.UpAxis = Assets::MeshSourceUpAxis::Z; // an edit in the section, not applied
+    const auto kept                    = Editor::ImportOptions::EditOf( project.Source );
+    ASSERT_TRUE( kept );
+    EXPECT_EQ( kept.GetValue()->Edit.Mesh.UpAxis, Assets::MeshSourceUpAxis::Z )
+         << "an edit was dropped although the record did not change";
+
+    // The record is edited on disk (a person, a tool, another editor): the next ask - the one Reimport makes - is
+    // it.
+    Assets::SourceImportSettings onDisk;
+    onDisk.Mesh.UniformScale = 1.0f;
+    ASSERT_TRUE(
+         Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, *box, onDisk ) );
+    const fs::path record = Common::Content::ImportRecordPathFor( project.Source );
+    fs::last_write_time( record, fs::last_write_time( record ) + std::chrono::seconds( 2 ) );
+    const auto again = Editor::ImportOptions::EditOf( project.Source );
+    ASSERT_TRUE( again ) << again.GetError();
+    EXPECT_EQ( again.GetValue()->Edit.Mesh.UniformScale, 1.0f )
+         << "Reimport would import with the copy read before the record was edited, and write it back";
+    EXPECT_EQ( again.GetValue()->Recorded.Mesh.UniformScale, 1.0f );
+    EXPECT_EQ( again.GetValue()->Edit.Mesh.UpAxis, onDisk.Mesh.UpAxis );
+
+    Editor::ImportOptions::DropEdit( project.Source );
+    fs::remove( record );
+    EXPECT_FALSE( Editor::ImportOptions::EditOf( project.Source ) )
+         << "a source with no record has no copy to import with";
 }
 
 // No legacy: a version-1 record (no box) is refused, naming the record, and is re-imported - never read.
@@ -195,7 +242,7 @@ TEST( ImportRecord, ARecordCopiedBesideAnotherSourceIsRefusedByName )
     const auto    bounds = Ser::MeshDataBounds( Quad() );
     if ( !bounds.has_value() )
         FAIL() << "the quad has no bounds";
-    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, *bounds ) );
+    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, *bounds, {} ) );
     const fs::path other = project.Source.parent_path() / "Tree.fbx";
     std::ofstream( other ) << "tree";
     fs::copy_file( Common::Content::ImportRecordPathFor( project.Source ),
@@ -244,11 +291,66 @@ TEST( ImportRecord, ADroppedThumbnailMeshIsNamedByTheRecordsGuid )
     const auto bounds = Ser::MeshDataBounds( Quad() );
     if ( !bounds.has_value() )
         FAIL() << "the quad has no bounds";
-    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, *bounds ) );
+    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, *bounds, {} ) );
     const auto guid = Ser::ReadImportRecordGuid( project.Source );
     ASSERT_TRUE( guid );
     const auto ref = Editor::PreviewMeshRefFor( project.Source );
     ASSERT_TRUE( ref ) << ref.GetError();
     EXPECT_EQ( ref.GetValue().Guid, Common::Content::AssetGuidToText( guid.GetValue() ) );
     EXPECT_EQ( fs::weakly_canonical( ref.GetValue().Path ), fs::weakly_canonical( project.Source ) );
+}
+
+TEST( ImportRecord, ARecordStatingAKindNoImportWritesIsRefusedByName )
+{
+    const Project project( "import_record_foreign_kind" );
+    const fs::path record = Common::Content::ImportRecordPathFor( project.Source );
+    const auto box     = Ser::MeshDataBounds( Quad() );
+    const auto written = Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::SkinnedMesh, box, {} );
+    ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
+    const auto skinned = Ser::ReadImportRecordKind( project.Source );
+    ASSERT_TRUE( skinned.IsSuccess() ) << skinned.GetError();
+    EXPECT_EQ( skinned.GetValue(), Common::Content::ContentKind::SkinnedMesh );
+
+    std::ostringstream text;
+    text << std::ifstream( record ).rdbuf();
+    std::string body = text.str();
+    const auto  at   = body.find( "\"SkinnedMesh\"" );
+    ASSERT_NE( at, std::string::npos );
+    body.replace( at, 13, "\"Material\"" );
+    std::ofstream( record, std::ios::trunc ) << body;
+    const auto foreign = Ser::ReadImportRecordKind( project.Source );
+    ASSERT_FALSE( foreign.IsSuccess() );
+    EXPECT_NE( foreign.GetError().find( "Material" ), std::string::npos ) << foreign.GetError();
+}
+
+// EVERY RECORD IN THE REPOSITORY STATES WHAT ITS SOURCE IMPORTS AS (THM1l): a source that imported skinned (its
+// `.skmesh` stands beside it, CookPaths::SkinnedAsset) is never recorded as StaticMesh - a Details section would
+// show it static fields and ContentScan would list a static mesh that has no file. No record is left for "the next
+// import" to correct.
+TEST( ImportRecord, NoRecordInTheRepositoryCallsASkinnedSourceStatic )
+{
+    std::string root = "./";
+    for ( int up = 0; up < 6 && !fs::exists( root + "Desert/Desert/Source/Engine/Core/SceneSettings.hpp" ); ++up )
+        root += "../";
+    const fs::path resources = fs::path( root ) / "Editor/Resources";
+    ASSERT_TRUE( fs::is_directory( resources ) ) << "the census runs from inside the repository";
+
+    int walked = 0;
+    for ( const auto& entry : fs::recursive_directory_iterator( resources ) )
+    {
+        if ( !entry.is_regular_file() || !Common::Content::IsImportRecord( entry.path() ) )
+            continue;
+        ++walked;
+        const fs::path source  = entry.path().parent_path() / entry.path().stem();
+        const bool     skinned = fs::exists( Editor::CookPaths::SkinnedAsset( source, ".skmesh" ) );
+        const auto     kind    = Ser::ReadImportRecordKind( source );
+        ASSERT_TRUE( kind.IsSuccess() ) << kind.GetError();
+        if ( skinned )
+            EXPECT_EQ( kind.GetValue(), Common::Content::ContentKind::SkinnedMesh )
+                 << entry.path().generic_string() << ": its source imports skinned";
+        else
+            EXPECT_NE( kind.GetValue(), Common::Content::ContentKind::SkinnedMesh )
+                 << entry.path().generic_string() << ": no skinned mesh stands beside its source";
+    }
+    EXPECT_GT( walked, 0 ) << "the walk found no record: it is looking in the wrong place";
 }

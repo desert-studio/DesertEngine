@@ -45,7 +45,7 @@ namespace Desert::Editor
                            std::span<const std::string>                submeshNodes );
 
     // What an import of @p source writes besides its combined mesh: the node meshes when the source's
-    // "Combine Meshes" option is off (ReadImportRecordCombineMeshes) and it has more than one node; none otherwise
+    // "Combine Meshes" option is off (ReadImportRecordSettings) and it has more than one node; none otherwise
     // (Combine Meshes on, or a single node, which the combined mesh already is).
     [[nodiscard]] Common::ResultStr<std::vector<NodeMesh>>
     NodeMeshesOfImport( const Assets::Serialization::MeshAssetData& combined,
@@ -66,13 +66,27 @@ namespace Desert::Editor
     WriteNodeMeshAsset( const NodeMesh& node, std::span<const Assets::MeshMaterialSlot> named,
                         const std::filesystem::path& source );
 
+    // THE IMPORT'S RECORD, ONE WRITER FOR EVERY KIND OF FILE (UE: every import - static or skeletal - leaves its
+    // AssetImportData, which Reimport reads): the source's `.deimport` stating @p kind (what the file imports as:
+    // ImportRecord.hpp IsImportRecordKind), @p settings and the box of @p imported - given in source space, before
+    // the options are applied, and recorded with them applied (SourceToEngineBounds), the box the placed mesh
+    // has; no box when the file has no mesh (a skeleton and its clips). The static writer below calls it first; a
+    // skinned import calls it from the import itself. A source with a record is not new: the Import Options
+    // window is not offered for it again.
+    [[nodiscard]] Common::BoolResultStr RecordImport( const std::filesystem::path&                source,
+                                                      Common::Content::ContentKind                kind,
+                                                      const Assets::Serialization::MeshAssetData* imported,
+                                                      const Assets::SourceImportSettings&         settings );
+
     // THE STATIC MESH IMPORT'S WRITE, BOTH MODES (THM1j; UE: UFbxStaticMeshImportData::bCombineMeshes). The record
     // first (identity, box). Split (Combine Meshes off, more than one node): each node's mesh beside the source
     // and the node names in the record - and NO combined mesh, exactly as UE imports no combined asset then.
     // Combined: the one mesh (WriteImportedMeshAsset) and no node list. Returns the node meshes written (empty
-    // when combined); the first failure otherwise, after every node was attempted.
+    // when combined); the first failure otherwise, after every node was attempted. @p settings are the options
+    // the import runs with (THM1l): written into the record first, and every mesh written reads them there.
     [[nodiscard]] Common::ResultStr<std::vector<std::pair<NodeMesh, std::filesystem::path>>>
     WriteStaticMeshImport( const Assets::Serialization::MeshAssetData& imported,
                            std::span<const std::string>                submeshNodes,
-                           std::span<const Assets::MeshMaterialSlot> named, const std::filesystem::path& source );
+                           std::span<const Assets::MeshMaterialSlot> named, const std::filesystem::path& source,
+                           const Assets::SourceImportSettings& settings );
 } // namespace Desert::Editor

@@ -163,17 +163,29 @@ namespace Desert::Runtime
         mutable std::unordered_map<Assets::AssetHandle, std::shared_ptr<Mesh>>      m_Meshes;
         Assets::FrameRetireQueue<std::shared_ptr<Mesh>>                             m_Retiring;
         // One mesh the service knows: its shell, its rig (skinned only; found by the registry's Rig tag), the
-        // loader requests that read them, and whether it failed — a failure is logged once and not retried.
+        // loader requests that read them, and whether it failed — a failure is logged once and not retried,
+        // EXCEPT the one a later write can cure: a skinned mesh whose rig had no Skeleton row waits for it.
+        struct RigAwaited
+        {
+            uint64_t Signature = 0; // the rig the mesh row names
+            uint64_t Since     = 0; // the registry write serial last looked at (ContentRegistry::WrittenSince)
+        };
         struct Entry
         {
             std::shared_ptr<Assets::MeshAsset>   Asset;
             Assets::Asset<Assets::SkeletonAsset> Rig;
             Assets::LoadRequest                  MeshRead;
             Assets::LoadRequest                  RigRead;
+            std::optional<RigAwaited>            AwaitedRig;
             bool                                 Failed = false;
         };
 
         Entry* FindOrDiscover( const Assets::AssetHandle& handle ) const;
+        // UE's "a load that failed on a missing dependency is retried when the dependency is added"
+        // (AssetRegistry OnAssetAdded), pulled from the registry's write journal: a Skeleton row stating the
+        // awaited signature, or a rewrite of the mesh's own row (a re-cook may name another rig), written
+        // since the failure re-arms the entry. True when it did.
+        bool RearmOnRigWritten( const Assets::AssetHandle& handle, Entry& entry ) const;
         // Requests what is missing and answers whether the mesh (and its rig, resolved) is ready to build.
         bool Arrived( const Assets::AssetHandle& handle, Entry& entry ) const;
         void RequestRead( const Assets::AssetHandle& owner, const std::shared_ptr<Assets::AssetBase>& asset,

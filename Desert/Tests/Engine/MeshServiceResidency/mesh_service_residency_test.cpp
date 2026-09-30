@@ -17,6 +17,11 @@
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 
+#include <Common/Core/AssetPathIndex.hpp>
+#include <Common/Core/Constants.hpp>
+
+#include <filesystem>
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -300,6 +305,72 @@ TEST( SceneClosure, TheDepsColumnIsWalkedTransitivelyOnceEachAndRootsKeepTheirKi
                                                                   { 0x30, "Texture" },
                                                                   { 0x55, "StaticMesh" } };
     EXPECT_EQ( got, expected );
+}
+
+// A SKINNED MESH THAT FAILED ON ITS MISSING RIG IS DRAWN ONCE THE RIG IS WRITTEN (THM1l-b12). The import
+// used to be able to write the mesh before its skeleton, and a draw or thumbnail in between failed the mesh
+// for the whole session. UE retries a load that failed on a missing dependency when the dependency is added;
+// here the registry's write journal is that event: the Skeleton row stating the awaited signature re-arms it.
+TEST_F( MeshServiceResidency, ASkinnedMeshFailedForItsMissingRigIsDrawnOnceTheRigIsWritten )
+{
+    namespace fs   = std::filesystem;
+    namespace Path = Common::Constants::Path;
+    fs::path repo;
+    for ( fs::path here = fs::current_path(); !here.empty(); here = here.parent_path() )
+    {
+        if ( fs::exists( here / ".gitignore" ) && fs::exists( here / "Editor" ) )
+        {
+            repo = here;
+            break;
+        }
+        if ( here == here.parent_path() )
+            break;
+    }
+    ASSERT_FALSE( repo.empty() );
+    const fs::path shipped = repo / "Editor/Resources/Assets/Meshes/Skinned";
+
+    const Path::ProjectRootState saved = Path::CurrentProjectRoot();
+    const fs::path               project =
+         fs::temp_directory_path() /
+         ( "mesh_service_rig_" + std::to_string( ::testing::UnitTest::GetInstance()->random_seed() ) );
+    fs::remove_all( project );
+    const fs::path dir = project / "Resources/Assets/Meshes/Skinned";
+    fs::create_directories( dir );
+    Path::SetProjectRoot( project, "Resources/Assets" );
+    Assets::ContentRegistry::ResetForTest();
+    std::vector<std::string> refused;
+    ASSERT_TRUE( Assets::ContentRegistry::Gather( &refused ) );
+
+    // The mesh is written first and asked for before its rig exists.
+    fs::copy_file( shipped / "SkinProbe.skmesh", dir / "SkinProbe.skmesh" );
+    Assets::ContentRegistry::NoteFile( dir / "SkinProbe.skmesh" );
+    const auto meshes = Assets::ContentRegistry::WrittenSince( Common::Content::ContentKind::SkinnedMesh, 0 );
+    ASSERT_EQ( meshes.Rows.size(), 1U );
+    const Assets::AssetHandle mesh = meshes.Rows.front().Handle;
+
+    EXPECT_EQ( Service->Get( mesh ), nullptr );
+    const std::array<Assets::AssetHandle, 1> asked{ mesh };
+    EXPECT_EQ( Service->AwaitResident( asked ), 0U ) << "a mesh with no rig on record was built";
+
+    // An unrelated write does not re-arm it: still failed, and nothing is read for it.
+    fs::copy_file( shipped / "SkinProbe_Tilt.anim", dir / "SkinProbe_Tilt.anim" );
+    Assets::ContentRegistry::NoteFile( dir / "SkinProbe_Tilt.anim" );
+    EXPECT_EQ( Service->AwaitResident( asked ), 0U );
+
+    // The rig is written: the same service, the same entry, now drawn.
+    fs::copy_file( shipped / "SkinProbe.skeleton", dir / "SkinProbe.skeleton" );
+    Assets::ContentRegistry::NoteFile( dir / "SkinProbe.skeleton" );
+    EXPECT_EQ( Service->AwaitResident( asked ), 1U )
+         << "the mesh failed for its missing rig stays failed after the rig was written";
+    EXPECT_NE( Service->Get( mesh ), nullptr );
+    EXPECT_EQ( SyncLoadLedger::InFrameLoads(), 0u );
+
+    Service.reset();
+    AsyncAssetLoader::Get().ShutdownAndDrain();
+    Path::SetProjectRoot( saved.ProjectDir, saved.AssetsRoot );
+    Assets::ContentRegistry::ResetForTest();
+    Common::AssetPathIndex::Clear();
+    fs::remove_all( project );
 }
 
 int main( int argc, char** argv )

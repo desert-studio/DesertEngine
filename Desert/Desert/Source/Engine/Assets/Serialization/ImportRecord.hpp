@@ -1,6 +1,7 @@
 #pragma once
 // The body of an import record, `<name>.<ext>.deimport` (FIX8; UE: a .uasset's persistent GUID and its
 // UAssetImportData). Path rules and the reason the record exists: Common/Content/ImportRecord.hpp.
+#include <Engine/Assets/MeshSourceAsset.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Engine/Assets/ThumbnailInfo.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
@@ -20,7 +21,8 @@ namespace Desert::Assets::Serialization
     /**
      * @brief The FILE layout's generation, stated under `DIMP`.
      *
-     *   1 - the text asset header (Kind "StaticMesh", the GUID that IS the imported mesh's identity and, through
+     *   1 - the text asset header (Kind "StaticMesh" - or, since THM1l, what the source imports as: see
+     *       IsImportRecordKind - the GUID that IS the imported mesh's identity and, through
      *       HandleForGuid, its handle) and `Source`, the file name of the source the record belongs to (FIX8).
      *       No import settings yet: the importer has none that a user sets per source.
      *   2 - `Bounds`, the imported mesh's box in centimetres (Min/Max), written by every import and re-import
@@ -40,6 +42,21 @@ namespace Desert::Assets::Serialization
         return versions;
     }
 
+    /// Assets::SourceImportSettings as text states it: the enums by NAME (MeshSourceUpAxisName /
+    /// MeshLodPolicyName, the names IMPT uses), so reordering an enum never changes what a record says. The
+    /// record's `Settings` and the editor's remembered Import Options are this shape.
+    struct SourceImportSettingsText
+    {
+        bool        CombineMeshes = false;
+        float       UniformScale  = 1.0f;
+        std::string UpAxis;
+        std::string LodPolicy;
+    };
+    [[nodiscard]] SourceImportSettingsText ImportSettingsToText( const Assets::SourceImportSettings& settings );
+    /// Refused, by name, for an unknown up axis or LOD policy or a scale that is not finite and > 0.
+    [[nodiscard]] Common::ResultStr<Assets::SourceImportSettings>
+    ImportSettingsFromText( const SourceImportSettingsText& text );
+
     struct ImportRecordData
     {
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
@@ -53,11 +70,10 @@ namespace Desert::Assets::Serialization
         };
         std::optional<Box> Bounds;
 
-        // THE IMPORT OPTION "Combine Meshes" (UE: UFbxStaticMeshImportData::bCombineMeshes, OFF by default).
-        // Absent means UE's default, false: every mesh-bearing node of the source becomes its own static mesh
-        // (NodeMeshSplit). Set it true in the record to import the whole file as the one combined mesh only.
-        // Kept by every re-import (EnsureImportRecord rewrites the parsed record, never a fresh one).
-        std::optional<bool> CombineMeshes;
+        // THE SOURCE'S IMPORT OPTIONS (THM1l; UE UFbxImportUI): Combine Meshes, Uniform Scale, Up Axis, LOD
+        // policy - the one home of what the Import Options window and the Details' Import Settings edit. Absent
+        // means UE's defaults (SourceImportSettings{}). Written by every import with the options it ran with.
+        std::optional<SourceImportSettingsText> Settings;
 
         // THE NODE MESHES THE LAST SPLIT IMPORT WROTE (THM1j), by node name: <stem>_<node>.stmesh beside the
         // source (NodeMeshSplit). Present only when the source was split; then there is NO combined mesh, and
@@ -75,8 +91,16 @@ namespace Desert::Assets::Serialization
         std::optional<std::map<std::string, ThumbnailOrbitRecord>> Thumbnail;
     };
 
+    // THE RECORD STATES WHAT THE SOURCE IMPORTS AS (UE: an imported asset's class - a UStaticMesh, a
+    // USkeletalMesh, a USkeleton or a UAnimSequence - is part of its identity): the header's Kind is StaticMesh
+    // for a static file, SkinnedMesh for a skinned one, Skeleton for a skeleton with clips and no mesh, Animation
+    // for clips only. Only a StaticMesh record stands for a mesh asset with no file of its own (ContentScan).
+    [[nodiscard]] bool IsImportRecordKind( Common::Content::ContentKind kind );
+
     Common::ResultStr<ImportRecordData> ParseImportRecord( const std::string& text );
-    std::string                         WriteImportRecord( const ImportRecordData& data );
+    /// Refused for a @p kind that is not IsImportRecordKind.
+    Common::ResultStr<std::string> WriteImportRecord( const ImportRecordData&      data,
+                                                      Common::Content::ContentKind kind );
 
     /// The GUID @p source's record states. An error naming the record's path when it is missing, unreadable,
     /// of another generation or written for another source - never a GUID made up from the path.
@@ -85,9 +109,15 @@ namespace Desert::Assets::Serialization
     /// The import's side: the record's GUID, the record written first (with a new GUID) when @p source has
     /// none. An existing record keeps its GUID, so a re-import keeps the identity; its `Bounds` are rewritten
     /// when the import's box differs from the one it states.
-    /// @p source's "Combine Meshes" option: the record's value, UE's default (false) when the record states none
-    /// or when the source has no record yet (its first import). An error naming the record when it is unreadable.
-    Common::ResultStr<bool> ReadImportRecordCombineMeshes( const std::filesystem::path& source );
+    /// @p source's import options: the record's, UE's defaults when the record states none or when the source has
+    /// no record yet (its first import). An error naming the record when it is unreadable.
+    Common::ResultStr<Assets::SourceImportSettings>
+    ReadImportRecordSettings( const std::filesystem::path& source );
+
+    /// What @p source's record says it imports as (the header's Kind, one IsImportRecordKind names) - the fields
+    /// its Details' Import Settings show. An error naming the record when it is missing, unreadable or states a
+    /// kind no import writes.
+    Common::ResultStr<Common::Content::ContentKind> ReadImportRecordKind( const std::filesystem::path& source );
 
     /// @p source's whole record; nullopt when the source has no record yet. An error naming the record when it is
     /// unreadable.
@@ -110,6 +140,13 @@ namespace Desert::Assets::Serialization
     Common::BoolResultStr SetImportRecordThumbnail( const std::filesystem::path& source,
                                                     const std::string& meshFile, const ThumbnailOrbit& orbit );
 
-    Common::ResultStr<Common::Content::AssetGuid> EnsureImportRecord( const std::filesystem::path& source,
-                                                                      const Common::Math::AABB&    bounds );
+    /// ... and its `Settings` rewritten to @p settings, the options this import ran with, and its header's Kind to
+    /// @p kind, what the source imports as (IsImportRecordKind). Written by EVERY import, static or skinned (UE:
+    /// AssetImportData on every imported asset): a source with a record is not new. @p bounds is the imported
+    /// mesh's box in the ENGINE's space, the options applied (SourceToEngineBounds): the box the placed mesh has.
+    /// A file with no mesh (skeleton and clips only) passes no @p bounds, and the record keeps the one it states.
+    Common::ResultStr<Common::Content::AssetGuid>
+    EnsureImportRecord( const std::filesystem::path& source, Common::Content::ContentKind kind,
+                        const std::optional<Common::Math::AABB>& bounds,
+                        const Assets::SourceImportSettings&      settings );
 } // namespace Desert::Assets::Serialization

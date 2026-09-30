@@ -1,4 +1,5 @@
 #include "ImportedMeshAsset.hpp"
+#include "SourceToEngine.hpp"
 
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 
@@ -385,12 +386,25 @@ namespace Desert::Editor
         if ( !bounds )
             return Common::MakeFormattedError<MeshAssetWrite>( "'{}': the import has no submesh, so no box",
                                                                source.string() );
-        const auto identity = Assets::Serialization::EnsureImportRecord( source, *bounds );
+        // The options are the record's (THM1l): WriteStaticMeshImport wrote the ones this import runs with.
+        const auto settings = Assets::Serialization::ReadImportRecordSettings( source );
+        if ( !settings )
+            return Common::MakeError<MeshAssetWrite>( settings.GetError() );
+        const auto identity = Assets::Serialization::EnsureImportRecord(
+             source, Common::Content::ContentKind::StaticMesh,
+             SourceToEngineBounds( *bounds, settings.GetValue().Mesh ), settings.GetValue() );
         if ( !identity )
             return Common::MakeError<MeshAssetWrite>( identity.GetError() );
 
-        if ( Common::DDC::Get( Assets::kMeshSourceDeriver, key ).has_value() )
-            return Common::MakeSuccess( MeshAssetWrite::Unchanged ); // this exact content is already cached
+        // This exact content is already cached - unless it was imported with other options (a re-import from
+        // the Details' Import Settings keeps the bytes and changes the scale, the axis or the LOD policy).
+        if ( const auto cached = Common::DDC::Get( Assets::kMeshSourceDeriver, key ) )
+        {
+            const auto decoded = Assets::DecodeMeshSourceAsset( std::span<const std::byte>(
+                 reinterpret_cast<const std::byte*>( cached->data() ), cached->size() ) );
+            if ( decoded && decoded.GetValue().Import.Settings == settings.GetValue().Mesh )
+                return Common::MakeSuccess( MeshAssetWrite::Unchanged );
+        }
 
         // THE ENVELOPE STATES THE RECORD'S GUID (FIX8). Its DDC key is the source's bytes, so an edit of the
         // source makes a new envelope - under the same identity, because the record is not rewritten. (AF4h
@@ -401,6 +415,7 @@ namespace Desert::Editor
         asset.Name              = source.stem().string();
         asset.Import.SourceFile = Common::AssetHandle::StableKeyForPath( source );
         asset.Import.SourceHash = hash.GetValue();
+        asset.Import.Settings   = settings.GetValue().Mesh;
         auto sourceData         = MeshSourceFromImport( imported, named, source.string() );
         if ( !sourceData )
             return Common::MakeError<MeshAssetWrite>( sourceData.GetError() );

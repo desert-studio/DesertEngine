@@ -461,6 +461,12 @@ namespace Common::Content
                         // A split source's meshes are its nodes; the source itself is no mesh asset (THM1k).
                         if ( ImportRecordStatesNodes( candidate ) )
                             continue;
+                        // Only a static file's record stands for a mesh: a skinned source's (or a skeleton's
+                        // and clips') states its own kind and names no static mesh (ImportRecord.hpp).
+                        const auto stated =
+                             ReadAssetHeaderIfStated( candidate, AssetHeaderReadContext{ {}, true } );
+                        if ( stated && stated.GetValue() && stated.GetValue()->Kind != ContentKind::StaticMesh )
+                            continue;
                         if ( const std::string key = AssetHandle::StableKeyForPath( asset ); !key.empty() )
                             visit( candidate, kind, key );
                         continue;

@@ -3,6 +3,7 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/NumberFormat.hpp>
+#include <Editor/Import/ImportOptionsDialog.hpp>
 #include <ImGui/imgui.h>
 
 #include <Engine/Core/Scene.hpp>
@@ -145,6 +146,14 @@ namespace Desert::Editor
     } // namespace
 
     void MeshDetailsWidget::Show( const Context& ctx )
+    {
+        ShowMeshSection( ctx );
+        // UE's Import Settings category, under the mesh facts: the source's options and Reimport (THM1l).
+        if ( ctx.Asset )
+            ImportOptions::DrawImportSettingsSection( ctx.Asset->GetMetadata().Filepath );
+    }
+
+    void MeshDetailsWidget::ShowMeshSection( const Context& ctx )
     {
         // The RUNTIME (GPU) mesh builds lazily, so it can genuinely be missing for a frame or two after a
         // mesh is assigned. Say WHICH state this is instead of a bare ellipsis: "no mesh assigned" and
