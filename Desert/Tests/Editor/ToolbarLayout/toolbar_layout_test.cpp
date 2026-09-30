@@ -85,8 +85,14 @@ TEST( ToolbarLayout, CentreSlidesLeftOfMiddleBeforeItPushesTheRightGroupOff )
     // group rather than the right group leaving the bar.
     Layout::Row row = WideRow( 100.0f );
     row.ContentMaxX = 8.0f + 700.0f;
-    row.RightWidth  = 400.0f;
+    row.RightWidth  = 300.0f;
     const auto p    = Layout::PlaceRow( row );
     EXPECT_FLOAT_EQ( p.RightX, row.ContentMaxX - row.RightWidth );
     EXPECT_FLOAT_EQ( p.CentreX + row.CentreWidth + Layout::kGroupGap, p.RightX );
+}
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }
