@@ -2076,8 +2076,7 @@ namespace Desert::Editor
 
         // The mesh tile's rule, with the .skmesh as its own cooked form: one key, one freshness source.
         const std::string& pngPath   = ThumbnailPngFor( subject );
-        const bool         haveFresh =
-             ThumbnailService::JudgeMeshPicture( subject ) == ThumbnailFreshness::Verdict::Show;
+        const bool haveFresh = ThumbnailService::JudgeMeshPicture( subject ) == ThumbnailFreshness::Verdict::Show;
         if ( !haveFresh )
             m_Thumbnails->Invalidate( pngPath );
         else if ( auto img = m_Thumbnails->Get( pngPath ) )

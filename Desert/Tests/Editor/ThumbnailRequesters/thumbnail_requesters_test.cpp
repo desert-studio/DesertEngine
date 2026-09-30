@@ -741,8 +741,9 @@ TEST( ThumbnailRequesters, MeshPictureShowersAskTheServicesOneJudgement )
         const std::string body = FunctionBody( CodeOf( root, file ), function );
         ASSERT_FALSE( body.empty() ) << function << " is not in " << file;
         EXPECT_NE( body.find( "ThumbnailService::JudgeMeshPicture" ), std::string::npos )
-             << function << " must judge its picture through ThumbnailService::JudgeMeshPicture — the key and hash "
-                           "RequestPose gates on — or it can say Capture where the service says Show";
+             << function
+             << " must judge its picture through ThumbnailService::JudgeMeshPicture — the key and hash "
+                "RequestPose gates on — or it can say Capture where the service says Show";
         EXPECT_EQ( body.find( "ThumbnailFreshness::Observe" ), std::string::npos )
              << function << " composes its own freshness observation again";
     }
@@ -758,15 +759,17 @@ TEST( ThumbnailRequesters, AComponentWidgetBuiltPerDrawOwnsNoPictureCache )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const std::string header =
-         CodeOf( root, "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkinnedMeshComponentWidget.hpp" );
-    const std::string source =
-         CodeOf( root, "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkinnedMeshComponentWidget.cpp" );
+    const std::string header = CodeOf(
+         root, "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkinnedMeshComponentWidget.hpp" );
+    const std::string source = CodeOf(
+         root, "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkinnedMeshComponentWidget.cpp" );
     ASSERT_FALSE( header.empty() );
-    ASSERT_NE( source.find( "SkinnedMeshComponentWidget( ctx.AssetManager, ctx.UIHelper ).Render" ), std::string::npos )
+    ASSERT_NE( source.find( "SkinnedMeshComponentWidget( ctx.AssetManager, ctx.UIHelper ).Render" ),
+               std::string::npos )
          << "the registration no longer builds the widget per draw: re-read this test's premise";
     EXPECT_EQ( header.find( "ThumbnailCache" ), std::string::npos )
-         << "a widget rebuilt every frame holds a ThumbnailCache: it is born empty each frame and re-decodes forever";
+         << "a widget rebuilt every frame holds a ThumbnailCache: it is born empty each frame and re-decodes "
+            "forever";
     EXPECT_EQ( header.find( "std::unique_ptr<UI::UIHelper>" ), std::string::npos )
          << "a widget rebuilt every frame builds its own UIHelper: texture ids die with the frame";
 }

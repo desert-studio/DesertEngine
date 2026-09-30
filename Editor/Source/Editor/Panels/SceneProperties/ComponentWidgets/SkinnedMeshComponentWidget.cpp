@@ -81,8 +81,8 @@ namespace Desert::Editor
         }
     } // namespace
 
-    SkinnedMeshComponentWidget::SkinnedMeshComponentWidget( const std::weak_ptr<Assets::AssetManager>& assetManager,
-                                                            UI::UIHelper*                              ui )
+    SkinnedMeshComponentWidget::SkinnedMeshComponentWidget(
+         const std::weak_ptr<Assets::AssetManager>& assetManager, UI::UIHelper* ui )
          : IComponentWidget( "Skinned Mesh" ), m_AssetManager( assetManager ), m_UI( ui )
     {
     }

@@ -263,10 +263,10 @@ namespace Desert::Editor
 
     ThumbnailFreshness::Verdict ThumbnailService::JudgeMeshPicture( const std::string& cookedPath )
     {
-        const Request req = MeshRequestOf( Kind::Pose, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ), cookedPath,
-                                           Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
+        const Request req = MeshRequestOf( Kind::Pose, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
+                                           cookedPath, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
         return NeedsCapture( req.Png, SourceHash( req.Type, req.Source ) ) ? ThumbnailFreshness::Verdict::Capture
-                                                                            : ThumbnailFreshness::Verdict::Show;
+                                                                           : ThumbnailFreshness::Verdict::Show;
     }
 
     std::string ThumbnailService::EnqueueMeshLike( Request req )

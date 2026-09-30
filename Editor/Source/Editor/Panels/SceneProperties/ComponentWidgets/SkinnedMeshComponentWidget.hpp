@@ -13,7 +13,8 @@ namespace Desert::Editor
     class SkinnedMeshComponentWidget final : public IComponentWidget
     {
     public:
-        /// @p ui is the host panel's (ComponentEditContext::UIHelper): the preview's texture id lives as long as it.
+        /// @p ui is the host panel's (ComponentEditContext::UIHelper): the preview's texture id lives as long as
+        /// it.
         SkinnedMeshComponentWidget( const std::weak_ptr<Assets::AssetManager>& assetManager, UI::UIHelper* ui );
 
         bool CanRemove() const override
