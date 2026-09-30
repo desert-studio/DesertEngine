@@ -1854,7 +1854,7 @@ namespace Desert::Editor
                         const std::filesystem::path full =
                              named.is_absolute()
                                   ? named
-                                  : ( ::Desert::Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                                  : ( ::Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
                         auto dropped = manager->FindByPath<::Desert::Assets::LevelSequenceAsset>( full );
                         if ( !dropped )
                             dropped = manager->CreateAsset<::Desert::Assets::LevelSequenceAsset>(
@@ -1870,24 +1870,20 @@ namespace Desert::Editor
             }
 
             // Playback Settings.
-            // The names are the saved ones (Player.hpp's enum, stored by name in ComponentRegistry.cpp).
-            static constexpr std::array<std::pair<const char*, T::LoopMode>, 3> kLoops{ {
-                 { "Once", T::LoopMode::Once }, { "Loop", T::LoopMode::Loop }, { "PingPong", T::LoopMode::PingPong } } };
-            const char* current = "?";
-            for ( const auto& [name, mode] : kLoops )
-                if ( mode == actor.Loop )
-                    current = name;
-            if ( ImGui::BeginCombo( "Loop", current ) )
+            // The names are Player.hpp's (its reflected names, the ones the scene stores).
+            if ( ImGui::BeginCombo( "Loop", T::ToString( actor.Loop ) ) )
             {
-                for ( const auto& [name, mode] : kLoops )
-                    if ( ImGui::Selectable( name, mode == actor.Loop ) )
+                for ( const T::LoopMode mode : T::kLoopModes )
+                    if ( ImGui::Selectable( T::ToString( mode ), mode == actor.Loop ) )
                         actor.Loop = mode;
                 ImGui::EndCombo();
             }
             ImGui::Checkbox( "Auto Play", &actor.AutoPlay );
 
             // Binding Overrides.
-            ImGui::SeparatorText( "Binding Overrides" );
+            if ( !::Desert::Editor::Utils::ImGuiUtilities::SectionHeader(
+                      ICON_MDI_LINK_VARIANT "  Binding Overrides", true ) )
+                return;
             if ( actor.BindingOverrides.empty() )
                 ImGui::TextDisabled( "None: every binding plays on the entity its locator names" );
             for ( std::size_t i = 0; i < actor.BindingOverrides.size(); )

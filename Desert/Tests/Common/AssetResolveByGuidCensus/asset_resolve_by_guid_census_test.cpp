@@ -115,7 +115,10 @@ namespace
          ContentKind::StaticMesh, ContentKind::SkinnedMesh, ContentKind::Texture, ContentKind::Material,
          ContentKind::Skybox, ContentKind::CloudType, ContentKind::CloudLayout, ContentKind::Shader,
          // FO-1: a Foliage block states FoliageTypeGuid beside the path (ComponentRegistry.cpp).
-         ContentKind::FoliageType, ContentKind::LandscapeLayerInfo };
+         ContentKind::FoliageType, ContentKind::LandscapeLayerInfo,
+         // ANIM-I11: a LevelSequence block states SequenceGuid beside SequencePath and reads the GUID first
+         // (ComponentRegistry.cpp's LevelSequence serializer, CreateFromRegistryGuid).
+         ContentKind::LevelSequence };
 
     template <class Array>
     bool Contains( const Array& kinds, ContentKind kind )

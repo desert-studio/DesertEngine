@@ -240,3 +240,18 @@ TEST( LevelSequenceComponent, LoopModeIsStoredByName )
     EXPECT_EQ( issues.size(), 1U ); // an unknown name is a named issue
     EXPECT_EQ( kept, T::LoopMode::Loop );
 }
+
+TEST( LevelSequenceComponent, LoopModeNamesAreTheStoredOnes )
+{
+    // The Details combo shows ToString; the scene stores the reflected name. One spelling, both ways.
+    for ( const T::LoopMode mode : T::kLoopModes )
+    {
+        const Common::Json::Value stored( Common::Json::ObjectBuilder().Set( "Loop", mode ).Build() );
+        const auto                text = Common::Json::Root( stored ).Find( "Loop" )->AsString();
+        ASSERT_TRUE( text.IsSuccess() );
+        EXPECT_EQ( text.GetValue(), T::ToString( mode ) );
+        EXPECT_EQ( T::LoopModeFromString( T::ToString( mode ) ), mode );
+    }
+    EXPECT_FALSE( T::LoopModeFromString( "Sometimes" ).has_value() );
+    EXPECT_STREQ( T::ToString( static_cast<T::LoopMode>( 7 ) ), "Unknown" );
+}

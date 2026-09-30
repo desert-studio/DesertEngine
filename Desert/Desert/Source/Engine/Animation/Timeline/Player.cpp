@@ -1,7 +1,10 @@
 #include "Player.hpp"
 
+#include <rflcpp/rfl/enums.hpp>
+
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 namespace Desert::Animation::Timeline
 {
@@ -152,5 +155,38 @@ namespace Desert::Animation::Timeline
         m_Current = FromTicks( std::clamp( t, start, end ) );
         step.To   = m_Current;
         return step;
+    }
+
+    // ToString indexes kLoopModes by the enumerator's value: the list must stay in stored (value) order.
+    static_assert(
+         []
+         {
+             for ( std::size_t i = 0; i < kLoopModes.size(); ++i )
+                 if ( static_cast<std::size_t>( kLoopModes[i] ) != i )
+                     return false;
+             return true;
+         }(),
+         "kLoopModes must list every LoopMode in value order" );
+
+    const char* ToString( const LoopMode mode )
+    {
+        // The reflected names, taken once: reflection is the only spelling, this keeps a stable pointer to it.
+        static const std::array<std::string, kLoopModes.size()> kNames = []
+        {
+            std::array<std::string, kLoopModes.size()> names;
+            for ( std::size_t i = 0; i < kLoopModes.size(); ++i )
+                names[i] = rfl::enum_to_string( kLoopModes[i] );
+            return names;
+        }();
+        const auto index = static_cast<std::size_t>( mode );
+        return index < kNames.size() ? kNames[index].c_str() : "Unknown";
+    }
+
+    std::optional<LoopMode> LoopModeFromString( const std::string_view name )
+    {
+        const auto parsed = rfl::string_to_enum<LoopMode>( std::string( name ) );
+        if ( !parsed )
+            return std::nullopt;
+        return parsed.value();
     }
 } // namespace Desert::Animation::Timeline
