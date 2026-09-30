@@ -81,8 +81,8 @@ namespace Desert::Editor::ThumbnailSubject
 
     Common::ResultStr<std::optional<Common::AssetHandle>> DomeSkyboxOf( const Common::AssetHandle& material )
     {
-        using Answer    = std::optional<Common::AssetHandle>;
-        auto* shaders   = Runtime::ResourceRegistry::GetShaderService();
+        using Answer  = std::optional<Common::AssetHandle>;
+        auto* shaders = Runtime::ResourceRegistry::GetShaderService();
         if ( shaders == nullptr )
             return Common::MakeFormattedError<Answer>( "there is no shader service to read its sky" );
         auto templateName = Runtime::MaterialTemplateNameOf( Assets::AssetHandle( material ) );
@@ -111,8 +111,8 @@ namespace Desert::Editor::ThumbnailSubject
         if ( !resolved.IsSuccess() )
             return Common::MakeFormattedError<Answer>( "{}", resolved.GetError() );
         const Graphic::MaterialOverrides& slots = resolved.GetValue();
-        const auto bound = std::find_if( slots.Textures.begin(), slots.Textures.end(),
-                                         [&]( const auto& t ) { return t.first == cube->Name; } );
+        const auto                        bound = std::find_if( slots.Textures.begin(), slots.Textures.end(),
+                                                                [&]( const auto& t ) { return t.first == cube->Name; } );
         if ( bound == slots.Textures.end() || bound->second == 0 )
             return Common::MakeFormattedError<Answer>(
                  "nothing is bound to its cube slot '{}', so there is no sky to show", cube->DisplayName );
