@@ -184,10 +184,10 @@ TEST( DerivedDataKey, ParallelPutsOfOneKeyBothSucceedAndLeaveOneWholeEntry )
     const std::string payload( 4 << 20, 'x' ); // large enough that the two writes overlap in time
     for ( int round = 0; round < 8; ++round )
     {
-        std::atomic<int>          ready{ 0 };
-        Common::BoolResultStr     first = Common::MakeError<bool>( "not run" );
-        Common::BoolResultStr     second = Common::MakeError<bool>( "not run" );
-        const auto                put = [&]( Common::BoolResultStr& out )
+        std::atomic<int>      ready{ 0 };
+        Common::BoolResultStr first  = Common::MakeError<bool>( "not run" );
+        Common::BoolResultStr second = Common::MakeError<bool>( "not run" );
+        const auto            put    = [&]( Common::BoolResultStr& out )
         {
             ready.fetch_add( 1 );
             while ( ready.load() < 2 )
@@ -230,13 +230,14 @@ TEST( DerivedDataKey, ConcurrentMissesOfOneKeyBuildOnce )
                  ready.fetch_add( 1 );
                  while ( ready.load() < kCallers )
                      std::this_thread::yield();
-                 auto r = Common::DDC::GetOrBuild( kTestDeriver, 91,
-                                                   [&]
-                                                   {
-                                                       builds.fetch_add( 1 );
-                                                       std::this_thread::sleep_for( std::chrono::milliseconds( 50 ) );
-                                                       return Common::MakeSuccess( std::string( "built once" ) );
-                                                   } );
+                 auto r =
+                      Common::DDC::GetOrBuild( kTestDeriver, 91,
+                                               [&]
+                                               {
+                                                   builds.fetch_add( 1 );
+                                                   std::this_thread::sleep_for( std::chrono::milliseconds( 50 ) );
+                                                   return Common::MakeSuccess( std::string( "built once" ) );
+                                               } );
                  got[i] = r.IsSuccess() ? r.GetValue() : "error: " + r.GetError();
              } );
     for ( auto& t : callers )
@@ -248,7 +249,8 @@ TEST( DerivedDataKey, ConcurrentMissesOfOneKeyBuildOnce )
     EXPECT_EQ( Common::DDC::Get( kTestDeriver, 91 ).value_or( "" ), "built once" );
 
     // A failed build reaches the caller and is not cached: the next call builds again.
-    auto failed = Common::DDC::GetOrBuild( kTestDeriver, 92, [] { return Common::MakeError<std::string>( "no" ); } );
+    auto failed =
+         Common::DDC::GetOrBuild( kTestDeriver, 92, [] { return Common::MakeError<std::string>( "no" ); } );
     EXPECT_FALSE( failed.IsSuccess() );
     EXPECT_FALSE( Common::DDC::Get( kTestDeriver, 92 ).has_value() );
 

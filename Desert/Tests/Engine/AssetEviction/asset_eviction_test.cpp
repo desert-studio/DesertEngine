@@ -391,7 +391,8 @@ TEST( AssetEviction, TheDefaultSurfaceTemplateSurvivesASweepWithNoRootsBecauseTh
         RecordingSink sink;
         (void)AssetEviction::Run( manager, roots, sink );
         EXPECT_TRUE( surface->IsReadyForUse() ) << "a rootless sweep released the Default Surface template";
-        EXPECT_FALSE( other->IsReadyForUse() ) << "control: the sweep released nothing, so the half above is vacuous";
+        EXPECT_FALSE( other->IsReadyForUse() )
+             << "control: the sweep released nothing, so the half above is vacuous";
     }
 
     const auto readSource = []( const char* relative )

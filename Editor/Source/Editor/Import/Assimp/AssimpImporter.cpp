@@ -99,7 +99,7 @@ namespace Desert::Editor
          */
         [[nodiscard]] Animation::FrameRate CadenceOfKeys( const aiAnimation& anim )
         {
-            const double       ticksPerSecond = anim.mTicksPerSecond != 0.0 ? anim.mTicksPerSecond : 1.0;
+            const double        ticksPerSecond = anim.mTicksPerSecond != 0.0 ? anim.mTicksPerSecond : 1.0;
             std::vector<double> seconds;
             for ( uint32_t c = 0; c < anim.mNumChannels; ++c )
             {
@@ -123,11 +123,12 @@ namespace Desert::Editor
                 return Animation::FrameRate{ 24, 1 };
             const double rate = 1.0 / finest;
             for ( const Animation::FrameRate standard :
-                  { Animation::FrameRate{ 12, 1 }, Animation::FrameRate{ 15, 1 }, Animation::FrameRate{ 24000, 1001 },
-                    Animation::FrameRate{ 24, 1 }, Animation::FrameRate{ 25, 1 }, Animation::FrameRate{ 30000, 1001 },
+                  { Animation::FrameRate{ 12, 1 }, Animation::FrameRate{ 15, 1 },
+                    Animation::FrameRate{ 24000, 1001 }, Animation::FrameRate{ 24, 1 },
+                    Animation::FrameRate{ 25, 1 }, Animation::FrameRate{ 30000, 1001 },
                     Animation::FrameRate{ 30, 1 }, Animation::FrameRate{ 48, 1 }, Animation::FrameRate{ 50, 1 },
-                    Animation::FrameRate{ 60000, 1001 }, Animation::FrameRate{ 60, 1 }, Animation::FrameRate{ 90, 1 },
-                    Animation::FrameRate{ 120, 1 } } )
+                    Animation::FrameRate{ 60000, 1001 }, Animation::FrameRate{ 60, 1 },
+                    Animation::FrameRate{ 90, 1 }, Animation::FrameRate{ 120, 1 } } )
                 if ( std::fabs( rate - standard.AsDouble() ) < standard.AsDouble() * 1.0e-3 )
                     return standard;
             return RationalFromRate( std::round( rate ) );
@@ -918,8 +919,9 @@ namespace Desert::Editor
             const Animation::FrameRate displayRate = timeIsContinuous ? CadenceOfKeys( *anim ) : sourceRate;
             animData.DisplayRate                   = { displayRate.Numerator, displayRate.Denominator };
             if ( timeIsContinuous )
-                LOG_INFO( "[Import] clip '{}': key times in seconds (glTF); authored cadence from the keys: {}/{} fps",
-                          animData.Name, displayRate.Numerator, displayRate.Denominator );
+                LOG_INFO(
+                     "[Import] clip '{}': key times in seconds (glTF); authored cadence from the keys: {}/{} fps",
+                     animData.Name, displayRate.Numerator, displayRate.Denominator );
 
             std::size_t roundedKeys   = 0;
             int64_t     worstMicro    = 0;
@@ -930,7 +932,8 @@ namespace Desert::Editor
                 // The file stores float seconds, so a key within the float's own precision counts as exact.
                 if ( std::fabs( sourceTick - std::round( sourceTick ) ) > 1.0e-6 )
                 {
-                    const double  exact   = sourceTick * Animation::PROJECT_TICK_RATE.AsDouble() / sourceRate.AsDouble();
+                    const double exact =
+                         sourceTick * Animation::PROJECT_TICK_RATE.AsDouble() / sourceRate.AsDouble();
                     const double  rounded = std::round( exact );
                     const int64_t micro   = std::llround( std::fabs( exact - rounded ) * 1.0e6 );
                     if ( micro > std::llround( std::fabs( exact ) * 0.25 ) + 1 )

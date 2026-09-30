@@ -25,7 +25,7 @@ namespace Common::DDC
         // separates processes sharing one cache (editor + cook), the sequence separates threads.
         std::filesystem::path UniqueWorkingFile( const std::filesystem::path& entry )
         {
-            static const uint64_t        salt = ( uint64_t( std::random_device{}() ) << 32 ) ^ std::random_device{}();
+            static const uint64_t salt = ( uint64_t( std::random_device{}() ) << 32 ) ^ std::random_device{}();
             static std::atomic<uint64_t> sequence{ 0 };
             std::filesystem::path        temp = entry;
             temp += std::format( ".{:016x}-{}.tmp", salt, sequence.fetch_add( 1, std::memory_order_relaxed ) );
@@ -39,7 +39,7 @@ namespace Common::DDC
             std::string Error;
         };
 
-        std::mutex                                                            s_FlightsMutex;
+        std::mutex                                                         s_FlightsMutex;
         std::unordered_map<std::string, std::shared_future<FlightOutcome>> s_Flights;
 
         void EndFlight( const std::string& flightId )
