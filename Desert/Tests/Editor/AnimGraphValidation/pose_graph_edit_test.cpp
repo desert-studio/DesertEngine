@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -34,7 +35,7 @@ namespace
         std::filesystem::path prefix = ".";
         for ( int up = 0; up < 6 && !std::filesystem::exists( prefix / relative ); ++up )
             prefix /= "..";
-        std::ifstream      in( prefix / relative );
+        const std::ifstream in( prefix / relative );
         std::ostringstream text;
         text << in.rdbuf();
         return text.str();
@@ -124,7 +125,8 @@ TEST( PoseGraphEdit, AWireThatClosesALoopIsRefusedAndNamesTheLoop )
     const auto loop = EG::ConnectPose( graph.Nodes, b, a, 0 );
     ASSERT_FALSE( loop.IsSuccess() );
     EXPECT_NE( loop.GetError().find( "cycle" ), std::string::npos ) << loop.GetError();
-    EXPECT_NE( loop.GetError().find( a + " -> " + b + " -> " + a ), std::string::npos ) << loop.GetError();
+    EXPECT_NE( loop.GetError().find( std::format( "{0} -> {1} -> {0}", a, b ) ), std::string::npos )
+         << loop.GetError();
     EXPECT_TRUE( G::FindNode( graph, a )->PoseInputs[0].empty() ) << "a refused wire must not be made";
 
     EXPECT_FALSE( EG::ConnectPose( graph.Nodes, a, a, 1 ).IsSuccess() ) << "a node wired into itself";

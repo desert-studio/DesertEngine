@@ -9,6 +9,8 @@
 
 #include <gtest/gtest.h>
 
+#include <optional>
+
 namespace G  = Desert::Animation::Graph;
 namespace EG = Desert::Editor::Graph;
 using Desert::Editor::AnimGraphEditTransaction;
@@ -56,7 +58,7 @@ TEST( AnimGraphUndo, AnAddedNodeUndoesToTheBytesItHadBefore )
     AnimGraphEditTransaction tx;
     const std::string        before = G::Serialize( f.graph );
     {
-        AnimGraphEditTransaction::Scope scope( tx, f.Owner() );
+        const AnimGraphEditTransaction::Scope scope( tx, f.Owner() );
         ASSERT_TRUE( EG::AddPoseNode( f.graph, f.graph.Nodes, G::PoseNodeKind::SequencePlayer, G::GraphScope::Host,
                                       0.0f, 0.0f, "Walk" )
                           .IsSuccess() );
@@ -75,7 +77,7 @@ TEST( AnimGraphUndo, AScopeThatChangedNothingPushesNothing )
     Fixture                  f;
     AnimGraphEditTransaction tx;
     {
-        AnimGraphEditTransaction::Scope scope( tx, f.Owner() );
+        const AnimGraphEditTransaction::Scope scope( tx, f.Owner() );
     }
     EXPECT_TRUE( CommandHistory::Get().UndoStack().empty() );
 }
@@ -125,18 +127,25 @@ TEST( AnimGraphUndo, ParametersStatesAndSettingsAreOneEntryEach )
 {
     Fixture                  f;
     AnimGraphEditTransaction tx;
-    f.graph.Nodes.push_back( G::PoseNode{ .Name = "Machine", .Machine = G::StateMachine{} } );
+    G::PoseNode              machineNode;
+    machineNode.Name    = "Machine";
+    machineNode.Machine = G::StateMachine{};
+    f.graph.Nodes.push_back( machineNode );
     f.graph.OutputPose       = "Machine";
     const std::string before = G::Serialize( f.graph );
     {
-        AnimGraphEditTransaction::Scope scope( tx, f.Owner() );
+        const AnimGraphEditTransaction::Scope scope( tx, f.Owner() );
         f.graph.Parameters.push_back( G::Parameter{ .Name = "Speed" } );
     }
     {
-        AnimGraphEditTransaction::Scope scope( tx, f.Owner() );
-        G::State                        state;
-        state.Name = EG::MakeUniqueStateName( f.graph.Nodes.back().Machine->States, "State", -1 );
-        f.graph.Nodes.back().Machine->States.push_back( state );
+        const AnimGraphEditTransaction::Scope scope( tx, f.Owner() );
+        std::optional<G::StateMachine>&       added = f.graph.Nodes.back().Machine;
+        if ( !added )
+            FAIL() << "the machine node lost its machine";
+        G::StateMachine& machine = *added;
+        G::State         state;
+        state.Name = EG::MakeUniqueStateName( machine.States, "State", -1 );
+        machine.States.push_back( state );
     }
     EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 2u );
     ASSERT_TRUE( CommandHistory::Get().Undo() );
@@ -147,8 +156,12 @@ TEST( AnimGraphUndo, ParametersStatesAndSettingsAreOneEntryEach )
 TEST( AnimGraphUndo, ANestedMachineIsPlannedOnItsOwnStates )
 {
     G::StateMachine machine;
-    machine.States.push_back( G::State{ .Name = "A" } );
-    machine.States.push_back( G::State{ .Name = "B" } );
+    for ( const char* name : { "A", "B" } )
+    {
+        G::State state;
+        state.Name = name;
+        machine.States.push_back( state );
+    }
     EG::ElementIdMap ids;
     const auto       canvas = EG::PlanStateMachine( machine.States, ids );
     EXPECT_EQ( canvas.StateNodes.size(), 2u );

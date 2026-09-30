@@ -44,8 +44,8 @@ namespace Desert::ECS
         if ( wanted.IsNull() )
         {
             uint64_t   value = 0;
-            const auto end   = binding.Locator.data() + binding.Locator.size();
-            const auto read  = std::from_chars( binding.Locator.data(), end, value );
+            const auto* const end   = binding.Locator.data() + binding.Locator.size();
+            const auto        read  = std::from_chars( binding.Locator.data(), end, value );
             if ( read.ec != std::errc() || read.ptr != end || value == 0 )
                 return std::nullopt;
             wanted = Common::UUID( value );
@@ -78,7 +78,10 @@ namespace Desert::ECS
         {
             const bool* visible = std::get_if<bool>( &value );
             if ( visible == nullptr )
-                return refuse();
+            {
+                refuse();
+                return;
+            }
             auto& component   = m_Registry.has<VisibilityComponent>( entity )
                                      ? m_Registry.get<VisibilityComponent>( entity )
                                      : m_Registry.emplace<VisibilityComponent>( entity );
@@ -97,7 +100,10 @@ namespace Desert::ECS
         {
             const auto* bone = std::get_if<Animation::BoneTransform>( &value );
             if ( bone == nullptr )
-                return refuse();
+            {
+                refuse();
+                return;
+            }
             transform.Translation = bone->Translation;
             transform.Rotation    = glm::eulerAngles( bone->Rotation );
             transform.Scale       = bone->Scale;
@@ -106,14 +112,20 @@ namespace Desert::ECS
         {
             const auto* vector = std::get_if<glm::vec3>( &value );
             if ( vector == nullptr )
-                return refuse();
+            {
+                refuse();
+                return;
+            }
             ( property == "Scale" ? transform.Scale : transform.Translation ) = *vector;
         }
         else if ( property == "Rotation" )
         {
             const auto* rotation = std::get_if<glm::quat>( &value );
             if ( rotation == nullptr )
-                return refuse();
+            {
+                refuse();
+                return;
+            }
             transform.Rotation = glm::eulerAngles( *rotation );
         }
         else
@@ -135,7 +147,7 @@ namespace Desert::ECS
         const entt::entity entity = EntityOf( *camera );
         if ( !m_Registry.valid( entity ) || !m_Registry.has<CameraComponent>( entity ) )
         {
-            m_Refusals.push_back( "Camera Cut: the bound entity has no Camera component" );
+            m_Refusals.emplace_back( "Camera Cut: the bound entity has no Camera component" );
             m_CameraCut.reset();
             return;
         }
@@ -194,7 +206,7 @@ namespace Desert::ECS
                 state.TargetBeforeCut = current;
                 state.CutInForce      = true;
             }
-            return *step.CameraCut;
+            return step.CameraCut;
         }
         if ( !state.CutInForce )
             return std::nullopt;

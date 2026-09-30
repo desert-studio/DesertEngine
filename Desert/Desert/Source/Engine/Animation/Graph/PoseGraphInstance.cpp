@@ -25,6 +25,12 @@ namespace Desert::Animation::Graph
             return ratio;
         }
 
+        /// The node's Layered Blend Per Bone payload, or null for a node without one (the planner refuses it).
+        const LayeredBlendPerBoneNode* LayeredBlendOf( const PoseNode& node )
+        {
+            return node.LayeredBlend ? &*node.LayeredBlend : nullptr;
+        }
+
         /// The implementation linked for `node`'s layer, if a table is given and one is linked. A node without
         /// its payload (the planner refuses one) has nothing to look up.
         std::optional<size_t> FindLinked( const PoseGraphSources& sources, const PoseNode& node )
@@ -204,10 +210,11 @@ namespace Desert::Animation::Graph
                     }
                     // DISCARDED DELIBERATELY: Bind sized the table against this skeleton and the plan fixed the
                     // layer count, so the node's size checks cannot fail; were one to, the base shows.
-                    if ( !node.LayeredBlend || !BlendLayeredPerBone( *node.LayeredBlend, m_Tables[n], skeleton,
-                                                                     m_Poses[static_cast<size_t>( wired[0] )],
-                                                                     m_LayerScratch, m_WeightScratch, pose ) )
-                        pose = m_Poses[static_cast<size_t>( wired[0] )];
+                    const GraphPose&               base  = m_Poses[static_cast<size_t>( wired[0] )];
+                    const LayeredBlendPerBoneNode* blend = LayeredBlendOf( node );
+                    if ( blend == nullptr || !BlendLayeredPerBone( *blend, m_Tables[n], skeleton, base,
+                                                                   m_LayerScratch, m_WeightScratch, pose ) )
+                        pose = base;
                     break;
                 }
 
@@ -357,6 +364,7 @@ namespace Desert::Animation::Graph
             return Common::MakeError<bool>(
                  std::format( "the default layers '{}' implements itself: {}", host.Name, built.GetError() ) );
         std::vector<LayerCalls> calls;
+        calls.reserve( defaults.size() );
         for ( const Layer& l : defaults )
             calls.push_back( { l.Interface, l.Name, CalledLayers( l.Instance.Graph().Nodes ) } );
         if ( std::string cycle = LayerCycle( calls ); !cycle.empty() )
@@ -387,13 +395,17 @@ namespace Desert::Animation::Graph
     Common::BoolResultStr LinkedLayerTable::BuildLayers( const AnimGraph& host, uint64_t implementationId,
                                                          const AnimGraph& implementation, const Skeleton& skeleton,
                                                          std::vector<Layer>&       linked,
-                                                         std::vector<std::string>& interfaces ) const
+                                                         std::vector<std::string>& interfaces )
     {
+        if ( !implementation.Layers )
+            return Common::MakeError<bool>(
+                 std::format( "AnimGraph '{}' implements no layer interface", implementation.Name ) );
+        const std::vector<AnimLayerGraph>& implemented = implementation.Layers->Implemented;
         // The implementation plans (a loaded file has; a graph built in code may not have been).
         if ( auto plan = PlanPoseGraph( implementation ); !plan )
             return Common::MakeError<bool>( plan.GetError() );
 
-        for ( const AnimLayerGraph& layer : implementation.Layers->Implemented )
+        for ( const AnimLayerGraph& layer : implemented )
         {
             const AnimLayerInterface* mine   = FindLayerInterface( implementation, layer.Interface );
             const AnimLayerInterface* theirs = FindLayerInterface( host, layer.Interface );
