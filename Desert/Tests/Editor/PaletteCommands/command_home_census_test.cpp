@@ -145,3 +145,31 @@ TEST( CommandHome, TheViewportKeysRunTheCommands )
     EXPECT_EQ( keys.find( "->Focus(" ), std::string::npos ) << "F frames the selection itself again";
     EXPECT_EQ( keys.find( "SelectionManager::ClearSelection" ), std::string::npos );
 }
+
+// MCP-CMD2: UE's SyncBrowserToFolders / SyncBrowserToAssets. "Select asset" reached only the open folder, so a
+// client could not reach Materials/Fox/fox_material.demat. The labels carry the path; the palette offers one per
+// folder / file under the root; Sync opens the folder and selects there, through the click's own executors.
+TEST( ContentBrowserNavigation, GoToFolderAndSyncToAssetCarryThePathAndCallTheBrowser )
+{
+    EXPECT_EQ( ContentBrowserPathLabel( kGoToFolderLabel, "Assets/Materials/Fox" ),
+               "Go to Folder Assets/Materials/Fox" );
+    EXPECT_EQ( ContentBrowserPathLabel( kSyncToAssetLabel, "Assets/Materials/Fox/fox_material.demat" ),
+               "Sync to Asset Assets/Materials/Fox/fox_material.demat" );
+
+    const std::string layer = ReadFile( kLayer );
+    EXPECT_NE( layer.find( "&FileExplorerPanel::GoToFolder" ), std::string::npos );
+    EXPECT_NE( layer.find( "&FileExplorerPanel::SyncToAsset" ), std::string::npos );
+    EXPECT_NE( layer.find( "->ContentFiles()" ), std::string::npos ) << "every file, not the open folder's";
+
+    const std::string browser = ReadFile( kFileExplorer );
+    const std::string sync    = FunctionBody( browser, "FileExplorerPanel::SyncToAsset(", "FileExplorerPanel::" );
+    EXPECT_NE( sync.find( "NavigateToPath(" ), std::string::npos );
+    EXPECT_NE( sync.find( "SelectEntry(" ), std::string::npos );
+    const std::string go = FunctionBody( browser, "FileExplorerPanel::GoToFolder(", "FileExplorerPanel::" );
+    EXPECT_NE( go.find( "NavigateToPath(" ), std::string::npos );
+
+    // Edit Thumbnail asks the kind table, not a model-or-material list (Fox.skmesh was refused).
+    const std::string run = FunctionBody( browser, "FileExplorerPanel::RunCommand(", "FileExplorerPanel::" );
+    EXPECT_NE( run.find( "HasThumbnailOrbit" ), std::string::npos );
+    EXPECT_EQ( run.find( "only a model or a material has a thumbnail orbit" ), std::string::npos );
+}

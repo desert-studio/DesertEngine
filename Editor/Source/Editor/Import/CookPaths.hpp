@@ -83,6 +83,34 @@ namespace Desert::Editor::CookPaths
     // Where an imported mesh's materials live as editable content:
     // Resources/Assets/Materials/<meshRelativeId>/<materialName>.demat.
     //
+    // A FILE A SKINNED IMPORT WRITES (SkinnedAsset's three suffixes): `.skmesh`, `.skeleton`, `.anim`. Each is its
+    // own cooked form (a picture of it is filed under the file itself), unlike a static mesh, whose `.stmesh` is
+    // an extension swap of its source (MeshAsset).
+    inline bool IsSkinnedAssetFile( const std::filesystem::path& asset )
+    {
+        const std::string extension = asset.extension().string();
+        return extension == ".skmesh" || extension == ".skeleton" || extension == ".anim";
+    }
+
+    // Whether @p asset has the NAME a skinned import of @p source writes beside it (SkinnedAsset):
+    // `<stem>.skmesh`,
+    // `<stem>.skeleton` or `<stem>_<clip>.anim` in the source's folder. The name only: a clip's name is not in the
+    // import record, so `base_Walk.anim` fits both `base.fbx` and a `base_Extra.fbx` beside it — the caller that
+    // must choose one (MeshThumbnailHome) takes the longest stem.
+    inline bool IsSkinnedAssetOf( const std::filesystem::path& source, const std::filesystem::path& asset )
+    {
+        if ( asset.parent_path() != source.parent_path() )
+            return false;
+        const std::string stem = source.stem().string();
+        const std::string name = asset.filename().string();
+        if ( name == stem + ".skmesh" || name == stem + ".skeleton" )
+            return true;
+        const std::string prefix = stem + "_";
+        const std::string suffix = ".anim";
+        return name.size() > prefix.size() + suffix.size() && name.starts_with( prefix ) &&
+               name.ends_with( suffix );
+    }
+
     // Both the writer (ImportManager::SerializeMaterialAsset) and the reader that registers them after a
     // drag-drop (MeshDnD) call THIS — they used to spell `MATERIAL_PATH / stem` separately, which is two
     // places obliged to agree with nothing checking that they do.

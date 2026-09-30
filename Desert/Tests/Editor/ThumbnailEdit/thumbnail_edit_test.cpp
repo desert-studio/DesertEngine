@@ -7,7 +7,9 @@
 
 #include <gtest/gtest.h>
 
+#include <Editor/Import/CookPaths.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
+#include <Editor/Widgets/ThumbnailProducers.hpp>
 #include <Editor/Widgets/ThumbnailOrbitEdit.hpp>
 #include <Editor/Widgets/ThumbnailPreview.hpp>
 
@@ -133,6 +135,39 @@ TEST( ThumbnailPreviewKey, ThePreviewIsFiledApartFromTheCachedThumbnail )
     EXPECT_EQ( Key::PreviewPath( asset ), Key::PreviewPath( asset ) );
     const auto cacheDir = std::filesystem::path( Key::DiskPath( asset ) ).parent_path();
     EXPECT_NE( std::filesystem::path( Key::PreviewPath( asset ) ).parent_path(), cacheDir );
+}
+
+// MCP-CMD2: UE offers Edit Thumbnail on every class whose picture is shot through an orbit camera — a skeletal
+// mesh, a skeleton and an animation as much as a static mesh or a material. The live check was refused on
+// Fox.skmesh as "not a model".
+TEST( ThumbnailOrbitKinds, EveryRenderedPictureHasAnOrbitAndNoOtherDoes )
+{
+    using Desert::Editor::FileType;
+    namespace TP = Desert::Editor::ThumbnailProducers;
+    for ( const FileType type : { FileType::Model, FileType::Material, FileType::SkinnedMesh, FileType::Skeleton,
+                                  FileType::Animation, FileType::FoliageType } )
+        EXPECT_TRUE( TP::HasThumbnailOrbit( type ) ) << static_cast<int>( type );
+    for ( const FileType type : { FileType::Texture, FileType::Cloud, FileType::Skybox, FileType::Scene } )
+        EXPECT_FALSE( TP::HasThumbnailOrbit( type ) ) << static_cast<int>( type );
+}
+
+// A posed picture's orbit lives in the record of the skinned source whose import wrote the file
+// (MeshThumbnailHome): the name rule that finds it.
+TEST( ThumbnailOrbitKinds, ASkinnedImportsFilesAreFoundByTheirSourcesName )
+{
+    namespace CP = Desert::Editor::CookPaths;
+    const std::filesystem::path fox = "Assets/Meshes/Fox.glb";
+    EXPECT_TRUE( CP::IsSkinnedAssetOf( fox, "Assets/Meshes/Fox.skmesh" ) );
+    EXPECT_TRUE( CP::IsSkinnedAssetOf( fox, "Assets/Meshes/Fox.skeleton" ) );
+    EXPECT_TRUE( CP::IsSkinnedAssetOf( fox, "Assets/Meshes/Fox_Walk.anim" ) );
+    EXPECT_FALSE( CP::IsSkinnedAssetOf( fox, "Assets/Meshes/Fox_.anim" ) ) << "a clip has a name";
+    EXPECT_FALSE( CP::IsSkinnedAssetOf( fox, "Assets/Meshes/Foxy.skmesh" ) );
+    EXPECT_FALSE( CP::IsSkinnedAssetOf( fox, "Assets/Other/Fox.skmesh" ) ) << "written beside the source only";
+    EXPECT_FALSE( CP::IsSkinnedAssetOf( fox, "Assets/Meshes/Fox.stmesh" ) );
+    EXPECT_TRUE( CP::IsSkinnedAssetFile( "a/Fox.skmesh" ) );
+    EXPECT_TRUE( CP::IsSkinnedAssetFile( "a/Fox_Walk.anim" ) );
+    EXPECT_FALSE( CP::IsSkinnedAssetFile( "a/Fox.stmesh" ) );
+    EXPECT_FALSE( CP::IsSkinnedAssetFile( "a/Fox.glb" ) );
 }
 
 int main( int argc, char** argv )

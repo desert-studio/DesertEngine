@@ -5,6 +5,9 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <format>
+#include <string>
+#include <string_view>
 
 namespace Desert::Editor
 {
@@ -27,6 +30,17 @@ namespace Desert::Editor
     };
 
     inline constexpr std::string_view kContentBrowserContext = "Content Browser";
+
+    // THE NAVIGATION COMMANDS (UE: SyncBrowserToFolders / SyncBrowserToAssets). Not rows of the table below: each
+    // carries its argument in its label, one entry per folder / file under the browser's root
+    // (FileExplorerPanel::GoToFolder / SyncToAsset), "Go to Folder <path>", "Sync to Asset <path>".
+    inline constexpr std::string_view kGoToFolderLabel  = "Go to Folder";
+    inline constexpr std::string_view kSyncToAssetLabel = "Sync to Asset";
+
+    [[nodiscard]] inline std::string ContentBrowserPathLabel( std::string_view verb, std::string_view path )
+    {
+        return std::format( "{} {}", verb, path );
+    }
 
     // Indexed by ContentBrowserCommand; kContentBrowserCommandOrder is the same order, checked below.
     inline constexpr std::array<UICommandInfo, 8> kContentBrowserCommandInfos{ {

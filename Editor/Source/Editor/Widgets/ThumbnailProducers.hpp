@@ -96,6 +96,17 @@ namespace Desert::Editor::ThumbnailProducers
         return std::nullopt;
     }
 
+    /// UE "EDIT THUMBNAIL" IS OFFERED FOR EVERY KIND WHOSE PICTURE IS SHOT THROUGH AN ORBIT CAMERA (UE: every
+    /// class whose thumbnail renderer reads a USceneThumbnailInfo — a static mesh, a skeletal mesh, a skeleton, an
+    /// animation, a material): a rendered mesh, a posed skinned asset, a material. A decoded, painted or dome-sky
+    /// picture has no orbit to edit.
+    [[nodiscard]] constexpr bool HasThumbnailOrbit( FileType type )
+    {
+        const std::optional<Producer> how = ProducerOf( type );
+        return how && ( *how == Producer::RenderedMesh || *how == Producer::RenderedPose ||
+                        *how == Producer::RenderedMaterial );
+    }
+
     /// The whole chain for one file: its extension, the kind the browser types it as, that kind's producer.
     /// nullopt only for a kind with no row — the same census failure ProducerOf reports.
     [[nodiscard]] inline std::optional<Producer> ProducerOfPath( std::string_view path )

@@ -4603,15 +4603,15 @@ namespace Desert::Editor
             }
             // UE "Edit Thumbnail" in steps, for the selected models and materials (the tile's drag is the free
             // form). The file name addresses the entry: the selection lives in one folder, so it is unique.
-            for ( const std::string& path : m_FileExplorerPanel->SelectedThumbnailSubjects() )
+            for ( const auto& subject : m_FileExplorerPanel->SelectedThumbnailSubjects() )
             {
-                const std::string file = std::filesystem::path( path ).filename().string();
+                const std::string file = std::filesystem::path( subject.Asset ).filename().string();
                 for ( const Editor::ThumbnailEdit::OrbitStep step : Editor::ThumbnailEdit::kOrbitSteps )
                     commands.push_back( { "Assets",
                                           std::format( "Edit Thumbnail: {} {}", file,
                                                        Editor::ThumbnailEdit::OrbitStepName( step ) ),
                                           std::bind_front( &Editor::ThumbnailEdit::EditOrbitStep,
-                                                           std::filesystem::path( path ), step ) } );
+                                                           std::filesystem::path( subject.OrbitFile ), step ) } );
             }
         }
 
@@ -6250,6 +6250,21 @@ namespace Desert::Editor
                                       std::string( Editor::CommandInfo( command ).Label ),
                                       std::bind_front( &FileExplorerPanel::RunCommand,
                                                        std::to_address( m_FileExplorerPanel ), command ) } );
+        // UE's SyncBrowserToFolders / SyncBrowserToAssets: the label carries the path (as "Select asset <path>"
+        // does), one entry per folder / file under the browser's root, so a client reaches any asset.
+        if ( m_FileExplorerPanel != nullptr )
+        {
+            for ( const std::string& folder : m_FileExplorerPanel->ContentFolders() )
+                commands.push_back( { std::string( Editor::kContentBrowserContext ),
+                                      Editor::ContentBrowserPathLabel( Editor::kGoToFolderLabel, folder ),
+                                      std::bind_front( &FileExplorerPanel::GoToFolder,
+                                                       std::to_address( m_FileExplorerPanel ), folder ) } );
+            for ( const std::string& file : m_FileExplorerPanel->ContentFiles() )
+                commands.push_back( { std::string( Editor::kContentBrowserContext ),
+                                      Editor::ContentBrowserPathLabel( Editor::kSyncToAssetLabel, file ),
+                                      std::bind_front( &FileExplorerPanel::SyncToAsset,
+                                                       std::to_address( m_FileExplorerPanel ), file ) } );
+        }
         for ( const float scale : { 0.01f, 0.1f, 1.0f, 10.0f, 100.0f } )
             commands.push_back( { "Assets", std::format( "Import Settings: Uniform Scale {}", scale ),
                                   [overSelectedAssets, scale]

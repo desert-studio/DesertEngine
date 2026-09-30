@@ -288,6 +288,35 @@ namespace Desert::Editor
                 found.erase( it );
             }
         }
+        // A skinned import's file (`.skmesh`, `.skeleton`, `<stem>_<clip>.anim`, SkinnedAsset): the record of the
+        // skinned source beside it whose name wrote it; of two that fit an `.anim`, the longer stem (the nearer
+        // name). A static record never wrote one.
+        if ( CookPaths::IsSkinnedAssetFile( meshFile ) )
+        {
+            std::optional<std::filesystem::path> best;
+            for ( const auto& entry : std::filesystem::directory_iterator( meshFile.parent_path(), ec ) )
+            {
+                if ( !Common::Content::IsImportRecord( entry.path() ) )
+                    continue;
+                const std::filesystem::path source = entry.path().parent_path() / entry.path().stem();
+                if ( !CookPaths::IsSkinnedAssetOf( source, meshFile ) )
+                    continue;
+                const auto kind = Ser::ReadImportRecordKind( source );
+                if ( !kind )
+                    return Common::MakeError<Home>( kind.GetError() );
+                if ( kind.GetValue() == Common::Content::ContentKind::StaticMesh )
+                    continue;
+                if ( !best || source.stem().string().size() > best->stem().string().size() )
+                    best = source;
+            }
+            if ( best )
+            {
+                const std::lock_guard lock( mutex );
+                found[key] = *best;
+            }
+            return Common::MakeSuccess( Home{ best } );
+        }
+
         const std::string stem = meshFile.stem().string();
         for ( const auto& entry : std::filesystem::directory_iterator( meshFile.parent_path(), ec ) )
         {
