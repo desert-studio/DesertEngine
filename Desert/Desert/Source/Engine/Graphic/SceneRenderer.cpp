@@ -410,7 +410,6 @@ namespace Desert::Graphic
         if ( !SP_CAST( System::DeferredLightingRenderer, m_RenderSystems["DeferredLightingSystem"] )
                    ->Initialize() )
             LOG_WARN( "[SceneRenderer] Deferred lighting system unavailable." );
-        tonemapSystem->SetBloomImage( bloomSystem->GetBloomImage() );
         tonemapSystem->SetLightShaftImage( lightShaftSystem->GetShaftImage() );
         tonemapSystem->SetLensFlareImage( lensFlareSystem->GetFlareImage() );
 
@@ -1211,13 +1210,7 @@ namespace Desert::Graphic
                   UNIQUE_GET_AS( System::BackdropBlurRenderer, m_RenderSystems["BackdropBlurSystem"] ) )
             backdrop->Resize( width, height );
 
-        // Bloom recreates its (storage) mip-chain image on resize, so re-point tonemap at the new image.
-        const auto& bloomSystem = UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] );
-        bloomSystem->Resize( width, height );
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetBloomImage( bloomSystem->GetBloomImage() );
-
-        // Same contract for the light shafts: the ping-pong pair is recreated, so re-point tonemap.
+        // The light shafts recreate their ping-pong pair on resize, so re-point tonemap at the new image.
         const auto& shaftSystem = UNIQUE_GET_AS( System::LightShaftRenderer, m_RenderSystems["LightShaftSystem"] );
         shaftSystem->Resize( width, height );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )

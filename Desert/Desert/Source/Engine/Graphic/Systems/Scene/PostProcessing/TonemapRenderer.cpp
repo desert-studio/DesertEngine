@@ -1,5 +1,6 @@
 #include "TonemapRenderer.hpp"
 #include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -50,34 +51,35 @@ namespace Desert::Graphic::System
             m_Framebuffer->Resize( width, height );
     }
 
-    void TonemapRenderer::Record()
+    Common::BoolResultStr TonemapRenderer::Record( const RDG::PassContext& context, const GraphInputs& inputs )
     {
         const auto& framebuffer =
              m_TargetFramebuffer.lock(); // We call lock internally to avoid cyclic dependencies.
         if ( !framebuffer )
-        {
-            LOG_ERROR( "The framebuffer for `TonemapRenderer::Record` was destroyed or wasn't set up" );
-            return;
-        }
+            return Common::MakeError( "TonemapRenderer: the source framebuffer was destroyed or wasn't set up" );
 
-        // The bloom image / auto-exposure framebuffer always exist once created; when disabled their values
-        // (intensity 0 / auto flag off) make the contents ignored, but the descriptors stay validly bound.
-        std::shared_ptr<Image2D> bloomImage = m_BloomImage.lock();
-
+        // The auto-exposure image always exists once created; when disabled the auto flag makes its contents
+        // ignored, but the descriptor stays validly bound.
         std::shared_ptr<Image2D> avgLuminance = m_AutoExposureImage.lock();
 
         std::shared_ptr<Image2D> lightShafts = m_LightShaftImage.lock();
 
         std::shared_ptr<Image2D> lensFlare = m_LensFlareImage.lock();
 
+        const float bloomIntensity = inputs.BloomProduced ? m_BloomIntensity : 0.0f;
+
         MaterialTonemap::Params params{ m_TonemapOperator, m_Exposure,           m_Gamma,
-                                        m_BloomIntensity,  m_ExposureKey,        m_AutoExposureEnabled,
+                                        bloomIntensity,    m_ExposureKey,        m_AutoExposureEnabled,
                                         m_ChromaticBloom,  m_WhitePoint,         m_LightShaftIntensity,
                                         m_LightShaftTint,  m_LensFlareIntensity, m_LensFlareTint };
 
-        auto& renderer = Renderer::GetInstance();
-        m_MaterialTonemap->BindInputs( framebuffer->GetColorAttachmentImage(), bloomImage, avgLuminance,
-                                       lightShafts, lensFlare, params );
-        renderer.SubmitFullscreenQuad( m_Pipeline.get(), m_MaterialTonemap->GetMaterialExecutor() );
+        m_MaterialTonemap->BindInputs( framebuffer->GetColorAttachmentImage(), avgLuminance, lightShafts, lensFlare,
+                                       params );
+
+        RDG::PassBindings bindings( context );
+        bindings.Sampled( "u_BloomTexture", inputs.Bloom, RDG::Access::SampledGraphics,
+                          RDG::SubresourceRange::Mip( 0 ) );
+        return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
+                                                       m_MaterialTonemap->GetMaterialExecutor() );
     }
 } // namespace Desert::Graphic::System

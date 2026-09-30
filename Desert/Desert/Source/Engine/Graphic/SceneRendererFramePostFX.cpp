@@ -3,6 +3,7 @@
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/RenderPhaseRegistry.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -178,31 +179,33 @@ namespace Desert::Graphic
                                        const std::vector<RDG::TextureRef>& sceneColor )
     {
         auto* bloom = UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] );
-        if ( !bloom || !bloom->Prepare() )
+        if ( !bloom || sceneColor.empty() )
             return;
-        const RDG::TextureRef chain = textures.Import( bloom->GetBloomImage(), "Bloom" );
-        const uint32_t        mips  = bloom->GetMipLevels();
+        const std::optional<RDG::TextureDesc> desc = bloom->GetChainDesc();
+        if ( !desc )
+            return;
+        // A transient of this graph, sized from this frame's view; the tonemap reads its mip 0.
+        const RDG::TextureRef chain = graph.CreateTexture( *desc, "Bloom" );
+        const RDG::TextureRef scene = sceneColor.front();
+        textures.Transients.Bloom   = chain;
 
         // Downsample: scene -> mip 0 (Karis + threshold), then mip i-1 -> mip i. One node per dispatch, each
         // declaring the one mip it samples and the one it writes.
-        for ( uint32_t mip = 0; mip < mips; ++mip )
+        for ( uint32_t mip = 0; mip < desc->Mips; ++mip )
             graph.AddPass(
                  std::format( "PostFX: BloomDownsample{}", mip ), RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
                  {
                      if ( mip == 0 )
-                         ReadEach( pass, sceneColor, RDG::Access::SampledCompute );
+                         pass.Read( scene, RDG::Access::SampledCompute );
                      else
                          pass.Read( chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) );
                      pass.Write( chain, RDG::Access::StorageWrite, RDG::SubresourceRange::Mip( mip ) );
                  },
-                 [bloom, mip]( RDG::PassContext& ) -> Common::BoolResultStr
-                 {
-                     bloom->RecordDownsample( mip );
-                     return BOOLSUCCESS;
-                 } );
+                 [bloom, scene, chain, chainDesc = *desc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return bloom->RecordDownsample( context, scene, chain, chainDesc, mip ); } );
         // Upsample (additive): mip i -> mip i-1, walking back to mip 0 (read-modify-write of the target mip).
-        for ( uint32_t mip = mips - 1; mip >= 1; --mip )
+        for ( uint32_t mip = desc->Mips - 1; mip >= 1; --mip )
             graph.AddPass(
                  std::format( "PostFX: BloomUpsample{}", mip ), RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -210,11 +213,8 @@ namespace Desert::Graphic
                      pass.Read( chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip ) );
                      pass.Write( chain, RDG::Access::StorageWrite, RDG::SubresourceRange::Mip( mip - 1 ) );
                  },
-                 [bloom, mip]( RDG::PassContext& ) -> Common::BoolResultStr
-                 {
-                     bloom->RecordUpsample( mip );
-                     return BOOLSUCCESS;
-                 } );
+                 [bloom, chain, chainDesc = *desc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return bloom->RecordUpsample( context, chain, chainDesc, mip ); } );
     }
 
     void SceneRenderer::AddFrameLightShafts( RDG::Builder& graph, FrameTextures& textures,
@@ -351,11 +351,23 @@ namespace Desert::Graphic
         const System::TonemapRenderer::Inputs inputs = tonemap->GetInputs();
         const std::vector<RDG::TextureRef>    reads  = {
              textures.Import( inputs.Source, "Tonemap.Source" ),
-             textures.Import( inputs.Bloom, "Bloom" ),
              textures.Import( inputs.AutoExposure, "AutoExposure.Adapted" ),
              textures.Import( inputs.LightShafts, "LightShaft.Pong" ),
              textures.Import( inputs.LensFlare, "LensFlare" ),
         };
+        // Bloom is this graph's transient when the chain ran; otherwise the engine black texture with zero
+        // intensity (TonemapRenderer::GraphInputs), an explicit choice rather than a stale image.
+        System::TonemapRenderer::GraphInputs graphInputs{ .Bloom         = textures.Transients.Bloom,
+                                                          .BloomProduced = textures.Transients.Bloom.IsValid() };
+        if ( !graphInputs.BloomProduced )
+            graphInputs.Bloom = textures.Import(
+                 DefaultTextures::Get().Share( Core::Formats::DefaultTextureKind::Black ), "Engine.Black" );
+        if ( !graphInputs.Bloom.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] the tonemap has no bloom input (the engine black texture did not import); "
+                       "the tonemap pass is not recorded this frame" );
+            return;
+        }
         const RDG::TextureRef output = textures.Import( tonemap->GetOutputImage(), "Tonemap" );
         graph.AddPass(
              "PostFX: Tonemap", RDG::PassFlags::Raster,
@@ -364,14 +376,12 @@ namespace Desert::Graphic
                  for ( const RDG::TextureRef read : reads )
                      if ( read.IsValid() )
                          pass.Read( read, RDG::Access::SampledGraphics );
+                 pass.Read( graphInputs.Bloom, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ) );
                  // A fullscreen quad writes every pixel: the old contents are not loaded.
                  pass.ColorTarget( 0, output, RDG::LoadOp::DontCare() );
              },
-             [tonemap]( RDG::PassContext& ) -> Common::BoolResultStr
-             {
-                 tonemap->Record();
-                 return BOOLSUCCESS;
-             } );
+             [tonemap, graphInputs]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return tonemap->Record( context, graphInputs ); } );
     }
 
     void SceneRenderer::AddFrameFXAA( RDG::Builder& graph, FrameTextures& textures )

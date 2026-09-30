@@ -5,23 +5,18 @@ namespace Desert::Graphic
     MaterialTonemap::MaterialTonemap() : Material( "MaterialTonemap", "SceneComposite" )
     {
         m_GeometryTexture   = m_MaterialExecutor->GetTexture2DProperty( "u_GeometryTexture" ).get();
-        m_BloomTexture      = m_MaterialExecutor->GetTexture2DProperty( "u_BloomTexture" ).get();
         m_AvgLuminance      = m_MaterialExecutor->GetTexture2DProperty( "u_AvgLuminance" ).get();
         m_LightShaftTexture = m_MaterialExecutor->GetTexture2DProperty( "u_LightShaftTexture" ).get();
         m_LensFlareTexture  = m_MaterialExecutor->GetTexture2DProperty( "u_LensFlareTexture" ).get();
     }
 
     void MaterialTonemap::BindInputs( const std::shared_ptr<Image2D>& targetImage,
-                                      const std::shared_ptr<Image2D>& bloomImage,
                                       const std::shared_ptr<Image2D>& avgLuminance,
                                       const std::shared_ptr<Image2D>& lightShaftImage,
                                       const std::shared_ptr<Image2D>& lensFlareImage, const Params& params )
     {
         if ( m_GeometryTexture && targetImage )
             m_GeometryTexture->SetImage( targetImage.get(), RDG::Access::SampledGraphics );
-
-        if ( m_BloomTexture && bloomImage )
-            m_BloomTexture->SetImage( bloomImage.get(), RDG::Access::SampledGraphics );
 
         if ( m_AvgLuminance && avgLuminance )
             m_AvgLuminance->SetImage( avgLuminance.get(), RDG::Access::SampledGraphics );

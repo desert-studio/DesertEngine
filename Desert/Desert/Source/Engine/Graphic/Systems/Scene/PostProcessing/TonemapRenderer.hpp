@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Core/Camera.hpp>
 
 #include <Engine/Graphic/Materials/PostProcessing/MaterialTonemap.hpp>
@@ -27,7 +28,6 @@ namespace Desert::Graphic::System
         struct Inputs
         {
             std::shared_ptr<Image2D> Source; // the configured source framebuffer's colour 0
-            std::shared_ptr<Image2D> Bloom;
             std::shared_ptr<Image2D> AutoExposure;
             std::shared_ptr<Image2D> LightShafts;
             std::shared_ptr<Image2D> LensFlare;
@@ -35,8 +35,7 @@ namespace Desert::Graphic::System
         Inputs GetInputs() const
         {
             const auto source = m_TargetFramebuffer.lock();
-            return { source ? source->GetColorAttachmentImage() : nullptr, m_BloomImage.lock(),
-                     m_AutoExposureImage.lock(), m_LightShaftImage.lock(), m_LensFlareImage.lock() };
+            return { source ? source->GetColorAttachmentImage() : nullptr, m_AutoExposureImage.lock(), m_LightShaftImage.lock(), m_LensFlareImage.lock() };
         }
         // The tonemapped image, colour 0 of GetSystemFramebuffer(): the node's ColorTarget.
         std::shared_ptr<Image2D> GetOutputImage() const
@@ -44,8 +43,17 @@ namespace Desert::Graphic::System
             return m_Framebuffer ? m_Framebuffer->GetColorAttachmentImage( 0 ) : nullptr;
         }
 
+        // The graph resources one tonemap exec binds by shader name. Bloom is FrameTextures::Transients.Bloom,
+        // or the engine black texture when the bloom chain did not run this frame; then BloomProduced is false
+        // and the bloom intensity is 0 for this draw, whatever SetBloomIntensity said.
+        struct GraphInputs
+        {
+            RDG::TextureRef Bloom;
+            bool            BloomProduced = false;
+        };
         // Records the fullscreen tonemap inside the render pass the frame graph opens on GetOutputImage().
-        void Record();
+        // Called from the exec of the pass that declared @p inputs as SampledGraphics reads.
+        [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context, const GraphInputs& inputs );
 
         void Resize( uint32_t width, uint32_t height );
 
@@ -71,13 +79,7 @@ namespace Desert::Graphic::System
             m_WhitePoint = whitePoint;
         }
 
-        // The bloom result image (mip-0 of the compute bloom chain) and its strength (0 disables bloom).
-        // Tonemap samples it and adds it to the scene before tonemapping. Recreated on resize, so it is
-        // re-set by SceneRenderer after a resize.
-        void SetBloomImage( const std::shared_ptr<Image2D>& bloom )
-        {
-            m_BloomImage = bloom;
-        }
+        // The bloom strength (0 disables bloom). The bloom image itself is a graph transient (GraphInputs).
         void SetBloomIntensity( float intensity )
         {
             m_BloomIntensity = intensity;
@@ -136,7 +138,6 @@ namespace Desert::Graphic::System
         float                 m_Gamma           = 2.2f;
         float                 m_WhitePoint      = 8.0f;
 
-        std::weak_ptr<Image2D> m_BloomImage;
         float                  m_BloomIntensity = 0.0f;
         float                  m_ChromaticBloom = 0.0f;
 

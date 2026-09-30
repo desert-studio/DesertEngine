@@ -86,6 +86,13 @@ namespace Desert::Graphic
         return m_Images[index].get();
     }
 
+    std::shared_ptr<Image2D> DefaultTextures::Share( Core::Formats::DefaultTextureKind kind )
+    {
+        if ( !Resolve( kind ) )
+            return nullptr;
+        return m_Images[static_cast<std::size_t>( kind )];
+    }
+
     Common::BoolResultStr DefaultTextures::Release()
     {
         // Keep releasing after the first failure and report the first message — the same rule
