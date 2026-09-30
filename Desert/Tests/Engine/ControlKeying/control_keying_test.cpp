@@ -158,7 +158,7 @@ namespace
     {
         const int tick = part.X.Keys[i].Tick.Value;
         return part.Y.Keys[i].Tick.Value == tick && part.Z.Keys[i].Tick.Value == tick &&
-                             part.W.Keys[i].Tick.Value == tick
+                         part.W.Keys[i].Tick.Value == tick
                     ? tick
                     : INT32_MIN;
     }
@@ -177,7 +177,7 @@ namespace
     BoneTransform Sampled( const AnimationClip& clip, const Track& track, int tick )
     {
         Desert::Animation::Timeline::EvaluatedValue value;
-        const bool covered = Desert::Animation::Timeline::EvaluateTrack(
+        const bool                                  covered = Desert::Animation::Timeline::EvaluateTrack(
              track, FrameTime{ FrameNumber{ tick }, 0.0F }, clip.Sequence.TickRate, value );
         EXPECT_TRUE( covered ) << "no section covers tick " << tick;
         const auto* pose = std::get_if<BoneTransform>( &value );
@@ -573,7 +573,8 @@ TEST( ControlKeying, ANonUniformScaleKeysIntoTheScaleChannelAndReadsBack )
     // THREE FLOATS, not one. A uniform-only scale control would make two thirds of this channel
     // unauthorable while the clip was perfectly able to hold it.
     EXPECT_EQ( KeyValue( KeysOf( track ).Scale, 0 ), scale );
-    for ( const auto* component : { &KeysOf( track ).Scale.X, &KeysOf( track ).Scale.Y, &KeysOf( track ).Scale.Z } )
+    for ( const auto* component :
+          { &KeysOf( track ).Scale.X, &KeysOf( track ).Scale.Y, &KeysOf( track ).Scale.Z } )
     {
         EXPECT_EQ( component->Keys[0].Interp, KeyInterp::Cubic );
         EXPECT_EQ( component->Keys[0].Mode, TangentMode::Auto );
@@ -693,7 +694,8 @@ TEST( ControlKeying, AKeyInsertedBeforeExistingOnesStaysSorted )
     EXPECT_EQ( KeyTick( KeysOf( track ).Translation, 1 ), 40 );
     EXPECT_EQ( KeyTick( KeysOf( track ).Translation, 2 ), 70 );
     EXPECT_EQ( KeyTick( KeysOf( track ).Translation, 3 ), 100 );
-    EXPECT_FLOAT_EQ( KeyValue( KeysOf( track ).Translation, 2 ).x, 70.0F ) << "sorted by tick, values travelling with";
+    EXPECT_FLOAT_EQ( KeyValue( KeysOf( track ).Translation, 2 ).x, 70.0F )
+         << "sorted by tick, values travelling with";
 }
 
 // ── REFUSALS ────────────────────────────────────────────────────────────────────────────────────────

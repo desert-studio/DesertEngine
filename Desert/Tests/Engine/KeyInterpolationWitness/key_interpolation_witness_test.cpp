@@ -124,9 +124,10 @@ namespace
 
     /// One translation key on all three components, the shape a vec3 key had before the clip became a Sequence.
     void PushTranslationKey( Timeline::TransformChannel& channel, int32_t tick, const glm::vec3& value,
-                             Desert::Animation::KeyInterp interp,
-                             Desert::Animation::TangentMode mode = Desert::Animation::TangentMode::Auto,
-                             const glm::vec3& arrive = glm::vec3( 0.0F ), const glm::vec3& leave = glm::vec3( 0.0F ) )
+                             Desert::Animation::KeyInterp   interp,
+                             Desert::Animation::TangentMode mode   = Desert::Animation::TangentMode::Auto,
+                             const glm::vec3&               arrive = glm::vec3( 0.0F ),
+                             const glm::vec3&               leave  = glm::vec3( 0.0F ) )
     {
         Timeline::FloatChannel* components[3] = { &channel.Translation.X, &channel.Translation.Y,
                                                   &channel.Translation.Z };
@@ -183,7 +184,8 @@ TEST( KeyInterpolationWitness, TheTwoClipsDifferInExactlyOneFieldPerKey )
 
         for ( std::size_t i = 0; i < ak.size(); ++i )
         {
-            EXPECT_EQ( ak[i].Tick.Value, bk[i].Tick.Value ) << "key " << i << " is at a different time in the two clips";
+            EXPECT_EQ( ak[i].Tick.Value, bk[i].Tick.Value )
+                 << "key " << i << " is at a different time in the two clips";
             EXPECT_EQ( ak[i].Value, bk[i].Value ) << "key " << i << " holds a different value in the two clips";
             EXPECT_EQ( ak[i].ArriveTangent, bk[i].ArriveTangent );
             EXPECT_EQ( ak[i].LeaveTangent, bk[i].LeaveTangent );
@@ -284,9 +286,8 @@ TEST( KeyInterpolationWitness, InsertingAKeyAtThePlayheadRecordsTheCurveAndNotTh
     EXPECT_GT( expected, 200.0F ) << "the probe point is not on the interesting part of the curve";
 
     // The Sequence edit the Sequencer's button calls — the key lands in the section that covers the tick.
-    const auto inserted = Desert::Animation::InsertBoneKey( clip.Sequence, kBone,
-                                                            Desert::Animation::TrackChannel::Position,
-                                                            Desert::Animation::FrameNumber{ AT } );
+    const auto inserted = Desert::Animation::InsertBoneKey(
+         clip.Sequence, kBone, Desert::Animation::TrackChannel::Position, Desert::Animation::FrameNumber{ AT } );
     ASSERT_TRUE( inserted.IsSuccess() ) << inserted.GetError();
 
     const Timeline::TransformChannel* channel = ChannelOf( clip );
@@ -304,7 +305,8 @@ TEST( KeyInterpolationWitness, InsertingAKeyAtThePlayheadRecordsTheCurveAndNotTh
 
     // Inserting again on the same tick is refused: silently overwriting the key an animator is standing on
     // is not what a button called "add" does.
-    EXPECT_FALSE( Desert::Animation::InsertBoneKey( clip.Sequence, kBone, Desert::Animation::TrackChannel::Position,
+    EXPECT_FALSE( Desert::Animation::InsertBoneKey( clip.Sequence, kBone,
+                                                    Desert::Animation::TrackChannel::Position,
                                                     Desert::Animation::FrameNumber{ AT } )
                        .IsSuccess() );
 }
@@ -362,8 +364,8 @@ TEST( KeyInterpolationWitness, LiftAndApplyAreOneStatementOfWhatAChannelIs )
     Desert::Animation::RefreshTangents( channel, Desert::Animation::PROJECT_TICK_RATE );
 
     // The lift is the SAME one the auto pass uses, so the tangents it reports are the ones in the keys.
-    const auto lifted = Desert::Animation::LiftChannel( channel, Desert::Animation::TrackChannel::Position, 1 );
-    const auto& y     = channel.Translation.Y.Keys;
+    const auto  lifted = Desert::Animation::LiftChannel( channel, Desert::Animation::TrackChannel::Position, 1 );
+    const auto& y      = channel.Translation.Y.Keys;
     ASSERT_EQ( lifted.size(), y.size() );
     for ( std::size_t i = 0; i < lifted.size(); ++i )
     {
@@ -374,17 +376,20 @@ TEST( KeyInterpolationWitness, LiftAndApplyAreOneStatementOfWhatAChannelIs )
 
     // Round trip: apply what was lifted and nothing moves.
     const Timeline::VectorChannel before = channel.Translation;
-    ASSERT_TRUE( Desert::Animation::ApplyChannel( channel, Desert::Animation::TrackChannel::Position, 1, lifted ) );
+    ASSERT_TRUE(
+         Desert::Animation::ApplyChannel( channel, Desert::Animation::TrackChannel::Position, 1, lifted ) );
     for ( std::size_t i = 0; i < before.Y.Keys.size(); ++i )
     {
         EXPECT_FLOAT_EQ( channel.Translation.Y.Keys[i].Value, before.Y.Keys[i].Value );
-        EXPECT_FLOAT_EQ( channel.Translation.X.Keys[i].Value, before.X.Keys[i].Value ) << "another component moved";
+        EXPECT_FLOAT_EQ( channel.Translation.X.Keys[i].Value, before.X.Keys[i].Value )
+             << "another component moved";
     }
 
     // An edited value lands on the key it came from, and ONLY on that component.
     auto edited     = lifted;
     edited[1].Value = 777.0F;
-    ASSERT_TRUE( Desert::Animation::ApplyChannel( channel, Desert::Animation::TrackChannel::Position, 1, edited ) );
+    ASSERT_TRUE(
+         Desert::Animation::ApplyChannel( channel, Desert::Animation::TrackChannel::Position, 1, edited ) );
     EXPECT_FLOAT_EQ( channel.Translation.Y.Keys[1].Value, 777.0F );
     EXPECT_FLOAT_EQ( channel.Translation.X.Keys[1].Value, 1.0F );
     EXPECT_FLOAT_EQ( channel.Translation.Z.Keys[1].Value, -3.0F );
@@ -409,7 +414,8 @@ TEST( KeyInterpolationWitness, ApplyChannelRefusesAShapeItDoesNotMatchInsteadOfW
     auto retimed     = Desert::Animation::LiftChannel( channel, Desert::Animation::TrackChannel::Position, 0 );
     retimed[2].Tick  = Desert::Animation::FrameNumber{ 999 };
     retimed[2].Value = 42.0F;
-    EXPECT_FALSE( Desert::Animation::ApplyChannel( channel, Desert::Animation::TrackChannel::Position, 0, retimed ) )
+    EXPECT_FALSE(
+         Desert::Animation::ApplyChannel( channel, Desert::Animation::TrackChannel::Position, 0, retimed ) )
          << "a retime went through an operation that only moves values";
     EXPECT_FLOAT_EQ( channel.Translation.X.Keys[2].Value, 5.0F ) << "the refusal still wrote something";
     EXPECT_EQ( channel.Translation.X.Keys[2].Tick.Value, 48000 ) << "the refusal still retimed something";
@@ -475,7 +481,8 @@ TEST( KeyInterpolationWitness, RemovingAKeyRefreshesTheAutoTangentsItLeaves )
          << "the instrument is blind: this removal does not change the neighbour's tangent";
     for ( std::size_t i = 0; i < 3; ++i )
     {
-        EXPECT_FLOAT_EQ( channel.Translation.Y.Keys[i].ArriveTangent, reference.Translation.Y.Keys[i].ArriveTangent )
+        EXPECT_FLOAT_EQ( channel.Translation.Y.Keys[i].ArriveTangent,
+                         reference.Translation.Y.Keys[i].ArriveTangent )
              << "key " << i << " kept a tangent shaped by the removed key";
         EXPECT_FLOAT_EQ( channel.Translation.Y.Keys[i].LeaveTangent, reference.Translation.Y.Keys[i].LeaveTangent )
              << "key " << i;
