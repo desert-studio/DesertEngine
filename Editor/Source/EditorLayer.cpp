@@ -59,7 +59,6 @@
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/ProceduralCharacterFactory.hpp>
 #include <Engine/Animation/Animator.hpp>
-#include <Engine/Animation/ProceduralCharacterAnimations.hpp>
 #include <Engine/Animation/Rig/ControlHierarchy.hpp>
 #include <Engine/Animation/Rig/ControlRigStage.hpp>
 #include <Engine/Assets/AssetEviction.hpp>
@@ -5675,6 +5674,16 @@ namespace Desert::Editor
                                   (void)Editor::SceneHierarchyPanel::SpawnProceduralHumanoid( *m_MainScene );
                                   return PaletteCommandDone();
                               } } );
+        // The humanoid's mesh and clips are engine content GENERATED from the factory: run once, commit the files.
+        commands.push_back( { "Tools", "Generate Humanoid Engine Assets", []
+                              {
+                                  const auto written = Geometry::ProceduralCharacterFactory::WriteEngineAssets();
+                                  if ( !written )
+                                      return PaletteCommandOutcome( false, written.GetError() );
+                                  for ( const auto& file : written.GetValue() )
+                                      LOG_INFO( "[Humanoid] wrote engine asset '{}'", file.generic_string() );
+                                  return PaletteCommandDone();
+                              } } );
         // ADD SHAPE: the outliner's Add > Shapes, one entry per authorable primitive, through the same spawn.
         for ( const Geometry::PrimitiveType type : Geometry::kAuthorablePrimitives )
         {
@@ -10536,9 +10545,9 @@ namespace Desert::Editor
         // bottom. An AnimationComponent is attached so it animates once idle/walk/run clips are registered.
         {
             auto& body = m_MainScene->CreateNewEntity( "PlayerBody" );
-            body.AddComponent<ECS::SkinnedMeshComponent>().MeshHandle =
-                 Geometry::ProceduralCharacterFactory::GetHumanoidMesh();
-            body.AddComponent<ECS::AnimationComponent>();
+            body.AddComponent<ECS::SkinnedMeshComponent>().MeshHandle = Geometry::HumanoidMeshHandle();
+            body.AddComponent<ECS::AnimationComponent>().CurrentClip =
+                 std::string( Geometry::kHumanoidDefaultClip );
             body.GetComponent<ECS::TransformComponent>().Translation =
                  Common::Units::Metres( 1.0f ) * glm::vec3( 0.0f, -0.9f, 0.0f );
             m_MainScene->Attach( player, body );
