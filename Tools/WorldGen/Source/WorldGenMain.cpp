@@ -10,6 +10,7 @@
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <Common/Json/Json.hpp>
@@ -82,7 +83,8 @@ namespace Desert::WorldGen
             for ( const auto& p : kPresets )
                 presets += std::string( presets.empty() ? "" : ", " ) + p.Key;
             return "usage: WorldGen --out <scene.desce> [--preset <" + presets +
-                   ">] [--assets <dir>] [--project <dir>] [--cells N] [--per-cell N] [--cell-size CM] [--seed N] "
+                   ">] [--assets <dir>] [--project <dir>] [--engine-dir <dir>] [--cells N] [--per-cell N] "
+                   "[--cell-size CM] [--seed N] "
                    "[--name <scene name>] [--partition [--partition-cell CM] [--loading-range CM]] [--verify]";
         }
 
@@ -351,8 +353,12 @@ namespace Desert::WorldGen
     int RunWorldGen( const std::vector<std::string>& args, std::ostream& out, std::ostream& err )
     {
         std::string        outPath;
-        std::string        assetsRoot = "Editor/Resources/Assets";
-        std::string        projectRoot = "Editor";
+        // No defaults spelled against the working directory: an absent --project is the engine directory
+        // (Common::Constants::Path::EngineDir — the checkout's Editor/, which holds the development
+        // project; main() resolves it from the executable), and an absent --assets is that project's
+        // Resources/Assets.
+        std::string        assetsRoot;
+        std::string        projectRoot;
         std::string        presetKey  = "world";
         std::string        nameOverride;
         std::optional<int> cells;
@@ -484,6 +490,24 @@ namespace Desert::WorldGen
         if ( spec.Cells <= 0 || spec.PerCell <= 0 || spec.CellSizeCm <= 0 )
         {
             err << "WorldGen: --cells, --per-cell and --cell-size must all be positive\n";
+            return 2;
+        }
+
+        if ( projectRoot.empty() )
+            projectRoot = Common::Constants::Path::EngineDir().string();
+        if ( assetsRoot.empty() )
+        {
+            if ( projectRoot.empty() )
+            {
+                err << "WorldGen: no --assets and no --project, and no engine directory to take them from\n"
+                    << Usage() << "\n";
+                return 2;
+            }
+            assetsRoot = ( std::filesystem::path( projectRoot ) / "Resources" / "Assets" ).string();
+        }
+        if ( preset->Corpus && projectRoot.empty() )
+        {
+            err << "WorldGen: preset '" << presetKey << "' needs --project (no engine directory to default to)\n";
             return 2;
         }
 

@@ -146,10 +146,11 @@ namespace
 #endif
     }
 
-    // Restores cwd, HOME and the (global) project-root remap, whatever the test body did.
+    // Restores cwd, the engine directory, HOME and the (global) project-root remap, whatever the test body did.
     struct EnvironmentGuard
     {
-        fs::path    OldCwd  = fs::current_path();
+        fs::path OldCwd       = fs::current_path();
+        fs::path OldEngineDir = Common::Constants::Path::EngineDir();
         // NOLINTNEXTLINE(concurrency-mt-unsafe): single-threaded test fixture
         bool        HadHome = std::getenv( "HOME" ) != nullptr;
         // NOLINTNEXTLINE(concurrency-mt-unsafe): single-threaded test fixture
@@ -158,6 +159,7 @@ namespace
         {
             std::error_code ec;
             fs::current_path( OldCwd, ec );
+            Common::Constants::Path::SetEngineDir( OldEngineDir );
             // A Windows runner has no HOME until a test sets one: leaving the test's HOME behind would point
             // every later test in this process at a deleted sandbox, so an absent HOME is restored as absent.
             if ( HadHome )
@@ -224,6 +226,7 @@ TEST( PackagedContent, APackageWithoutAChunkSchemeIsRefusedByPathAndWritesNoArch
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
 
     const fs::path scheme = Common::Content::ChunkSchemePath();
@@ -260,7 +263,8 @@ TEST( PackagedContent, BuildContentPakPacksWhatTheScannersFind )
     WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     SetEnv( "HOME", base.string() ); // keep RegisterRecent out of the real user config
-    fs::current_path( proj );        // relative resource trees resolve against the editor cwd
+    fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -341,6 +345,7 @@ TEST( PackagedContent, AScriptReferenceResolvesToTheSameFileLooseAndPackaged )
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -454,6 +459,7 @@ TEST( PackagedContent, AServiceAssetReferenceResolvesToTheSameFileLooseAndPackag
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -575,6 +581,7 @@ TEST( PackagedContent, ACleanProjectPackagesComplete )
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -605,6 +612,7 @@ TEST( PackagedContent, AnAssetTheCookCannotBakeMakesThePackageIncompleteAndSaysH
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -653,6 +661,7 @@ TEST( PackagedContent, CookedArtifactsTravelFromThePackagerToTheRuntimeLookup )
     SetEnv( "HOME", base.string() );
     fs::create_directories( proj / "GameAssets" );
     fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -772,6 +781,7 @@ TEST( PackagedContent, TheCookCompilesWhatTheRuntimeWillAskFor )
     SetEnv( "HOME", base.string() );
     fs::create_directories( proj / "GameAssets" );
     fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -845,6 +855,7 @@ TEST( PackagedContent, ACookThatCannotWriteDoesNotReportTheArtifactAsCooked )
     SetEnv( "HOME", base.string() );
     fs::create_directories( proj / "GameAssets" );
     fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -891,12 +902,13 @@ TEST( PackagedContent, PackageGameProducesTheLauncherAndBinaryTheHostDescription
     WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
     WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
-    // The Runtime the packager copies. It looks one directory ABOVE the editor's cwd, which is why the
+    // The Runtime the packager copies. It looks beside the ENGINE directory (proj, here), which is why the
     // project sits inside `base` rather than being `base`.
     StageRuntimeBinary( base / "build" / "Bin" / "Release" / host.RuntimeBinary );
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -953,6 +965,7 @@ TEST( PackagedContent, AMissingRuntimeIsRefusedByNamingThisHostsOwnBuildScript )
     fs::create_directories( proj / "GameAssets" );
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -994,6 +1007,7 @@ TEST( PackagedContent, PackageGameRefusesAMissingChunkSchemeBeforeTheCookAndWrit
     WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
 
     const fs::path scheme = Common::Content::ChunkSchemePath();
@@ -1104,7 +1118,7 @@ namespace
         WriteFile( proj / "Resources" / "Fonts" / "fake.ttf", "font-body" );
         WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":)"
                                       "\"GameAssets/Scenes/level.desce\"}" );
-        // The packager looks one directory ABOVE the editor's cwd for it.
+        // The packager looks beside the engine directory (the project, in these fixtures) for it.
         StageRuntimeBinary( base / "build" / "Bin" / "Release" / runtimeBinaryName );
         return proj;
     }
@@ -1122,6 +1136,7 @@ TEST( PackagedContent, APackagedGameIsABinaryAndAnArchiveThatStartWithNoArgument
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -1194,6 +1209,7 @@ TEST( PackagedContent, TheArchiveSitsBesideThePlayerBinaryInWhicheverLayoutTheHo
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -1291,6 +1307,7 @@ TEST( PackagedContent, APackagedReleaseRecordsAManifestOfTheArchiveItActuallyShi
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -1362,6 +1379,7 @@ TEST( PackagedContent, AnUpdateBuiltAgainstTheRecordedManifestReachesThePlayerAs
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -1382,6 +1400,7 @@ TEST( PackagedContent, AnUpdateBuiltAgainstTheRecordedManifestReachesThePlayerAs
     // is kept anywhere.
     WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body-v2" );
     fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     const auto next = PackageInto( base / "out2" );
     ASSERT_TRUE( next.Success ) << next.Message;
     const fs::path second = next.PackageDir;
@@ -1429,6 +1448,7 @@ TEST( PackagedContent, APatchWithNoBaselineIsRefusedByNameAndWritesNothing )
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -1885,6 +1905,7 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -2009,6 +2030,7 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
     // ── INCREMENTAL: a second pass over unchanged sources cooks nothing ──
     Common::Utils::VFS::Unmount();
     fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Desert::Assets::ContentRegistry::Gather().IsSuccess() );
     const auto again =
@@ -2156,6 +2178,7 @@ TEST( PackagedContent, TheArchiveIsTheCookedTreeAndNothingElse )
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
+    Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
     ASSERT_TRUE( Desert::Assets::ContentRegistry::Gather().IsSuccess() );

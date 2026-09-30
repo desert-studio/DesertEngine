@@ -20,7 +20,7 @@ namespace Desert::Editor
 {
     class ImportManager;
 
-    // Asset LIBRARY browser. Each "collection" is a folder under Resources/Collections/<Pack>/ with a
+    // Asset LIBRARY browser. Each "collection" is a folder under COLLECTIONS_PATH/<Pack>/ (the project's) with a
     // `collection.json` manifest (name + items: { name, category, mesh, thumbnail }). NOT a parallel asset
     // system — items just carry a mesh SOURCE path that's emitted as a "MESH_ASSET" drag payload, so dropping
     // a card onto the Foliage panel (or anywhere that accepts meshes) cooks+uses it through the normal
@@ -49,7 +49,7 @@ namespace Desert::Editor
         void OnUIRender() override;
 
     private:
-        void Rescan();                                                  // scan Resources/Collections/*/collection.json
+        void Rescan();                                                  // scan COLLECTIONS_PATH/*/collection.json
         void DrawCollectionList();                                      // top level: the collections themselves
         void DrawCollectionContents( const LoadedCollection& coll );    // inside one collection: its meshes
         void DrawCard( const CollectionItem& item, float cardW, float imgH ); // preview + name + DnD source

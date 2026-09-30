@@ -1,20 +1,21 @@
 // TextureCook — cook named texture sources into a project's Cooked/ tree.
 //
-//   TextureCook <project.deproj> <source> [<source> ...]
-//   TextureCook <project.deproj> --emit <asset.detex> <out.tex>
+//   TextureCook <project.deproj> [--engine-dir <dir>] <source> [<source> ...]
+//   TextureCook <project.deproj> [--engine-dir <dir>] --emit <asset.detex> <out.tex>
 //
 // `--emit` writes an asset's platform data (its DDC entry, derived first if absent) to a file. It exists for
 // ONE file: Resources/Splash/Splash.tex, which the splash reads before the engine (and so the DDC) exists.
 //
-// Each <source> is a path relative to the directory the project's editor runs from (the one holding
-// `Resources/` — the tool works from the descriptor's folder, as GamePackager does), and lands where the
-// editor would put it: the `.detex` asset beside the source, its platform data in the DDC. The cook is
-// `TextureImporter::Cook` itself, so an up-to-date `.tex` is reported Fresh and not rewritten.
+// Each <source> (and each --emit path) is relative to the PROJECT's folder — the descriptor's — whatever
+// folder the shell is in (Common::Constants::Path::FullPath; the process never changes directory), and
+// lands where the editor would put it: the `.detex` asset beside the source, its platform data in the DDC. The
+// cook is `TextureImporter::Cook` itself, so an up-to-date `.tex` is reported Fresh and not rewritten.
 //
 // Exit status: 0 when every source ends with a correct `.tex` on the disk (Cooked or Fresh), 1 when any
 // did not, 2 for a command line it cannot act on. Every source gets one line on stdout saying which.
 
 #include <ToolMain.hpp>
+#include <ToolEngineDir.hpp>
 
 #include <Editor/Import/TextureImporter.hpp>
 #include <Engine/Project/ProjectContext.hpp>
@@ -33,9 +34,10 @@ namespace
     int Usage()
     {
         std::fprintf( stderr,
-                      "usage: TextureCook <project.deproj> <source> [<source> ...]\n"
-                      "       TextureCook <project.deproj> --emit <asset.detex> <out.tex>\n"
-                      "  paths are relative to the project's folder, e.g. Resources/Splash/Splash.detex\n" );
+                      "usage: TextureCook <project.deproj> [--engine-dir <dir>] <source> [<source> ...]\n"
+                      "       TextureCook <project.deproj> [--engine-dir <dir>] --emit <asset.detex> <out.tex>\n"
+                      "  paths are relative to the project's folder, e.g. Resources/Splash/Splash.detex\n"
+                      "  --engine-dir: the folder holding the engine's Resources/ (default: from this binary)\n" );
         return 2;
     }
 
@@ -74,16 +76,26 @@ int main( int argc, char** argv )
                  return 2;
              }
 
-             // Where the editor stands: engine resources resolve against the working directory.
-             fs::current_path( deproj.parent_path(), ec );
-             if ( ec )
+             // The engine directory from the executable (or --engine-dir), never from the working
+             // directory: the process stays where the shell started it (ToolEngineDir.hpp).
+             int      first = 2;
+             fs::path engineDirOverride;
+             if ( std::string( args[first] ) == "--engine-dir" )
              {
-                 std::fprintf( stderr, "TextureCook: could not work from '%s': %s\n",
-                               deproj.parent_path().string().c_str(), ec.message().c_str() );
+                 if ( count < first + 3 )
+                     return Usage();
+                 engineDirOverride = args[first + 1];
+                 first += 2;
+             }
+             if ( const std::string refused = Desert::Tools::SetEngineDirFromExecutable( engineDirOverride );
+                  !refused.empty() )
+             {
+                 std::fprintf( stderr, "TextureCook: %s\n", refused.c_str() );
                  return 2;
              }
 
              Common::Logger::LogInit();
+             Common::Logger::RelocateLogFile( deproj.parent_path() );
 
              if ( !Desert::Project::ProjectContext::Open( deproj.string(),
                                                           Desert::Project::ProjectContext::RecordInRecent::No ) )
@@ -93,34 +105,39 @@ int main( int argc, char** argv )
                  return 2;
              }
 
-             if ( std::string( args[2] ) == "--emit" )
+             // Project-relative, as the usage states (UE: FPaths::ConvertRelativePathToFull off ProjectDir).
+             const auto InProject = []( const char* path ) { return Common::Constants::Path::FullPath( path ); };
+
+             if ( std::string( args[first] ) == "--emit" )
              {
-                 if ( count != 5 )
+                 if ( count != first + 3 )
                      return Usage();
-                 const auto bytes = Desert::Editor::TextureImporter::BuildPlatformData( args[3] );
+                 const fs::path asset  = InProject( args[first + 1] );
+                 const fs::path target = InProject( args[first + 2] );
+                 const auto     bytes  = Desert::Editor::TextureImporter::BuildPlatformData( asset );
                  if ( !bytes.IsSuccess() )
                  {
                      std::fprintf( stderr, "TextureCook: %s\n", bytes.GetError().c_str() );
                      return 1;
                  }
-                 std::ofstream out( args[4], std::ios::binary | std::ios::trunc );
+                 std::ofstream out( target, std::ios::binary | std::ios::trunc );
                  out.write( bytes.GetValue().data(), static_cast<std::streamsize>( bytes.GetValue().size() ) );
                  out.close();
                  if ( !out )
                  {
-                     std::fprintf( stderr, "TextureCook: could not write '%s'\n", args[4] );
+                     std::fprintf( stderr, "TextureCook: could not write '%s'\n", target.string().c_str() );
                      return 1;
                  }
-                 std::fprintf( stdout, "TextureCook: emitted %s -> %s (%zu bytes)\n", args[3], args[4],
-                               bytes.GetValue().size() );
+                 std::fprintf( stdout, "TextureCook: emitted %s -> %s (%zu bytes)\n", asset.string().c_str(),
+                               target.string().c_str(), bytes.GetValue().size() );
                  return 0;
              }
 
              Desert::Editor::TextureImporter importer;
              int                             status = 0;
-             for ( int i = 2; i < count; ++i )
+             for ( int i = first; i < count; ++i )
              {
-                 const fs::path source = args[i];
+                 const fs::path source = InProject( args[i] );
                  if ( !fs::is_regular_file( source, ec ) )
                  {
                      std::fprintf( stderr, "TextureCook: '%s' is not a file under '%s'\n", args[i],

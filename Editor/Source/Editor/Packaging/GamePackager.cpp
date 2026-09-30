@@ -790,10 +790,13 @@ namespace Desert::Editor
         // repair П6 was opened for.
         const TargetPlatformInfo& host = HostPlatformInfo();
 
-        // 1) The Runtime binary for the chosen configuration (editor cwd is Editor/). The FILE NAME is
-        // the host's: looking for an extensionless `Runtime` on Windows could only ever fail, and it
-        // failed by naming a macOS build script in the message.
-        const fs::path  runtimeBin = fs::path( ".." ) / "build" / "Bin" / options.Config / host.RuntimeBinary;
+        // 1) The Runtime binary for the chosen configuration, where the engine's build puts it: the
+        // checkout's `build/Bin/<Config>/`, beside the engine directory (UE: EngineDir()/Binaries/<Platform>).
+        // Read off EngineDir(), never off the working directory — a packager started from anywhere finds
+        // the same binary. The FILE NAME is the host's: looking for an extensionless `Runtime` on Windows
+        // could only ever fail, and it failed by naming a macOS build script in the message.
+        const fs::path runtimeBin = Common::Constants::Path::EngineDir().parent_path() / "build" / "Bin" /
+                                    options.Config / host.RuntimeBinary;
         std::error_code ec;
         if ( !fs::exists( runtimeBin, ec ) )
             return { false,

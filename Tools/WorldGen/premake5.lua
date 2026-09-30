@@ -16,6 +16,7 @@ project "WorldGen"
 
     files {
         "Source/**.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Project/StartupLayout.cpp", -- ResolveEngineDir (Tools/Shared/ToolEngineDir.hpp)
 
         -- THE SETTINGS BLOCK, WRITTEN BY THE ENGINE'S OWN TABLE. SceneMigrator already owns the one
         -- function that turns "no Settings block" into the exact bytes the saver produces; a second copy

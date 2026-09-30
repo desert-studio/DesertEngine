@@ -42,7 +42,7 @@ namespace FbxSplit
         }
 
         // Walk up from the FBX until a directory literally named "Resources" is found. Its parent is the
-        // project working dir the engine launches from, so manifest paths come out "Resources/Mesh/...".
+        // project directory (ProjectDir) the manifest paths are relative to: "Resources/Mesh/...".
         // Returns false if there's no such ancestor (caller falls back to the FBX's own folder).
         bool FindResourcesRoot( const std::filesystem::path& fbxAbs, std::filesystem::path& resourcesDir )
         {

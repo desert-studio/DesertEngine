@@ -1,6 +1,7 @@
 // GamePackager — the artifact a PLAYER gets, produced without an editor.
 //
 //   GamePackager <project.deproj> [--config Shipping|Release|Debug] [--out <dir>] [--no-bundle]
+//                [--engine-dir <dir>]
 //
 // WHY THIS EXISTS, AND WHAT WAS WRONG WITH THE REASON IT DID NOT. Everything this repository
 // publishes is the ENGINE DROP — the editor and the tools — and only in Release. Nothing produced a
@@ -31,6 +32,7 @@
 
 #include <Common/Core/CrashHandler.hpp>
 #include <ToolMain.hpp>
+#include <ToolEngineDir.hpp>
 
 #include <Editor/Packaging/GamePackager.hpp>
 
@@ -62,7 +64,7 @@ namespace
     {
         std::fprintf( stderr, "Usage:\n"
                               "  GamePackager <project.deproj> [--config Shipping|Release|Debug]\n"
-                              "               [--out <dir>] [--no-bundle]\n"
+                              "               [--out <dir>] [--no-bundle] [--engine-dir <dir>]\n"
                               "\n"
                               "Packages the project into a self-contained game for THIS host - the player\n"
                               "binary plus one content archive - using the editor's own PackageGame(), with\n"
@@ -71,6 +73,8 @@ namespace
                               "  --config     which Runtime binary to ship. Default Shipping.\n"
                               "  --out        output directory. Default 'Build/Output' beside the project.\n"
                               "  --no-bundle  macOS: produce a plain folder instead of a .app.\n"
+                              "  --engine-dir the folder holding the engine's Resources/ (Editor/ in a\n"
+                              "               checkout). Default: derived from this executable's position.\n"
                               "\n"
                               "Exit: 0 packaged and complete, 3 packaged with cook failures, 1 refused,\n"
                               "      2 bad command line.\n" );
@@ -131,6 +135,7 @@ int main( int argc, char** argv )
 
              Desert::Editor::PackageOptions options;
              std::string                    outputDir;
+             fs::path                       engineDirOverride;
 
              // EVERY TOKEN IS RECOGNISED OR THE RUN STOPS, on the rule Editor/Core/CommandLine.hpp states
              // for the editor: an unrecognised flag that is silently dropped turns a typo into a package
@@ -152,6 +157,10 @@ int main( int argc, char** argv )
                  {
                      outputDir = args[++i];
                  }
+                 else if ( flag == "--engine-dir" && !last )
+                 {
+                     engineDirOverride = args[++i];
+                 }
                  else if ( flag == "--no-bundle" )
                  {
                      options.MacAppBundle = false;
@@ -168,16 +177,17 @@ int main( int argc, char** argv )
              if ( ec || !fs::is_regular_file( deproj, ec ) )
                  return Fail( "'" + descriptor + "' is not a .deproj file this process can read" );
 
-             // THE WORKING DIRECTORY IS PART OF THE PACKAGER'S INPUT, and pretending otherwise would make
-             // this tool work here and refuse in CI. PackageGame looks for the Runtime binary at
-             // `../build/Bin/<Config>/<name>` — RELATIVE, because the editor's own working directory is
-             // the project folder. So this stands where the editor stands. (The tests do the same:
-             // packaged_content_test.cpp sets current_path to the project before every call.)
-             fs::current_path( deproj.parent_path(), ec );
-             if ( ec )
-                 return Fail( "could not work from '" + deproj.parent_path().string() + "': " + ec.message() );
+             // THE ENGINE DIRECTORY, NOT THE WORKING DIRECTORY (ToolEngineDir.hpp). PackageGame finds the
+             // Runtime binary beside EngineDir() and every engine resource under it, and the project's
+             // content off the descriptor's folder, so the packager reads the same files from any shell.
+             if ( const std::string refused = Desert::Tools::SetEngineDirFromExecutable( engineDirOverride );
+                  !refused.empty() )
+                 return Fail( refused );
 
              Common::Logger::LogInit();
+             // engine_log.txt beside the project, which is where the incomplete-cook message below sends
+             // the reader — not in whatever folder the shell happened to be in.
+             Common::Logger::RelocateLogFile( deproj.parent_path() );
 
              // NOT in the recent-projects registry: a build machine opening a project is not a person
              // opening one, and every CI run would otherwise file its checkout at the top of somebody's
