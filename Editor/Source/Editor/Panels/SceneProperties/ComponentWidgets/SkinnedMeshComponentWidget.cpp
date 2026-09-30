@@ -10,6 +10,11 @@
 #include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Editor/Import/ImportedMeshAsset.hpp>
+#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Widgets/ThumbnailKey.hpp>
+#include <Editor/Widgets/ThumbnailPose.hpp>
+#include <Editor/Widgets/ThumbnailService.hpp>
 
 #include "Helper/MeshDetailsWidget.hpp"
 #include "MaterialsPanelComponent.hpp"
@@ -90,10 +95,9 @@ namespace Desert::Editor
         // preview says WHAT KIND of asset the slot takes, before you have read a single word of the name.
         constexpr ImU32 kSkeletalMeshTint = IM_COL32( 241, 163, 241, 255 );
 
-        // The framed preview box beside an asset slot. This panel renders nothing offscreen (one preview
-        // renderer per panel, and it belongs to the panel, not to a component row), so the box carries the
-        // asset's GLYPH rather than a fake render — and the type bar underneath when the slot is filled.
-        void DrawAssetBox( float size, const char* icon, bool filled, ImU32 tint )
+        // The framed preview box beside an asset slot: the asset's rendered thumbnail when @p picture is
+        // given (DrawMeshThumbnail), its GLYPH until then — and the type bar underneath when the slot is filled.
+        void DrawAssetBox( float size, const char* icon, bool filled, ImU32 tint, const void* picture = nullptr )
         {
             const ImVec2 at = ImGui::GetCursorScreenPos();
             ImGui::Dummy( ImVec2( size, size ) );
@@ -101,11 +105,18 @@ namespace Desert::Editor
             const ImVec2 br( at.x + size, at.y + size );
             ImDrawList*  dl = ImGui::GetWindowDrawList();
             dl->AddRectFilled( at, br, IM_COL32( 15, 15, 15, 255 ), 2.0f );
+            if ( picture )
+                dl->AddImageRounded( reinterpret_cast<ImTextureID>( const_cast<void*>( picture ) ),
+                                     ImVec2( at.x + 1.0f, at.y + 1.0f ), ImVec2( br.x - 1.0f, br.y - 1.0f ),
+                                     ImVec2( 0, 0 ), ImVec2( 1, 1 ), IM_COL32_WHITE, 2.0f );
             dl->AddRect( at, br, ImGui::GetColorU32( ImGuiCol_Border ), 2.0f );
 
-            const ImVec2 ts = ImGui::CalcTextSize( icon );
-            dl->AddText( ImVec2( at.x + ( size - ts.x ) * 0.5f, at.y + ( size - ts.y ) * 0.5f ),
-                         ImGui::GetColorU32( filled ? ImGuiCol_Text : ImGuiCol_TextDisabled ), icon );
+            if ( !picture )
+            {
+                const ImVec2 ts = ImGui::CalcTextSize( icon );
+                dl->AddText( ImVec2( at.x + ( size - ts.x ) * 0.5f, at.y + ( size - ts.y ) * 0.5f ),
+                             ImGui::GetColorU32( filled ? ImGuiCol_Text : ImGuiCol_TextDisabled ), icon );
+            }
 
             if ( filled )
                 dl->AddRectFilled( ImVec2( at.x + 1.0f, br.y - 3.0f ), ImVec2( br.x - 1.0f, br.y ), tint );
@@ -114,8 +125,41 @@ namespace Desert::Editor
 
     SkinnedMeshComponentWidget::SkinnedMeshComponentWidget(
          const std::weak_ptr<Assets::AssetManager>& assetManager )
-         : IComponentWidget( "Skinned Mesh" ), m_AssetManager( assetManager )
+         : IComponentWidget( "Skinned Mesh" ), m_AssetManager( assetManager ),
+           m_UIHelper( std::make_unique<UI::UIHelper>() )
     {
+        m_UIHelper->Init();
+    }
+
+    void SkinnedMeshComponentWidget::DrawMeshThumbnail( Assets::AssetManager& manager, const std::string& meshPath,
+                                                        const float size, const bool filled )
+    {
+        // The Content Browser tile's rule (FileExplorerPanel::DrawRenderedPoseThumbnail): the .skmesh is its own
+        // cooked form, so the picture is filed under it and judged against it. A stale or missing picture is
+        // asked for through the service — never a read of the disk cache hoping the browser walked past it
+        // (Desert/Tests/Editor/ThumbnailRequesters keeps every showing slot a requesting slot).
+        std::shared_ptr<Graphic::Image2D> thumb;
+        if ( !meshPath.empty() && !m_RefusedThumbnails.contains( meshPath ) )
+        {
+            const std::string png = ThumbnailKey::DiskPath( meshPath );
+            if ( ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
+                      png, MeshThumbnailFreshness( meshPath ) ) ) == ThumbnailFreshness::Verdict::Show )
+                thumb = m_Thumbnails.Get( png );
+            else
+            {
+                m_Thumbnails.Invalidate( png ); // the old render must not be handed back once the new one lands
+                const auto subject = ThumbnailPose::ResolvePoseSubject( manager, meshPath );
+                if ( !subject )
+                {
+                    LOG_WARN( "[Thumbnail] Skeletal Mesh slot '{}': {}", meshPath, subject.GetError() );
+                    m_RefusedThumbnails.insert( meshPath );
+                }
+                else if ( !subject.GetValue().Pending ) // read in flight: asked again next frame
+                    ThumbnailService::Get().RequestPose( subject.GetValue() );
+            }
+        }
+        const void* picture = thumb ? m_UIHelper->GetTextureID( thumb ) : nullptr;
+        DrawAssetBox( size, ICON_MDI_HUMAN, filled, kSkeletalMeshTint, picture );
     }
 
     void SkinnedMeshComponentWidget::Render( ECS::Entity& entity, ::Desert::Core::Scene* scene )
@@ -171,7 +215,9 @@ namespace Desert::Editor
             Utils::ImGuiUtilities::BeginPropertyRow( "Skeletal Mesh Asset",
                                                      "The skinned mesh asset this component renders", rowH );
 
-            DrawAssetBox( kBox, ICON_MDI_HUMAN, !emptySlot, kSkeletalMeshTint );
+            DrawMeshThumbnail( *assetManager,
+                               asset ? asset->GetMetadata().Filepath.generic_string() : std::string(), kBox,
+                               !emptySlot );
             ImGui::SameLine();
             const bool clicked =
                  Utils::ImGuiUtilities::AssetSlot( "SkinnedMeshSlot", currentMeshName.c_str(), emptySlot );

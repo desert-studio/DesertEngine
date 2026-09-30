@@ -113,6 +113,12 @@ namespace
            "FileExplorerPanel::DrawRenderedMeshThumbnail", Role::Shows, "RequestMesh",
            "the asset browser's mesh grid" },
 
+         { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkinnedMeshComponentWidget.cpp",
+           "SkinnedMeshComponentWidget::DrawMeshThumbnail", Role::Shows, "RequestPose",
+           "the Details Skeletal Mesh slot (THM-FIXB2): it drew a glyph box and asked for nothing, so a skinned "
+           "mesh had a picture in the browser and an icon beside its own slot; now the .skmesh's bind-pose "
+           "picture, asked through the same service the browser tile asks" },
+
          { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
            "FileExplorerPanel::DrawRenderedPoseThumbnail", Role::Shows, "RequestPose",
            "the asset browser's SKINNED mesh tile: the figure in its bind pose (or its clip's middle "

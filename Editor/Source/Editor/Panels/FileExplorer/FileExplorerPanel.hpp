@@ -393,6 +393,26 @@ namespace Desert::Editor
         };
         std::unordered_map<std::string, MeshSourceRead> m_MeshSourceOf;
 
+        // WHAT A RenderedMesh TILE SHOWS, by the asset its import wrote (THM-FIXB2; UE: a source file is not an
+        // asset — the picture is the imported asset's). A raw source (.fbx/.glb/.gltf/…) is pictured by what its
+        // import record says it imports as: a StaticMesh by its cooked .stmesh, a SkinnedMesh by its .skmesh in
+        // its bind pose, a Skeleton by its .skeleton on its preview mesh; clips only, or a source not imported
+        // yet (no record), keep the type icon — never "has not been cooked". Any other mesh file is its own
+        // cooked form. `Cooked` is the picture's key and freshness source; `Pose` routes it to RequestPose.
+        struct MeshPicture
+        {
+            std::string Cooked;
+            bool        Pose = false;
+        };
+        std::optional<MeshPicture> MeshPictureFor( const std::string& assetPath, FileType type );
+        // The record read, cached per source and the record's file time (a re-import rewrites it).
+        struct SourcePictureRead
+        {
+            std::filesystem::file_time_type Written;
+            std::optional<MeshPicture>      Picture;
+        };
+        std::unordered_map<std::string, SourcePictureRead> m_SourcePictureOf;
+
         // File watcher: cheap throttled poll of the current dir's entry signature -> QueueRefresh on change.
         int    m_PollCounter   = 0;
         size_t m_DirSignature  = 0;
@@ -414,7 +434,10 @@ namespace Desert::Editor
         // Same, for a mesh entry (the mesh auto-framed by its bounds).
         bool DrawRenderedMeshThumbnail( DirectoryInformation* entry, const ImVec2& size );
         // Same, for a skinned mesh in its bind pose (ThumbnailPose; the .skmesh is its own cooked form).
-        bool DrawRenderedPoseThumbnail( DirectoryInformation* entry, const ImVec2& size );
+        // @p subject is the posed asset: the entry itself, or the .skmesh/.skeleton a skinned source's import
+        // wrote.
+        bool DrawRenderedPoseThumbnail( DirectoryInformation* entry, const ImVec2& size,
+                                        const std::string& subject );
         // Same, for a file whose picture is PAINTED from its own bytes rather than rendered — the four
         // cloud formats. It asks for no handle and no renderer; see Editor/Widgets/CloudThumbnail.hpp.
         bool DrawPaintedThumbnail( DirectoryInformation* entry, const ImVec2& size );

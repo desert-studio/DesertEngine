@@ -21,6 +21,7 @@
 
 #include <Editor/Import/TextureDnD.hpp>
 #include <Editor/Import/CookPaths.hpp>
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Editor/Import/MeshMaterial.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 #include <Editor/Panels/FileExplorer/AssetTooltipLayout.hpp>
@@ -446,11 +447,10 @@ namespace Desert::Editor
                     break;
                 case Producer::RenderedMesh:
                 {
-                    const std::optional<std::string> source = MeshSourceFor( *entry );
-                    if ( !source )
+                    const std::optional<MeshPicture> picture = MeshPictureFor( entry->AssetPath, entry->Type );
+                    if ( !picture )
                         break;
-                    const std::string cooked = CookPaths::MeshAsset( *source ).generic_string();
-                    items.push_back( { ThumbnailKey::DiskPath( cooked ), cooked } );
+                    items.push_back( { ThumbnailKey::DiskPath( picture->Cooked ), picture->Cooked } );
                     break;
                 }
                 case Producer::NotYetProduced:
@@ -485,16 +485,20 @@ namespace Desert::Editor
 
         // A mesh is judged and filed by its COOKED form, as its tile does (DrawRenderedMeshThumbnail): the
         // picture is under the .stmesh and its freshness source is MeshFreshnessSource of it. A foliage type
-        // is its mesh's picture (MeshSourceFor); a .skmesh is its own cooked form.
-        const auto cookedOf = [this]( const WarmItem& item ) -> std::optional<std::string>
+        // is its mesh's picture (MeshSourceFor); a .skmesh is its own cooked form; a skinned source is the
+        // pose of the asset its import wrote (MeshPictureFor), resolved as a Pose.
+        const auto pictureOf = [this]( const WarmItem& item ) -> std::optional<MeshPicture>
         {
             if ( item.Kind == WarmKind::Pose )
-                return item.Path;
-            const std::optional<std::string> source =
-                 MeshSourceFor( item.Path, ThumbnailWarmup::FileTypeOfPath( item.Path ) );
-            if ( !source )
+                return MeshPicture{ item.Path, true };
+            return MeshPictureFor( item.Path, ThumbnailWarmup::FileTypeOfPath( item.Path ) );
+        };
+        const auto cookedOf = [&pictureOf]( const WarmItem& item ) -> std::optional<std::string>
+        {
+            const std::optional<MeshPicture> picture = pictureOf( item );
+            if ( !picture )
                 return std::nullopt;
-            return CookPaths::MeshAsset( *source ).generic_string();
+            return picture->Cooked;
         };
         const auto verdictOf = [&]( const WarmItem& item )
         {
@@ -544,8 +548,9 @@ namespace Desert::Editor
                 case WarmKind::Pose:
                 {
                     // Resolved by TickWarmMeshes by the path it reads: the cooked one.
-                    if ( const std::optional<std::string> cooked = cookedOf( item ) )
-                        m_WarmMeshesPending.push_back( { *cooked, item.Kind } );
+                    if ( const std::optional<MeshPicture> picture = pictureOf( item ) )
+                        m_WarmMeshesPending.push_back(
+                             { picture->Cooked, picture->Pose ? WarmKind::Pose : item.Kind } );
                     break;
                 }
                 case WarmKind::Painted:
@@ -1829,8 +1834,8 @@ namespace Desert::Editor
                     // written since M10 moved a mesh's thumbnail onto its cooked `.stmesh`. The ghost has
                     // been silently falling back to the type icon for every mesh ever since, which is
                     // exactly the kind of "it still works, just worse" a re-read site decays into.
-                    img = m_Thumbnails->Get(
-                         ThumbnailKey::DiskPath( CookPaths::MeshAsset( assetPath ).generic_string() ) );
+                    if ( const std::optional<MeshPicture> picture = MeshPictureFor( assetPath, entry.Type ) )
+                        img = m_Thumbnails->Get( ThumbnailKey::DiskPath( picture->Cooked ) );
                 }
             }
 
@@ -1869,7 +1874,7 @@ namespace Desert::Editor
             case Producer::RenderedMesh:
                 return DrawRenderedMeshThumbnail( entry, size );
             case Producer::RenderedPose:
-                return DrawRenderedPoseThumbnail( entry, size );
+                return DrawRenderedPoseThumbnail( entry, size, entry->AssetPath );
             case Producer::Painted:
                 return DrawPaintedThumbnail( entry, size );
             case Producer::NotYetProduced:
@@ -2008,10 +2013,16 @@ namespace Desert::Editor
         // The mapping is a pure path computation (CookPaths::MeshAsset — an extension swap, no stat), so
         // hoisting it above the freshness check costs nothing; the `exists()` gate that decides "not cooked
         // -> icon" stays where it was, below, because that one IS a filesystem question.
+        const std::optional<MeshPicture> picture = MeshPictureFor( entry->AssetPath, entry->Type );
+        if ( !picture )
+            return false; // not imported, clips only, or refused and named: the type icon
+        if ( picture->Pose )
+            return DrawRenderedPoseThumbnail( entry, size,
+                                              picture->Cooked );           // a skinned source: its import's pose
         const std::optional<std::string> source = MeshSourceFor( *entry ); // a model, or a foliage type's mesh
         if ( !source )
             return false;
-        const std::string cookedStr = CookPaths::MeshAsset( *source ).generic_string();
+        const std::string& cookedStr = picture->Cooked;
 
         const std::string pngPath = ThumbnailKey::DiskPath( cookedStr );
 
@@ -2054,7 +2065,8 @@ namespace Desert::Editor
         return false;
     }
 
-    bool FileExplorerPanel::DrawRenderedPoseThumbnail( DirectoryInformation* entry, const ImVec2& size )
+    bool FileExplorerPanel::DrawRenderedPoseThumbnail( DirectoryInformation* entry, const ImVec2& size,
+                                                       const std::string& subject )
     {
         if ( !m_UIHelper || !m_Thumbnails || !m_AssetManager )
             return false;
@@ -2062,10 +2074,10 @@ namespace Desert::Editor
             return false;
 
         // The mesh tile's rule, with the .skmesh as its own cooked form: one key, one freshness source.
-        const std::string& pngPath   = ThumbnailPngFor( entry->AssetPath );
-        const bool         haveFresh =
-             ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
-                  pngPath, MeshThumbnailFreshness( entry->AssetPath ) ) ) == ThumbnailFreshness::Verdict::Show;
+        const std::string& pngPath   = ThumbnailPngFor( subject );
+        const bool         haveFresh = ThumbnailFreshness::Judge(
+                                    ThumbnailFreshness::Observe( pngPath, MeshThumbnailFreshness( subject ) ) ) ==
+                               ThumbnailFreshness::Verdict::Show;
         if ( !haveFresh )
             m_Thumbnails->Invalidate( pngPath );
         else if ( auto img = m_Thumbnails->Get( pngPath ) )
@@ -2074,16 +2086,16 @@ namespace Desert::Editor
             return true;
         }
 
-        const auto subject = ThumbnailPose::ResolvePoseSubject( *m_AssetManager, entry->AssetPath );
-        if ( !subject )
+        const auto posed = ThumbnailPose::ResolvePoseSubject( *m_AssetManager, subject );
+        if ( !posed )
         {
-            LOG_WARN( "[Thumbnail] '{}': {}", entry->AssetPath, subject.GetError() );
+            LOG_WARN( "[Thumbnail] '{}': {}", entry->AssetPath, posed.GetError() );
             m_FailedThumbs.insert( entry->AssetPath );
             return false;
         }
-        if ( subject.GetValue().Pending )
+        if ( posed.GetValue().Pending )
             return false; // read in flight: asked again next frame
-        ThumbnailService::Get().RequestPose( subject.GetValue() );
+        ThumbnailService::Get().RequestPose( posed.GetValue() );
         return false;
     }
 
@@ -2115,6 +2127,57 @@ namespace Desert::Editor
         std::string mesh                = source.GetValue().generic_string();
         m_MeshSourceOf[assetPath] = { written, mesh };
         return mesh;
+    }
+
+    std::optional<FileExplorerPanel::MeshPicture> FileExplorerPanel::MeshPictureFor( const std::string& assetPath,
+                                                                                     const FileType     type )
+    {
+        const std::optional<std::string> source = MeshSourceFor( assetPath, type );
+        if ( !source )
+            return std::nullopt;
+        std::string extension = std::filesystem::path( *source ).extension().string();
+        std::ranges::transform( extension, extension.begin(),
+                                []( const unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
+        if ( std::ranges::find( Common::Content::kRawMeshSourceExtensions, extension ) ==
+             Common::Content::kRawMeshSourceExtensions.end() )
+            return MeshPicture{ CookPaths::MeshAsset( *source ).generic_string(), false }; // its own cooked form
+
+        std::error_code                       ec;
+        const std::filesystem::file_time_type written =
+             std::filesystem::last_write_time( Common::Content::ImportRecordPathFor( *source ), ec );
+        if ( ec )
+            return std::nullopt; // not imported yet: a source is not an asset, its tile is the type icon
+        if ( const auto it = m_SourcePictureOf.find( *source );
+             it != m_SourcePictureOf.end() && it->second.Written == written )
+            return it->second.Picture;
+
+        std::optional<MeshPicture> picture;
+        const auto                 kind = Assets::Serialization::ReadImportRecordKind( *source );
+        if ( !kind )
+        {
+            LOG_WARN( "[Thumbnail] '{}': {}", assetPath, kind.GetError() ); // once per record version (cached)
+        }
+        else
+        {
+            using Common::Content::ContentKind;
+            switch ( kind.GetValue() )
+            {
+                case ContentKind::StaticMesh:
+                    picture = MeshPicture{ CookPaths::MeshAsset( *source ).generic_string(), false };
+                    break;
+                case ContentKind::SkinnedMesh:
+                    picture = MeshPicture{ CookPaths::SkinnedAsset( *source, ".skmesh" ).generic_string(), true };
+                    break;
+                case ContentKind::Skeleton:
+                    picture =
+                         MeshPicture{ CookPaths::SkinnedAsset( *source, ".skeleton" ).generic_string(), true };
+                    break;
+                default:
+                    break; // clips only: each clip has its own tile; the source keeps its type icon
+            }
+        }
+        m_SourcePictureOf[*source] = { written, picture };
+        return picture;
     }
 
     bool FileExplorerPanel::DrawPaintedThumbnail( DirectoryInformation* entry, const ImVec2& size )
