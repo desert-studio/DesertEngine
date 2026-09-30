@@ -1587,3 +1587,128 @@ void main()
     const std::vector<Message> messages = TakeMessages();
     EXPECT_TRUE( messages.empty() ) << messages.size() << " validation message(s):" << Join( messages );
 }
+
+// A RESIZED IMPORTED IMAGE'S GRAPH HANDLE OUTLIVES THE FRAMES THAT RECORDED IT (RDG-TAILS 5).
+// VulkanImage2D::Release used to reset its graph handle at once, destroying views a frame in flight still
+// referenced. Now the handle is retired to the pool and released at the next BeginFrame of the slot it was retired
+// in. Frame 0 (slot 0) binds the old image's view and is submitted WITHOUT waiting; the image is "resized" (handle
+// retired, new image wrapped); frame 1 (slot 1) uses the new one; only after waiting for frame 0 does
+// BeginFrame(0) release the old view. Destroying it earlier is VUID-vkDestroyImageView-imageView-01026: validation
+// must stay silent.
+TEST( RenderGraphVulkan, AResizedImportedImageKeepsItsViewsUntilTheFramesUsingThemComplete )
+{
+    Gpu& gpu = GetGpu();
+    ASSERT_TRUE( gpu.Error.empty() ) << gpu.Error;
+    const VkDevice device = gpu.Device.device;
+    VulkanRdgPool  pool( gpu.Rdg, 2 );
+
+    const auto makeImage = [&]( uint32_t edge, VkImage& image, VmaAllocation& memory )
+    {
+        VkImageCreateInfo info{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+        info.imageType     = VK_IMAGE_TYPE_2D;
+        info.format        = VK_FORMAT_R8G8B8A8_UNORM;
+        info.extent        = { edge, edge, 1 };
+        info.mipLevels     = 1;
+        info.arrayLayers   = 1;
+        info.samples       = VK_SAMPLE_COUNT_1_BIT;
+        info.tiling        = VK_IMAGE_TILING_OPTIMAL;
+        info.usage         = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        VmaAllocationCreateInfo allocation{};
+        allocation.usage = VMA_MEMORY_USAGE_AUTO;
+        return vmaCreateImage( gpu.Allocator, &info, &allocation, &image, &memory, nullptr );
+    };
+    const auto wrap = [&]( VkImage image, uint32_t edge )
+    {
+        RDG::TextureDesc desc = Target();
+        desc.Size             = { edge, edge, 1 };
+        desc.Mips             = 1;
+        desc.Layers           = 1;
+        return VulkanRdgTexture::Wrap( device, image, VK_FORMAT_R8G8B8A8_UNORM, desc );
+    };
+    // One frame: clear the imported image through the graph, submit, return the fence (not waited).
+    const auto frame = [&]( uint32_t slot, const std::shared_ptr<VulkanRdgTexture>& texture, VkImage image,
+                            VkCommandBuffer& cmd, VkFence& fence )
+    {
+        VkCommandBufferAllocateInfo allocate{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+        allocate.commandPool        = gpu.CommandPool;
+        allocate.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocate.commandBufferCount = 1;
+        vkAllocateCommandBuffers( device, &allocate, &cmd );
+        VkFenceCreateInfo fenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+        vkCreateFence( device, &fenceInfo, nullptr, &fence );
+        VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer( cmd, &begin );
+        pool.BeginFrame( slot );
+        VulkanRdgBackend backend( gpu.Rdg, pool );
+        backend.SetCommandBuffer( cmd );
+        RDG::ExternalTexture external( texture->GetDesc(), RDG::Access::None );
+        external.Physical = texture;
+        RDG::Builder          graph( "resize" );
+        const RDG::TextureRef target = graph.RegisterExternal( external, "Resized" );
+        graph.AddPass(
+             "Clear", RDG::PassFlags::Copy | RDG::PassFlags::NeverCull,
+             [&]( RDG::PassBuilder& pass ) { pass.Write( target, RDG::Access::CopyDst ); },
+             [&]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 const Common::ResultStr<VkCommandBuffer> recording = VulkanRdgBackend::CommandBufferOf( context );
+                 if ( !recording )
+                     return Common::MakeError( recording.GetError() );
+                 // The view is what a descriptor would name: made here, so the retired handle owns it.
+                 const Common::ResultStr<VkImageView> view =
+                      texture->GetView( RDG::SubresourceRange{ 0, 1, 0, 1 }, false );
+                 if ( !view )
+                     return Common::MakeError( view.GetError() );
+                 const VkClearColorValue       colour{ { 0.0f, 1.0f, 0.0f, 1.0f } };
+                 const VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+                 vkCmdClearColorImage( recording.GetValue(), image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &colour,
+                                       1, &range );
+                 return Common::MakeSuccess( true );
+             } );
+        const Common::BoolResultStr executed = graph.Execute( backend );
+        vkEndCommandBuffer( cmd );
+        EXPECT_TRUE( executed ) << executed.GetError();
+        VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers    = &cmd;
+        vkQueueSubmit( gpu.Queue, 1, &submit, fence );
+    };
+
+    VkImage       oldImage  = VK_NULL_HANDLE;
+    VkImage       newImage  = VK_NULL_HANDLE;
+    VmaAllocation oldMemory = nullptr;
+    VmaAllocation newMemory = nullptr;
+    ASSERT_EQ( makeImage( 16, oldImage, oldMemory ), VK_SUCCESS );
+    ASSERT_EQ( makeImage( 32, newImage, newMemory ), VK_SUCCESS );
+
+    std::shared_ptr<VulkanRdgTexture>     handle    = wrap( oldImage, 16 );
+    const std::weak_ptr<VulkanRdgTexture> oldHandle = handle;
+    std::array<VkCommandBuffer, 2>        cmds{};
+    std::array<VkFence, 2>                fences{};
+    frame( 0, handle, oldImage, cmds[0], fences[0] );
+
+    // The resize, while frame 0 may still be executing: IVulkanImage::DropGraphTexture's path.
+    pool.Retire( std::move( handle ) );
+    EXPECT_FALSE( oldHandle.expired() ) << "retired handle released while its frame may be in flight";
+    std::shared_ptr<VulkanRdgTexture> resized = wrap( newImage, 32 );
+    frame( 1, resized, newImage, cmds[1], fences[1] );
+    EXPECT_FALSE( oldHandle.expired() ) << "another slot's BeginFrame released the handle";
+
+    // The renderer waits for slot 0's previous frame before BeginFrame(0): now the old views may go.
+    vkWaitForFences( device, 1, &fences[0], VK_TRUE, UINT64_MAX );
+    pool.BeginFrame( 0 );
+    EXPECT_TRUE( oldHandle.expired() ) << "the retired handle outlived the frame slot's next BeginFrame";
+
+    vkDeviceWaitIdle( device );
+    for ( size_t i = 0; i < cmds.size(); ++i )
+    {
+        vkFreeCommandBuffers( device, gpu.CommandPool, 1, &cmds[i] );
+        vkDestroyFence( device, fences[i], nullptr );
+    }
+    resized.reset();
+    vmaDestroyImage( gpu.Allocator, oldImage, oldMemory );
+    vmaDestroyImage( gpu.Allocator, newImage, newMemory );
+    const std::vector<Message> messages = TakeMessages();
+    EXPECT_TRUE( messages.empty() ) << messages.size() << " validation message(s):" << Join( messages );
+}

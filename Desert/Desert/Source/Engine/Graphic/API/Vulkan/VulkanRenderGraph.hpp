@@ -211,6 +211,13 @@ namespace Desert::Graphic::API::Vulkan
         // The caller has waited for @p slot's previous submission.
         void BeginFrame( uint32_t slot );
 
+        // Keeps @p texture alive until the next BeginFrame of the current slot. The caller has waited for that
+        // slot's previous submission by then, and fences are waited in submission order, so every frame that
+        // could have recorded the texture's views has completed. The engine image's graph handle goes here when
+        // the image is released or resized (IVulkanImage::DropGraphTexture), instead of destroying views a
+        // frame in flight may still reference.
+        void Retire( std::shared_ptr<RDG::IPhysicalTexture> texture );
+
         Common::ResultStr<std::shared_ptr<VulkanRdgTexture>>
         AcquireTexture( const RDG::TextureDesc& desc, uint32_t accessMask, std::string_view name );
         Common::ResultStr<std::shared_ptr<VulkanRdgBuffer>>
@@ -230,6 +237,7 @@ namespace Desert::Graphic::API::Vulkan
         {
             std::vector<Entry<VulkanRdgTexture>> Textures;
             std::vector<Entry<VulkanRdgBuffer>>  Buffers;
+            std::vector<std::shared_ptr<RDG::IPhysicalTexture>> Retired; // released at the slot's next BeginFrame
             uint64_t                             PreviousFrame = 0; // frame counter of the slot's last BeginFrame
         };
 

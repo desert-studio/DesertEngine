@@ -476,12 +476,19 @@ namespace Desert::Graphic::API::Vulkan
         m_Slot = slot % static_cast<uint32_t>( m_Slots.size() );
         ++m_Frame;
         Slot& current = m_Slots[m_Slot];
+        current.Retired.clear(); // this slot's previous frame, and every frame before it, has completed
         // Kept: whatever this slot's previous frame handed out, and whatever an extraction target still holds.
         auto stale = [&]( const auto& entry )
         { return entry.LastFrame < current.PreviousFrame && entry.Resource.use_count() == 1; };
         std::erase_if( current.Textures, stale );
         std::erase_if( current.Buffers, stale );
         current.PreviousFrame = m_Frame;
+    }
+
+    void VulkanRdgPool::Retire( std::shared_ptr<RDG::IPhysicalTexture> texture )
+    {
+        if ( texture )
+            m_Slots[m_Slot].Retired.push_back( std::move( texture ) );
     }
 
     Common::ResultStr<std::shared_ptr<VulkanRdgTexture>>

@@ -17,6 +17,10 @@ namespace Desert::Graphic::API::Vulkan
     class VulkanRendererAPI : public RendererAPI
     {
     public:
+        // An engine image's graph handle, released or resized: kept until every frame that may reference its
+        // views has completed (VulkanRdgPool::Retire). Before any graph executed, nothing references it.
+        void RetireGraphTexture( std::shared_ptr<RDG::IPhysicalTexture> texture );
+
         explicit VulkanRendererAPI( const std::shared_ptr<Window>& window ) : RendererAPI( window )
         {
         }

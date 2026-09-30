@@ -720,6 +720,12 @@ namespace Desert::Graphic::API::Vulkan
         return graph.Execute( *m_RdgBackend );
     }
 
+    void VulkanRendererAPI::RetireGraphTexture( std::shared_ptr<RDG::IPhysicalTexture> texture )
+    {
+        if ( m_RdgPool )
+            m_RdgPool->Retire( std::move( texture ) );
+    }
+
     namespace
     {
         // The graph's handle on an engine image, made once and kept by the image (VulkanImage2D::GetGraphTexture).
