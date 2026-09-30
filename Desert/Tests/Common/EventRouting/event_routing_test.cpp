@@ -183,7 +183,6 @@ TEST( EventRouting, AHandlerTakingABaseEventTypeOrNotReturningBoolIsRefused )
     static_assert( !HandlesEvent<VoidHandler, KeyPressedEvent> );
     static_assert( AcceptsEventThroughAnotherSignature<VoidHandler, KeyPressedEvent> );
     static_assert( !RoutedEvent<KeyEvent> );
-    static_assert( !RoutedEvent<Event> );
 }
 
 TEST( EventRouting, TheFocusedNodeHearsAKeyBeforeItsBackground )
@@ -674,4 +673,142 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+namespace
+{
+    struct SwapchainExtent
+    {
+        uint32_t Width  = 0;
+        uint32_t Height = 0;
+    };
+
+    struct WindowWithSwapchain
+    {
+        bool OnWindowResized( EventWindowResize& resize )
+        {
+            Swapchain = { resize.width, resize.height };
+            return false;
+        }
+        SwapchainExtent Swapchain;
+    };
+
+    struct ApplicationShape
+    {
+        EventTree           tree;
+        WindowWithSwapchain window;
+        Log                 log;
+        EventNodeId         windowNode = tree.Attach( tree.Root(), window );
+        EventNodeId         layerNode  = tree.Emplace<Probe>( windowNode, "layer", log ).Id;
+        EventNodeId         panelNode  = tree.Emplace<Probe>( layerNode, "panel", log ).Id;
+    };
+
+    struct Lives
+    {
+        bool* Alive;
+        explicit Lives( bool& alive ) : Alive( &alive )
+        {
+            alive = true;
+        }
+        ~Lives()
+        {
+            *Alive = false;
+        }
+        bool OnKeyPressed( KeyPressedEvent& )
+        {
+            return true;
+        }
+    };
+} // namespace
+
+TEST( EventRouting, AWindowResizeReachesTheSwapchainNodeWhileAPanelHoldsFocusAndClaimsIt )
+{
+    ApplicationShape app;
+    app.tree.SetFocus( app.panelNode );
+    app.tree.SetHovered( app.panelNode );
+
+    EventWindowResize resize( 1280, 720 );
+    const EventReply  reply = app.tree.Route( resize );
+
+    EXPECT_TRUE( reply.Handled );
+    EXPECT_EQ( app.window.Swapchain.Width, 1280u );
+    EXPECT_EQ( app.window.Swapchain.Height, 720u );
+    EXPECT_EQ( std::count( app.log.begin(), app.log.end(), "panel.resize" ), 1 );
+    EXPECT_EQ( std::count( app.log.begin(), app.log.end(), "layer.resize" ), 1 );
+}
+
+TEST( EventRouting, AKeyWithTheFocusInAPanelBubblesThroughItsLayerAndWindow )
+{
+    ApplicationShape app;
+    app.tree.SetFocus( app.panelNode );
+
+    auto key = APressedKey();
+    app.tree.Route( key );
+
+    const Log expected = { "layer.previewKey", "panel.previewKey", "panel.key", "layer.key" };
+    EXPECT_EQ( app.log, expected );
+}
+
+TEST( EventRouting, AnAttachedObjectBelongsToItsOwnerNotToTheTree )
+{
+    bool alive = false;
+    {
+        Lives       object( alive );
+        EventTree   tree;
+        EventNodeId node = tree.Attach( tree.Root(), object );
+        tree.SetFocus( node );
+
+        auto key = APressedKey();
+        EXPECT_TRUE( tree.Route( key ).Handled );
+        EXPECT_TRUE( tree.Remove( node ) );
+        EXPECT_TRUE( alive );
+        tree.Attach( tree.Root(), object );
+    }
+    EXPECT_FALSE( alive );
+}
+
+TEST( EventRouting, ALinkTakesItsNodeOutOfTheTreeWhenItsHolderDies )
+{
+    bool      alive = false;
+    EventTree tree;
+    {
+        Lives         object( alive );
+        EventNodeLink link( tree, tree.Attach( tree.Root(), object ) );
+        tree.SetFocus( link.Id() );
+        EXPECT_TRUE( tree.Contains( link.Id() ) );
+    }
+    auto key = APressedKey();
+    EXPECT_FALSE( tree.Route( key ).Handled );
+    EXPECT_EQ( tree.Size(), 0u );
+}
+
+TEST( EventRouting, ALinkWhoseNodeWentWithItsParentReleasesNothingElse )
+{
+    ApplicationShape app;
+    bool             alive = false;
+    Lives            object( alive );
+    EventNodeId      stranger = app.tree.Attach( app.windowNode, object );
+    {
+        EventNodeLink link( app.tree, app.tree.Attach( app.panelNode, object ) );
+        EXPECT_TRUE( app.tree.Remove( app.layerNode ) );
+        EventNodeId reused = app.tree.Attach( app.windowNode, object );
+        EXPECT_TRUE( app.tree.Contains( reused ) );
+        EXPECT_FALSE( app.tree.Contains( link.Id() ) );
+    }
+    EXPECT_TRUE( app.tree.Contains( stranger ) );
+    EXPECT_TRUE( alive );
+}
+
+TEST( EventRouting, AMovedLinkIsReleasedOnceByItsLastHolder )
+{
+    EventTree     tree;
+    bool          alive = false;
+    Lives         object( alive );
+    EventNodeLink first( tree, tree.Attach( tree.Root(), object ) );
+    const auto    id = first.Id();
+    EventNodeLink second( std::move( first ) );
+    EXPECT_FALSE( first.Id().IsSet() );
+    EXPECT_TRUE( tree.Contains( id ) );
+    second.Release();
+    EXPECT_FALSE( tree.Contains( id ) );
 }

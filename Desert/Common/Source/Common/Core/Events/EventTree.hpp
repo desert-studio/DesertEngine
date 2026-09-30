@@ -79,14 +79,20 @@ namespace Common
         EmplacedNode<T> Emplace( EventNodeId parent, Args&&... args )
         {
             T* object = new T( std::forward<Args>( args )... );
-            return { Insert<T>( parent, object ), *object };
+            return { Insert<T>( parent, object, &DestroyAs<T> ), *object };
         }
 
         template <typename T>
         EventNodeId Adopt( EventNodeId parent, std::unique_ptr<T> object )
         {
             Require( object != nullptr, "Adopt of a null object" );
-            return Insert<T>( parent, object.release() );
+            return Insert<T>( parent, object.release(), &DestroyAs<T> );
+        }
+
+        template <typename T>
+        EventNodeId Attach( EventNodeId parent, T& object )
+        {
+            return Insert<T>( parent, &object, nullptr );
         }
 
         bool Remove( EventNodeId id )
@@ -292,11 +298,18 @@ namespace Common
         }
 
         template <typename T>
-        EventNodeId Insert( EventNodeId parent, T* object )
+        static void DestroyAs( void* object )
+        {
+            delete static_cast<T*>( object );
+        }
+
+        template <typename T>
+        EventNodeId Insert( EventNodeId parent, T* object, void ( *destroy )( void* ) )
         {
             if ( !IsLive( parent ) )
             {
-                delete object;
+                if ( destroy != nullptr )
+                    destroy( object );
                 Require( false, "insertion under a node that is not in the tree" );
             }
             uint32_t index = 0;
@@ -312,7 +325,7 @@ namespace Common
             }
             Slot& slot   = m_Slots[index];
             slot.Object  = object;
-            slot.Destroy = []( void* p ) { delete static_cast<T*>( p ); };
+            slot.Destroy = destroy;
             slot.Table   = &EventHandlerTableFor<T>;
             slot.Parent  = parent.Index;
             slot.Alive   = true;
@@ -340,7 +353,7 @@ namespace Common
             for ( uint32_t child : m_Slots[index].Children )
                 Kill( child, doomed );
             Slot& slot = m_Slots[index];
-            if ( slot.Object != nullptr )
+            if ( slot.Object != nullptr && slot.Destroy != nullptr )
                 doomed.push_back( { slot.Object, slot.Destroy } );
             slot.Object = nullptr;
             slot.Alive  = false;
@@ -438,5 +451,53 @@ namespace Common
         EventNodeId                           m_Focus{};
         EventNodeId                           m_Hovered{};
         EventNodeId                           m_Capture{};
+    };
+    class EventNodeLink
+    {
+    public:
+        EventNodeLink() = default;
+        EventNodeLink( EventTree& tree, EventNodeId id ) : m_Tree( &tree ), m_Id( id )
+        {
+        }
+        ~EventNodeLink()
+        {
+            Release();
+        }
+        EventNodeLink( const EventNodeLink& )            = delete;
+        EventNodeLink& operator=( const EventNodeLink& ) = delete;
+        EventNodeLink( EventNodeLink&& other ) noexcept
+             : m_Tree( std::exchange( other.m_Tree, nullptr ) ), m_Id( std::exchange( other.m_Id, {} ) )
+        {
+        }
+        EventNodeLink& operator=( EventNodeLink&& other ) noexcept
+        {
+            if ( this != &other )
+            {
+                Release();
+                m_Tree = std::exchange( other.m_Tree, nullptr );
+                m_Id   = std::exchange( other.m_Id, {} );
+            }
+            return *this;
+        }
+
+        EventTree* Tree() const
+        {
+            return m_Tree;
+        }
+        EventNodeId Id() const
+        {
+            return m_Id;
+        }
+        void Release()
+        {
+            if ( m_Tree != nullptr )
+                m_Tree->Remove( m_Id );
+            m_Tree = nullptr;
+            m_Id   = {};
+        }
+
+    private:
+        EventTree*  m_Tree = nullptr;
+        EventNodeId m_Id{};
     };
 } // namespace Common

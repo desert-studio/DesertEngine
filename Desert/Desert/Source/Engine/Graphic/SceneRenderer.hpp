@@ -23,7 +23,6 @@
 #include <Engine/Core/Camera.hpp>
 
 #include <Common/Core/Events/WindowEvents.hpp>
-#include <Common/Core/EventRegistry.hpp>
 #include <Common/Core/Units.hpp>
 #include <Common/Settings/MachineSettings.hpp>
 

@@ -65,7 +65,6 @@ namespace Desert::Editor
         [[nodiscard]] Common::BoolResultStr OnDetach() override;
         [[nodiscard]] Common::BoolResultStr OnUpdate( const Common::Timestep& ts ) override;
         [[nodiscard]] Common::BoolResultStr OnUIRender() override;
-        void                                OnEvent( Common::Event& event ) override;
 
         // The frame is out. This is where the control channel keeps its promise: a reply leaves only
         // after a frame that already reflects the command it answers, and a `shot.window` reads that very
@@ -264,6 +263,7 @@ namespace Desert::Editor
         void DrawNewScenePopup();
         void DrawReloadScenePopup();
         void DrawProjectPopup();
+        void FollowImGuiWithEvents();
 
         void PrepareScenePopup();
         // Every .desce under the project's scenes root, recursively, sorted by the label the UI shows.

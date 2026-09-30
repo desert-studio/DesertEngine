@@ -152,7 +152,8 @@ namespace Desert::Platform::Windows
                                         auto& data = *(WindowData*)glfwGetWindowUserPointer( window );
 
                                         Common::EventWindowClose event;
-                                        data.EventCallback( event );
+                                        if ( data.Events != nullptr )
+                                            data.Events->Route( event );
                                     } );
 
         glfwSetWindowSizeCallback( m_GLFWWindow,
@@ -161,7 +162,8 @@ namespace Desert::Platform::Windows
                                        auto& data = *( (WindowData*)glfwGetWindowUserPointer( window ) );
 
                                        Common::EventWindowResize event( (uint32_t)width, (uint32_t)height );
-                                       data.EventCallback( event );
+                                       if ( data.Events != nullptr )
+                                           data.Events->Route( event );
                                        data.Specification.Width  = width;
                                        data.Specification.Height = height;
                                    } );
@@ -176,13 +178,15 @@ namespace Desert::Platform::Windows
                                     case GLFW_PRESS:
                                     {
                                         Common::KeyPressedEvent event( (Common::KeyCode)key, 0 );
-                                        data.EventCallback( event );
+                                        if ( data.Events != nullptr )
+                                            data.Events->Route( event );
                                         break;
                                     }
                                     case GLFW_REPEAT:
                                     {
                                         Common::KeyPressedEvent event( (Common::KeyCode)key, 1 );
-                                        data.EventCallback( event );
+                                        if ( data.Events != nullptr )
+                                            data.Events->Route( event );
                                         break;
                                     }
                                 }
@@ -199,7 +203,8 @@ namespace Desert::Platform::Windows
                                      dropped.emplace_back( paths[i] );
 
                                  Common::EventWindowFileDrop event( std::move( dropped ) );
-                                 data.EventCallback( event );
+                                 if ( data.Events != nullptr )
+                                     data.Events->Route( event );
                              } );
 
         glfwSetMouseButtonCallback( m_GLFWWindow,
@@ -213,13 +218,15 @@ namespace Desert::Platform::Windows
                                             {
                                                 Common::MouseButtonPressedEvent event(
                                                      (Common::MouseButton)button );
-                                                data.EventCallback( event );
+                                                if ( data.Events != nullptr )
+                                                    data.Events->Route( event );
                                                 break;
                                             }
                                                 /* case GLFW_RELEASE:
                                                  {
                                                      Common::MouseButtonReleasedEvent event( button );
-                                                     data.EventCallback( event );
+                                                     if ( data.Events != nullptr )
+                    data.Events->Route( event );
                                                      break;
                                                  }*/
                                         }
@@ -364,20 +371,6 @@ namespace Desert::Platform::Windows
     Common::BoolResultStr WindowsWindow::PrepareNextFrame() const
     {
         return EngineContext::GetInstance().GetRendererContext()->BeginFrame();
-    }
-
-    void WindowsWindow::OnEvent( Common::Event& e )
-    {
-        Common::EventManager eventManager( e );
-        eventManager.Notify<Common::EventWindowResize>( [this]( Common::EventWindowResize& e )
-                                                        { return this->OnEventWindowResize( e ); } );
-    }
-
-    bool WindowsWindow::OnEventWindowResize( Common::EventWindowResize& e )
-    {
-        m_SwapChain->OnResize( e.width, e.height );
-
-        return false;
     }
 
     Common::ResultStr<bool> WindowsWindow::SetupSwapChain()

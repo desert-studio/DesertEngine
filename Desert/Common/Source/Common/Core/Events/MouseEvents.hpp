@@ -8,7 +8,7 @@
 namespace Common
 {
 
-    class MouseMovedEvent : public Event
+    class MouseMovedEvent
     {
     public:
         DESERT_ROUTED_EVENT( MouseMovedEvent, MouseMoved, Pointer )
@@ -26,20 +26,11 @@ namespace Common
             return m_MouseY;
         }
 
-        virtual EventType GetEventType() const
-        {
-            return GetStaticType();
-        }
-        static EventType GetStaticType()
-        {
-            return EventType::MouseMoved;
-        }
-
     private:
         float m_MouseX, m_MouseY;
     };
 
-    class MouseScrolledEvent : public Event
+    class MouseScrolledEvent
     {
     public:
         DESERT_ROUTED_EVENT( MouseScrolledEvent, MouseScrolled, Pointer )
@@ -57,20 +48,11 @@ namespace Common
             return m_YOffset;
         }
 
-        virtual EventType GetEventType() const
-        {
-            return GetStaticType();
-        }
-        static EventType GetStaticType()
-        {
-            return EventType::MouseScroll;
-        }
-
     private:
         float m_XOffset, m_YOffset;
     };
 
-    class MouseButtonEvent : public Event
+    class MouseButtonEvent
     {
     public:
         inline MouseButton GetMouseButton() const
@@ -93,15 +75,6 @@ namespace Common
 
         explicit MouseButtonPressedEvent( MouseButton button ) : MouseButtonEvent( button )
         {
-        }
-
-        virtual EventType GetEventType() const
-        {
-            return GetStaticType();
-        }
-        static EventType GetStaticType()
-        {
-            return EventType::MousePressed;
         }
     };
 

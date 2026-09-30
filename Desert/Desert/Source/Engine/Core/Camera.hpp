@@ -1,16 +1,11 @@
 #pragma once
 
-#include <Common/Core/Events/Event.hpp>
-#include <Common/Core/Events/KeyEvents.hpp>
-#include <Common/Core/Events/MouseEvents.hpp>
 #include <Engine/Core/Application.hpp>
 #include <Engine/Core/CameraEntityView.hpp>
 #include <Engine/Core/EditorCameraBasis.hpp>
 #include <Engine/Core/Projection.hpp>
 
 #include "Frustum.hpp"
-
-#include <Common/Core/EventRegistry.hpp>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -88,16 +83,15 @@ namespace Desert::Core
         uint32_t m_ViewportHeight = 0;
     };
 
-    // Free-orbit / fly viewport camera (RMB to look + WASDQE to move). Receives input globally via
-    // EventHandler. This is what the editor renders through in Edit mode.
-    class EditorCamera : public Camera, public Common::EventHandler
+    // Free-orbit / fly viewport camera (RMB to look + WASDQE to move). This is what the editor renders
+    // through in Edit mode.
+    class EditorCamera : public Camera
     {
     public:
         EditorCamera();
         explicit EditorCamera( const glm::mat4& projectionMatrix );
 
         void OnUpdate( const Common::Timestep& timestep ) override;
-        void OnEvent( Common::Event& e ) override;
 
         // Editor projection anchors the apparent object SIZE to a reference height, so resizing the
         // viewport shows MORE of the scene instead of zooming objects in/out (UE/Unity editor feel).
@@ -195,9 +189,6 @@ namespace Desert::Core
         void               RestorePose( const Pose& pose );
 
     private:
-        bool OnKeyPress( Common::KeyPressedEvent& e );
-        bool OnMouseMove( Common::MouseMovedEvent& e );
-
         // WHERE THIS CAMERA IS POINTING, WHICHEVER MODEL IS DRIVING IT. One accessor and not a pair,
         // because every reader below wants the answer and none of them wants to decide which spelling
         // produced it — a call site that asks the orbit directly while an axis view is held reads a

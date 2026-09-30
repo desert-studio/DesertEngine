@@ -7,7 +7,6 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/ViewMemory.hpp>
 
-#include <Common/Core/EventRegistry.hpp>
 #include <Common/Core/Profiler.hpp>
 
 #include <Engine/Core/Glfw.hpp>
@@ -39,6 +38,8 @@ namespace Desert::Engine
         }
 
         m_Window = Window::Create( windowSpec );
+        m_WindowEventNode = m_Events.Attach<Window>( m_ApplicationEventNode, *m_Window );
+        m_Window->SetEventTree( m_Events );
         m_Window->Init();
 
         // 1. Create RendererContext (Vulkan Instance)
@@ -92,8 +93,6 @@ namespace Desert::Engine
                        "The GPU device was lost while the engine was starting up; see the [DeviceLost] "
                        "block above. Nothing was drawn and nothing was open, so there is nothing to "
                        "recover — start again." );
-
-        m_Window->SetEventCallback( [this]( Common::Event& e ) { ProcessEvents( e ); } );
     }
 
     Application::~Application()
@@ -116,18 +115,11 @@ namespace Desert::Engine
         // Members then die window -> device -> context; see the note on the declarations.
     }
 
-    void Application::ProcessEvents( Common::Event& e )
+    bool Application::OnWindowClosed( Common::EventWindowClose& /*close*/ )
     {
-        Common::EventManager eventManager( e );
-        eventManager.Notify<Common::EventWindowClose>( [this]( Common::EventWindowClose& e )
-                                                       { return this->OnClose( e ); } );
-
-        for ( auto it = m_LayerStack.end(); it != m_LayerStack.begin(); )
-        {
-            ( *--it )->OnEvent( e );
-            if ( e.m_Handled )
-                break;
-        }
+        if ( m_CloseGate.StopsNow() )
+            m_IsRunningApplication = false;
+        return true;
     }
 
     void Application::ReportLayerFailure( const char* stage, Common::Layer* layer, const std::string& error )
@@ -144,7 +136,7 @@ namespace Desert::Engine
         LOG_ERROR( "[Application] layer '{}' failed in {}: {}", layer->GetName(), stage, error );
     }
 
-    void Application::PushLayer( std::unique_ptr<Common::Layer> layer )
+    void Application::AttachLayer( std::unique_ptr<Common::Layer> layer )
     {
         // Borrowed back out of the stack, which now owns it: attaching must not need a second claim.
         Common::Layer* pushed = m_LayerStack.PushLayer( std::move( layer ) );

@@ -5,7 +5,7 @@
 
 namespace Common
 {
-    class KeyEvent : public Event
+    class KeyEvent
     {
     public:
         inline KeyCode GetKeyCode() const
@@ -24,14 +24,6 @@ namespace Common
     public:
         DESERT_ROUTED_EVENT( KeyPressedEvent, KeyPressed, Focus )
 
-        virtual EventType GetEventType() const
-        {
-            return GetStaticType();
-        }
-        static EventType GetStaticType()
-        {
-            return EventType::KeyPressed;
-        }
         inline int GetRepeatCount() const
         {
             return RepeatCount;
@@ -45,19 +37,11 @@ namespace Common
 
     // A text-input event: the Unicode codepoint produced by a key press, already resolved for the keyboard
     // layout / modifiers (GLFW char callback). Use this for text fields, NOT KeyPressed (which is raw keys).
-    class KeyTypedEvent : public Event
+    class KeyTypedEvent
     {
     public:
         DESERT_ROUTED_EVENT( KeyTypedEvent, KeyTyped, Focus )
 
-        virtual EventType GetEventType() const
-        {
-            return GetStaticType();
-        }
-        static EventType GetStaticType()
-        {
-            return EventType::KeyTyped;
-        }
         inline unsigned int GetCodepoint() const
         {
             return Codepoint;

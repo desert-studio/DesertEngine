@@ -155,10 +155,6 @@ namespace Desert::Graphic::API::Vulkan
         return BOOLSUCCESS;
     }
 
-    void VulkanImGui::OnEvent( Common::Event& /*event*/ )
-    {
-    }
-
     void VulkanImGui::Begin()
     {
         ImGui_ImplVulkan_NewFrame();
@@ -178,7 +174,7 @@ namespace Desert::Graphic::API::Vulkan
             if ( step->Press )
             {
                 Common::MouseButtonPressedEvent press( Common::MouseButton::Left );
-                EngineContext::GetInstance().GetWindow()->DispatchEvent( press );
+                EngineContext::GetInstance().GetWindow()->Route( press );
             }
         }
         ::ImGui::NewFrame();

@@ -135,26 +135,6 @@ namespace Desert::Core
         UpdateCameraView();
     }
 
-    void EditorCamera::OnEvent( Common::Event& e )
-    {
-        Common::EventManager eventManager( e );
-        eventManager.Notify<Common::KeyPressedEvent>( [this]( Common::KeyPressedEvent& e )
-                                                      { return this->OnKeyPress( e ); } );
-
-        eventManager.Notify<Common::MouseMovedEvent>( [this]( Common::MouseMovedEvent& e )
-                                                      { return this->OnMouseMove( e ); } );
-    }
-
-    bool EditorCamera::OnKeyPress( Common::KeyPressedEvent& /*e*/ )
-    {
-        return false;
-    }
-
-    bool EditorCamera::OnMouseMove( Common::MouseMovedEvent& /*e*/ )
-    {
-        return false;
-    }
-
     void EditorCamera::UpdateProjectionMatrix( const uint32_t width, const uint32_t height )
     {
         if ( m_ExactLens )

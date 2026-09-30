@@ -9,6 +9,10 @@
 
 #include <Common/Core/Singleton.hpp>
 #include <Common/Core/LayerStack.hpp>
+
+#include <concepts>
+#include <type_traits>
+#include <Common/Core/Events/EventTree.hpp>
 #include <Common/Core/Events/WindowEvents.hpp>
 #include <Common/Core/Core.hpp>
 
@@ -66,7 +70,31 @@ namespace Desert::Engine
 
         /// Takes ownership of @p layer and attaches it. `PopLayer` is gone: it was called from nowhere,
         /// it deleted nothing, and under ownership it would have been a silent destroy (see LayerStack).
-        void PushLayer( std::unique_ptr<Common::Layer> layer );
+        template <std::derived_from<Common::Layer> ConcreteLayer>
+        void PushLayer( std::unique_ptr<ConcreteLayer> layer )
+        {
+            static_assert( !std::is_same_v<ConcreteLayer, Common::Layer>,
+                           "a layer joins the event tree as its concrete type; a Common::Layer pointer hides its "
+                           "handlers" );
+            if ( !layer )
+                return;
+            ConcreteLayer&            concrete = *layer;
+            const Common::EventNodeId node     = m_Events.Attach<ConcreteLayer>( m_WindowEventNode, concrete );
+            concrete.JoinEvents( Common::EventNodeLink( m_Events, node ) );
+            if constexpr ( Common::ReceivesEvents<ConcreteLayer> )
+            {
+                m_Events.SetFocus( node );
+                m_Events.SetHovered( node );
+            }
+            AttachLayer( std::move( layer ) );
+        }
+
+        [[nodiscard]] Common::EventTree& Events()
+        {
+            return m_Events;
+        }
+
+        bool OnWindowClosed( Common::EventWindowClose& close );
 
         const auto& GetWindow() const
         {
@@ -127,13 +155,7 @@ namespace Desert::Engine
         NO_DISCARD bool EndRunOnDeviceLoss( const char* stage );
 
     private:
-        NO_DISCARD bool OnClose( Common::EventWindowClose& /*e*/ )
-        {
-            if ( m_CloseGate.StopsNow() )
-                m_IsRunningApplication = false;
-            return true;
-        }
-        void ProcessEvents( Common::Event& e );
+        void AttachLayer( std::unique_ptr<Common::Layer> layer );
 
         // MEMBER ORDER IS LOAD-BEARING. Members die in REVERSE declaration order, and the window owns the
         // swapchain, its framebuffers and their images — device-owned objects that must be released while
@@ -146,6 +168,10 @@ namespace Desert::Engine
         // written to survive the same window; that guard is still load-bearing for the editor's
         // process-lifetime thumbnail caches, which are not released deterministically yet.
     private:
+        Common::EventTree   m_Events;
+        Common::EventNodeId m_ApplicationEventNode = m_Events.Attach( m_Events.Root(), *this );
+        Common::EventNodeId m_WindowEventNode{};
+
         ApplicationInfo m_ApplicationInfo;
 
         bool m_IsRunningApplication = true;

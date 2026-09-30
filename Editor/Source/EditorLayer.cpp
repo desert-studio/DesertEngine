@@ -720,6 +720,9 @@ namespace Desert::Editor
 
     [[nodiscard]] Common::BoolResultStr EditorLayer::OnAttach()
     {
+        if ( Common::EventTree* events = Events() )
+            m_Panels.JoinEvents( *events, EventNode() );
+
         // THE CONTROL CHANNEL, IF ONE WAS ASKED FOR. Before anything else, so a client that started this
         // editor can connect and watch the boot rather than guessing how long to wait for the socket.
         //
@@ -4403,8 +4406,10 @@ namespace Desert::Editor
                 DESERT_PROFILE_SCOPE_DYNAMIC( panel->GetName().c_str() );
                 panel->OnUIRender();
             }
+            panel->TrackWindowInteraction();
             ImGui::End();
         }
+        FollowImGuiWithEvents();
 
         // The well BEFORE the documents: it reads back the dock node id the documents are about to be
         // docked into, and a document opened this frame would otherwise float once and settle next frame.
@@ -9045,7 +9050,7 @@ namespace Desert::Editor
         //
         // THE KEYS NAMED HERE ARE THE KEYS THAT WORK. These three tooltips read "(W)", "(E)" and "(R)"
         // — UE's bindings — while the only handler in the editor binds T, R and C
-        // (ViewportPanel::OnKeyPressedEvent). So the rail advertised three shortcuts that did nothing,
+        // (ViewportPanel::OnKeyPressed). So the rail advertised three shortcuts that did nothing,
         // and the viewport strip's own tooltips (Move (T) / Rotate (R) / Scale (C)) said the true thing
         // eight inches away. A UI string is a promise about the tree, and this one was not kept.
         //
@@ -11085,20 +11090,22 @@ namespace Desert::Editor
         // the asset manager, cooked caches and panels — relaunch through the Project Hub instead.
     }
 
-    void EditorLayer::OnEvent( Common::Event& event )
+    void EditorLayer::FollowImGuiWithEvents()
     {
-        for ( auto& panel : m_Panels )
+        Common::EventTree* events = Events();
+        if ( events == nullptr )
+            return;
+        Common::EventNodeId focus   = EventNode();
+        Common::EventNodeId pointer = EventNode();
+        for ( const auto& panel : m_Panels )
         {
-            if ( event.m_Handled )
-                break;
-            panel->OnEvent( event );
+            if ( panel->HoldsKeyboardFocus() )
+                focus = panel->EventNode();
+            if ( panel->IsUnderPointer() )
+                pointer = panel->EventNode();
         }
-        for ( auto& document : m_OpenDocuments )
-        {
-            if ( event.m_Handled )
-                break;
-            document->OnEvent( event );
-        }
+        events->SetFocus( focus );
+        events->SetHovered( pointer );
     }
 
     Common::BoolResultStr EditorLayer::OnDetach()

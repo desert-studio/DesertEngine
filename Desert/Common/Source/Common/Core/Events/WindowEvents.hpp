@@ -9,19 +9,11 @@
 namespace Common
 {
     // OS file drop (drag files from Explorer/desktop onto the window). Paths are absolute.
-    class EventWindowFileDrop : public Event
+    class EventWindowFileDrop
     {
     public:
         DESERT_ROUTED_EVENT( EventWindowFileDrop, WindowFileDropped, Pointer )
 
-        virtual EventType GetEventType() const
-        {
-            return GetStaticType();
-        }
-        static EventType GetStaticType()
-        {
-            return EventType::WindowFileDrop;
-        }
         explicit EventWindowFileDrop( std::vector<std::string> paths ) : Paths( std::move( paths ) )
         {
         }
@@ -29,34 +21,17 @@ namespace Common
         std::vector<std::string> Paths;
     };
 
-    class EventWindowClose : public Event
+    class EventWindowClose
     {
     public:
         DESERT_ROUTED_EVENT( EventWindowClose, WindowClosed, Broadcast )
-
-        virtual EventType GetEventType() const
-        {
-            return GetStaticType();
-        }
-        static EventType GetStaticType()
-        {
-            return EventType::WindowClose;
-        }
     };
 
-    class EventWindowResize : public Event
+    class EventWindowResize
     {
     public:
         DESERT_ROUTED_EVENT( EventWindowResize, WindowResized, Broadcast )
 
-        virtual EventType GetEventType() const
-        {
-            return GetStaticType();
-        }
-        static EventType GetStaticType()
-        {
-            return EventType::WindowResize;
-        }
         EventWindowResize( uint32_t width, uint32_t height ) : width( width ), height( height )
         {
         }

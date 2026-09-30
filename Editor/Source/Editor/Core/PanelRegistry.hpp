@@ -53,6 +53,7 @@ namespace Desert::Editor
             auto   owned = std::make_unique<Panel>( std::forward<Args>( args )... );
             Panel& ref   = *owned;
             m_Panels.emplace_back( std::move( owned ) );
+            JoinTheTree( ref );
             return ref;
         }
 
@@ -72,6 +73,7 @@ namespace Desert::Editor
 
             Panel& ref = *panel;
             m_Panels.emplace_back( std::move( panel ) );
+            JoinTheTree( ref );
             return ref;
         }
 
@@ -109,7 +111,23 @@ namespace Desert::Editor
             return m_Panels.end();
         }
 
+        void JoinEvents( Common::EventTree& events, Common::EventNodeId parent )
+        {
+            m_Events      = &events;
+            m_EventParent = parent;
+        }
+
     private:
+        template <typename Panel>
+        void JoinTheTree( Panel& panel )
+        {
+            if ( m_Events != nullptr )
+                panel.JoinEvents(
+                     Common::EventNodeLink( *m_Events, m_Events->Attach<Panel>( m_EventParent, panel ) ) );
+        }
+
         std::vector<std::unique_ptr<IPanel>> m_Panels;
+        Common::EventTree*                   m_Events = nullptr;
+        Common::EventNodeId                  m_EventParent{};
     };
 } // namespace Desert::Editor
