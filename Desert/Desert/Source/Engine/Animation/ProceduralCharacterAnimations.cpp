@@ -47,7 +47,7 @@ namespace Desert::Animation
             clip.AnimationName     = name;
             clip.DurationTicks     = durationTicks;
             clip.TickRate          = PROJECT_TICK_RATE;
-            clip.SkeletonSignature = skel->GetSignature();
+            clip.Skeleton          = Geometry::ProceduralCharacterFactory::GetHumanoidSkeletonGuid();
             clip.Tracks.resize( bones.size() ); // empty tracks fall back to LocalBindTransform
 
             for ( const auto& [boneName, fn] : angleFns )
@@ -157,6 +157,15 @@ namespace Desert::Animation
     size_t ProceduralCharacterAnimations::RegisterClips( Assets::AssetManager& assets, AnimationLibrary& library )
     {
         const AnimationClip* clips[] = { &Idle(), &Walk(), &Run(), &Jump() };
+
+        // The humanoid mesh is procedural (no SkinnedMeshAsset to state its skeleton), so its skeleton reference
+        // is stated here, beside the clips that reference the same GUID.
+        library.RegisterMeshSkeleton(
+             Geometry::ProceduralCharacterFactory::GetHumanoidMesh(),
+             MeshSkeletonIdentity{
+                  SkeletonAssetRef{ Geometry::ProceduralCharacterFactory::GetHumanoidSkeletonGuid(),
+                                    "built-in humanoid skeleton" },
+                  {} } );
 
         size_t registered = 0;
         for ( const AnimationClip* clip : clips )

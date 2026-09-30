@@ -243,8 +243,7 @@ namespace Desert::Geometry
         // after BuildOnce() there is no state in which this is absent — the optional was doing duty as the
         // "already built" flag and every reader paid for it with an unguarded dereference.
         Assets::AssetHandle                  s_Handle{ static_cast<uint64_t>( 0 ) };
-        bool                                 s_Built     = false;
-        uint64_t                             s_Signature = 0;
+        bool                                 s_Built = false;
 
         void BuildOnce()
         {
@@ -254,8 +253,7 @@ namespace Desert::Geometry
             }
 
             s_Skeleton = std::make_unique<Animation::Skeleton>( BuildBones() );
-            s_Skeleton->RecomputeOffsetMatrices(); // signature is name/parent based, so this stays valid
-            s_Signature = s_Skeleton->GetSignature();
+            s_Skeleton->RecomputeOffsetMatrices();
 
             std::vector<SkinnedVertex> verts;
             std::vector<Index>         indices;
@@ -294,10 +292,10 @@ namespace Desert::Geometry
         return s_Handle;
     }
 
-    uint64_t ProceduralCharacterFactory::GetHumanoidSkeletonSignature()
+    Common::Content::AssetGuid ProceduralCharacterFactory::GetHumanoidSkeletonGuid()
     {
-        BuildOnce();
-        return s_Signature;
+        // Minted once for the built-in humanoid (SKEL-use2); a constant, never derived from the bones.
+        return Common::Content::AssetGuid{ 0x9d3c5e0a41b84f27ULL, 0xb6e1a7c2d4f09e53ULL };
     }
 
     const Animation::Skeleton* ProceduralCharacterFactory::GetHumanoidSkeleton()

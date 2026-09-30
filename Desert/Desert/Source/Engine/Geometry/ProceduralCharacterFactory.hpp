@@ -2,6 +2,8 @@
 
 #include <Engine/Assets/Common.hpp> // AssetHandle
 
+#include <Common/Content/AssetEnvelope.hpp> // AssetGuid
+
 #include <cstdint>
 
 namespace Desert::Animation
@@ -19,15 +21,17 @@ namespace Desert::Geometry
     //
     // The mesh is generated + GPU-registered ONCE and cached process-wide (handle reused). Use it as a
     // SkinnedMeshComponent.MeshHandle; add an AnimationComponent and the AnimationECSSystem auto-plays any
-    // clips registered for this skeleton's signature.
+    // clip whose skeleton reference is GetHumanoidSkeletonGuid() (ClipPlaysOnMesh, SkeletonReference.hpp).
     class ProceduralCharacterFactory
     {
     public:
         // Cooked-equivalent handle for the humanoid skinned mesh (built + registered on first call).
         static Assets::AssetHandle GetHumanoidMesh();
 
-        // Signature of the humanoid skeleton — animation clips must carry this to match (see AnimationLibrary).
-        static uint64_t GetHumanoidSkeletonSignature();
+        // THE IDENTITY of the built-in humanoid skeleton: engine content with no .skeleton file, so its GUID is a
+        // compiled-in constant (minted once, never regenerated), as a cooked skeleton's is its header GUID. The
+        // procedural clips reference it; ProceduralCharacterAnimations::RegisterClips states it for the mesh.
+        static Common::Content::AssetGuid GetHumanoidSkeletonGuid();
 
         // The humanoid skeleton (built on first use). Used by the procedural animation generator to read each
         // bone's bind-local translation + index by name. Owned by the factory (process lifetime).

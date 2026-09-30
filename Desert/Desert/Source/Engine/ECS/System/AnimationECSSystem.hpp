@@ -754,7 +754,7 @@ namespace Desert::ECS
         /**
          * The skeleton side of ClipPlaysOnMesh for one entity: the retarget's SOURCE skeleton reference
          * (RetargetAssetData::SourceSkeleton) when @p retargeted, otherwise the mesh asset's skeleton and its
-         * CompatibleSkeletons (AnimationLibrary::IdentifyMesh). An editor-built runtime rig has no asset and so
+         * CompatibleSkeletons (AnimationLibrary::IdentifyMeshHandle). An editor-built runtime rig has no asset and so
          * references no skeleton: the rule refuses every clip on it, by name.
          */
         Animation::MeshSkeletonIdentity ClipSkeletonOf( entt::registry& registry, entt::entity entity,
@@ -786,12 +786,11 @@ namespace Desert::ECS
                 }
                 return identity;
             }
-            if ( component.RuntimeMesh )
+            if ( component.RuntimeMesh || m_AnimationLibrary == nullptr )
                 return identity;
-            if ( const auto mesh = m_AssetManager->ProbeByHandle<Assets::SkinnedMeshAsset>(
-                      Common::UUID( component.MeshHandle ) ) )
-                return Animation::AnimationLibrary::IdentifyMesh( *mesh );
-            return identity;
+            // The pickers' own question (IdentifyMeshHandle): the mesh asset's skeleton, or the reference a
+            // procedural mesh registered (the built-in humanoid) - one answer for editor and runtime.
+            return m_AnimationLibrary->IdentifyMeshHandle( component.MeshHandle );
         }
 
         template <typename AssetType>

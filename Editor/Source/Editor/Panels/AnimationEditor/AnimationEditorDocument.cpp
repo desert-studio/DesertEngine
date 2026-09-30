@@ -21,7 +21,9 @@
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Serialization/AnimationClipWrite.hpp>
+#include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Animation/Animator.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
@@ -71,9 +73,10 @@ namespace Desert::Editor
 
         // Load ONE preview mesh a registry row named, and hold the row to its word: the Rig tag is what the scan
         // read, the loaded mesh is what the file is now.
-        std::shared_ptr<Assets::SkinnedMeshAsset> LoadPreviewMesh( Assets::AssetManager&        assets,
-                                                                   const std::filesystem::path& path,
-                                                                   const uint64_t signature, std::string& error )
+        std::shared_ptr<Assets::SkinnedMeshAsset> LoadPreviewMesh( Assets::AssetManager&             assets,
+                                                                   const std::filesystem::path&      path,
+                                                                   const Common::Content::AssetGuid& skeleton,
+                                                                   std::string&                      error )
         {
             auto mesh = assets.CreateAsset<Assets::SkinnedMeshAsset>( path, false );
             if ( !mesh )
@@ -87,14 +90,22 @@ namespace Desert::Editor
                                      loaded.GetError() );
                 return nullptr;
             }
-            if ( mesh->GetSkeletonSignature() != signature )
+            if ( mesh->GetSkeleton() != skeleton )
             {
-                error = std::format( "skeletal mesh '{}' is registered on skeleton {:016x} but its file names "
-                                     "{:016x} — rescan the content",
-                                     path.generic_string(), signature, mesh->GetSkeletonSignature() );
+                error = std::format( "skeletal mesh '{}' is registered on skeleton {} but its file names {} — "
+                                     "rescan the content",
+                                     path.generic_string(), Common::Content::AssetGuidToText( skeleton ),
+                                     Common::Content::AssetGuidToText( mesh->GetSkeleton() ) );
                 return nullptr;
             }
             return mesh;
+        }
+
+        // A skeleton reference as the window shows it: the registry's name for it
+        // (AnimationLibrary::SkeletonRefOf, the same name refusals use), never a hash.
+        std::string SkeletonName( const Common::Content::AssetGuid& skeleton )
+        {
+            return Animation::AnimationLibrary::SkeletonRefOf( skeleton ).Name;
         }
 
         void CopyName( std::array<char, 128>& buffer, const std::string& name )
@@ -160,7 +171,7 @@ namespace Desert::Editor
                     return false;
                 }
                 (void)ClipAsset();
-                m_Signature = clip->GetSkeletonSignature();
+                m_Skeleton = clip->GetSkeleton();
                 break;
             }
             case Core::PersonaMode::Mesh:
@@ -177,7 +188,7 @@ namespace Desert::Editor
                     m_Unavailable = std::format( "'{}' would not load: {}", name, loaded.GetError() );
                     return false;
                 }
-                m_Signature   = mesh->GetSkeletonSignature();
+                m_Skeleton    = mesh->GetSkeleton();
                 preferredMesh = mesh->GetMetadata().Filepath;
                 break;
             }
@@ -194,13 +205,23 @@ namespace Desert::Editor
                     m_Unavailable = std::format( "'{}' would not load: {}", name, loaded.GetError() );
                     return false;
                 }
-                m_Signature = skeleton->GetSignature();
+                // The skeleton's own identity: the GUID its header states, as the registry's Rig tag reads it.
+                const auto row = Assets::ContentRegistry::RowOf( Common::Content::ContentKind::Skeleton,
+                                                                 static_cast<uint64_t>( handle ) );
+                if ( !row )
+                {
+                    m_Unavailable = std::format( "'{}' has no Skeleton row in the content registry — rescan the "
+                                                 "content.",
+                                                 name );
+                    return false;
+                }
+                m_Skeleton = row->Skeleton;
                 break;
             }
         }
-        if ( m_Signature == 0 )
+        if ( m_Skeleton.IsNull() )
         {
-            m_Unavailable = std::format( "'{}' names no skeleton (signature 0) — no mesh can show it.", name );
+            m_Unavailable = std::format( "'{}' references no skeleton asset — no mesh can show it.", name );
             return false;
         }
         return true;
@@ -223,7 +244,7 @@ namespace Desert::Editor
         std::filesystem::path preferred;
         if ( !ResolveRig( name, preferred ) )
             return;
-        const uint64_t signature = m_Signature;
+        const Common::Content::AssetGuid skeleton = m_Skeleton;
 
         // The first `.skmesh` by path whose rig is the subject's: a stable pick, so two openings show one mesh
         // (Mesh mode shows its own). Asked of the CONTENT REGISTRY by its Rig tag, which the scan read from each
@@ -231,7 +252,7 @@ namespace Desert::Editor
         // one, in a frame).
         std::vector<std::filesystem::path> candidates;
         for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::SkinnedMesh ) )
-            if ( row.RigSignature == signature )
+            if ( row.Skeleton == skeleton )
                 candidates.push_back( row.Path );
         std::ranges::sort( candidates );
         size_t shown = 0;
@@ -290,12 +311,12 @@ namespace Desert::Editor
 
     void AnimationEditorDocument::SetPreviewMesh( const size_t candidate )
     {
-        if ( !m_Preview || candidate >= m_MeshCandidates.size() || m_Signature == 0 )
+        if ( !m_Preview || candidate >= m_MeshCandidates.size() || m_Skeleton.IsNull() )
             return;
         if ( candidate != m_MeshIndex || !m_Mesh )
         {
             std::string error;
-            auto        mesh = LoadPreviewMesh( *m_Assets, m_MeshCandidates[candidate], m_Signature, error );
+            auto        mesh = LoadPreviewMesh( *m_Assets, m_MeshCandidates[candidate], m_Skeleton, error );
             if ( !mesh )
             {
                 m_SaveStatus = error;
@@ -594,7 +615,7 @@ namespace Desert::Editor
             line( 0, std::format( "Previewing {} {}", PersonaModeName( Mode() ),
                                   Mode() == Core::PersonaMode::Mesh ? std::string_view( m_MeshName )
                                                                     : name.substr( 0, name.find( "###" ) ) ) );
-            line( 1, std::format( "Bind pose   mesh {}   skeleton {:016x}", m_MeshName, m_Signature ) );
+            line( 1, std::format( "Bind pose   mesh {}   skeleton {}", m_MeshName, SkeletonName( m_Skeleton ) ) );
             return;
         }
         line( 0, std::format( "Previewing Animation {}", m_ClipName ) );
@@ -1131,7 +1152,7 @@ namespace Desert::Editor
         };
         row( "Animation", clip.AnimationName.empty() ? m_ClipName : clip.AnimationName );
         row( "File", m_ClipPath.empty() ? std::string( "(none)" ) : m_ClipPath.filename().string() );
-        row( "Skeleton", std::format( "{:016x}", clip.SkeletonSignature ) );
+        row( "Skeleton", SkeletonName( clip.Skeleton ) );
         row( "Length", std::format( "{:.3f} s", clip.DurationSeconds() ) );
         row( "Frames", std::format( "{}", m_Transport.LastFrame() + 1 ) );
         row( "Display Rate",
@@ -1167,10 +1188,10 @@ namespace Desert::Editor
     {
         // UE's Asset Browser in Persona: the clips that play on the previewed rig, a search, and a double click to
         // open one. Listed from the CONTENT REGISTRY by each clip's Rig tag (the scan reads a clip's stated
-        // SkeletonSignature, ContentScan.cpp) - nothing is loaded to list them, as UE's browser reads the
+        // Skeleton GUID, ContentScan.cpp) - nothing is loaded to list them, as UE's browser reads the
         // registry's tags; AnimationLibrary holds only the clips something already loaded.
-        const uint64_t signature = m_Signature;
-        if ( signature == 0 )
+        const Common::Content::AssetGuid skeleton = m_Skeleton;
+        if ( skeleton.IsNull() )
         {
             ImGui::TextDisabled( "No skeleton is known yet: nothing to list clips for." );
             return;
@@ -1179,7 +1200,7 @@ namespace Desert::Editor
         {
             m_BrowserClips.clear();
             for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Animation ) )
-                if ( row.RigSignature == signature )
+                if ( row.Skeleton == skeleton )
                     m_BrowserClips.emplace_back( row.Path.filename().string(), row.Handle );
             std::ranges::sort( m_BrowserClips );
             m_BrowserListed = true;
@@ -1671,7 +1692,7 @@ namespace Desert::Editor
         {
             m_BrowserClips.clear();
             for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Animation ) )
-                if ( row.RigSignature == m_Signature && m_Signature != 0 )
+                if ( row.Skeleton == m_Skeleton && !m_Skeleton.IsNull() )
                     m_BrowserClips.emplace_back( row.Path.filename().string(), row.Handle );
             std::ranges::sort( m_BrowserClips );
             m_BrowserListed = true;
@@ -1679,8 +1700,8 @@ namespace Desert::Editor
         const Assets::AssetHandle target = ModeAsset( mode );
         if ( static_cast<uint64_t>( target ) == 0 )
         {
-            LOG_ERROR( "Animation Editor: no {} asset on skeleton {:016x} to switch to", PersonaModeName( mode ),
-                       m_Signature );
+            LOG_ERROR( "Animation Editor: no {} asset on skeleton {} to switch to", PersonaModeName( mode ),
+                       SkeletonName( m_Skeleton ) );
             return;
         }
         if ( const auto opened =
@@ -1736,7 +1757,7 @@ namespace Desert::Editor
         if ( ImGui::BeginTable( "##meshdetails", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp ) )
         {
             row( "File", mesh.GetMetadata().Filepath.filename().string() );
-            row( "Skeleton", std::format( "{:016x}", mesh.GetSkeletonSignature() ) );
+            row( "Skeleton", SkeletonName( mesh.GetSkeleton() ) );
             row( "Vertices", std::format( "{}", mesh.GetVertices().size() ) );
             row( "Triangles", std::format( "{}", mesh.GetIndices().size() / 3 ) );
             row( "Sections", std::format( "{}", mesh.GetSubmeshes().size() ) );
@@ -1800,7 +1821,7 @@ namespace Desert::Editor
             ImGui::TextUnformatted( value.c_str() );
         };
         row( "Skeleton", GetName() );
-        row( "Signature", std::format( "{:016x}", m_Signature ) );
+        row( "Skeleton Asset", SkeletonName( m_Skeleton ) );
         row( "Bones", animator != nullptr ? std::format( "{}", animator->GetSkeleton().GetBones().size() )
                                           : std::string( "(the preview has not built the rig yet)" ) );
         row( "Preview Mesh", m_MeshName );

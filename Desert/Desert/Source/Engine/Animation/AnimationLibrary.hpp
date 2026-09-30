@@ -37,8 +37,13 @@ namespace Desert::Animation
         /// and that skeleton's CompatibleSkeletons (its bound SkeletonAsset). The one place callers get it.
         [[nodiscard]] static MeshSkeletonIdentity IdentifyMesh( const Assets::SkinnedMeshAsset& mesh );
 
-        /// IdentifyMesh of the SkinnedMeshAsset @p mesh names, if it is resident. Not resident (or an editor-built
-        /// runtime rig, which has no asset) = an identity that references no skeleton: every clip is refused.
+        /// A mesh that is NOT a SkinnedMeshAsset (engine procedural content, MeshService::RegisterProcedural)
+        /// states its skeleton reference here; IdentifyMeshHandle answers it for that handle. Cleared by Clear().
+        void RegisterMeshSkeleton( const Assets::AssetHandle& mesh, MeshSkeletonIdentity identity );
+
+        /// IdentifyMesh of the SkinnedMeshAsset @p mesh names, if it is resident; else the identity registered by
+        /// RegisterMeshSkeleton. Neither (not resident, or an editor-built runtime rig, which has no asset) = an
+        /// identity that references no skeleton: every clip is refused.
         [[nodiscard]] MeshSkeletonIdentity IdentifyMeshHandle( const Assets::AssetHandle& mesh ) const;
 
         /// A skeleton reference with its name for refusals (the registry key of its row, or its GUID text).
@@ -99,6 +104,8 @@ namespace Desert::Animation
         // of them, so the library went on offering the previous project's clips out of the half nobody
         // remembered. A single container cannot fall out of step with itself.
         std::vector<ClipRigIdentity> m_Clips;
+        // Skeleton references of meshes that have no SkinnedMeshAsset (RegisterMeshSkeleton).
+        std::unordered_map<Assets::AssetHandle, MeshSkeletonIdentity> m_ProceduralMeshes;
     };
 
     /// What one population run put in the library, so a caller can say which half is empty.
