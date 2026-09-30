@@ -111,6 +111,7 @@ namespace Desert::Animation::Graph
         m_Inputs = std::move( inputs );
         m_Tables = std::move( tables );
         m_Poses.assign( count, GraphPose{} );
+        m_Weights.assign( count, 0.0F );
         return Common::MakeSuccess( true );
     }
 
@@ -209,6 +210,83 @@ namespace Desert::Animation::Graph
             }
         }
         out = m_Poses[static_cast<size_t>( m_Plan.back() )];
+
+        // THE HOST SETS EVERY WEIGHT, its linked layer graphs' included: a layer graph's share is only known
+        // from the node that calls it, and one layer may be called from several nodes (the shares add up).
+        if ( !slot )
+        {
+            std::fill( m_Weights.begin(), m_Weights.end(), 0.0F );
+            if ( sources.Linked != nullptr )
+                for ( size_t linked = 0; linked < sources.Linked->Layers().size(); ++linked )
+                {
+                    std::vector<float>& weights = sources.Linked->At( linked ).Instance.m_Weights;
+                    std::fill( weights.begin(), weights.end(), 0.0F );
+                }
+            static_cast<void>( AccumulateWeights( sources, 1.0F ) ); // a host graph has no LinkedInputPose
+        }
+    }
+
+    float PoseGraphInstance::AccumulateWeights( const PoseGraphSources& sources, const float root )
+    {
+        if ( m_Plan.empty() )
+            return 0.0F;
+        // THIS CALL'S SHARE ALONE, carried in its own buffer and added at the end: a layer graph called from
+        // two nodes is entered twice, and re-carrying the first call's weights would count them twice.
+        m_WeightDelta.assign( m_Weights.size(), 0.0F );
+        const auto at = [this]( const int index ) -> float& { return m_WeightDelta[static_cast<size_t>( index )]; };
+        at( m_Plan.back() ) = root;
+
+        float input = 0.0F;
+        for ( auto it = m_Plan.rbegin(); it != m_Plan.rend(); ++it )
+        {
+            const auto      n      = static_cast<size_t>( *it );
+            const float     weight = m_WeightDelta[n];
+            const PoseNode& node   = m_Graph.Nodes[n];
+            const auto&     wired  = m_Inputs[n];
+            if ( weight <= 0.0F )
+                continue;
+            switch ( static_cast<PoseNodeKind>( node.Kind ) )
+            {
+                case PoseNodeKind::StateMachine:
+                case PoseNodeKind::SequencePlayer:
+                    break; // a leaf: its weight is its own
+
+                case PoseNodeKind::LinkedInputPose:
+                    input += weight;
+                    break;
+
+                case PoseNodeKind::LinkedAnimLayer:
+                {
+                    const auto linked =
+                         sources.Linked != nullptr
+                                    ? sources.Linked->Find( node.LinkedLayer->Interface, node.LinkedLayer->Layer )
+                                    : std::nullopt;
+                    at( wired[0] ) += linked ? sources.Linked->At( *linked ).Instance.AccumulateWeights( sources, weight )
+                                             : weight;
+                    break;
+                }
+
+                case PoseNodeKind::LayeredBlendPerBone:
+                    // UE FAnimNode_LayeredBoneBlend::Update_AnyThread: the base at the node's weight, each layer
+                    // at a fraction of it.
+                    at( wired[0] ) += weight;
+                    for ( size_t layer = 0; layer + 1 < wired.size(); ++layer )
+                        at( wired[layer + 1] ) +=
+                             weight *
+                             std::clamp( PinValue( node, LayerWeightPin( layer ), 1.0F, sources.Parameter ), 0.0F, 1.0F );
+                    break;
+
+                case PoseNodeKind::ApplyAdditive:
+                    // UE FAnimNode_ApplyAdditive::Update_AnyThread: Base at the node's weight, Additive at Alpha of it.
+                    at( wired[0] ) += weight;
+                    at( wired[1] ) +=
+                         weight * std::clamp( PinValue( node, kApplyAdditiveAlphaPin, 1.0F, sources.Parameter ), 0.0F, 1.0F );
+                    break;
+            }
+        }
+        for ( size_t n = 0; n < m_Weights.size(); ++n )
+            m_Weights[n] += m_WeightDelta[n];
+        return input;
     }
 
     Common::BoolResultStr LinkedLayerTable::Link( const AnimGraph& host, uint64_t implementationId,

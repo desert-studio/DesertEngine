@@ -43,6 +43,10 @@ namespace Desert::Animation::Graph
 
     class LinkedLayerTable;
 
+    /// UE FAnimNotifyQueue::NotifyTriggerWeight: a source whose total weight is not above it is irrelevant —
+    /// its notifies are not reported and its notify states end.
+    inline constexpr float kNotifyTriggerWeight = 0.00001F;
+
     /// What the owner of the clocks and the parameters supplies to one evaluation (UE: the AnimInstance proxy).
     struct PoseGraphSources
     {
@@ -93,6 +97,20 @@ namespace Desert::Animation::Graph
         [[nodiscard]] static float PinValue( const PoseNode& node, std::string_view pin, float unbound,
                                              const std::function<float( const std::string& )>& parameter );
 
+        /**
+         * @brief Node `node`'s total weight in the last host evaluation (UE: the FAnimationUpdateContext weight a
+         *        node is updated with, `GetFinalBlendWeight`): Output Pose weighs 1; a Layered Blend Per Bone
+         *        hands its base its own weight and each layer its weight x the layer's clamped weight pin; an
+         *        Apply Additive its base its own weight and its additive its weight x the clamped Alpha; a
+         *        linked layer's weight enters its layer graph's output and leaves through its LinkedInputPose
+         *        into the node's input. Summed over every path. 0 off the plan, out of range or before any
+         *        evaluation. A layer graph's weights are its callers' share, set by the host's evaluation.
+         */
+        [[nodiscard]] float Weight( size_t node ) const
+        {
+            return node < m_Weights.size() ? m_Weights[node] : 0.0F;
+        }
+
         /// A LAYER graph's evaluation (bound in `GraphScope::Layer`): its LinkedInputPose nodes output `input`,
         /// its sources are `sources.SampleLinked( slot, ... )`, its pins read `sources.Parameter`.
         void EvaluateLayer( const PoseGraphSources& sources, const Skeleton& skeleton, size_t slot,
@@ -101,6 +119,9 @@ namespace Desert::Animation::Graph
     private:
         void Run( const PoseGraphSources& sources, const Skeleton& skeleton, std::optional<size_t> slot,
                   const GraphPose* input, GraphPose& out );
+        /// Adds `root` at Output Pose and carries it down the plan in reverse (readers before what they read);
+        /// returns the weight that reached this graph's LinkedInputPose nodes (a layer graph's input).
+        float AccumulateWeights( const PoseGraphSources& sources, float root );
 
         AnimGraph                                    m_Graph;
         std::vector<int>                             m_Plan;
@@ -109,6 +130,8 @@ namespace Desert::Animation::Graph
         std::vector<GraphPose>                       m_Poses;  ///< per node: its pose this evaluation
         std::vector<GraphPose>                       m_LayerScratch;
         std::vector<float>                           m_WeightScratch;
+        std::vector<float>                           m_Weights; ///< per node: its total weight, see Weight
+        std::vector<float>                           m_WeightDelta; ///< one AccumulateWeights call's share
     };
 
     /**

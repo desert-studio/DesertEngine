@@ -64,6 +64,10 @@ namespace Desert::Animation
     {
         std::string     Name;
         NotifyEventKind Kind = NotifyEventKind::Fire;
+        /// The pose-graph node whose clip reported it (UE: the notify's source player); -1 = the base clip (the
+        /// Source stage, Play/CrossFade). With `LinkedSlot` >= 0 the node is of that linked layer's graph.
+        int SourceNode = -1;
+        int LinkedSlot = -1;
 
         bool operator==( const NotifyEvent& ) const = default;
     };
@@ -232,10 +236,12 @@ namespace Desert::Animation
         // show the posed skeleton in the viewport.
         void ApplyLocalPose();
 
-        // Returns (and clears) the current clip's notify events since the last call — instant notifies
-        // crossed by forward playback (Fire), and notify states entered / left (Begin / End) by playback,
-        // a loop, a scrub (SetTick / SetTime) or a clip change. For the ECS to dispatch to scripts; call
-        // once per frame after Update.
+        // Returns (and clears) the notify events since the last call — instant notifies crossed by playback
+        // (Fire), and notify states entered / left (Begin / End) by playback, a loop, a scrub (SetTick /
+        // SetTime) or a clip change — of the current clip AND of every pose-graph source (a linked layer's
+        // too) whose total weight (`PoseGraphInstance::Weight`) is above `Graph::kNotifyTriggerWeight`, as UE's
+        // notify queue takes every relevant player's; a source falling below it ends its states. For the ECS
+        // to dispatch to scripts; call once per frame after Update.
         std::vector<NotifyEvent> ConsumeNotifyEvents()
         {
             std::vector<NotifyEvent> out;
@@ -255,6 +261,10 @@ namespace Desert::Animation
          * During a crossfade the two clips' values are blended by the fade's alpha, a clip without the
          * curve contributing 0 — UE's curve blend. Empty when neither clip carries a keyed curve of that
          * name: "no such curve" is a different answer from 0, and a script must be able to tell.
+         *
+         * WITH A POSE GRAPH the answer is the graph's output curve (UE FBlendedCurve): every source carries
+         * its clip's curves (the base source the value above), and the nodes blend them as they blend the
+         * pose — a Layered Blend Per Bone by its CurveBlendOption, an Apply Additive by adding Alpha x it.
          */
         [[nodiscard]] std::optional<float> GetCurveValue( std::string_view name ) const;
 
@@ -381,6 +391,11 @@ namespace Desert::Animation
             /// lost a little every frame and the loss grew with the number already in the accumulator.
             FrameTime            Time;
             bool                 Loop = true;
+            /// The last Update's step of this clock (a graph source's notifies read it): where it came from,
+            /// whether it wrapped and whether it ran backward.
+            FrameTime StepFrom;
+            bool      StepWrapped  = false;
+            bool      StepBackward = false;
 
             bool IsValid() const
             {
@@ -397,6 +412,8 @@ namespace Desert::Animation
             std::vector<float>        Parameters;
             int                       BaseSource = -1;
             Graph::GraphPose          Out;
+            /// Per node: the notify states its clip reported active (the base source's are m_ActiveStates).
+            std::vector<std::vector<ActiveNotifyState>> ActiveStates;
         };
 
     private:
@@ -459,6 +476,19 @@ namespace Desert::Animation
         /// (`played`): the Event keys the step crossed (Timeline::CollectFired) fire, and a state begun and
         /// ended inside the step reports both. Always: states Begin / End by the difference of the active set.
         void StepNotifies( FrameTime previous, bool wrapped, bool played, bool backward );
+        /// StepNotifies for any player: `playback`'s notifies into m_NotifyEvents tagged (`node`, `slot`),
+        /// its active set `active`. Not `relevant` (below the trigger weight, or no clip): nothing fires and
+        /// every state in `active` ends.
+        void StepNotifiesOf( const ClipPlayback& playback, FrameTime previous, bool wrapped, bool played,
+                             bool backward, bool relevant, std::vector<ActiveNotifyState>& active, int node,
+                             int slot );
+        /// Every pose-graph source's notifies but the base's, weighted by the last evaluation (see
+        /// ConsumeNotifyEvents). `played`: the step of each clock's last Update; else a scrub (states only).
+        void StepGraphNotifies( bool played );
+        /// Ends every state in `active` (tagged `node`, `slot`) and empties it.
+        void RetireStates( std::vector<ActiveNotifyState>& active, int node, int slot );
+        /// The base clip's value of curve `name` (the crossfade's blend) — GetCurveValue without a graph.
+        [[nodiscard]] std::optional<float> BaseCurveValue( std::string_view name ) const;
 
         /// The rig the pipeline's own stages read: this Animator's skeleton, its bind pose and its clip
         /// binding cache.
@@ -542,6 +572,8 @@ namespace Desert::Animation
         Graph::LinkedLayerTable       m_LinkedLayers;
         /// Per slot of m_LinkedLayers, one clock per node of its layer graph.
         std::vector<std::vector<ClipPlayback>> m_LinkedSources;
+        /// Per slot, per node: the notify states that linked source reported active.
+        std::vector<std::vector<std::vector<ActiveNotifyState>>> m_LinkedActiveStates;
 
         // Skeletal controls, run by PoseStage::Controls. `unique_ptr` because a control is polymorphic and
         // holds its own resolved bone indices; the Animator is its one owner and outlives it by definition.

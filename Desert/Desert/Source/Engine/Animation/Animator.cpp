@@ -24,6 +24,15 @@ namespace Desert::Animation
             return FrameTime{ FrameNumber{ clip.Sequence.Start.Value + time.Frame.Value }, time.Subframe };
         }
 
+        /// Adds `name` to `out`'s curves with `value` (a name already there keeps its first value).
+        void AddCurve( Graph::GraphPose& out, const std::string& name, const float value )
+        {
+            if ( std::find( out.CurveNames.begin(), out.CurveNames.end(), name ) != out.CurveNames.end() )
+                return;
+            out.CurveNames.push_back( name );
+            out.CurveValues.push_back( value );
+        }
+
         /// The notify states (Event keys with a duration) spanning @p at, in track / key order.
         void ActiveStatesAt( const Timeline::Sequence& sequence, const double at, std::vector<ActiveNotifyState>& out )
         {
@@ -202,6 +211,17 @@ namespace Desert::Animation
 
     std::optional<float> Animator::GetCurveValue( const std::string_view name ) const
     {
+        if ( !m_PoseGraph )
+            return BaseCurveValue( name );
+        const Graph::GraphPose& out = m_PoseGraph->Out;
+        for ( size_t c = 0; c < out.CurveNames.size() && c < out.CurveValues.size(); ++c )
+            if ( out.CurveNames[c] == name )
+                return out.CurveValues[c];
+        return std::nullopt;
+    }
+
+    std::optional<float> Animator::BaseCurveValue( const std::string_view name ) const
+    {
         const auto valueOf = []( const ClipPlayback& playback, std::string_view curveName ) -> std::optional<float>
         {
             if ( !playback.IsValid() )
@@ -306,6 +326,8 @@ namespace Desert::Animation
                     UpdatePlayback( source, deltaTime );
 
         EvaluatePipeline();
+        // After the evaluation, which is what weighed every source this tick.
+        StepGraphNotifies( true );
 
         // Retire the blend AFTER evaluating, so the frame that reaches alpha 1 renders the target clip
         // rather than a pose built from a blend that has already been thrown away.
@@ -386,6 +408,17 @@ namespace Desert::Animation
                 out.Pose = m_BindPose; // a source with no clip yet (still loading) stands in the bind pose
                 return;
             }
+            // ITS CURVES TRAVEL WITH ITS POSE (UE FPoseContext::Curve): the clip's Float tracks, named by
+            // Property, at the playhead — what the nodes blend.
+            const Timeline::Sequence& sequence = playback.Clip->Sequence;
+            for ( const Timeline::Track& track : sequence.Tracks )
+            {
+                Timeline::EvaluatedValue value;
+                if ( track.Kind == Timeline::TrackKind::Float &&
+                     Timeline::EvaluateTrack( track, OnSequence( *playback.Clip, playback.Time ), sequence.TickRate,
+                                              value ) )
+                    AddCurve( out, track.Property, std::get<float>( value ) );
+            }
             // UNDER A RETARGET THE SOURCE IS RETARGETED WHOLE, BEFORE ANY NODE READS IT: the retarget equation
             // reads a bone's chain to place it, so retargeting only the bones a blend keeps would place them
             // against a source pose that had never been resolved.
@@ -408,6 +441,12 @@ namespace Desert::Animation
             if ( static_cast<int>( node ) == state.BaseSource )
             {
                 out.Pose = pose;
+                for ( const ClipPlayback* player : { &m_Current, &m_Next } )
+                    if ( player->IsValid() && ( player == &m_Current || m_IsBlending ) )
+                        for ( const Timeline::Track& track : player->Clip->Sequence.Tracks )
+                            if ( track.Kind == Timeline::TrackKind::Float )
+                                if ( const auto value = BaseCurveValue( track.Property ) )
+                                    AddCurve( out, track.Property, *value );
                 return;
             }
             sampleClock( state.Sources[node], out );
@@ -532,6 +571,9 @@ namespace Desert::Animation
         // states Begin / End as the playhead enters / leaves them. The covered interval is (previous, now];
         // on a loop wrap it is (previous, duration) then [0, now]. One frame is assumed not to skip a whole
         // loop, which holds for real playback.
+        playback.StepFrom     = previous;
+        playback.StepWrapped  = looped;
+        playback.StepBackward = deltaTime < 0.0F;
         if ( &playback == &m_Current )
         {
             StepNotifies( previous, looped, true, deltaTime < 0.0F );
@@ -647,25 +689,39 @@ namespace Desert::Animation
 
     void Animator::StepNotifies( const FrameTime previous, const bool wrapped, const bool played, const bool backward )
     {
-        const AnimationClip&      clip     = *m_Current.Clip;
-        const Timeline::Sequence& sequence = clip.Sequence;
+        StepNotifiesOf( m_Current, previous, wrapped, played, backward, true, m_ActiveStates, -1, -1 );
+    }
+
+    void Animator::StepNotifiesOf( const ClipPlayback& playback, const FrameTime previous, const bool wrapped,
+                                   const bool played, const bool backward, const bool relevant,
+                                   std::vector<ActiveNotifyState>& active, const int node, const int slot )
+    {
+        const auto event = [&]( const std::string& name, const NotifyEventKind kind )
+        { m_NotifyEvents.push_back( NotifyEvent{ name, kind, node, slot } ); };
 
         m_Crossed.clear();
-        if ( played )
+        m_StatesScratch.clear();
+        if ( relevant && playback.IsValid() )
         {
-            Timeline::TimeStep step{ OnSequence( clip, previous ), OnSequence( clip, m_Current.Time ),
-                                     backward ? Timeline::PlayDirection::Backward : Timeline::PlayDirection::Forward };
-            step.Wrapped = wrapped;
-            Timeline::CollectFired( sequence, step, m_Crossed );
+            const AnimationClip&      clip     = *playback.Clip;
+            const Timeline::Sequence& sequence = clip.Sequence;
+            if ( played )
+            {
+                Timeline::TimeStep step{ OnSequence( clip, previous ), OnSequence( clip, playback.Time ),
+                                         backward ? Timeline::PlayDirection::Backward
+                                                  : Timeline::PlayDirection::Forward };
+                step.Wrapped = wrapped;
+                Timeline::CollectFired( sequence, step, m_Crossed );
+            }
+            ActiveStatesAt( sequence, OnSequence( clip, playback.Time ).AsTicks(), m_StatesScratch );
         }
-        ActiveStatesAt( sequence, OnSequence( clip, m_Current.Time ).AsTicks(), m_StatesScratch );
 
         // Ends first: states active before the step and not after it.
-        for ( const ActiveNotifyState& state : m_ActiveStates )
+        for ( const ActiveNotifyState& state : active )
         {
             if ( std::find( m_StatesScratch.begin(), m_StatesScratch.end(), state ) == m_StatesScratch.end() )
             {
-                m_NotifyEvents.push_back( NotifyEvent{ state.Name, NotifyEventKind::End } );
+                event( state.Name, NotifyEventKind::End );
             }
         }
         // A state begun AND ended inside the step (shorter than the frame) is active at neither end, and
@@ -673,7 +729,7 @@ namespace Desert::Animation
         for ( const Timeline::FiredEvent& fired : m_Crossed )
         {
             const Timeline::EventKey& key = *fired.Event.Key;
-            if ( fired.Event.Edge != Timeline::EventEdge::Begin || Holds( m_ActiveStates, key ) ||
+            if ( fired.Event.Edge != Timeline::EventEdge::Begin || Holds( active, key ) ||
                  Holds( m_StatesScratch, key ) )
             {
                 continue;
@@ -682,16 +738,16 @@ namespace Desert::Animation
                                             { return other.Event.Key == &key && other.Event.Edge == Timeline::EventEdge::End; } );
             if ( ended )
             {
-                m_NotifyEvents.push_back( NotifyEvent{ key.Name, NotifyEventKind::Begin } );
-                m_NotifyEvents.push_back( NotifyEvent{ key.Name, NotifyEventKind::End } );
+                event( key.Name, NotifyEventKind::Begin );
+                event( key.Name, NotifyEventKind::End );
             }
         }
         // Begins: states active after the step and not before it.
         for ( const ActiveNotifyState& state : m_StatesScratch )
         {
-            if ( std::find( m_ActiveStates.begin(), m_ActiveStates.end(), state ) == m_ActiveStates.end() )
+            if ( std::find( active.begin(), active.end(), state ) == active.end() )
             {
-                m_NotifyEvents.push_back( NotifyEvent{ state.Name, NotifyEventKind::Begin } );
+                event( state.Name, NotifyEventKind::Begin );
             }
         }
         // Instant notifies the step crossed, in firing order (either direction, as UE plays them).
@@ -699,10 +755,54 @@ namespace Desert::Animation
         {
             if ( fired.Event.Edge == Timeline::EventEdge::Instant )
             {
-                m_NotifyEvents.push_back( NotifyEvent{ fired.Event.Key->Name, NotifyEventKind::Fire } );
+                event( fired.Event.Key->Name, NotifyEventKind::Fire );
             }
         }
-        m_ActiveStates.swap( m_StatesScratch );
+        active.swap( m_StatesScratch );
+    }
+
+    void Animator::StepGraphNotifies( const bool played )
+    {
+        // UE: every sequence player reports its notifies to the notify queue with its update weight, and the
+        // queue keeps those above NotifyTriggerWeight — so a source blended out is silent and a layer at full
+        // weight is heard, whatever node it sits under.
+        if ( !m_PoseGraph )
+            return;
+        PoseGraphState& state = *m_PoseGraph;
+        state.ActiveStates.resize( state.Sources.size() );
+        for ( size_t node = 0; node < state.Sources.size(); ++node )
+        {
+            if ( static_cast<int>( node ) == state.BaseSource ) // the Source stage's: StepNotifies
+                continue;
+            const ClipPlayback& source = state.Sources[node];
+            if ( !source.IsValid() && state.ActiveStates[node].empty() )
+                continue;
+            StepNotifiesOf( source, source.StepFrom, source.StepWrapped, played, source.StepBackward,
+                            state.Instance.Weight( node ) > Graph::kNotifyTriggerWeight, state.ActiveStates[node],
+                            static_cast<int>( node ), -1 );
+        }
+        m_LinkedActiveStates.resize( m_LinkedSources.size() );
+        for ( size_t slot = 0; slot < m_LinkedSources.size(); ++slot )
+        {
+            const Graph::PoseGraphInstance& layer = m_LinkedLayers.At( slot ).Instance;
+            m_LinkedActiveStates[slot].resize( m_LinkedSources[slot].size() );
+            for ( size_t node = 0; node < m_LinkedSources[slot].size(); ++node )
+            {
+                const ClipPlayback& source = m_LinkedSources[slot][node];
+                if ( !source.IsValid() && m_LinkedActiveStates[slot][node].empty() )
+                    continue;
+                StepNotifiesOf( source, source.StepFrom, source.StepWrapped, played, source.StepBackward,
+                                layer.Weight( node ) > Graph::kNotifyTriggerWeight, m_LinkedActiveStates[slot][node],
+                                static_cast<int>( node ), static_cast<int>( slot ) );
+            }
+        }
+    }
+
+    void Animator::RetireStates( std::vector<ActiveNotifyState>& active, const int node, const int slot )
+    {
+        for ( const ActiveNotifyState& state : active )
+            m_NotifyEvents.push_back( NotifyEvent{ state.Name, NotifyEventKind::End, node, slot } );
+        active.clear();
     }
 
     // ============================================================
@@ -767,6 +867,7 @@ namespace Desert::Animation
             for ( auto& source : layer )
                 scrub( source );
         EvaluatePipeline();
+        StepGraphNotifies( false );
     }
 
     void Animator::SetTime( float time )
@@ -823,7 +924,13 @@ namespace Desert::Animation
         // A graph re-set with the same nodes keeps each source's clock and the parameters: the graph is
         // re-sent after every edit, and a source that restarted on each edit would stutter while authored.
         if ( m_PoseGraph && m_PoseGraph->Sources.size() == state.Sources.size() )
-            state.Sources = std::move( m_PoseGraph->Sources );
+        {
+            state.Sources      = std::move( m_PoseGraph->Sources );
+            state.ActiveStates = std::move( m_PoseGraph->ActiveStates );
+        }
+        else if ( m_PoseGraph )
+            for ( size_t node = 0; node < m_PoseGraph->ActiveStates.size(); ++node )
+                RetireStates( m_PoseGraph->ActiveStates[node], static_cast<int>( node ), -1 );
         if ( m_PoseGraph && m_PoseGraph->Parameters.size() == state.Parameters.size() )
             state.Parameters = std::move( m_PoseGraph->Parameters );
         m_PoseGraph = std::move( state );
@@ -901,7 +1008,12 @@ namespace Desert::Animation
 
     void Animator::RebuildLinkedClocks()
     {
-        // The slots moved; every layer's clocks start fresh with its link (the ECS re-feeds the clips each tick).
+        // The slots moved; every layer's clocks start fresh with its link (the ECS re-feeds the clips each tick),
+        // and the states their clips held end under the slots they were reported from.
+        for ( size_t slot = 0; slot < m_LinkedActiveStates.size(); ++slot )
+            for ( size_t node = 0; node < m_LinkedActiveStates[slot].size(); ++node )
+                RetireStates( m_LinkedActiveStates[slot][node], static_cast<int>( node ), static_cast<int>( slot ) );
+        m_LinkedActiveStates.assign( m_LinkedLayers.Layers().size(), {} );
         m_LinkedSources.assign( m_LinkedLayers.Layers().size(), {} );
         for ( size_t slot = 0; slot < m_LinkedSources.size(); ++slot )
             m_LinkedSources[slot].resize( m_LinkedLayers.Layers()[slot].Instance.Graph().Nodes.size() );
@@ -919,6 +1031,9 @@ namespace Desert::Animation
 
     void Animator::ClearPoseGraph()
     {
+        if ( m_PoseGraph )
+            for ( size_t node = 0; node < m_PoseGraph->ActiveStates.size(); ++node )
+                RetireStates( m_PoseGraph->ActiveStates[node], static_cast<int>( node ), -1 );
         m_PoseGraph.reset();
         SyncStages();
     }

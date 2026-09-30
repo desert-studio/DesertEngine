@@ -726,3 +726,141 @@ TEST( AnimatorBlending, ACurveIsSampledBetweenKeysByTheLaterKeysInterpolation )
     animator.SetTime( 1.0F );
     EXPECT_NEAR( valueOf( "Constant" ), 10.0F, 1e-6F );
 }
+
+// ── I8b-5: every graph player's notifies and curves, by its weight (UE FAnimNotifyQueue, FBlendedCurve) ─
+
+namespace
+{
+    /// Events named `name` of kind `kind` reported by the graph source `node` (-1 = the base clip).
+    int CountFrom( const std::vector<Animation::NotifyEvent>& events, const char* name, Kind kind, int node )
+    {
+        return static_cast<int>( std::count_if( events.begin(), events.end(),
+                                                [&]( const Animation::NotifyEvent& e )
+                                                { return e.Name == name && e.Kind == kind && e.SourceNode == node; } ) );
+    }
+
+    /// A 1 s clip holding still, with a "Step" notify at 0.5 s.
+    AnimationClip SteppingClip( const char* name )
+    {
+        AnimationClip clip =
+             StaticClip( name, "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+        ClipFixture::AddNotify( clip, "Step", At( 0.5 ) );
+        return clip;
+    }
+
+    /// Every event of ten 0.1 s ticks.
+    std::vector<Animation::NotifyEvent> PlayOneSecond( Animator& animator )
+    {
+        std::vector<Animation::NotifyEvent> events;
+        for ( int step = 0; step < 10; ++step )
+        {
+            animator.Update( Timestep( 0.1F ) );
+            for ( Animation::NotifyEvent& e : animator.ConsumeNotifyEvents() )
+                events.push_back( std::move( e ) );
+        }
+        return events;
+    }
+
+    /// A curve holding `value` over the clip's first second.
+    void FlatCurve( AnimationClip& clip, const char* name, float value )
+    {
+        Animation::ScalarKey first;
+        first.Tick  = At( 0.0 );
+        first.Value = value;
+        Animation::ScalarKey last = first;
+        last.Tick                 = At( 1.0 );
+        ClipFixture::AddCurve( clip, name, { first, last } );
+    }
+} // namespace
+
+TEST( AnimatorBlending, ALayerPlayersNotifyIsHeardAtFullWeightAndSilentAtZero )
+{
+    const Skeleton skeleton = MakeRig();
+    AnimationClip  base  = StaticClip( "Base", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+    AnimationClip  layer = SteppingClip( "Layer" );
+
+    for ( const float weight : { 1.0F, 0.0F } )
+    {
+        Animator animator( skeleton );
+        animator.Play( base, false );
+        ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::FullBodyLayer( "root" ), layer, weight,
+                                              /*loop=*/false ) );
+        const auto events = PlayOneSecond( animator );
+        EXPECT_EQ( CountFrom( events, "Step", Kind::Fire, static_cast<int>( PoseGraphFixture::kLayerNode ) ),
+                   weight > 0.0F ? 1 : 0 )
+             << "weight " << weight << ": UE's notify queue takes every player above NotifyTriggerWeight and no "
+                                       "other — a second player's notify was lost, or a blended-out one heard";
+        EXPECT_EQ( CountFrom( events, "Step", Kind::Fire, -1 ), 0 ) << "the layer's notify was blamed on the base";
+    }
+}
+
+TEST( AnimatorBlending, AnAdditivePlayerAtAlphaZeroIsSilentAndAtOneIsHeard )
+{
+    const Skeleton skeleton = MakeRig();
+    AnimationClip  base  = StaticClip( "Base", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+    AnimationClip  added = SteppingClip( "Additive" );
+
+    for ( const float alpha : { 1.0F, 0.0F } )
+    {
+        Animator animator( skeleton );
+        animator.Play( base, false );
+        ASSERT_TRUE(
+             PoseGraphFixture::Drive( animator, PoseGraphFixture::AdditiveGraph(), added, alpha, /*loop=*/false ) );
+        EXPECT_EQ( CountFrom( PlayOneSecond( animator ), "Step", Kind::Fire,
+                              static_cast<int>( PoseGraphFixture::kLayerNode ) ),
+                   alpha > 0.0F ? 1 : 0 )
+             << "alpha " << alpha << ": the additive player's weight is the node's weight x Alpha";
+    }
+}
+
+TEST( AnimatorBlending, ALayerPlayersNotifyStateEndsWhenItsWeightFallsToZero )
+{
+    const Skeleton skeleton = MakeRig();
+    Animator       animator( skeleton );
+    AnimationClip  base  = StaticClip( "Base", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+    AnimationClip  layer = StaticClip( "Layer", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+    AddState( layer, "Trail", 0.2, 0.8 );
+
+    animator.Play( base, false );
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::FullBodyLayer( "root" ), layer, 1.0F, false ) );
+    const int node = static_cast<int>( PoseGraphFixture::kLayerNode );
+    std::vector<Animation::NotifyEvent> events;
+    for ( int step = 0; step < 4; ++step ) // to 0.4 s: inside the state
+    {
+        animator.Update( Timestep( 0.1F ) );
+        for ( Animation::NotifyEvent& e : animator.ConsumeNotifyEvents() )
+            events.push_back( std::move( e ) );
+    }
+    EXPECT_EQ( CountFrom( events, "Trail", Kind::Begin, node ), 1 );
+    EXPECT_EQ( CountFrom( events, "Trail", Kind::End, node ), 0 );
+
+    animator.SetPoseGraphParameter( "LayerWeight", 0.0F );
+    animator.Update( Timestep( 0.1F ) );
+    EXPECT_EQ( CountFrom( animator.ConsumeNotifyEvents(), "Trail", Kind::End, node ), 1 )
+         << "a player blended out while inside a notify state left it open (UE ends it: the state is no longer "
+            "in the relevant players' set)";
+}
+
+TEST( AnimatorBlending, TwoPlayersCurvesAtFullWeightNormalizeToTheirMean )
+{
+    const Skeleton skeleton = MakeRig();
+    Animator       animator( skeleton );
+    AnimationClip  base  = StaticClip( "Base", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+    AnimationClip  layer = StaticClip( "Layer", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+    FlatCurve( base, "Blink", 2.0F );
+    FlatCurve( layer, "Blink", 6.0F );
+    FlatCurve( layer, "Only", 3.0F );
+
+    auto graph = PoseGraphFixture::FullBodyLayer( "root" );
+    graph.Nodes[2].LayeredBlend->CurveBlend = Animation::Graph::CurveBlendOption::NormalizeByWeight;
+    animator.Play( base, false );
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, graph, layer, 1.0F, false ) );
+    animator.Update( Timestep( 0.25F ) );
+
+    ASSERT_TRUE( animator.GetCurveValue( "Blink" ).has_value() ) << "the graph's curves never reached GetCurveValue";
+    EXPECT_NEAR( *animator.GetCurveValue( "Blink" ), 4.0F, 1e-5F )
+         << "base 1 and layer 1, normalized by weight: the mean — the curves were not blended with the pose";
+    ASSERT_TRUE( animator.GetCurveValue( "Only" ).has_value() ) << "a curve only the layer has was dropped";
+    EXPECT_NEAR( *animator.GetCurveValue( "Only" ), 3.0F, 1e-5F );
+    EXPECT_FALSE( animator.GetCurveValue( "Missing" ).has_value() );
+}
