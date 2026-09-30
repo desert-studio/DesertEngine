@@ -287,7 +287,7 @@ namespace Desert::Editor
         Graph::DeferredFrameAll        m_PoseFrameAll;
         /// Which canvas is shown: the AnimGraph (pose graph, UE's default tab) or the Output Pose's state
         /// machine (double-click its node, as in UE).
-        bool        m_EditingMachine = false;
+        bool m_EditingMachine = false;
         /// WHICH GRAPH THE POSE CANVAS SHOWS (UE: the AnimGraph tab or a layer function graph): empty = the
         /// graph's own AnimGraph (GraphScope::Host), else (interface, layer) of a layer graph it implements
         /// (GraphScope::Layer — where Linked Input Pose may be added).

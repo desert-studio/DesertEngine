@@ -80,11 +80,11 @@ namespace Desert::Editor
     {
         if ( m_LayerGraph != layer )
         {
-            m_PoseIds          = Graph::ElementIdMap{};
-            m_Ids              = Graph::ElementIdMap{};
+            m_PoseIds = Graph::ElementIdMap{};
+            m_Ids     = Graph::ElementIdMap{};
             m_SelectedPoseNode.clear();
             m_MachineNode.clear();
-            m_PoseFrameAll     = Graph::DeferredFrameAll{};
+            m_PoseFrameAll = Graph::DeferredFrameAll{};
         }
         m_LayerGraph     = std::move( layer );
         m_EditingMachine = false;
@@ -104,7 +104,7 @@ namespace Desert::Editor
     void AnimGraphPanel::AddPoseNode( G::PoseNodeKind kind, const std::optional<glm::vec2>& where )
     {
         AnimGraphEditTransaction::Scope transaction( m_GraphEdit, GraphOwner() );
-        ECS::AnimationComponent* anim = ResolveComponent();
+        ECS::AnimationComponent*        anim = ResolveComponent();
         if ( anim == nullptr || !anim->Graph )
         {
             m_Status        = "no graph to add a node to";
@@ -115,7 +115,7 @@ namespace Desert::Editor
         const PoseGraphTarget          target = ResolvePoseTarget( graph );
         const std::vector<std::string> clips  = ResolveClipNames( *anim );
         const std::pair<float, float>  cell   = Graph::NextPoseNodePosition( *target.Nodes );
-        const glm::vec2                at    = where.value_or( glm::vec2( cell.first, cell.second ) );
+        const glm::vec2                at     = where.value_or( glm::vec2( cell.first, cell.second ) );
         // The shown graph's scope decides: a Linked Input Pose is added on a layer graph's canvas only, and the
         // unit refuses it on the AnimGraph with the reason.
         const auto added = Graph::AddPoseNode( graph, *target.Nodes, kind, target.Scope, at.x, at.y,
@@ -134,7 +134,7 @@ namespace Desert::Editor
     void AnimGraphPanel::WirePose( const std::string& from, const std::string& to, int pin )
     {
         AnimGraphEditTransaction::Scope transaction( m_GraphEdit, GraphOwner() );
-        ECS::AnimationComponent* anim = ResolveComponent();
+        ECS::AnimationComponent*        anim = ResolveComponent();
         if ( anim == nullptr || !anim->Graph )
             return;
         const PoseGraphTarget target = ResolvePoseTarget( *anim->Graph );
@@ -146,7 +146,7 @@ namespace Desert::Editor
     void AnimGraphPanel::RemovePoseNode( const std::string& name )
     {
         AnimGraphEditTransaction::Scope transaction( m_GraphEdit, GraphOwner() );
-        ECS::AnimationComponent* anim = ResolveComponent();
+        ECS::AnimationComponent*        anim = ResolveComponent();
         if ( anim == nullptr || !anim->Graph )
             return;
         const PoseGraphTarget target = ResolvePoseTarget( *anim->Graph );
@@ -218,7 +218,7 @@ namespace Desert::Editor
         const PoseGraphTarget     target     = ResolvePoseTarget( graph );
         std::vector<G::PoseNode>& nodes      = *target.Nodes;
         std::string&              poseOutput = *target.Output;
-        bool          dirty = false;
+        bool                      dirty      = false;
 
         m_PoseCanvas = Graph::PlanPoseCanvas( nodes, poseOutput, m_PoseIds );
 
@@ -318,7 +318,7 @@ namespace Desert::Editor
                 {
                     nodes      = std::move( trial );
                     poseOutput = std::move( outputPose );
-                    dirty            = true;
+                    dirty      = true;
                 }
             }
         }
@@ -464,7 +464,7 @@ namespace Desert::Editor
         const PoseGraphTarget     target     = ResolvePoseTarget( graph );
         std::vector<G::PoseNode>& nodes      = *target.Nodes;
         std::string&              poseOutput = *target.Output;
-        bool          dirty = false;
+        bool                      dirty      = false;
 
         ImGui::BeginChild( "##poseSide", ImVec2( 290.0f, height ), true );
         ImGui::Text( "Output Pose: %s", poseOutput.empty() ? "<nothing wired>" : poseOutput.c_str() );

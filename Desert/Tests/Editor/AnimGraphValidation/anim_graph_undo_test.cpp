@@ -28,8 +28,8 @@ namespace
             // A graph the loader accepts (one player at Output Pose), round-tripped so it carries a header as a
             // loaded file does.
             G::AnimGraph seed;
-            const auto   added = EG::AddPoseNode( seed, seed.Nodes, G::PoseNodeKind::SequencePlayer, G::GraphScope::Host,
-                                                  0.0f, 0.0f, "Idle" );
+            const auto   added = EG::AddPoseNode( seed, seed.Nodes, G::PoseNodeKind::SequencePlayer,
+                                                  G::GraphScope::Host, 0.0f, 0.0f, "Idle" );
             EXPECT_TRUE( added.IsSuccess() );
             EXPECT_TRUE( EG::ConnectOutput( seed.Nodes, seed.OutputPose, added.GetValue() ).IsSuccess() );
             const auto loaded = G::Deserialize( G::Serialize( seed ) );
@@ -83,8 +83,8 @@ TEST( AnimGraphUndo, AScopeThatChangedNothingPushesNothing )
 TEST( AnimGraphUndo, ADragOfManyFramesIsOneEntry )
 {
     Fixture f;
-    ASSERT_TRUE( EG::AddPoseNode( f.graph, f.graph.Nodes, G::PoseNodeKind::SequencePlayer, G::GraphScope::Host, 0.0f,
-                                  0.0f, "Walk" )
+    ASSERT_TRUE( EG::AddPoseNode( f.graph, f.graph.Nodes, G::PoseNodeKind::SequencePlayer, G::GraphScope::Host,
+                                  0.0f, 0.0f, "Walk" )
                       .IsSuccess() );
     AnimGraphEditTransaction tx;
     EXPECT_EQ( tx.Observe( f.Owner(), f.revision, false ), 0u ); // the baseline
@@ -104,8 +104,8 @@ TEST( AnimGraphUndo, ADragOfManyFramesIsOneEntry )
 TEST( AnimGraphUndo, AKeyEditInASettledFrameIsOneEntryAndAnUndoIsNotRecordedAsAnEdit )
 {
     Fixture f;
-    ASSERT_TRUE( EG::AddPoseNode( f.graph, f.graph.Nodes, G::PoseNodeKind::SequencePlayer, G::GraphScope::Host, 0.0f,
-                                  0.0f, "Walk" )
+    ASSERT_TRUE( EG::AddPoseNode( f.graph, f.graph.Nodes, G::PoseNodeKind::SequencePlayer, G::GraphScope::Host,
+                                  0.0f, 0.0f, "Walk" )
                       .IsSuccess() );
     AnimGraphEditTransaction tx;
     (void)tx.Observe( f.Owner(), f.revision, false );
@@ -126,7 +126,7 @@ TEST( AnimGraphUndo, ParametersStatesAndSettingsAreOneEntryEach )
     Fixture                  f;
     AnimGraphEditTransaction tx;
     f.graph.Nodes.push_back( G::PoseNode{ .Name = "Machine", .Machine = G::StateMachine{} } );
-    f.graph.OutputPose = "Machine";
+    f.graph.OutputPose       = "Machine";
     const std::string before = G::Serialize( f.graph );
     {
         AnimGraphEditTransaction::Scope scope( tx, f.Owner() );
@@ -134,7 +134,7 @@ TEST( AnimGraphUndo, ParametersStatesAndSettingsAreOneEntryEach )
     }
     {
         AnimGraphEditTransaction::Scope scope( tx, f.Owner() );
-        G::State state;
+        G::State                        state;
         state.Name = EG::MakeUniqueStateName( f.graph.Nodes.back().Machine->States, "State", -1 );
         f.graph.Nodes.back().Machine->States.push_back( state );
     }

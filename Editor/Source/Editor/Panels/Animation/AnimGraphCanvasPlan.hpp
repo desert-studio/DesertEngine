@@ -55,7 +55,7 @@ namespace Desert::Editor::Graph
     /// opened on its own canvas, as UE opens a state machine node's graph. `PlanAnimGraph` is this over the
     /// machine at Output Pose.
     [[nodiscard]] AnimGraphCanvas PlanStateMachine( const std::vector<Animation::Graph::State>& states,
-                                                    ElementIdMap&                                  ids );
+                                                    ElementIdMap&                               ids );
 
     /// The state a node id names, or -1. NOT `id - 1`.
     [[nodiscard]] int StateOfNode( const AnimGraphCanvas& canvas, ElementId node );

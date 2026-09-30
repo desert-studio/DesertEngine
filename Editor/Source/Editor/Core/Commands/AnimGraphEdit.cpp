@@ -63,7 +63,8 @@ namespace Desert::Editor
     Common::BoolResultStr AnimGraphEditTransaction::Begin( const AnimGraphOwner& owner )
     {
         if ( m_Open )
-            return Common::MakeFormattedError<bool>( "an anim graph edit on '{}' is already open; transactions do not nest", m_Owner.Name );
+            return Common::MakeFormattedError<bool>(
+                 "an anim graph edit on '{}' is already open; transactions do not nest", m_Owner.Name );
         G::AnimGraph* graph = owner.Resolve ? owner.Resolve() : nullptr;
         if ( graph == nullptr )
             return Common::MakeFormattedError<bool>( "anim graph '{}' does not resolve", owner.Name );

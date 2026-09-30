@@ -193,12 +193,12 @@ namespace Desert::Editor
         AnimGraphOwner                 owner;
         if ( anim == nullptr || !asset )
             return owner; // resolves to nothing: a transaction refuses it
-        owner.Identity = asset.get();
-        owner.Name     = asset->GetDisplayName();
-        owner.Volatile = false;
+        owner.Identity                = asset.get();
+        owner.Name                    = asset->GetDisplayName();
+        owner.Volatile                = false;
         Assets::AssetManager* manager = m_AssetManager;
         const auto            handle  = anim->GraphAsset;
-        owner.Resolve = [manager, handle]() -> G::AnimGraph*
+        owner.Resolve                 = [manager, handle]() -> G::AnimGraph*
         {
             const auto found = manager->FindByHandle<Assets::AnimGraphAsset>( handle );
             return found && found->GetGraph() ? found->GetGraph().get() : nullptr;
@@ -384,7 +384,7 @@ namespace Desert::Editor
         if ( const auto asset = ResolveAsset() )
         {
             const uint32_t revision = asset->GetRevision();
-            const bool held = ImGui::IsAnyItemActive() || ImGui::IsMouseDown( ImGuiMouseButton_Left );
+            const bool     held     = ImGui::IsAnyItemActive() || ImGui::IsMouseDown( ImGuiMouseButton_Left );
             (void)m_GraphEdit.Observe( GraphOwner(), revision, held );
             if ( m_SeenRevision != revision )
             {

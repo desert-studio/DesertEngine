@@ -354,8 +354,8 @@ namespace Desert::Animation::Graph
         std::vector<Layer>       defaults;
         std::vector<std::string> interfaces;
         if ( auto built = BuildLayers( host, 0, host, skeleton, defaults, interfaces ); !built )
-            return Common::MakeError<bool>( std::format( "the default layers '{}' implements itself: {}",
-                                                         host.Name, built.GetError() ) );
+            return Common::MakeError<bool>(
+                 std::format( "the default layers '{}' implements itself: {}", host.Name, built.GetError() ) );
         std::vector<LayerCalls> calls;
         for ( const Layer& l : defaults )
             calls.push_back( { l.Interface, l.Name, CalledLayers( l.Instance.Graph().Nodes ) } );

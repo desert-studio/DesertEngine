@@ -535,7 +535,8 @@ TEST( LinkedAnimLayer, TheHostsOwnLayerIsTheDefaultAnUnlinkReturnsTo )
     const uint32_t spine = *spineBone;
     // UE: the character's AnimBlueprint implements Weapon.UpperBody itself — its layer is one leaf "Own".
     G::AnimGraph character = Character();
-    character.Layers->Implemented.push_back( G::AnimLayerGraph{ "Weapon", "UpperBody", { Leaf( "Own" ) }, "Own" } );
+    character.Layers->Implemented.push_back(
+         G::AnimLayerGraph{ "Weapon", "UpperBody", { Leaf( "Own" ) }, "Own" } );
     G::PoseGraphInstance instance;
     ASSERT_TRUE( instance.Bind( character, skeleton ).IsSuccess() );
     const LocalPose     reference( skeleton.GetBones().size() );

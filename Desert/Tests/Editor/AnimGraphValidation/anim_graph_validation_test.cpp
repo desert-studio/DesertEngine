@@ -466,7 +466,7 @@ TEST( AnimGraphValidation, ThePanelUsesThePlacementRuleRatherThanZero )
 {
     const std::string source = PanelSource();
     ASSERT_FALSE( source.empty() );
-    EXPECT_NE( source.find( "Graph::NextStatePosition( *anim->Graph )" ), std::string::npos )
+    EXPECT_NE( source.find( "Graph::NextStatePosition( machine->States )" ), std::string::npos )
          << "+ State does not use the placement rule, so new states land on top of each other again";
 }
 

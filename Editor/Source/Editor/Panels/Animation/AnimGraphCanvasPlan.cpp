@@ -200,7 +200,8 @@ namespace Desert::Editor::Graph
         return MakeUniqueStateName( StatesOf( graph ), desired, selfIndex );
     }
 
-    std::string MakeUniqueStateName( const std::vector<G::State>& states, const std::string& desired, int selfIndex )
+    std::string MakeUniqueStateName( const std::vector<G::State>& states, const std::string& desired,
+                                     int selfIndex )
     {
         const auto taken = [&]( const std::string& candidate )
         {

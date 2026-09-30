@@ -190,8 +190,7 @@ TEST( PoseGraphEdit, ThePanelEditsThePoseGraphThroughTheUnit )
 {
     const std::string source = ReadSource( "Editor/Source/Editor/Panels/Animation/AnimGraphPanelPoseGraph.cpp" );
     ASSERT_FALSE( source.empty() );
-    EXPECT_NE( source.find( "Graph::AddPoseNode( graph, graph.Nodes, kind, G::GraphScope::Host" ),
-               std::string::npos );
+    EXPECT_NE( source.find( "Graph::AddPoseNode( graph, *target.Nodes, kind, target.Scope" ), std::string::npos );
     EXPECT_NE( source.find( "Graph::ConnectPose( trial, from" ), std::string::npos )
          << "the canvas drag does not ask the unit before it wires";
     EXPECT_NE( source.find( "ed::ShowBackgroundContextMenu()" ), std::string::npos );
