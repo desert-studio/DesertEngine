@@ -60,7 +60,9 @@ namespace Desert::Assets
     // A .danimgraph: the anim graph file layout, stated in the header since v1 (T7d). The files before it
     // stated no version at all - that generation is 0, and a file of it is refused by name.
     inline constexpr uint32_t kAnimGraphSchemaTag     = Common::Content::FourCC( "ANGR" );
-    inline constexpr uint32_t kAnimGraphSchemaVersion = 1;
+    // v2 (ANIM-I12): the graph is a pose graph (Nodes + OutputPose); v1's lone Entry/States became one
+    // StateMachine node wired to Output Pose, in the files.
+    inline constexpr uint32_t kAnimGraphSchemaVersion = 2;
     // A .skeleton: the rig file layout, stated in the header since v1 (T7e). The files before it stated no
     // version at all - that generation is 0, and a file of it is refused by name.
     inline constexpr uint32_t kSkeletonSchemaTag     = Common::Content::FourCC( "SKEL" );

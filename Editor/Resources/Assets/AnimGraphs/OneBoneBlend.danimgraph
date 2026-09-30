@@ -3,39 +3,52 @@
         "Kind": "AnimGraph",
         "Guid": "5533f20f4432c76df2f0d7515450000b",
         "Versions": {
-            "ANGR": 1
+            "ANGR": 2
         },
         "Dependencies": []
     },
     "Name": "OneBoneBlend",
-    "Entry": "Hover",
     "Parameters": [],
-    "States": [
+    "Nodes": [
         {
-            "Name": "Hover",
-            "Clip": "SkinProbe_Hover",
-            "Loop": true,
-            "Speed": 1.0,
+            "Name": "StateMachine",
+            "Kind": 0,
+            "PoseInputs": [],
+            "ParameterInputs": [],
+            "Machine": {
+                "Entry": "Hover",
+                "States": [
+                    {
+                        "Name": "Hover",
+                        "Clip": "SkinProbe_Hover",
+                        "Loop": true,
+                        "Speed": 1.0,
+                        "X": 0.0,
+                        "Y": 0.0,
+                        "Transitions": [
+                            {
+                                "To": "Tilt",
+                                "Blend": 2.0,
+                                "HasExitTime": true,
+                                "ExitTime": 0.25,
+                                "Conditions": []
+                            }
+                        ]
+                    },
+                    {
+                        "Name": "Tilt",
+                        "Clip": "SkinProbe_Tilt",
+                        "Loop": true,
+                        "Speed": 1.0,
+                        "X": 260.0,
+                        "Y": 0.0,
+                        "Transitions": []
+                    }
+                ]
+            },
             "X": 0.0,
-            "Y": 0.0,
-            "Transitions": [
-                {
-                    "To": "Tilt",
-                    "Blend": 2.0,
-                    "HasExitTime": true,
-                    "ExitTime": 0.25,
-                    "Conditions": []
-                }
-            ]
-        },
-        {
-            "Name": "Tilt",
-            "Clip": "SkinProbe_Tilt",
-            "Loop": true,
-            "Speed": 1.0,
-            "X": 260.0,
-            "Y": 0.0,
-            "Transitions": []
+            "Y": 0.0
         }
-    ]
+    ],
+    "OutputPose": "StateMachine"
 }

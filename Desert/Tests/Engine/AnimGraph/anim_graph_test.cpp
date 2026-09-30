@@ -16,9 +16,9 @@ namespace
     // Idle <-> Run, gated on a float "Speed": Idle --(Speed > 0.5)--> Run, Run --(Speed < 0.1)--> Idle.
     AnimGraph LocomotionGraph()
     {
-        AnimGraph g;
+        AnimGraph g = ::Desert::Animation::Graph::MakeStateMachineGraph();
         g.Name  = "Locomotion";
-        g.Entry = "Idle";
+        OutputMachine( g )->Entry = "Idle";
         g.Parameters.push_back( { "Speed", static_cast<int>( ParamType::Float ), 0.0f } );
 
         State idle;
@@ -33,7 +33,7 @@ namespace
         run.Transitions.push_back(
              { "Idle", 0.2f, false, 1.0f, { { "Speed", static_cast<int>( CompareOp::Less ), 0.1f } } } );
 
-        g.States = { idle, run };
+        OutputMachine( g )->States = { idle, run };
         return g;
     }
 } // namespace
@@ -48,7 +48,7 @@ TEST( AnimGraph, StartsAtEntryState )
 TEST( AnimGraph, EntryFallsBackToFirstStateWhenUnset )
 {
     AnimGraph g = LocomotionGraph();
-    g.Entry.clear();
+    OutputMachine( g )->Entry.clear();
     Evaluator eval( g );
     ASSERT_NE( eval.CurrentState(), nullptr );
     EXPECT_EQ( eval.CurrentState()->Name, "Idle" ); // first state
@@ -81,8 +81,8 @@ TEST( AnimGraph, TransitionsWhenConditionMet )
 
 TEST( AnimGraph, ExitTimeGatesTransition )
 {
-    AnimGraph g;
-    g.Entry = "A";
+    AnimGraph g = ::Desert::Animation::Graph::MakeStateMachineGraph();
+    OutputMachine( g )->Entry = "A";
     State a;
     a.Name = "A";
     a.Clip = "a";
@@ -91,7 +91,7 @@ TEST( AnimGraph, ExitTimeGatesTransition )
     State b;
     b.Name   = "B";
     b.Clip   = "b";
-    g.States = { a, b };
+    OutputMachine( g )->States = { a, b };
 
     Evaluator eval( g );
     EXPECT_FALSE( eval.Update( 0.5f ).Changed ); // before exit time -> hold
@@ -102,14 +102,14 @@ TEST( AnimGraph, ExitTimeGatesTransition )
 
 TEST( AnimGraph, DanglingAndSelfTargetsIgnored )
 {
-    AnimGraph g;
-    g.Entry = "Only";
+    AnimGraph g = ::Desert::Animation::Graph::MakeStateMachineGraph();
+    OutputMachine( g )->Entry = "Only";
     State s;
     s.Name = "Only";
     s.Clip = "c";
     s.Transitions.push_back( { "DoesNotExist", 0.2f, false, 1.0f, {} } ); // dangling
     s.Transitions.push_back( { "Only", 0.2f, false, 1.0f, {} } );         // self
-    g.States = { s };
+    OutputMachine( g )->States = { s };
 
     Evaluator eval( g );
     auto      r = eval.Update( 1.0f );
@@ -125,19 +125,19 @@ TEST( AnimGraph, SyncGraphPreservesStateAndParams )
 
     // Edit the graph (bump a blend duration) and re-sync: the active state + live param must survive.
     AnimGraph edited                      = LocomotionGraph();
-    edited.States[0].Transitions[0].Blend = 0.9f;
+    OutputMachine( edited )->States[0].Transitions[0].Blend = 0.9f;
     eval.SyncGraph( edited );
 
     EXPECT_EQ( eval.CurrentState()->Name, "Run" );     // preserved by name
     EXPECT_FLOAT_EQ( eval.GetFloat( "Speed" ), 1.0f ); // live value preserved
 
     // Removing the active state re-enters at the entry.
-    AnimGraph idleOnly;
-    idleOnly.Entry = "Idle";
+    AnimGraph idleOnly = ::Desert::Animation::Graph::MakeStateMachineGraph();
+    OutputMachine( idleOnly )->Entry = "Idle";
     State idle;
     idle.Name       = "Idle";
     idle.Clip       = "idle_clip";
-    idleOnly.States = { idle };
+    OutputMachine( idleOnly )->States = { idle };
     eval.SyncGraph( idleOnly );
     EXPECT_EQ( eval.CurrentState()->Name, "Idle" );
 }
@@ -176,4 +176,106 @@ TEST( AnimGraph, PreviousStateNamesWhereTheTransitionCameFrom )
     ASSERT_EQ( eval.Update( 0.0f ).Current->Name, "Idle" );
     ASSERT_NE( eval.PreviousState(), nullptr );
     EXPECT_EQ( eval.PreviousState()->Name, "Run" );
+}
+
+// ── THE POSE GRAPH (ANIM-I12): a state machine is ONE node, evaluated from Output Pose back ─────────────
+
+namespace PG = Desert::Animation::Graph;
+
+// The shape every ANGR 1 file became: one StateMachine node, wired into Output Pose, and it is the plan.
+TEST( PoseGraph, TheMigratedShapeIsOneMachineAtTheOutput )
+{
+    const AnimGraph graph = PG::MakeStateMachineGraph( "Hero" );
+    ASSERT_EQ( graph.Nodes.size(), 1u );
+    EXPECT_EQ( graph.OutputPose, PG::kDefaultStateMachineNode );
+    ASSERT_NE( PG::OutputMachine( graph ), nullptr );
+
+    const auto plan = PG::PlanPoseGraph( graph );
+    ASSERT_TRUE( plan.IsSuccess() ) << plan.GetError();
+    EXPECT_EQ( plan.GetValue(), std::vector<int>{ 0 } );
+}
+
+TEST( PoseGraph, NothingAtOutputPoseIsRefusedByName )
+{
+    AnimGraph graph  = PG::MakeStateMachineGraph( "Hero" );
+    graph.OutputPose = "Locomotion";
+    const auto plan  = PG::PlanPoseGraph( graph );
+    ASSERT_FALSE( plan.IsSuccess() );
+    EXPECT_NE( plan.GetError().find( "'Locomotion'" ), std::string::npos ) << plan.GetError();
+
+    graph.OutputPose.clear();
+    EXPECT_FALSE( PG::PlanPoseGraph( graph ).IsSuccess() );
+}
+
+// A wire into a pin the kind does not have, a duplicate node name, and a parameter pin the kind does not
+// have are each refused, naming the node.
+TEST( PoseGraph, AWireTheKindHasNoPinForIsRefused )
+{
+    AnimGraph graph = PG::MakeStateMachineGraph( "Hero" );
+    graph.Nodes[0].PoseInputs.push_back( "Elsewhere" );
+    const auto plan = PG::PlanPoseGraph( graph );
+    ASSERT_FALSE( plan.IsSuccess() );
+    EXPECT_NE( plan.GetError().find( "'StateMachine'" ), std::string::npos ) << plan.GetError();
+}
+
+TEST( PoseGraph, TwoNodesOfOneNameAreRefused )
+{
+    AnimGraph graph = PG::MakeStateMachineGraph( "Hero" );
+    graph.Nodes.push_back( graph.Nodes[0] );
+    const auto plan = PG::PlanPoseGraph( graph );
+    ASSERT_FALSE( plan.IsSuccess() );
+    EXPECT_NE( plan.GetError().find( "two pose nodes" ), std::string::npos ) << plan.GetError();
+}
+
+TEST( PoseGraph, AParameterPinTheKindLacksIsRefused )
+{
+    AnimGraph graph = PG::MakeStateMachineGraph( "Hero" );
+    graph.Parameters.push_back( Parameter{ "Speed", static_cast<int>( ParamType::Float ), 0.0f } );
+    graph.Nodes[0].ParameterInputs.push_back( PG::ParameterPin{ "Weight", "Speed" } );
+    const auto plan = PG::PlanPoseGraph( graph );
+    ASSERT_FALSE( plan.IsSuccess() );
+    EXPECT_NE( plan.GetError().find( "'Weight'" ), std::string::npos ) << plan.GetError();
+}
+
+// A machine nothing wires to Output Pose is authored but not evaluated: it is not in the plan, its
+// transitions never fire, and the evaluator's answers are the output machine's.
+TEST( PoseGraph, AnUnwiredMachineIsNotEvaluated )
+{
+    AnimGraph graph = PG::MakeStateMachineGraph( "Hero" );
+    State     idle;
+    idle.Name = "Idle";
+    PG::OutputMachine( graph )->States = { idle };
+
+    PG::PoseNode spare = graph.Nodes[0];
+    spare.Name         = "Spare";
+    State a;
+    a.Name = "A";
+    State b;
+    b.Name = "B";
+    Transition always;
+    always.To = "B";
+    a.Transitions.push_back( always );
+    spare.Machine->States = { a, b };
+    graph.Nodes.push_back( spare );
+
+    const auto plan = PG::PlanPoseGraph( graph );
+    ASSERT_TRUE( plan.IsSuccess() ) << plan.GetError();
+    EXPECT_EQ( plan.GetValue(), std::vector<int>{ 0 } );
+
+    Evaluator eval( graph );
+    const auto result = eval.Update( 1.0f );
+    ASSERT_NE( result.Current, nullptr );
+    EXPECT_EQ( result.Current->Name, "Idle" );
+    ASSERT_NE( eval.CurrentState( "Spare" ), nullptr );
+    EXPECT_EQ( eval.CurrentState( "Spare" )->Name, "A" ); // its unconditional transition never ran
+}
+
+// An unplannable graph updates nothing and says why, once, in the structure error.
+TEST( PoseGraph, AnUnplannableGraphUpdatesNothingAndSaysWhy )
+{
+    AnimGraph graph  = LocomotionGraph();
+    graph.OutputPose = "Gone";
+    Evaluator eval( graph );
+    EXPECT_NE( eval.GetStructureError().find( "'Gone'" ), std::string::npos ) << eval.GetStructureError();
+    EXPECT_EQ( eval.Update( 0.0f ).Current, nullptr );
 }

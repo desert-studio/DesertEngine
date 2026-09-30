@@ -126,7 +126,10 @@ namespace Desert::ECS
 
                 // AnimGraph path: the state machine PICKS the clip; the Animator just plays it. Falls back to
                 // the CurrentClip path below when no graph is attached.
-                if ( anim.Graph && !anim.Graph->States.empty() )
+                // The machine wired into Output Pose picks the clip; with no states there it picks nothing.
+                const Animation::Graph::StateMachine* outputMachine =
+                     anim.Graph ? Animation::Graph::OutputMachine( *anim.Graph ) : nullptr;
+                if ( outputMachine != nullptr && !outputMachine->States.empty() )
                 {
                     if ( !anim.GraphEvaluator )
                     {

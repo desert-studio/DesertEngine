@@ -68,17 +68,17 @@ namespace
     /// under test was trivial" cannot be confused.
     G::AnimGraph HealthyGraph()
     {
-        G::AnimGraph graph;
+        G::AnimGraph graph = ::Desert::Animation::Graph::MakeStateMachineGraph();
         graph.Name  = "Locomotion";
-        graph.Entry = "Idle";
+        OutputMachine( graph )->Entry = "Idle";
         graph.Parameters.push_back( { "Speed", static_cast<int>( G::ParamType::Float ), 0.0f } );
-        graph.States.push_back( Playing( "Idle", "Idle" ) );
-        graph.States.push_back( Playing( "Run", "Run" ) );
+        OutputMachine( graph )->States.push_back( Playing( "Idle", "Idle" ) );
+        OutputMachine( graph )->States.push_back( Playing( "Run", "Run" ) );
 
         G::Transition toRun;
         toRun.To = "Run";
         toRun.Conditions.push_back( Cond( "Speed", G::CompareOp::Greater, 3.0f ) );
-        graph.States[0].Transitions.push_back( toRun );
+        OutputMachine( graph )->States[0].Transitions.push_back( toRun );
         return graph;
     }
 
@@ -150,7 +150,7 @@ TEST( AnimGraphValidation, AHealthyGraphProducesNoWarningAtAll )
 TEST( AnimGraphValidation, W1_AStateWithNoClipIsNamed )
 {
     G::AnimGraph graph = HealthyGraph();
-    graph.States[1].Clip.clear();
+    OutputMachine( graph )->States[1].Clip.clear();
 
     const auto warnings = G::Validate( graph, Known() );
     ASSERT_EQ( CountOf( warnings, G::WarningKind::StateHasNoClip ), 1u ) << Joined( warnings );
@@ -161,7 +161,7 @@ TEST( AnimGraphValidation, W1_AStateWithNoClipIsNamed )
 TEST( AnimGraphValidation, W1_AClipThisSkeletonCannotPlayIsNamed )
 {
     G::AnimGraph graph   = HealthyGraph();
-    graph.States[1].Clip = "Run_v2_FINAL";
+    OutputMachine( graph )->States[1].Clip = "Run_v2_FINAL";
 
     const auto warnings = G::Validate( graph, Known() );
     ASSERT_EQ( CountOf( warnings, G::WarningKind::StateClipNotAvailable ), 1u ) << Joined( warnings );
@@ -191,12 +191,12 @@ TEST( AnimGraphValidation, W2_ALaterTransitionBehindALooserOneCanNeverFire )
     // satisfies the second satisfies the first, `Evaluator::Update` takes the first eligible transition
     // and breaks, so the second is dead code in the graph and nothing says so.
     G::AnimGraph graph = HealthyGraph();
-    graph.States.push_back( Playing( "Walk", "Idle" ) );
+    OutputMachine( graph )->States.push_back( Playing( "Walk", "Idle" ) );
 
     G::Transition toWalk;
     toWalk.To = "Walk";
     toWalk.Conditions.push_back( Cond( "Speed", G::CompareOp::Greater, 0.1f ) );
-    graph.States[0].Transitions.insert( graph.States[0].Transitions.begin(), toWalk );
+    OutputMachine( graph )->States[0].Transitions.insert( OutputMachine( graph )->States[0].Transitions.begin(), toWalk );
 
     const auto warnings = G::Validate( graph, Known() );
     ASSERT_EQ( CountOf( warnings, G::WarningKind::TransitionNeverFires ), 1u ) << Joined( warnings );
@@ -210,12 +210,12 @@ TEST( AnimGraphValidation, W2_TheSameTwoTransitionsInTheOtherOrderAreFine )
     // and BOTH are reachable. A rule that flagged mere overlap would fire here, on the shape every real
     // graph is built out of, and be learned as noise within a day.
     G::AnimGraph graph = HealthyGraph();
-    graph.States.push_back( Playing( "Walk", "Idle" ) );
+    OutputMachine( graph )->States.push_back( Playing( "Walk", "Idle" ) );
 
     G::Transition toWalk;
     toWalk.To = "Walk";
     toWalk.Conditions.push_back( Cond( "Speed", G::CompareOp::Greater, 0.1f ) );
-    graph.States[0].Transitions.push_back( toWalk ); // AFTER the Speed > 3 one
+    OutputMachine( graph )->States[0].Transitions.push_back( toWalk ); // AFTER the Speed > 3 one
 
     const auto warnings = G::Validate( graph, Known() );
     EXPECT_EQ( CountOf( warnings, G::WarningKind::TransitionNeverFires ), 0u ) << Joined( warnings );
@@ -227,12 +227,12 @@ TEST( AnimGraphValidation, W2_TransitionsOnDifferentParametersAreNotShadowing )
     // which the first does not hold and the second does. Both are reachable.
     G::AnimGraph graph = HealthyGraph();
     graph.Parameters.push_back( { "Jump", static_cast<int>( G::ParamType::Bool ), 0.0f } );
-    graph.States.push_back( Playing( "Jump", "Idle" ) );
+    OutputMachine( graph )->States.push_back( Playing( "Jump", "Idle" ) );
 
     G::Transition toJump;
     toJump.To = "Jump";
     toJump.Conditions.push_back( Cond( "Jump", G::CompareOp::IsTrue ) );
-    graph.States[0].Transitions.push_back( toJump );
+    OutputMachine( graph )->States[0].Transitions.push_back( toJump );
 
     const auto warnings = G::Validate( graph, Known() );
     EXPECT_EQ( CountOf( warnings, G::WarningKind::TransitionNeverFires ), 0u ) << Joined( warnings );
@@ -244,11 +244,11 @@ TEST( AnimGraphValidation, W2_AnUnconditionalTransitionKillsEverythingAfterIt )
     // constrains NOTHING, so it fires on the first tick, every tick, and no later transition out of this
     // state will ever be reached.
     G::AnimGraph graph = HealthyGraph();
-    graph.States.push_back( Playing( "Walk", "Idle" ) );
+    OutputMachine( graph )->States.push_back( Playing( "Walk", "Idle" ) );
 
     G::Transition always;
     always.To = "Walk";
-    graph.States[0].Transitions.insert( graph.States[0].Transitions.begin(), always );
+    OutputMachine( graph )->States[0].Transitions.insert( OutputMachine( graph )->States[0].Transitions.begin(), always );
 
     const auto warnings = G::Validate( graph, Known() );
     ASSERT_EQ( CountOf( warnings, G::WarningKind::TransitionNeverFires ), 1u ) << Joined( warnings );
@@ -260,14 +260,14 @@ TEST( AnimGraphValidation, W2_AnExitTimeGateThatOpensLaterShadowsNothing )
     // its turn while the earlier one is held back. Ignoring this would have produced a false report on
     // the commonest authored shape there is — "finish the clip, then go here; interrupt for that".
     G::AnimGraph graph = HealthyGraph();
-    graph.States.push_back( Playing( "Walk", "Idle" ) );
+    OutputMachine( graph )->States.push_back( Playing( "Walk", "Idle" ) );
 
     G::Transition gated;
     gated.To          = "Walk";
     gated.HasExitTime = true;
     gated.ExitTime    = 0.9f;
     gated.Conditions.push_back( Cond( "Speed", G::CompareOp::Greater, 0.1f ) );
-    graph.States[0].Transitions.insert( graph.States[0].Transitions.begin(), gated );
+    OutputMachine( graph )->States[0].Transitions.insert( OutputMachine( graph )->States[0].Transitions.begin(), gated );
 
     const auto warnings = G::Validate( graph, Known() );
     EXPECT_EQ( CountOf( warnings, G::WarningKind::TransitionNeverFires ), 0u ) << Joined( warnings );
@@ -276,7 +276,7 @@ TEST( AnimGraphValidation, W2_AnExitTimeGateThatOpensLaterShadowsNothing )
 TEST( AnimGraphValidation, W2_ATransitionWhoseOwnConditionsContradictIsNamed )
 {
     G::AnimGraph graph = HealthyGraph();
-    graph.States[0].Transitions[0].Conditions.push_back( Cond( "Speed", G::CompareOp::Less, 1.0f ) );
+    OutputMachine( graph )->States[0].Transitions[0].Conditions.push_back( Cond( "Speed", G::CompareOp::Less, 1.0f ) );
 
     const auto warnings = G::Validate( graph, Known() );
     ASSERT_EQ( CountOf( warnings, G::WarningKind::TransitionNeverFires ), 1u ) << Joined( warnings );
@@ -292,7 +292,7 @@ TEST( AnimGraphValidation, W2_ATransitionToAMissingStateShadowsNothing )
 
     G::Transition dangling;
     dangling.To = "StateThatWasDeletedByHand";
-    graph.States[0].Transitions.insert( graph.States[0].Transitions.begin(), dangling );
+    OutputMachine( graph )->States[0].Transitions.insert( OutputMachine( graph )->States[0].Transitions.begin(), dangling );
 
     const auto warnings = G::Validate( graph, Known() );
     EXPECT_EQ( CountOf( warnings, G::WarningKind::TransitionNeverFires ), 0u ) << Joined( warnings );
@@ -301,7 +301,7 @@ TEST( AnimGraphValidation, W2_ATransitionToAMissingStateShadowsNothing )
 TEST( AnimGraphValidation, W3_AConditionOnAnUndeclaredParameterIsNamed )
 {
     G::AnimGraph graph                                     = HealthyGraph();
-    graph.States[0].Transitions[0].Conditions[0].Parameter = "Sped";
+    OutputMachine( graph )->States[0].Transitions[0].Conditions[0].Parameter = "Sped";
 
     const auto warnings = G::Validate( graph, Known() );
     ASSERT_EQ( CountOf( warnings, G::WarningKind::UndeclaredConditionParam ), 1u ) << Joined( warnings );
@@ -315,7 +315,7 @@ TEST( AnimGraphValidation, W3_IsOneRuleAndNotTwo )
     // graph every frame because that is where a person is looking. If those two ever answered
     // differently about one graph, the strip and the log would disagree and both would be doubted.
     G::AnimGraph graph                                     = HealthyGraph();
-    graph.States[0].Transitions[0].Conditions[0].Parameter = "Sped";
+    OutputMachine( graph )->States[0].Transitions[0].Conditions[0].Parameter = "Sped";
 
     const G::Evaluator evaluator{ graph };
     EXPECT_EQ( evaluator.GetStructureError(), G::UndeclaredConditionParameters( graph ) );
@@ -400,7 +400,7 @@ TEST( AnimGraphValidation, NewStatesNeverLandOnTopOfEachOther )
     // `+ State` used to write (0, 0) into every new state, so the second one covered the first exactly.
     // A node under another node cannot be clicked: it cannot be renamed, given a clip or deleted, and
     // nothing says it is there.
-    G::AnimGraph graph;
+    G::AnimGraph graph = ::Desert::Animation::Graph::MakeStateMachineGraph();
     for ( int i = 0; i < 17; ++i )
     {
         const EG::StatePosition where = EG::NextStatePosition( graph );
@@ -408,18 +408,18 @@ TEST( AnimGraphValidation, NewStatesNeverLandOnTopOfEachOther )
         state.Name = "State_" + std::to_string( i );
         state.X    = where.X;
         state.Y    = where.Y;
-        graph.States.push_back( state );
+        OutputMachine( graph )->States.push_back( state );
     }
 
-    ASSERT_EQ( graph.States.size(), 17u );
-    for ( size_t a = 0; a < graph.States.size(); ++a )
+    ASSERT_EQ( OutputMachine( graph )->States.size(), 17u );
+    for ( size_t a = 0; a < OutputMachine( graph )->States.size(); ++a )
     {
-        for ( size_t b = a + 1; b < graph.States.size(); ++b )
+        for ( size_t b = a + 1; b < OutputMachine( graph )->States.size(); ++b )
         {
-            const bool apart = std::abs( graph.States[a].X - graph.States[b].X ) >= EG::kStateGridStepX ||
-                               std::abs( graph.States[a].Y - graph.States[b].Y ) >= EG::kStateGridStepY;
-            EXPECT_TRUE( apart ) << "states " << a << " and " << b << " overlap at (" << graph.States[a].X << ", "
-                                 << graph.States[a].Y << ")";
+            const bool apart = std::abs( OutputMachine( graph )->States[a].X - OutputMachine( graph )->States[b].X ) >= EG::kStateGridStepX ||
+                               std::abs( OutputMachine( graph )->States[a].Y - OutputMachine( graph )->States[b].Y ) >= EG::kStateGridStepY;
+            EXPECT_TRUE( apart ) << "states " << a << " and " << b << " overlap at (" << OutputMachine( graph )->States[a].X << ", "
+                                 << OutputMachine( graph )->States[a].Y << ")";
         }
     }
 }
@@ -431,12 +431,12 @@ TEST( AnimGraphValidation, ANewStateAvoidsWhereTheUserDraggedTheOthers )
     // counted ("one state, therefore cell one") would drop the new node exactly on top of it, while cell
     // zero sits empty. Written this way after a mutation: with the dragged state left at the origin,
     // counting and scanning give the same answer and the counting rule survived the test.
-    G::AnimGraph graph;
+    G::AnimGraph graph = ::Desert::Animation::Graph::MakeStateMachineGraph();
     G::State     dragged;
     dragged.Name = "Idle";
     dragged.X    = EG::kStateGridStepX; // cell 1
     dragged.Y    = 0.0f;
-    graph.States.push_back( dragged );
+    OutputMachine( graph )->States.push_back( dragged );
 
     const EG::StatePosition second = EG::NextStatePosition( graph );
     EXPECT_FLOAT_EQ( second.X, 0.0f ) << "the free cell zero was passed over";
@@ -447,7 +447,7 @@ TEST( AnimGraphValidation, TheFirstStateOfAnEmptyGraphSitsAtTheOrigin )
 {
     // The negative control for the two above: the rule must not push the FIRST state somewhere arbitrary,
     // or every graph would open with its entry state off to one side of an empty canvas.
-    const G::AnimGraph      empty;
+    const G::AnimGraph      empty = ::Desert::Animation::Graph::MakeStateMachineGraph();
     const EG::StatePosition first = EG::NextStatePosition( empty );
     EXPECT_FLOAT_EQ( first.X, 0.0f );
     EXPECT_FLOAT_EQ( first.Y, 0.0f );
@@ -499,7 +499,7 @@ namespace
     /// below has a control it must not disturb.
     G::AnimGraph TwoParameterGraph()
     {
-        G::AnimGraph graph;
+        G::AnimGraph graph = ::Desert::Animation::Graph::MakeStateMachineGraph();
         graph.Parameters.push_back( { "Speed", static_cast<int>( G::ParamType::Float ), 0.0f } );
         graph.Parameters.push_back( { "Armed", static_cast<int>( G::ParamType::Bool ), 0.0f } );
 
@@ -512,9 +512,9 @@ namespace
         toRun.Conditions.push_back( Cond( "Armed", G::CompareOp::IsTrue ) );
         idle.Transitions.push_back( toRun );
 
-        graph.Entry = "Idle";
-        graph.States.push_back( idle );
-        graph.States.push_back( run );
+        OutputMachine( graph )->Entry = "Idle";
+        OutputMachine( graph )->States.push_back( idle );
+        OutputMachine( graph )->States.push_back( run );
         return graph;
     }
 } // namespace
@@ -526,12 +526,12 @@ TEST( AnimGraphValidation, RenamingAParameterCarriesItsConditionsWithIt )
     EXPECT_EQ( EG::RenameParameter( graph, 0, "GroundSpeed" ), "GroundSpeed" );
 
     EXPECT_EQ( graph.Parameters[0].Name, "GroundSpeed" );
-    EXPECT_EQ( graph.States[0].Transitions[0].Conditions[0].Parameter, "GroundSpeed" )
+    EXPECT_EQ( OutputMachine( graph )->States[0].Transitions[0].Conditions[0].Parameter, "GroundSpeed" )
          << "the condition was left naming a parameter that no longer exists, which reads 0.0 through the "
             "tolerant GetFloat and compares against it";
     // THE NEGATIVE CONTROL. A rename that rewrote every condition rather than the matching ones would
     // pass the line above and destroy the graph.
-    EXPECT_EQ( graph.States[0].Transitions[0].Conditions[1].Parameter, "Armed" );
+    EXPECT_EQ( OutputMachine( graph )->States[0].Transitions[0].Conditions[1].Parameter, "Armed" );
     EXPECT_EQ( graph.Parameters[1].Name, "Armed" );
 }
 
@@ -547,8 +547,8 @@ TEST( AnimGraphValidation, ARenameOntoAnOccupiedNameIsGivenAFreeOneAndTheConditi
     const std::string given = EG::RenameParameter( graph, 0, "Armed" );
     EXPECT_NE( given, "Armed" );
     EXPECT_EQ( graph.Parameters[0].Name, given );
-    EXPECT_EQ( graph.States[0].Transitions[0].Conditions[0].Parameter, given );
-    EXPECT_EQ( graph.States[0].Transitions[0].Conditions[1].Parameter, "Armed" );
+    EXPECT_EQ( OutputMachine( graph )->States[0].Transitions[0].Conditions[0].Parameter, given );
+    EXPECT_EQ( OutputMachine( graph )->States[0].Transitions[0].Conditions[1].Parameter, "Armed" );
 }
 
 TEST( AnimGraphValidation, RenamingALaterDuplicateDoesNotStealTheFirstOnesConditions )
@@ -560,13 +560,13 @@ TEST( AnimGraphValidation, RenamingALaterDuplicateDoesNotStealTheFirstOnesCondit
     graph.Parameters.push_back( { "Speed", static_cast<int>( G::ParamType::Int ), 0.0f } );
 
     EXPECT_EQ( EG::RenameParameter( graph, 2, "Cadence" ), "Cadence" );
-    EXPECT_EQ( graph.States[0].Transitions[0].Conditions[0].Parameter, "Speed" )
+    EXPECT_EQ( OutputMachine( graph )->States[0].Transitions[0].Conditions[0].Parameter, "Speed" )
          << "the condition was reading parameter 0 and was moved onto a rename of parameter 2";
 }
 
 TEST( AnimGraphValidation, ANewParameterIsNamedFreeOfTheOnesAlreadyThere )
 {
-    G::AnimGraph      graph;
+    G::AnimGraph      graph = ::Desert::Animation::Graph::MakeStateMachineGraph();
     const std::string first = EG::MakeUniqueParameterName( graph, "Param", -1 );
     EXPECT_EQ( first, "Param" );
     graph.Parameters.push_back( { first, static_cast<int>( G::ParamType::Float ), 0.0f } );
@@ -647,7 +647,7 @@ TEST( AnimGraphValidation, TheParameterButtonAndTheDocumentActionAddTheSameParam
 TEST( AnimGraphValidation, W1PointsAtTheStatesOwnNode )
 {
     G::AnimGraph graph = HealthyGraph();
-    graph.States[1].Clip.clear();
+    OutputMachine( graph )->States[1].Clip.clear();
 
     EG::ElementIdMap ids;
     const auto       canvas = EG::PlanAnimGraph( graph, ids );
@@ -668,7 +668,7 @@ TEST( AnimGraphValidation, W1PointsAtTheStatesOwnNode )
 TEST( AnimGraphValidation, W3PointsAtTheTransitionsOwnLink )
 {
     G::AnimGraph graph                           = HealthyGraph();
-    graph.States[0].Transitions[0].Conditions[0] = Cond( "Velocity", G::CompareOp::Greater, 3.0f );
+    OutputMachine( graph )->States[0].Transitions[0].Conditions[0] = Cond( "Velocity", G::CompareOp::Greater, 3.0f );
 
     EG::ElementIdMap ids;
     const auto       canvas = EG::PlanAnimGraph( graph, ids );
@@ -697,17 +697,17 @@ TEST( AnimGraphValidation, TheNthTransitionIsNotTheNthLink )
     // condition is checked whatever its target is. Indexing the links by the warning's transition number
     // would select the wrong transition here, or run off the end.
     G::AnimGraph graph = HealthyGraph();
-    graph.States[0].Transitions.clear();
+    OutputMachine( graph )->States[0].Transitions.clear();
 
     G::Transition toGhost; // a target no state carries: planned as no link at all
     toGhost.To = "Ghost";
     toGhost.Conditions.push_back( Cond( "Velocity", G::CompareOp::Greater, 1.0f ) );
-    graph.States[0].Transitions.push_back( toGhost );
+    OutputMachine( graph )->States[0].Transitions.push_back( toGhost );
 
     G::Transition toRun;
     toRun.To = "Run";
     toRun.Conditions.push_back( Cond( "Velocity", G::CompareOp::Greater, 3.0f ) );
-    graph.States[0].Transitions.push_back( toRun );
+    OutputMachine( graph )->States[0].Transitions.push_back( toRun );
 
     EG::ElementIdMap ids;
     const auto       canvas = EG::PlanAnimGraph( graph, ids );
@@ -738,21 +738,21 @@ TEST( AnimGraphValidation, EveryFindingOfABadlyBrokenGraphCanBeReached )
 {
     // THE PROPERTY THAT MATTERS FOR THE STRIP AS A WHOLE: no finding is a dead end. A single unreachable
     // line teaches its reader that clicking does nothing, which costs the whole control.
-    G::AnimGraph graph;
-    graph.Entry = "Idle";
-    graph.States.push_back( Playing( "Idle", "Idle" ) );
-    graph.States.push_back( Playing( "Run", "NoSuchClip" ) );
-    graph.States.push_back( Playing( "Aim", "" ) );
+    G::AnimGraph graph = ::Desert::Animation::Graph::MakeStateMachineGraph();
+    OutputMachine( graph )->Entry = "Idle";
+    OutputMachine( graph )->States.push_back( Playing( "Idle", "Idle" ) );
+    OutputMachine( graph )->States.push_back( Playing( "Run", "NoSuchClip" ) );
+    OutputMachine( graph )->States.push_back( Playing( "Aim", "" ) );
 
     G::Transition wide; // earlier and weaker: shadows the one below
     wide.To = "Run";
     wide.Conditions.push_back( Cond( "Speed", G::CompareOp::Greater, 0.1f ) );
-    graph.States[0].Transitions.push_back( wide );
+    OutputMachine( graph )->States[0].Transitions.push_back( wide );
 
     G::Transition narrow;
     narrow.To = "Run";
     narrow.Conditions.push_back( Cond( "Speed", G::CompareOp::Greater, 3.0f ) );
-    graph.States[0].Transitions.push_back( narrow );
+    OutputMachine( graph )->States[0].Transitions.push_back( narrow );
 
     EG::ElementIdMap ids;
     const auto       canvas = EG::PlanAnimGraph( graph, ids );
@@ -771,17 +771,17 @@ TEST( AnimGraphValidation, DeletingAStateDoesNotSendAWarningToItsNeighbour )
     // THE DEFECT CLASS THIS WHOLE UNIT EXISTS FOR, in the strip's own terms. Under `NodeId( i ) = i + 1`
     // every id after a deletion named the neighbour, so a warning about 'Aim' would have selected 'Run'
     // -- and the reader would have gone and edited the wrong state, which is worse than not being told.
-    G::AnimGraph graph;
-    graph.Entry = "Idle";
-    graph.States.push_back( Playing( "Idle", "Idle" ) );
-    graph.States.push_back( Playing( "Walk", "Idle" ) );
-    graph.States.push_back( Playing( "Run", "Idle" ) );
-    graph.States.push_back( Playing( "Aim", "" ) ); // the one warning in this graph
+    G::AnimGraph graph = ::Desert::Animation::Graph::MakeStateMachineGraph();
+    OutputMachine( graph )->Entry = "Idle";
+    OutputMachine( graph )->States.push_back( Playing( "Idle", "Idle" ) );
+    OutputMachine( graph )->States.push_back( Playing( "Walk", "Idle" ) );
+    OutputMachine( graph )->States.push_back( Playing( "Run", "Idle" ) );
+    OutputMachine( graph )->States.push_back( Playing( "Aim", "" ) ); // the one warning in this graph
 
     EG::ElementIdMap ids;
     auto             canvas = EG::PlanAnimGraph( graph, ids ); // frame 1: everything present
 
-    graph.States.erase( graph.States.begin() + 1 ); // the user deletes 'Walk'
+    OutputMachine( graph )->States.erase( OutputMachine( graph )->States.begin() + 1 ); // the user deletes 'Walk'
     canvas = EG::PlanAnimGraph( graph, ids );       // frame 2, through the SAME id map
 
     const auto warnings = G::Validate( graph, Known() );
@@ -792,8 +792,8 @@ TEST( AnimGraphValidation, DeletingAStateDoesNotSendAWarningToItsNeighbour )
     ASSERT_TRUE( target.Valid() );
     const int selected = EG::StateOfNode( canvas, target.Node );
     ASSERT_GE( selected, 0 );
-    EXPECT_EQ( graph.States[static_cast<size_t>( selected )].Name, "Aim" )
-         << "the warning about 'Aim' selects '" << graph.States[static_cast<size_t>( selected )].Name
+    EXPECT_EQ( OutputMachine( graph )->States[static_cast<size_t>( selected )].Name, "Aim" )
+         << "the warning about 'Aim' selects '" << OutputMachine( graph )->States[static_cast<size_t>( selected )].Name
          << "' instead";
 }
 

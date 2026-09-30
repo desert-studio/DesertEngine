@@ -9,6 +9,18 @@ namespace Desert::Editor::Graph
 
     namespace
     {
+        /// The states of the machine wired into Output Pose — the machine this canvas draws. None when the
+        /// output is another kind of node: that canvas has no states on it, which is what it then shows.
+        const std::vector<G::State>& StatesOf( const G::AnimGraph& graph )
+        {
+            static const std::vector<G::State> kNone;
+            const G::StateMachine*             machine = G::OutputMachine( graph );
+            return machine != nullptr ? machine->States : kNone;
+        }
+    } // namespace
+
+    namespace
+    {
         // The canvas key of state @p index. A state is named by its `Name` — the same string the runtime
         // resolves `Entry` and `Transition::To` against — so the canvas and the model agree on identity by
         // construction rather than by a second field somebody has to keep in step.
@@ -20,11 +32,11 @@ namespace Desert::Editor::Graph
         // precondition on the caller.
         std::string StateKey( const G::AnimGraph& graph, int index )
         {
-            const std::string& name = graph.States[static_cast<size_t>( index )].Name;
+            const std::string& name = StatesOf( graph )[static_cast<size_t>( index )].Name;
 
             int ordinal = 0;
             for ( int i = 0; i < index; ++i )
-                if ( graph.States[static_cast<size_t>( i )].Name == name )
+                if ( StatesOf( graph )[static_cast<size_t>( i )].Name == name )
                     ++ordinal;
 
             if ( ordinal == 0 )
@@ -42,8 +54,8 @@ namespace Desert::Editor::Graph
         // nobody is running.
         int FindStateByName( const G::AnimGraph& graph, const std::string& name )
         {
-            for ( int i = 0; i < static_cast<int>( graph.States.size() ); ++i )
-                if ( graph.States[static_cast<size_t>( i )].Name == name )
+            for ( int i = 0; i < static_cast<int>( StatesOf( graph ).size() ); ++i )
+                if ( StatesOf( graph )[static_cast<size_t>( i )].Name == name )
                     return i;
             return -1;
         }
@@ -55,7 +67,7 @@ namespace Desert::Editor::Graph
 
         AnimGraphCanvas canvas;
 
-        const auto stateCount = static_cast<int>( graph.States.size() );
+        const auto stateCount = static_cast<int>( StatesOf( graph ).size() );
         canvas.StateNodes.assign( static_cast<size_t>( stateCount ), ElementId::Invalid );
         canvas.StateInPins.assign( static_cast<size_t>( stateCount ), ElementId::Invalid );
         canvas.StateOutPins.assign( static_cast<size_t>( stateCount ), ElementId::Invalid );
@@ -65,7 +77,7 @@ namespace Desert::Editor::Graph
 
         for ( int i = 0; i < stateCount; ++i )
         {
-            const auto& state = graph.States[static_cast<size_t>( i )];
+            const auto& state = StatesOf( graph )[static_cast<size_t>( i )];
             keys.push_back( StateKey( graph, i ) );
             const std::string& key = keys.back();
 
@@ -88,7 +100,7 @@ namespace Desert::Editor::Graph
 
         for ( int i = 0; i < stateCount; ++i )
         {
-            const auto& state = graph.States[static_cast<size_t>( i )];
+            const auto& state = StatesOf( graph )[static_cast<size_t>( i )];
             for ( int t = 0; t < static_cast<int>( state.Transitions.size() ); ++t )
             {
                 const int target = FindStateByName( graph, state.Transitions[static_cast<size_t>( t )].To );
@@ -182,11 +194,11 @@ namespace Desert::Editor::Graph
     {
         const auto taken = [&]( const std::string& candidate )
         {
-            for ( int i = 0; i < static_cast<int>( graph.States.size() ); ++i )
+            for ( int i = 0; i < static_cast<int>( StatesOf( graph ).size() ); ++i )
             {
                 if ( i == selfIndex )
                     continue;
-                if ( graph.States[static_cast<size_t>( i )].Name == candidate )
+                if ( StatesOf( graph )[static_cast<size_t>( i )].Name == candidate )
                     return true;
             }
             return false;
@@ -198,7 +210,7 @@ namespace Desert::Editor::Graph
 
         // Bounded by the number of states plus one, so the loop cannot fail to find a free name and has
         // no unbounded arm to reason about.
-        for ( size_t suffix = 1; suffix <= graph.States.size() + 1; ++suffix )
+        for ( size_t suffix = 1; suffix <= StatesOf( graph ).size() + 1; ++suffix )
         {
             std::string candidate = base + "_" + std::to_string( suffix );
             if ( !taken( candidate ) )
@@ -272,8 +284,13 @@ namespace Desert::Editor::Graph
             }
         }
 
-        for ( auto& state : graph.States )
+        // Every machine's conditions, not only the output's: a parameter is the graph's, and a condition
+        // left on the old name in any machine would read 0 from then on.
+        for ( auto& node : graph.Nodes )
         {
+            if ( !node.Machine )
+                continue;
+            for ( auto& state : node.Machine->States )
             for ( auto& transition : state.Transitions )
             {
                 for ( auto& condition : transition.Conditions )
@@ -294,7 +311,7 @@ namespace Desert::Editor::Graph
         // than that, which is the same thing as saying the two nodes would visually collide.
         const auto occupied = [&]( const StatePosition& cell )
         {
-            return std::any_of( graph.States.begin(), graph.States.end(),
+            return std::any_of( StatesOf( graph ).begin(), StatesOf( graph ).end(),
                                 [&cell]( const auto& state )
                                 {
                                     return std::abs( state.X - cell.X ) < kStateGridStepX * 0.5f &&
@@ -305,7 +322,7 @@ namespace Desert::Editor::Graph
         // BOUNDED BY N + 1, and that bound is a proof rather than a guess: a point lies within half a
         // step of at most one grid centre per axis, so N states can take at most N cells, and one of the
         // first N + 1 cells is therefore free. The same argument `MakeUniqueStateName` runs.
-        const int cells = static_cast<int>( graph.States.size() ) + 1;
+        const int cells = static_cast<int>( StatesOf( graph ).size() ) + 1;
         for ( int cell = 0; cell < cells; ++cell )
         {
             // The row is an INTEGER division and is spelled as one on its own line. Written inline it

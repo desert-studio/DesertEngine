@@ -1,5 +1,7 @@
 #include "AnimGraphPanel.hpp"
 
+#include <format>
+
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Editor/Panels/PanelContext.hpp>
@@ -203,9 +205,9 @@ namespace Desert::Editor
     void AnimGraphPanel::AddState()
     {
         ECS::AnimationComponent* anim = ResolveComponent();
-        if ( anim == nullptr || !anim->Graph )
+        if ( anim == nullptr || !anim->Graph || G::OutputMachine( *anim->Graph ) == nullptr )
         {
-            m_Status        = "no graph to add a state to";
+            m_Status        = "no state machine at the graph's Output Pose to add a state to";
             m_StatusIsError = true;
             return;
         }
@@ -216,7 +218,7 @@ namespace Desert::Editor
         // `Evaluator::FindState` all resolve by string and all take the FIRST match, so the second one is
         // unreachable and plays the first one's clip with nothing said.
         ns.Name = Graph::MakeUniqueStateName( *anim->Graph,
-                                              "State_" + std::to_string( anim->Graph->States.size() ), -1 );
+                                              "State_" + std::to_string( G::OutputMachine( *anim->Graph )->States.size() ), -1 );
         // AND NOT (0, 0), which is where every new state used to land: the second one covered the first
         // exactly, and a node under another node cannot be clicked, renamed, given a clip or deleted. The
         // rule is in `AnimGraphCanvasPlan` because that unit has no ImGui in it and can therefore be
@@ -224,7 +226,7 @@ namespace Desert::Editor
         const Graph::StatePosition where = Graph::NextStatePosition( *anim->Graph );
         ns.X                             = where.X;
         ns.Y                             = where.Y;
-        anim->Graph->States.push_back( ns );
+        G::OutputMachine( *anim->Graph )->States.push_back( ns );
         MarkEdited();
     }
 
@@ -339,6 +341,16 @@ namespace Desert::Editor
             // could only ever make an unsaved one, which is precisely the storage §5.1 removed.
             ImGui::TextWrapped( "This entity names no anim graph, or the file it names is not loaded. "
                                 "Pick or create one in Details > Animation > AnimGraph." );
+            return;
+        }
+        if ( G::OutputMachine( *anim->Graph ) == nullptr )
+        {
+            // The loader refuses a graph that does not plan, so this is a graph whose Output Pose is a
+            // node of another kind: this panel edits the state machine at the output, and there is none.
+            ImGui::TextWrapped( "%s", std::format( "Anim graph '{}' has no state machine wired into Output Pose; "
+                                                   "this panel edits that machine.",
+                                                   anim->Graph->Name )
+                                           .c_str() );
             return;
         }
 
@@ -559,7 +571,8 @@ namespace Desert::Editor
 
     void AnimGraphPanel::DrawCanvas( ECS::AnimationComponent& anim, float width, float height )
     {
-        auto& graph = *anim.Graph;
+        auto&             graph   = *anim.Graph;
+        G::StateMachine& machine = *G::OutputMachine( graph ); // OnUIRender refused a graph without one
         bool  dirty = false;
 
         // EVERY ID ON THIS CANVAS, AND WHAT IT NAMES — decided before a single ImGui call, by a unit with
@@ -578,8 +591,8 @@ namespace Desert::Editor
         if ( anim.GraphEvaluator && anim.GraphEvaluator->CurrentState() )
         {
             const std::string& activeName = anim.GraphEvaluator->CurrentState()->Name;
-            for ( int i = 0; i < static_cast<int>( graph.States.size() ); ++i )
-                if ( graph.States[i].Name == activeName )
+            for ( int i = 0; i < static_cast<int>( machine.States.size() ); ++i )
+                if ( machine.States[i].Name == activeName )
                 {
                     activeIndex = i;
                     break;
@@ -587,16 +600,16 @@ namespace Desert::Editor
         }
 
         // --- State nodes ---
-        for ( int i = 0; i < static_cast<int>( graph.States.size() ); ++i )
+        for ( int i = 0; i < static_cast<int>( machine.States.size() ); ++i )
         {
-            auto&                     s       = graph.States[i];
+            auto&                     s       = machine.States[i];
             const Graph::PlannedNode& planned = m_Canvas.Plan.Nodes[static_cast<size_t>( i )];
 
             Graph::PushNodePosition( planned );
 
             ed::BeginNode( ed::NodeId( Graph::Raw( planned.Id ) ) );
 
-            const bool   isEntry  = ( graph.Entry == s.Name );
+            const bool   isEntry  = ( machine.Entry == s.Name );
             const bool   isActive = ( i == activeIndex );
             const ImVec4 titleCol = isActive  ? ImVec4( 1.0f, 0.65f, 0.2f, 1.0f )
                                     : isEntry ? ImVec4( 0.4f, 0.85f, 1.0f, 1.0f )
@@ -662,15 +675,15 @@ namespace Desert::Editor
                 const bool valid = src >= 0 && dst >= 0 && src != dst;
                 const bool dup =
                      valid &&
-                     std::any_of( graph.States[src].Transitions.begin(), graph.States[src].Transitions.end(),
-                                  [&]( const G::Transition& tr ) { return tr.To == graph.States[dst].Name; } );
+                     std::any_of( machine.States[src].Transitions.begin(), machine.States[src].Transitions.end(),
+                                  [&]( const G::Transition& tr ) { return tr.To == machine.States[dst].Name; } );
                 if ( !valid || dup )
                     ed::RejectNewItem( ImVec4( 1.0f, 0.4f, 0.4f, 1.0f ), 2.0f );
                 else if ( ed::AcceptNewItem( ImVec4( 0.5f, 1.0f, 0.5f, 1.0f ), 3.0f ) )
                 {
                     G::Transition tr;
-                    tr.To = graph.States[dst].Name;
-                    graph.States[src].Transitions.push_back( tr );
+                    tr.To = machine.States[dst].Name;
+                    machine.States[src].Transitions.push_back( tr );
                     dirty = true;
                 }
             }
@@ -692,7 +705,7 @@ namespace Desert::Editor
                          Graph::TransitionOfLink( m_Canvas, static_cast<Graph::ElementId>( dl.Get() ) );
                     if ( ref.Valid() )
                     {
-                        auto& transitions = graph.States[ref.State].Transitions;
+                        auto& transitions = machine.States[ref.State].Transitions;
                         transitions.erase( transitions.begin() + ref.Index );
                         dirty = true;
                     }
@@ -706,13 +719,13 @@ namespace Desert::Editor
                     const int ni = Graph::StateOfNode( m_Canvas, static_cast<Graph::ElementId>( dn.Get() ) );
                     if ( ni >= 0 )
                     {
-                        const std::string gone = graph.States[ni].Name;
-                        graph.States.erase( graph.States.begin() + ni );
-                        for ( auto& st : graph.States )
+                        const std::string gone = machine.States[ni].Name;
+                        machine.States.erase( machine.States.begin() + ni );
+                        for ( auto& st : machine.States )
                             std::erase_if( st.Transitions,
                                            [&]( const G::Transition& tr ) { return tr.To == gone; } );
-                        if ( graph.Entry == gone )
-                            graph.Entry = graph.States.empty() ? "" : graph.States.front().Name;
+                        if ( machine.Entry == gone )
+                            machine.Entry = machine.States.empty() ? "" : machine.States.front().Name;
                         dirty = true;
                     }
                 }
@@ -733,7 +746,8 @@ namespace Desert::Editor
     void AnimGraphPanel::DrawSidePanel( ECS::AnimationComponent& anim, const std::vector<std::string>& clipNames,
                                         float height )
     {
-        auto& graph = *anim.Graph;
+        auto&             graph   = *anim.Graph;
+        G::StateMachine& machine = *G::OutputMachine( graph ); // OnUIRender refused a graph without one
         auto* eval  = anim.GraphEvaluator.get();
         bool  dirty = false;
 
@@ -848,7 +862,7 @@ namespace Desert::Editor
             const int si = Graph::StateOfNode( m_Canvas, static_cast<Graph::ElementId>( selNode.Get() ) );
             if ( si >= 0 )
             {
-                auto& s = graph.States[si];
+                auto& s = machine.States[si];
                 ImGui::TextUnformatted( "State" );
                 const std::string oldName = s.Name;
                 if ( Utils::ImGuiUtilities::Property( "Name", s.Name ) )
@@ -857,9 +871,9 @@ namespace Desert::Editor
                     // resolves by name and takes the first match. Renaming to an occupied name is
                     // therefore answered with a free one rather than accepted silently.
                     s.Name = Graph::MakeUniqueStateName( graph, s.Name, si );
-                    if ( graph.Entry == oldName )
-                        graph.Entry = s.Name;
-                    for ( auto& st : graph.States )
+                    if ( machine.Entry == oldName )
+                        machine.Entry = s.Name;
+                    for ( auto& st : machine.States )
                         for ( auto& tr : st.Transitions )
                             if ( tr.To == oldName )
                                 tr.To = s.Name;
@@ -880,9 +894,9 @@ namespace Desert::Editor
                 ImGui::SameLine();
                 ImGui::SetNextItemWidth( 80 );
                 dirty |= ImGui::DragFloat( "Speed", &s.Speed, 0.01f, 0.0f, 5.0f );
-                if ( graph.Entry != s.Name && ImGui::SmallButton( "Set as Entry" ) )
+                if ( machine.Entry != s.Name && ImGui::SmallButton( "Set as Entry" ) )
                 {
-                    graph.Entry = s.Name;
+                    machine.Entry = s.Name;
                     dirty       = true;
                 }
             }
@@ -895,8 +909,8 @@ namespace Desert::Editor
             if ( ref.Valid() )
             {
                 const int si = ref.State;
-                auto&     tr = graph.States[si].Transitions[ref.Index];
-                ImGui::Text( "Transition %s -> %s", graph.States[si].Name.c_str(), tr.To.c_str() );
+                auto&     tr = machine.States[si].Transitions[ref.Index];
+                ImGui::Text( "Transition %s -> %s", machine.States[si].Name.c_str(), tr.To.c_str() );
                 ImGui::SetNextItemWidth( 90 );
                 dirty |= ImGui::DragFloat( "Blend", &tr.Blend, 0.01f, 0.0f, 2.0f );
                 dirty |= ImGui::Checkbox( "Exit time", &tr.HasExitTime );

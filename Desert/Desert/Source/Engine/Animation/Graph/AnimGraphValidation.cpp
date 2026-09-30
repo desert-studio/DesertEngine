@@ -198,13 +198,13 @@ namespace Desert::Animation::Graph
         /// Whether `Evaluator::Update` would ever ACT on this transition. It skips a transition whose
         /// target does not resolve and one that points at the state it leaves — so such a transition
         /// shadows nothing, and saying otherwise would blame the wrong line.
-        [[nodiscard]] bool CanBeTaken( const AnimGraph& graph, const State& from, const Transition& transition )
+        [[nodiscard]] bool CanBeTaken( const StateMachine& machine, const State& from, const Transition& transition )
         {
             if ( transition.To == from.Name )
             {
                 return false;
             }
-            return std::any_of( graph.States.begin(), graph.States.end(),
+            return std::any_of( machine.States.begin(), machine.States.end(),
                                 [&]( const State& state ) { return state.Name == transition.To; } );
         }
 
@@ -222,8 +222,12 @@ namespace Desert::Animation::Graph
         // condition of every candidate transition, every frame. See `Evaluator::GetStructureError`.
         std::string missing;
         std::size_t count = 0;
-        for ( const auto& state : graph.States )
+        for ( const PoseNode& node : graph.Nodes )
         {
+            if ( !node.Machine )
+                continue;
+            for ( const auto& state : node.Machine->States )
+            {
             for ( const auto& transition : state.Transitions )
             {
                 for ( const auto& condition : transition.Conditions )
@@ -237,6 +241,7 @@ namespace Desert::Animation::Graph
                     missing += fmt::format( "{} -> {} on '{}'", state.Name, transition.To, condition.Parameter );
                 }
             }
+            }
         }
 
         if ( count == 0 )
@@ -248,13 +253,15 @@ namespace Desert::Animation::Graph
                             count, missing );
     }
 
-    std::vector<GraphWarning> Validate( const AnimGraph& graph, const ClipSet& clips )
+    namespace
     {
-        std::vector<GraphWarning> warnings;
-
-        for ( std::size_t si = 0; si < graph.States.size(); ++si )
+        /// W1-W3 over one state machine node's states.
+        void ValidateMachine( const AnimGraph& graph, const StateMachine& machine, const ClipSet& clips,
+                              std::vector<GraphWarning>& warnings )
         {
-            const State& state = graph.States[si];
+        for ( std::size_t si = 0; si < machine.States.size(); ++si )
+        {
+            const State& state = machine.States[si];
 
             // ── W1 ────────────────────────────────────────────────────────────────────────────────────
             if ( state.Clip.empty() )
@@ -291,7 +298,7 @@ namespace Desert::Animation::Graph
             for ( std::size_t ti = 0; ti < state.Transitions.size(); ++ti )
             {
                 const Transition& later = state.Transitions[ti];
-                if ( !CanBeTaken( graph, state, later ) )
+                if ( !CanBeTaken( machine, state, later ) )
                 {
                     continue;
                 }
@@ -308,7 +315,7 @@ namespace Desert::Animation::Graph
                 for ( std::size_t ei = 0; ei < ti; ++ei )
                 {
                     const Transition& earlier = state.Transitions[ei];
-                    if ( !CanBeTaken( graph, state, earlier ) || !AllSatisfiable( domains[ei] ) )
+                    if ( !CanBeTaken( machine, state, earlier ) || !AllSatisfiable( domains[ei] ) )
                     {
                         continue;
                     }
@@ -349,6 +356,17 @@ namespace Desert::Animation::Graph
             }
         }
 
+        }
+    } // namespace
+
+    std::vector<GraphWarning> Validate( const AnimGraph& graph, const ClipSet& clips )
+    {
+        // Every state machine node, wired to Output Pose or not: an unwired machine is still authored
+        // content, and a dead transition in it is as dead as one at the output.
+        std::vector<GraphWarning> warnings;
+        for ( const PoseNode& node : graph.Nodes )
+            if ( node.Machine )
+                ValidateMachine( graph, *node.Machine, clips, warnings );
         return warnings;
     }
 } // namespace Desert::Animation::Graph

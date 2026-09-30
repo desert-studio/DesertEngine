@@ -32,13 +32,13 @@ namespace
 {
     AnimGraph Locomotion()
     {
-        AnimGraph g;
+        AnimGraph g = ::Desert::Animation::Graph::MakeStateMachineGraph();
         g.Name = "Locomotion";
         State idle;
         idle.Name = "Idle";
         idle.Clip = "Anim_Idle";
-        g.States.push_back( idle );
-        g.Entry = "Idle";
+        OutputMachine( g )->States.push_back( idle );
+        OutputMachine( g )->Entry = "Idle";
         return g;
     }
 
@@ -89,9 +89,9 @@ TEST( AnimGraphAsset, SaveThenLoadIsTheSameGraph )
     ASSERT_NE( asset.GetGraph(), nullptr );
 
     EXPECT_EQ( asset.GetGraph()->Name, "Locomotion" );
-    EXPECT_EQ( asset.GetGraph()->Entry, "Idle" );
-    ASSERT_EQ( asset.GetGraph()->States.size(), 1u );
-    EXPECT_EQ( asset.GetGraph()->States[0].Clip, "Anim_Idle" );
+    EXPECT_EQ( OutputMachine( *asset.GetGraph() )->Entry, "Idle" );
+    ASSERT_EQ( OutputMachine( *asset.GetGraph() )->States.size(), 1u );
+    EXPECT_EQ( OutputMachine( *asset.GetGraph() )->States[0].Clip, "Anim_Idle" );
 
     // The DISPLAY name is the graph's own, not the file's stem — the file here is called something else
     // entirely, so a slot showing "desert_animgraph_roundtrip" would mean the wrong half won.
@@ -118,8 +118,8 @@ TEST( AnimGraphAsset, THE_RELATION_OneFileIsOneObjectAndNotACopyPerCaller )
     // And an edit through one of them is visible through the other, which is the property a copy breaks.
     State extra;
     extra.Name = "Run";
-    first->States.push_back( extra );
-    EXPECT_EQ( second->States.size(), 2u );
+    OutputMachine( *first )->States.push_back( extra );
+    EXPECT_EQ( OutputMachine( *second )->States.size(), 2u );
 }
 
 TEST( AnimGraphAsset, AnEditBumpsTheRevisionSoEveryEntitySharingItResyncs )
@@ -161,14 +161,14 @@ TEST( AnimGraphAsset, AReloadReplacesTheObjectRatherThanRewritingItUnderARunning
     AnimGraph edited = Locomotion();
     State     run;
     run.Name = "Run";
-    edited.States.push_back( run );
+    OutputMachine( edited )->States.push_back( run );
     ASSERT_TRUE( AnimGraphAsset::Save( file.Path(), edited ).IsSuccess() );
     ASSERT_TRUE( asset.Load().IsSuccess() );
 
     EXPECT_NE( asset.GetGraph().get(), held.get() ) << "the reload wrote into the object a live evaluator "
                                                        "was holding";
-    EXPECT_EQ( held->States.size(), 1u ) << "the old object changed under its holder";
-    EXPECT_EQ( asset.GetGraph()->States.size(), 2u );
+    EXPECT_EQ( OutputMachine( *held )->States.size(), 1u ) << "the old object changed under its holder";
+    EXPECT_EQ( OutputMachine( *asset.GetGraph() )->States.size(), 2u );
 }
 
 TEST( AnimGraphAsset, TheObjectItHandsOutIsWhatAnEvaluatorCanBeBuiltFrom )

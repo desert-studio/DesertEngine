@@ -61,6 +61,7 @@ project(test_name)
         -- reflect-cpp, no GPU, no renderer — the same recipe as the rig two blocks up.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/AnimGraphAsset.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/PoseGraph.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/ShaderGraphAsset.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/ShaderGraph.cpp",
         -- The control rig: the asset wrapper and the format it parses, plus the two Animation units the

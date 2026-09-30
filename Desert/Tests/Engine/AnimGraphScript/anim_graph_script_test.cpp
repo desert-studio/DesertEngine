@@ -38,9 +38,9 @@ namespace
     // machine is a parameter write. That is the property the scene witness rests on too.
     AnimGraph ScriptedGraph()
     {
-        AnimGraph g;
+        AnimGraph g = ::Desert::Animation::Graph::MakeStateMachineGraph();
         g.Name  = "Scripted";
-        g.Entry = "Idle";
+        OutputMachine( g )->Entry = "Idle";
         g.Parameters.push_back( { "Go", static_cast<int>( ParamType::Bool ), 0.0F } );
         g.Parameters.push_back( { "Weapon", static_cast<int>( ParamType::Int ), 0.0F } );
         g.Parameters.push_back( { "Speed", static_cast<int>( ParamType::Float ), 0.0F } );
@@ -55,7 +55,7 @@ namespace
         moving.Name = "Moving";
         moving.Clip = "moving_clip";
 
-        g.States = { idle, moving };
+        OutputMachine( g )->States = { idle, moving };
         return g;
     }
 
@@ -110,13 +110,13 @@ TEST( AnimGraphScript, AParameterTheGraphDoesNotDeclareIsRefusedAndTheRefusalLis
 
 TEST( AnimGraphScript, AGraphWithNoParametersSaysSoRatherThanListingNothing )
 {
-    AnimGraph bare;
+    AnimGraph bare = ::Desert::Animation::Graph::MakeStateMachineGraph();
     bare.Name  = "Bare";
-    bare.Entry = "Only";
+    OutputMachine( bare )->Entry = "Only";
     State only;
     only.Name   = "Only";
     only.Clip   = "c";
-    bare.States = { only };
+    OutputMachine( bare )->States = { only };
 
     Evaluator  eval( bare );
     const auto refused = eval.SetFloat( "Speed", 1.0F );
@@ -168,7 +168,7 @@ TEST( AnimGraphScript, EveryDeclaredTypeHasAName )
 TEST( AnimGraphScript, AConditionOnAnUndeclaredParameterIsReportedOnceRatherThanReadingZeroForever )
 {
     AnimGraph broken                                        = ScriptedGraph();
-    broken.States[0].Transitions[0].Conditions[0].Parameter = "Gone"; // the typo, on the AUTHORING side
+    OutputMachine( broken )->States[0].Transitions[0].Conditions[0].Parameter = "Gone"; // the typo, on the AUTHORING side
 
     Evaluator eval( broken );
     ASSERT_FALSE( eval.GetStructureError().empty() );
@@ -191,7 +191,7 @@ TEST( AnimGraphScript, TheStructureVerdictIsRecomputedWhenTheGraphIsReplaced )
     // The editor edits a live graph through SyncGraph; a verdict computed once at construction would go on
     // describing a graph that no longer exists — in both directions.
     AnimGraph broken                                        = ScriptedGraph();
-    broken.States[0].Transitions[0].Conditions[0].Parameter = "Gone";
+    OutputMachine( broken )->States[0].Transitions[0].Conditions[0].Parameter = "Gone";
     eval.SyncGraph( broken );
     EXPECT_FALSE( eval.GetStructureError().empty() );
 
