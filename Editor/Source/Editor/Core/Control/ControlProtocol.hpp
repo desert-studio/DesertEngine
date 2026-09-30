@@ -588,7 +588,7 @@ namespace Desert::Editor::Control
                 {
                     if ( request.Key.empty() )
                         return Common::MakeError<Request>(
-                             "'input' of kind 'key' needs 'key', e.g. \"T\" or \"Ctrl+S\"." );
+                             R"('input' of kind 'key' needs 'key', e.g. "T" or "Ctrl+S".)" );
                     request.Value = { 0.0f, 0.0f };
                 }
                 break;

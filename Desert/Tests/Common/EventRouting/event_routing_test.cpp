@@ -5,8 +5,11 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <format>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <vector>
 
@@ -16,42 +19,55 @@ namespace
 {
     using Log = std::vector<std::string>;
 
-    struct Probe
+    class Probe
     {
-        Probe( std::string name, Log& log ) : Name( std::move( name ) ), Journal( &log )
+    public:
+        Probe( std::string name, Log& log ) : m_Name( std::move( name ) ), m_Journal( &log )
         {
         }
-        ~Probe()
+        ~Probe() // NOLINT(bugprone-exception-escape): the journal is the test's record of destruction order;
+                 // running out of memory in a test is fatal anyway
         {
-            Journal->push_back( Name + ".destroyed" );
+            Record( "destroyed" );
         }
+        Probe( const Probe& )            = delete;
+        Probe& operator=( const Probe& ) = delete;
+        Probe( Probe&& )                 = delete;
+        Probe& operator=( Probe&& )      = delete;
 
         bool OnPreviewKeyPressed( KeyPressedEvent& )
         {
-            Journal->push_back( Name + ".previewKey" );
+            Record( "previewKey" );
             return ClaimsPreview;
         }
         bool OnKeyPressed( KeyPressedEvent& )
         {
-            Journal->push_back( Name + ".key" );
+            Record( "key" );
             return ClaimsKey;
         }
         bool OnMouseButtonPressed( MouseButtonPressedEvent& )
         {
-            Journal->push_back( Name + ".click" );
+            Record( "click" );
             return ClaimsClick;
         }
         bool OnWindowResized( EventWindowResize& )
         {
-            Journal->push_back( Name + ".resize" );
+            Record( "resize" );
             return true;
         }
 
-        std::string Name;
-        Log*        Journal;
-        bool        ClaimsPreview = false;
-        bool        ClaimsKey     = false;
-        bool        ClaimsClick   = false;
+        bool ClaimsPreview = false;
+        bool ClaimsKey     = false;
+        bool ClaimsClick   = false;
+
+    private:
+        void Record( std::string_view what )
+        {
+            m_Journal->push_back( std::format( "{}.{}", m_Name, what ) );
+        }
+
+        std::string m_Name;
+        Log*        m_Journal;
     };
 
     struct KeyOnly
@@ -70,10 +86,7 @@ namespace
 
     struct BaseTypeCatcher
     {
-        bool OnKeyPressed( KeyEvent& )
-        {
-            return true;
-        }
+        bool OnKeyPressed( KeyEvent& );
     };
 
     struct VoidHandler
@@ -101,7 +114,7 @@ namespace
 
     KeyPressedEvent APressedKey()
     {
-        return KeyPressedEvent( KeyCode::A, 0 );
+        return { KeyCode::A, 0 };
     }
 
     MouseButtonPressedEvent ALeftClick()
@@ -335,9 +348,9 @@ namespace
         }
         bool OnKeyPressed( KeyPressedEvent& )
         {
-            Journal->push_back( "remover.key" );
+            Journal->emplace_back( "remover.key" );
             Tree->Remove( Victim );
-            Journal->push_back( "remover.returns" );
+            Journal->emplace_back( "remover.returns" );
             return false;
         }
         EventTree*  Tree;
@@ -355,7 +368,7 @@ TEST( EventRouting, ANodeRemovedDuringDeliveryIsSkippedAndDestroyedAfterDelivery
 
     auto key = APressedKey();
     f.tree.Route( key );
-    f.log.push_back( "route.returned" );
+    f.log.emplace_back( "route.returned" );
 
     const Log expected = { "background.previewKey", "panel.previewKey",     "remover.key",   "remover.returns",
                            "panel.destroyed",       "background.destroyed", "route.returned" };
@@ -714,7 +727,8 @@ namespace
         {
             *Alive = false;
         }
-        bool OnKeyPressed( KeyPressedEvent& )
+        bool OnKeyPressed( KeyPressedEvent& ) // NOLINT(readability-convert-member-functions-to-static): the tree
+                                              // calls bool On<Event>( <Event>& ) as a member
         {
             return true;
         }
@@ -755,7 +769,7 @@ TEST( EventRouting, AnAttachedObjectBelongsToItsOwnerNotToTheTree )
     {
         Lives       object( alive );
         EventTree   tree;
-        EventNodeId node = tree.Attach( tree.Root(), object );
+        const EventNodeId node = tree.Attach( tree.Root(), object );
         tree.SetFocus( node );
 
         auto key = APressedKey();
@@ -773,7 +787,7 @@ TEST( EventRouting, ALinkTakesItsNodeOutOfTheTreeWhenItsHolderDies )
     EventTree tree;
     {
         Lives         object( alive );
-        EventNodeLink link( tree, tree.Attach( tree.Root(), object ) );
+        const EventNodeLink link( tree, tree.Attach( tree.Root(), object ) );
         tree.SetFocus( link.Id() );
         EXPECT_TRUE( tree.Contains( link.Id() ) );
     }
@@ -787,11 +801,11 @@ TEST( EventRouting, ALinkWhoseNodeWentWithItsParentReleasesNothingElse )
     ApplicationShape app;
     bool             alive = false;
     Lives            object( alive );
-    EventNodeId      stranger = app.tree.Attach( app.windowNode, object );
+    const EventNodeId stranger = app.tree.Attach( app.windowNode, object );
     {
-        EventNodeLink link( app.tree, app.tree.Attach( app.panelNode, object ) );
+        const EventNodeLink link( app.tree, app.tree.Attach( app.panelNode, object ) );
         EXPECT_TRUE( app.tree.Remove( app.layerNode ) );
-        EventNodeId reused = app.tree.Attach( app.windowNode, object );
+        const EventNodeId reused = app.tree.Attach( app.windowNode, object );
         EXPECT_TRUE( app.tree.Contains( reused ) );
         EXPECT_FALSE( app.tree.Contains( link.Id() ) );
     }
@@ -804,12 +818,15 @@ TEST( EventRouting, AMovedLinkIsReleasedOnceByItsLastHolder )
     EventTree     tree;
     bool          alive = false;
     Lives         object( alive );
-    EventNodeLink first( tree, tree.Attach( tree.Root(), object ) );
-    const auto    id = first.Id();
-    EventNodeLink second( std::move( first ) );
-    EXPECT_FALSE( first.Id().IsSet() );
+    EventNodeId                  id{};
+    std::optional<EventNodeLink> second;
+    {
+        EventNodeLink first( tree, tree.Attach( tree.Root(), object ) );
+        id = first.Id();
+        second.emplace( std::move( first ) );
+    }
     EXPECT_TRUE( tree.Contains( id ) );
-    second.Release();
+    second->Release();
     EXPECT_FALSE( tree.Contains( id ) );
 }
 
@@ -838,10 +855,7 @@ namespace
 {
     class HidesItsHandler
     {
-        bool OnKeyPressed( KeyPressedEvent& )
-        {
-            return true;
-        }
+        bool OnKeyPressed( KeyPressedEvent& );
     };
 } // namespace
 

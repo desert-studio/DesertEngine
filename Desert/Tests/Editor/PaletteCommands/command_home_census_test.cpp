@@ -167,11 +167,23 @@ TEST( CommandHome, ThePlaybackGroupRunsThePlayWorldCommands )
 
 TEST( CommandHome, TheViewportKeysRunTheCommands )
 {
+    EXPECT_EQ( ViewportCommandForKey( Common::KeyCode::F ), ViewportCommand::FocusSelected );
+    EXPECT_EQ( ViewportCommandForKey( Common::KeyCode::Escape ), ViewportCommand::SelectNone );
+    std::set<ViewportCommand> bound;
+    for ( const ViewportCommandKey& binding : kViewportCommandKeys )
+        EXPECT_TRUE( bound.insert( binding.Command ).second ) << "a viewport command is bound to two keys";
+    for ( const ViewportCommand command : kViewportCommandOrder )
+        EXPECT_TRUE( bound.contains( command ) ) << CommandInfo( command ).Label << " has no key";
+
     const std::string keys =
-         FunctionBody( ReadFile( kViewport ), "bool ViewportPanel::OnKeyPressedEvent(", "ViewportPanel::" );
+         FunctionBody( ReadFile( kViewport ), "bool ViewportPanel::OnKeyPressed(", "ViewportPanel::" );
     ASSERT_FALSE( keys.empty() );
-    EXPECT_NE( keys.find( "RunCommand( ViewportCommand::FocusSelected )" ), std::string::npos );
-    EXPECT_NE( keys.find( "RunCommand( ViewportCommand::SelectNone )" ), std::string::npos );
+    EXPECT_NE( keys.find( "ViewportCommandForKey( e.GetKeyCode() )" ), std::string::npos )
+         << "the handler no longer reads the key table";
+    EXPECT_NE( keys.find( "RunCommand( *command )" ), std::string::npos );
+    EXPECT_EQ( keys.find( "RunCommand( ViewportCommand::" ), std::string::npos )
+         << "a key runs a viewport command past the key table";
+    EXPECT_EQ( keys.find( "KeyCode::F:" ), std::string::npos ) << "F has a second home in the handler";
     EXPECT_EQ( keys.find( "->Focus(" ), std::string::npos ) << "F frames the selection itself again";
     EXPECT_EQ( keys.find( "SelectionManager::ClearSelection" ), std::string::npos );
 }

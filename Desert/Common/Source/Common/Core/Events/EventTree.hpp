@@ -3,10 +3,12 @@
 #include <functional>
 #include <Common/Core/Events/EventHandler.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
+#include <ranges>
 #include <utility>
 #include <vector>
 
@@ -19,7 +21,7 @@ namespace Common
         uint32_t Index      = kNone;
         uint32_t Generation = 0;
 
-        bool IsSet() const
+        [[nodiscard]] bool IsSet() const
         {
             return Index != kNone;
         }
@@ -59,10 +61,8 @@ namespace Common
 
         ~EventTree()
         {
-            std::vector<Doomed> doomed;
-            for ( uint32_t child : std::vector<uint32_t>( m_Slots[0].Children ) )
-                Kill( child, doomed );
-            DestroyAll( doomed );
+            for ( const uint32_t child : m_Slots[0].Children )
+                Kill( child );
             FlushGraveyard();
         }
 
@@ -71,7 +71,7 @@ namespace Common
         EventTree( EventTree&& )                 = delete;
         EventTree& operator=( EventTree&& )      = delete;
 
-        EventNodeId Root() const
+        [[nodiscard]] EventNodeId Root() const
         {
             return { 0, m_Slots[0].Generation };
         }
@@ -79,8 +79,9 @@ namespace Common
         template <typename T, typename... Args>
         EmplacedNode<T> Emplace( EventNodeId parent, Args&&... args )
         {
-            T* object = new T( std::forward<Args>( args )... );
-            return { Insert<T>( parent, object, &DestroyAs<T> ), *object };
+            auto owned  = std::make_unique<T>( std::forward<Args>( args )... );
+            T&   object = *owned;
+            return { Adopt<T>( parent, std::move( owned ) ), object };
         }
 
         template <typename T>
@@ -102,12 +103,9 @@ namespace Common
                 return false;
             Require( id.Index != 0, "the root of an EventTree cannot be removed" );
             Unlink( id.Index );
-            std::vector<Doomed> doomed;
-            Kill( id.Index, doomed );
-            if ( m_DispatchDepth > 0 )
-                m_Graveyard.insert( m_Graveyard.end(), doomed.begin(), doomed.end() );
-            else
-                DestroyAll( doomed );
+            Kill( id.Index );
+            if ( m_DispatchDepth == 0 )
+                FlushGraveyard();
             return true;
         }
 
@@ -119,17 +117,18 @@ namespace Common
             Require( id.Index != 0, "the root of an EventTree cannot be taken" );
             Require( m_Slots[id.Index].Table->Type == &EventDetail::TypeTag<T>,
                      "Take<T> of a node that was not inserted as T" );
-            for ( uint32_t child : std::vector<uint32_t>( m_Slots[id.Index].Children ) )
+            for ( const uint32_t child : std::vector<uint32_t>( m_Slots[id.Index].Children ) )
                 Remove( { child, m_Slots[child].Generation } );
-            T* object                = static_cast<T*>( m_Slots[id.Index].Object );
+            std::unique_ptr<T> object( static_cast<T*>( m_Slots[id.Index].Object ) );
             m_Slots[id.Index].Object = nullptr;
             Unlink( id.Index );
-            std::vector<Doomed> none;
-            Kill( id.Index, none );
-            return std::unique_ptr<T>( object );
+            Kill( id.Index );
+            if ( m_DispatchDepth == 0 )
+                FlushGraveyard();
+            return object;
         }
 
-        bool Contains( EventNodeId id ) const
+        [[nodiscard]] bool Contains( EventNodeId id ) const
         {
             return IsLive( id );
         }
@@ -142,7 +141,7 @@ namespace Common
             return static_cast<T*>( m_Slots[id.Index].Object );
         }
 
-        EventNodeId Parent( EventNodeId id ) const
+        [[nodiscard]] EventNodeId Parent( EventNodeId id ) const
         {
             if ( !IsLive( id ) || id.Index == 0 )
                 return {};
@@ -150,12 +149,12 @@ namespace Common
             return { parent, m_Slots[parent].Generation };
         }
 
-        const EventHandlerTable* HandlerTableOf( EventNodeId id ) const
+        [[nodiscard]] const EventHandlerTable* HandlerTableOf( EventNodeId id ) const
         {
             return IsLive( id ) ? m_Slots[id.Index].Table : nullptr;
         }
 
-        std::size_t Size() const
+        [[nodiscard]] std::size_t Size() const
         {
             return m_LiveCount;
         }
@@ -172,15 +171,15 @@ namespace Common
         {
             return Assign( m_Capture, id );
         }
-        EventNodeId Focus() const
+        [[nodiscard]] EventNodeId Focus() const
         {
             return IsLive( m_Focus ) ? m_Focus : EventNodeId{};
         }
-        EventNodeId Hovered() const
+        [[nodiscard]] EventNodeId Hovered() const
         {
             return IsLive( m_Hovered ) ? m_Hovered : EventNodeId{};
         }
-        EventNodeId Capture() const
+        [[nodiscard]] EventNodeId Capture() const
         {
             return IsLive( m_Capture ) ? m_Capture : EventNodeId{};
         }
@@ -204,17 +203,15 @@ namespace Common
             }
             else
             {
-                const EventNodeId target = EventRoute<E> == EventRouteKind::Focus ? Focus()
-                                           : Capture().IsSet()                    ? Capture()
-                                                                                  : Hovered();
+                const EventNodeId target = EventRoute<E> == EventRouteKind::Focus ? Focus() : PointerTarget();
                 if ( !target.IsSet() )
                     return {};
                 CollectChain( target.Index, path );
 
-                for ( auto it = path.rbegin(); it != path.rend(); ++it )
+                for ( const EventNodeId id : std::views::reverse( path ) )
                 {
-                    if ( CallPreview( *it, event ) )
-                        return { true, *it, EventPhase::Preview };
+                    if ( CallPreview( id, event ) )
+                        return { true, id, EventPhase::Preview };
                 }
                 for ( const EventNodeId id : path )
                 {
@@ -258,16 +255,11 @@ namespace Common
             void ( *Destroy )( void* )          = nullptr;
             const EventHandlerTable* Table      = nullptr;
             uint32_t                 Parent     = EventNodeId::kNone;
+            uint32_t                 Next       = EventNodeId::kNone;
             uint32_t                 Generation = 0;
             uint32_t                 VisitStamp = 0;
             bool                     Alive      = false;
             std::vector<uint32_t>    Children;
-        };
-
-        struct Doomed
-        {
-            void* Object;
-            void ( *Destroy )( void* );
         };
 
         class DispatchScope
@@ -306,7 +298,7 @@ namespace Common
             }
         }
 
-        bool IsLive( EventNodeId id ) const
+        [[nodiscard]] bool IsLive( EventNodeId id ) const
         {
             return id.Index < m_Slots.size() && m_Slots[id.Index].Alive &&
                    m_Slots[id.Index].Generation == id.Generation;
@@ -323,7 +315,13 @@ namespace Common
         template <typename T>
         static void DestroyAs( void* object )
         {
-            delete static_cast<T*>( object );
+            std::default_delete<T>{}( static_cast<T*>( object ) );
+        }
+
+        [[nodiscard]] EventNodeId PointerTarget() const
+        {
+            const EventNodeId captured = Capture();
+            return captured.IsSet() ? captured : Hovered();
         }
 
         template <typename T>
@@ -336,10 +334,10 @@ namespace Common
                 Require( false, "insertion under a node that is not in the tree" );
             }
             uint32_t index = 0;
-            if ( !m_Free.empty() )
+            if ( m_FreeHead != EventNodeId::kNone )
             {
-                index = m_Free.back();
-                m_Free.pop_back();
+                index      = m_FreeHead;
+                m_FreeHead = m_Slots[index].Next;
             }
             else
             {
@@ -351,6 +349,7 @@ namespace Common
             slot.Destroy = destroy;
             slot.Table   = &EventHandlerTableFor<T>;
             slot.Parent  = parent.Index;
+            slot.Next    = EventNodeId::kNone;
             slot.Alive   = true;
             slot.Children.clear();
             m_Slots[parent.Index].Children.push_back( index );
@@ -371,34 +370,58 @@ namespace Common
             }
         }
 
-        void Kill( uint32_t index, std::vector<Doomed>& doomed )
+        [[nodiscard]] uint32_t Deepest( uint32_t index ) const
         {
-            for ( uint32_t child : m_Slots[index].Children )
-                Kill( child, doomed );
-            Slot& slot = m_Slots[index];
-            if ( slot.Object != nullptr && slot.Destroy != nullptr )
-                doomed.push_back( { slot.Object, slot.Destroy } );
-            slot.Object = nullptr;
-            slot.Alive  = false;
-            ++slot.Generation;
-            slot.Children.clear();
-            m_Free.push_back( index );
-            --m_LiveCount;
+            while ( !m_Slots[index].Children.empty() )
+                index = m_Slots[index].Children.front();
+            return index;
         }
 
-        static void DestroyAll( const std::vector<Doomed>& doomed )
+        [[nodiscard]] uint32_t AfterInPostOrder( uint32_t index ) const
         {
-            for ( const Doomed& d : doomed )
-                d.Destroy( d.Object );
+            const std::vector<uint32_t>& siblings = m_Slots[m_Slots[index].Parent].Children;
+            const auto                   next     = std::ranges::find( siblings, index ) + 1;
+            return next == siblings.end() ? m_Slots[index].Parent : Deepest( *next );
+        }
+
+        void Kill( uint32_t top )
+        {
+            uint32_t index = Deepest( top );
+            while ( true )
+            {
+                const bool     last = index == top;
+                const uint32_t next = last ? top : AfterInPostOrder( index );
+                Slot&          slot = m_Slots[index];
+                slot.Alive          = false;
+                ++slot.Generation;
+                slot.Children.clear();
+                slot.Next = EventNodeId::kNone;
+                if ( m_GraveyardTail == EventNodeId::kNone )
+                    m_GraveyardHead = index;
+                else
+                    m_Slots[m_GraveyardTail].Next = index;
+                m_GraveyardTail = index;
+                --m_LiveCount;
+                if ( last )
+                    return;
+                index = next;
+            }
         }
 
         void FlushGraveyard()
         {
-            while ( !m_Graveyard.empty() )
+            while ( m_GraveyardHead != EventNodeId::kNone )
             {
-                std::vector<Doomed> doomed = std::move( m_Graveyard );
-                m_Graveyard.clear();
-                DestroyAll( doomed );
+                const uint32_t index = m_GraveyardHead;
+                m_GraveyardHead      = m_Slots[index].Next;
+                if ( m_GraveyardHead == EventNodeId::kNone )
+                    m_GraveyardTail = EventNodeId::kNone;
+                void* const object               = std::exchange( m_Slots[index].Object, nullptr );
+                void ( *const destroy )( void* ) = std::exchange( m_Slots[index].Destroy, nullptr );
+                m_Slots[index].Next              = m_FreeHead;
+                m_FreeHead                       = index;
+                if ( object != nullptr && destroy != nullptr )
+                    destroy( object );
             }
         }
 
@@ -426,7 +449,7 @@ namespace Common
                     visit( index );
             };
             chain( Focus() );
-            chain( Capture().IsSet() ? Capture() : Hovered() );
+            chain( PointerTarget() );
 
             m_Stack.clear();
             m_Stack.push_back( 0 );
@@ -435,9 +458,8 @@ namespace Common
                 const uint32_t index = m_Stack.back();
                 m_Stack.pop_back();
                 visit( index );
-                const std::vector<uint32_t>& children = m_Slots[index].Children;
-                for ( auto it = children.rbegin(); it != children.rend(); ++it )
-                    m_Stack.push_back( *it );
+                for ( const uint32_t child : std::views::reverse( m_Slots[index].Children ) )
+                    m_Stack.push_back( child );
             }
         }
 
@@ -464,14 +486,15 @@ namespace Common
         }
 
         std::vector<Slot>                              m_Slots;
-        std::vector<uint32_t>                          m_Free;
-        std::vector<Doomed>                            m_Graveyard;
         std::vector<std::vector<EventNodeId>>          m_PathBuffers;
         std::vector<uint32_t>                          m_Stack;
         std::vector<std::function<void( EventTree& )>> m_Deferred;
         std::size_t                                    m_LiveCount     = 0;
         std::size_t                                    m_DispatchDepth = 0;
         uint32_t                                       m_VisitStamp    = 0;
+        uint32_t                                       m_FreeHead      = EventNodeId::kNone;
+        uint32_t                                       m_GraveyardHead = EventNodeId::kNone;
+        uint32_t                                       m_GraveyardTail = EventNodeId::kNone;
         EventNodeId                                    m_Focus{};
         EventNodeId                                    m_Hovered{};
         EventNodeId                                    m_Capture{};
@@ -504,11 +527,11 @@ namespace Common
             return *this;
         }
 
-        EventTree* Tree() const
+        [[nodiscard]] EventTree* Tree() const
         {
             return m_Tree;
         }
-        EventNodeId Id() const
+        [[nodiscard]] EventNodeId Id() const
         {
             return m_Id;
         }

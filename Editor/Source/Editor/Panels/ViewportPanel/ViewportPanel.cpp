@@ -2478,15 +2478,17 @@ namespace Desert::Editor
 
     bool ViewportPanel::OnKeyPressed( Common::KeyPressedEvent& e )
     {
+        if ( const std::optional<ViewportCommand> command = ViewportCommandForKey( e.GetKeyCode() ) )
+        {
+            if ( *command == ViewportCommand::SelectNone &&
+                 m_Gizmo.GetOperation() != Tools::GizmoController::Operation::None )
+                m_Gizmo.SetOperation( Tools::GizmoController::Operation::None );
+            else if ( const auto ran = RunCommand( *command ); !ran )
+                LOG_WARN( "[Viewport] {}", ran.GetError() );
+            return false;
+        }
         switch ( e.GetKeyCode() )
         {
-            case Common::KeyCode::Escape:
-                // First Esc turns the gizmo off; a second Esc (gizmo already off) clears the selection.
-                if ( m_Gizmo.GetOperation() == Tools::GizmoController::Operation::None )
-                    (void)RunCommand( ViewportCommand::SelectNone );
-                else
-                    m_Gizmo.SetOperation( Tools::GizmoController::Operation::None );
-                break;
             case Common::KeyCode::T:
                 m_Gizmo.SetOperation( Tools::GizmoController::Operation::Translate );
                 break;
@@ -2511,11 +2513,6 @@ namespace Desert::Editor
                         LOG_WARN( "[Animation] the control manipulator mode was not changed: {}", set.GetError() );
                     }
                 }
-                break;
-            case Common::KeyCode::F:
-                // Frame the selected entity (UE's Focus Selected).
-                if ( const auto focused = RunCommand( ViewportCommand::FocusSelected ); !focused )
-                    LOG_WARN( "[Viewport] {}", focused.GetError() );
                 break;
             // A `default` and not 115 empty cases: this is a KEYBOARD, and the shortcuts it handles are a
             // deliberately small set. Enumerating the rest would make every key an editing decision and

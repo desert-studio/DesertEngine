@@ -2681,8 +2681,7 @@ namespace Desert::Editor
                                          origin.y + request.Value[1], request.Button, request.Key, request.Paths );
                 if ( !plan.IsSuccess() )
                     return Control::Response::Failure( request.Id, plan.GetError() );
-                if ( const auto armed = Control::InputInjection::Arm( std::move( plan.GetValue() ) );
-                     !armed.IsSuccess() )
+                if ( const auto armed = Control::InputInjection::Arm( plan.ExtractValue() ); !armed.IsSuccess() )
                     return Control::Response::Failure( request.Id, armed.GetError() );
                 return Control::Response::Success( request.Id );
             }

@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <deque>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -117,28 +118,35 @@ namespace Desert::Editor::Control
         return Common::MakeSuccess( std::move( chord ) );
     }
 
+    [[nodiscard]] inline InputStep MakeInputStep( InputAction action, float x, float y, int32_t code = 0,
+                                                  int32_t mods = 0 )
+    {
+        return { action, x, y, code, mods, {} };
+    }
+
     [[nodiscard]] inline Common::ResultStr<std::vector<InputFrame>>
     PlanInput( std::string_view kind, float x, float y, int32_t button, std::string_view key,
                const std::vector<std::string>& paths )
     {
         using Frames = std::vector<InputFrame>;
-        const InputStep cursor{ InputAction::Cursor, x, y };
+        const InputStep cursor = MakeInputStep( InputAction::Cursor, x, y );
         if ( kind == "move" )
             return Common::MakeSuccess( Frames{ { cursor } } );
         if ( kind == "click" )
             return Common::MakeSuccess( Frames{ { cursor },
-                                                { cursor, { InputAction::ButtonDown, x, y, button } },
-                                                { { InputAction::ButtonUp, x, y, button } } } );
+                                                { cursor, MakeInputStep( InputAction::ButtonDown, x, y, button ) },
+                                                { MakeInputStep( InputAction::ButtonUp, x, y, button ) } } );
         if ( kind == "press" )
             return Common::MakeSuccess(
-                 Frames{ { cursor }, { cursor, { InputAction::ButtonDown, x, y, button } } } );
+                 Frames{ { cursor }, { cursor, MakeInputStep( InputAction::ButtonDown, x, y, button ) } } );
         if ( kind == "release" )
-            return Common::MakeSuccess( Frames{ { cursor, { InputAction::ButtonUp, x, y, button } } } );
+            return Common::MakeSuccess(
+                 Frames{ { cursor, MakeInputStep( InputAction::ButtonUp, x, y, button ) } } );
         if ( kind == "drop" )
         {
             if ( paths.empty() )
                 return Common::MakeError<Frames>( "'drop' needs at least one file path." );
-            InputStep drop{ InputAction::Drop, x, y };
+            InputStep drop = MakeInputStep( InputAction::Drop, x, y );
             drop.Paths = paths;
             return Common::MakeSuccess( Frames{ { cursor }, { cursor, drop } } );
         }
@@ -152,14 +160,14 @@ namespace Desert::Editor::Control
             for ( const InputKeyName& modifier : chord.GetValue().Modifiers )
             {
                 mods |= modifier.ModBit;
-                down.push_back( { InputAction::KeyDown, x, y, modifier.Code, mods } );
+                down.push_back( MakeInputStep( InputAction::KeyDown, x, y, modifier.Code, mods ) );
             }
-            down.push_back( { InputAction::KeyDown, x, y, chord.GetValue().Key, mods } );
-            InputFrame up{ { InputAction::KeyUp, x, y, chord.GetValue().Key, mods } };
-            for ( auto it = chord.GetValue().Modifiers.rbegin(); it != chord.GetValue().Modifiers.rend(); ++it )
+            down.push_back( MakeInputStep( InputAction::KeyDown, x, y, chord.GetValue().Key, mods ) );
+            InputFrame up{ MakeInputStep( InputAction::KeyUp, x, y, chord.GetValue().Key, mods ) };
+            for ( const InputKeyName& modifier : std::views::reverse( chord.GetValue().Modifiers ) )
             {
-                mods &= ~it->ModBit;
-                up.push_back( { InputAction::KeyUp, x, y, it->Code, mods } );
+                mods &= ~modifier.ModBit;
+                up.push_back( MakeInputStep( InputAction::KeyUp, x, y, modifier.Code, mods ) );
             }
             return Common::MakeSuccess( Frames{ std::move( down ), std::move( up ) } );
         }
