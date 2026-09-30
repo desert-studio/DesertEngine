@@ -64,6 +64,29 @@ TEST( OutlinerTypeColumn, WidthIsDrivenByTheWidestNameNotTheFirstOne )
     EXPECT_FLOAT_EQ( TypeColumnWidth( FakeMeasure, 12.0f ), widest + 12.0f );
 }
 
+// UI-FIX2c: in a docked, narrow Outliner the fixed Type column kept its full width and Name, the column the panel
+// exists for, was squeezed to one character ("F Actor"). UE's Label column fills and keeps a minimum; Type gives
+// way.
+TEST( OutlinerTypeColumn, NameKeepsItsMinimumAndTypeGivesWay )
+{
+    constexpr float kType    = 120.0f;
+    constexpr float kNameMin = 130.0f;
+    for ( const float available : { 0.0f, 60.0f, 130.0f, 131.0f, 180.0f, 250.0f, 260.0f, 600.0f } )
+    {
+        const OutlinerColumnWidths split = OutlinerColumns( available, kType, kNameMin );
+        EXPECT_FLOAT_EQ( split.Name + split.Type, available ) << available << ": the columns fill the table";
+        EXPECT_GE( split.Type, 0.0f ) << available;
+        EXPECT_LE( split.Type, kType ) << available << ": never wider than its widest name needs";
+        if ( available >= kNameMin )
+            EXPECT_GE( split.Name, kNameMin ) << available << ": Name squeezed below its minimum";
+        else
+            EXPECT_FLOAT_EQ( split.Type, 0.0f ) << available << ": Type is dropped before Name loses room";
+    }
+    EXPECT_FLOAT_EQ( OutlinerColumns( 600.0f, kType, kNameMin ).Type, kType ) << "a wide panel prints every type";
+    EXPECT_FLOAT_EQ( OutlinerColumns( 180.0f, kType, kNameMin ).Type, 50.0f ) << "Type shrinks, not Name";
+    EXPECT_FLOAT_EQ( OutlinerColumns( -5.0f, kType, kNameMin ).Name, 0.0f ) << "no negative width";
+}
+
 TEST( OutlinerTypeColumn, CensusIsCompleteAndUnambiguous )
 {
     ASSERT_EQ( kEntityTypes.size(), static_cast<std::size_t>( EntityTypeKind::Count ) );

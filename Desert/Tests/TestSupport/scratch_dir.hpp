@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <format>
 #include <random>
 #include <string>
 #include <string_view>
@@ -133,4 +134,55 @@ namespace Desert::TestSupport
         }
         return {};
     }
+
+    // THE HOST STEP, TAKEN THE WAY THE EDITOR TAKES IT. The engine resolves its own resources — the shader root
+    // (Common::Constants::Path::SHADERDIR_PATH) and the shading models in it, fonts, icons, the engine content —
+    // against the working directory, and a host answers "where are they" by working FROM that directory
+    // (Project::ResolveResourceRoot; the editor moves there in Sandbox.hpp before anything reads content). In a
+    // checkout that directory is Editor/. A suite whose code under test reads engine resources — a DShader
+    // parse resolving its `ShadingModel`, an include, a key — works from there for this scope; the previous
+    // working directory comes back on destruction. READ-ONLY by contract: nothing may be written relative to
+    // the working directory inside it (TestScratchCensus), so a test that writes enters a ScratchDir or an
+    // AssetsSandbox, which moves the process on again.
+    class EngineResourcesWorkingDirectory
+    {
+    public:
+        EngineResourcesWorkingDirectory()
+        {
+            std::error_code ec;
+            m_Previous                       = std::filesystem::current_path( ec );
+            const std::filesystem::path root = RepositoryRoot();
+            if ( ec || root.empty() )
+            {
+                m_Error = std::format( "no checkout above the working directory '{}'", m_Previous.string() );
+                return;
+            }
+            std::filesystem::current_path( root / "Editor", ec );
+            if ( ec )
+                m_Error =
+                     std::format( "could not work from '{}': {}", ( root / "Editor" ).string(), ec.message() );
+        }
+
+        ~EngineResourcesWorkingDirectory()
+        {
+            std::error_code ec;
+            if ( !m_Previous.empty() )
+                std::filesystem::current_path( m_Previous, ec );
+        }
+
+        EngineResourcesWorkingDirectory( const EngineResourcesWorkingDirectory& )            = delete;
+        EngineResourcesWorkingDirectory& operator=( const EngineResourcesWorkingDirectory& ) = delete;
+        EngineResourcesWorkingDirectory( EngineResourcesWorkingDirectory&& )                 = delete;
+        EngineResourcesWorkingDirectory& operator=( EngineResourcesWorkingDirectory&& )      = delete;
+
+        // Empty when the process now works from the engine resources; otherwise what went wrong.
+        [[nodiscard]] const std::string& Error() const
+        {
+            return m_Error;
+        }
+
+    private:
+        std::filesystem::path m_Previous;
+        std::string           m_Error;
+    };
 } // namespace Desert::TestSupport

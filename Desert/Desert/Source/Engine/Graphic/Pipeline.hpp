@@ -14,6 +14,9 @@
 // IndexBuffer.hpp and VertexBuffer.hpp include it explicitly.
 #include <Common/Core/Core.hpp>
 
+#include <mutex>
+#include <unordered_set>
+
 namespace Desert::ShaderResources
 {
     class StorageBuffer;
@@ -32,6 +35,24 @@ namespace Desert::Graphic
     /**
      * @brief Base interface for all pipeline states.
      */
+    class IPipeline;
+
+    namespace detail
+    {
+        struct LivePipelineSet
+        {
+            // Recursive: a rebuild pass holds it while each rebuild re-enters through RecordShaderCodeGeneration.
+            std::recursive_mutex           Mutex;
+            std::unordered_set<IPipeline*> All;
+        };
+
+        inline LivePipelineSet& LivePipelines()
+        {
+            static LivePipelineSet s_Live;
+            return s_Live;
+        }
+    } // namespace detail
+
     class IPipeline
     {
     public:
@@ -43,7 +64,18 @@ namespace Desert::Graphic
         {
         }
 
-        virtual ~IPipeline() = default;
+        // EVERY BUILT PIPELINE IS FINDABLE (RebuildPipelinesBehindTheirShader): a pipeline a renderer built once
+        // at init and holds in a member is exactly as much the shader's dependent as one in a PipelineCache.
+        // Entered at the first build (the object is whole by then), left here.
+        virtual ~IPipeline()
+        {
+            auto&                 live = detail::LivePipelines();
+            const std::lock_guard lock( live.Mutex );
+            live.All.erase( this );
+        }
+
+        IPipeline( const IPipeline& )            = delete;
+        IPipeline& operator=( const IPipeline& ) = delete;
 
         virtual void Invalidate() = 0;
         virtual void Release()    = 0;
@@ -56,9 +88,44 @@ namespace Desert::Graphic
             m_Accounting.Claim( owner, asset );
         }
 
+        // Whether the shader's code moved on since this pipeline was last built (Shader::GetCodeGeneration).
+        [[nodiscard]] bool IsBehindItsShader() const
+        {
+            const auto& shader = GetShader();
+            return shader && shader->GetCodeGeneration() != m_BuiltAgainstGeneration;
+        }
+
+    protected:
+        // Each backend calls this at the top of its build, so the recorded version is the one the build read.
+        void RecordShaderCodeGeneration()
+        {
+            const auto& shader         = GetShader();
+            m_BuiltAgainstGeneration   = shader ? shader->GetCodeGeneration() : 0;
+            auto&                 live = detail::LivePipelines();
+            const std::lock_guard lock( live.Mutex );
+            live.All.insert( this );
+        }
+
     private:
         ResourceOwnership m_Accounting;
+        uint64_t          m_BuiltAgainstGeneration = 0;
     };
+
+    /**
+     * THE ONE ANSWER TO "A SHADER RECOMPILED — WHO HAS TO FOLLOW?" (UE: a recompiled shader map invalidates the
+     * PSOs built from it, material and global alike). Rebuilds IN PLACE every live pipeline, graphics or
+     * compute, whose shader's code generation moved since it was built — the same object, so a renderer that
+     * holds it in a member (DeferredLighting, every compute pass) draws the new code next frame without
+     * knowing a reload happened. Returns how many were rebuilt.
+     *
+     * The caller must have the device idle (a rebuilt pipeline's old VkPipeline may still be in flight) and
+     * no pipeline compile running on a worker (PipelineBuilds::WaitIdle).
+     */
+    size_t RebuildPipelinesBehindTheirShader();
+
+    /// Whether any live pipeline is behind its shader — asked first so a poll that changed nothing does not
+    /// idle the device.
+    [[nodiscard]] bool AnyPipelineBehindItsShader();
 
     // --- Graphics Pipeline ---
 

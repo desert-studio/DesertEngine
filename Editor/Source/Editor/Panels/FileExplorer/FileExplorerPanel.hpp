@@ -3,6 +3,7 @@
 #include "../IPanel.hpp"
 
 #include <Editor/Core/SubjectEditorRegistry.hpp>
+#include <Editor/Panels/FileExplorer/ContentBrowserCommands.hpp>
 #include <Editor/Panels/FileExplorer/FileType.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
 #include <Editor/Widgets/ThumbnailProducers.hpp>
@@ -182,9 +183,10 @@ namespace Desert::Editor
         // The two volume formats are generated on a worker; see m_CloudBake.
         void CreateNewCloudAsset( CloudAssetKind kind );
         // UE-style "Capture Thumbnail": grab the current main-viewport rendered image, center-crop to a
-        // square, downscale, and save it AS this asset's thumbnail (same DiskPath key the grid reads). Lets
-        // the user frame the asset in the scene and use that exact view as the preview.
-        void CaptureThumbnailFromViewport( const std::string& assetPath );
+        // square, downscale, and save it AS this asset's thumbnail — under the key its tile reads, with the
+        // hash its judge compares (ThumbnailProducers::CaptureKeyOf -> ThumbnailService::PictureKey), so the
+        // service does not re-shoot over it. Lets the user frame the asset in the scene and use that view.
+        Common::BoolResultStr CaptureThumbnailFromViewport( const DirectoryInformation& entry );
         // Filtered (m_SearchBuf) + sorted (m_SortMode) child indices for the current directory.
         std::vector<size_t> BuildDisplayOrder() const;
         void DrawFolder( DirectoryInformation* dirInfo, bool defaultOpen = false );
@@ -220,10 +222,31 @@ namespace Desert::Editor
         // then renames) and, for a folder, open it. The palette offers these per shown entry, so a client on
         // the control channel reaches an asset the way a click does.
         std::vector<std::string> ShownEntries( bool folders ) const;
-        // The selected entries whose thumbnail has an editable orbit (models and materials): the palette's
-        // "Edit Thumbnail: <file> <step>" commands are offered for these.
-        std::vector<std::string> SelectedThumbnailSubjects() const;
-        Common::BoolResultStr    SelectEntry( const std::string& path );
+        // The selected entries whose thumbnail has an editable orbit (ThumbnailProducers::HasThumbnailOrbit): the
+        // palette's "Edit Thumbnail: <file> <step>" commands are offered for these. `Asset` is the entry as the
+        // browser lists it, `OrbitFile` the file its picture's orbit is read from and written to
+        // (ThumbnailOrbitFile).
+        struct ThumbnailOrbitSubject
+        {
+            std::string Asset;
+            std::string OrbitFile;
+        };
+        std::vector<ThumbnailOrbitSubject> SelectedThumbnailSubjects();
+        Common::BoolResultStr              SelectEntry( const std::string& path );
+        // UE's Content Browser navigation (SyncBrowserToFolders / SyncBrowserToAssets), for the palette and the
+        // control channel: "Content Browser / Go to Folder <path>" opens a folder anywhere under the browser's
+        // root, "Content Browser / Sync to Asset <path>" opens the asset's folder and selects it. Refused, by
+        // path, for a path that is not a folder / not a file under the root.
+        Common::BoolResultStr GoToFolder( const std::string& path );
+        Common::BoolResultStr SyncToAsset( const std::string& path );
+        // Every folder / every file under the browser's root, as the browser spells them (generic paths, its
+        // hidden-file rule applied): the palette offers one Go to Folder / Sync to Asset per entry.
+        std::vector<std::string> ContentFolders() const;
+        std::vector<std::string> ContentFiles() const;
+        // The Content Browser commands (ContentBrowserCommands.hpp) on the selection: the item context menu
+        // draws them through CommandMenuItem and the palette offers them; both land here. Refused, with the
+        // reason, when the selection does not fit the command.
+        Common::BoolResultStr RunCommand( ContentBrowserCommand command );
 
     private:
         // EDIT THUMBNAIL (UE: context menu -> "Edit Thumbnail"): the tile of m_EditThumbnailPath is interactive —
@@ -245,15 +268,26 @@ namespace Desert::Editor
         };
         static constexpr double         kThumbnailWheelRestSeconds = 0.35;
         std::string                     m_EditThumbnailPath;
+        std::string                     m_EditThumbnailOrbitFile; // ThumbnailOrbitFile of m_EditThumbnailPath
         std::optional<ThumbnailGesture> m_ThumbnailGesture;
         // Runs the mode on the tile item just drawn (the thumbnail button, rect @p min..@p max).
         void DrawThumbnailEdit( const DirectoryInformation& entry, const ImVec2& min, const ImVec2& max );
         // The gesture's orbit written as one edit; the gesture ends whether or not the write succeeded.
         void CommitThumbnailGesture();
+        // One context-menu row for @p command: its label and shortcut from the command's info, RunCommand on
+        // click, a refusal logged by name.
+        void CommandMenuItem( ContentBrowserCommand command, bool selected = false, bool enabled = true );
+        // The entries of the current folder that are selected (SelectionPaths, resolved to entries).
+        std::vector<DirectoryInformation*> SelectedEntries() const;
         // The live orbit asked of ThumbnailService as a preview (subject resolved as the tile resolves it).
         void RequestThumbnailPreview( const DirectoryInformation& entry, ThumbnailGesture& gesture );
         // Leaves Edit Thumbnail: a running gesture is committed first, its preview ended.
         void LeaveThumbnailEdit();
+        // THE FILE @p entry's THUMBNAIL ORBIT LIVES UNDER, the one its picture is filed under: a material's
+        // .demat; a posed kind's own .skmesh / .skeleton / .anim; a model's or a foliage type's mesh picture
+        // (MeshPictureFor: a static mesh's .stmesh, a skinned source's .skmesh). nullopt for a kind with no orbit
+        // (ThumbnailProducers::HasThumbnailOrbit) or a model with no picture yet (not imported).
+        std::optional<std::string> ThumbnailOrbitFile( const DirectoryInformation& entry );
 
         // Collects a finished cloud-volume generation, exactly once. Called from OnPreUpdate rather than
         // from the render so that a collapsed or hidden Assets window still finishes what it started.

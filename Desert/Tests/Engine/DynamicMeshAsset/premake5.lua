@@ -69,10 +69,6 @@ project(test_name)
         defines { "DESERT_PLATFORM_LINUX" }
     filter {}
 
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
-    filter {}
-
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do
             links { path }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Editor/Panels/ViewportPanel/ViewportCommands.hpp>
 #include <functional>
 #include <optional>
 #include <unordered_map>
@@ -175,6 +176,11 @@ namespace Desert::Editor
         NO_DISCARD static Common::BoolResultStr RequestPilot( const Common::UUID& entity );
         NO_DISCARD static Common::BoolResultStr RequestEject();
         NO_DISCARD static bool                  IsPilotingAnywhere( const Common::UUID& entity );
+
+        // The Level Viewport commands (ViewportCommands.hpp) on the viewport the user works in — the palette's
+        // entry; the F / Esc keys call RunCommand on their own viewport. One executor for both.
+        NO_DISCARD static Common::BoolResultStr RequestCommand( ViewportCommand command );
+        NO_DISCARD Common::BoolResultStr RunCommand( ViewportCommand command );
 
         NO_DISCARD static Common::BoolResultStr RequestCameraPreset( ViewportCameraPreset preset );
         NO_DISCARD static Common::BoolResultStr SetCameraPreset( uint64_t sceneViewId, ViewportCameraPreset preset );

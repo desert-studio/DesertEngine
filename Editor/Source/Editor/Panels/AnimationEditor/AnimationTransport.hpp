@@ -1,10 +1,12 @@
 #pragma once
 
+#include <Editor/Core/UICommandInfo.hpp>
 #include <Engine/Animation/TimeModel.hpp>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 
 namespace Desert::Editor
@@ -23,6 +25,34 @@ namespace Desert::Editor
      * FRAMES ARE THE CLIP'S DISPLAY GRID (AnimationClip::DisplayRate), the grid an artist edits on, not the
      * tick grid keys are counted at.
      */
+    /// UE's Persona transport (FAnimViewportPlaybackCommands): the toolbar buttons and the document's palette
+    /// actions ("<document>: Play/Pause") are these, run through AnimationTransport::Execute — one home.
+    enum class TransportCommand : std::uint8_t
+    {
+        ToStart,
+        PreviousFrame,
+        PlayPause,
+        NextFrame,
+        ToEnd,
+    };
+
+    inline constexpr std::array<UICommandInfo, 5> kTransportCommandInfos{ {
+         { "Animation Editor", "To Start", "" },
+         { "Animation Editor", "Previous Frame", "" },
+         { "Animation Editor", "Play/Pause", "" },
+         { "Animation Editor", "Next Frame", "" },
+         { "Animation Editor", "To End", "" },
+    } };
+
+    inline constexpr std::array<TransportCommand, 5> kTransportCommandOrder{
+         TransportCommand::ToStart, TransportCommand::PreviousFrame, TransportCommand::PlayPause,
+         TransportCommand::NextFrame, TransportCommand::ToEnd };
+
+    [[nodiscard]] constexpr const UICommandInfo& CommandInfo( TransportCommand command )
+    {
+        return kTransportCommandInfos[static_cast<std::size_t>( command )];
+    }
+
     struct AnimationTransport
     {
         // UE's Persona speed menu, the same five steps.
@@ -110,6 +140,28 @@ namespace Desert::Editor
             if ( !Playing && !Loop && Time >= DurationSeconds )
                 Time = 0.0;
             Playing = !Playing;
+        }
+
+        void Execute( const TransportCommand command )
+        {
+            switch ( command )
+            {
+                case TransportCommand::ToStart:
+                    ToStart();
+                    return;
+                case TransportCommand::PreviousFrame:
+                    StepFrames( -1 );
+                    return;
+                case TransportCommand::PlayPause:
+                    TogglePlay();
+                    return;
+                case TransportCommand::NextFrame:
+                    StepFrames( 1 );
+                    return;
+                case TransportCommand::ToEnd:
+                    ToEnd();
+                    return;
+            }
         }
     };
 } // namespace Desert::Editor

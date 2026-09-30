@@ -15,6 +15,9 @@ project(test_name)
     files {
         test_files,
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp", -- import templates are read from shader manifests
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.cpp", -- the parser resolves `ShadingModel <Name>`
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelRegistry.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp", -- the clip's ticks
         -- The clip is one Timeline::Sequence: the importer keys it through TrackEditing, the writer and the
         -- reader go through SequenceFormat, and the asset evaluates it through the Timeline.
@@ -146,9 +149,6 @@ project(test_name)
     filter {}
 
     links { "Common", "Optick", "MeshOptimizer", "Assimp", "OpenEXRCore" }
-
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
 
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do

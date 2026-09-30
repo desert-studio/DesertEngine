@@ -457,11 +457,11 @@ namespace Desert::Core
         Graphic::SceneRenderer::UpdateInfo sceneRendererInfo;
         sceneRendererInfo.Timestep = ts;
 
-        // Gameplay time only advances in Play (Edit/Paused freeze it -> animation/physics/scripts hold).
-        // Systems still RUN every frame (they collect render data); they just see a zero timestep when not
-        // playing. The editor camera below uses the real ts so you can fly around while paused/editing.
-        const Common::Timestep gameplayTs =
-             ( m_State == SceneState::Play ) ? ts : Common::Timestep( 0.0f );
+        // Gameplay time only advances in Play or on a paused world's one stepped frame (TicksGameplay;
+        // otherwise Edit/Paused freeze it -> animation/physics/scripts hold). Systems still RUN every frame
+        // (they collect render data); they just see a zero timestep when not ticking. The editor camera
+        // below uses the real ts so you can fly around while paused/editing.
+        const Common::Timestep gameplayTs = TicksGameplay() ? ts : Common::Timestep( 0.0f );
 
         // Push the active-camera snapshot to systems that lay out camera-relative geometry (billboarded
         // text). Done on the main thread before ExecuteSystems so the parallel system group reads it
@@ -630,6 +630,10 @@ namespace Desert::Core
             for ( const auto& buffer : m_SystemCommandBuffers )
                 buffer->Clear();
         }
+
+        // The stepped frame of a pause is THIS update, whatever it reported: consumed here, after every
+        // system has asked TicksGameplay(), so the world holds again from the next frame.
+        m_SingleFramePending = false;
 
         // The buffers are cleared FIRST and the failure reported after: a frame that refused still has to
         // leave the arena rewound, or the next frame records on top of this one's commands.

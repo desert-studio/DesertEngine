@@ -4,6 +4,7 @@
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 
 #include "CookPaths.hpp"
+#include "ImportedAssetSource.hpp"
 #include "MaterialAdoption.hpp"
 #include "NodeMeshSplit.hpp"
 
@@ -288,13 +289,28 @@ namespace Desert::Editor
                 found.erase( it );
             }
         }
-        const std::string stem = meshFile.stem().string();
-        for ( const auto& entry : std::filesystem::directory_iterator( meshFile.parent_path(), ec ) )
+        // A skinned import's file (`.skmesh`, `.skeleton`, `<stem>_<clip>.anim`): the record of the source that
+        // wrote it (ImportedAssetSource::SkinnedAssetSource: a clip's own `Import`, the record beside a mesh or a
+        // rig) - never the name alone, which has no inverse for a clip. No source, or a source with no record
+        // beside it: no import to state the orbit.
+        if ( CookPaths::IsSkinnedAssetFile( meshFile ) )
         {
-            if ( !Common::Content::IsImportRecord( entry.path() ) )
-                continue;
-            const std::filesystem::path source = entry.path().parent_path() / entry.path().stem();
-            const std::string           prefix = std::format( "{}_", source.stem().string() );
+            const auto stated = ImportedAssetSource::SkinnedAssetSource( meshFile );
+            if ( !stated )
+                return Common::MakeError<Home>( stated.GetError() );
+            const auto& source = stated.GetValue();
+            if ( !source ||
+                 !std::filesystem::is_regular_file( Common::Content::ImportRecordPathFor( *source ), ec ) )
+                return Common::MakeSuccess( Home{} );
+            const std::lock_guard lock( mutex );
+            found[key] = *source;
+            return Common::MakeSuccess( Home{ source } );
+        }
+
+        const std::string stem = meshFile.stem().string();
+        for ( const std::filesystem::path& source : Common::Content::SourcesRecordedIn( meshFile.parent_path() ) )
+        {
+            const std::string prefix = std::format( "{}_", source.stem().string() );
             if ( stem.size() <= prefix.size() || stem.compare( 0, prefix.size(), prefix ) != 0 )
                 continue;
             const auto record = Ser::ReadImportRecord( source );

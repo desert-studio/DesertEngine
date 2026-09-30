@@ -11,6 +11,7 @@ project(test_name)
     files {
         test_files,
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/PlayerStartRules.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Prefab/PrefabOverrides.cpp", -- PawnControllerBlock merges
     }
 
     includedirs {

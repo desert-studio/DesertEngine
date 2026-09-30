@@ -1,0 +1,31 @@
+// Toon — a banded diffuse with a rim: the model that proves a shading model is data (one file here, one
+// `ShadingModel Toon` line in a surface template, no C++). Every source's N.L (times its shadow) is quantized into
+// 2..8 bands; a Fresnel-like rim brightens the lit silhouette. The environment is flat: irradiance times occlusion,
+// no specular. The material sets both payload floats (Programs/Toon/Toon.shader: Bands, RimWidth).
+Guid 1484512969364128551;
+Payload
+{
+    CustomData0 Bands;      // 0..1 -> 2..8 light bands
+    CustomData1 RimWidth;   // 0 = no rim, 1 = the rim reaches the facing centre
+}
+Inputs
+{
+    BaseColor;
+    CustomData0;
+    CustomData1;
+}
+
+vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    const float bands = floor( mix( 2.0, 8.0, P.CustomData0 ) + 0.5 );
+    // The bands quantize the LIGHT (N.L), never the occlusion: a PCF shadow a few percent under 1 across a
+    // low-poly curve would otherwise drop whole triangles a band. The shadow darkens the band it falls on.
+    const float lit   = floor( max( dot( S.N, L.L ), 0.0 ) * bands ) / bands * L.Shadow;
+    const float rim   = smoothstep( 1.0 - P.CustomData1, 1.0, 1.0 - max( dot( S.N, S.V ), 0.0 ) );
+    return S.BaseColor * L.Radiance * ( lit + rim * lit );
+}
+
+vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
+{
+    return S.BaseColor * A.Irradiance * A.Occlusion;
+}

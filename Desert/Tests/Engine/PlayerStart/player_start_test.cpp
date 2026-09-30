@@ -1,6 +1,9 @@
 // SPAWN1: the two rules Play is made of — which PlayerStart the pawn stands on, and which camera the
 // player looks through (UE: GameModeBase::FindPlayerStart and APlayerCameraManager's view target).
+#include <Engine/Core/PawnBodyRules.hpp>
 #include <Engine/Core/PlayerStart.hpp>
+
+#include <Common/Json/Document.hpp>
 
 #include "../../TestSupport/scratch_dir.hpp"
 
@@ -174,6 +177,171 @@ TEST( PawnIsAStreamingSource, SpawnDefaultPawnGivesThePawnASourceUnlessItsPrefab
     ASSERT_NE( add, std::string::npos ) << "the spawned pawn is not made a streaming source";
     EXPECT_LT( add, src.find( "scene.SetPlayerPawn( pawn.GetHandle() )" ) )
          << "the pawn must be a source before Play hands it on";
+}
+
+// UI-PAWN2: the PlayerStart's capsule is the pawn Play WOULD spawn (UE: APlayerStart draws the DefaultPawnClass
+// CDO's capsule), read from the level's Default Pawn prefab through the reflection of CharacterControllerData -
+// never a default-constructed struct standing in for a pawn the level did not name.
+TEST( PlayerStartCapsule, TheGizmoDrawsTheLevelsDefaultPawnNotTheStructsDefaults )
+{
+    const std::string engine = ReadSource( "Desert/Desert/Source/Engine/Core/PlayerStart.cpp" );
+    const auto        fn     = engine.find( "DefaultPawnCapsule(" );
+    ASSERT_NE( fn, std::string::npos ) << "PlayerStart.cpp no longer answers the Default Pawn's capsule";
+    EXPECT_NE( engine.find( "scene.GetSettings().DefaultPawn", fn ), std::string::npos )
+         << "the capsule must come from the level's Default Pawn";
+    EXPECT_NE( engine.find( "PawnControllerBlock(", fn ), std::string::npos )
+         << "the capsule must be the prefab's CharacterController block, nested prefabs included";
+    EXPECT_NE( ReadSource( "Desert/Desert/Source/Engine/Core/PlayerStartRules.cpp" )
+                    .find( "Components.get( \"CharacterController\" )" ),
+               std::string::npos )
+         << "PawnControllerBlock must read the records' CharacterController block";
+    EXPECT_NE( engine.find( "DeserializeReflected(", fn ), std::string::npos )
+         << "the block must be read by CharacterControllerData's reflection, its one home";
+
+    const std::string gizmo = ReadSource( "Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp" );
+    EXPECT_NE( gizmo.find( "::Desert::Core::DefaultPawnCapsule(" ), std::string::npos )
+         << "the PlayerStart gizmo does not ask the level for its pawn";
+    EXPECT_EQ( gizmo.find( "CharacterControllerData pawn{}" ), std::string::npos )
+         << "the PlayerStart gizmo draws the struct's defaults instead of the level's pawn";
+    EXPECT_NE( gizmo.find( "role  = GizmoIcon::PlayerStart;" ), std::string::npos )
+         << "a PlayerStart must wear its own icon (UE S_Player), not the generic spawn-point pin";
+}
+
+// UI-LIVE2: an edited Default Pawn prefab reached the capsule only after an editor restart - AssetManager kept
+// the payload it had parsed and nothing re-read it. UE reloads a saved or reimported asset and its readers see
+// the new version; here the asset hot reload re-reads every LOADED prefab whose file changed, in place, and
+// the capsule (like the spawn) asks the asset at use time.
+TEST( PlayerStartCapsule, AnEditedPawnPrefabIsReReadByTheAssetHotReload )
+{
+    const std::string reload = ReadSource( "Desert/Desert/Source/Engine/Runtime/AssetHotReload.cpp" );
+    const auto        tick   = reload.find( "void AssetHotReload::Tick(" );
+    ASSERT_NE( tick, std::string::npos );
+    const auto tickEnd = reload.find( "m_FirstScan = false;", tick );
+    const auto called  = reload.find( "PollPrefabs( assetManager );", tick );
+    EXPECT_TRUE( called != std::string::npos && called < tickEnd ) << "the hot reload tick never polls prefabs";
+
+    const auto poll = reload.find( "void AssetHotReload::PollPrefabs(" );
+    ASSERT_NE( poll, std::string::npos ) << "no prefab poll in the asset hot reload";
+    const auto        next = reload.find( "void AssetHotReload::", poll + 1 );
+    const std::string body = reload.substr( poll, next - poll );
+    EXPECT_NE( body.find( "FindAllByType<Assets::PrefabAsset>()" ), std::string::npos )
+         << "the poll must cover every prefab the asset manager holds, not one consumer's";
+    EXPECT_NE( body.find( "TouchWatched( path )" ), std::string::npos ) << "the poll must ask the file's stamp";
+    EXPECT_NE( body.find( "asset->Load()" ), std::string::npos ) << "a changed prefab must be re-read in place";
+    EXPECT_LT( body.find( "IsReloadableFromFile()" ), body.find( "asset->Load()" ) )
+         << "a capture not yet saved is the only copy of its payload and must not be overwritten by the file";
+
+    // The capsule reads the asset each time, never a copy of its records taken earlier.
+    const std::string engine = ReadSource( "Desert/Desert/Source/Engine/Core/PlayerStart.cpp" );
+    const auto        fn     = engine.find( "DefaultPawnCapsule(" );
+    ASSERT_NE( fn, std::string::npos );
+    EXPECT_NE( engine.find( "prefab.GetValue()->GetEntities()", fn ), std::string::npos )
+         << "the capsule must read the prefab asset's current payload";
+}
+
+// UI-FIX2b: the pawn's body is the CDO's (UE), nested prefabs included: a pawn prefab that nests the prefab
+// holding its CharacterController (PrefabPath) drew no capsule.
+namespace
+{
+    using Desert::Assets::EntityData;
+
+    Common::Json::Value Controller( double radius, std::optional<double> height = {} )
+    {
+        Common::Json::Object object;
+        object["Radius"] = Common::Json::Value( radius );
+        if ( height )
+            object["Height"] = Common::Json::Value( *height );
+        return { object };
+    }
+
+    std::string FieldOf( const Common::Json::Value& block, const std::string& field )
+    {
+        const auto value = Common::Json::Root( block ).Find( field );
+        return value ? Common::Json::Write( value->Raw() ) : "<absent>";
+    }
+
+    struct Library
+    {
+        std::vector<EntityData> Body; // "Body.deprefab": its root holds the controller
+        NestedPrefabRecords     Nested =
+             [this]( const std::string& path ) -> Common::ResultStr<const std::vector<EntityData>*>
+        {
+            const std::vector<EntityData>* body = &Body;
+            if ( path == "Body.deprefab" )
+                return Common::MakeSuccess( body );
+            return Common::MakeFormattedError<const std::vector<EntityData>*>( "'{}' is not a prefab", path );
+        };
+    };
+} // namespace
+
+TEST( PawnBody, TheControllerOfANestedPrefabIsThePawns )
+{
+    Library lib;
+    lib.Body.emplace_back().id                        = Common::UUID( 2 );
+    lib.Body.back().Components["CharacterController"] = Controller( 80.0, 300.0 );
+
+    std::vector<EntityData> pawn( 2 );
+    pawn[0].id         = Common::UUID( 1 ); // the root: a mesh, no controller
+    pawn[1].id         = Common::UUID( 3 );
+    pawn[1].PrefabPath = "Body.deprefab";
+
+    const auto block = PawnControllerBlock( pawn, lib.Nested );
+    ASSERT_TRUE( block ) << block.GetError();
+    const auto& found = block.GetValue();
+    if ( !found.has_value() )
+        FAIL() << "the nested prefab's controller was not found";
+    EXPECT_EQ( FieldOf( *found, "Radius" ), FieldOf( Controller( 80.0 ), "Radius" ) );
+}
+
+TEST( PawnBody, AnOverrideOnTheNestingRecordIsMergedOntoTheNestedBlock )
+{
+    Library lib;
+    lib.Body.emplace_back().id                        = Common::UUID( 2 );
+    lib.Body.back().Components["CharacterController"] = Controller( 80.0, 300.0 );
+
+    std::vector<EntityData> pawn( 1 );
+    pawn[0].id         = Common::UUID( 3 );
+    pawn[0].PrefabPath = "Body.deprefab";
+    Desert::Assets::PrefabOverrideData over;
+    over.Path                              = { Common::UUID( 2 ) };
+    over.Components["CharacterController"] = Controller( 45.0 );
+    pawn[0].PrefabOverrides                = std::vector{ over };
+
+    const auto block = PawnControllerBlock( pawn, lib.Nested );
+    ASSERT_TRUE( block ) << block.GetError();
+    const auto& merged = block.GetValue();
+    if ( !merged.has_value() )
+        FAIL() << "the nested block was not found";
+    const Common::Json::Value& mergedBlock = *merged;
+    EXPECT_EQ( FieldOf( mergedBlock, "Radius" ), FieldOf( Controller( 45.0 ), "Radius" ) )
+         << "the instance's override was not applied";
+    EXPECT_EQ( FieldOf( mergedBlock, "Height" ), FieldOf( Controller( 0.0, 300.0 ), "Height" ) )
+         << "the merge reset a field it did not name";
+}
+
+TEST( PawnBody, AMissingOrSelfNestedPrefabIsAnErrorNamingThePath )
+{
+    Library                 lib;
+    std::vector<EntityData> pawn( 1 );
+    pawn[0].PrefabPath = "Gone.deprefab";
+    const auto missing = PawnControllerBlock( pawn, lib.Nested );
+    ASSERT_FALSE( missing );
+    EXPECT_NE( missing.GetError().find( "Gone.deprefab" ), std::string::npos );
+
+    lib.Body.emplace_back().PrefabPath = "Body.deprefab";
+    pawn[0].PrefabPath                 = "Body.deprefab";
+    const auto cycle                   = PawnControllerBlock( pawn, lib.Nested );
+    ASSERT_FALSE( cycle );
+    EXPECT_NE( cycle.GetError().find( "nests itself" ), std::string::npos );
+}
+
+TEST( PawnBody, NoControllerAnywhereIsASpectatorNotAnError )
+{
+    const Library                 lib;
+    const std::vector<EntityData> pawn( 1 );
+    const auto                    block = PawnControllerBlock( pawn, lib.Nested );
+    ASSERT_TRUE( block ) << block.GetError();
+    EXPECT_FALSE( block.GetValue().has_value() );
 }
 
 // WP24: in Play the residency follows the sources, never the view.

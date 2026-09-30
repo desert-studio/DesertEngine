@@ -4,6 +4,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
+#include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 
 #include <chrono>
 #include <format>
@@ -180,6 +181,23 @@ namespace Desert::Core
         return includes;
     }
 
+    std::string ShaderFileText( const std::filesystem::path& shaderFile )
+    {
+        const auto file = ReadShaderFileCached( shaderFile );
+        return file->Readable ? file->Text : std::string{};
+    }
+
+    std::vector<std::filesystem::path> ShaderSourceFiles( const std::filesystem::path& shaderFile )
+    {
+        std::vector<std::filesystem::path> files{ shaderFile };
+        const auto                         file = ReadShaderFileCached( shaderFile );
+        if ( !file->Readable )
+            return files;
+        for ( auto& include : CollectShaderIncludes( file->Text, shaderFile ) )
+            files.push_back( std::move( include ) );
+        return files;
+    }
+
     bool SpirvDebugInfoThisBuild()
     {
         // The one home of the policy. ShaderCompiler generates debug info exactly when this is true,
@@ -200,6 +218,26 @@ namespace Desert::Core
         return configName == "Debug";
     }
 
+    namespace
+    {
+        // THE SHADING-MODEL LAYOUT (ShadingModelRegistry::IndexLayoutKey): a program that includes the generated
+        // dispatch was compiled against one Guid->index layout, and a set that gains a model may move the others'
+        // indices — so the layout is a key input of exactly the programs that include it. Loading the set first
+        // is also what writes the generated include before the include walk reads it.
+        void MixShadingModelLayout( uint64_t& key, const std::filesystem::path& include )
+        {
+            if ( !include.generic_string().ends_with( ShadingModels::kGeneratedInclude ) )
+                return;
+            const auto  held   = ShadingModels::ShaderRootShadingModels();
+            const auto& models = *held;
+            // A set that failed to load fails the compile itself (the includer serves its error); the key
+            // only has to differ from every loaded layout's.
+            FnvMix( key, "|shadingmodels:" );
+            FnvMix( key, models.IsSuccess() ? std::string_view( models.GetValue().IndexLayoutKey )
+                                            : std::string_view( models.GetError() ) );
+        }
+    } // namespace
+
     uint64_t ComputeShaderCacheKey( Formats::ShaderStage stage, const std::string& source,
                                     const std::filesystem::path& requestingFile, const ShaderVariant& variant )
     {
@@ -211,6 +249,7 @@ namespace Desert::Core
                                               const std::filesystem::path& requestingFile, bool spirvDebugInfo,
                                               const ShaderVariant& variant )
     {
+        (void)ShadingModels::ShaderRootShadingModels(); // writes the generated include before the walk reads it
         uint64_t key = kFnvOffset;
         FnvMix( key, kOptionsFingerprint );
         if ( spirvDebugInfo )
@@ -242,6 +281,7 @@ namespace Desert::Core
         for ( const auto& include : CollectShaderIncludes( source, requestingFile, variant ) )
         {
             FnvMix( key, include.generic_string() );
+            MixShadingModelLayout( key, include );
             // A read that fails mixes nothing — byte-identical to the empty string the old untyped
             // read produced here, so existing cache keys stay valid.
             if ( const auto file = ReadShaderFileCached( include ); file->Readable )
@@ -255,6 +295,7 @@ namespace Desert::Core
                                   const std::string& passName, const bool spirvDebugInfo,
                                   const ShaderVariant& variant )
     {
+        (void)ShadingModels::ShaderRootShadingModels(); // writes the generated include before the walk reads it
         uint64_t key = kFnvOffset;
         FnvMix( key, "shadermap|" );
         FnvMix( key, kOptionsFingerprint );
@@ -283,6 +324,7 @@ namespace Desert::Core
         for ( const auto& include : CollectShaderIncludes( scanned, programPath, variant ) )
         {
             FnvMix( key, include.generic_string() );
+            MixShadingModelLayout( key, include );
             const auto     file = ReadShaderFileCached( include );
             const uint64_t hash = file->Readable ? file->ContentHash : 0;
             FnvMix( key, std::string_view( reinterpret_cast<const char*>( &hash ), sizeof hash ) );

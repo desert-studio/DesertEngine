@@ -60,8 +60,6 @@ project(test_name)
 
     links { "Common", "Optick", "Jolt" }
 
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

@@ -61,8 +61,6 @@ project(test_name)
     -- Common carries Objective-C (the macOS file dialog), which is what the two frameworks are for.
     links { "Common", "Optick" }
 
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     for name, path in pairs(deps.Common.IncludeDir) do

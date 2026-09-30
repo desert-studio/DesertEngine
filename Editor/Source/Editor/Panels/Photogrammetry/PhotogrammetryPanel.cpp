@@ -2,6 +2,7 @@
 #include <Common/Core/DestructorGuard.hpp>
 #include "PhotogrammetryPanel.hpp"
 
+#include <Editor/Platform/DesktopPlatform.hpp>
 #include <Editor/Core/EditorPreferences.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
@@ -177,10 +178,10 @@ namespace Desert::Editor
             {
                 std::filesystem::path picked;
                 if ( folder )
-                    picked = Common::Utils::FileSystem::OpenFolderDialog();
+                    picked = DesktopPlatform::OpenFolderDialog();
                 else
-                    picked = Common::Utils::FileSystem::SaveFileDialog(
-                         "Meshes\0*.obj;*.glb;*.gltf;*.fbx;*.ply\0All\0*.*\0" );
+                    picked =
+                         DesktopPlatform::SaveFileDialog( "Meshes\0*.obj;*.glb;*.gltf;*.fbx;*.ply\0All\0*.*\0" );
                 if ( !picked.empty() )
                 {
                     value   = picked.string();
@@ -569,7 +570,7 @@ namespace Desert::Editor
     void PhotogrammetryPanel::LoadMeshFile()
     {
         const auto picked =
-             Common::Utils::FileSystem::OpenFileDialog( "Meshes\0*.obj;*.glb;*.gltf;*.fbx;*.ply\0All\0*.*\0" );
+             DesktopPlatform::OpenFileDialog( "Meshes\0*.obj;*.glb;*.gltf;*.fbx;*.ply\0All\0*.*\0" );
         if ( picked.empty() )
             return;
         m_OutputCaptured = picked.string();

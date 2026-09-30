@@ -11,6 +11,9 @@
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 
+#include <atomic>
+#include <cstdint>
+
 namespace Desert::Graphic
 {
     // THE COMPILE-TIME AXIS OF A PROGRAM, and it used to be `ShaderDefines` — a vector of name/value
@@ -40,6 +43,15 @@ namespace Desert::Graphic
         }
 
         virtual Common::BoolResultStr Reload()                                                                 = 0;
+
+        // THE VERSION OF THE CODE THIS OBJECT CARRIES (UE: a recompile bumps the shader map, and every PSO built
+        // from the old one is stale). Moves on every successful Reload; a pipeline records the value it was
+        // built against (IPipeline::RecordShaderCodeGeneration) and RebuildPipelinesBehindTheirShader rebuilds
+        // exactly the ones that fell behind — renderer-owned or cached, graphics or compute, one rule for all.
+        [[nodiscard]] uint64_t GetCodeGeneration() const
+        {
+            return m_CodeGeneration.load( std::memory_order_acquire );
+        }
         virtual const std::string     GetName() const                                                          = 0;
         virtual const std::vector<ShaderResources::ShaderLayout::UniformBuffer> GetUniformBufferModels() const = 0;
         virtual const std::vector<ShaderResources::ShaderLayout::StorageBuffer> GetStorageBufferModels() const = 0;
@@ -100,8 +112,17 @@ namespace Desert::Graphic
                                                const ShaderVariant&                      variant  = {},
                                                const std::string&                        passName = {} );
 
+    protected:
+        // Called by the backend when a Reload has replaced the code — and only then: a failed recompile keeps the
+        // previous modules, so the pipelines built from them are not behind.
+        void BumpCodeGeneration()
+        {
+            m_CodeGeneration.fetch_add( 1, std::memory_order_acq_rel );
+        }
+
     private:
-        ResourceOwnership m_Accounting;
+        ResourceOwnership     m_Accounting;
+        std::atomic<uint64_t> m_CodeGeneration{ 0 };
     };
 
 } // namespace Desert::Graphic

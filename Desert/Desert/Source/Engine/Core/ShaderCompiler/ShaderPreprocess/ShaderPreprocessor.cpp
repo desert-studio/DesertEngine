@@ -1,96 +1,93 @@
 #include <Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
-#include <Common/Core/Core.hpp>
+#include <format>
 
 namespace Desert::Core::Preprocess
 {
     // Every shader program is a single-file Desert Shader Language document (Shader "Name" { ... }).
     // The legacy multi-file '#pragma program/use_stage/param/state' format was fully migrated and its
-    // parser removed — a non-DSL source is a hard error pointing at the migration, not a fallback.
+    // parser removed — a non-DSL source is refused, naming the file and pointing at the migration.
 
     namespace
     {
-        DShaderParseResult ParseOrDie( const std::string& source, const std::string& context )
+        Common::ResultStr<DShaderParseResult> ParseNamed( const std::string& source, const std::string& context )
         {
-            DESERT_VERIFY( DShaderParser::IsDShader( source ),
-                           "Not a DSL shader ({}). The legacy #pragma format is no longer supported — "
-                           "rewrite as Shader \"Name\" {{ ... }}.",
-                           context );
+            if ( !DShaderParser::IsDShader( source ) )
+                return Common::MakeError<DShaderParseResult>(
+                     std::format( "{}: not a DSL shader. The legacy #pragma format is no longer supported — "
+                                  "rewrite as Shader \"Name\" {{ ... }}.",
+                                  context ) );
             auto parsed = DShaderParser::Parse( source );
-            DESERT_VERIFY( parsed.IsSuccess(), "{} ({})", parsed.GetError(), context );
-            return std::move( parsed.GetValue() );
+            if ( !parsed.IsSuccess() )
+                return Common::MakeError<DShaderParseResult>(
+                     std::format( "{}: {}", context, parsed.GetError() ) );
+            return Common::MakeSuccess( parsed.ExtractValue() );
         }
-    } // namespace
 
-    std::unordered_map<Desert::Core::Formats::ShaderStage, std::string>
-    ShaderPreprocess::PreProcessProgramPass( const std::string& source, const std::filesystem::path& basePath,
-                                             const std::string& passName )
-    {
-        auto        parsed = ParseOrDie( source, basePath.string() );
-        const auto* pass   = parsed.FindPass( passName );
-
-        // A MEDIUM-ONLY SHADER HAS NO PASSES, and that is legal: it is a program FRAGMENT compiled into
-        // other programs (ShaderProgramMeta::MediumSource). Without this branch the verify below turns a
-        // perfectly good authored medium into a fatal engine error, which is how a new file type kills
-        // the packager on its first run.
-        if ( pass == nullptr && parsed.Meta.IsMediumProgram() )
-            return {};
-
-        DESERT_VERIFY( pass, "Shader has no pass named '{}' ({})", passName, basePath.string() );
-        return pass->Stages;
-    }
-
-    namespace
-    {
         // The pass program's metadata out of a parse: same params/domain, the pass's own render state, and
         // no sub-passes of its own (so the ShaderService doesn't recurse when registering).
-        Core::Formats::ShaderProgramMeta MetaForPass( const DShaderParseResult& parsed,
-                                                      const std::string& passName, const std::string& context )
+        Common::ResultStr<Core::Formats::ShaderProgramMeta>
+        MetaForPass( const DShaderParseResult& parsed, const std::string& passName, const std::string& context )
         {
             const auto* pass = parsed.FindPass( passName );
-            // See PreProcessProgramPass: a medium-only shader has no pass to take a render state from, and
-            // its metadata is the whole of what it has.
+            // A MEDIUM-ONLY SHADER HAS NO PASSES, and that is legal: it is a program FRAGMENT compiled into
+            // other programs (ShaderProgramMeta::MediumSource); its metadata is the whole of what it has.
             if ( pass == nullptr && parsed.Meta.IsMediumProgram() )
-                return parsed.Meta;
-            DESERT_VERIFY( pass, "Shader has no pass named '{}' ({})", passName, context );
+            {
+                Core::Formats::ShaderProgramMeta whole = parsed.Meta;
+                return Common::MakeSuccess( std::move( whole ) );
+            }
+            if ( pass == nullptr )
+                return Common::MakeError<Core::Formats::ShaderProgramMeta>(
+                     std::format( "{}: the shader has no pass named '{}'", context, passName ) );
             Core::Formats::ShaderProgramMeta meta = parsed.Meta;
             meta.State                            = pass->State;
             // The default cell of a surface template IS the default program (IsSurfaceDefaultCell), so it keeps
             // the default program's metadata whole: the two names answer one shader map, byte for byte.
             if ( !passName.empty() && !IsSurfaceDefaultCell( !parsed.Surface.Cells.empty(), passName ) )
                 meta.PassNames.clear();
-            return meta;
+            return Common::MakeSuccess( std::move( meta ) );
         }
     } // namespace
 
-    Core::Formats::ShaderProgramMeta ShaderPreprocess::ParseProgramMetaForPass( const std::string& source,
-                                                                                const std::string& passName )
+    Common::ResultStr<std::unordered_map<Desert::Core::Formats::ShaderStage, std::string>>
+    ShaderPreprocess::PreProcessProgramPass( const std::string& source, const std::filesystem::path& basePath,
+                                             const std::string& passName )
     {
-        auto parsed = ParseOrDie( source, "meta" );
-        return MetaForPass( parsed, passName, "meta" );
+        auto preprocessed = PreProcessPass( source, basePath, passName );
+        if ( !preprocessed.IsSuccess() )
+            return Common::MakeError<std::unordered_map<Core::Formats::ShaderStage, std::string>>(
+                 preprocessed.GetError() );
+        return Common::MakeSuccess( std::move( preprocessed.ExtractValue().Stages ) );
     }
 
-    ShaderPreprocess::PreprocessedPass ShaderPreprocess::PreProcessPass( const std::string&           source,
-                                                                         const std::filesystem::path& basePath,
-                                                                         const std::string&           passName )
+    Common::ResultStr<Core::Formats::ShaderProgramMeta>
+    ShaderPreprocess::ParseProgramMetaForPass( const std::string& source, const std::filesystem::path& basePath,
+                                               const std::string& passName )
     {
-        auto             parsed = ParseOrDie( source, basePath.string() );
+        const std::string context = basePath.generic_string();
+        const auto        parsed  = ParseNamed( source, context );
+        if ( !parsed.IsSuccess() )
+            return Common::MakeError<Core::Formats::ShaderProgramMeta>( parsed.GetError() );
+        return MetaForPass( parsed.GetValue(), passName, context );
+    }
+
+    Common::ResultStr<ShaderPreprocess::PreprocessedPass>
+    ShaderPreprocess::PreProcessPass( const std::string& source, const std::filesystem::path& basePath,
+                                      const std::string& passName )
+    {
+        const std::string context = basePath.generic_string();
+        const auto        parsed  = ParseNamed( source, context );
+        if ( !parsed.IsSuccess() )
+            return Common::MakeError<PreprocessedPass>( parsed.GetError() );
+        auto meta = MetaForPass( parsed.GetValue(), passName, context );
+        if ( !meta.IsSuccess() )
+            return Common::MakeError<PreprocessedPass>( meta.GetError() );
         PreprocessedPass out;
-        out.Meta = MetaForPass( parsed, passName, basePath.string() );
-        if ( const auto* pass = parsed.FindPass( passName ) )
+        out.Meta = meta.ExtractValue();
+        if ( const auto* pass = parsed.GetValue().FindPass( passName ) )
             out.Stages = pass->Stages;
-        return out;
-    }
-
-    std::unordered_map<Desert::Core::Formats::ShaderStage, std::string>
-    ShaderPreprocess::PreProcessProgram( const std::string& source, const std::filesystem::path& basePath )
-    {
-        return std::move( ParseOrDie( source, basePath.string() ).Stages );
-    }
-
-    Core::Formats::ShaderProgramMeta ShaderPreprocess::ParseProgramMeta( const std::string& source )
-    {
-        return std::move( ParseOrDie( source, "meta" ).Meta );
+        return Common::MakeSuccess( std::move( out ) );
     }
 } // namespace Desert::Core::Preprocess

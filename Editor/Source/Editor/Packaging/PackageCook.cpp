@@ -51,24 +51,20 @@ namespace Desert::Editor
                 }
                 const std::string& content = contentRead.GetValue();
 
-                // Pre-check with the parser proper: PreProcessProgramPass aborts (DESERT_VERIFY) on
-                // an unparsable file, and a broken .shader must fail THIS shader's cook, not the
-                // whole packaging run.
-                if ( const auto parsed = Preprocess::DShaderParser::Parse( content ); !parsed.IsSuccess() )
+                // The default program plus every named pass — the same set ShaderService::Register
+                // turns into programs at startup. A broken .shader fails THIS shader's cook (the
+                // preprocessor's refusal names the file and the reason), not the whole packaging run.
+                std::vector<std::string> passes = { "" };
+                const auto meta = Preprocess::ShaderPreprocess::ParseProgramMetaForPass( content, file, "" );
+                if ( !meta.IsSuccess() )
                 {
-                    LOG_ERROR( "[PackageCook] {} does not parse and was not cooked: {}", file.string(),
-                               parsed.GetError() );
+                    LOG_ERROR( "[PackageCook] {} was not cooked: {}", file.string(), meta.GetError() );
                     ++stats.Failures;
                     continue;
                 }
-
-                // The default program plus every named pass — the same set ShaderService::Register
-                // turns into programs at startup.
-                std::vector<std::string> passes = { "" };
-                const auto meta = Preprocess::ShaderPreprocess::ParseProgramMetaForPass( content, "" );
                 // A surface template's default cell IS the default program: cooked once, as "".
                 const bool surfaceTemplate = Preprocess::DShaderParser::MayDeclareSurface( content );
-                for ( const std::string& pass : meta.PassNames )
+                for ( const std::string& pass : meta.GetValue().PassNames )
                     if ( !Preprocess::IsSurfaceDefaultCell( surfaceTemplate, pass ) )
                         passes.push_back( pass );
 
@@ -76,7 +72,14 @@ namespace Desert::Editor
                 {
                     const auto stages =
                          Preprocess::ShaderPreprocess::PreProcessProgramPass( content, file, passName );
-                    for ( const auto& [stage, source] : stages )
+                    if ( !stages.IsSuccess() )
+                    {
+                        LOG_ERROR( "[PackageCook] {} pass '{}' was not cooked: {}", file.string(), passName,
+                                   stages.GetError() );
+                        ++stats.Failures;
+                        continue;
+                    }
+                    for ( const auto& [stage, source] : stages.GetValue() )
                     {
                         const uint64_t key =
                              Core::ComputeShaderCacheKeyForProfile( stage, source, file, spirvDebugInfo );
