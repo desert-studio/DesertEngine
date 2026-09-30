@@ -177,7 +177,8 @@ namespace
         // borrow the previous target's.
         data.MorphTargets = { m0, m1 };
 
-        data.SkeletonSignature = 0x0123456789ABCDEFull;
+        // Version 5: the skeleton by GUID. Hi and Lo differ, so a reader that swapped or dropped a half fails.
+        data.Skeleton = Common::Content::AssetGuid{ 0x0123456789ABCDEFull, 0xFEDCBA9876543210ull };
 
         // Version 2: one polygroup per face, not numbered like the faces, so a reader that invented them
         // from the face index would fail.
@@ -193,9 +194,7 @@ namespace
     {
         EXPECT_EQ( expected.IsSkinned, actual.IsSkinned );
         EXPECT_EQ( expected.Guid, actual.Guid );
-        EXPECT_EQ( expected.SkeletonSignature.has_value(), actual.SkeletonSignature.has_value() );
-        if ( expected.SkeletonSignature.has_value() && actual.SkeletonSignature.has_value() )
-            EXPECT_EQ( expected.SkeletonSignature.value(), actual.SkeletonSignature.value() );
+        EXPECT_EQ( expected.Skeleton, actual.Skeleton ) << "the mesh's skeleton reference";
 
         ASSERT_EQ( expected.StaticVertices.size(), actual.StaticVertices.size() );
         if ( !expected.StaticVertices.empty() )
@@ -341,145 +340,6 @@ TEST( MeshBinaryFormat, ATruncatedFileIsRefusedAndAnEmptyOneIsNot )
     }
 }
 
-// VERSION 1 IS STILL READ, AND IT IS READ AS "NO POLYGROUPS". The v1 bytes are MADE here from a v2 encoding
-// rather than taken from the committed probes, so the test keeps proving the v1 path after those probes are
-// re-cooked: a v1 file is exactly a v2 file without its last table row (24 bytes), every offset 24 lower,
-// the size 24 smaller, Version 1 and SectionCount 9 - which is also the precise statement of what v2 added.
-namespace
-{
-    // v3 minus its identity: the 16 GUID bytes after the 64-byte header go, and every submesh row ends in
-    // the 8-byte pre-GUID material number (`materialNumber` in each) where v3 has the material's 16-byte
-    // GUID. The sections are laid out again, each at the next 8-byte boundary, as the reader derives them.
-    std::string AsVersionThree( const std::string& v4 );
-
-    std::string AsVersionTwo( const std::string& v4, uint64_t materialNumber = 0 )
-    {
-        const std::string v3      = AsVersionThree( v4 );
-        constexpr size_t kHeader = 64, kRow = 24, kSubmeshRow = 3, kRowV3 = 136, kRowV2 = 128, kShared = 120;
-        const size_t     prefix  = Common::Content::kMeshBinaryPrefixV3;
-        uint32_t         version = 2, sections = 0;
-        std::memcpy( &sections, v3.data() + 24, 4 );
-        std::string table = v3.substr( prefix, sections * kRow );
-        std::string body;
-        uint64_t    at = kHeader + sections * kRow;
-        for ( uint32_t row = 0; row < sections; ++row )
-        {
-            uint32_t elementSize = 0;
-            uint64_t offset = 0, count = 0;
-            std::memcpy( &elementSize, table.data() + row * kRow + 4, 4 );
-            std::memcpy( &offset, table.data() + row * kRow + 8, 8 );
-            std::memcpy( &count, table.data() + row * kRow + 16, 8 );
-            std::string bytes = v3.substr( offset, count * elementSize );
-            if ( row == kSubmeshRow )
-            {
-                EXPECT_EQ( elementSize, kRowV3 );
-                std::string rows;
-                for ( uint64_t i = 0; i < count; ++i )
-                    rows += bytes.substr( i * kRowV3, kShared ) +
-                            std::string( reinterpret_cast<const char*>( &materialNumber ), 8 );
-                bytes       = rows;
-                elementSize = kRowV2;
-            }
-            while ( at % 8 != 0 )
-            {
-                body.push_back( '\0' );
-                ++at;
-            }
-            std::memcpy( table.data() + row * kRow + 4, &elementSize, 4 );
-            std::memcpy( table.data() + row * kRow + 8, &at, 8 );
-            body += bytes;
-            at += bytes.size();
-        }
-        // The file ends at the next 8-byte boundary after its last section, as the encoder writes it.
-        while ( body.size() % 8 != 0 )
-            body.push_back( '\0' );
-        std::string    v2       = v3.substr( 0, kHeader ) + table + body;
-        const uint64_t fileSize = v2.size();
-        std::memcpy( v2.data() + 12, &version, 4 );
-        std::memcpy( v2.data() + 16, &fileSize, 8 );
-        return v2;
-    }
-
-    // v4 minus its two optional streams: a v3 file is exactly a v4 file without the last two table rows
-    // (48 bytes), every offset 48 lower, the size 48 smaller, Version 3 and SectionCount 10. Only a mesh with
-    // neither stream has a v3 spelling.
-    std::string AsVersionThree( const std::string& v4 )
-    {
-        constexpr size_t kPrefix  = Common::Content::kMeshBinaryPrefixV3;
-        constexpr size_t kRow     = 24;
-        constexpr size_t kRowsV4  = 12;
-        constexpr size_t kDropped = 2;
-        uint32_t         version  = 0;
-        uint32_t         sections = 0;
-        uint64_t         fileSize = 0;
-        std::memcpy( &version, v4.data() + 12, 4 );
-        std::memcpy( &fileSize, v4.data() + 16, 8 );
-        std::memcpy( &sections, v4.data() + 24, 4 );
-        EXPECT_EQ( version, 4u );
-        EXPECT_EQ( sections, kRowsV4 );
-        for ( size_t row = kRowsV4 - kDropped; row < kRowsV4; ++row )
-        {
-            uint64_t count = 0;
-            std::memcpy( &count, v4.data() + kPrefix + row * kRow + 16, 8 );
-            EXPECT_EQ( count, 0u ) << "only a mesh with no colour and no UV1 stream has a v3 spelling";
-        }
-        const size_t cut = kDropped * kRow;
-        std::string  v3 =
-             v4.substr( 0, kPrefix + ( kRowsV4 - kDropped ) * kRow ) + v4.substr( kPrefix + kRowsV4 * kRow );
-        version  = 3;
-        sections = kRowsV4 - kDropped;
-        fileSize -= cut;
-        std::memcpy( v3.data() + 12, &version, 4 );
-        std::memcpy( v3.data() + 16, &fileSize, 8 );
-        std::memcpy( v3.data() + 24, &sections, 4 );
-        for ( size_t row = 0; row < kRowsV4 - kDropped; ++row )
-        {
-            uint64_t offset = 0;
-            std::memcpy( &offset, v3.data() + kPrefix + row * kRow + 8, 8 );
-            offset -= cut;
-            std::memcpy( v3.data() + kPrefix + row * kRow + 8, &offset, 8 );
-        }
-        EXPECT_EQ( v3.size(), fileSize );
-        return v3;
-    }
-
-    std::string AsVersionOne( const std::string& v2 )
-    {
-        constexpr size_t kHeader  = 64;
-        constexpr size_t kRow     = 24;
-        constexpr size_t kRowsV2  = 10;
-        uint32_t         version  = 0;
-        uint32_t         sections = 0;
-        uint64_t         fileSize = 0;
-        std::memcpy( &version, v2.data() + 12, 4 );
-        std::memcpy( &fileSize, v2.data() + 16, 8 );
-        std::memcpy( &sections, v2.data() + 24, 4 );
-        EXPECT_EQ( version, 2u );
-        EXPECT_EQ( sections, kRowsV2 );
-
-        uint64_t lastCount = 0;
-        std::memcpy( &lastCount, v2.data() + kHeader + ( kRowsV2 - 1 ) * kRow + 16, 8 );
-        EXPECT_EQ( lastCount, 0u ) << "only a mesh with no polygroups has a v1 spelling";
-
-        std::string v1 = v2.substr( 0, kHeader + ( kRowsV2 - 1 ) * kRow ) + v2.substr( kHeader + kRowsV2 * kRow );
-        version        = 1;
-        sections       = kRowsV2 - 1;
-        fileSize -= kRow;
-        std::memcpy( v1.data() + 12, &version, 4 );
-        std::memcpy( v1.data() + 16, &fileSize, 8 );
-        std::memcpy( v1.data() + 24, &sections, 4 );
-        for ( size_t row = 0; row < kRowsV2 - 1; ++row )
-        {
-            uint64_t offset = 0;
-            std::memcpy( &offset, v1.data() + kHeader + row * kRow + 8, 8 );
-            offset -= kRow;
-            std::memcpy( v1.data() + kHeader + row * kRow + 8, &offset, 8 );
-        }
-        EXPECT_EQ( v1.size(), fileSize );
-        return v1;
-    }
-} // namespace
-
 // VERSION 4 (MAT1v): the colour and UV1 streams are optional sections, one entry per vertex or none.
 namespace
 {
@@ -537,42 +397,49 @@ TEST( MeshBinaryFormat, AStreamThatDoesNotCoverEveryVertexIsRefusedByName )
     EXPECT_NE( decoded.GetError().find( "Colors" ), std::string::npos ) << decoded.GetError();
 }
 
-TEST( MeshBinaryFormat, AVersionThreeFileIsAVersionFourFileWithoutTheStreams )
+// ONE GENERATION IS READ (SKEL-TREE). Versions 1-4 named the mesh's rig by a bone hash in the header where
+// version 5 states the .skeleton's GUID; Tools/SceneMigrator raises them, and the reader refuses them BY NAME,
+// pointing at the tool -- never reads a hash as a GUID or a skinned mesh as one that names no skeleton.
+TEST( MeshBinaryFormat, AnOlderGenerationIsRefusedAndNamesTheMigrator )
 {
-    const Ser::MeshAssetData source = FullyPopulated();
-    const auto read = Ser::DecodeMeshBinary( AsVersionThree( Ser::EncodeMeshBinary( source ) ), "v3.stmesh" );
-    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
-    ExpectSameMesh( source, read.GetValue() );
-    EXPECT_TRUE( read.GetValue().Colors.empty() );
-    EXPECT_TRUE( read.GetValue().UV1.empty() );
+    for ( const uint32_t older : { 1u, 2u, 3u, 4u } )
+    {
+        std::string bytes = Ser::EncodeMeshBinary( FullyPopulated() );
+        std::memcpy( bytes.data() + offsetof( Common::Content::MeshBinaryFileHeader, Version ), &older, 4 );
+        const auto read = Ser::DecodeMeshBinary( bytes, "old.skmesh" );
+        ASSERT_FALSE( read.IsSuccess() ) << "a version " << older << " mesh was read by the version 5 reader";
+        EXPECT_NE( read.GetError().find( "SceneMigrator" ), std::string::npos ) << read.GetError();
+        EXPECT_NE( read.GetError().find( "old.skmesh" ), std::string::npos ) << read.GetError();
+    }
 }
 
-TEST( MeshBinaryFormat, AVersionTwoFileIsReadWithANullGuid )
+// THE MESH'S SKELETON IS IN THE HEADER (v5, UE USkeletalMesh::Skeleton as a registry tag): what the encoder
+// was given is what the 80-byte header states, readable without the body; a static mesh states null; a
+// header of another generation states nothing (nullopt), never a GUID read from where a hash used to sit.
+TEST( MeshBinaryFormat, TheHeaderStatesTheMeshSkeletonGuid )
 {
-    Ser::MeshAssetData source = FullyPopulated();
-    const auto read = Ser::DecodeMeshBinary( AsVersionTwo( Ser::EncodeMeshBinary( source ) ), "v2.stmesh" );
-    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
-    EXPECT_TRUE( read.GetValue().Guid.IsNull() );
-    source.Guid = {};
-    for ( Ser::SubmeshData& submesh : source.Submeshes )
-        submesh.MaterialGuid = {}; // a v2 row with material number 0 names no material
-    ExpectSameMesh( source, read.GetValue() );
-}
+    const Ser::MeshAssetData mesh  = FullyPopulated();
+    const std::string        bytes = Ser::EncodeMeshBinary( mesh );
+    const auto               rig   = Common::Content::ReadMeshHeaderSkeleton(
+         std::string_view( bytes ).substr( 0, sizeof( Common::Content::MeshBinaryFileHeader ) ) );
+    ASSERT_TRUE( rig.has_value() );
+    EXPECT_EQ( *rig, mesh.Skeleton ) << "the header's skeleton is not the one the mesh was written with";
 
-// A v2 SUBMESH THAT NAMES ITS MATERIAL BY THE PRE-GUID NUMBER IS REFUSED BY NAME, never read as "no
-// material": the number cannot become a GUID in this build, and the message names the tool that maps it.
-TEST( MeshBinaryFormat, AVersionTwoMaterialNumberIsRefusedAndNamesTheMigrator )
-{
-    const auto read = Ser::DecodeMeshBinary(
-         AsVersionTwo( Ser::EncodeMeshBinary( FullyPopulated() ), 0x44d056a9359b4d1cull ), "numbered.stmesh" );
-    ASSERT_FALSE( read.IsSuccess() );
-    EXPECT_NE( read.GetError().find( "SceneMigrator" ), std::string::npos ) << read.GetError();
-    EXPECT_NE( read.GetError().find( std::to_string( 0x44d056a9359b4d1cull ) ), std::string::npos )
-         << read.GetError();
+    Ser::MeshAssetData unrigged = FullyPopulated();
+    unrigged.Skeleton           = {};
+    const auto none             = Common::Content::ReadMeshHeaderSkeleton( Ser::EncodeMeshBinary( unrigged ) );
+    ASSERT_TRUE( none.has_value() );
+    EXPECT_TRUE( none->IsNull() ) << "a mesh that names no skeleton must state null, not a leftover";
+
+    std::string    older = bytes;
+    const uint32_t four  = 4;
+    std::memcpy( older.data() + offsetof( Common::Content::MeshBinaryFileHeader, Version ), &four, 4 );
+    EXPECT_FALSE( Common::Content::ReadMeshHeaderSkeleton( older ).has_value() )
+         << "a v4 header's bone hash was read as a skeleton GUID";
 }
 
 // THE GATHER LEARNS THE MESH'S IDENTITY FROM ITS PREFIX: the one header entry point states the kind (from
-// the skinned flag) and the GUID the file was written with, and a v2 file states no header at all.
+// the skinned flag) and the GUID the file was written with.
 TEST( MeshBinaryFormat, TheHeaderEntryPointStatesKindAndGuid )
 {
     const std::filesystem::path dir = std::filesystem::temp_directory_path() / "af7l_mesh_guid";
@@ -590,12 +457,6 @@ TEST( MeshBinaryFormat, TheHeaderEntryPointStatesKindAndGuid )
         EXPECT_EQ( stated.GetValue()->Kind, skinned ? Common::Content::ContentKind::SkinnedMesh
                                                     : Common::Content::ContentKind::StaticMesh );
     }
-    const std::filesystem::path v2 = dir / "v2.stmesh";
-    std::ofstream( v2, std::ios::binary ) << AsVersionTwo( Ser::EncodeMeshBinary( mesh ) );
-    const auto none = Common::Content::ReadAssetHeaderIfStated( v2, { {}, true } );
-    ASSERT_TRUE( none.IsSuccess() ) << none.GetError();
-    EXPECT_FALSE( none.GetValue().has_value() );
-
     mesh.Guid                            = {};
     const std::filesystem::path nullGuid = dir / "null.stmesh";
     std::ofstream( nullGuid, std::ios::binary ) << Ser::EncodeMeshBinary( mesh );
@@ -661,26 +522,6 @@ TEST( MeshBinaryFormat, TheHeaderEntryPointRefusesAVersionPastThisBuilds )
     ASSERT_FALSE( stated.IsSuccess() ) << "a v99 mesh was read as a v3 prefix";
     EXPECT_NE( stated.GetError().find( "version 99" ), std::string::npos ) << stated.GetError();
     EXPECT_NE( stated.GetError().find( "future.stmesh" ), std::string::npos ) << stated.GetError();
-}
-
-TEST( MeshBinaryFormat, AVersionOneFileIsReadWithNoPolyGroups )
-{
-    Ser::MeshAssetData source = FullyPopulated();
-    source.PolyGroups.clear();
-    const std::string v1 = AsVersionOne( AsVersionTwo( Ser::EncodeMeshBinary( source ) ) );
-    source.Guid          = {}; // v1 states no identity
-    for ( Ser::SubmeshData& submesh : source.Submeshes )
-        submesh.MaterialGuid = {};
-
-    const auto read = Ser::ReadMeshAssetData( v1, "v1.stmesh" );
-    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
-    EXPECT_TRUE( read.GetValue().PolyGroups.empty() );
-    ExpectSameMesh( source, read.GetValue() );
-
-    // And v1 is exactly nine sections: a v1 header over a ten-row table is refused, not half-read.
-    std::string lying = Ser::EncodeMeshBinary( source );
-    lying[12]         = '\x01';
-    EXPECT_FALSE( Ser::DecodeMeshBinary( lying, "v1-with-ten-rows" ).IsSuccess() );
 }
 
 TEST( MeshBinaryFormat, PolyGroupsThatDoNotCoverEveryFaceAreRefused )
@@ -802,7 +643,7 @@ TEST( MeshBinaryFormat, TheAssetLoaderReadsAContainerOffDisk )
          std::filesystem::temp_directory_path() / "desert_b11_asset_roundtrip.stmesh";
 
     Ser::MeshAssetData source = FullyPopulated();
-    source.SkeletonSignature.reset(); // a static mesh has none
+    source.Skeleton           = {}; // a static mesh names no skeleton
 
     // A static mesh on disk is its source asset (AF4d); the container is its render form in the DDC, where the
     // cook leaves it for a game.
