@@ -247,6 +247,76 @@ namespace
     }
 
     // B(1): AsyncCompute is a request on a compute pass only.
+    // Amendment B: an AsyncCompute pass at position 0 that consumes an external is not a compile error. The
+    // graphics pipe opens with a prologue segment (no passes) that releases the external and signals the fork;
+    // the async segment waits on it. Without the fork this graph has no legal order at all.
+    TEST( RenderGraphContracts, AnAsyncPassAtTheGraphStartForksFromTheGraphicsPrologue )
+    {
+        Builder         graph( "AsyncAtStart" );
+        ExternalTexture history;
+        history.Desc = Tex2D( 64, 64 );
+        history.SubresourceStates.assign( 1, AccessState{} );
+        const TextureRef previous = graph.RegisterExternal( history, "History" );
+        const TextureRef simulated = graph.CreateTexture( Tex2D( 64, 64 ), "Simulated" );
+        ExternalTexture output;
+        output.Desc = Tex2D( 64, 64 );
+        output.SubresourceStates.assign( 1, AccessState{} );
+        const TextureRef out = graph.RegisterExternal( output, "Output" );
+
+        graph.AddPass(
+             "Simulate", PassFlags::Compute | PassFlags::AsyncCompute,
+             [&]( PassBuilder& p )
+             {
+                 p.Read( previous, Access::SampledCompute );
+                 p.Write( simulated, Access::StorageWrite );
+             },
+             Ok );
+        graph.AddPass(
+             "Draw", PassFlags::Compute,
+             [&]( PassBuilder& p )
+             {
+                 p.Read( simulated, Access::SampledCompute );
+                 p.Write( out, Access::StorageWrite );
+             },
+             Ok );
+
+        auto compiled = graph.Compile( kEstimate, PipeCapabilities{ true } );
+        ASSERT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
+        const CompileResult& result = compiled.GetValue();
+        ASSERT_EQ( result.FindPass( "Simulate" )->OnPipe, Pipe::AsyncCompute );
+
+        const auto fork = std::find_if( result.Syncs.begin(), result.Syncs.end(),
+                                        []( const CrossPipeSync& s ) { return s.IsFork; } );
+        ASSERT_NE( fork, result.Syncs.end() );
+        EXPECT_EQ( fork->SignalPosition, CrossPipeSync::kForkAtGraphStart );
+        EXPECT_EQ( fork->WaitPosition, 0u );
+        const uint32_t forkIndex = static_cast<uint32_t>( fork - result.Syncs.begin() );
+
+        // The prologue comes first, has no passes, signals the fork; the async segment waits on it.
+        ASSERT_GE( result.Segments.size(), 3u );
+        const PipeSegment& prologue = result.Segments[0];
+        EXPECT_EQ( prologue.OnPipe, Pipe::Graphics );
+        EXPECT_EQ( prologue.FirstPosition, CrossPipeSync::kForkAtGraphStart );
+        EXPECT_EQ( prologue.SignalSyncs, std::vector<uint32_t>{ forkIndex } );
+        EXPECT_EQ( result.Segments[1].OnPipe, Pipe::AsyncCompute );
+        EXPECT_EQ( result.Segments[1].WaitSyncs, std::vector<uint32_t>{ forkIndex } );
+
+        // History moves Graphics -> AsyncCompute: released in the prologue, acquired by Simulate.
+        const auto transfer =
+             std::find_if( result.OwnershipTransfers.begin(), result.OwnershipTransfers.end(),
+                           [&]( const QueueOwnershipTransfer& t ) { return t.Resource == previous.Index; } );
+        ASSERT_NE( transfer, result.OwnershipTransfers.end() );
+        EXPECT_EQ( transfer->ReleasePosition, CrossPipeSync::kForkAtGraphStart );
+        EXPECT_EQ( transfer->AcquirePosition, 0u );
+        EXPECT_EQ( transfer->Sync, forkIndex );
+        ASSERT_EQ( result.PrologueBarriers.size(), 1u );
+        EXPECT_EQ( result.PrologueBarriers[0].BarrierType, BarrierKind::OwnershipRelease );
+        EXPECT_EQ( result.PrologueBarriers[0].Resource, previous.Index );
+        const Barrier* acquire = FindBarrier( *result.FindPass( "Simulate" ), previous.Index );
+        ASSERT_NE( acquire, nullptr );
+        EXPECT_EQ( acquire->BarrierType, BarrierKind::OwnershipAcquire );
+    }
+
     TEST( RenderGraphContracts, AsyncComputeOnARasterPassIsADeclarationError )
     {
         Builder          graph( "BadFlag" );

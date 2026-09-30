@@ -121,6 +121,11 @@ namespace Desert::Graphic::RDG
     struct CrossPipeSync
     {
         static constexpr uint32_t kJoinAtGraphEnd = ~0u;
+        // Amendment B: the SignalPosition of a fork no pass signals. The async run consumes externals no earlier
+        // pass of the graph touched (it may sit at position 0): the graphics pipe opens with a prologue
+        // PipeSegment (FirstPosition == LastPosition == kForkAtGraphStart, no passes) that records
+        // CompileResult::PrologueBarriers (the OwnershipRelease of those externals) and signals this fork.
+        static constexpr uint32_t kForkAtGraphStart = ~0u - 1u;
 
         Pipe     SignalPipe     = Pipe::Graphics;
         uint32_t SignalPosition = 0; // CompileResult::Passes index that signals after its epilogue
@@ -145,8 +150,11 @@ namespace Desert::Graphic::RDG
         SubresourceRange Range;
         Pipe             From            = Pipe::Graphics;
         Pipe             To              = Pipe::AsyncCompute;
-        uint32_t         ReleasePosition = 0; // its OwnershipRelease is in this pass's EpilogueBarriers
-        uint32_t         AcquirePosition = 0; // its OwnershipAcquire is in this pass's Barriers
+        // Its OwnershipRelease is in this pass's EpilogueBarriers; kForkAtGraphStart: in PrologueBarriers.
+        uint32_t ReleasePosition = 0;
+        // Its OwnershipAcquire is in this pass's Barriers; kJoinAtGraphEnd (amendment A): in FinalBarriers,
+        // recorded after the graphics queue waited on the graph-end join.
+        uint32_t AcquirePosition = 0;
         uint32_t         Sync            = 0; // the CrossPipeSync ordering the two (index into Syncs)
     };
 
@@ -270,6 +278,8 @@ namespace Desert::Graphic::RDG
         bool PassCulling = true;                         // false: Builder::SetPassCulling(false) kept every pass
         std::vector<DependencyEdge>     Edges;         // between executed passes
         std::vector<Barrier>            FinalBarriers; // after the last pass: extraction / final accesses
+        // Amendment B: the releases the graphics prologue segment records (fork at kForkAtGraphStart).
+        std::vector<Barrier> PrologueBarriers;
         std::vector<ResourceLifetime>   Lifetimes;
         std::vector<DerivedUsage>       Usages;
         std::vector<ExternalFinalState> ExternalFinalStates;

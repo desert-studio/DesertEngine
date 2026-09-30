@@ -621,15 +621,22 @@ namespace Desert::Graphic::RDG
 
         for ( const PipeSegment& segment : result.Segments )
         {
+            // Amendment B: the prologue has no passes; it records the releases of a fork from the start.
+            const bool        prologue    = segment.FirstPosition == CrossPipeSync::kForkAtGraphStart;
+            const std::string segmentName = prologue ? std::string( "the graph start" )
+                                                     : std::string( result.Passes[segment.FirstPosition].Name );
             Common::BoolResultStr segmentBegun = backend.BeginPipeSegment( segment );
             if ( !segmentBegun )
             {
                 backend.AbandonGraph();
                 return Common::MakeFormattedError( "graph '{}' segment at pass '{}': {}", m_Name,
-                                                   result.Passes[segment.FirstPosition].Name,
+                                                   segmentName,
                                                    segmentBegun.GetError() );
             }
-            for ( uint32_t position = segment.FirstPosition; position <= segment.LastPosition; ++position )
+            if ( prologue )
+                backend.RecordEpilogueBarriers( result.PrologueBarriers );
+            for ( uint32_t position = segment.FirstPosition; !prologue && position <= segment.LastPosition;
+                  ++position )
             {
                 Common::BoolResultStr recorded = recordPass( result.Passes[position] );
                 if ( !recorded )
@@ -640,7 +647,7 @@ namespace Desert::Graphic::RDG
             {
                 backend.AbandonGraph();
                 return Common::MakeFormattedError( "graph '{}' segment at pass '{}': {}", m_Name,
-                                                   result.Passes[segment.FirstPosition].Name,
+                                                   segmentName,
                                                    segmentEnded.GetError() );
             }
         }

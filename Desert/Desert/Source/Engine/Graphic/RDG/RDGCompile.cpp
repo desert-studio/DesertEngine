@@ -67,6 +67,9 @@ namespace Desert::Graphic::RDG
         };
 
         // A maximal run of consecutive executed passes on Pipe::AsyncCompute, with its fork and join.
+        // RdgAsyncRun::ForkPosition of a run whose fork the graphics prologue segment signals (amendment B).
+        constexpr int32_t kRdgForkAtGraphStart = -2;
+
         struct RdgAsyncRun
         {
             uint32_t First        = 0;
@@ -468,15 +471,11 @@ namespace Desert::Graphic::RDG
             {
                 // An external the run consumes untouched by this graph so far: the previous graph left it
                 // owned by Graphics; the graphics pass just before the run releases it and forks.
+                // At position 0 there is no such pass: the graphics prologue segment releases it and forks
+                // (amendment B).
                 if ( run.NeedsFork && run.ForkPosition < 0 )
-                {
-                    if ( run.First == 0 )
-                        return Common::MakeFormattedError<CompileResult>(
-                             "graph '{}' AsyncCompute pass '{}' consumes an external resource before any graphics "
-                             "pass of the graph; no graphics pass can release it to the compute queue",
-                             m_Name, m_Passes[executed[run.First]].Name );
-                    run.ForkPosition = static_cast<int32_t>( run.First - 1 );
-                }
+                    run.ForkPosition =
+                         run.First == 0 ? kRdgForkAtGraphStart : static_cast<int32_t>( run.First - 1 );
 
                 std::vector<bool>  touched( resourceCount, false );
                 PipelineStageFlags asyncStages = PipelineStage_None;
@@ -488,13 +487,16 @@ namespace Desert::Graphic::RDG
                         touched[use.Resource] = true;
                     }
                 }
-                if ( run.ForkPosition >= 0 )
+                if ( run.ForkPosition >= 0 || run.ForkPosition == kRdgForkAtGraphStart )
                 {
-                    const uint32_t fork = static_cast<uint32_t>( run.ForkPosition );
-                    run.ForkSync        = static_cast<int32_t>( result.Syncs.size() );
+                    const bool     atStart = run.ForkPosition == kRdgForkAtGraphStart;
+                    const uint32_t fork =
+                         atStart ? CrossPipeSync::kForkAtGraphStart : static_cast<uint32_t>( run.ForkPosition );
+                    run.ForkSync = static_cast<int32_t>( result.Syncs.size() );
                     result.Syncs.push_back(
                          { Pipe::Graphics, fork, Pipe::AsyncCompute, run.First, asyncStages, true } );
-                    signalAt[fork].push_back( static_cast<uint32_t>( run.ForkSync ) );
+                    if ( !atStart ) // the prologue segment signals a fork from the graph start
+                        signalAt[fork].push_back( static_cast<uint32_t>( run.ForkSync ) );
                     waitAt[run.First].push_back( static_cast<uint32_t>( run.ForkSync ) );
                 }
                 // The semaphore wait blocks only the stages it names for everything after it on the graphics
@@ -704,7 +706,8 @@ namespace Desert::Graphic::RDG
         // ── 4+5. Barriers (merged read states) and load/store decisions ───────────────────────────────
         std::vector<RdgSubTrack>                   track( subCount );
         std::vector<std::vector<RdgRawTransition>> raws( executedCount );
-        std::vector<std::vector<RdgRawTransition>> epilogueRaws( executedCount ); // ownership releases
+        std::vector<std::vector<RdgRawTransition>> epilogueRaws(
+             executedCount + 1 ); // ownership releases; [executedCount]: the prologue's (amendment B)
         auto                                       isAliased = [&]( uint32_t resource )
         {
             const Allocation* allocation = result.FindAllocation( resource );
@@ -785,10 +788,11 @@ namespace Desert::Graphic::RDG
                     if ( record.IsExternal() && pipe != Pipe::Graphics )
                     {
                         // Externals enter every graph owned by Graphics; the run's fork pass releases it.
-                        crossPipes(
-                             sub.GroupBefore,
-                             static_cast<uint32_t>( runs[static_cast<size_t>( runAt[position] )].ForkPosition ),
-                             Pipe::Graphics );
+                        // A fork from the graph start releases it in the prologue (slot executedCount).
+                        const int32_t fork = runs[static_cast<size_t>( runAt[position] )].ForkPosition;
+                        crossPipes( sub.GroupBefore,
+                                    fork == kRdgForkAtGraphStart ? executedCount : static_cast<uint32_t>( fork ),
+                                    Pipe::Graphics );
                     }
                     else
                     {
@@ -1071,7 +1075,8 @@ namespace Desert::Graphic::RDG
                 transfer.Range           = barrier.Range;
                 transfer.From            = barrier.SrcPipe;
                 transfer.To              = barrier.DstPipe;
-                transfer.ReleasePosition = partners[b];
+                transfer.ReleasePosition =
+                     partners[b] == executedCount ? CrossPipeSync::kForkAtGraphStart : partners[b];
                 transfer.AcquirePosition = acquirePosition;
                 const RdgAsyncRun& run   = barrier.SrcPipe == Pipe::Graphics
                                                 ? runs[static_cast<size_t>( runAt[acquirePosition] )]
@@ -1090,6 +1095,10 @@ namespace Desert::Graphic::RDG
             emit( epilogueRaws[position], result.Passes[position].EpilogueBarriers, releasePartners );
         }
         {
+            std::vector<uint32_t> releasePartners;
+            emit( epilogueRaws[executedCount], result.PrologueBarriers, releasePartners );
+        }
+        {
             std::vector<uint32_t> partners;
             emit( finalRaws, result.FinalBarriers, partners );
             addTransfers( result.FinalBarriers, partners, CrossPipeSync::kJoinAtGraphEnd );
@@ -1099,6 +1108,18 @@ namespace Desert::Graphic::RDG
         // An async segment is one run (fork wait at its first pass, join signal at its last); a graphics
         // segment is split before a pass that waits on a join and after a pass that signals a fork. In
         // position order, a segment comes after every segment it waits on.
+        // Amendment B: the graphics prologue (no passes) signals every fork from the graph start, first.
+        {
+            PipeSegment prologue{ Pipe::Graphics, CrossPipeSync::kForkAtGraphStart,
+                                  CrossPipeSync::kForkAtGraphStart };
+            for ( uint32_t sync = 0; sync < result.Syncs.size(); ++sync )
+            {
+                if ( result.Syncs[sync].SignalPosition == CrossPipeSync::kForkAtGraphStart )
+                    prologue.SignalSyncs.push_back( sync );
+            }
+            if ( !prologue.SignalSyncs.empty() )
+                result.Segments.push_back( std::move( prologue ) );
+        }
         for ( uint32_t position = 0; position < executedCount; ++position )
         {
             const CompiledPass& pass  = result.Passes[position];
