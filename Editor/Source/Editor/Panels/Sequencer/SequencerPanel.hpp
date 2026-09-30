@@ -415,9 +415,5 @@ namespace Desert::Editor
         Animation::FrameNumber m_SectionDragTick;
 
         // Layer-preview authoring state (transient — previews on the live Animator).
-        int   m_LayerClip         = -1;
-        float m_LayerWeight       = 1.0f;
-        bool  m_LayerAdditive     = false;
-        char  m_LayerMaskBone[64] = {};
     };
 } // namespace Desert::Editor

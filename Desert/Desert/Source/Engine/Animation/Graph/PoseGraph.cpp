@@ -42,6 +42,8 @@ namespace Desert::Animation::Graph
         {
             case PoseNodeKind::StateMachine:
                 return "StateMachine";
+            case PoseNodeKind::LayeredBlendPerBone:
+                return "LayeredBlendPerBone";
         }
         return "?";
     }
@@ -54,8 +56,38 @@ namespace Desert::Animation::Graph
                 // A state machine produces its pose from its states' clips: no Pose input, and its
                 // conditions read the graph's parameters directly rather than through pins.
                 return PoseNodePins{ .PoseInputs = 0, .ParameterPins = {} };
+            case PoseNodeKind::LayeredBlendPerBone:
+                // The base pin; the layers' pose and weight pins grow with the payload (PoseInputCountOf,
+                // HasParameterPin), so the kind alone has no fixed parameter pins.
+                return PoseNodePins{ .PoseInputs = 1, .ParameterPins = {} };
         }
         return PoseNodePins{};
+    }
+
+    std::string LayerWeightPin( size_t layer )
+    {
+        return std::format( "BlendWeights_{}", layer );
+    }
+
+    int PoseInputCountOf( const PoseNode& node )
+    {
+        const auto kind  = static_cast<PoseNodeKind>( node.Kind );
+        const int  fixed = PinsOf( kind ).PoseInputs;
+        if ( kind == PoseNodeKind::LayeredBlendPerBone && node.LayeredBlend )
+            return fixed + static_cast<int>( node.LayeredBlend->Layers.size() );
+        return fixed;
+    }
+
+    bool HasParameterPin( const PoseNode& node, std::string_view pin )
+    {
+        const PoseNodePins pins = PinsOf( static_cast<PoseNodeKind>( node.Kind ) );
+        if ( std::find( pins.ParameterPins.begin(), pins.ParameterPins.end(), pin ) != pins.ParameterPins.end() )
+            return true;
+        if ( static_cast<PoseNodeKind>( node.Kind ) == PoseNodeKind::LayeredBlendPerBone && node.LayeredBlend )
+            for ( size_t layer = 0; layer < node.LayeredBlend->Layers.size(); ++layer )
+                if ( pin == LayerWeightPin( layer ) )
+                    return true;
+        return false;
     }
 
     AnimGraph MakeStateMachineGraph( std::string name )
@@ -86,7 +118,16 @@ namespace Desert::Animation::Graph
 
     const StateMachine* OutputMachine( const AnimGraph& graph )
     {
+        // Down the base pin of each Layered Blend Per Bone; bounded by the node count so a cycle (which
+        // PlanPoseGraph refuses, but an editor may be holding one mid-edit) ends the walk.
         const PoseNode* output = FindNode( graph, graph.OutputPose );
+        for ( size_t hops = 0; output != nullptr && hops < graph.Nodes.size(); ++hops )
+        {
+            if ( static_cast<PoseNodeKind>( output->Kind ) != PoseNodeKind::LayeredBlendPerBone ||
+                 output->PoseInputs.empty() )
+                break;
+            output = FindNode( graph, output->PoseInputs.front() );
+        }
         if ( output == nullptr || static_cast<PoseNodeKind>( output->Kind ) != PoseNodeKind::StateMachine ||
              !output->Machine )
             return nullptr;
@@ -114,16 +155,31 @@ namespace Desert::Animation::Graph
                 return std::format( "AnimGraph '{}': node '{}' is of kind {}, which no pose node kind is",
                                     graph.Name, node.Name, node.Kind );
 
-            const PoseNodePins pins = PinsOf( kind );
-            if ( static_cast<int>( node.PoseInputs.size() ) != pins.PoseInputs )
+            // The payload before the pins: a Layered Blend Per Bone's pins are counted from its layers.
+            if ( kind == PoseNodeKind::StateMachine && !node.Machine )
+                return std::format( "AnimGraph '{}': node '{}' is a StateMachine node with no machine in it",
+                                    graph.Name, node.Name );
+            if ( kind != PoseNodeKind::StateMachine && node.Machine )
+                return std::format( "AnimGraph '{}': node '{}' ({}) carries a state machine, which only a "
+                                    "StateMachine node has",
+                                    graph.Name, node.Name, KindName( kind ) );
+            if ( kind == PoseNodeKind::LayeredBlendPerBone && !node.LayeredBlend )
+                return std::format( "AnimGraph '{}': node '{}' is a LayeredBlendPerBone node with no layer setup "
+                                    "in it",
+                                    graph.Name, node.Name );
+            if ( kind != PoseNodeKind::LayeredBlendPerBone && node.LayeredBlend )
+                return std::format( "AnimGraph '{}': node '{}' ({}) carries a layer setup, which only a "
+                                    "LayeredBlendPerBone node has",
+                                    graph.Name, node.Name, KindName( kind ) );
+
+            const int poseInputs = PoseInputCountOf( node );
+            if ( static_cast<int>( node.PoseInputs.size() ) != poseInputs )
                 return std::format( "AnimGraph '{}': node '{}' ({}) has {} Pose pin(s) and {} wire(s) into them",
-                                    graph.Name, node.Name, KindName( kind ), pins.PoseInputs,
-                                    node.PoseInputs.size() );
+                                    graph.Name, node.Name, KindName( kind ), poseInputs, node.PoseInputs.size() );
 
             for ( const ParameterPin& bound : node.ParameterInputs )
             {
-                if ( std::find( pins.ParameterPins.begin(), pins.ParameterPins.end(), bound.Pin ) ==
-                     pins.ParameterPins.end() )
+                if ( !HasParameterPin( node, bound.Pin ) )
                     return std::format( "AnimGraph '{}': node '{}' ({}) binds a parameter to pin '{}', which a "
                                         "{} node does not have",
                                         graph.Name, node.Name, KindName( kind ), bound.Pin, KindName( kind ) );
@@ -137,13 +193,6 @@ namespace Desert::Animation::Graph
                                         DeclaredParameterList( graph ) );
             }
 
-            if ( kind == PoseNodeKind::StateMachine && !node.Machine )
-                return std::format( "AnimGraph '{}': node '{}' is a StateMachine node with no machine in it",
-                                    graph.Name, node.Name );
-            if ( kind != PoseNodeKind::StateMachine && node.Machine )
-                return std::format( "AnimGraph '{}': node '{}' ({}) carries a state machine, which only a "
-                                    "StateMachine node has",
-                                    graph.Name, node.Name, KindName( kind ) );
             return {};
         }
     } // namespace

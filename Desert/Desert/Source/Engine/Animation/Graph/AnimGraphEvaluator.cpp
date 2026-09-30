@@ -3,6 +3,7 @@
 #include "AnimGraphValidation.hpp"
 
 #include <algorithm>
+#include <format>
 
 namespace Desert::Animation::Graph
 {
@@ -144,15 +145,79 @@ namespace Desert::Animation::Graph
         // the whole verdict. Then the conditions (the rule's one spelling lives in AnimGraphValidation).
         auto plan = PlanPoseGraph( m_Graph );
         m_Plan.clear();
-        m_Output = -1;
+        m_Output        = -1;
+        m_OutputLayered = -1;
         if ( !plan )
         {
             m_StructureError = plan.GetError();
             return;
         }
-        m_Plan           = std::move( plan.GetValue() );
-        m_Output         = m_Plan.back();
+        m_Plan             = std::move( plan.GetValue() );
+        m_OutputLayered    = -1;
+        const int  top     = m_Plan.back();
+        const auto indexOf = [this]( const std::string& name ) -> int
+        {
+            const PoseNode* node = FindNode( m_Graph, name );
+            return node == nullptr ? -1 : static_cast<int>( node - m_Graph.Nodes.data() );
+        };
+        const auto kindOf = [this]( int node )
+        { return static_cast<PoseNodeKind>( m_Graph.Nodes[static_cast<size_t>( node )].Kind ); };
+
+        if ( kindOf( top ) == PoseNodeKind::LayeredBlendPerBone )
+        {
+            // THE RUNTIME PLAYS A LAYERED BLEND WHOSE INPUTS ARE STATE MACHINES: each machine picks a clip,
+            // the Animator samples the clips and the node blends them. A blend of blends needs the graph to
+            // evaluate poses node by node, which it does not yet — refused by name rather than played as
+            // something else.
+            const PoseNode& layered = m_Graph.Nodes[static_cast<size_t>( top )];
+            for ( const std::string& wired : layered.PoseInputs )
+                if ( kindOf( indexOf( wired ) ) != PoseNodeKind::StateMachine )
+                {
+                    m_StructureError = std::format(
+                         "AnimGraph '{}': the Layered Blend Per Bone '{}' at Output Pose has '{}' ({}) wired into "
+                         "a Pose pin; the runtime blends state machines' poses only — a blend of blends needs "
+                         "the pose graph to evaluate poses node by node",
+                         m_Graph.Name, layered.Name, wired, KindName( kindOf( indexOf( wired ) ) ) );
+                    m_Plan.clear();
+                    return;
+                }
+            m_OutputLayered = top;
+            m_Output        = indexOf( layered.PoseInputs.front() );
+        }
+        else
+        {
+            m_Output = top;
+        }
         m_StructureError = UndeclaredConditionParameters( m_Graph );
+    }
+
+    const LayeredBlendPerBoneNode* Evaluator::OutputLayeredBlend() const
+    {
+        if ( m_OutputLayered < 0 )
+            return nullptr;
+        const auto& payload = m_Graph.Nodes[static_cast<size_t>( m_OutputLayered )].LayeredBlend;
+        return payload ? &*payload : nullptr;
+    }
+
+    Evaluator::LayerDrive Evaluator::OutputLayer( size_t layer ) const
+    {
+        const LayeredBlendPerBoneNode* node = OutputLayeredBlend();
+        if ( node == nullptr || layer >= node->Layers.size() )
+            return {};
+        const PoseNode& layered = m_Graph.Nodes[static_cast<size_t>( m_OutputLayered )];
+        LayerDrive      drive;
+        const PoseNode* machine = FindNode( m_Graph, layered.PoseInputs[layer + 1] );
+        if ( machine != nullptr )
+        {
+            const auto n  = static_cast<size_t>( machine - m_Graph.Nodes.data() );
+            drive.Current = StateOf( static_cast<int>( n ), m_Runs[n].Current );
+        }
+        drive.Weight   = 1.0f;
+        const auto pin = LayerWeightPin( layer );
+        for ( const ParameterPin& bound : layered.ParameterInputs )
+            if ( bound.Pin == pin )
+                drive.Weight = GetFloat( bound.Parameter );
+        return drive;
     }
 
     float Evaluator::GetFloat( const std::string& name ) const

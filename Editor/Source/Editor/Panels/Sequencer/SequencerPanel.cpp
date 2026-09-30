@@ -782,46 +782,6 @@ namespace Desert::Editor
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast) — the cast the dope sheet documents
             DrawSectionInspector( const_cast<Animation::AnimationClip*>( animator->GetCurrentClip() ), animator );
         }
-
-        // ---- Additive layers (advanced, collapsed by default) ----
-        ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
-        const bool layersOpen =
-             Utils::ImGuiUtilities::SectionHeader( ICON_MDI_LAYERS "  Additive Layers  (advanced)", false );
-        ImGui::SameLine();
-        HelpMarker( "Play a SECOND clip ON TOP of the current one — e.g. a wave or aim while walking.\n\n"
-                    "- Weight: how strongly it blends in (0..1).\n"
-                    "- Additive: adds the layer's motion as an offset (good for lean/aim); off = it overrides.\n"
-                    "- Mask from bone: restrict the layer to that bone + its children (empty = whole body, so a "
-                    "'wave' would mask e.g. the right shoulder).\n\n"
-                    "This is a preview tool; layers are not saved with the clip." );
-        if ( layersOpen && animator )
-        {
-            ImGui::SetNextItemWidth( 200.0f );
-            ImGui::Combo( "Layer clip", &m_LayerClip, clipNames.empty() ? nullptr : clipNames.data(),
-                          static_cast<int>( clipNames.size() ) );
-            ImGui::SetNextItemWidth( 160.0f );
-            ImGui::SliderFloat( "Weight", &m_LayerWeight, 0.0f, 1.0f );
-            ImGui::SameLine();
-            ImGui::Checkbox( "Additive", &m_LayerAdditive );
-            ImGui::SetNextItemWidth( 200.0f );
-            ImGui::InputText( "Mask from bone", m_LayerMaskBone, sizeof( m_LayerMaskBone ) );
-
-            const bool canAdd = m_LayerClip >= 0 && m_LayerClip < static_cast<int>( clips.size() );
-            ImGui::BeginDisabled( !canAdd );
-            if ( ImGui::Button( "Add Layer" ) && canAdd )
-            {
-                const int idx = animator->AddLayer( clips[m_LayerClip]->GetClip(), m_LayerWeight, m_LayerAdditive,
-                                                    /*loop=*/true );
-                if ( m_LayerMaskBone[0] != '\0' )
-                    animator->SetLayerMaskByNames( idx, { std::string( m_LayerMaskBone ) } );
-            }
-            ImGui::EndDisabled();
-            ImGui::SameLine();
-            ImGui::Text( "Active: %zu", animator->GetLayerCount() );
-            ImGui::SameLine();
-            if ( ImGui::Button( "Clear Layers" ) )
-                animator->ClearLayers();
-        }
     }
 
     void SequencerPanel::DrawClipTracks( Animation::AnimationClip* clip, Animation::Animator* animator,

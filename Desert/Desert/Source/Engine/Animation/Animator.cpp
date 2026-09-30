@@ -21,8 +21,8 @@ namespace Desert::Animation
         {
             case PoseStage::Source:
                 return "Source";
-            case PoseStage::Layers:
-                return "Layers";
+            case PoseStage::LayeredBlend:
+                return "LayeredBlend";
             case PoseStage::Controls:
                 return "Controls";
             case PoseStage::Rig:
@@ -242,9 +242,10 @@ namespace Desert::Animation
             m_BlendTime += deltaTime;
         }
 
-        for ( auto& layer : m_Layers )
-            if ( layer.Playback.IsValid() )
-                UpdatePlayback( layer.Playback, deltaTime );
+        if ( m_LayeredBlend )
+            for ( auto& input : m_LayeredBlend->Inputs )
+                if ( input.Playback.IsValid() )
+                    UpdatePlayback( input.Playback, deltaTime );
 
         EvaluatePipeline();
 
@@ -276,8 +277,8 @@ namespace Desert::Animation
                 case PoseStage::Source:
                     EvaluateSource( m_EvaluatedPose );
                     break;
-                case PoseStage::Layers:
-                    EvaluateLayers( m_EvaluatedPose );
+                case PoseStage::LayeredBlend:
+                    EvaluateLayeredBlend( m_EvaluatedPose );
                     break;
                 case PoseStage::Controls:
                     EvaluateControls( m_EvaluatedPose );
@@ -316,71 +317,51 @@ namespace Desert::Animation
         static_cast<void>( m_Retarget->Run( m_Skeleton, sourcePose, pose ) );
     }
 
-    void Animator::EvaluateLayers( LocalPose& pose )
+    void Animator::EvaluateLayeredBlend( LocalPose& pose )
     {
-        const auto&    bones = m_Skeleton.GetBones();
-        const uint32_t n     = static_cast<uint32_t>( bones.size() );
+        LayeredBlendState& state = *m_LayeredBlend;
+        const size_t       n     = m_Skeleton.GetBones().size();
+        const size_t       count = state.Inputs.size();
 
-        // THE REST A LAYER'S CLIPS ARE EXPRESSED RELATIVE TO, which a retarget moves. See AttachRetarget.
-        const LocalPose& additiveReference = AdditiveReference();
-
-        for ( const auto& layer : m_Layers )
+        state.Base.Pose = pose;
+        state.LayerPoses.resize( count );
+        state.LayerWeights.assign( count, 0.0F );
+        for ( size_t layer = 0; layer < count; ++layer )
         {
-            if ( !layer.Playback.IsValid() || layer.Weight <= 0.0F )
-                continue;
-            const float w = glm::clamp( layer.Weight, 0.0F, 1.0F );
+            const LayeredBlendInput& input = state.Inputs[layer];
+            LocalPose&               out   = state.LayerPoses[layer].Pose;
+            out.Resize( n );
+            if ( !input.Playback.IsValid() || input.Weight <= 0.0F )
+                continue; // weight 0: the node short-circuits it and never reads the pose
 
-            // UNDER A RETARGET THE LAYER IS RETARGETED WHOLE, BEFORE THE FOLD, and it has to be whole:
-            // the retarget equation reads a bone's chain to place it, so retargeting the masked bones
-            // alone would place them against a source pose that had never been resolved.
-            const LocalPose* retargeted = nullptr;
+            // UNDER A RETARGET THE LAYER IS RETARGETED WHOLE, BEFORE THE BLEND, and it has to be whole: the
+            // retarget equation reads a bone's chain to place it, so retargeting the filtered bones alone
+            // would place them against a source pose that had never been resolved.
             if ( m_Retarget )
             {
                 const RigSampling rig        = SourceSampling();
                 LocalPose&        sourcePose = m_Retarget->SourceScratch();
                 for ( uint32_t b = 0; b < sourcePose.Size(); ++b )
-                    sourcePose[b] = SampleLocalTransform( rig, layer.Playback.Clip, b, layer.Playback.Time );
-
-                if ( !m_Retarget->Run( m_Skeleton, sourcePose, m_Retarget->LayerScratch() ) )
-                {
-                    // SKIPPED, NOT FOLDED FROM THE SOURCE RIG. `Run` has reported the reason; folding the
-                    // un-retargeted pose would be this tier's own defect — source-rig local transforms
-                    // written onto target bones — introduced by the error path of the fix for it.
+                    sourcePose[b] = SampleLocalTransform( rig, input.Playback.Clip, b, input.Playback.Time );
+                // SKIPPED, NOT BLENDED FROM THE SOURCE RIG: `Run` has reported the reason, and blending the
+                // un-retargeted pose would write source-rig local transforms onto target bones.
+                if ( !m_Retarget->Run( m_Skeleton, sourcePose, out ) )
                     continue;
-                }
-                retargeted = &m_Retarget->LayerScratch();
             }
-
-            for ( uint32_t i = 0; i < n; ++i )
+            else
             {
-                if ( !layer.BoneMask.empty() && ( i >= layer.BoneMask.size() || layer.BoneMask[i] == 0 ) )
-                    continue;
-
-                const BoneTransform layerLocal =
-                     retargeted != nullptr
-                          ? ( *retargeted )[i]
-                          : SampleLocalTransform( TargetSampling(), layer.Playback.Clip, i, layer.Playback.Time );
-                const BoneTransform& base = pose[i];
-
-                if ( layer.Additive )
-                {
-                    // Additive: apply the layer's delta from the BIND pose, scaled by weight, on top of base.
-                    const BoneTransform& bind = additiveReference[i];
-                    BoneTransform        out;
-                    out.Translation    = base.Translation + w * ( layerLocal.Translation - bind.Translation );
-                    const glm::quat dR = layerLocal.Rotation * glm::inverse( bind.Rotation );
-                    out.Rotation       = glm::slerp( glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), dR, w ) * base.Rotation;
-                    const glm::vec3 dS = layerLocal.Scale / glm::max( bind.Scale, glm::vec3( 1e-6F ) );
-                    out.Scale          = base.Scale * glm::mix( glm::vec3( 1.0F ), dS, w );
-                    pose[i]            = out;
-                }
-                else
-                {
-                    // Override: blend base -> layer by weight.
-                    pose[i] = Blend( base, layerLocal, w );
-                }
+                const RigSampling rig = TargetSampling();
+                for ( uint32_t b = 0; b < n; ++b )
+                    out[b] = SampleLocalTransform( rig, input.Playback.Clip, b, input.Playback.Time );
             }
+            state.LayerWeights[layer] = input.Weight;
         }
+
+        // DISCARDED DELIBERATELY: every size the node checks is fixed by SetLayeredBlend against this
+        // skeleton, so a refusal here cannot happen; were it to, `pose` is left as the Source stage made it.
+        if ( Graph::BlendLayeredPerBone( state.Node, state.Weights, m_Skeleton, state.Base, state.LayerPoses,
+                                         state.LayerWeights, state.Out ) )
+            pose = state.Out.Pose;
     }
 
     void Animator::EvaluateControls( LocalPose& pose )
@@ -429,9 +410,9 @@ namespace Desert::Animation
         // so it is written once, here, and membership stays data.
         m_Stages.clear();
         m_Stages.push_back( PoseStage::Source ); // unconditional: something has to produce a pose
-        if ( !m_Layers.empty() )
+        if ( m_LayeredBlend )
         {
-            m_Stages.push_back( PoseStage::Layers );
+            m_Stages.push_back( PoseStage::LayeredBlend );
         }
         if ( !m_Controls.empty() )
         {
@@ -551,11 +532,6 @@ namespace Desert::Animation
         // what the retarget equation measures a delta against. See SampleLocalTransform.
         return RigSampling{ m_Retarget->GetSourceSkeleton(), m_Retarget->GetRetargeter().GetSourceInitialPose(),
                             m_SourceTrackBinding };
-    }
-
-    const LocalPose& Animator::AdditiveReference() const
-    {
-        return m_Retarget ? m_Retarget->GetRetargetedRest() : m_BindPose;
     }
 
     const BoneTrack* Animator::ResolveTrack( const RigSampling& rig, const AnimationClip* clip,
@@ -702,105 +678,41 @@ namespace Desert::Animation
     // Layers
     // ============================================================
 
-    int Animator::AddLayer( const AnimationClip& clip, float weight, bool additive, bool loop )
+    Common::BoolResultStr Animator::SetLayeredBlend( const Graph::LayeredBlendPerBoneNode& node )
     {
-        AnimationLayer layer;
-        layer.Playback = { &clip, FrameTime{}, loop };
-        layer.Weight   = weight;
-        layer.Additive = additive;
-        m_Layers.push_back( std::move( layer ) );
+        auto weights = Graph::BuildPerBoneWeights( node, m_Skeleton );
+        if ( !weights )
+        {
+            ClearLayeredBlend();
+            return Common::MakeError<bool>( weights.GetError() );
+        }
+        LayeredBlendState state;
+        state.Node    = node;
+        state.Weights = std::move( weights.GetValue() );
+        state.Inputs.resize( node.Layers.size() );
+        // A node re-set with the same number of layers keeps each layer's clock: the graph re-sends its node
+        // after every edit, and a layer that restarted on each edit would stutter while it is being authored.
+        if ( m_LayeredBlend && m_LayeredBlend->Inputs.size() == state.Inputs.size() )
+            state.Inputs = std::move( m_LayeredBlend->Inputs );
+        m_LayeredBlend = std::move( state );
         SyncStages();
-        return static_cast<int>( m_Layers.size() ) - 1;
+        return Common::MakeSuccess( true );
     }
 
-    void Animator::SetLayerClip( int index, const AnimationClip& clip )
+    void Animator::SetLayeredBlendInput( size_t layer, const AnimationClip& clip, float weight, bool loop )
     {
-        if ( index < 0 || index >= static_cast<int>( m_Layers.size() ) )
-        {
+        if ( !m_LayeredBlend || layer >= m_LayeredBlend->Inputs.size() )
             return;
-        }
-        if ( m_Layers[index].Playback.Clip != &clip )
-            m_Layers[index].Playback = { &clip, FrameTime{}, m_Layers[index].Playback.Loop };
+        LayeredBlendInput& input = m_LayeredBlend->Inputs[layer];
+        if ( input.Playback.Clip != &clip )
+            input.Playback = { &clip, FrameTime{}, loop };
+        input.Playback.Loop = loop;
+        input.Weight        = weight;
     }
 
-    void Animator::SetLayerWeight( int index, float weight )
+    void Animator::ClearLayeredBlend()
     {
-        if ( index >= 0 && index < static_cast<int>( m_Layers.size() ) )
-            m_Layers[index].Weight = weight;
-    }
-
-    void Animator::SetLayerAdditive( int index, bool additive )
-    {
-        if ( index >= 0 && index < static_cast<int>( m_Layers.size() ) )
-            m_Layers[index].Additive = additive;
-    }
-
-    void Animator::SetLayerMaskByNames( int index, const std::vector<std::string>& boneNames,
-                                        bool includeChildren )
-    {
-        if ( index < 0 || index >= static_cast<int>( m_Layers.size() ) )
-        {
-            return;
-        }
-
-        const auto&          bones = m_Skeleton.GetBones();
-        std::vector<uint8_t> mask( bones.size(), 0 );
-
-        // A hash lookup per NAME. This was a nested loop over (names x bones) comparing std::strings, which
-        // is the linear scan T1.2 is about, spelled out again by hand instead of calling FindBoneIndex.
-        for ( const auto& name : boneNames )
-            if ( const auto bone = m_Skeleton.FindBoneIndex( name ) )
-                mask[*bone] = 1;
-
-        if ( includeChildren )
-        {
-            // A bone is affected if it OR any ancestor was named — masking a shoulder masks the whole arm.
-            // Parent-before-child order makes this a single flat pass: by the time a bone is reached its
-            // parent's answer is final. The memoised recursion this replaces had the same stack-overflow
-            // hazard on a parent cycle as the seven chain walks did.
-            for ( const uint32_t i : m_Skeleton.GetResolveOrder() )
-            {
-                const uint32_t parent = m_Skeleton.ResolveParent( i );
-                if ( !mask[i] && parent != Skeleton::NO_PARENT )
-                    mask[i] = mask[parent];
-            }
-        }
-
-        m_Layers[index].BoneMask = std::move( mask );
-    }
-
-    void Animator::ClearLayerMask( int index )
-    {
-        if ( index >= 0 && index < static_cast<int>( m_Layers.size() ) )
-            m_Layers[index].BoneMask.clear();
-    }
-
-    bool Animator::IsBoneInLayerMask( int index, uint32_t boneIndex ) const
-    {
-        if ( index < 0 || index >= static_cast<int>( m_Layers.size() ) )
-        {
-            return false;
-        }
-        const auto& mask = m_Layers[index].BoneMask;
-        if ( mask.empty() )
-        {
-            return boneIndex < m_Skeleton.GetBones().size();
-        }
-        return boneIndex < mask.size() && mask[boneIndex] != 0;
-    }
-
-    void Animator::RemoveLayer( int index )
-    {
-        if ( index >= 0 && index < static_cast<int>( m_Layers.size() ) )
-        {
-            m_Layers.erase( m_Layers.begin() + index );
-            SyncStages();
-        }
-    }
-
-    void Animator::ClearLayers()
-    {
-        m_Layers.clear();
+        m_LayeredBlend.reset();
         SyncStages();
     }
 

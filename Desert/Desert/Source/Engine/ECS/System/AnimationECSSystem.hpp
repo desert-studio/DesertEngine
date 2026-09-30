@@ -138,6 +138,7 @@ namespace Desert::ECS
                      anim.Graph ? Animation::Graph::OutputMachine( *anim.Graph ) : nullptr;
                 if ( outputMachine != nullptr && !outputMachine->States.empty() )
                 {
+                    bool graphRebuilt = true;
                     if ( !anim.GraphEvaluator )
                     {
                         anim.GraphEvaluator     = std::make_shared<Animation::Graph::Evaluator>( *anim.Graph );
@@ -148,6 +149,10 @@ namespace Desert::ECS
                         // Re-sync after an editor edit WITHOUT resetting the active state / live parameters.
                         anim.GraphEvaluator->SyncGraph( *anim.Graph );
                         anim.BuiltGraphRevision = graphRevision;
+                    }
+                    else
+                    {
+                        graphRebuilt = false;
                     }
 
                     ReportGraphStructure( *anim.GraphEvaluator );
@@ -202,6 +207,7 @@ namespace Desert::ECS
                             anim.Animator->SetPlaybackSpeed( anim.PlaybackSpeed * res.Current->Speed );
                         }
 
+                        DriveLayeredBlend( anim, clipRig, graphRebuilt );
                         anim.Animator->Update( animTs );
                         anim.PendingNotifies = anim.Animator->ConsumeNotifyEvents();
                     }
@@ -341,6 +347,48 @@ namespace Desert::ECS
          * The read side cannot refuse (Evaluator::GetFloat is called per condition per frame), so the
          * report lives here — at the one place per frame that holds the evaluator and a logger.
          */
+        /**
+         * @brief The graph's Layered Blend Per Bone at Output Pose -> the Animator's LayeredBlend stage: the
+         *        node (its per-bone table built only when the graph was rebuilt or the Animator lost it), then
+         *        each layer's clip and weight this tick, from the machine wired into the layer's pin.
+         *
+         * The base is not here: it is the machine down the node's base pin, which `Update` reported and the
+         * code above already played. A graph with no layered blend at its output clears the stage.
+         */
+        void DriveLayeredBlend( ECS::AnimationComponent& anim, const Animation::Skeleton& clipRig,
+                                bool graphRebuilt )
+        {
+            const Animation::Graph::Evaluator&               evaluator = *anim.GraphEvaluator;
+            const Animation::Graph::LayeredBlendPerBoneNode* node      = evaluator.OutputLayeredBlend();
+            if ( node == nullptr )
+            {
+                if ( anim.Animator->GetLayeredBlend() != nullptr )
+                    anim.Animator->ClearLayeredBlend();
+                return;
+            }
+            if ( graphRebuilt || anim.Animator->GetLayeredBlend() == nullptr )
+            {
+                if ( const auto set = anim.Animator->SetLayeredBlend( *node ); !set )
+                {
+                    ReportOnce( fmt::format( "layered:{}", evaluator.Graph().Name ),
+                                fmt::format( "AnimGraph '{}': {}", evaluator.Graph().Name, set.GetError() ) );
+                    return;
+                }
+            }
+            for ( size_t layer = 0; layer < node->Layers.size(); ++layer )
+            {
+                const auto drive = evaluator.OutputLayer( layer );
+                if ( drive.Current == nullptr )
+                    continue;
+                const auto found = m_AnimationLibrary->FindForSkeleton( clipRig, drive.Current->Clip );
+                if ( found )
+                    anim.Animator->SetLayeredBlendInput( layer, found.GetValue()->GetClip(), drive.Weight,
+                                                         drive.Current->Loop );
+                else if ( !m_AnimationLibrary->HasPending( drive.Current->Clip ) )
+                    ReportUnplayableState( clipRig, drive.Current->Name, drive.Current->Clip, found.GetError() );
+            }
+        }
+
         void ReportGraphStructure( const Animation::Graph::Evaluator& evaluator )
         {
             const std::string& error = evaluator.GetStructureError();
