@@ -1146,7 +1146,9 @@ namespace Desert::Graphic::System
 
         for ( auto& [mat, objects] : groups )
         {
-            if ( objects.empty() )
+            // A Translucent template's objects belong to the translucency pass alone (RenderGlassManual):
+            // no opaque bucket, no instanced variant is asked of them.
+            if ( objects.empty() || IsTranslucent( mat ) )
                 continue;
 
             // Where this group's batches accumulate, and WITH WHICH MATERIAL they will be recorded.
@@ -1178,8 +1180,6 @@ namespace Desert::Graphic::System
                 od.Obj  = obj;
                 od.Inst = FirstPBRSlot( obj->MaterialSlots->Slots, MeshVertexPath::Static ).Instance;
                 od.Row  = EffectiveRow( mat, od.Inst );
-                if ( IsTranslucent( mat ) )
-                    continue;
                 if ( od.Inst )
                     for ( const auto& [pname, prop] : od.Inst->GetPropertySet().GetProperties() )
                         if ( prop.bIsOverridden )
