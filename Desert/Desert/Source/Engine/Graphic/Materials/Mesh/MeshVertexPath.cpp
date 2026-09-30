@@ -48,7 +48,8 @@ namespace Desert::Graphic
         return blend == Core::Formats::SurfaceBlendMode::Masked ? ShadowCasterCell::Own : ShadowCasterCell::Shared;
     }
 
-    std::optional<std::string> ShadowCasterShaderFor( std::string_view materialTemplate, std::string_view defaultTemplate,
+    std::optional<std::string> ShadowCasterShaderFor( std::string_view                materialTemplate,
+                                                      std::string_view                defaultTemplate,
                                                       Core::Formats::SurfaceBlendMode blend, MeshVertexPath path )
     {
         const std::string_view owner =

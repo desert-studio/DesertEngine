@@ -500,8 +500,8 @@ namespace Desert::Runtime
     }
 
     Graphic::DataDrivenMaterial* MaterialService::GetViewVariant( const Graphic::Material* built,
-                                                                  Graphic::MeshVertexPath path, Graphic::MeshPass pass,
-                                                                  uint32_t view ) const
+                                                                  Graphic::MeshVertexPath  path,
+                                                                  Graphic::MeshPass pass, uint32_t view ) const
     {
         // The sibling first: it resolves the asset (instance chain, unread shell, cell refusal) once, and a
         // view variant exists only where the plain one does.
@@ -724,7 +724,8 @@ namespace Desert::Runtime
         if ( auto views = m_ViewMaterials.find( handle ); views != m_ViewMaterials.end() )
         {
             for ( auto& v : views->second )
-                m_Graveyard.Park( std::move( v.Material ), Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+                m_Graveyard.Park( std::move( v.Material ),
+                                  Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
             m_ViewMaterials.erase( views );
         }
         ++m_InvalidationVersion; // cached instance sets rebuild on their next system tick

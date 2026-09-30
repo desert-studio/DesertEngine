@@ -753,20 +753,21 @@ namespace Desert::Graphic::System
         };
         struct MaskedCasterDraw
         {
-            MaskedCasterSet*     Set = nullptr;
-            MeshVertexPath       Path = MeshVertexPath::Static;
-            Desert::Mesh*        Mesh = nullptr;
-            glm::mat4            Transform = glm::mat4( 1.0f );
-            MaterialInstance*    Instance = nullptr;
-            uint32_t             Row = 0;
-            uint32_t             Count = 1;    // instances (Instanced path)
-            uint32_t             First = 0;    // first instance transform / first bone
-            uint32_t             LodLevel = 0;
-            InstanceWindPush     Wind;
+            MaskedCasterSet*  Set       = nullptr;
+            MeshVertexPath    Path      = MeshVertexPath::Static;
+            Desert::Mesh*     Mesh      = nullptr;
+            glm::mat4         Transform = glm::mat4( 1.0f );
+            MaterialInstance* Instance  = nullptr;
+            uint32_t          Row       = 0;
+            uint32_t          Count     = 1; // instances (Instanced path)
+            uint32_t          First     = 0; // first instance transform / first bone
+            uint32_t          LodLevel  = 0;
+            InstanceWindPush  Wind;
         };
         std::vector<std::unique_ptr<MaskedCasterSet>> m_ScratchMaskedSets;
         std::vector<MaskedCasterDraw>                 m_ScratchMaskedDraws;
-        std::unordered_map<std::string, std::shared_ptr<GraphicsPipeline>> m_MaskedCasterPipelines; // null = refused
+        std::unordered_map<std::string, std::shared_ptr<GraphicsPipeline>>
+                                                                  m_MaskedCasterPipelines; // null = refused
         std::vector<GenericDraw>                 m_ScratchGenericDraws;
         std::vector<std::pair<DataDrivenMaterial*, MaterialRows>> m_ScratchGenericRows;
     };

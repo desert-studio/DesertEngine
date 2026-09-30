@@ -2273,11 +2273,11 @@ namespace Desert::Graphic::System
         }
     }
 
-    DataDrivenMaterial* MeshRenderer::MaskedCasterMaterial( const DataDrivenMaterial* material, MeshVertexPath path,
-                                                            uint32_t cascade ) const
+    DataDrivenMaterial* MeshRenderer::MaskedCasterMaterial( const DataDrivenMaterial* material,
+                                                            MeshVertexPath path, uint32_t cascade ) const
     {
-        auto* caster = Runtime::ResourceRegistry::GetMaterialService()->GetViewVariant( material, path,
-                                                                                       MeshPass::ShadowDepth, cascade );
+        auto* caster = Runtime::ResourceRegistry::GetMaterialService()->GetViewVariant(
+             material, path, MeshPass::ShadowDepth, cascade );
         if ( !caster )
         {
             // Not drawn through the shared program instead: that is the square shadow this route exists to end.
@@ -2302,7 +2302,7 @@ namespace Desert::Graphic::System
         const GraphicsPipeline* shared = path == MeshVertexPath::Instanced ? m_ShadowInstancedPipeline.get()
                                          : path == MeshVertexPath::Skinned ? m_ShadowSkinnedPipeline.get()
                                                                            : m_ShadowPipeline.get();
-        auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( name );
+        auto                    shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( name );
         if ( !shared || !shader )
         {
             LOG_ERROR( "[Shadows] masked caster '{}' will not draw: {}", name,
@@ -2310,9 +2310,9 @@ namespace Desert::Graphic::System
             return nullptr;
         }
         GraphicsPipelineSpecification spec = shared->GetSpecification();
-        spec.DebugName                      = std::format( "ShadowPipelineMasked {}", name );
-        spec.Shader                         = shader;
-        const auto pipeline                 = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+        spec.DebugName                     = std::format( "ShadowPipelineMasked {}", name );
+        spec.Shader                        = shader;
+        const auto pipeline                = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
         if ( !pipeline )
         {
             LOG_ERROR( "[Shadows] masked caster '{}' will not draw: {}", name, pipeline.GetError() );
@@ -2413,8 +2413,7 @@ namespace Desert::Graphic::System
                          set.Transforms.clear();
                          return set;
                      };
-                     const auto isMasked = []( const DataDrivenMaterial* material )
-                     {
+                     const auto isMasked = []( const DataDrivenMaterial* material ) {
                          return material != nullptr &&
                                 ShadowCasterCellFor( material->GetSchema().Blend ) == ShadowCasterCell::Own;
                      };
@@ -2425,9 +2424,9 @@ namespace Desert::Graphic::System
                               !IsVisibleInView( cascadeFrustum, rd.Transform,
                                                 Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
                              continue;
-                         MaterialInstance* inst = rd.MaterialSlots ? FirstPBRSlot( rd.MaterialSlots->Slots,
-                                                                                   MeshVertexPath::Static )
-                                                                   : nullptr;
+                         MaterialInstance* inst =
+                              rd.MaterialSlots ? FirstPBRSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
+                                               : nullptr;
                          const auto* mat =
                               inst ? static_cast<const DataDrivenMaterial*>( inst->GetParentMaterial() ) : nullptr;
                          if ( !isMasked( mat ) )
@@ -2438,7 +2437,7 @@ namespace Desert::Graphic::System
                          auto* caster = MaskedCasterMaterial( mat, MeshVertexPath::Static, c );
                          if ( !caster )
                              continue; // refused by name, once
-                         auto& set = maskedSetFor( caster );
+                         auto&            set = maskedSetFor( caster );
                          MaskedCasterDraw d;
                          d.Set       = &set;
                          d.Path      = MeshVertexPath::Static;
@@ -2539,7 +2538,7 @@ namespace Desert::Graphic::System
                              MaterialInstance* ismInst = ism.Material.get();
                              const auto*       ismMat =
                                   ismInst ? static_cast<const DataDrivenMaterial*>( ismInst->GetParentMaterial() )
-                                          : nullptr;
+                                                : nullptr;
                              if ( isMasked( ismMat ) )
                              {
                                  auto* caster = MaskedCasterMaterial( ismMat, MeshVertexPath::Instanced, c );
@@ -2700,14 +2699,16 @@ namespace Desert::Graphic::System
                          if ( set.Transforms.empty() )
                              continue;
                          // The one binding the path adds (MeshPathOwnBinding): instance matrices or bone poses.
-                         const auto path = MeshCellPath( set.Caster->GetShaderName() );
-                         const std::string own = path == MeshVertexPath::Instanced ? std::string( "InstanceTransforms" )
-                                                 : path == MeshVertexPath::Skinned ? ShaderProtocols::SkinnedUB::Name
-                                                                                   : std::string();
+                         const auto        path = MeshCellPath( set.Caster->GetShaderName() );
+                         const std::string own =
+                              path == MeshVertexPath::Instanced ? std::string( "InstanceTransforms" )
+                              : path == MeshVertexPath::Skinned ? ShaderProtocols::SkinnedUB::Name
+                                                                : std::string();
                          if ( !own.empty() )
                              if ( auto* sb = set.Caster->Get<StorageBufferProperty>( own ) )
-                                 sb->SetRawData( set.Transforms.data(),
-                                                 static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );
+                                 sb->SetRawData(
+                                      set.Transforms.data(),
+                                      static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );
                      }
                      for ( const auto& d : m_ScratchMaskedDraws )
                      {
