@@ -1891,8 +1891,13 @@ namespace Desert::Core::Preprocess
                         std::format( "unknown ShadingModel '{}' ({})", shadingModelName, known ) };
                 return fail();
             }
+            // A surface built from DefaultSurfaceOutput() has every field (UE: an unconnected pin takes its
+            // default); one declared bare has only the fields it assigns.
+            const bool fromDefaults = surfaceBlock->Content.find( "DefaultSurfaceOutput" ) != std::string::npos;
             const std::vector<std::string> written = SurfaceWrittenFields( surfaceBlock->Content );
-            if ( const auto missing = ShadingModels::ShadingModelRegistry::MissingInput( *model, written ) )
+            if ( const auto missing = fromDefaults
+                                           ? std::nullopt
+                                           : ShadingModels::ShadingModelRegistry::MissingInput( *model, written ) )
             {
                 err = { shadingModelLine != 0 ? shadingModelLine : surfaceBlock->StartLine,
                         std::format( "ShadingModel {} reads SurfaceOutput.{}, which the surface function never "
