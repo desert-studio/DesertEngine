@@ -68,6 +68,7 @@ namespace Desert::Editor::Control
         ShotViewport, ///< capture the 3D viewport only, no interface (the scene's final image)
         Quit,         ///< end the session with an exit status
         Drag,         ///< press, move and release the mouse over a subject's image, through ImGui's input
+        Input,
     };
 
     /**
@@ -120,6 +121,7 @@ namespace Desert::Editor::Control
          { "shot.viewport", Op::ShotViewport, RequiresReady::Yes },
          { "quit", Op::Quit, RequiresReady::No },
          { "drag", Op::Drag, RequiresReady::Yes },
+         { "input", Op::Input, RequiresReady::Yes },
     };
 
     /// The table's answer for one operation. Yes for anything not in the table at all — an operation this
@@ -238,6 +240,12 @@ namespace Desert::Editor::Control
         /// Op::Drag — how many frames the pointer takes from `from` to `to` (Value holds fromX, fromY,
         /// toX, toY in the subject's image pixels).
         uint32_t Steps = 8;
+
+        std::string              InputKind;
+        std::string              Panel;
+        std::string              Key;
+        std::vector<std::string> Paths;
+        int32_t                  Button = 0;
     };
 
     /// The known operations, comma separated, for the message a rejected one gets. Built from the table
@@ -554,6 +562,35 @@ namespace Desert::Editor::Control
                 if ( steps < 1 || steps > 240 )
                     return Common::MakeFormattedError<Request>( "'drag' takes 1..240 steps, not {}.", steps );
                 request.Steps = static_cast<uint32_t>( steps );
+                break;
+            }
+            case Op::Input:
+            {
+                request.InputKind    = ReadString( fields, "kind" );
+                request.Panel        = ReadString( fields, "panel" );
+                request.Key          = ReadString( fields, "key" );
+                request.Paths        = ReadStringArray( fields, "paths" );
+                const int64_t button = ReadInt( fields, "button", 0 );
+                if ( button < 0 || button > 2 )
+                    return Common::MakeFormattedError<Request>( "'input' presses button 0, 1 or 2, not {}.",
+                                                                button );
+                request.Button = static_cast<int32_t>( button );
+                if ( request.InputKind != "key" )
+                {
+                    if ( ReadFloatArray( fields, "value", request.Value ) != NumberArray::Read ||
+                         request.Value.size() != 2 )
+                        return Common::MakeFormattedError<Request>(
+                             "'input' of kind '{}' needs 'value' as two numbers [x, y]: points inside 'panel' "
+                             "when one is named, else inside the editor window.",
+                             request.InputKind );
+                }
+                else
+                {
+                    if ( request.Key.empty() )
+                        return Common::MakeError<Request>(
+                             "'input' of kind 'key' needs 'key', e.g. \"T\" or \"Ctrl+S\"." );
+                    request.Value = { 0.0f, 0.0f };
+                }
                 break;
             }
             case Op::Commands:

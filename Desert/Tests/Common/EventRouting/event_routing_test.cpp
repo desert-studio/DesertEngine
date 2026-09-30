@@ -812,3 +812,41 @@ TEST( EventRouting, AMovedLinkIsReleasedOnceByItsLastHolder )
     second.Release();
     EXPECT_FALSE( tree.Contains( id ) );
 }
+
+TEST( EventRouting, ADeferredPointerEventReachesTheNodeHoveredAtTheFrameBoundary )
+{
+    PanelOverBackground f;
+    auto                other = f.tree.Emplace<Probe>( f.tree.Root(), "other", f.log );
+    f.tree.SetHovered( other.Id );
+
+    f.tree.Defer( ALeftClick() );
+    EXPECT_TRUE( f.log.empty() );
+    EXPECT_EQ( f.tree.DeferredCount(), 1u );
+
+    f.tree.SetHovered( f.panel );
+    f.tree.RouteDeferred();
+
+    const Log expected = { "panel.click" };
+    EXPECT_EQ( f.log, expected );
+    EXPECT_EQ( f.tree.DeferredCount(), 0u );
+    f.tree.RouteDeferred();
+    EXPECT_EQ( f.log, expected );
+}
+
+namespace
+{
+    class HidesItsHandler
+    {
+        bool OnKeyPressed( KeyPressedEvent& )
+        {
+            return true;
+        }
+    };
+} // namespace
+
+TEST( EventRouting, AHandlerTheTreeCannotReachIsNoHandler )
+{
+    static_assert( !HandlesEvent<HidesItsHandler, KeyPressedEvent> );
+    static_assert( !ReceivesEvents<HidesItsHandler> );
+    SUCCEED();
+}

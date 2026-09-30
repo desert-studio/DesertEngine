@@ -191,6 +191,27 @@ TOOLS = [
         },
     },
     {
+        "name": "send_input",
+        "description": (
+            "Inject mouse, keyboard or file-drop input at the root of the OS path: the editor plays it through "
+            "the GLFW callbacks, so ImGui and the routed event tree see it exactly as a hand's input. "
+            "kind: move | click | press | release | key | drop. x, y are points inside 'panel' when one is "
+            "named (its title as the View menu shows it), else inside the editor window."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string"},
+                "panel": {"type": "string"},
+                "x": {"type": "number"},
+                "y": {"type": "number"},
+                "key": {"type": "string", "description": "for kind 'key': T, Escape, Ctrl+S ..."},
+                "paths": {"type": "array", "items": {"type": "string"}, "description": "for kind 'drop'"},
+            },
+            "required": ["kind"],
+        },
+    },
+    {
         "name": "get_state",
         "description": (
             "The editor's state as JSON. Sections: scene, selection, documents (open in most-recently-"
@@ -258,6 +279,12 @@ def dispatch(channel: Channel, name: str, arguments: dict) -> dict:
         return channel.call(
             "set", prop, ",".join(repr(float(v)) for v in value), subject=arguments.get("subject", "")
         )
+    if name == "send_input":
+        kind = arguments.get("kind", "")
+        panel = arguments.get("panel", "") or "-"
+        point = "-" if kind == "key" else f"{float(arguments.get('x', 0))},{float(arguments.get('y', 0))}"
+        extra = [arguments.get("key", "")] if kind == "key" else list(arguments.get("paths", []))
+        return channel.call("input", kind, panel, point, *extra)
     if name == "get_state":
         return channel.call("state", *arguments.get("sections", []), wait=120)
     if name == "capture_window":

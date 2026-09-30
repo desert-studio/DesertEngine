@@ -202,9 +202,8 @@ namespace Desert::Platform::Windows
                                  for ( int i = 0; i < count; ++i )
                                      dropped.emplace_back( paths[i] );
 
-                                 Common::EventWindowFileDrop event( std::move( dropped ) );
                                  if ( data.Events != nullptr )
-                                     data.Events->Route( event );
+                                     data.Events->Defer( Common::EventWindowFileDrop( std::move( dropped ) ) );
                              } );
 
         glfwSetMouseButtonCallback( m_GLFWWindow,

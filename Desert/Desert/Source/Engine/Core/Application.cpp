@@ -318,6 +318,7 @@ namespace Desert::Engine
                     if ( !rendered.IsSuccess() )
                         ReportLayerFailure( "OnUIRender", layer.get(), rendered.GetError() );
                 }
+                m_Events.RouteDeferred();
             }
 
             // 6. Submit all recorded commands and Present — CPU blocks here on submit/present (GPU-bound/vsync).

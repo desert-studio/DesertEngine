@@ -200,6 +200,9 @@ namespace Desert::Editor
         static Common::BoolResultStr DropMeshIntoActiveViewport( const std::string&       path,
                                                                  const ActorDrop::Target& target );
 
+        bool OnMouseButtonPressed( Common::MouseButtonPressedEvent& e );
+        bool OnKeyPressed( Common::KeyPressedEvent& e );
+
     private:
         // THE VIEWPORT THE USER IS WORKING IN: the most recently FOCUSED one, else the first live one.
         // Null only when no viewport exists at all.
@@ -224,9 +227,6 @@ namespace Desert::Editor
         // Aim THIS viewport's camera. Refuses with a reason when the view has no editor camera — a
         // closed view, or Play mode, where the camera is the scene's and not the user's to orbit.
         NO_DISCARD Common::BoolResultStr ApplyCameraPreset( ViewportCameraPreset preset );
-
-        bool OnMouseButtonPressed( Common::MouseButtonPressedEvent& e );
-        bool OnKeyPressed( Common::KeyPressedEvent& e );
 
     private:
         // Viewport data access

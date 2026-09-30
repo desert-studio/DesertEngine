@@ -399,6 +399,29 @@ static int RunTool( int argc, char** argv )
                                                from.substr( 1, from.size() - 2 ), to.substr( 1, to.size() - 2 ), steps,
                                                SubjectField( subject ) );
     }
+    else if ( operation == "input" )
+    {
+        std::string point = "[0,0]";
+        if ( rest.size() < 4 || ( rest[3] != "-" && !NumberArray( rest[3], point ) ) )
+        {
+            std::fprintf( stderr, "desertctl: input <move|click|press|release|key|drop> <panel|-> <x,y|-> "
+                                  "[key | path...]\n" );
+            return kNoEditor;
+        }
+        const std::string panel = rest[2] == "-" ? std::string() : rest[2];
+        std::string       paths;
+        std::string       key;
+        for ( std::size_t i = 4; i < rest.size(); ++i )
+        {
+            if ( rest[1] == "key" )
+                key = rest[i];
+            else
+                paths += ( paths.empty() ? "\"" : ",\"" ) + Escape( rest[i] ) + "\"";
+        }
+        request =
+             std::format( R"({{"id":1,"op":"input","kind":"{}","panel":"{}","value":{},"key":"{}","paths":[{}]}})",
+                          Escape( rest[1] ), Escape( panel ), point, Escape( key ), paths );
+    }
     else if ( operation == "quit" )
     {
         const std::string code = ( rest.size() > 1 ) ? rest[1] : "0";

@@ -3501,3 +3501,5 @@ namespace Desert::Editor
     }
 
 } // namespace Desert::Editor
+
+static_assert( Common::HandlesEvent<Desert::Editor::FileExplorerPanel, Common::EventWindowFileDrop> );

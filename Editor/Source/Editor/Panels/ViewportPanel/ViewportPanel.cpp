@@ -2614,3 +2614,6 @@ namespace Desert::Editor
     }
 
 } // namespace Desert::Editor
+
+static_assert( Common::HandlesEvent<Desert::Editor::ViewportPanel, Common::MouseButtonPressedEvent> &&
+               Common::HandlesEvent<Desert::Editor::ViewportPanel, Common::KeyPressedEvent> );

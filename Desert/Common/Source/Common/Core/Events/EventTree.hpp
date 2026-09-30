@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <Common/Core/Events/EventHandler.hpp>
 
 #include <cstdint>
@@ -224,6 +225,28 @@ namespace Common
             }
         }
 
+        template <RoutedEvent E>
+        void Defer( E event )
+        {
+            m_Deferred.emplace_back( [held = std::move( event )]( EventTree& tree ) mutable
+                                     { tree.Route( held ); } );
+        }
+
+        [[nodiscard]] std::size_t DeferredCount() const
+        {
+            return m_Deferred.size();
+        }
+
+        void RouteDeferred()
+        {
+            Require( m_DispatchDepth == 0,
+                     "deferred events are routed at the frame boundary, not from a handler" );
+            std::vector<std::function<void( EventTree& )>> due;
+            due.swap( m_Deferred );
+            for ( auto& route : due )
+                route( *this );
+        }
+
     private:
         struct RootMarker
         {
@@ -445,6 +468,7 @@ namespace Common
         std::vector<Doomed>                   m_Graveyard;
         std::vector<std::vector<EventNodeId>> m_PathBuffers;
         std::vector<uint32_t>                 m_Stack;
+        std::vector<std::function<void( EventTree& )>> m_Deferred;
         std::size_t                           m_LiveCount     = 0;
         std::size_t                           m_DispatchDepth = 0;
         uint32_t                              m_VisitStamp    = 0;
