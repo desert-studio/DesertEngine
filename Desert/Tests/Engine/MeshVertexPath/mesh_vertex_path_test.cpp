@@ -1038,6 +1038,42 @@ TEST_F( ShaderRootFixture, AnUnlitMaterialGetsTheUnlitCells )
         }
 }
 
+// A DRAW'S PIPELINE IS KEYED BY ITS MATERIAL'S CELL, NOT BY THE PASS ALONE (SURF2-FIX). The renderer used to draw
+// every opaque static/instanced/skinned mesh with ONE pipeline per pass, built from the default template's cell,
+// while binding the descriptor sets of the material's OWN template cell: an Unlit object vanished with 22
+// validation errors (set 0: 7 descriptors in the layout, 3 bound). Two materials on two templates, drawn in the
+// same pass, must ask for two pipelines; one template in two passes too; and the same template in the same pass
+// must be served the one pipeline back.
+TEST( MeshCellPipeline, TwoTemplatesInOnePassAreTwoPipelines )
+{
+    using Desert::Graphic::MeshCellPipelineKey;
+    using Desert::Graphic::MeshCellPipelineKeyHash;
+    const int  forwardState = 0;
+    const int  gbufferState = 0;
+    const auto keyOf        = []( const void* state, std::string_view templateName, MeshVertexPath path,
+                           MeshPass pass )
+    {
+        const auto cell = Desert::Graphic::MeshShaderFor( templateName, path, pass );
+        EXPECT_TRUE( cell.has_value() ) << templateName;
+        return MeshCellPipelineKey{ state, cell.value_or( std::string{} ) };
+    };
+    for ( const auto path : kAllPaths )
+    {
+        const auto standard = keyOf( &forwardState, "StandardSurface", path, MeshPass::Forward );
+        const auto unlit    = keyOf( &forwardState, "Unlit", path, MeshPass::Forward );
+        EXPECT_NE( standard, unlit ) << MeshVertexPathName( path );
+        EXPECT_NE( standard, keyOf( &gbufferState, "StandardSurface", path, MeshPass::GBuffer ) )
+             << MeshVertexPathName( path );
+        EXPECT_NE( standard, MeshCellPipelineKey( { &gbufferState, standard.CellShader } ) )
+             << MeshVertexPathName( path ) << ": one program under two pass states is two pipelines";
+
+        const auto again = keyOf( &forwardState, "StandardSurface", path, MeshPass::Forward );
+        EXPECT_EQ( standard, again ) << MeshVertexPathName( path );
+        EXPECT_EQ( MeshCellPipelineKeyHash{}( standard ), MeshCellPipelineKeyHash{}( again ) )
+             << MeshVertexPathName( path );
+    }
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

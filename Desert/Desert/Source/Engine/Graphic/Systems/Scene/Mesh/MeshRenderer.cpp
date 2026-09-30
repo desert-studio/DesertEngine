@@ -1382,9 +1382,12 @@ namespace Desert::Graphic::System
                     DESERT_PROFILE_SCOPE( "Mesh: RenderMesh (draw)" );
                     // Deferred: the G-buffer twin's sets bind against the G-buffer pipeline, which writes
                     // the MRT instead of shading. Otherwise forward (wireframe variant when enabled).
-                    auto*          pipeline = ( m_DeferredGeometry && m_StaticGBufferPipeline )
-                                                   ? m_StaticGBufferPipeline.get()
-                                                   : WireframePipelineOr( m_StaticPipeline.get() );
+                    // The pass fixes the state, drawMat's template fixes the program: its cell's sets are
+                    // the ones Bind just bound.
+                    auto* pipeline = CellPipeline( ( m_DeferredGeometry && m_StaticGBufferPipeline )
+                                                        ? m_StaticGBufferPipeline.get()
+                                                        : WireframePipelineOr( m_StaticPipeline.get() ),
+                                                   *drawMat );
                     pipeline =
                          CullPermutation( pipeline, inst != nullptr ? inst->IsTwoSided() : drawMat->IsTwoSided() );
                     if ( pipeline == nullptr )
@@ -1519,8 +1522,11 @@ namespace Desert::Graphic::System
                     set.Mat->SetMaterialIndex( d.MaterialIndex );
                     set.Mat->SetInstancedWind( d.Wind );
                     set.Mat->Bind( set.Inst );
-                    auto* instancedDrawPipeline = CullPermutation(
-                         instancedPipeline, set.Inst != nullptr ? set.Inst->IsTwoSided() : set.Mat->IsTwoSided() );
+                    // set.Mat is the recorder (the material's (Instanced x pass) variant or the renderer's
+                    // spare): its cell is the program, as it is the sets.
+                    auto* instancedDrawPipeline =
+                         CullPermutation( CellPipeline( instancedPipeline, *set.Mat ),
+                                          set.Inst != nullptr ? set.Inst->IsTwoSided() : set.Mat->IsTwoSided() );
                     if ( instancedDrawPipeline == nullptr )
                         continue;
                     renderer.RenderMesh( instancedDrawPipeline, d.Mesh, unusedModelTransform,
@@ -1632,8 +1638,9 @@ namespace Desert::Graphic::System
                 mat->SetSkinnedBoneOffset( boneOffsets[i] );
                 mat->Bind( obj->Instance );
 
-                auto* twin = CullPermutation( pipeline, obj->Instance != nullptr ? obj->Instance->IsTwoSided()
-                                                                                 : mat->IsTwoSided() );
+                auto* twin = CullPermutation( CellPipeline( pipeline, *mat ), obj->Instance != nullptr
+                                                                                   ? obj->Instance->IsTwoSided()
+                                                                                   : mat->IsTwoSided() );
                 if ( twin == nullptr )
                     continue;
                 renderer.RenderMesh( twin, obj->Mesh, obj->Transform, mat->GetMaterialExecutor() );
@@ -2292,6 +2299,36 @@ namespace Desert::Graphic::System
                            material->GetShaderName(), MeshVertexPathName( path ) );
         }
         return caster;
+    }
+
+    GraphicsPipeline* MeshRenderer::CellPipeline( GraphicsPipeline* passState, const DataDrivenMaterial& cell )
+    {
+        if ( passState == nullptr )
+            return nullptr;
+        MeshCellPipelineKey key{ passState, cell.GetShaderName() };
+        if ( const auto found = m_CellPipelines.find( key ); found != m_CellPipelines.end() )
+            return found->second.get(); // null = refused before (said once, below)
+        auto& slot = m_CellPipelines[key];
+
+        auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( key.CellShader );
+        if ( !shader )
+        {
+            LOG_ERROR( "[MeshRenderer] cell '{}' will not draw in '{}': no such shader is registered", key.CellShader,
+                       passState->GetSpecification().DebugName );
+            return nullptr;
+        }
+        GraphicsPipelineSpecification spec = passState->GetSpecification();
+        spec.DebugName                     = std::format( "{} {}", spec.DebugName, key.CellShader );
+        spec.Shader                        = shader;
+        const auto pipeline                = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+        if ( !pipeline )
+        {
+            LOG_ERROR( "[MeshRenderer] cell '{}' will not draw in '{}': {}", key.CellShader,
+                       passState->GetSpecification().DebugName, pipeline.GetError() );
+            return nullptr;
+        }
+        slot = pipeline.GetValue();
+        return slot.get();
     }
 
     GraphicsPipeline* MeshRenderer::MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path )
