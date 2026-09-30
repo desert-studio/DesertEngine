@@ -127,7 +127,8 @@ namespace Desert::Assets
     struct MeshSkin
     {
         // THE SKELETON THE SKIN BINDS TO (SKEL-TREE, source version 3): the .skeleton's header GUID - never
-        // null for a skin. The same value the cooked .skmesh states (MeshAssetData::Skeleton); a header dependency.
+        // null for a skin. The same value the cooked .skmesh states (MeshAssetData::Skeleton); a header
+        // dependency.
         Common::Content::AssetGuid     Skeleton;
         std::vector<std::string>       BoneNames;
         std::vector<MeshSkinInfluence> Influences;

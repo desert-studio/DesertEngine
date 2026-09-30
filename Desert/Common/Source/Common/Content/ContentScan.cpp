@@ -450,44 +450,45 @@ namespace Common::Content
                 // and a packaged game scanned nothing.
                 // Every root of the kind: the project's and the engine content mount (ScanRootsOf).
                 for ( const std::filesystem::path& root : ScanRootsOf( spec ) )
-                for ( const std::filesystem::path& candidate : Utils::FileSystem::ListFilesRecursive( root ) )
-                {
-                    // Kinds may share an extension under nested roots (Texture/Skybox): a file belongs to the
-                    // kind whose root is the LONGEST that contains it, never to whichever row was walked first.
-                    // An import record stands for a static mesh asset that has no file (FIX8): the row is
-                    // the asset's key, described from the record. An asset that does exist is its own row.
-                    if ( kind == ContentKind::StaticMesh && IsImportRecord( candidate ) )
+                    for ( const std::filesystem::path& candidate : Utils::FileSystem::ListFilesRecursive( root ) )
                     {
-                        const std::filesystem::path asset = MeshAssetOfImportRecord( candidate );
-                        std::error_code             ec;
-                        if ( std::filesystem::exists( asset, ec ) || KindOfContentFile( asset ) != kind )
-                            continue;
-                        // A split source's meshes are its nodes; the source itself is no mesh asset (THM1k).
-                        if ( ImportRecordStatesNodes( candidate ) )
-                            continue;
-                        // Only a static file's record stands for a mesh: a skinned source's (or a skeleton's
-                        // and clips') states its own kind and names no static mesh (ImportRecord.hpp).
-                        if ( const auto stated =
-                                  ReadAssetHeaderIfStated( candidate, AssetHeaderReadContext{ {}, true } );
-                             stated )
+                        // Kinds may share an extension under nested roots (Texture/Skybox): a file belongs to the
+                        // kind whose root is the LONGEST that contains it, never to whichever row was walked
+                        // first. An import record stands for a static mesh asset that has no file (FIX8): the row
+                        // is the asset's key, described from the record. An asset that does exist is its own row.
+                        if ( kind == ContentKind::StaticMesh && IsImportRecord( candidate ) )
                         {
-                            const auto& header = stated.GetValue();
-                            if ( header.has_value() && header->Kind != ContentKind::StaticMesh )
+                            const std::filesystem::path asset = MeshAssetOfImportRecord( candidate );
+                            std::error_code             ec;
+                            if ( std::filesystem::exists( asset, ec ) || KindOfContentFile( asset ) != kind )
                                 continue;
+                            // A split source's meshes are its nodes; the source itself is no mesh asset (THM1k).
+                            if ( ImportRecordStatesNodes( candidate ) )
+                                continue;
+                            // Only a static file's record stands for a mesh: a skinned source's (or a skeleton's
+                            // and clips') states its own kind and names no static mesh (ImportRecord.hpp).
+                            if ( const auto stated =
+                                      ReadAssetHeaderIfStated( candidate, AssetHeaderReadContext{ {}, true } );
+                                 stated )
+                            {
+                                const auto& header = stated.GetValue();
+                                if ( header.has_value() && header->Kind != ContentKind::StaticMesh )
+                                    continue;
+                            }
+                            if ( const std::string key = AssetHandle::StableKeyForPath( asset ); !key.empty() )
+                                visit( candidate, kind, key );
+                            continue;
                         }
-                        if ( const std::string key = AssetHandle::StableKeyForPath( asset ); !key.empty() )
-                            visit( candidate, kind, key );
-                        continue;
+                        if ( LowerExtension( candidate ) != spec.Extension ||
+                             KindOfContentFile( candidate ) != kind )
+                            continue;
+
+                        const std::string key = AssetHandle::StableKeyForPath( candidate );
+                        if ( key.empty() )
+                            continue;
+
+                        visit( candidate, kind, key );
                     }
-                    if ( LowerExtension( candidate ) != spec.Extension || KindOfContentFile( candidate ) != kind )
-                        continue;
-
-                    const std::string key = AssetHandle::StableKeyForPath( candidate );
-                    if ( key.empty() )
-                        continue;
-
-                    visit( candidate, kind, key );
-                }
             }
         }
 

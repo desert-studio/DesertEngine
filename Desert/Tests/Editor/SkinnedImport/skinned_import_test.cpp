@@ -115,12 +115,12 @@ namespace
         EXPECT_EQ( b.size(), 264u );
 
         const std::string          uri    = std::format( "data:application/octet-stream;base64,{}", Base64( b ) );
-        const std::string          head   = R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],
+        const std::string head = R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],
 "nodes":[
  {"name":"Z_UP","matrix":[1,0,0,0, 0,0,-1,0, 0,1,0,0, 0,0,0,1],"children":[1,3]},
  {"name":"Root","children":[2]},
  {"name":")" + tipName +
-               R"(","translation":[0,0,1]},
+                                 R"(","translation":[0,0,1]},
  {"name":"Body","mesh":0,"skin":0}],
 "skins":[{"joints":[1,2],"inverseBindMatrices":3,"skeleton":1}],
 "meshes":[{"name":"Body","primitives":[{"attributes":{"POSITION":0,"JOINTS_0":1,"WEIGHTS_0":2},"material":0}]}],

@@ -2,8 +2,9 @@
 //
 // What these tests pin, and why each one: the previous identity (a hash of the bones) let a re-cooked rig
 // orphan every mesh and clip that meant it, and let two exports of one rig be two identities. The GUID rule
-// must therefore IGNORE bones entirely (structural: ClipPlaysOnMesh takes no bone input at all), CompatibleSkeletons must be one-directional, the assignment check is where names live, and
-// migration must refuse rather than guess.
+// must therefore IGNORE bones entirely (structural: ClipPlaysOnMesh takes no bone input at all),
+// CompatibleSkeletons must be one-directional, the assignment check is where names live, and migration must refuse
+// rather than guess.
 
 #include <Engine/Animation/BoneInfo.hpp>
 #include <Engine/Animation/Skeleton.hpp>
@@ -14,6 +15,7 @@
 #include <string>
 #include <vector>
 
+using Common::Content::AssetGuid;
 using Desert::Animation::BoneInfo;
 using Desert::Animation::CheckSkeletonAssignment;
 using Desert::Animation::ClipPlaysOnMesh;
@@ -23,7 +25,6 @@ using Desert::Animation::RequiredBone;
 using Desert::Animation::Skeleton;
 using Desert::Animation::SkeletonAssetRef;
 using Desert::Animation::SkeletonCandidate;
-using Common::Content::AssetGuid;
 
 namespace
 {

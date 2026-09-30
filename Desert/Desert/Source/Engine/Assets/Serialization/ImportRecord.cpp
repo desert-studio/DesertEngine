@@ -321,8 +321,8 @@ namespace Desert::Assets::Serialization
     {
         const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
         if ( skeleton.IsNull() )
-            return Common::MakeFormattedError<bool>( "'{}': an import chooses a skeleton by GUID; the GUID is null",
-                                                     record.string() );
+            return Common::MakeFormattedError<bool>(
+                 "'{}': an import chooses a skeleton by GUID; the GUID is null", record.string() );
         auto data = ReadImportRecord( source );
         if ( !data )
             return Common::MakeError<bool>( data.GetError() );
@@ -330,7 +330,7 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<bool>( "'{}' does not exist, so its import's skeleton cannot be "
                                                      "recorded",
                                                      record.string() );
-        ImportRecordData out = *data.GetValue();
+        ImportRecordData             out = *data.GetValue();
         Assets::SourceImportSettings chosen; // UE's defaults when the record states no settings
         if ( out.Settings )
         {

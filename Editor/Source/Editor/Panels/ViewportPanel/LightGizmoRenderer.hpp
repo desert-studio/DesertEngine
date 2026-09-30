@@ -74,7 +74,8 @@ namespace Desert::Editor
         void RenderSkeleton( const std::shared_ptr<Desert::Core::Camera>& camera, float width, float height,
                              float xpos, float ypos );
         // In-editor rig placement (RigBuilder): overlay the bones being placed on a static mesh before
-        // "Convert to Skinned". Shares the UE-style visuals with RenderSkeleton via DrawBoneOverlay (BoneOverlay.hpp).
+        // "Convert to Skinned". Shares the UE-style visuals with RenderSkeleton via DrawBoneOverlay
+        // (BoneOverlay.hpp).
         void RenderRigBuilder( const std::shared_ptr<Desert::Core::Camera>& camera, float width, float height );
         /**
          * @brief Control Rig mode: draw the selected entity's control shapes, pick one, and drag it.

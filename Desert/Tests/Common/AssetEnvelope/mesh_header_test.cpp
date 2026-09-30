@@ -56,7 +56,8 @@ namespace
     fs::path WriteFile( const std::string& name, const std::string& bytes )
     {
         const fs::path file = fs::temp_directory_path() / name;
-        std::ofstream( file, std::ios::binary ).write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) );
+        std::ofstream( file, std::ios::binary )
+             .write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) );
         return file;
     }
 

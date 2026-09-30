@@ -602,10 +602,11 @@ namespace Desert::Migration
         for ( const auto& path : meshes )
         {
             const std::string bytes = ReadAll( path );
-            if ( uint32_t stated = 0; bytes.size() >= 16 &&
-                                      std::string_view( bytes ).starts_with( std::string_view(
-                                           Common::Content::kMeshBinaryMagic, sizeof( Common::Content::kMeshBinaryMagic ) ) ) &&
-                                      ( std::memcpy( &stated, bytes.data() + 12, 4 ), stated == 3u || stated == 4u ) )
+            if ( uint32_t stated = 0;
+                 bytes.size() >= 16 &&
+                 std::string_view( bytes ).starts_with( std::string_view(
+                      Common::Content::kMeshBinaryMagic, sizeof( Common::Content::kMeshBinaryMagic ) ) ) &&
+                 ( std::memcpy( &stated, bytes.data() + 12, 4 ), stated == 3u || stated == 4u ) )
             {
                 const auto raised = Desert::Migration::MigrateMeshBinaryToV5( path.string(), bytes, skeletons );
                 if ( !raised )
@@ -615,11 +616,12 @@ namespace Desert::Migration
                     continue;
                 }
                 ++meshesRaised;
-                out << ( check ? "would raise " : "raised " ) << path.string() << " MeshBinary " << stated << " -> "
-                    << Common::Content::kMeshBinaryVersion << "\n";
+                out << ( check ? "would raise " : "raised " ) << path.string() << " MeshBinary " << stated
+                    << " -> " << Common::Content::kMeshBinaryVersion << "\n";
                 if ( !check )
                 {
-                    if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, raised.GetValue() );
+                    if ( const auto written =
+                              Common::Utils::FileSystem::WriteContentToFileAtomic( path, raised.GetValue() );
                          !written )
                     {
                         err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
@@ -647,7 +649,8 @@ namespace Desert::Migration
                             std::memcpy( &sourceVersion, section.Bytes.data(), 4 );
                 if ( sourceVersion == 2u )
                 {
-                    const auto raised = Desert::Migration::MigrateMeshSourceToV3( path.string(), bytes, skeletons );
+                    const auto raised =
+                         Desert::Migration::MigrateMeshSourceToV3( path.string(), bytes, skeletons );
                     if ( !raised )
                     {
                         err << "FAIL   " << raised.GetError() << "\n";

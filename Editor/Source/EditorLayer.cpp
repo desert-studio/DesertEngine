@@ -4540,7 +4540,8 @@ namespace Desert::Editor
             if ( row.Guid && row.Path.generic_string() == skeleton )
                 guid = *row.Guid;
         if ( !guid )
-            return Common::MakeError( std::format( "Assign Skeleton: '{}' is not a registered .skeleton", skeleton ) );
+            return Common::MakeError(
+                 std::format( "Assign Skeleton: '{}' is not a registered .skeleton", skeleton ) );
         const std::filesystem::path path( subject );
         auto                        load = [&]<typename T>() -> Common::ResultStr<std::shared_ptr<T>>
         {
@@ -4565,7 +4566,8 @@ namespace Desert::Editor
         const auto clip = load.template operator()<Assets::AnimationAsset>();
         if ( !clip )
             return Common::MakeError( clip.GetError() );
-        if ( auto assigned = SkeletonSlots::AssignClipSkeleton( *m_AssetManager, *clip.GetValue(), *guid ); !assigned )
+        if ( auto assigned = SkeletonSlots::AssignClipSkeleton( *m_AssetManager, *clip.GetValue(), *guid );
+             !assigned )
             return assigned;
         return Assets::Serialization::SaveClipToFile( path, clip.GetValue()->GetClip() );
     }
@@ -4638,8 +4640,9 @@ namespace Desert::Editor
             for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Skeleton ) )
                 if ( row.Guid )
                     skeletons.push_back( row.Path.generic_string() );
-            const std::vector<std::string> selected =
-                 m_FileExplorerPanel != nullptr ? m_FileExplorerPanel->SelectionPaths() : std::vector<std::string>{};
+            const std::vector<std::string> selected = m_FileExplorerPanel != nullptr
+                                                           ? m_FileExplorerPanel->SelectionPaths()
+                                                           : std::vector<std::string>{};
             for ( PaletteCommand& command : Editor::SkeletonAssignPaletteCommands(
                        selected, skeletons, std::bind_front( &EditorLayer::AssignSkeletonFromPalette, this ) ) )
                 commands.push_back( std::move( command ) );

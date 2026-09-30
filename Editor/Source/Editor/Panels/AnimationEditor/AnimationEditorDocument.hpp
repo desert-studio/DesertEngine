@@ -142,13 +142,13 @@ namespace Desert::Editor
         void                      DrawAssetDetails();
         void                      DrawPreviewSceneSettings();
         void                      DrawAssetBrowser();
-        void                      DrawBones( const glm::vec2& origin, const glm::vec2& size );
+        void                                 DrawBones( const glm::vec2& origin, const glm::vec2& size );
         // The `Skeleton` slot of the mesh (Mesh mode) or the clip (Animation mode): pick, check, write.
         void DrawSkeletonSlot();
         // The skeleton reference changed under the window: drop the preview and resolve the rig again.
         void ResetRig();
         // The clips of the window's skeleton, by Animation::ClipPlaysOnMesh over the registry's tags.
-        void ListBrowserClips();
+        void                      ListBrowserClips();
         void                      SetPreviewMesh( size_t candidate );
         [[nodiscard]] std::string PanelTitle( const char* name ) const;
         void                      DrawTransport();

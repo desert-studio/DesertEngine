@@ -98,7 +98,8 @@ namespace Desert::Animation
      * at playback. Success iff every required bone exists on `skeleton` by name and, where `Parent` is stated,
      * has that parent. A refusal names the asset, the skeleton and EVERY missing or mis-parented bone.
      */
-    [[nodiscard]] Common::BoolResultStr CheckSkeletonAssignment( const Skeleton& skeleton, std::string_view skeletonName,
+    [[nodiscard]] Common::BoolResultStr CheckSkeletonAssignment( const Skeleton&               skeleton,
+                                                                 std::string_view              skeletonName,
                                                                  std::span<const RequiredBone> required,
                                                                  std::string_view              assetName );
 

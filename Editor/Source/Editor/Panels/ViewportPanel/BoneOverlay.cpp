@@ -5,11 +5,9 @@
 
 namespace Desert::Editor
 {
-    void DrawBoneOverlay( ImDrawList* drawList,
-                                             const std::vector<std::optional<ImVec2>>& screen,
-                                             const std::vector<int>&                   parents,
-                                             const std::vector<std::string>& names, int selectedBone,
-                                             bool showAllNames, std::vector<std::pair<int, ImVec2>>* pickRecord )
+    void DrawBoneOverlay( ImDrawList* drawList, const std::vector<std::optional<ImVec2>>& screen,
+                          const std::vector<int>& parents, const std::vector<std::string>& names, int selectedBone,
+                          bool showAllNames, std::vector<std::pair<int, ImVec2>>* pickRecord )
     {
         const ImVec2 mouse = ImGui::GetMousePos();
 

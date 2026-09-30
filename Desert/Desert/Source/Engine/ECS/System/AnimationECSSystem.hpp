@@ -756,8 +756,8 @@ namespace Desert::ECS
         /**
          * The skeleton side of ClipPlaysOnMesh for one entity: the retarget's SOURCE skeleton reference
          * (RetargetAssetData::SourceSkeleton) when @p retargeted, otherwise the mesh asset's skeleton and its
-         * CompatibleSkeletons (AnimationLibrary::IdentifyMeshHandle). An editor-built runtime rig has no asset and so
-         * references no skeleton: the rule refuses every clip on it, by name.
+         * CompatibleSkeletons (AnimationLibrary::IdentifyMeshHandle). An editor-built runtime rig has no asset and
+         * so references no skeleton: the rule refuses every clip on it, by name.
          */
         Animation::MeshSkeletonIdentity ClipSkeletonOf( entt::registry& registry, entt::entity entity,
                                                         const ECS::SkinnedMeshComponent& component,

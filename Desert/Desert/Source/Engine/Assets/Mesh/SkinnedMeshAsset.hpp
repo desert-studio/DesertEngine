@@ -82,7 +82,6 @@ namespace Desert::Assets
         /// ResolveDependencies. Serialization::SaveMeshSkeletonReference writes the .skmesh and the source.
         void SetSkeleton( Common::Content::AssetGuid skeleton );
 
-
         bool IsReadyForUse() const override
         {
             return m_IsReadyForUse;

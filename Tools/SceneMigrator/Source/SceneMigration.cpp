@@ -730,9 +730,10 @@ namespace Desert::Migration
 
         // The rig as ANY generation this tool raises states it (SKEL 1, 2 or the current one), with the
         // version it states; an unreadable body or a missing header is an error naming why.
-        static Common::ResultStr<std::pair<SkeletonAssetDataV1V2, uint32_t>> ReadAnySkeleton( const std::string& text )
+        static Common::ResultStr<std::pair<SkeletonAssetDataV1V2, uint32_t>>
+        ReadAnySkeleton( const std::string& text )
         {
-            using Out  = std::pair<SkeletonAssetDataV1V2, uint32_t>;
+            using Out       = std::pair<SkeletonAssetDataV1V2, uint32_t>;
             const auto read = Common::Json::Read<SkeletonAssetDataV1V2>( text );
             if ( !read )
                 return Common::MakeFormattedError<Out>( "the skeleton body does not read: {}", read.GetError() );
@@ -777,10 +778,10 @@ namespace Desert::Migration
         // Any generation this tool raises: the candidates are gathered BEFORE the rigs themselves are raised.
         const auto read = ReadAnySkeleton( text );
         if ( !read )
-            return Common::MakeFormattedError<Animation::SkeletonCandidate>( "'{}' is not a skeleton candidate: {}",
-                                                                             path.string(), read.GetError() );
+            return Common::MakeFormattedError<Animation::SkeletonCandidate>(
+                 "'{}' is not a skeleton candidate: {}", path.string(), read.GetError() );
         const auto& data = read.GetValue().first;
-        const auto guid = Common::Content::AssetGuidFromText( data.Header->Guid );
+        const auto  guid = Common::Content::AssetGuidFromText( data.Header->Guid );
         if ( !guid )
             return Common::MakeFormattedError<Animation::SkeletonCandidate>( "'{}' header GUID: {}", path.string(),
                                                                              guid.GetError() );
@@ -802,17 +803,19 @@ namespace Desert::Migration
         // ANIM 4 as it stood: the live clip plus the bone hash ANIM 5 replaced.
         struct AnimationAssetDataV4
         {
-            uint64_t                                               SkeletonSignature = 0;
+            uint64_t                                                SkeletonSignature = 0;
             rfl::Flatten<Assets::Serialization::AnimationAssetData> Rest;
         };
     } // namespace
 
-    Common::ResultStr<std::string> MigrateAnimationV4ToV5( const std::string_view path, const std::string& text,
-                                                           const std::span<const Animation::SkeletonCandidate> skeletons )
+    Common::ResultStr<std::string>
+    MigrateAnimationV4ToV5( const std::string_view path, const std::string& text,
+                            const std::span<const Animation::SkeletonCandidate> skeletons )
     {
         const auto v4 = Common::Json::Read<AnimationAssetDataV4>( text );
         if ( !v4 )
-            return Common::MakeFormattedError<std::string>( "'{}': ANIM 4 body does not read: {}", path, v4.GetError() );
+            return Common::MakeFormattedError<std::string>( "'{}': ANIM 4 body does not read: {}", path,
+                                                            v4.GetError() );
         Assets::Serialization::AnimationAssetData data = v4.GetValue().Rest.get();
         if ( !data.Header )
             return Common::MakeFormattedError<std::string>( "'{}' states no header", path );
@@ -835,13 +838,14 @@ namespace Desert::Migration
             return Common::MakeError<std::string>( canonical.GetError() );
         // What the step writes, the engine's reader must read.
         if ( auto back = Assets::Serialization::ReadAnimationJson( canonical.GetValue() ); !back )
-            return Common::MakeFormattedError<std::string>( "'{}': the raised file does not read as ANIM 5: {}", path,
-                                                            back.GetError() );
+            return Common::MakeFormattedError<std::string>( "'{}': the raised file does not read as ANIM 5: {}",
+                                                            path, back.GetError() );
         return Common::MakeSuccess( canonical.GetValue() );
     }
 
-    Common::ResultStr<std::string> MigrateMeshBinaryToV5( const std::string_view path, const std::string_view bytes,
-                                                          const std::span<const Animation::SkeletonCandidate> skeletons )
+    Common::ResultStr<std::string>
+    MigrateMeshBinaryToV5( const std::string_view path, const std::string_view bytes,
+                           const std::span<const Animation::SkeletonCandidate> skeletons )
     {
         namespace C = Common::Content;
         // The v3/v4 layout: a 64-byte header {Magic 8, ByteOrder 4, Version 4, FileSize 8, SectionCount 4,
@@ -869,8 +873,8 @@ namespace Desert::Migration
         std::memcpy( &flags, bytes.data() + 28, 4 );
         std::memcpy( &signature, bytes.data() + 32, 8 );
         if ( version != 3u && version != 4u )
-            return Common::MakeFormattedError<std::string>( "'{}' is mesh version {}; this step raises 3 and 4", path,
-                                                            version );
+            return Common::MakeFormattedError<std::string>( "'{}' is mesh version {}; this step raises 3 and 4",
+                                                            path, version );
         const uint32_t oldRows = version == 3u ? 10u : kRows;
         const uint64_t oldEnd  = kOldPrefix + sizeof( Row ) * oldRows;
         if ( fileSize != bytes.size() || sectionCount != oldRows || bytes.size() < oldEnd )
@@ -926,19 +930,18 @@ namespace Desert::Migration
         return Common::MakeSuccess( Assets::Serialization::EncodeMeshBinary( decoded.GetValue() ) );
     }
 
-    Common::ResultStr<std::string> MigrateMeshSourceToV3( const std::string_view path, const std::string_view bytes,
-                                                          const std::span<const Animation::SkeletonCandidate> skeletons )
+    Common::ResultStr<std::string>
+    MigrateMeshSourceToV3( const std::string_view path, const std::string_view bytes,
+                           const std::span<const Animation::SkeletonCandidate> skeletons )
     {
-        namespace C = Common::Content;
-        auto envelope =
-             C::ReadAssetEnvelope( std::as_bytes( std::span( bytes.data(), bytes.size() ) ),
-                                   Assets::MeshAssetHeaderReadContext() );
+        namespace C   = Common::Content;
+        auto envelope = C::ReadAssetEnvelope( std::as_bytes( std::span( bytes.data(), bytes.size() ) ),
+                                              Assets::MeshAssetHeaderReadContext() );
         if ( !envelope )
             return Common::MakeFormattedError<std::string>( "'{}': {}", path, envelope.GetError() );
         C::AssetEnvelope e      = envelope.ExtractValue();
-        const auto       source = std::find_if( e.Sections.begin(), e.Sections.end(), []( const auto& section ) {
-            return section.Tag == C::EnvelopeSection::Source;
-        } );
+        const auto       source = std::find_if( e.Sections.begin(), e.Sections.end(), []( const auto& section )
+                                                { return section.Tag == C::EnvelopeSection::Source; } );
         if ( source == e.Sections.end() )
             return Common::MakeFormattedError<std::string>( "'{}' has no SRCE section", path );
 
@@ -948,7 +951,8 @@ namespace Desert::Migration
         const std::vector<std::byte>& old = source->Bytes;
         std::size_t                   at  = 0;
         bool                          ok  = true;
-        const auto                    u32 = [&]() -> uint32_t {
+        const auto                    u32 = [&]() -> uint32_t
+        {
             if ( !ok || old.size() - at < 4 )
             {
                 ok = false;
@@ -959,21 +963,23 @@ namespace Desert::Migration
             at += 4;
             return v;
         };
-        const auto skip = [&]( const uint64_t n ) {
+        const auto skip = [&]( const uint64_t n )
+        {
             if ( !ok || old.size() - at < n )
                 ok = false;
             else
                 at += static_cast<std::size_t>( n );
         };
         const auto array   = [&]() { skip( uint64_t{ 4 } * u32() ); }; // Floats / Ints
-        const auto overlay = [&]() {
+        const auto overlay = [&]()
+        {
             array();
             array();
         };
         const uint32_t version = u32();
         if ( !ok || version != 2u )
-            return Common::MakeFormattedError<std::string>( "'{}' states mesh Source version {}; this step raises 2",
-                                                            path, version );
+            return Common::MakeFormattedError<std::string>(
+                 "'{}' states mesh Source version {}; this step raises 2", path, version );
         const uint32_t models = u32();
         for ( uint32_t m = 0; ok && m < models; ++m )
         {
@@ -1036,8 +1042,8 @@ namespace Desert::Migration
         const auto encoded = Assets::EncodeMeshSourceAsset( decoded.GetValue() );
         if ( !encoded )
             return Common::MakeFormattedError<std::string>( "'{}': {}", path, encoded.GetError() );
-        return Common::MakeSuccess(
-             std::string( reinterpret_cast<const char*>( encoded.GetValue().data() ), encoded.GetValue().size() ) );
+        return Common::MakeSuccess( std::string( reinterpret_cast<const char*>( encoded.GetValue().data() ),
+                                                 encoded.GetValue().size() ) );
     }
 
     Common::ResultStr<std::string> MigrateFoliageTypeV1ToV2( const std::string& text )

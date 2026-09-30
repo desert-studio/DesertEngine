@@ -1,7 +1,7 @@
 // SKEL-eng4/eng5: the engine's content mount (UE /Engine/Content) is its OWN tree, Editor/Resources/Engine/,
 // walked beside the project's assets root in EVERY project, so engine assets a project never copied — the
-// built-in humanoid's Humanoid.skeleton — are in its scan, and the sandbox's content (scenes, clouds) is not. The mount is working-directory relative (like the shaders), so the suite stands where the hosts do:
-// in Editor/.
+// built-in humanoid's Humanoid.skeleton — are in its scan, and the sandbox's content (scenes, clouds) is not. The
+// mount is working-directory relative (like the shaders), so the suite stands where the hosts do: in Editor/.
 
 #include <gtest/gtest.h>
 

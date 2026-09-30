@@ -78,8 +78,8 @@ namespace Desert::Editor
 
         // Load ONE preview mesh a registry row named, and hold the row to its word: the Rig tag is what the scan
         // read, the loaded mesh is what the file is now.
-        std::shared_ptr<Assets::SkinnedMeshAsset> LoadPreviewMesh( Assets::AssetManager&        assets,
-                                                                   const std::filesystem::path& path,
+        std::shared_ptr<Assets::SkinnedMeshAsset> LoadPreviewMesh( Assets::AssetManager&             assets,
+                                                                   const std::filesystem::path&      path,
                                                                    const Common::Content::AssetGuid& skeleton,
                                                                    std::string&                      error )
         {
@@ -98,10 +98,11 @@ namespace Desert::Editor
             if ( mesh->GetSkeleton() != skeleton )
             {
                 using Common::Content::ContentKind;
-                error = std::format( "skeletal mesh '{}' is registered on skeleton {} but its file names {} — "
-                                     "rescan the content",
-                                     path.generic_string(), SkeletonSlots::NameOf( ContentKind::Skeleton, skeleton ),
-                                     SkeletonSlots::NameOf( ContentKind::Skeleton, mesh->GetSkeleton() ) );
+                error =
+                     std::format( "skeletal mesh '{}' is registered on skeleton {} but its file names {} — "
+                                  "rescan the content",
+                                  path.generic_string(), SkeletonSlots::NameOf( ContentKind::Skeleton, skeleton ),
+                                  SkeletonSlots::NameOf( ContentKind::Skeleton, mesh->GetSkeleton() ) );
                 return nullptr;
             }
             return mesh;
@@ -220,8 +221,8 @@ namespace Desert::Editor
         }
         if ( m_Skeleton.IsNull() )
         {
-            m_Unavailable = std::format( "'{}' names no skeleton — no mesh can show it. Pick one in its Details.",
-                                         name );
+            m_Unavailable =
+                 std::format( "'{}' names no skeleton — no mesh can show it. Pick one in its Details.", name );
             return false;
         }
         auto skeleton = SkeletonSlots::LoadSkeleton( *m_Assets, m_Skeleton );
@@ -233,9 +234,9 @@ namespace Desert::Editor
         m_SkeletonAsset = skeleton.GetValue();
         // UE: the skeleton's PreviewSkeletalMesh is what Skeleton and Animation modes show (Mesh shows itself).
         if ( preferredMesh.empty() && !m_SkeletonAsset->GetPreviewMesh().IsNull() )
-            if ( const auto preview =
-                      Assets::ContentRegistry::RowOf( Common::Content::ContentKind::SkinnedMesh,
-                                                      SkeletonSlots::HandleOf( m_SkeletonAsset->GetPreviewMesh() ) ) )
+            if ( const auto preview = Assets::ContentRegistry::RowOf(
+                      Common::Content::ContentKind::SkinnedMesh,
+                      SkeletonSlots::HandleOf( m_SkeletonAsset->GetPreviewMesh() ) ) )
                 preferredMesh = preview->Path;
         return true;
     }
@@ -283,10 +284,10 @@ namespace Desert::Editor
         }
         if ( candidates.empty() )
         {
-            m_Unavailable = std::format( "'{}' is on skeleton {}, and no registered skeletal mesh (.skmesh) "
-                                         "uses that skeleton — nothing to preview it on.",
-                                         name, SkeletonSlots::NameOf( Common::Content::ContentKind::Skeleton,
-                                                                      m_Skeleton ) );
+            m_Unavailable =
+                 std::format( "'{}' is on skeleton {}, and no registered skeletal mesh (.skmesh) "
+                              "uses that skeleton — nothing to preview it on.",
+                              name, SkeletonSlots::NameOf( Common::Content::ContentKind::Skeleton, m_Skeleton ) );
             return;
         }
         m_MeshCandidates = std::move( candidates );
@@ -865,10 +866,12 @@ namespace Desert::Editor
             names[i]              = bones[i].Name;
         }
         for ( uint32_t i = 0; i < count; ++i )
-            if ( m_ShowBones || i == selected || ( selected < count && static_cast<int>( i ) == parents[selected] ) )
+            if ( m_ShowBones || i == selected ||
+                 ( selected < count && static_cast<int>( i ) == parents[selected] ) )
                 screen[i] = project( i );
         DrawBoneOverlay( ImGui::GetWindowDrawList(), screen, parents, names,
-                         selected < count ? static_cast<int>( selected ) : -1, /*showAllNames=*/false, &m_BonePick );
+                         selected < count ? static_cast<int>( selected ) : -1, /*showAllNames=*/false,
+                         &m_BonePick );
     }
 
     void AnimationEditorDocument::DrawSkeletonTree()
@@ -1200,7 +1203,8 @@ namespace Desert::Editor
     {
         // UE's Asset Browser in Persona: the clips that play on the previewed rig, a search, and a double click to
         // open one. Listed from the CONTENT REGISTRY by each clip's Skeleton tag through the one playback rule
-        // (Animation::ClipPlaysOnMesh) - nothing is loaded to list them, as UE's browser reads the registry's tags.
+        // (Animation::ClipPlaysOnMesh) - nothing is loaded to list them, as UE's browser reads the registry's
+        // tags.
         if ( m_Skeleton.IsNull() )
         {
             ImGui::TextDisabled( "No skeleton is known yet: nothing to list clips for." );
@@ -1845,8 +1849,8 @@ namespace Desert::Editor
         SectionHeader( "Preview Mesh" );
         if ( const auto picked = SkeletonSlots::DrawGuidSlot(
                   "PreviewMesh", ContentKind::SkinnedMesh, m_SkeletonAsset->GetPreviewMesh(), /*allowNone=*/true,
-                  m_SlotFilter,
-                  [this]( const Assets::ContentRegistry::PickerRow& mesh ) { return mesh.Skeleton == m_Skeleton; } );
+                  m_SlotFilter, [this]( const Assets::ContentRegistry::PickerRow& mesh )
+                  { return mesh.Skeleton == m_Skeleton; } );
              picked && *picked != m_SkeletonAsset->GetPreviewMesh() )
         {
             m_SkeletonAsset->SetPreviewMesh( *picked );
@@ -1857,24 +1861,25 @@ namespace Desert::Editor
 
         // UE USkeleton::CompatibleSkeletons: skeletons whose clips play on meshes of this one (one direction).
         SectionHeader( "Compatible Skeletons" );
-        const auto          listed = m_SkeletonAsset->GetCompatibleSkeletons();
+        const auto             listed = m_SkeletonAsset->GetCompatibleSkeletons();
         std::vector<AssetGuid> compatible( listed.begin(), listed.end() );
         bool                   changed = false;
-        const auto offer = [&]( const AssetGuid& self )
+        const auto             offer   = [&]( const AssetGuid& self )
         {
             return [&, self]( const Assets::ContentRegistry::PickerRow& skeleton )
             {
                 const AssetGuid guid = skeleton.Guid.value_or( AssetGuid{} );
-                return guid != m_Skeleton && ( guid == self || std::ranges::find( compatible, guid ) == compatible.end() );
+                return guid != m_Skeleton &&
+                       ( guid == self || std::ranges::find( compatible, guid ) == compatible.end() );
             };
         };
         std::optional<size_t> removed;
         for ( size_t i = 0; i < compatible.size(); ++i )
         {
             ImGui::PushID( static_cast<int>( i ) );
-            if ( const auto picked = SkeletonSlots::DrawGuidSlot( "Compatible", ContentKind::Skeleton, compatible[i],
-                                                                  /*allowNone=*/false, m_SlotFilter,
-                                                                  offer( compatible[i] ) );
+            if ( const auto picked =
+                      SkeletonSlots::DrawGuidSlot( "Compatible", ContentKind::Skeleton, compatible[i],
+                                                   /*allowNone=*/false, m_SlotFilter, offer( compatible[i] ) );
                  picked && *picked != compatible[i] )
             {
                 compatible[i] = *picked;
@@ -1892,8 +1897,9 @@ namespace Desert::Editor
         }
         ImGui::TextDisabled( "Add:" );
         ImGui::SameLine();
-        if ( const auto added = SkeletonSlots::DrawGuidSlot( "AddCompatible", ContentKind::Skeleton, AssetGuid{},
-                                                             /*allowNone=*/false, m_SlotFilter, offer( AssetGuid{} ) ) )
+        if ( const auto added =
+                  SkeletonSlots::DrawGuidSlot( "AddCompatible", ContentKind::Skeleton, AssetGuid{},
+                                               /*allowNone=*/false, m_SlotFilter, offer( AssetGuid{} ) ) )
         {
             compatible.push_back( *added );
             changed = true;
@@ -1905,7 +1911,8 @@ namespace Desert::Editor
             m_BrowserListed = false; // the clips that play here changed
         }
         if ( !m_AssignStatus.empty() )
-            ImGui::TextColored( m_AssignFailed ? ImVec4( 1.0f, 0.45f, 0.35f, 1.0f ) : ImVec4( 0.6f, 0.85f, 0.6f, 1.0f ),
+            ImGui::TextColored( m_AssignFailed ? ImVec4( 1.0f, 0.45f, 0.35f, 1.0f )
+                                               : ImVec4( 0.6f, 0.85f, 0.6f, 1.0f ),
                                 "%s", m_AssignStatus.c_str() );
     }
 
@@ -1938,7 +1945,8 @@ namespace Desert::Editor
             }
             else
             {
-                m_AssignStatus = std::format( "Skeleton set to {}.", SkeletonSlots::NameOf( ContentKind::Skeleton, *picked ) );
+                m_AssignStatus =
+                     std::format( "Skeleton set to {}.", SkeletonSlots::NameOf( ContentKind::Skeleton, *picked ) );
                 m_AssignFailed = false;
                 ResetRig();
                 return;
@@ -1976,12 +1984,13 @@ namespace Desert::Editor
         if ( m_Skeleton.IsNull() )
             return;
         using Common::Content::ContentKind;
-        const auto                     listed = m_SkeletonAsset ? m_SkeletonAsset->GetCompatibleSkeletons()
-                                                                : std::span<const Common::Content::AssetGuid>{};
-        const Animation::SkeletonAssetRef meshSkeleton{ m_Skeleton, SkeletonSlots::NameOf( ContentKind::Skeleton,
-                                                                                           m_Skeleton ) };
+        const auto                        listed = m_SkeletonAsset ? m_SkeletonAsset->GetCompatibleSkeletons()
+                                                                   : std::span<const Common::Content::AssetGuid>{};
+        const Animation::SkeletonAssetRef meshSkeleton{
+             m_Skeleton, SkeletonSlots::NameOf( ContentKind::Skeleton, m_Skeleton ) };
         for ( const auto& row : Assets::ContentRegistry::Rows( ContentKind::Animation ) )
-            if ( Animation::ClipPlaysOnMesh( { row.Skeleton, row.Path.filename().string() }, meshSkeleton, listed ) )
+            if ( Animation::ClipPlaysOnMesh( { row.Skeleton, row.Path.filename().string() }, meshSkeleton,
+                                             listed ) )
                 m_BrowserClips.emplace_back( row.Path.filename().string(), row.Handle );
         std::ranges::sort( m_BrowserClips );
     }

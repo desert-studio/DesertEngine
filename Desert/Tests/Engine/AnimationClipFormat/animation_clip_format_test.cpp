@@ -114,8 +114,8 @@ TEST( AnimationClipFormat, AssetFieldCensus )
     // THM-FIXJ: `Import` - the source file the clip was imported from (UE: UAnimSequence::
     // AssetImportData), so Reimport reads it from the asset itself.
     EXPECT_EQ( FieldNames<Ser::AnimationAssetData>(),
-               ( std::vector<std::string>{ "Channels", "Curves", "DisplayRate", "DurationTicks", "Header", "Import",
-                                           "Name", "Notifies", "Sections", "Skeleton", "TickRate" } ) );
+               ( std::vector<std::string>{ "Channels", "Curves", "DisplayRate", "DurationTicks", "Header",
+                                           "Import", "Name", "Notifies", "Sections", "Skeleton", "TickRate" } ) );
     // SKEL-TREE (ANIM 5): the clip names its rig by the .skeleton's GUID (UE UAnimSequence::Skeleton), no
     // longer by a hash of the bones; the reference is the one GUID+path pair every text format uses.
     EXPECT_EQ( FieldNames<Desert::Assets::AssetGuidRef>(), ( std::vector<std::string>{ "Guid", "Path" } ) );

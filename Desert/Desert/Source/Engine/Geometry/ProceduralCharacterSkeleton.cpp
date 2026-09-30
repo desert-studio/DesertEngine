@@ -57,9 +57,10 @@ namespace Desert::Geometry
         auto read = Assets::Serialization::ReadSkeletonFile( HumanoidSkeletonFile() );
         if ( !read )
         {
-            LOG_ERROR( "[Geometry] the built-in humanoid's skeleton does not read: {}; the procedural humanoid has "
-                       "no rig.",
-                       read.GetError() );
+            LOG_ERROR(
+                 "[Geometry] the built-in humanoid's skeleton does not read: {}; the procedural humanoid has "
+                 "no rig.",
+                 read.GetError() );
             return nullptr;
         }
         auto data = read.ExtractValue();

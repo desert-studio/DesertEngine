@@ -28,12 +28,13 @@ namespace Desert::Editor::SkeletonSlots
     {
         std::string Lower( std::string text )
         {
-            std::ranges::transform( text, text.begin(),
-                                    []( const unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
+            std::ranges::transform( text, text.begin(), []( const unsigned char c )
+                                    { return static_cast<char>( std::tolower( c ) ); } );
             return text;
         }
 
-        std::optional<Assets::ContentRegistry::PickerRow> RowOfGuid( const ContentKind kind, const AssetGuid& guid )
+        std::optional<Assets::ContentRegistry::PickerRow> RowOfGuid( const ContentKind kind,
+                                                                     const AssetGuid&  guid )
         {
             if ( guid.IsNull() )
                 return std::nullopt;
@@ -55,9 +56,10 @@ namespace Desert::Editor::SkeletonSlots
         return std::format( "{:016x}{:016x} (not registered)", guid.Hi, guid.Lo );
     }
 
-    std::optional<AssetGuid> DrawGuidSlot( const char* id, const ContentKind kind, const AssetGuid& current,
-                                           const bool allowNone, std::array<char, 64>& filter,
-                                           const std::function<bool( const Assets::ContentRegistry::PickerRow& )>& accept )
+    std::optional<AssetGuid>
+    DrawGuidSlot( const char* id, const ContentKind kind, const AssetGuid& current, const bool allowNone,
+                  std::array<char, 64>&                                                   filter,
+                  const std::function<bool( const Assets::ContentRegistry::PickerRow& )>& accept )
     {
         std::optional<AssetGuid> picked;
         ImGui::PushID( id );
@@ -107,13 +109,13 @@ namespace Desert::Editor::SkeletonSlots
     }
 
     Common::ResultStr<std::shared_ptr<Assets::SkeletonAsset>> LoadSkeleton( Assets::AssetManager& assets,
-                                                                          const AssetGuid&      skeleton )
+                                                                            const AssetGuid&      skeleton )
     {
-        using Result = std::shared_ptr<Assets::SkeletonAsset>;
+        using Result   = std::shared_ptr<Assets::SkeletonAsset>;
         const auto row = RowOfGuid( ContentKind::Skeleton, skeleton );
         if ( !row )
-            return Common::MakeError<Result>(
-                 std::format( "skeleton {} is not a registered .skeleton", NameOf( ContentKind::Skeleton, skeleton ) ) );
+            return Common::MakeError<Result>( std::format( "skeleton {} is not a registered .skeleton",
+                                                           NameOf( ContentKind::Skeleton, skeleton ) ) );
         auto asset = assets.FindByPath<Assets::SkeletonAsset>( row->Path );
         if ( !asset )
             asset = assets.CreateAsset<Assets::SkeletonAsset>( row->Path, false );
@@ -121,8 +123,8 @@ namespace Desert::Editor::SkeletonSlots
             return Common::MakeError<Result>(
                  std::format( "skeleton '{}' could not be registered", row->Path.generic_string() ) );
         if ( const auto loaded = asset->EnsureLoaded( assets ); !loaded )
-            return Common::MakeError<Result>(
-                 std::format( "skeleton '{}' would not load: {}", row->Path.generic_string(), loaded.GetError() ) );
+            return Common::MakeError<Result>( std::format( "skeleton '{}' would not load: {}",
+                                                           row->Path.generic_string(), loaded.GetError() ) );
         return Common::MakeSuccess( std::move( asset ) );
     }
 
@@ -133,9 +135,8 @@ namespace Desert::Editor::SkeletonSlots
                                      const std::string&                          assetName )
         {
             if ( skeleton.IsNull() )
-                return Common::MakeError<bool>(
-                     std::format( "'{}': a skeleton reference cannot be cleared — every mesh and clip names one",
-                                  assetName ) );
+                return Common::MakeError<bool>( std::format(
+                     "'{}': a skeleton reference cannot be cleared — every mesh and clip names one", assetName ) );
             const auto loaded = LoadSkeleton( assets, skeleton );
             if ( !loaded )
                 return Common::MakeError<bool>( loaded.GetError() );

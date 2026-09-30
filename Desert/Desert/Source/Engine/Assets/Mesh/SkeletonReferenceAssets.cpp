@@ -101,10 +101,12 @@ namespace Desert::Assets::Serialization
         const std::filesystem::path file = ContentRegistry::FileToOpen( skmeshPath );
         if ( skeleton.IsNull() )
             return Common::MakeFormattedError<bool>(
-                 "mesh '{}' was not saved: a skinned mesh must name a skeleton (the GUID is null)", file.string() );
+                 "mesh '{}' was not saved: a skinned mesh must name a skeleton (the GUID is null)",
+                 file.string() );
         auto raw = Common::Utils::FileSystem::ReadFileContent( file );
         if ( !raw )
-            return Common::MakeFormattedError<bool>( "mesh '{}' was not saved: {}", file.string(), raw.GetError() );
+            return Common::MakeFormattedError<bool>( "mesh '{}' was not saved: {}", file.string(),
+                                                     raw.GetError() );
 
         // A MESH SOURCE ASSET (an MSAS envelope, not a cooked DESTMESH): the skin's Skeleton IS the reference;
         // the .skmesh the deriver builds from it states the same GUID.
@@ -154,7 +156,8 @@ namespace Desert::Assets::Serialization
                                                              chosen.GetError() );
         }
         data.Skeleton = skeleton;
-        if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( file, EncodeMeshBinary( data ) );
+        if ( const auto written =
+                  Common::Utils::FileSystem::WriteContentToFileAtomic( file, EncodeMeshBinary( data ) );
              !written )
             return Common::MakeFormattedError<bool>( "mesh '{}' was not saved: {}", file.string(),
                                                      written.GetError() );

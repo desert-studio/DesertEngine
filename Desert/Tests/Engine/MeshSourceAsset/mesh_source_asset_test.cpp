@@ -41,8 +41,8 @@ namespace
         // Slot 2 is unassigned and slot 1 repeats A: the header names A and B once each.
         a.Source.MaterialSlots = { { "Body", kMatA }, { "Trim", kMatB }, { "Spare", {} }, { "Again", kMatA } };
         if ( skinned )
-            a.Source.Skin = MeshSkin{
-                 kSkeleton, { "root", "arm" }, { { 0, 0, 1.f }, { 2, 1, 0.75f }, { 2, 0, 0.25f } } };
+            a.Source.Skin =
+                 MeshSkin{ kSkeleton, { "root", "arm" }, { { 0, 0, 1.f }, { 2, 1, 0.75f }, { 2, 0, 0.25f } } };
         return a;
     }
 
@@ -268,9 +268,9 @@ TEST( MeshSourceAsset, KindAndSkinMustAgree )
 // SKEL-eng3: a skin binds to one .skeleton by GUID; a null GUID is no binding and is refused on both sides.
 TEST( MeshSourceAsset, SkinWithoutSkeletonIsRefused )
 {
-    MeshSourceAsset a                = MakeQuad( true );
+    MeshSourceAsset a              = MakeQuad( true );
     a.Source.Skin.value().Skeleton = {};
-    const auto encoded               = EncodeMeshSourceAsset( a );
+    const auto encoded             = EncodeMeshSourceAsset( a );
     ASSERT_FALSE( encoded.IsSuccess() );
     EXPECT_NE( encoded.GetError().find( "skeleton" ), std::string::npos ) << encoded.GetError();
 }

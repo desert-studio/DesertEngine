@@ -121,8 +121,8 @@ namespace Desert::Assets
         if ( data.Skeleton.IsNull() )
         {
             return Common::MakeFormattedError( "skinned mesh '{}' names no skeleton (MeshBinary v5 "
-                                                     "SkeletonGuid is null) - it cannot be skinned",
-                                                     m_Metadata.Filepath.string() );
+                                               "SkeletonGuid is null) - it cannot be skinned",
+                                               m_Metadata.Filepath.string() );
         }
 
         m_Skeleton = data.Skeleton;

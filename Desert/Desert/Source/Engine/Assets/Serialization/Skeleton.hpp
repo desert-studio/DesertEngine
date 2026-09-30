@@ -90,12 +90,14 @@ namespace Desert::Assets::Serialization
         {
             auto raw = Common::Utils::FileSystem::ReadFileContent( file );
             if ( !raw )
-                return Common::MakeError<SkeletonAssetData>( std::format( "'{}': {}", file.string(), raw.GetError() ) );
+                return Common::MakeError<SkeletonAssetData>(
+                     std::format( "'{}': {}", file.string(), raw.GetError() ) );
             text = raw.ExtractValue();
         }
         auto read = ReadSkeletonJson( text );
         if ( !read )
-            return Common::MakeError<SkeletonAssetData>( std::format( "'{}': {}", file.string(), read.GetError() ) );
+            return Common::MakeError<SkeletonAssetData>(
+                 std::format( "'{}': {}", file.string(), read.GetError() ) );
         return read;
     }
 } // namespace Desert::Assets::Serialization

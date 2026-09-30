@@ -238,8 +238,7 @@ namespace Desert::Geometry
             Animation::AnimationClip bound   = clip.ExtractValue();
             bound.Skeleton                   = skeletonGuid;
             const std::filesystem::path file = HumanoidClipFile( clipAsset.Name );
-            if ( const auto ok = Assets::Serialization::SaveClipToFile( file, bound, clipAsset.Guid );
-                 !ok )
+            if ( const auto ok = Assets::Serialization::SaveClipToFile( file, bound, clipAsset.Guid ); !ok )
                 return Common::MakeError<Result>( ok.GetError() );
             written.push_back( file );
         }

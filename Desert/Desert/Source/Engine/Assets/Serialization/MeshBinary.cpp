@@ -144,7 +144,7 @@ namespace Desert::Assets::Serialization
         static_assert( SecSubmeshes == Common::Content::kMeshBinarySubmeshSectionId );
         constexpr uint32_t kSectionCount = SecCount_ - 1; // the one version read has every row
 
-        constexpr uint32_t kFlagIsSkinned            = Common::Content::kMeshFlagIsSkinned;
+        constexpr uint32_t kFlagIsSkinned = Common::Content::kMeshFlagIsSkinned;
 
         /// The element size the format declares for each section, indexed by id. A reader that finds a
         /// different number in the file stops there: see the header's note on type width.
@@ -351,8 +351,7 @@ namespace Desert::Assets::Serialization
                        "the first section must start 8-byte aligned without padding after the table" );
         for ( uint32_t i = 0; i < kSectionCount; ++i )
         {
-            const uint32_t elementSize =
-                 ExpectedElementSize( payloads[i].Id );
+            const uint32_t elementSize = ExpectedElementSize( payloads[i].Id );
             table[i].Id                = payloads[i].Id;
             table[i].ElementSize       = elementSize;
             table[i].Offset            = at;
@@ -421,10 +420,11 @@ namespace Desert::Assets::Serialization
         if ( header.Version != kMeshBinaryVersion )
         {
             return Common::MakeFormattedError<MeshAssetData>(
-                 "'{}' is cooked-mesh format version {}, this build reads only version {}{}.", who,
-                 header.Version, kMeshBinaryVersion,
-                 header.Version < kMeshBinaryVersion ? " - raise it with Tools/SceneMigrator (scripts/Dev/migrate.sh)"
-                                                     : " - it was written by a later build" );
+                 "'{}' is cooked-mesh format version {}, this build reads only version {}{}.", who, header.Version,
+                 kMeshBinaryVersion,
+                 header.Version < kMeshBinaryVersion
+                      ? " - raise it with Tools/SceneMigrator (scripts/Dev/migrate.sh)"
+                      : " - it was written by a later build" );
         }
 
         // THE TRUNCATION CHECK, AND THE REASON `FileSize` IS IN THE HEADER AT ALL. A file that stops

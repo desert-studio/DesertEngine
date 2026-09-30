@@ -309,22 +309,25 @@ namespace Desert::Migration
     // ANIM 4 -> 5: `SkeletonSignature` becomes `Skeleton` {Guid, Path} (and the header's one Dependency) through
     // Animation::MigrateSkeletonReference - exactly one candidate, else its refusal naming every path. The text
     // comes back canonical. PURE - no filesystem access.
-    Common::ResultStr<std::string> MigrateAnimationV4ToV5( std::string_view path, const std::string& text,
-                                                           std::span<const Animation::SkeletonCandidate> skeletons );
+    Common::ResultStr<std::string>
+    MigrateAnimationV4ToV5( std::string_view path, const std::string& text,
+                            std::span<const Animation::SkeletonCandidate> skeletons );
 
     // MeshBinary 3/4 -> 5: the 64-byte header's bone hash becomes the 80-byte header's SkeletonGuid (same rule);
     // the table and payloads shift behind the longer prefix, v3 gains the empty Colors/UV1 rows. The result is
     // judged by the engine's DecodeMeshBinary and re-stated by EncodeMeshBinary. PURE.
-    Common::ResultStr<std::string> MigrateMeshBinaryToV5( std::string_view path, std::string_view bytes,
-                                                          std::span<const Animation::SkeletonCandidate> skeletons );
+    Common::ResultStr<std::string>
+    MigrateMeshBinaryToV5( std::string_view path, std::string_view bytes,
+                           std::span<const Animation::SkeletonCandidate> skeletons );
 
     // MSAS SRCE 2 -> 3 (a `.stmesh` / `.skmesh` mesh source asset): the skin's bone signature (U64) becomes its
     // skeleton's GUID (Hi, Lo; same rule as above) and the header's dependencies gain it after the materials; a
     // static source changes its SRCE version only. Every other section and byte is kept. The result is judged
     // by the engine's DecodeMeshSourceAsset. A source that does not state SRCE 2 is an error naming what it
     // states. PURE.
-    Common::ResultStr<std::string> MigrateMeshSourceToV3( std::string_view path, std::string_view bytes,
-                                                          std::span<const Animation::SkeletonCandidate> skeletons );
+    Common::ResultStr<std::string>
+    MigrateMeshSourceToV3( std::string_view path, std::string_view bytes,
+                           std::span<const Animation::SkeletonCandidate> skeletons );
 
     // The v3 text of a v2 `.defoliage`: every v2 number kept, CullDistance at UE's default {0, 0} (never
     // culled), the header's GUID kept. A file that does not state FOLT 2 is an error naming what it states.

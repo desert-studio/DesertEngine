@@ -85,8 +85,8 @@ namespace Desert::Assets
          * and `Tracks.size()` are both free to come back identical when the allocator reuses the block.
          */
         uint32_t m_TrackRevision = 0;
-        bool m_HasClip    = false;
-        bool m_FromMemory = false;
+        bool     m_HasClip       = false;
+        bool     m_FromMemory    = false;
     };
 
 } // namespace Desert::Assets

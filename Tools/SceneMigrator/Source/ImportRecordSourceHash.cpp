@@ -79,7 +79,7 @@ namespace Desert::Migration
                 return Common::MakeError<Result>( box.GetError() );
             data.Bounds = box.GetValue();
         }
-        auto text       = Ser::WriteImportRecord( data, kind );
+        auto text = Ser::WriteImportRecord( data, kind );
         if ( !text )
             return Common::MakeFormattedError<Result>(
                  "'{}': {}", Common::Content::ImportRecordPathFor( source ).string(), text.GetError() );
