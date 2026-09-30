@@ -22,7 +22,8 @@ namespace Desert::Editor
     // Scene Settings panel, marked "(this machine)", until SET1 gave them their own window.
     // Starts CLOSED, like the other tools in Window -> Tools (Localization): it is opened on purpose, and a
     // default-visible floating window sat on top of the viewport at every start on a fresh profile.
-    ScalabilityPanel::ScalabilityPanel() : IPanel( "Scalability", /*showPanel=*/false )
+    ScalabilityPanel::ScalabilityPanel( const std::shared_ptr<Desert::Core::Scene>& scene )
+        : IPanel( "Scalability", /*showPanel=*/false ), m_Scene( scene )
     {
     }
 

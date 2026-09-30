@@ -10,7 +10,7 @@ namespace Desert::Editor
     class ScalabilityPanel final : public IPanel
     {
     public:
-        ScalabilityPanel();
+        explicit ScalabilityPanel( const std::shared_ptr<Desert::Core::Scene>& scene );
 
         void OnUIRender() override;
 
