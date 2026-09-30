@@ -25,8 +25,10 @@
  * ── UI animation (UIAnimData on a widget) ─────────────────────────────────────────────────────────────
  *
  * END STATE: `UIAnimData` holds a `Timeline::Sequence` (Host = UIAnimation) + a `LoopMode` + autoplay;
- * `UIAnimTrack`/`UIAnimKey`/`UIEasing` are deleted. The Sequencer's UI mode and its skeletal mode become
- * one editor over one type (the two key models were PRESCAN's duplicate (2)).
+ * `UIAnimTrack`/`UIAnimKey` are deleted (`UIEasing` stays: UITween and UIScreenStack still author it, and
+ * `PresetOf` is its one table into `EasingPreset`). The Sequencer's UI mode and its skeletal mode become
+ * one editor over one type (the two key models were PRESCAN's duplicate (2)). Scene v41 lifts the v40
+ * block (`UIAnimationV40`, the lift's input and nothing else's) in the migrator, once.
  *
  *   UIAnimTrack{Offset|Size}    → Track{Widget binding, "Offset"|"Size", Vector} (Z unkeyed)
  *   UIAnimTrack{Opacity}        → Track{..., "Opacity", Float}
@@ -48,8 +50,11 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <glm/glm.hpp>
+
 #include <cstdint>
 #include <string_view>
+#include <vector>
 
 namespace Desert::Animation
 {
@@ -57,7 +62,6 @@ namespace Desert::Animation
 }
 namespace Desert::ECS
 {
-    struct UIAnimData;
     enum class UIEasing;
 } // namespace Desert::ECS
 
@@ -90,11 +94,38 @@ namespace Desert::Animation::Timeline
     };
 
     /**
-     * @brief A widget's UIAnimData → its sequence. @p widgetLocator is the owning element's entity UUID.
-     * Refuses a track with unsorted keys and an unknown property by name.
+     * @brief The `UIAnim` block as scene v40 stated it — the INPUT of the v40 -> v41 lift, read by the scene
+     * migrator and by nothing at runtime. Enums travel as the integers the block stored: `Property` is
+     * `ECS::UITweenProperty` (Offset 0, Size 1, Opacity 2, Color 3), `Easing` is `ECS::UIEasing`.
      */
-    [[nodiscard]] Common::ResultStr<UILiftResult> LiftUIAnimation( const ECS::UIAnimData& legacy,
-                                                                   std::string_view       widgetLocator,
+    struct UIAnimationKeyV40
+    {
+        float     Time   = 0.0F;
+        glm::vec4 Value  = glm::vec4( 0.0F );
+        int       Easing = 5; ///< CubicOut, the v40 default
+    };
+    struct UIAnimationTrackV40
+    {
+        int                            Property = 0;
+        std::vector<UIAnimationKeyV40> Keys;
+    };
+    struct UIAnimationV40
+    {
+        std::vector<UIAnimationTrackV40> Tracks;
+        float                            Duration = 1.0F;
+        bool                             Loop     = false;
+        bool                             Playing  = true;
+    };
+
+    /**
+     * @brief A v40 UI clip → its sequence. @p widgetLocator is the owning element's entity UUID as text.
+     *
+     * The playback range is [0, Duration] (widened to the keys when a key lies outside it); each track is one
+     * Absolute section over that range. Refuses by name: an unknown property, an easing outside `UIEasing`,
+     * keys not sorted by time, two keys that round onto one tick.
+     */
+    [[nodiscard]] Common::ResultStr<UILiftResult> LiftUIAnimation( const UIAnimationV40& legacy,
+                                                                   std::string_view      widgetLocator,
                                                                    FrameRate tickRate, FrameRate displayRate );
 
     /// The migration's one table: `UIEasing` → `EasingPreset`, value for value.
