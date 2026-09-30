@@ -333,7 +333,7 @@ def self_check():
             pass
     rules = ", ".join(cases)
     msg = (f"[agent_guard] А Р Х И Т Е К Т У Р А ПЕРВОЙ: решение = как правильно устроено (UE или лучше), не замер/бюджет/урезанный охват "
-           f"(LEAD_PROTOCOL, DEV_CONTRACT §00). self-check OK: {len(cases)} known-bad calls refused ({rules})." if not failed else
+           f"(LEAD_PROTOCOL, DEV_CONTRACT §00). ПАУЗА после текущей очереди (SHM1, SKEL-TREE, UI, ANIM-UNIFY, EDL-SPLIT) — новых задач не брать без слова владельца (LEAD_PROTOCOL §000b). Статистика: ledger.py + process_event.py на каждый запуск/приём. self-check OK: {len(cases)} known-bad calls refused ({rules})." if not failed else
            f"[agent_guard] SELF-CHECK FAILED — these rules no longer bite: {', '.join(failed)}. "
            f"Restore .claude/tools/agent_guard.py from git history BEFORE launching any agent.")
     emit({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": msg}})
