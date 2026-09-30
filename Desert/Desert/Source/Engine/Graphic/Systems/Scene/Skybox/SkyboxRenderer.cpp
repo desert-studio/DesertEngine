@@ -228,55 +228,26 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    void SkyboxRenderer::DispatchCachedAtmosphereLuts( bool inFrame )
+    void SkyboxRenderer::DispatchTransmittanceLut()
     {
-        DispatchTransmittanceLut( inFrame );
-        DispatchMultiScatterLut( inFrame );
-    }
-
-    void SkyboxRenderer::DispatchTransmittanceLut( bool inFrame )
-    {
-        auto& renderer = Renderer::GetInstance();
-
-        // Transmittance strictly first: the multi-scattering march samples it per step.
+        // Transmittance strictly first: the multi-scattering march samples it per step (the graph orders the
+        // two nodes by their declared write and read).
         m_TransmittanceLutPipeline->SetOutput( kSkyTransmittanceLutOutputBinding, m_TransmittanceLut.get(), 0 );
         m_TransmittanceLutPipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
-        if ( inFrame )
-        {
-            renderer.DispatchComputeInFrame( m_TransmittanceLutPipeline.get(),
-                                             LutGroupCount( kTransmittanceLutWidth ),
-                                             LutGroupCount( kTransmittanceLutHeight ), 1 );
-        }
-        else
-        {
-            // Immediate submit (the bake path, which runs OUTSIDE a frame): ComputePipeline::Dispatch
-            // owns the output's layout round-trip and leaves it sampleable, the same contract
-            // EndWrite provides in-frame.
-            m_TransmittanceLutPipeline->Dispatch( LutGroupCount( kTransmittanceLutWidth ),
-                                                  LutGroupCount( kTransmittanceLutHeight ), 1 );
-        }
+        Renderer::GetInstance().DispatchComputeInFrame( m_TransmittanceLutPipeline.get(),
+                                                        LutGroupCount( kTransmittanceLutWidth ),
+                                                        LutGroupCount( kTransmittanceLutHeight ), 1 );
     }
 
-    void SkyboxRenderer::DispatchMultiScatterLut( bool inFrame )
+    void SkyboxRenderer::DispatchMultiScatterLut()
     {
-        auto& renderer = Renderer::GetInstance();
-
         m_MultiScatterLutPipeline->SetOutput( kSkyMultiScatterLutOutputBinding, m_MultiScatterLut.get(), 0 );
         m_MultiScatterLutPipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
-        // Written a moment ago; both paths leave it sampleable by the dispatch that follows.
         m_MultiScatterLutPipeline->SetInput( kSkyTransmittanceLutBinding, m_TransmittanceLut.get(),
                                              RDG::Access::SampledCompute, std::nullopt );
-        if ( inFrame )
-        {
-            renderer.DispatchComputeInFrame( m_MultiScatterLutPipeline.get(),
-                                             LutGroupCount( kMultiScatterLutSize ),
-                                             LutGroupCount( kMultiScatterLutSize ), 1 );
-        }
-        else
-        {
-            m_MultiScatterLutPipeline->Dispatch( LutGroupCount( kMultiScatterLutSize ),
-                                                 LutGroupCount( kMultiScatterLutSize ), 1 );
-        }
+        Renderer::GetInstance().DispatchComputeInFrame( m_MultiScatterLutPipeline.get(),
+                                                        LutGroupCount( kMultiScatterLutSize ),
+                                                        LutGroupCount( kMultiScatterLutSize ), 1 );
     }
 
     bool SkyboxRenderer::EnsureSkyViewLutResources()
@@ -477,7 +448,7 @@ namespace Desert::Graphic::System
             transmittance.Record = [this]()
             {
                 DESERT_PROFILE_PASS( "Sky: AtmosphereLuts" );
-                DispatchTransmittanceLut( /*inFrame=*/true );
+                DispatchTransmittanceLut();
             };
             nodes.push_back( std::move( transmittance ) );
 
@@ -485,7 +456,7 @@ namespace Desert::Graphic::System
             multiScatter.Name = "Sky: MultiScatterLut";
             multiScatter.Access.Read( m_TransmittanceLut, RDG::Access::SampledCompute, "Sky.TransmittanceLut" );
             multiScatter.Access.Write( m_MultiScatterLut, RDG::Access::StorageWrite, "Sky.MultiScatterLut" );
-            multiScatter.Record = [this]() { DispatchMultiScatterLut( /*inFrame=*/true ); };
+            multiScatter.Record = [this]() { DispatchMultiScatterLut(); };
             nodes.push_back( std::move( multiScatter ) );
 
             m_LutBaked  = wanted;
@@ -516,6 +487,7 @@ namespace Desert::Graphic::System
                 DispatchSkyViewLut();
             };
             nodes.push_back( std::move( skyView ) );
+            m_SkyViewLutFilled = true;
         }
 
         if ( m_AerialPerspectivePipeline && m_ActiveCamera && EnsureAerialPerspectiveResources() )
@@ -566,27 +538,9 @@ namespace Desert::Graphic::System
             declared.Read( m_DistantLight, access, "Sky.DistantLight" );
     }
 
-    bool SkyboxRenderer::EnsureCachedLutsForBake()
+    bool SkyboxRenderer::CachedLutsCurrent() const
     {
-        if ( !m_TransmittanceLutPipeline || !m_MultiScatterLutPipeline || !m_SkyParams )
-            return false;
-        if ( !EnsureAtmosphereLutResources() )
-            return false;
-
-        const AtmosphereLutFingerprint wanted = LutFingerprintOf( m_Sky );
-        if ( m_LutsValid && wanted == m_LutBaked )
-            return true;
-
-        // First physical bake of this renderer (or an atmosphere edit in the same frame): the in-frame
-        // slot has not run yet, and the bake cannot march empty LUTs. Immediate dispatches fill them
-        // now; the caller idles the device around the bake anyway.
-        DispatchCachedAtmosphereLuts( /*inFrame=*/false );
-        m_LutBaked  = wanted;
-        m_LutsValid = true;
-
-        LOG_INFO( "[SkyAtmosphere] Atmosphere LUTs dispatched immediately for the environment bake — "
-                  "the bake ran before this frame's in-frame LUT slot." );
-        return true;
+        return m_TransmittanceLut && m_MultiScatterLut && m_LutsValid && LutFingerprintOf( m_Sky ) == m_LutBaked;
     }
 
     void SkyboxRenderer::PrepareCamera( Core::Camera* camera )
@@ -747,6 +701,25 @@ namespace Desert::Graphic::System
                                                         kSkyRebakeSettleSeconds, kSkyRebakeMaxDeferSeconds ) )
             return;
 
+        // The physical model's bake marches the cached LUTs, and those are written by the frame graph's
+        // SkyAtmosphereLuts nodes and nowhere else. Until a graph has written them for these parameters (the
+        // first frame of a physical sky, or an atmosphere edit), the bake waits: the nodes are declared by
+        // this frame's graph, which runs before the next frame's bake.
+        const bool physical = m_Sky.Model == ECS::SkyModel::PhysicalAtmosphere;
+        if ( physical && !CachedLutsCurrent() )
+        {
+            if ( !m_TransmittanceLutPipeline || !m_MultiScatterLutPipeline || m_LutResourcesFailed )
+            {
+                LOG_ERROR( "[SkyAtmosphere] Environment bake skipped: the physical model's atmosphere LUTs "
+                           "are unavailable (see the errors above). The previous environment is kept." );
+                return;
+            }
+            m_BakeRequested = m_BakeRequested || explicitRequest;
+            LOG_INFO( "[SkyAtmosphere] Environment bake waits one frame: this frame's graph writes the "
+                      "atmosphere LUTs the bake marches." );
+            return;
+        }
+
         m_SecondsSinceStale = 0.0f;
 
         const SkyEnvironmentSize size = EnvironmentPanoramaSize( m_Sky.EnvironmentResolution );
@@ -765,17 +738,6 @@ namespace Desert::Graphic::System
         // The bake runs immediate compute dispatches; idle the device first (mirrors the editor's
         // skybox-swap path) since we're recreating GPU images that prior frames may have referenced.
         Renderer::GetInstance().WaitDeviceIdle();
-
-        // The physical model's bake marches the cached LUTs, which the in-frame slot may not have
-        // filled yet (the very first frame bakes before it runs). Guarantee them here; if they cannot
-        // exist, the bake would produce a black environment and silently look "done" — skip and say so.
-        const bool physical = m_Sky.Model == ECS::SkyModel::PhysicalAtmosphere;
-        if ( physical && !EnsureCachedLutsForBake() )
-        {
-            LOG_ERROR( "[SkyAtmosphere] Environment bake skipped: the physical model's atmosphere LUTs "
-                       "are unavailable (see the errors above). The previous environment is kept." );
-            return;
-        }
 
         // The cloud block goes onto THIS renderer's buffers here — see the members' declaration for why
         // they are not the cloud renderer's own. A layer that is not marched still writes: a storage
@@ -913,13 +875,17 @@ namespace Desert::Graphic::System
         {
             // The procedural sky samples the transmittance and sky-view LUTs (Render); SkyAtmosphereLuts writes
             // them as storage images, last frame's at this point of the frame.
+            m_SkyPassSamplesLuts = false;
             if ( !m_BackdropVisible || !m_UseProceduralSky )
                 return;
-            // This node declares before SkyAtmosphereLuts (DeclareAtmosphereLutNodes) in the frame, so the
-            // sky-view LUT is allocated here, by its first reader: allocated later in the frame, Render would
-            // bind an image this node never declared and the graph would not have put in a sampled layout.
-            if ( m_SkyViewLutPipeline && m_ActiveCamera )
-                EnsureSkyViewLutResources();
+            // This node declares before SkyAtmosphereLuts (DeclareAtmosphereLutNodes) in the frame. It samples
+            // the LUTs only once an earlier frame's nodes have written them: a LUT allocated later in this
+            // frame's build would otherwise be bound by Render without this node having declared it (so without
+            // the graph's barrier), or read before it holds a single texel. Until then Render leaves the
+            // material's fallbacks bound.
+            m_SkyPassSamplesLuts = m_LutsValid && m_SkyViewLutFilled && m_TransmittanceLut && m_SkyViewLut;
+            if ( !m_SkyPassSamplesLuts )
+                return;
             declared.Read( m_TransmittanceLut, RDG::Access::SampledGraphics, "Sky.TransmittanceLut" );
             declared.Read( m_SkyViewLut, RDG::Access::SampledGraphics, "Sky.SkyViewLut" );
         };
@@ -936,8 +902,9 @@ namespace Desert::Graphic::System
         // its fallback descriptors for the two samplers the shader declares.
         if ( m_UseProceduralSky && m_ProceduralPipeline && m_ProceduralMaterial && m_ActiveCamera )
         {
-            m_ProceduralMaterial->Update( m_ActiveCamera, m_SkyParams, m_TransmittanceLut.get(),
-                                          m_SkyViewLut.get() );
+            m_ProceduralMaterial->Update( m_ActiveCamera, m_SkyParams,
+                                          m_SkyPassSamplesLuts ? m_TransmittanceLut.get() : nullptr,
+                                          m_SkyPassSamplesLuts ? m_SkyViewLut.get() : nullptr );
             renderer.SubmitFullscreenQuad( m_ProceduralPipeline.get(),
                                            m_ProceduralMaterial->GetMaterialExecutor() );
             return;
