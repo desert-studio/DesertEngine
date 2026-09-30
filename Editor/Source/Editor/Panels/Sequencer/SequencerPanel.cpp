@@ -3190,7 +3190,8 @@ namespace Desert::Editor
                 uint32_t                     removed = 0;
                 for ( const Animation::TrackChannel part : kParts )
                 {
-                    if ( std::ranges::find( PartTicks( *track, part ), tick ) != PartTicks( *track, part ).end() )
+                    const auto ticks = PartTicks( *track, part );
+                    if ( std::ranges::find( ticks, tick ) != ticks.end() )
                     {
                         removed +=
                              Animation::RemoveBoneKey( clip->Sequence, name, part, tick ).IsSuccess() ? 1U : 0U;
