@@ -333,10 +333,34 @@ def self_check():
             pass
     rules = ", ".join(cases)
     msg = (f"[agent_guard] А Р Х И Т Е К Т У Р А ПЕРВОЙ: решение = как правильно устроено (UE или лучше), не замер/бюджет/урезанный охват "
-           f"(LEAD_PROTOCOL, DEV_CONTRACT §00). self-check OK: {len(cases)} known-bad calls refused ({rules})." if not failed else
+           f"(LEAD_PROTOCOL, DEV_CONTRACT §00). ПАУЗА после текущей очереди (SHM1, SKEL-TREE, UI, ANIM-UNIFY, EDL-SPLIT) — новых задач не брать без слова владельца (LEAD_PROTOCOL §000b). Статистика: ledger.py + process_event.py на каждый запуск/приём. self-check OK: {len(cases)} known-bad calls refused ({rules})." if not failed else
            f"[agent_guard] SELF-CHECK FAILED — these rules no longer bite: {', '.join(failed)}. "
            f"Restore .claude/tools/agent_guard.py from git history BEFORE launching any agent.")
     emit({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": msg}})
+
+
+MAX_WORKING_AGENTS = 3
+PROCESS_EVENTS = os.path.expanduser("~/.claude/process-events.csv")
+
+
+def lead_running_agents():
+    """Codes of agents launched in the last 6 h and not yet accepted (process_event.py launch → done|wip)."""
+    import csv
+    state = {}
+    try:
+        with open(PROCESS_EVENTS) as f:
+            for row in csv.reader(f):
+                if len(row) < 4 or not row[0].isdigit():
+                    continue
+                ts, ev, code, aid = int(row[0]), row[1], row[2], row[3]
+                if ev == "launch":
+                    state[aid] = (ts, code)
+                elif ev in ("done", "wip"):
+                    state.pop(aid, None)
+    except OSError:
+        return []
+    now = time.time()
+    return [code for ts, code in state.values() if now - ts < 6 * 3600]
 
 
 def main():
@@ -357,6 +381,14 @@ def main():
         deny("[agent_guard] Тимлид: sonnet не запускать — владелец 09-29 «соннет дорогой»; по замеру на задачу он дороже "
              "основной модели (L10-FIX 0,59 млн за 15 правок, AL1-12c 0,56 против 0,13–0,23). Основная модель; разведка — haiku Explore.",
              data, "lead")
+    # Owner 09-30: at most THREE working agents at once (Explore not counted). Running = `process_event.py launch` in the
+    # last 6 h with no later done/wip for that id — so a launch not logged there escapes this check: log every launch.
+    if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") == "Agent" and \
+            ((data.get("tool_input") or {}).get("subagent_type") or "general-purpose").lower() != "explore":
+        running = lead_running_agents()
+        if len(running) >= MAX_WORKING_AGENTS:
+            deny(f"[agent_guard] Тимлид: лимит владельца 09-30 — не более {MAX_WORKING_AGENTS} агентов одновременно; идут: "
+                 f"{', '.join(running)}. Дождись сдачи (ledger + process_event done|wip), потом запускай.", data, "lead")
     if not agent or agent_type == "explore":
         sys.exit(0)  # the lead's own session, or a discovery agent: unrestricted
 
