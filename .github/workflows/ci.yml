@@ -614,7 +614,8 @@ jobs:
       # Offline shader lint: every .shader parses with the SAME DShaderParser the engine uses —
       # a broken shader fails the pipeline here instead of the editor at runtime.
       - name: Lint shaders (DShaderTool)
-        run: ./build/Bin/${{ matrix.config }}/DShaderTool Editor/Resources/Shaders
+        working-directory: Editor
+        run: ../build/Bin/${{ matrix.config }}/DShaderTool Resources/Shaders
 
       # ── THE HALF OF THE SHIPPING BOUNDARY THAT READS THE LINKED ARTIFACT ──────────────────────────
       #
@@ -1069,7 +1070,8 @@ jobs:
       # run" — is not built in this configuration.
       - name: Lint shaders (DShaderTool)
         shell: cmd
-        run: build\Bin\${{ matrix.config }}\DShaderTool.exe Editor\Resources\Shaders
+        working-directory: Editor
+        run: ..\build\Bin\${{ matrix.config }}\DShaderTool.exe Resources\Shaders
 
       # THE PLAYER'S ARTIFACT ON WINDOWS, packaged by the same headless tool the macOS Shipping leg uses
       # (Tools/GamePackager). Release too, not only Shipping: Release is the leg that can photograph the
