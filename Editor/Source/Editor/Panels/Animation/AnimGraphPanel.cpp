@@ -118,12 +118,15 @@ namespace Desert::Editor
         ed::Config config;
         config.SettingsFile = nullptr; // node positions live in the graph (State.X/Y), not a stray json
         m_Context           = ed::CreateEditor( &config );
+        m_PoseContext       = ed::CreateEditor( &config ); // pose node positions live in PoseNode.X/Y
     }
 
     AnimGraphPanel::~AnimGraphPanel()
     {
         if ( m_Context )
             ed::DestroyEditor( m_Context );
+        if ( m_PoseContext )
+            ed::DestroyEditor( m_PoseContext );
     }
 
     // THE STATIC RequestOpen INBOX IS GONE, and its absence is half the point of U7. It was a file-static
@@ -286,8 +289,9 @@ namespace Desert::Editor
         // control that exists only as a toolbar button is a view control no test and no script can reach.
         std::vector<DocumentAction> actions{
              { "Save", [this] { SaveGraph(); } },
-             { "Frame All", [this] { Graph::FrameAll( m_Context ); } },
-             { "Frame Selection", [this] { Graph::FrameSelection( m_Context ); } },
+             { "Frame All", [this] { Graph::FrameAll( m_EditingMachine ? m_Context : m_PoseContext ); } },
+             { "Frame Selection",
+               [this] { Graph::FrameSelection( m_EditingMachine ? m_Context : m_PoseContext ); } },
              // AND `+ State`, FOR THE SAME REASON `Save` IS HERE. It is the one authoring action of this
              // window that creates something, and a toolbar button is unreachable to every client and
              // every check on this machine -- which is exactly why "a new state lands on top of its
@@ -316,6 +320,7 @@ namespace Desert::Editor
         {
             return actions;
         }
+        AppendPoseActions( *anim, actions );
 
         const std::vector<std::string> clipNames = ResolveClipNames( *anim );
         const G::ClipSet               clips{ anim->Animator != nullptr && m_Library != nullptr, clipNames };
@@ -356,8 +361,10 @@ namespace Desert::Editor
                                 "Pick or create one in Details > Animation > AnimGraph." );
             return;
         }
-        if ( G::OutputMachine( *anim->Graph ) == nullptr )
+        if ( m_EditingMachine && G::OutputMachine( *anim->Graph ) == nullptr )
         {
+            if ( ImGui::Button( ICON_MDI_ARROW_LEFT "  AnimGraph" ) )
+                m_EditingMachine = false;
             // The loader refuses a graph that does not plan, so this is a graph whose Output Pose is a
             // node of another kind: this panel edits the state machine at the output, and there is none.
             ImGui::TextWrapped( "%s", std::format( "Anim graph '{}' has no state machine wired into Output Pose; "
@@ -395,13 +402,23 @@ namespace Desert::Editor
             ImGui::TextColored( ImVec4( 1.0f, 0.78f, 0.25f, 1.0f ), ICON_MDI_CIRCLE_MEDIUM );
             Utils::ImGuiUtilities::Tooltip( "This graph has edits that are not on disk yet" );
         }
+        // THE BREADCRUMB OF UE's GRAPH TABS: the AnimGraph, and the Output Pose's machine inside it.
         ImGui::SameLine();
-        if ( ImGui::Button( "+ State" ) )
+        if ( ImGui::RadioButton( "AnimGraph", !m_EditingMachine ) )
+            m_EditingMachine = false;
+        ImGui::SameLine();
+        if ( ImGui::RadioButton( "State Machine", m_EditingMachine ) )
+            m_EditingMachine = true;
+        if ( m_EditingMachine )
         {
-            AddState();
+            ImGui::SameLine();
+            if ( ImGui::Button( "+ State" ) )
+            {
+                AddState();
+            }
         }
         ImGui::SameLine();
-        Graph::DrawViewButtons( m_Context );
+        Graph::DrawViewButtons( m_EditingMachine ? m_Context : m_PoseContext );
         if ( const auto* cur = anim->GraphEvaluator ? anim->GraphEvaluator->CurrentState() : nullptr )
         {
             ImGui::SameLine();
@@ -448,7 +465,10 @@ namespace Desert::Editor
 
         const float stripH  = WarningStripHeight( warnings.size() );
         const float canvasH = std::max( 80.0f, ImGui::GetContentRegionAvail().y - stripH );
-        DrawCanvas( *anim, canvasW, canvasH );
+        if ( m_EditingMachine )
+            DrawCanvas( *anim, canvasW, canvasH );
+        else
+            DrawPoseCanvas( *anim, canvasW, canvasH );
 
         ImGui::SameLine();
         ImGui::BeginGroup();
@@ -457,7 +477,10 @@ namespace Desert::Editor
         // strip and the strip was laid out BELOW the visible area: computed every frame, drawn nowhere.
         // Found in the editor, on the frame that was supposed to photograph the strip -- which is the
         // whole argument for taking the frame.
-        DrawSidePanel( *anim, clipNames, canvasH );
+        if ( m_EditingMachine )
+            DrawSidePanel( *anim, clipNames, canvasH );
+        else
+            DrawPoseSidePanel( *anim, clipNames, canvasH );
         ImGui::EndGroup();
 
         DrawWarningStrip( *anim->Graph, warnings );
@@ -548,6 +571,9 @@ namespace Desert::Editor
         ECS::AnimationComponent* now = ResolveComponent();
         if ( now != nullptr && now->Graph )
         {
+            // A finding about a state is revealed on the state machine's canvas; one about the pose graph
+            // (no state) on the AnimGraph's.
+            m_EditingMachine = !warning.State.empty();
             RevealWarning( *now->Graph, warning );
         }
     }

@@ -4,6 +4,7 @@
 
 #include <Editor/Core/GraphCanvas/GraphCanvasView.hpp>
 #include <Editor/Panels/Animation/AnimGraphCanvasPlan.hpp>
+#include <Editor/Panels/Animation/PoseGraphEdit.hpp>
 
 #include <Common/Core/UUID.hpp>
 
@@ -201,6 +202,28 @@ namespace Desert::Editor
         void DrawSidePanel( ECS::AnimationComponent& anim, const std::vector<std::string>& clipNames,
                             float height );
 
+        // ── THE POSE GRAPH (UE's AnimGraph tab): the graph's own nodes on a canvas of their own ─────────
+        //
+        // Every edit is ONE function of `PoseGraphEdit` (no ImGui, measured by AnimGraphValidation), called
+        // alike by the canvas drag, the context menu and the document action of the same name; a refusal
+        // goes to the status line with the unit's sentence, and the graph is left as it was.
+
+        /// Adds a node of @p kind: at @p where (canvas coordinates) from the context menu, on the free grid
+        /// cell from a document action. A Sequence Player starts on the skeleton's first playable clip.
+        void AddPoseNode( Animation::Graph::PoseNodeKind kind, const std::optional<glm::vec2>& where );
+        /// Wires @p from into Pose pin @p pin of @p to; @p to empty means Output Pose.
+        void WirePose( const std::string& from, const std::string& to, int pin );
+        void RemovePoseNode( const std::string& name );
+        /// Reports a refused edit on the status line. Returns whether the edit went through.
+        bool Report( const Common::BoolResultStr& result );
+        void AppendPoseActions( ECS::AnimationComponent& anim, std::vector<DocumentAction>& actions );
+        void DrawPoseCanvas( ECS::AnimationComponent& anim, float width, float height );
+        void DrawPoseSidePanel( ECS::AnimationComponent& anim, const std::vector<std::string>& clipNames,
+                                float height );
+        /// A parameter pin's binding as a combo of the declared parameters ("unbound" = the pin's default).
+        bool DrawPinBinding( Animation::Graph::AnimGraph& graph, Animation::Graph::PoseNode& node,
+                             const std::string& pin );
+
         // WEAK, not shared. A document that held its scene alive would keep a closed level in memory for
         // as long as its window was open, and — worse — would then answer "my subject is alive" about an
         // entity in a registry nothing else can reach. Expiry IS one of the ways this document's subject
@@ -234,5 +257,18 @@ namespace Desert::Editor
         // first frame, and a navigation issued while it is still changing size is thrown away. The whole
         // measurement is at the class's declaration.
         Graph::DeferredFrameAll m_FrameAll;
+
+        // The pose graph's canvas: its own editor context and id table, because a state and a pose node may
+        // carry one name and must not share a canvas identity (nor a view: each canvas keeps its own pan).
+        ax::NodeEditor::EditorContext* m_PoseContext = nullptr;
+        Graph::ElementIdMap            m_PoseIds;
+        Graph::PoseGraphCanvas         m_PoseCanvas;
+        Graph::DeferredFrameAll        m_PoseFrameAll;
+        /// Which canvas is shown: the AnimGraph (pose graph, UE's default tab) or the Output Pose's state
+        /// machine (double-click its node, as in UE).
+        bool        m_EditingMachine = false;
+        std::string m_SelectedPoseNode;
+        bool        m_PoseSelectPending = false; // a document action picked the node
+        glm::vec2   m_PoseMenuAt{};              // where the context menu was opened
     };
 } // namespace Desert::Editor

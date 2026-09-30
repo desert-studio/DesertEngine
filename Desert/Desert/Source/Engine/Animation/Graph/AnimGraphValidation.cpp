@@ -366,6 +366,10 @@ namespace Desert::Animation::Graph
         // Every state machine node, wired to Output Pose or not: an unwired machine is still authored
         // content, and a dead transition in it is as dead as one at the output.
         std::vector<GraphWarning> warnings;
+        // The pose graph first: a graph that does not plan is refused by the loader and by the evaluator,
+        // so every other finding is about a graph that cannot run yet.
+        if ( const auto plan = PlanPoseGraph( graph ); !plan.IsSuccess() )
+            warnings.push_back( { WarningKind::PoseGraphRefused, std::string(), -1, plan.GetError() } );
         for ( const PoseNode& node : graph.Nodes )
             if ( node.Machine )
                 ValidateMachine( graph, *node.Machine, clips, warnings );
