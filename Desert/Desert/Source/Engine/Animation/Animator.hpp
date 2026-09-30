@@ -238,8 +238,8 @@ namespace Desert::Animation
 
         // Returns (and clears) the notify events since the last call — instant notifies crossed by playback
         // (Fire), and notify states entered / left (Begin / End) by playback, a loop, a scrub (SetTick /
-        // SetTime) or a clip change — of the current clip AND of every pose-graph source (a linked layer's
-        // too) whose total weight (`PoseGraphInstance::Weight`) is above `Graph::kNotifyTriggerWeight`, as UE's
+        // SetTime) or a clip change — of the base players (the current clip, the incoming one of a crossfade)
+        // AND of every pose-graph source (a linked layer's too) whose total weight (`PoseGraphInstance::Weight`) is above `Graph::kNotifyTriggerWeight`, as UE's
         // notify queue takes every relevant player's; a source falling below it ends its states. For the ECS
         // to dispatch to scripts; call once per frame after Update.
         std::vector<NotifyEvent> ConsumeNotifyEvents()
@@ -472,17 +472,23 @@ namespace Desert::Animation
         /// clamped to [0, duration] otherwise. The scrub's one rule, for every player.
         static void ScrubTo( ClipPlayback& playback, FrameTime time );
 
-        /// The current clip's notifies for the step that brought its playhead from `previous` to now. Played
+        /// The base players' notifies (the Source stage: the current clip, and the incoming one of a crossfade),
+        /// AFTER the evaluation, each by its weight as every graph player is (UE: the base is one more sequence
+        /// player in the notify queue, no player is heard "always"): the base source's graph weight (1 without a
+        /// graph, 0 with a graph that does not play it) times 1 - BlendAlpha() for the current clip and
+        /// BlendAlpha() for the incoming one; heard above Graph::kNotifyTriggerWeight. `played`: each clock's
+        /// last Update step; else a scrub (states only).
+        void StepBaseNotifies( bool played );
+        /// One player's notifies for the step that brought its playhead from `previous` to now. Played
         /// (`played`): the Event keys the step crossed (Timeline::CollectFired) fire, and a state begun and
         /// ended inside the step reports both. Always: states Begin / End by the difference of the active set.
-        void StepNotifies( FrameTime previous, bool wrapped, bool played, bool backward );
-        /// StepNotifies for any player: `playback`'s notifies into m_NotifyEvents tagged (`node`, `slot`),
+        /// `playback`'s notifies into m_NotifyEvents tagged (`node`, `slot`),
         /// its active set `active`. Not `relevant` (below the trigger weight, or no clip): nothing fires and
         /// every state in `active` ends.
         void StepNotifiesOf( const ClipPlayback& playback, FrameTime previous, bool wrapped, bool played,
                              bool backward, bool relevant, std::vector<ActiveNotifyState>& active, int node,
                              int slot );
-        /// Every pose-graph source's notifies but the base's, weighted by the last evaluation (see
+        /// Every pose-graph source's notifies but the base's (StepBaseNotifies), weighted by the last evaluation (see
         /// ConsumeNotifyEvents). `played`: the step of each clock's last Update; else a scrub (states only).
         void StepGraphNotifies( bool played );
         /// Ends every state in `active` (tagged `node`, `slot`) and empties it.
@@ -556,15 +562,17 @@ namespace Desert::Animation
 
         // Notify events of the current clip not yet drained by ConsumeNotifyEvents().
         std::vector<NotifyEvent> m_NotifyEvents;
-        // The current clip's notify states active at its playhead — see StepNotifies.
+        // The current clip's notify states active at its playhead — see StepBaseNotifies.
         std::vector<ActiveNotifyState> m_ActiveStates;
-        // Per-step scratch of StepNotifies (reused, no allocation once warm).
+        // The incoming clip's, during a crossfade; they become m_ActiveStates when it becomes the current clip.
+        std::vector<ActiveNotifyState> m_NextActiveStates;
+        // Per-step scratch of StepNotifiesOf (reused, no allocation once warm).
         std::vector<ActiveNotifyState>    m_StatesScratch;
         std::vector<Timeline::FiredEvent> m_Crossed;
         // The incoming clip's pose during a crossfade (BlendedBasePose).
         LocalPose m_BlendScratch;
 
-        /// Ends every active state: the clip they belong to stops being the current one.
+        /// Ends every active state of both base players: the clips they belong to stop playing.
         void RetireNotifyStates();
 
         // The pose graph, run by PoseStage::Graph; absent = the stage is not in the list.
