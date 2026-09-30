@@ -1366,9 +1366,9 @@ namespace Desert::Editor
             // One sentence per camera, because they genuinely do different things: a promise of panning and
             // zoom in a view that has neither would be describing a different widget.
             ImGui::SetTooltip( dome ? "Drag to look around - hold L and drag to move the sun - double-click "
-                                          "to reset"
-                                        : "Drag to orbit - right-drag to pan - wheel to zoom - hold L and drag "
-                                          "to move the sun - double-click to reset" );
+                                      "to reset"
+                                    : "Drag to orbit - right-drag to pan - wheel to zoom - hold L and drag "
+                                      "to move the sun - double-click to reset" );
         }
 
         return input;

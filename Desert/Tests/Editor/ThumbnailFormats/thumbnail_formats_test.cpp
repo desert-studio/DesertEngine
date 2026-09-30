@@ -494,8 +494,10 @@ TEST( ThumbnailSubject, APreviewMeshRoutesASurfaceMaterialToTheMeshAndNothingEls
 // ---------------------------------------------------------------------------------------------------
 TEST( ThumbnailFormats, ASkyboxIsItsOwnKindWithARenderedPicture )
 {
-    EXPECT_EQ( Desert::Editor::FileTypeOfContent( "detex", Common::Content::ContentKind::Skybox ), FileType::Skybox );
-    EXPECT_EQ( Desert::Editor::FileTypeOfContent( "detex", Common::Content::ContentKind::Texture ), FileType::Texture );
+    EXPECT_EQ( Desert::Editor::FileTypeOfContent( "detex", Common::Content::ContentKind::Skybox ),
+               FileType::Skybox );
+    EXPECT_EQ( Desert::Editor::FileTypeOfContent( "detex", Common::Content::ContentKind::Texture ),
+               FileType::Texture );
     EXPECT_EQ( TP::ProducerOf( FileType::Skybox ), TP::Producer::RenderedSky );
 
     const std::string root = RepoRoot();
@@ -503,7 +505,8 @@ TEST( ThumbnailFormats, ASkyboxIsItsOwnKindWithARenderedPicture )
     const std::string panel = ReadFile( root + kBrowserTable );
     EXPECT_NE( panel.find( "case Producer::RenderedSky:" ), std::string::npos )
          << "the browser no longer draws a skybox tile through its producer";
-    EXPECT_NE( panel.find( "RequestSkybox(" ), std::string::npos ) << "the browser tile no longer asks the service";
+    EXPECT_NE( panel.find( "RequestSkybox(" ), std::string::npos )
+         << "the browser tile no longer asks the service";
     const std::string details =
          ReadFile( root + "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkyboxComponent.cpp" );
     ASSERT_FALSE( details.empty() );

@@ -170,7 +170,7 @@ namespace Desert::Editor
     /// The kind of a CONTENT file: @p extension as FileTypeOf types it, except where the content kind the
     /// file's root gives (Common::Content::KindOfContentFile) is one the extension cannot say — a Skybox
     /// `.detex` is not a Texture `.detex`. @p kind is nullopt for a file no content scan enumerates.
-    [[nodiscard]] constexpr FileType FileTypeOfContent( std::string_view                                  extension,
+    [[nodiscard]] constexpr FileType FileTypeOfContent( std::string_view                            extension,
                                                         std::optional<Common::Content::ContentKind> kind ) noexcept
     {
         if ( kind == Common::Content::ContentKind::Skybox )

@@ -1892,7 +1892,8 @@ namespace Desert::Editor
                 if ( static_cast<uint64_t>( skybox ) == 0 )
                     return false;
                 const std::string png = ThumbnailService::Get().RequestSkybox( skybox, entry->AssetPath );
-                if ( ThumbnailService::JudgeSkyboxPicture( entry->AssetPath ) != ThumbnailFreshness::Verdict::Show )
+                if ( ThumbnailService::JudgeSkyboxPicture( entry->AssetPath ) !=
+                     ThumbnailFreshness::Verdict::Show )
                 {
                     m_Thumbnails->Invalidate( png );
                     return false;

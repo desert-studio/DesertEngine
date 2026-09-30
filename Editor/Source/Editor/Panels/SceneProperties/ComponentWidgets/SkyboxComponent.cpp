@@ -6,6 +6,7 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
+#include <Editor/Panels/AnimationEditor/AnimationEditorDocument.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
 
@@ -94,13 +95,15 @@ namespace Desert::Editor
                       const ImVec2 br( at.x + kTile, at.y + kTile );
                       ImDrawList*  dl = ImGui::GetWindowDrawList();
                       dl->AddRectFilled( at, br, IM_COL32( 15, 15, 15, 255 ), 2.0f );
-                      static ThumbnailCache              s_Thumbnails;
+                      static ThumbnailCache             s_Thumbnails;
                       std::shared_ptr<Graphic::Image2D> thumb;
                       if ( current )
                       {
                           const std::string source = current->Path.generic_string();
-                          const std::string png = ThumbnailService::Get().RequestSkybox( skybox.SkyboxHandle, source );
-                          if ( ThumbnailService::JudgeSkyboxPicture( source ) == ThumbnailFreshness::Verdict::Show )
+                          const std::string png =
+                               ThumbnailService::Get().RequestSkybox( skybox.SkyboxHandle, source );
+                          if ( ThumbnailService::JudgeSkyboxPicture( source ) ==
+                               ThumbnailFreshness::Verdict::Show )
                               thumb = s_Thumbnails.Get( png );
                           else
                               s_Thumbnails.Invalidate( png );
@@ -108,8 +111,9 @@ namespace Desert::Editor
                       const void* tex = ( thumb && ctx.UIHelper ) ? ctx.UIHelper->GetTextureID( thumb ) : nullptr;
                       if ( tex )
                           dl->AddImageRounded( reinterpret_cast<ImTextureID>( const_cast<void*>( tex ) ),
-                                               ImVec2( at.x + 1.0f, at.y + 1.0f ), ImVec2( br.x - 1.0f, br.y - 1.0f ),
-                                               ImVec2( 0, 0 ), ImVec2( 1, 1 ), IM_COL32_WHITE, 2.0f );
+                                               ImVec2( at.x + 1.0f, at.y + 1.0f ),
+                                               ImVec2( br.x - 1.0f, br.y - 1.0f ), ImVec2( 0, 0 ), ImVec2( 1, 1 ),
+                                               IM_COL32_WHITE, 2.0f );
                       else
                       {
                           const char*  icon = ICON_MDI_IMAGE_FILTER_HDR;

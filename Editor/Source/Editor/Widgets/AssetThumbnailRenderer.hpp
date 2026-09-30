@@ -200,8 +200,8 @@ namespace Desert::Editor
         // The dome (the ground camera looking up): a Sky subject, or a SkyDome-domain material.
         [[nodiscard]] bool IsDomeCapture() const
         {
-            return m_PendingSubject == Subject::Sky ||
-                   ( m_PendingSubject == Subject::Material && m_PendingPreview == ThumbnailSubject::Preview::SkyDome );
+            return m_PendingSubject == Subject::Sky || ( m_PendingSubject == Subject::Material &&
+                                                         m_PendingPreview == ThumbnailSubject::Preview::SkyDome );
         }
         Subject                               m_PendingSubject = Subject::Material;
         // The subject's frame, measured from the asset's own bounds when the capture was accepted (Mesh, Pose).

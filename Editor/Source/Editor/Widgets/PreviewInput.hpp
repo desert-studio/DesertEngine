@@ -109,7 +109,8 @@ namespace Desert::Editor
     // WHO THE WHEEL BELONGS TO over a preview: the preview, exactly when the wheel zooms it. An Interactive
     // preview (the Material Editor, the asset viewers) zooms with it and must CLAIM it, or ImGui also scrolls
     // the window the preview sits in: the model zooms while the whole panel slides away under the cursor. A
-    // pane with nothing to zoom (empty, or the sky dome fill) never zooms, so there the wheel passes through and keeps scrolling the panel as over any other row.
+    // pane with nothing to zoom (empty, or the sky dome fill) never zooms, so there the wheel passes through and
+    // keeps scrolling the panel as over any other row.
     enum class PreviewWheelOwner : uint8_t
     {
         PassThrough, // the parent window scrolls; the preview ignores the wheel
