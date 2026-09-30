@@ -245,7 +245,7 @@ TEST( NodeMeshSplit, EachImportedMeshReadsItsOrbitFromTheRecord )
     const fs::path material  = Editor::MaterialAdoption::MaterialAssetPath( project.Source, "GrassAtlas" );
     fs::create_directories( material.parent_path() );
     std::ofstream( material ) << "{}";
-    auto split = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source );
+    auto split = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source, {} );
     ASSERT_TRUE( split.IsSuccess() ) << split.GetError();
     ASSERT_EQ( split.GetValue().size(), 3u );
     const fs::path tuftB = split.GetValue()[1].second;
@@ -262,7 +262,9 @@ TEST( NodeMeshSplit, EachImportedMeshReadsItsOrbitFromTheRecord )
          { tuftB.filename().string(), Assets::ToRecord( yawed ) },
          { project.Source.filename().string(), Assets::ThumbnailOrbitRecord{ .Yaw = 90.0f } } };
     const fs::path recordPath = Common::Content::ImportRecordPathFor( project.Source );
-    std::ofstream( recordPath, std::ios::binary | std::ios::trunc ) << Ser::WriteImportRecord( stated, Common::Content::ContentKind::StaticMesh ).GetValue();
+    const auto     written    = Ser::WriteImportRecord( stated, Common::Content::ContentKind::StaticMesh );
+    ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
+    std::ofstream( recordPath, std::ios::binary | std::ios::trunc ) << written.GetValue();
 
     const auto node = Editor::MeshThumbnailOrbit( tuftB );
     ASSERT_TRUE( node.IsSuccess() ) << node.GetError();
@@ -275,7 +277,7 @@ TEST( NodeMeshSplit, EachImportedMeshReadsItsOrbitFromTheRecord )
     EXPECT_EQ( combined.GetValue().Yaw, 90.0f ) << "the combined mesh is keyed by the source's own name";
 
     // A re-import rewrites every node .stmesh; the record, and so the orbit, is kept.
-    auto again = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source );
+    auto again = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source, {} );
     ASSERT_TRUE( again.IsSuccess() ) << again.GetError();
     const auto kept = Editor::MeshThumbnailOrbit( tuftB );
     ASSERT_TRUE( kept.IsSuccess() ) << kept.GetError();
@@ -283,7 +285,9 @@ TEST( NodeMeshSplit, EachImportedMeshReadsItsOrbitFromTheRecord )
 
     // A stated default is refused by name.
     stated.Thumbnail->at( tuftB.filename().string() ) = Assets::ThumbnailOrbitRecord{ .Pitch = 0.0f };
-    const auto refused                                = Ser::ParseImportRecord( Ser::WriteImportRecord( stated, Common::Content::ContentKind::StaticMesh ).GetValue() );
+    const auto restated = Ser::WriteImportRecord( stated, Common::Content::ContentKind::StaticMesh );
+    ASSERT_TRUE( restated.IsSuccess() ) << restated.GetError();
+    const auto refused = Ser::ParseImportRecord( restated.GetValue() );
     ASSERT_FALSE( refused.IsSuccess() );
     EXPECT_NE( refused.GetError().find( "default" ), std::string::npos ) << refused.GetError();
 }
@@ -298,7 +302,7 @@ TEST( NodeMeshSplit, AnEditedOrbitIsWrittenToTheRecordAndStalesThePicture )
     const fs::path material  = Editor::MaterialAdoption::MaterialAssetPath( project.Source, "GrassAtlas" );
     fs::create_directories( material.parent_path() );
     std::ofstream( material ) << "{}";
-    auto split = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source );
+    auto split = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source, {} );
     ASSERT_TRUE( split.IsSuccess() ) << split.GetError();
     const fs::path tuftB = split.GetValue()[1].second;
 

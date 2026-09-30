@@ -43,6 +43,17 @@ namespace Desert::Graphic
         return std::format( "{}/{}", templateName, cell );
     }
 
+    std::optional<std::string> TemplateCellShader( std::string_view templateName, MeshVertexPath path, MeshPass pass,
+                                                   const std::function<bool( std::string_view )>& isRegistered )
+    {
+        auto cell = MeshShaderFor( templateName, path, pass );
+        if ( cell && MeshCellPath( *cell ) && !isRegistered( *cell ) )
+            cell = ( path == MeshVertexPath::Static && pass == MeshPass::Forward )
+                        ? std::optional<std::string>( templateName )
+                        : std::nullopt;
+        return cell;
+    }
+
     ShadowCasterCell ShadowCasterCellFor( Core::Formats::SurfaceBlendMode blend )
     {
         return blend == Core::Formats::SurfaceBlendMode::Masked ? ShadowCasterCell::Own : ShadowCasterCell::Shared;

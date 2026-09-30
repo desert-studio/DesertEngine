@@ -45,8 +45,10 @@
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <map>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -956,6 +958,45 @@ TEST( MeshCellPath, EveryCellOfAnyTemplateRoutesToThePathItWasAllocatedFor )
             }
     EXPECT_FALSE( Desert::Graphic::MeshCellPath( "TextSDF" ).has_value() ) << "a template's default program is no cell";
     EXPECT_FALSE( Desert::Graphic::MeshCellPath( "" ).has_value() );
+}
+
+// THE CELL RULE (THM-INT2): the one function MaterialService builds a material's cell by AND answers CellOf by
+// (so a skinned thumbnail refuses before staging a draw exactly when the scene would have substituted the
+// default material). Asserted as the relation between two templates on one table: the template WITH a Surface
+// block has every cell the table names, each its own "<Template>/<Cell>"; the template WITHOUT one has only its
+// own default program, as (Static x Forward), and every other cell is a hole — never another template's
+// program, never its own name on a path that would need a skinning or G-buffer stage it does not carry.
+TEST( TemplateCellShader, ASurfaceTemplateHasEveryCellAPlainTemplateOnlyItsStaticForward )
+{
+    constexpr std::string_view kSurface = "SomeSurface"; // registers every "<SomeSurface>/<Cell>"
+    constexpr std::string_view kPlain   = "TextSDF";     // no Surface block: registers only "TextSDF"
+    const auto registered = [&]( std::string_view name )
+    { return name == kPlain || name.starts_with( std::string( kSurface ) + "/" ); };
+
+    uint32_t surfaceCells = 0;
+    for ( uint32_t p = 0; p < Desert::Graphic::kMeshVertexPathCount; ++p )
+        for ( uint32_t s = 0; s < Desert::Graphic::kMeshPassCount; ++s )
+        {
+            const auto path  = static_cast<MeshVertexPath>( p );
+            const auto pass  = static_cast<MeshPass>( s );
+            const auto where = std::format( "({} x {})", MeshVertexPathName( path ), Desert::Graphic::MeshPassName( pass ) );
+
+            const auto table   = Desert::Graphic::MeshShaderFor( kSurface, path, pass );
+            const auto surface = Desert::Graphic::TemplateCellShader( kSurface, path, pass, registered );
+            EXPECT_EQ( surface, table ) << "the Surface template's " << where << " must be the table's cell";
+            surfaceCells += surface.has_value() ? 1u : 0u;
+
+            const auto plain       = Desert::Graphic::TemplateCellShader( kPlain, path, pass, registered );
+            const bool staticFwd   = path == MeshVertexPath::Static && pass == MeshPass::Forward;
+            if ( staticFwd )
+                EXPECT_EQ( plain, std::optional<std::string>( kPlain ) )
+                     << "a template without a Surface block draws (Static x Forward) with its own program";
+            else
+                EXPECT_FALSE( plain.has_value() )
+                     << "a template without a Surface block has no " << where << " cell, got " << plain.value_or( "" );
+        }
+    // Every path has Forward, GBuffer and ShadowDepth; only Static has Glass.
+    EXPECT_EQ( surfaceCells, Desert::Graphic::kMeshVertexPathCount * 3u + 1u );
 }
 
 // THE CASTER IS CHOSEN BY BLEND MODE (SURF2-mask). A Masked material casts through ITS template's ShadowDepth

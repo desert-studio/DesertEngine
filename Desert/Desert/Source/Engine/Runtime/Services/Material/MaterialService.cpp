@@ -148,21 +148,17 @@ namespace Desert::Runtime
         }
     }
 
-    // THE ONE RULE of which (path x pass) cells a material has, and the shader that draws each: the cell of the
-    // material's surface template (MeshShaderFor). A template with no Surface block registers no cells: it is
-    // drawn by its own default program on the generic path, which is its (Static x Forward) and nothing else.
-    // (The glass program is no template's cell and is asked for as it is.) CreateSurfaceMaterial builds by it
-    // and MaterialService::CellOf answers by it, so "can this draw here" and "what draws here" cannot disagree.
+    // The material's cells are its template's, by the one rule (Graphic::TemplateCellShader) asked of the
+    // registered shaders. CreateSurfaceMaterial builds by it and MaterialService::CellOf answers by it, so "can
+    // this draw here" and "what draws here" cannot disagree.
     // @p asset is a BASE material (an instance's cells are its base's); the error names material, template, cell.
     static Common::ResultStr<std::string> CellShaderOf( const Assets::MaterialAsset& asset, Graphic::MeshVertexPath path,
                                                  Graphic::MeshPass pass )
     {
         const std::string templateName = asset.GetShaderName();
-        auto              cell         = Graphic::MeshShaderFor( templateName, path, pass );
-        if ( cell && Graphic::MeshCellPath( *cell ) && !ResourceRegistry::GetShaderService()->GetByName( *cell ) )
-            cell = ( path == Graphic::MeshVertexPath::Static && pass == Graphic::MeshPass::Forward )
-                        ? std::optional<std::string>( templateName )
-                        : std::nullopt;
+        auto              cell         = Graphic::TemplateCellShader(
+             templateName, path, pass, []( std::string_view name )
+             { return ResourceRegistry::GetShaderService()->GetByName( std::string( name ) ) != nullptr; } );
         if ( !cell )
             return Common::MakeError<std::string>( std::format(
                  "Material '{}' uses the template '{}', which has no ({} x {}) cell — a shader without a Surface "

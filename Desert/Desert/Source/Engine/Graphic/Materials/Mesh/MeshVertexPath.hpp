@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -190,6 +191,16 @@ namespace Desert::Graphic
     // from the material (or, for the renderer's own draws, from the template declaring `Default Surface`,
     // found by that role — MaterialService::DefaultSurfaceTemplate), never from a literal here.
     std::optional<std::string> MeshShaderFor( std::string_view templateName, MeshVertexPath path, MeshPass pass );
+
+    // THE ONE RULE of which (path x pass) cells a material on the template @p templateName HAS, and the shader
+    // that draws each. A template with a Surface block registers every cell of the table ("<Template>/<Cell>"),
+    // and the cell is MeshShaderFor. A template with no Surface block registers no cells: it is drawn by its own
+    // default program on the generic path, which is its (Static x Forward) and nothing else — so every other cell
+    // is a hole the caller must refuse. @p isRegistered answers whether a program of that name is registered
+    // (ShaderService at run time); MaterialService builds by this and answers CellOf by it, so "can this draw
+    // here" and "what draws here" cannot disagree. Empty = no cell.
+    std::optional<std::string> TemplateCellShader( std::string_view templateName, MeshVertexPath path, MeshPass pass,
+                                                   const std::function<bool( std::string_view )>& isRegistered );
 
     // The inverse of MeshShaderFor: which vertex path a compiled cell shader ("<Template>/<Cell>", any
     // template) belongs to, or nothing for a shader that is no cell of the table (a template without a
