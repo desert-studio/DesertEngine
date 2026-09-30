@@ -16,7 +16,10 @@
 
 #include <Engine/Animation/TimeModel.hpp>
 
+#include <array>
 #include <cstdint>
+#include <optional>
+#include <string_view>
 
 namespace Desert::Animation::Timeline
 {
@@ -27,6 +30,17 @@ namespace Desert::Animation::Timeline
         Loop     = 1,
         PingPong = 2, ///< reverse direction at each end
     };
+
+    /// Every LoopMode in stored order - what a picker lists (the Details combo) and what bounds the reflected
+    /// range.
+    inline constexpr std::array<LoopMode, 3> kLoopModes{ LoopMode::Once, LoopMode::Loop, LoopMode::PingPong };
+
+    /// THE ONE HOME OF LoopMode'S NAMES: the reflected enumerator name, the same text the scene stores
+    /// (ComponentRegistry.cpp writes the enum through reflection). A value outside the enum names itself
+    /// "Unknown".
+    [[nodiscard]] const char* ToString( LoopMode mode );
+    /// The reflected name back to the mode; any other text is nullopt, never a default.
+    [[nodiscard]] std::optional<LoopMode> LoopModeFromString( std::string_view name );
 
     enum class PlayState : uint8_t
     {
@@ -93,3 +107,17 @@ namespace Desert::Animation::Timeline
         PlayState   m_State     = PlayState::Stopped;
     };
 } // namespace Desert::Animation::Timeline
+
+namespace rfl::config
+{
+    template <typename T> struct enum_range;
+
+    /// LoopMode is persisted BY NAME (the scene is a text format a person reads). Its underlying type is
+    /// uint8_t, and reflect-cpp's default scan range is `int` — which does not compile against a uint8_t
+    /// enum — so its range is given in its own type.
+    template <> struct enum_range<Desert::Animation::Timeline::LoopMode>
+    {
+        static constexpr uint8_t min = 0;
+        static constexpr uint8_t max = static_cast<uint8_t>( Desert::Animation::Timeline::kLoopModes.size() - 1 );
+    };
+} // namespace rfl::config

@@ -37,6 +37,7 @@
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
 #include <Engine/Assets/FoliageTypeAsset.hpp>
+#include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
@@ -1901,6 +1902,108 @@ namespace Desert::Core::Serialize
         // in the same panel and one row up. No version bump: an added key is what ForeignKeys is for.
         Register(
              MakeFlag<ECS::VisibilityComponent>( "Visibility", "Visible", &ECS::VisibilityComponent::Visible ) );
+
+        // ---- Level sequence actor: the `.dseq` it plays + playback settings + binding overrides (I11) ----
+        // {SequenceGuid, SequencePath, Loop, AutoPlay, BindingOverrides[{Binding, Entity}]}: the Foliage shape
+        // for the reference (GUID is the identity, path for the reader and the refusal).
+        {
+            ComponentSerializer s;
+            s.Key = "LevelSequence";
+            s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::LevelSequenceComponent>(); };
+
+            s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
+            {
+                const auto&                 actor = entity.GetComponent<ECS::LevelSequenceComponent>();
+                Common::Json::ObjectBuilder out;
+                if ( const auto sequence = assetManager.FindByHandle<Assets::LevelSequenceAsset>( actor.Sequence ) )
+                {
+                    out.Set( "SequenceGuid", Common::Content::AssetGuidToText( sequence->Guid() ) );
+                    out.Set( "SequencePath",
+                             sequence->GetMetadata()
+                                  .Filepath.lexically_normal()
+                                  .lexically_relative( Common::Constants::Path::ASSETS_PATH.lexically_normal() )
+                                  .generic_string() );
+                }
+                else if ( actor.Sequence )
+                {
+                    LOG_ERROR( "[LevelSequence] Entity '{}' names sequence handle {} that no loaded asset carries; "
+                               "its reference is saved empty",
+                               entity.GetComponent<ECS::TagComponent>().Tag, static_cast<uint64_t>( actor.Sequence ) );
+                }
+                // LoopMode is stored BY NAME ("Once" / "Loop" / "PingPong"): the scene is text a person reads.
+                out.Set( "Loop", actor.Loop );
+                out.Set( "AutoPlay", actor.AutoPlay );
+                Common::Json::Value::Array overrides;
+                for ( const auto& over : actor.BindingOverrides )
+                    overrides.emplace_back( Common::Json::ObjectBuilder()
+                                                 .Set( "Binding", Common::Content::AssetGuidToText( over.Binding.Value ) )
+                                                 .Set( "Entity", over.Entity )
+                                                 .Build() );
+                out.Set( "BindingOverrides", Common::Json::Value( std::move( overrides ) ) );
+                return { out.Build() };
+            };
+
+            s.Deserialize = []( ECS::Entity entity, const Common::Json::Node& g,
+                                const Assets::AssetManager& assetManager, Common::Json::Issues& issues )
+            {
+                if ( !g.ExpectKind( Common::Json::Kind::Object, issues ) )
+                    return;
+                std::string guidText;
+                std::string path;
+                g.ReadInto( "SequenceGuid", guidText, issues );
+                g.ReadInto( "SequencePath", path, issues );
+
+                auto& actor = entity.AddComponent<ECS::LevelSequenceComponent>();
+                g.ReadInto( "Loop", actor.Loop, issues ); // an unknown name is a named issue, the default kept
+                g.ReadInto( "AutoPlay", actor.AutoPlay, issues );
+                if ( const auto overrides = g.Find( "BindingOverrides" ) )
+                    overrides->ForEachElement(
+                         [&]( std::size_t, const Common::Json::Node& element )
+                         {
+                             std::string                       bindingText;
+                             ECS::LevelSequenceBindingOverride over;
+                             element.ReadInto( "Binding", bindingText, issues );
+                             element.ReadInto( "Entity", over.Entity, issues );
+                             const auto binding = Common::Content::AssetGuidFromText( bindingText );
+                             if ( !binding )
+                             {
+                                 issues.push_back( Common::Json::Issue{ element.Where().ToString(),
+                                                                        "a binding GUID (32 hex)", bindingText } );
+                                 return;
+                             }
+                             over.Binding.Value = binding.GetValue();
+                             actor.BindingOverrides.push_back( over );
+                         } );
+                if ( guidText.empty() && path.empty() )
+                    return; // an actor whose sequence was never chosen: authored so, saved so
+
+                const auto guid    = Common::Content::AssetGuidFromText( guidText );
+                auto&      manager = const_cast<Assets::AssetManager&>( assetManager );
+                Assets::Asset<Assets::LevelSequenceAsset> sequence;
+                if ( guid )
+                {
+                    sequence = manager.FindByHandle<Assets::LevelSequenceAsset>( Common::UUID(
+                         static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) ) );
+                    if ( !sequence )
+                        sequence = Assets::CreateFromRegistryGuid<Assets::LevelSequenceAsset>(
+                             manager, guid.GetValue(), Common::Content::ContentKind::LevelSequence );
+                }
+                if ( !sequence )
+                {
+                    // REFUSED, NOT SUBSTITUTED: an actor playing nothing would look authored.
+                    issues.push_back( Common::Json::Issue{ "LevelSequence.SequenceGuid",
+                                                           "a .dseq the content registry knows",
+                                                           "GUID '" + guidText + "', path '" + path + "'" } );
+                    LOG_ERROR( "[LevelSequence] Entity '{}': sequence GUID '{}' (path '{}') is not a .dseq this "
+                               "project has scanned; the actor plays nothing",
+                               entity.GetComponent<ECS::TagComponent>().Tag, guidText, path );
+                    return;
+                }
+                actor.Sequence = sequence->GetMetadata().Handle;
+            };
+
+            Register( std::move( s ) );
+        }
 
         // ---- Foliage field: the `.defoliage` it is painted with (FO-1, SCNE 33) ----
         // {FoliageTypeGuid, FoliageTypePath}, the mesh block's shape: the GUID is the identity, the path is for

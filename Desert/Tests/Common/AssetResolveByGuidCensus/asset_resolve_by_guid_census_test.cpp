@@ -115,7 +115,10 @@ namespace
          ContentKind::StaticMesh, ContentKind::SkinnedMesh, ContentKind::Texture, ContentKind::Material,
          ContentKind::Skybox, ContentKind::CloudType, ContentKind::CloudLayout, ContentKind::Shader,
          // FO-1: a Foliage block states FoliageTypeGuid beside the path (ComponentRegistry.cpp).
-         ContentKind::FoliageType, ContentKind::LandscapeLayerInfo };
+         ContentKind::FoliageType, ContentKind::LandscapeLayerInfo,
+         // ANIM-I11: a LevelSequence block states SequenceGuid beside SequencePath and reads the GUID first
+         // (ComponentRegistry.cpp's LevelSequence serializer, CreateFromRegistryGuid).
+         ContentKind::LevelSequence };
 
     template <class Array>
     bool Contains( const Array& kinds, ContentKind kind )
@@ -258,6 +261,15 @@ namespace
                                          Common::Content::AssetGuidToText( guid ) +
                                          "\",\"Versions\":{\"LLYI\":3},\"Dependencies\":[]},"
                                          "\"LayerName\":\"AF10a_Probe\"}\n";
+                return { text.begin(), text.end() };
+            }
+            case ContentKind::LevelSequence:
+            {
+                // No sequence ships with the corpus yet; the least `.dseq` header (a TMLN block whose header
+                // states this kind, LevelSequenceAsset.hpp) - the header reader is all the scan consults.
+                const std::string text = "{\"Header\":{\"Kind\":\"LevelSequence\",\"Guid\":\"" +
+                                         Common::Content::AssetGuidToText( guid ) +
+                                         "\",\"Versions\":{\"TMLN\":1},\"Dependencies\":[]}}\n";
                 return { text.begin(), text.end() };
             }
             default:

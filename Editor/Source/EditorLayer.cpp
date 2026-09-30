@@ -5,6 +5,7 @@
 #include <Engine/Core/Glfw.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include <Editor/Core/SaveShortcut.hpp>
+#include <Editor/Core/ContentCreateCommands.hpp>
 #include <Editor/Core/DetailsNavigation.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Graphic/Environment/EnvironmentBake.hpp>
@@ -214,6 +215,7 @@
 #include <Engine/ECS/System/AnimationECSSystem.hpp>
 #include <Engine/ECS/System/AttachmentSystem.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
+#include <Engine/ECS/System/LevelSequenceSystem.hpp>
 #include <Engine/ECS/System/LocomotionSystem.hpp>
 #include <Engine/ECS/System/ScriptSystem.hpp>
 #include <Engine/ECS/System/AudioECSSystem.hpp>
@@ -2996,6 +2998,9 @@ namespace Desert::Editor
         // (mechanism vs behaviour); runs after it so it reads this frame's state.
         scene.AddSystem<ECS::LocomotionSystem>( &scene );
         scene.AddSystem<ECS::AudioECSSystem>( &scene );
+        // Level sequences play last: a keyed Transform wins over this frame's physics and locomotion (UE
+        // evaluates sequences after the actors' own tick).
+        scene.AddSystem<ECS::LevelSequenceSystem>( &scene, m_AssetManager.get() );
     }
 
     Common::BoolResultStr EditorLayer::UpdateSceneFrame( Desert::Core::Scene&    scene,
@@ -4612,6 +4617,17 @@ namespace Desert::Editor
                                                            std::filesystem::path( path ), step ) } );
             }
         }
+
+        // Asset creation, the Assets window's context menu as commands (UE "Add Level Sequence"). Offered
+        // whether or not the window exists: the refusal says why, where a missing entry would not.
+        for ( PaletteCommand& command : ContentCreatePaletteCommands(
+                   [this]
+                   {
+                       if ( m_FileExplorerPanel == nullptr )
+                           return Common::MakeError( "New Level Sequence: the Assets window does not exist" );
+                       return m_FileExplorerPanel->CreateNewLevelSequence();
+                   } ) )
+            commands.push_back( std::move( command ) );
 
         // Maximize any panel that sits in a dock now; restore the maximized one.
         {

@@ -303,6 +303,12 @@ namespace Desert::Core
         {
             return m_ViewTarget;
         }
+        // A Camera Cut (UE: the Level Sequence's camera cut calling APlayerController::SetViewTarget) moves the
+        // view to another camera entity; the sequence hands the previous target back when its cut ends.
+        void SetViewTarget( entt::entity target )
+        {
+            m_ViewTarget = target;
+        }
 
         [[nodiscard]] SceneSettings& GetSettings()
         {

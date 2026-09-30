@@ -24,6 +24,7 @@
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/Timeline/Binding.hpp>
 #include <Engine/Animation/Timeline/Player.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 
@@ -254,6 +255,26 @@ namespace Desert::ECS
     struct FoliageComponent
     {
         Assets::AssetHandle FoliageType;
+    };
+
+    // One binding of the sequence re-pointed at another entity of THIS scene (UE: a binding override on
+    // ALevelSequenceActor). The `.dseq` stays the same file for every actor that plays it.
+    struct LevelSequenceBindingOverride
+    {
+        Animation::Timeline::BindingGuid Binding;
+        Common::UUID                     Entity = Common::UUID::Null();
+    };
+
+    // A LEVEL SEQUENCE ACTOR (UE: ALevelSequenceActor + FMovieSceneSequencePlaybackSettings). Plays the
+    // `.dseq` named by `Sequence` in Play (ECS/System/LevelSequenceSystem.hpp); its Entity bindings name
+    // entities of this scene by UUID. Saved as {SequenceGuid, SequencePath, Loop, AutoPlay, BindingOverrides}
+    // (ComponentRegistry.cpp); a sequence the project does not have refuses the load with both.
+    struct LevelSequenceComponent
+    {
+        Assets::AssetHandle                       Sequence;
+        Animation::Timeline::LoopMode             Loop     = Animation::Timeline::LoopMode::Once;
+        bool                                      AutoPlay = true;
+        std::vector<LevelSequenceBindingOverride> BindingOverrides;
     };
 
     // HOW A LANDSCAPE LOOKS (UE: ALandscape::LandscapeMaterial), on the root entity beside its
