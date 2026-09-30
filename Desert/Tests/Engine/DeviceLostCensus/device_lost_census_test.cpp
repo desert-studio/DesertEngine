@@ -219,8 +219,20 @@ namespace
          // VKF1: driverName/driverInfo for the start-up capability line.
          { "DeviceCapsProbe.cpp", "vkGetPhysicalDeviceProperties2", 1, "void" },
          // RDG1: the render graph's transient pool sizes its aliased image and buffer allocations.
-         { "VulkanRenderGraph.cpp", "vkGetImageMemoryRequirements", 1, "void" },
-         { "VulkanRenderGraph.cpp", "vkGetBufferMemoryRequirements", 1, "void" },
+         // RDG-ALIAS A1: TWO SITES each — the memory-requirements provider the compiler plans heaps from,
+         // and the placement of a transient at its planned offset (which checks it fits the heap).
+         { "VulkanRenderGraph.cpp", "vkGetImageMemoryRequirements", 2, "void" },
+         { "VulkanRenderGraph.cpp", "vkGetBufferMemoryRequirements", 2, "void" },
+         // RDG-ALIAS A1: a placed transient reads the heap's offset and memory to bind at (image, buffer).
+         { "VulkanRenderGraph.cpp", "vmaGetAllocationInfo", 2, "void" },
+         // RDG-ALIAS A1: the per-pass descriptor sets (WriteImage and WriteBuffer, one write each).
+         { "VulkanRenderGraph.cpp", "vkUpdateDescriptorSets", 2, "void" },
+         // RDG-ALIAS A1: the transient allocator reads a reserved heap's size and memory.
+         { "VulkanRdgTransient.cpp", "vmaGetAllocationInfo", 1, "void" },
+         // RDG-ALIAS A1: the frame slot's per-pass descriptor pools are reset after its fence. The
+         // specification gives vkResetDescriptorPool no failure code: it always returns VK_SUCCESS.
+         { "VulkanRenderGraph.cpp", "vkResetDescriptorPool", 1,
+           "dropped: always VK_SUCCESS" },
          { "VulkanDevice.cpp", "vkGetPhysicalDeviceFormatProperties", 3, "void" },
          // В2, шаг 2 программы по миру: чтение бюджета памяти устройства. Возвращает void — результат
          // приходит через цепочку `pNext` (`VkPhysicalDeviceMemoryBudgetPropertiesEXT`), которую

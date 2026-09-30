@@ -409,6 +409,14 @@ void main()
         return Common::MakeError( what );
     }
 
+    // The command buffer the graph records a pass into (its pipe segment's, since RDG-ASYNC B2), not the
+    // caller's: VK_NULL_HANDLE for a context that is not the Vulkan backend's.
+    VkCommandBuffer PassCommandBuffer( const RDG::PassContext& context )
+    {
+        const Common::ResultStr<VkCommandBuffer> recorded = VulkanRdgBackend::CommandBufferOf( context );
+        return recorded ? recorded.GetValue() : VK_NULL_HANDLE;
+    }
+
     // What the frame loop hands the Vulkan backend for its frame slots (RDG-ALIAS A1): the transient heaps and
     // the per-pass descriptor pools, and (B2) the segment command pools + semaphores. Without @p asyncCompute
     // (or on a device with no other family) the queue set has no compute queue: every pass runs on Graphics.
@@ -533,6 +541,9 @@ void main()
              },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
+                 const VkCommandBuffer passCmd = vulkan.GetRecordingCommandBuffer();
+                 if ( passCmd == VK_NULL_HANDLE )
+                     return Fail( "the pass has no recording command buffer" );
                  auto source = context.GetTexture( cleared, RDG::Access::SampledGraphics );
                  auto target = context.GetTexture( sampled, RDG::Access::ColorTarget );
                  if ( !source || !target )
@@ -554,10 +565,10 @@ void main()
                  write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
                  write.pImageInfo      = &info;
                  vkUpdateDescriptorSets( gpu.Device.device, 1, &write, 0, nullptr );
-                 vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, programs.Draw );
-                 vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, programs.DrawPipeLayout, 0, 1,
+                 vkCmdBindPipeline( passCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, programs.Draw );
+                 vkCmdBindDescriptorSets( passCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, programs.DrawPipeLayout, 0, 1,
                                           &programs.DrawSet, 0, nullptr );
-                 vkCmdDraw( cmd, 3, 1, 0, 0 );
+                 vkCmdDraw( passCmd, 3, 1, 0, 0 );
                  return Common::MakeSuccess( true );
              } );
         graph.AddPass(
@@ -569,6 +580,9 @@ void main()
              },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
+                 const VkCommandBuffer passCmd = vulkan.GetRecordingCommandBuffer();
+                 if ( passCmd == VK_NULL_HANDLE )
+                     return Fail( "the pass has no recording command buffer" );
                  auto source = context.GetTexture( sampled, RDG::Access::SampledCompute );
                  auto target = context.GetTexture( computed, RDG::Access::StorageWrite );
                  if ( !source || !target )
@@ -598,10 +612,10 @@ void main()
                      writes[i].pImageInfo = i == 0 ? &sourceInfo : &targetInfo;
                  }
                  vkUpdateDescriptorSets( gpu.Device.device, 2, writes.data(), 0, nullptr );
-                 vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, programs.Compute );
-                 vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, programs.ComputePipeLayout, 0, 1,
+                 vkCmdBindPipeline( passCmd, VK_PIPELINE_BIND_POINT_COMPUTE, programs.Compute );
+                 vkCmdBindDescriptorSets( passCmd, VK_PIPELINE_BIND_POINT_COMPUTE, programs.ComputePipeLayout, 0, 1,
                                           &programs.ComputeSet, 0, nullptr );
-                 vkCmdDispatch( cmd, kSize / 8, kSize / 8, 1 );
+                 vkCmdDispatch( passCmd, kSize / 8, kSize / 8, 1 );
                  return Common::MakeSuccess( true );
              } );
         graph.AddPass(
@@ -613,6 +627,9 @@ void main()
              },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
+                 const VkCommandBuffer passCmd = vulkan.GetRecordingCommandBuffer();
+                 if ( passCmd == VK_NULL_HANDLE )
+                     return Fail( "the pass has no recording command buffer" );
                  auto source = context.GetTexture( computed, RDG::Access::CopySrc );
                  auto target = context.GetBuffer( bytes, RDG::Access::CopyDst );
                  if ( !source || !target )
@@ -624,7 +641,7 @@ void main()
                  VkBufferImageCopy region{};
                  region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
                  region.imageExtent      = { kSize, kSize, 1 };
-                 vkCmdCopyImageToBuffer( cmd, image.GetValue()->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                 vkCmdCopyImageToBuffer( passCmd, image.GetValue()->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                                          buffer.GetValue()->GetBuffer(), 1, &region );
                  return Common::MakeSuccess( true );
              } );
@@ -966,6 +983,9 @@ TEST( RenderGraphVulkan, AnImportedFramebufferSharesOneRenderPassAndWritesItsLay
                  },
                  [&]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
+                     const VkCommandBuffer passCmd = PassCommandBuffer( context );
+                     if ( passCmd == VK_NULL_HANDLE )
+                         return Fail( "the pass has no recording command buffer" );
                      auto source = context.GetTexture( fb.Colors[0], RDG::Access::CopySrc );
                      auto dest   = context.GetBuffer( bytes, RDG::Access::CopyDst );
                      if ( !source || !dest )
@@ -977,7 +997,7 @@ TEST( RenderGraphVulkan, AnImportedFramebufferSharesOneRenderPassAndWritesItsLay
                      VkBufferImageCopy region{};
                      region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
                      region.imageExtent      = { kSize, kSize, 1 };
-                     vkCmdCopyImageToBuffer( cmd, sourceImage.GetValue()->GetImage(),
+                     vkCmdCopyImageToBuffer( passCmd, sourceImage.GetValue()->GetImage(),
                                              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer.GetValue()->GetBuffer(),
                                              1, &region );
                      return Common::MakeSuccess( true );
@@ -1155,10 +1175,13 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
         graph.AddPass(
              "Draw", RDG::PassFlags::Raster, [&]( RDG::PassBuilder& pass )
              { pass.ColorTarget( 0, fb.Colors[0], RDG::LoadOp::ClearColor( 0.0f, 1.0f, 0.0f, 1.0f ) ); },
-             [&]( RDG::PassContext& ) -> Common::BoolResultStr
+             [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
-                 vkCmdDraw( cmd, 3, 1, 0, 0 );
+                 const VkCommandBuffer passCmd = PassCommandBuffer( context );
+                 if ( passCmd == VK_NULL_HANDLE )
+                     return Fail( "the pass has no recording command buffer" );
+                 vkCmdBindPipeline( passCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
+                 vkCmdDraw( passCmd, 3, 1, 0, 0 );
                  return Common::MakeSuccess( true );
              } );
         graph.AddPass(
@@ -1170,6 +1193,9 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
              },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
+                 const VkCommandBuffer passCmd = PassCommandBuffer( context );
+                 if ( passCmd == VK_NULL_HANDLE )
+                     return Fail( "the pass has no recording command buffer" );
                  auto source = context.GetTexture( fb.Colors[0], RDG::Access::CopySrc );
                  auto dest   = context.GetBuffer( bytes, RDG::Access::CopyDst );
                  if ( !source || !dest )
@@ -1181,7 +1207,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
                  VkBufferImageCopy region{};
                  region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
                  region.imageExtent      = { kSize, kSize, 1 };
-                 vkCmdCopyImageToBuffer( cmd, sourceImage.GetValue()->GetImage(),
+                 vkCmdCopyImageToBuffer( passCmd, sourceImage.GetValue()->GetImage(),
                                          VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer.GetValue()->GetBuffer(), 1,
                                          &region );
                  return Common::MakeSuccess( true );
@@ -1379,10 +1405,13 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
                  pass.ColorTarget( 0, fb.Colors[0], RDG::LoadOp::ClearColor( 0.0f, 1.0f, 0.0f, 1.0f ) );
                  pass.ResolveTarget( 0, fb.Resolves[0] );
              },
-             [&]( RDG::PassContext& ) -> Common::BoolResultStr
+             [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
-                 vkCmdDraw( cmd, 3, 1, 0, 0 );
+                 const VkCommandBuffer passCmd = PassCommandBuffer( context );
+                 if ( passCmd == VK_NULL_HANDLE )
+                     return Fail( "the pass has no recording command buffer" );
+                 vkCmdBindPipeline( passCmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
+                 vkCmdDraw( passCmd, 3, 1, 0, 0 );
                  return Common::MakeSuccess( true );
              } );
         graph.AddPass(
@@ -1394,6 +1423,9 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
              },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
+                 const VkCommandBuffer passCmd = PassCommandBuffer( context );
+                 if ( passCmd == VK_NULL_HANDLE )
+                     return Fail( "the pass has no recording command buffer" );
                  auto source = context.GetTexture( fb.Resolves[0], RDG::Access::CopySrc );
                  auto dest   = context.GetBuffer( bytes, RDG::Access::CopyDst );
                  if ( !source || !dest )
@@ -1405,7 +1437,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
                  VkBufferImageCopy region{};
                  region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
                  region.imageExtent      = { kSize, kSize, 1 };
-                 vkCmdCopyImageToBuffer( cmd, sourceImage.GetValue()->GetImage(),
+                 vkCmdCopyImageToBuffer( passCmd, sourceImage.GetValue()->GetImage(),
                                          VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer.GetValue()->GetBuffer(), 1,
                                          &region );
                  return Common::MakeSuccess( true );
@@ -1782,8 +1814,11 @@ namespace
                      pass.Read( textures[i], RDG::Access::CopySrc );
                      pass.Write( readbacks[i], RDG::Access::CopyDst );
                  },
-                 [&textures, &readbacks, cmd, size, i]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [&textures, &readbacks, size, i]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
+                     const VkCommandBuffer passCmd = PassCommandBuffer( context );
+                     if ( passCmd == VK_NULL_HANDLE )
+                         return Fail( "the pass has no recording command buffer" );
                      auto source = context.GetTexture( textures[i], RDG::Access::CopySrc );
                      auto target = context.GetBuffer( readbacks[i], RDG::Access::CopyDst );
                      if ( !source || !target )
@@ -1795,7 +1830,7 @@ namespace
                      VkBufferImageCopy region{};
                      region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
                      region.imageExtent      = { size, size, 1 };
-                     vkCmdCopyImageToBuffer( cmd, image.GetValue()->GetImage(),
+                     vkCmdCopyImageToBuffer( passCmd, image.GetValue()->GetImage(),
                                              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer.GetValue()->GetBuffer(),
                                              1, &region );
                      return Common::MakeSuccess( true );
@@ -2208,7 +2243,7 @@ TEST( RenderGraphVulkan, AsyncComputeAcrossQueuesAndFromTheGraphStartIsValidatio
         VulkanRdgPool    pool( gpu.Rdg, 1 );
         FrameObjects     frame( gpu, 1, true );
         VulkanRdgBackend backend( gpu.Rdg, pool );
-        ASSERT_TRUE( backend.GetPipeCapabilities().SeparateComputeFamily );
+        ASSERT_TRUE( frame.Queues.GetCapabilities().SeparateComputeFamily );
 
         AsyncCopyRun first = RunAsyncCopy( gpu, backend, pool, frame, nullptr );
         ASSERT_TRUE( first.Error.empty() ) << first.Error;

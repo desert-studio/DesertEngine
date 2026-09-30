@@ -325,6 +325,12 @@ namespace Desert::Graphic::API::Vulkan
         static Common::ResultStr<VkCommandBuffer>   CommandBufferOf( const RDG::PassContext& context );
         static Common::ResultStr<VulkanRdgTexture*> TextureOf( const RDG::TextureBinding& binding );
         static Common::ResultStr<VulkanRdgBuffer*>  BufferOf( const RDG::BufferBinding& binding );
+        // The command buffer the open segment (or the graph tail) records into; VK_NULL_HANDLE outside a
+        // graph. For a backend that forwards to this one (its contexts are not this backend's).
+        VkCommandBuffer GetRecordingCommandBuffer() const
+        {
+            return m_CommandBuffer;
+        }
 
         RDG::BackendKind GetKind() const override
         {
