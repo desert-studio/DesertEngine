@@ -59,6 +59,7 @@
 #include "SettingsCanonical.hpp"
 #include "ClipMigration.hpp"
 #include "ClipInterpShift.hpp"
+#include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 
 #include <Common/Content/ShaderAssetHeader.hpp>
@@ -1105,7 +1106,7 @@ namespace Desert::Migration
                 continue;
             }
             auto shifted = Desert::Migration::ShiftTimelineV1( source );
-            auto header  = Desert::Common::Json::Read<Desert::Migration::TimelineEnvelope>( source );
+            auto header  = Common::Json::Read<Desert::Migration::TimelineEnvelope>( source );
             if ( !shifted || !header )
             {
                 err << "FAIL   " << path.string() << " — " << ( !shifted ? shifted.GetError() : header.GetError() )
