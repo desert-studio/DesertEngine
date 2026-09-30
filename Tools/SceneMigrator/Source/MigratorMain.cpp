@@ -571,6 +571,8 @@ namespace Desert::Migration
         }
 
         int changed = 0;
+        // Mesh files raised (MeshBinary 3/4 -> 5, mesh Source 2 -> 3): a --check with any is pending work.
+        int meshesRaised = 0;
         int failed  = 0;
         int relaid  = 0;
 
@@ -610,6 +612,7 @@ namespace Desert::Migration
                     ++failed;
                     continue;
                 }
+                ++meshesRaised;
                 out << ( check ? "would raise " : "raised " ) << path.string() << " MeshBinary " << stated << " -> "
                     << Common::Content::kMeshBinaryVersion << "\n";
                 if ( !check )
@@ -624,14 +627,43 @@ namespace Desert::Migration
                 continue;
             }
             // THE MESH ASSET (AF4b/AF4d): a `.stmesh`/`.skmesh` that is an AF1 envelope stamped 'MSAS' carries its
-            // editable source and has no step in this tool yet. It is judged by the engine's own reader - the
-            // whole envelope, every section hash and the SRCE decode - so a torn file FAILS by name and only a
-            // file the editor would open is "ok". Anything not opening with DESTMESH that is not such an asset
-            // falls through to the cooked-mesh refusal below, which names what it is instead.
+            // editable source. SRCE 2 is raised to 3 (SKEL-eng3: the skin's signature -> its skeleton's GUID).
+            // The rest is judged by the engine's own reader - the whole envelope, every section hash and the SRCE
+            // decode - so a torn file FAILS by name and only a file the editor would open is "ok". Anything not
+            // opening with DESTMESH that is not such an asset falls through to the cooked-mesh refusal below,
+            // which names what it is instead.
             if ( !std::string_view( bytes ).starts_with( std::string_view(
                       Common::Content::kMeshBinaryMagic, sizeof( Common::Content::kMeshBinaryMagic ) ) ) &&
                  ( bytes.empty() || bytes.front() != '{' ) )
             {
+                uint32_t sourceVersion = 0;
+                if ( const auto envelope = Common::Content::ReadAssetEnvelope(
+                          std::as_bytes( std::span( bytes ) ), Desert::Assets::MeshAssetHeaderReadContext() );
+                     envelope )
+                    for ( const auto& section : envelope.GetValue().Sections )
+                        if ( section.Tag == Common::Content::EnvelopeSection::Source && section.Bytes.size() >= 4 )
+                            std::memcpy( &sourceVersion, section.Bytes.data(), 4 );
+                if ( sourceVersion == 2u )
+                {
+                    const auto raised = Desert::Migration::MigrateMeshSourceToV3( path.string(), bytes, skeletons );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    ++meshesRaised;
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " mesh Source 2 -> 3\n";
+                    if ( !check )
+                        if ( const auto written =
+                                  Common::Utils::FileSystem::WriteContentToFileAtomic( path, raised.GetValue() );
+                             !written )
+                        {
+                            err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                            ++failed;
+                        }
+                    continue;
+                }
                 const auto asset = Desert::Assets::DecodeMeshSourceAsset( std::as_bytes( std::span( bytes ) ) );
                 if ( !asset )
                 {
@@ -1232,13 +1264,15 @@ namespace Desert::Migration
             << " material(s), " << prefabs.size() << " prefab(s), " << prefabsChanged
             << ( check ? " would change, " : " raised, " ) << texts.size() << " other text asset(s), " << relaid
             << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << foliageRaised
-            << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << tiles.size()
+            << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << meshesRaised
+            << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
             << " landscape tile(s), " << failed << " failed\n";
 
         failedOut = failed;
         if ( failed > 0 )
             return 1;
-        return ( check && ( changed > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 ) ) ? 1 : 0;
+        return ( check && ( changed > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 ||
+                             meshesRaised > 0 ) ) ? 1 : 0;
     }
 
     // ALL OR NOTHING. A write run used to raise file after file and let one refusal fail only itself: over

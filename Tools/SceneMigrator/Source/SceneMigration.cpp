@@ -11,6 +11,7 @@
 // IS this type serialized, so reading it with anything else would be a second statement of the format.
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
+#include <Engine/Assets/MeshSourceAsset.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 
@@ -56,6 +57,7 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <optional>
 #include <string>
@@ -922,6 +924,120 @@ namespace Desert::Migration
             return Common::MakeFormattedError<std::string>( "'{}': the raised v{} does not read: {}", path,
                                                             C::kMeshBinaryVersion, decoded.GetError() );
         return Common::MakeSuccess( Assets::Serialization::EncodeMeshBinary( decoded.GetValue() ) );
+    }
+
+    Common::ResultStr<std::string> MigrateMeshSourceToV3( const std::string_view path, const std::string_view bytes,
+                                                          const std::span<const Animation::SkeletonCandidate> skeletons )
+    {
+        namespace C = Common::Content;
+        auto envelope =
+             C::ReadAssetEnvelope( std::as_bytes( std::span( bytes.data(), bytes.size() ) ),
+                                   Assets::MeshAssetHeaderReadContext() );
+        if ( !envelope )
+            return Common::MakeFormattedError<std::string>( "'{}': {}", path, envelope.GetError() );
+        C::AssetEnvelope e      = envelope.ExtractValue();
+        const auto       source = std::find_if( e.Sections.begin(), e.Sections.end(), []( const auto& section ) {
+            return section.Tag == C::EnvelopeSection::Source;
+        } );
+        if ( source == e.Sections.end() )
+            return Common::MakeFormattedError<std::string>( "'{}' has no SRCE section", path );
+
+        // THE SRCE 2 LAYOUT (MeshSourceAsset.cpp Reader/EncodeSource at version 2), walked without decoding:
+        // U32 version; models {Floats, Ints x3, 3 optional overlays, UV overlays}; slots {String, U64, U64};
+        // U8 skinned; skin {U64 signature, bone names, influences}. Little-endian, counts are U32.
+        const std::vector<std::byte>& old = source->Bytes;
+        std::size_t                   at  = 0;
+        bool                          ok  = true;
+        const auto                    u32 = [&]() -> uint32_t {
+            if ( !ok || old.size() - at < 4 )
+            {
+                ok = false;
+                return 0;
+            }
+            uint32_t v = 0;
+            std::memcpy( &v, old.data() + at, 4 );
+            at += 4;
+            return v;
+        };
+        const auto skip = [&]( const uint64_t n ) {
+            if ( !ok || old.size() - at < n )
+                ok = false;
+            else
+                at += static_cast<std::size_t>( n );
+        };
+        const auto array   = [&]() { skip( uint64_t{ 4 } * u32() ); }; // Floats / Ints
+        const auto overlay = [&]() {
+            array();
+            array();
+        };
+        const uint32_t version = u32();
+        if ( !ok || version != 2u )
+            return Common::MakeFormattedError<std::string>( "'{}' states mesh Source version {}; this step raises 2",
+                                                            path, version );
+        const uint32_t models = u32();
+        for ( uint32_t m = 0; ok && m < models; ++m )
+        {
+            for ( int i = 0; i < 4; ++i )
+                array();
+            for ( int i = 0; ok && i < 3; ++i )
+            {
+                skip( 1 );
+                if ( ok && std::to_integer<uint8_t>( old[at - 1] ) == 1 )
+                    overlay();
+            }
+            const uint32_t uvs = u32();
+            for ( uint32_t i = 0; ok && i < uvs; ++i )
+                overlay();
+        }
+        const uint32_t slots = u32();
+        for ( uint32_t i = 0; ok && i < slots; ++i )
+        {
+            skip( u32() );
+            skip( 16 );
+        }
+        skip( 1 );
+        if ( !ok )
+            return Common::MakeFormattedError<std::string>( "'{}': its SRCE 2 section is truncated", path );
+        const bool skinned = std::to_integer<uint8_t>( old[at - 1] ) == 1;
+
+        std::vector<std::byte> raised( old.begin(), old.begin() + static_cast<std::ptrdiff_t>( at ) );
+        const uint32_t         three = 3u;
+        std::memcpy( raised.data(), &three, 4 );
+        if ( skinned )
+        {
+            uint64_t signature = 0;
+            if ( old.size() - at < 8 )
+                return Common::MakeFormattedError<std::string>( "'{}': its SRCE 2 skin is truncated", path );
+            std::memcpy( &signature, old.data() + at, 8 );
+            at += 8;
+            const auto guid = Animation::MigrateSkeletonReference( path, signature, skeletons );
+            if ( !guid )
+                return Common::MakeError<std::string>( guid.GetError() );
+            const C::AssetGuid skeleton = guid.GetValue();
+            for ( const uint64_t half : { skeleton.Hi, skeleton.Lo } )
+                for ( int i = 0; i < 8; ++i )
+                    raised.push_back( static_cast<std::byte>( ( half >> ( 8 * i ) ) & 0xFFu ) );
+            if ( std::find( e.Asset.Dependencies.begin(), e.Asset.Dependencies.end(), skeleton ) ==
+                 e.Asset.Dependencies.end() )
+                e.Asset.Dependencies.push_back( skeleton );
+        }
+        raised.insert( raised.end(), old.begin() + static_cast<std::ptrdiff_t>( at ), old.end() );
+        source->Bytes = std::move( raised );
+
+        const auto written = C::WriteAssetEnvelope( e );
+        if ( !written )
+            return Common::MakeFormattedError<std::string>( "'{}': {}", path, written.GetError() );
+        // THE ENGINE JUDGES THE RESULT: the raised file must read as the asset the editor opens, and its writer
+        // states it (canonical bytes).
+        auto decoded = Assets::DecodeMeshSourceAsset( written.GetValue() );
+        if ( !decoded )
+            return Common::MakeFormattedError<std::string>( "'{}': the raised SRCE 3 does not read: {}", path,
+                                                            decoded.GetError() );
+        const auto encoded = Assets::EncodeMeshSourceAsset( decoded.GetValue() );
+        if ( !encoded )
+            return Common::MakeFormattedError<std::string>( "'{}': {}", path, encoded.GetError() );
+        return Common::MakeSuccess(
+             std::string( reinterpret_cast<const char*>( encoded.GetValue().data() ), encoded.GetValue().size() ) );
     }
 
     Common::ResultStr<std::string> MigrateFoliageTypeV1ToV2( const std::string& text )

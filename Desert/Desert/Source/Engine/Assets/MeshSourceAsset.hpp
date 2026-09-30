@@ -126,7 +126,9 @@ namespace Desert::Assets
     // named, not numbered against a skeleton asset: binding to a `.skeleton` is the deriver's job (AF4f).
     struct MeshSkin
     {
-        uint64_t                       SkeletonSignature = 0; // the rig the file was skinned to; 0 = none claimed
+        // THE SKELETON THE SKIN BINDS TO (SKEL-TREE, source version 3): the .skeleton's header GUID - never
+        // null for a skin. The same value the cooked .skmesh states (MeshAssetData::Skeleton); a header dependency.
+        Common::Content::AssetGuid     Skeleton;
         std::vector<std::string>       BoneNames;
         std::vector<MeshSkinInfluence> Influences;
         bool                           operator==( const MeshSkin& ) const = default;
@@ -163,7 +165,8 @@ namespace Desert::Assets
         bool                         operator==( const MeshSourceAsset& ) const = default;
     };
 
-    // The header's dependency list: every non-null slot material, first occurrence order, no repeats.
+    // The header's dependency list: every non-null slot material, first occurrence order, no repeats; then the
+    // skin's skeleton when it is not one of them.
     std::vector<Common::Content::AssetGuid> MeshSourceDependencies( const MeshSourceData& source );
     // Bounds of the source positions, cm; nullopt for a mesh with no vertices. The asset's Meta bounds are LOD0's.
     std::optional<Common::Content::EnvelopeBounds> MeshSourceBounds( const Geometry::EditMeshSer& mesh );
