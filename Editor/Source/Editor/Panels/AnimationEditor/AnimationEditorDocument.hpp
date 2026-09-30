@@ -4,6 +4,7 @@
 #include <Editor/Panels/AnimationEditor/AnimationEditorIdentity.hpp>
 #include <Editor/Panels/AnimationEditor/AnimationNotifyTracks.hpp>
 #include <Editor/Panels/AnimationEditor/AnimationTransport.hpp>
+#include <Editor/Widgets/MeshAssetDetails.hpp>
 
 #include <Common/Core/Core.hpp> // Common::Filepath, which AssetMetadata.hpp names without including
 #include <Engine/Assets/AssetMetadata.hpp>
@@ -183,6 +184,10 @@ namespace Desert::Editor
         std::vector<std::filesystem::path>        m_MeshCandidates;
         uint64_t                                  m_Signature = 0; // the rig every mode of this window is on
         std::shared_ptr<Assets::SkinnedMeshAsset> m_Mesh;
+        // The Mesh mode's skinning audit, cached against (mesh handle, bone count): a vertex scan per frame is waste.
+        MeshAssetDetails::SkinningAudit m_SkinningAudit;
+        uint64_t                        m_SkinningAuditOf    = 0;
+        std::size_t                     m_SkinningAuditBones = 0;
         // Notify State edge drag, curve key drag and the curve popups.
         int32_t         m_DragState = -1;
         NotifyStateEdge m_DragEdge  = NotifyStateEdge::End;

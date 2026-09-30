@@ -3,6 +3,7 @@
 #include <Editor/Core/AssetOpen.hpp>
 #include <Editor/Core/PreviewViewpoints.hpp>
 #include <Editor/Core/SubjectTitle.hpp>
+#include <Editor/Widgets/MeshAssetDetails.hpp>
 #include <Editor/Widgets/PreviewInput.hpp>
 #include <Editor/Widgets/PreviewEnvironmentUI.hpp>
 #include <Editor/Widgets/PreviewViewport.hpp>
@@ -245,6 +246,10 @@ namespace Desert::Editor
         if ( ImGui::BeginChild( "##meshstats", ImVec2( kSidePanelWidth, view.y ) ) )
         {
             DrawStats();
+            // The asset's Details (UE's Static Mesh Editor): its elements and the source's Import Settings with
+            // Reimport — the one body the Animation Editor's Mesh mode draws too.
+            if ( const auto asset = m_Assets->FindByHandle<Assets::StaticMeshAsset>( Assets::AssetHandle( Subject().Owner ) ) )
+                MeshAssetDetails::Draw( *asset );
             DrawLightAndLOD();
         }
         ImGui::EndChild();

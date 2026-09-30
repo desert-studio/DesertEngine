@@ -19,6 +19,7 @@
 #include <Editor/Panels/NodeGraph/ShaderGraphDocumentOpen.hpp>
 #include "../../Core/EditorResources.hpp"
 
+#include <Editor/Import/ImportOptionsDialog.hpp>
 #include <Editor/Import/TextureDnD.hpp>
 #include <Editor/Import/CookPaths.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
@@ -2364,6 +2365,24 @@ namespace Desert::Editor
                 ImGui::Separator();
                 if ( ImGui::MenuItem( "Add to Scene" ) )
                     AddPrefabToScene( entry.AssetPath );
+            }
+
+            // UE's Asset Actions > Reimport / Reimport with New File, for a mesh asset with an import source: the
+            // ImportOptions bodies the asset editor's Import Settings button and the palette run - no second home.
+            if ( ImportOptions::ImportSourceOfMeshAsset( entry.AssetPath ) )
+            {
+                ImGui::Separator();
+                if ( ImGui::MenuItem( "Reimport" ) )
+                    if ( const auto done = ImportOptions::Reimport( entry.AssetPath ); !done )
+                        LOG_ERROR( "[Import] {}", done.GetError() );
+                if ( ImGui::MenuItem( "Reimport with New File..." ) )
+                {
+                    const auto chosen = Common::Utils::FileSystem::OpenFileDialog(
+                         "Meshes\0*.fbx;*.glb;*.gltf;*.obj\0All\0*.*\0" );
+                    if ( !chosen.empty() )
+                        if ( const auto done = ImportOptions::ReimportWithNewFile( entry.AssetPath, chosen ); !done )
+                            LOG_ERROR( "[Import] {}", done.GetError() );
+                }
             }
 
             // UE-style: use the current viewport view as this asset's thumbnail (frame it in the scene first).

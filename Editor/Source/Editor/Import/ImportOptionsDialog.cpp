@@ -17,6 +17,8 @@
 #include <ImGui/imgui.h>
 
 #include <array>
+#include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <deque>
 #include <format>
@@ -564,6 +566,33 @@ namespace Desert::Editor::ImportOptions
                                                      source->generic_string() );
         DropEdit( *source ); // the record states what was imported now; the next ask reads it
         return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr ReimportWithNewFile( const std::filesystem::path& assetPath,
+                                               const std::filesystem::path& newFile )
+    {
+        const auto source = ImportSourceOfMeshAsset( assetPath );
+        if ( !source )
+            return Common::MakeFormattedError<bool>( "'{}' has no import source to replace",
+                                                     assetPath.generic_string() );
+        std::error_code ec;
+        if ( !std::filesystem::is_regular_file( newFile, ec ) )
+            return Common::MakeFormattedError<bool>( "'{}' is not a file", newFile.generic_string() );
+        const auto lower = []( std::string text )
+        {
+            std::transform( text.begin(), text.end(), text.begin(),
+                            []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
+            return text;
+        };
+        if ( lower( newFile.extension().string() ) != lower( source->extension().string() ) )
+            return Common::MakeFormattedError<bool>( "'{}' is a {} file; '{}' reimports from {} only",
+                                                     newFile.generic_string(), newFile.extension().string(),
+                                                     assetPath.generic_string(), source->extension().string() );
+        if ( !std::filesystem::equivalent( newFile, *source, ec ) &&
+             !std::filesystem::copy_file( newFile, *source, std::filesystem::copy_options::overwrite_existing, ec ) )
+            return Common::MakeFormattedError<bool>( "'{}' could not replace '{}': {}", newFile.generic_string(),
+                                                     source->generic_string(), ec.message() );
+        return Reimport( assetPath );
     }
 
     Common::BoolResultStr SetSectionUniformScale( const std::filesystem::path& assetPath, const float scale )

@@ -8,11 +8,9 @@
 
 #include "MaterialsPanelComponent.hpp"
 
-#include "Helper/MeshDetailsWidget.hpp"
 
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
-#include <Editor/Core/MeshResolve.hpp>
 #include <Editor/Widgets/PreviewViewport.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Editor/Import/ImportedMeshAsset.hpp>
@@ -96,6 +94,7 @@ namespace Desert::Editor
                 ImGui::OpenPopup( "mesh_selector" );
             }
             DrawAssetFieldOpen( emptySlot ? 0 : static_cast<uint64_t>( staticMesh.MeshHandle ) );
+            DrawAssetFieldButtons( emptySlot ? 0 : static_cast<uint64_t>( staticMesh.MeshHandle ) );
 
             if ( ImGui::BeginPopup( "mesh_selector" ) )
             {
@@ -150,8 +149,9 @@ namespace Desert::Editor
             Utils::ImGuiUtilities::EndPropertyRow();
         }
 
-        ShowMeshDetails( entity, scene, staticMesh );
-
+        // What the mesh IS (statistics, elements, Import Settings) is the ASSET's, shown by its editor
+        // (MeshAssetDetails, UE's Static Mesh Editor); a component's Details is the slot, its materials and
+        // the component's own properties.
         {
             static MaterialComponentWidget materialComponent( m_AssetManager );
             materialComponent.Render( entity, scene );
@@ -291,24 +291,6 @@ namespace Desert::Editor
                                                       : "Preview queued — it will appear in a moment" );
 
         ImGui::SameLine();
-    }
-
-    void StaticMeshComponentWidget::ShowMeshDetails( const ECS::Entity& entity, ::Desert::Core::Scene* scene,
-                                                     const ECS::StaticMeshComponent& staticMesh ) const
-    {
-        MeshDetailsWidget::Context ctx;
-        ctx.Entity    = &entity;
-        ctx.Scene     = scene;
-        ctx.ForcedLOD = staticMesh.ForcedLOD;
-        ctx.LODBias   = staticMesh.LODBias;
-
-        // The mesh that is ACTUALLY drawn — one shared resolver, so the panel, the viewport overlay and
-        // the collider fit can never disagree about which mesh an entity shows.
-        ctx.RuntimeMesh = ResolveDrawnMesh( entity );
-        if ( staticMesh.MeshHandle )
-            ctx.Asset = m_AssetManager->FindByHandle<Assets::MeshAsset>( staticMesh.MeshHandle );
-
-        MeshDetailsWidget::Show( ctx );
     }
 
     void StaticMeshComponentWidget::RenderRigging( ECS::Entity& entity, ECS::StaticMeshComponent& staticMesh )

@@ -9,6 +9,7 @@
 #include <Editor/Panels/AnimationEditor/AnimationNotifyTracks.hpp>
 #include <Editor/Panels/AnimationEditor/SkeletonTree.hpp>
 #include <Editor/Panels/Sequencer/TimelineRuler.hpp>
+#include <Editor/Widgets/MeshAssetDetails.hpp>
 #include <Editor/Widgets/PreviewEnvironmentUI.hpp>
 #include <Editor/Widgets/PreviewViewport.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
@@ -1765,6 +1766,24 @@ namespace Desert::Editor
             }
             ImGui::EndTable();
         }
+
+        // What the weights say about the rig (UE's Skeletal Mesh Editor warnings), against the preview's skeleton
+        // — the one the mesh binds to. Scanned once per mesh, not per frame.
+        if ( const auto* animator = m_Preview ? m_Preview->GetAnimator() : nullptr )
+        {
+            const std::size_t bones = animator->GetSkeleton().GetBones().size();
+            const auto        of    = static_cast<uint64_t>( mesh.GetMetadata().Handle );
+            if ( m_SkinningAuditOf != of || m_SkinningAuditBones != bones )
+            {
+                m_SkinningAudit      = MeshAssetDetails::AuditSkinning( mesh.GetVertices(), bones );
+                m_SkinningAuditOf    = of;
+                m_SkinningAuditBones = bones;
+            }
+            MeshAssetDetails::DrawSkinningAudit( m_SkinningAudit );
+        }
+
+        // Elements and the source's Import Settings with Reimport — the Static Mesh viewer's body too.
+        MeshAssetDetails::Draw( mesh );
     }
 
     void AnimationEditorDocument::DrawSkeletonDetails()
