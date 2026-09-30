@@ -12,7 +12,7 @@
 //   5. the Evaluator and the host seam (resolve once, unresolved REPORTED);
 //   6. easing presets (the UI key model's replacement);
 //   7. serialization round trip;
-//   8. LiftClip: the migration is the identity, bit for bit;
+//   8. LiftClip: the migration is the identity, bit for bit (landed: timeline_lift_test.cpp);
 //   9. LayeredBlendPerBone and LinkedAnimLayer.
 //
 // ONE FILE PER LANDED GROUP: groups 1-2 (timeline_channel_test.cpp), 3 (timeline_section_test.cpp, the
@@ -24,75 +24,6 @@
 #include "TimelineFixtures.hpp"
 
 using namespace TimelineFixtures;
-
-// ── 8. LiftClip: the .anim migration is the identity ────────────────────────────────────────────────
-
-TEST( TimelineLiftClip, EveryBoneSamplesBitForBitAfterTheLift )
-{
-    AnimationClip clip;
-    clip.AnimationName = "Walk";
-    clip.DurationTicks = Tick( 60 );
-    BoneTrack spine;
-    spine.BoneName     = "Spine";
-    spine.PositionKeys = { PositionKeyFrame{ Tick( 0 ), glm::vec3( 0, 1, 0 ) },
-                           PositionKeyFrame{ Tick( 60 ), glm::vec3( 3, 1, -2 ) } };
-    spine.RotationKeys = { RotationKeyFrame{ Tick( 0 ), glm::quat( 1, 0, 0, 0 ) },
-                           RotationKeyFrame{ Tick( 60 ), glm::angleAxis( 1.1F, glm::vec3( 0, 0, 1 ) ) } };
-    clip.Tracks.push_back( spine );
-    clip.Curves.push_back( AnimationCurve{ "Footstep", { Key( 0, 0.0F ), Key( 60, 1.0F ) } } );
-    clip.Notifies.push_back( AnimationNotify{ "Step", Tick( 30 ), 2, Tick( 0 ) } );
-
-    const auto lifted = LiftClip( clip );
-    ASSERT_TRUE( lifted.IsSuccess() ) << lifted.GetError();
-    const Sequence& sequence = lifted.GetValue();
-    EXPECT_EQ( sequence.Host, SequenceHost::AnimationClip );
-    EXPECT_TRUE( Validate( sequence ).IsSuccess() );
-
-    std::vector<BoneInfo> bones( 1 );
-    bones[0].Name = "Spine";
-    const Skeleton         skeleton( std::move( bones ) );
-    const BoneBindingTable table = BindBones( sequence, skeleton );
-    EXPECT_EQ( table.Missing, 0U );
-
-    for ( const FrameTime at : { At( 0 ), At( 7, 0.5F ), At( 30 ), At( 59, 0.99F ), At( 60 ) } )
-    {
-        LocalPose pose( 1 );
-        ASSERT_TRUE( EvaluatePose( sequence, table, at, pose ).IsSuccess() );
-        const BoneTransform expected = spine.Sample( at, clip.TickRate );
-        EXPECT_EQ( pose[0].Translation, expected.Translation ) << at.AsTicks();
-        EXPECT_EQ( pose[0].Rotation, expected.Rotation ) << at.AsTicks();
-        EXPECT_EQ( pose[0].Scale, expected.Scale ) << at.AsTicks();
-    }
-
-    int curveTracks = 0;
-    for ( const Track& track : sequence.Tracks )
-    {
-        const Binding* binding = FindBinding( sequence, track.Binding );
-        ASSERT_NE( binding, nullptr );
-        curveTracks += ( track.Kind == TrackKind::Float && track.Property == "Footstep" &&
-                         binding->Kind == BindingKind::Sequence )
-                            ? 1
-                            : 0;
-    }
-    EXPECT_EQ( curveTracks, 1 ) << "a named curve is a Float track on the sequence binding";
-    int eventTracks = 0;
-    for ( const Track& track : sequence.Tracks )
-    {
-        eventTracks += track.Kind == TrackKind::Event ? 1 : 0;
-    }
-    EXPECT_EQ( eventTracks, 1 ) << "notifies become ONE event track, rows kept on the keys";
-}
-
-TEST( TimelineLiftClip, TwoTracksForOneBoneAreRefusedNotMerged )
-{
-    AnimationClip clip;
-    clip.DurationTicks = Tick( 10 );
-    BoneTrack a;
-    a.BoneName = "Hand_L";
-    clip.Tracks.push_back( a );
-    clip.Tracks.push_back( a );
-    EXPECT_FALSE( LiftClip( clip ).IsSuccess() );
-}
 
 // ── 9. AnimGraph layer nodes ────────────────────────────────────────────────────────────────────────
 

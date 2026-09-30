@@ -1,5 +1,7 @@
 #include "Evaluator.hpp"
 
+#include <Engine/Animation/Skeleton.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -48,9 +50,23 @@ namespace Desert::Animation::Timeline
         {
             acc = w == 1.0F ? v : glm::slerp( acc, v, w );
         }
+        // A BONE is spelled exactly as ApplySection (ClipSection.cpp) spells it — `acc + w * ( v - acc )`, not
+        // glm::mix's `acc * ( 1 - w ) + v * w` — so a lifted generation-3 section at a partial weight lands on
+        // the same bits the clip played before the lift; weight 0 leaves the pose underneath untouched.
         void Absolute( BoneTransform& acc, const BoneTransform& v, const float w )
         {
-            acc = w == 1.0F ? v : Blend( acc, v, w );
+            if ( w == 1.0F )
+            {
+                acc = v;
+                return;
+            }
+            if ( w == 0.0F )
+            {
+                return;
+            }
+            acc.Translation = acc.Translation + w * ( v.Translation - acc.Translation );
+            acc.Rotation    = glm::slerp( acc.Rotation, v.Rotation, w );
+            acc.Scale       = acc.Scale + w * ( v.Scale - acc.Scale );
         }
         // A bool has no in-between: a section states its value from half weight on.
         void Absolute( bool& acc, const bool v, const float w )
@@ -70,11 +86,16 @@ namespace Desert::Animation::Timeline
         {
             acc = acc * glm::slerp( kIdentity, v, w );
         }
+        // ApplySection's spelling again (see Absolute above): the full-weight rotation offset is the key itself.
         void Additive( BoneTransform& acc, const BoneTransform& v, const float w )
         {
+            if ( w == 0.0F )
+            {
+                return;
+            }
             acc.Translation = acc.Translation + w * v.Translation;
-            acc.Rotation    = acc.Rotation * glm::slerp( kIdentity, v.Rotation, w );
-            acc.Scale       = acc.Scale * glm::mix( glm::vec3( 1.0F ), v.Scale, w );
+            acc.Rotation    = acc.Rotation * ( w == 1.0F ? v.Rotation : glm::slerp( kIdentity, v.Rotation, w ) );
+            acc.Scale       = acc.Scale * ( glm::vec3( 1.0F ) + w * ( v.Scale - glm::vec3( 1.0F ) ) );
         }
         // The additive of a bool is OR: an additive section can switch a flag on, never off.
         void Additive( bool& acc, const bool v, const float w )
@@ -472,5 +493,89 @@ namespace Desert::Animation::Timeline
         }
         host.SetCamera( camera );
         return report;
+    }
+
+    BoneBindingTable BindBones( const Sequence& sequence, const Skeleton& skeleton )
+    {
+        BoneBindingTable table;
+        table.Revision = sequence.Revision;
+        table.BoneOfTrack.assign( sequence.Tracks.size(), UINT32_MAX );
+        for ( size_t ti = 0; ti < sequence.Tracks.size(); ++ti )
+        {
+            const Track& track = sequence.Tracks[ti];
+            if ( track.Kind != TrackKind::Transform )
+            {
+                continue;
+            }
+            const Binding* binding = FindBinding( sequence, track.Binding );
+            if ( binding == nullptr || binding->Kind != BindingKind::Bone )
+            {
+                continue;
+            }
+            // By locator = bone name, Animator::ResolveTrack's rule: the clip and the rig come from different
+            // files with different bone orders, and the name is the one thing they share.
+            if ( const std::optional<uint32_t> bone = skeleton.FindBoneIndex( binding->Locator ) )
+            {
+                table.BoneOfTrack[ti] = *bone;
+            }
+            else
+            {
+                ++table.Missing;
+            }
+        }
+        return table;
+    }
+
+    Common::BoolResultStr EvaluatePose( const Sequence& sequence, const BoneBindingTable& table, const FrameTime at,
+                                        LocalPose& pose )
+    {
+        if ( table.Revision != sequence.Revision || table.BoneOfTrack.size() != sequence.Tracks.size() )
+        {
+            return Common::MakeFormattedError<bool>(
+                 "EvaluatePose: the bone table was bound at revision {} for {} tracks and the sequence is at "
+                 "revision {} with {} tracks; bind again (BindBones)",
+                 table.Revision, table.BoneOfTrack.size(), sequence.Revision, sequence.Tracks.size() );
+        }
+        for ( size_t ti = 0; ti < sequence.Tracks.size(); ++ti )
+        {
+            const uint32_t bone  = table.BoneOfTrack[ti];
+            const Track&   track = sequence.Tracks[ti];
+            if ( bone == UINT32_MAX || track.Muted )
+            {
+                continue; // not a bone track, a bone this rig lacks, or muted: the pose underneath shows
+            }
+            if ( bone >= pose.Size() )
+            {
+                return Common::MakeFormattedError<bool>(
+                     "EvaluatePose: track {} drives bone {} and the pose holds {} bones (sized for another rig)",
+                     ti, bone, pose.Size() );
+            }
+            // THE FOLD STARTS FROM THE POSE, not from the channel's Default: for a bone the rest value the host
+            // states IS what the caller seeded (the bind or retarget pose — ApplySection's `reference`), so a
+            // partial Absolute section blends from it exactly as the generation-3 clip did.
+            BoneTransform& acc = pose[bone];
+            ForEachCovering( track, at,
+                             [&]( const Section& section )
+                             {
+                                 const auto* channel = std::get_if<Channel>( &section.Content );
+                                 const auto* typed =
+                                      channel != nullptr ? std::get_if<TransformChannel>( channel ) : nullptr;
+                                 if ( typed == nullptr )
+                                 {
+                                     return; // Validate refuses a section of another kind
+                                 }
+                                 const BoneTransform v = Evaluate( *typed, at, sequence.TickRate );
+                                 const float         w = WeightAt( section, at, sequence.TickRate );
+                                 if ( section.Blend == SectionBlendType::Additive )
+                                 {
+                                     Additive( acc, v, w );
+                                 }
+                                 else
+                                 {
+                                     Absolute( acc, v, w );
+                                 }
+                             } );
+        }
+        return Common::MakeSuccess( true );
     }
 } // namespace Desert::Animation::Timeline

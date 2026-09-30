@@ -35,6 +35,8 @@
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
+#include <Engine/Animation/Timeline/Evaluator.hpp>
+#include <Engine/Animation/Timeline/Hosts.hpp>
 
 #include <rflcpp/rfl.hpp>
 #include <rflcpp/rfl/json.hpp>
@@ -460,6 +462,83 @@ TEST( AnimationClipCorpus, EveryClipInTheRepositorySTATESTheSectionItsValuesAreR
     }
 
     EXPECT_GE( clips, 6u ) << "this census is measuring the wrong tree";
+}
+
+// ANIM-I7: THE `.anim` MIGRATION IS THE IDENTITY, MEASURED ON EVERY TRACKED CLIP.
+//
+// For each clip the repository carries: LiftClip, then on EVERY tick of [0, Duration] the lifted sequence's
+// EvaluatePose equals the generation-3 sampler (`AnimationClip::SampleTrack`, sections included) bit for bit,
+// and each named curve equals `AnimationCurve::Evaluate` — except the ONE stated divergence: exactly on a key
+// whose segment is Constant, the curve reads the key's own value (the segment it starts) and the channel the
+// previous key's (the segment it ends), the bone rule. That tick is asserted to be exactly that, not skipped.
+TEST( AnimationClipCorpus, EveryClipLiftsToASequenceThatSamplesBitForBit )
+{
+    using namespace Desert::Animation;
+    using namespace Desert::Animation::Timeline;
+    const auto clips = TrackedClips();
+    ASSERT_TRUE( clips.has_value() ) << "git ls-files failed from " << RepoRoot();
+    std::size_t lifted = 0;
+    for ( const std::string& path : *clips )
+    {
+        const auto data =
+             Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( ReadFile( path ) );
+        ASSERT_TRUE( data.IsSuccess() ) << path;
+        auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data.GetValue() );
+        ASSERT_TRUE( built.IsSuccess() ) << path << ": " << built.GetError();
+        const AnimationClip clip = built.ExtractValue();
+
+        const auto sequence = LiftClip( clip );
+        ASSERT_TRUE( sequence.IsSuccess() ) << path << ": " << sequence.GetError();
+        const Sequence& lift = sequence.GetValue();
+        ASSERT_TRUE( Validate( lift ).IsSuccess() ) << path;
+
+        std::vector<BoneInfo> bones( clip.Tracks.size() );
+        for ( std::size_t i = 0; i < bones.size(); ++i )
+            bones[i].Name = clip.Tracks[i].BoneName;
+        const Skeleton         skeleton( std::move( bones ) );
+        const BoneBindingTable table = BindBones( lift, skeleton );
+        ASSERT_EQ( table.Missing, 0u ) << path;
+
+        Evaluator      evaluator( lift );
+        EvaluatedFrame frame;
+        const BoneTransform reference; // the rest value the pose is seeded with, ApplySection's `reference`
+        for ( int32_t tick = 0; tick <= clip.DurationTicks.Value; ++tick )
+        {
+            const FrameTime at{ FrameNumber{ tick }, 0.0F };
+            LocalPose       pose( clip.Tracks.size() );
+            ASSERT_TRUE( EvaluatePose( lift, table, at, pose ).IsSuccess() ) << path;
+            for ( std::size_t b = 0; b < clip.Tracks.size(); ++b )
+            {
+                const BoneTransform expected = clip.SampleTrack( clip.Tracks[b], at, reference );
+                ASSERT_EQ( pose[b].Translation, expected.Translation ) << path << " bone " << b << " tick " << tick;
+                ASSERT_EQ( pose[b].Rotation, expected.Rotation ) << path << " bone " << b << " tick " << tick;
+                ASSERT_EQ( pose[b].Scale, expected.Scale ) << path << " bone " << b << " tick " << tick;
+            }
+
+            evaluator.Evaluate( TimeStep{ at, at }, frame );
+            for ( const EvaluatedTrack& value : frame.Values )
+            {
+                const Track& track = lift.Tracks[value.TrackIndex];
+                if ( track.Kind != TrackKind::Float )
+                    continue;
+                const AnimationCurve* curve = clip.FindCurve( track.Property );
+                ASSERT_NE( curve, nullptr ) << path << " curve " << track.Property;
+                const float got = std::get<float>( value.Value );
+                const auto  key = std::find_if( curve->Keys.begin(), curve->Keys.end(),
+                                                [&]( const ScalarKey& k ) { return k.Tick.Value == tick; } );
+                if ( key != curve->Keys.begin() && key != curve->Keys.end() && key->Interp == KeyInterp::Constant )
+                {
+                    EXPECT_EQ( got, ( key - 1 )->Value ) << path << " curve " << track.Property << " tick " << tick
+                                                         << ": the stated divergence moved";
+                    continue;
+                }
+                ASSERT_EQ( got, curve->Evaluate( at, clip.TickRate ) )
+                     << path << " curve " << track.Property << " tick " << tick;
+            }
+        }
+        ++lifted;
+    }
+    EXPECT_GE( lifted, 6u ) << "the lift ran over too few clips from " << RepoRoot();
 }
 
 int main( int argc, char** argv )
