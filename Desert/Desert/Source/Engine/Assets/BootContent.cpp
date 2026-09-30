@@ -160,9 +160,10 @@ namespace Desert::Assets
         // default draw would silently vanish. Refused by name (the reason is the error logged above), not a trap.
         if ( const auto program = Runtime::ResourceRegistry::GetShaderService()->Get( defaultSurface.GetValue() );
              !program || !program->IsCompiled() )
-            return Common::MakeError( std::format( "the engine's 'Default Surface' template '{}' did not build (the "
-                                                   "reason is logged above as '[BootContent] engine shader ...')",
-                                                   program ? program->GetName() : std::string( "<unregistered>" ) ) );
+            return Common::MakeError(
+                 std::format( "the engine's 'Default Surface' template '{}' did not build (the "
+                              "reason is logged above as '[BootContent] engine shader ...')",
+                              program ? program->GetName() : std::string( "<unregistered>" ) ) );
         return BOOLSUCCESS;
     }
 

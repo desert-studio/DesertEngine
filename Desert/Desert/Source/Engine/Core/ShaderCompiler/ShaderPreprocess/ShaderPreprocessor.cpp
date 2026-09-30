@@ -20,7 +20,8 @@ namespace Desert::Core::Preprocess
                                   context ) );
             auto parsed = DShaderParser::Parse( source );
             if ( !parsed.IsSuccess() )
-                return Common::MakeError<DShaderParseResult>( std::format( "{}: {}", context, parsed.GetError() ) );
+                return Common::MakeError<DShaderParseResult>(
+                     std::format( "{}: {}", context, parsed.GetError() ) );
             return Common::MakeSuccess( parsed.ExtractValue() );
         }
 

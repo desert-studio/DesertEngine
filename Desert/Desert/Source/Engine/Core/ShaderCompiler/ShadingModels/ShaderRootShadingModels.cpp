@@ -54,7 +54,7 @@ namespace Desert::Core::ShadingModels
     {
         struct RootSets
         {
-            std::mutex                                             Mutex;
+            std::mutex                                     Mutex;
             std::map<std::filesystem::path, ShaderRootSet> Loaded;
         };
 

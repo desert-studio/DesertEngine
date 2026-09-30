@@ -2702,7 +2702,8 @@ TEST_F( ShaderRootFixture, EveryShippedShaderStageCompilesAndReflects )
         passes.insert( passes.end(), meta.GetValue().PassNames.begin(), meta.GetValue().PassNames.end() );
         for ( const std::string& pass : passes )
         {
-            const auto passStages = Preprocess::ShaderPreprocess::PreProcessProgramPass( content, entry.path(), pass );
+            const auto passStages =
+                 Preprocess::ShaderPreprocess::PreProcessProgramPass( content, entry.path(), pass );
             ASSERT_TRUE( passStages.IsSuccess() ) << passStages.GetError();
             for ( const auto& [stage, source] : passStages.GetValue() )
             {

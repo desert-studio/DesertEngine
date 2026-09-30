@@ -130,9 +130,9 @@ namespace Desert::Core::ShadingModels
 
         // The directory's own manifests (not its subdirectories'), from disk AND every mounted pak.
         // Compared symlink-resolved: the pak half answers canonical paths, the disk half the root as spelled.
-        const std::filesystem::path directory = ( shaderRoot / kShadingModelDirectory ).lexically_normal();
+        const std::filesystem::path        directory = ( shaderRoot / kShadingModelDirectory ).lexically_normal();
         std::error_code             ec;
-        const std::filesystem::path canonicalDirectory = std::filesystem::weakly_canonical( directory, ec );
+        const std::filesystem::path        canonicalDirectory = std::filesystem::weakly_canonical( directory, ec );
         std::vector<std::filesystem::path> files;
         for ( const std::filesystem::path& file : Common::Utils::FileSystem::ListFilesRecursive( directory ) )
             if ( file.extension() == kShadingModelExtension &&

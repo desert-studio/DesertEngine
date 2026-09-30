@@ -53,11 +53,10 @@ namespace Desert::Core
                 auto preprocessed = Preprocess::ShaderPreprocess::PreProcessPass( request.Source, request.Path,
                                                                                   request.PassName );
                 if ( !preprocessed.IsSuccess() )
-                    return Common::MakeError<ShaderMap>( std::format( "shader '{}'{}: {}", request.Name,
-                                                                      request.PassName.empty()
-                                                                           ? std::string()
-                                                                           : std::format( " pass '{}'", request.PassName ),
-                                                                      preprocessed.GetError() ) );
+                    return Common::MakeError<ShaderMap>( std::format(
+                         "shader '{}'{}: {}", request.Name,
+                         request.PassName.empty() ? std::string() : std::format( " pass '{}'", request.PassName ),
+                         preprocessed.GetError() ) );
                 auto pass  = preprocessed.ExtractValue();
                 built.Meta = std::move( pass.Meta );
                 stages     = std::move( pass.Stages );

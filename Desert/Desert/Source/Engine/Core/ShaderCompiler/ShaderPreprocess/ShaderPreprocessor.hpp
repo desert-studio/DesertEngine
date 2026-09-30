@@ -13,8 +13,8 @@
 
 namespace Desert::Core::Preprocess
 {
-    // EVERY ANSWER IS A RESULT NAMING THE SHADER. A .shader that is not DSL text, does not parse, or has no pass of
-    // the asked name is refused with @p basePath (the file) and the reason — never a DESERT_VERIFY: the answer
+    // EVERY ANSWER IS A RESULT NAMING THE SHADER. A .shader that is not DSL text, does not parse, or has no pass
+    // of the asked name is refused with @p basePath (the file) and the reason — never a DESERT_VERIFY: the answer
     // travels BuildShaderMap -> Shader::Build -> ShaderService::Register (registered, not compiled, named in the
     // log), and a required engine shader turns it into a refused start (CompileEngineShaders), not a SIGTRAP on
     // a job-system worker.

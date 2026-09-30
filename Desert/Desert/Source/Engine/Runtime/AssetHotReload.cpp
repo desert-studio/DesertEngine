@@ -406,9 +406,10 @@ namespace Desert::Runtime
             if ( shadingModelsReloaded && !changed )
             {
                 const std::string& content = asset->GetShaderContent();
-                changed = Core::Preprocess::DShaderParser::MayDeclareSurface( content );
+                changed                    = Core::Preprocess::DShaderParser::MayDeclareSurface( content );
                 for ( const auto& include : Core::CollectShaderIncludes( content, path ) )
-                    changed = changed || include.generic_string().ends_with( Core::ShadingModels::kGeneratedInclude );
+                    changed =
+                         changed || include.generic_string().ends_with( Core::ShadingModels::kGeneratedInclude );
             }
 
             if ( !changed || m_FirstScan )
