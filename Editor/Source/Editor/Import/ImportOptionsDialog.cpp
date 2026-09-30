@@ -541,12 +541,17 @@ namespace Desert::Editor::ImportOptions
         if ( !Utils::ImGuiUtilities::SectionHeader( ICON_MDI_FILE_IMPORT_OUTLINE "  Import Settings" ) )
             return;
         ImGui::PushID( key.c_str() );
+        // The source is a FACT, not a setting (UE's AssetImportData "Source File"): its full path in the
+        // read-only table, whose declared columns cannot clip it down to the extension.
+        if ( Utils::ImGuiUtilities::BeginFactTable( "##ImportSource" ) )
+        {
+            std::error_code ec;
+            const auto      full = std::filesystem::absolute( *source, ec );
+            Utils::ImGuiUtilities::FactRow( "Source File",
+                                            ( ec ? *source : full ).lexically_normal().generic_string() );
+            Utils::ImGuiUtilities::EndFactTable();
+        }
         Utils::ImGuiUtilities::ResetPropertyRows();
-        Utils::ImGuiUtilities::BeginPropertyRow( "Source File" );
-        ImGui::TextUnformatted( source->filename().string().c_str() );
-        if ( ImGui::IsItemHovered() )
-            ImGui::SetTooltip( "%s", key.c_str() );
-        Utils::ImGuiUtilities::EndPropertyRow();
         (void)DrawImportSettingsFields( edit.Edit, ImportKindOf( edit.Kind ) );
 
         const bool edited = edit.Recorded != edit.Edit;

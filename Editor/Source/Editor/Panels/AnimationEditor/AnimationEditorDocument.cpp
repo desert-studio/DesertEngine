@@ -1726,7 +1726,7 @@ namespace Desert::Editor
             row( "File", mesh.GetMetadata().Filepath.filename().string() );
             // UE's Source File: the raw file this asset was imported from, by the one lookup the Import
             // Settings and Reimport use; its full path is the tooltip.
-            const auto source = ImportOptions::ImportSourceOfMeshAsset( mesh.GetMetadata().Filepath );
+            const auto source = ImportOptions::ImportSourceOfAsset( mesh.GetMetadata().Filepath );
             row( "Source File", source ? source->generic_string() : std::string( "(not imported)" ) );
             row( "Skeleton", std::format( "{:016x}", mesh.GetSkeletonSignature() ) );
             row( "Vertices", std::format( "{}", mesh.GetVertices().size() ) );
