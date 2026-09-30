@@ -4,8 +4,10 @@
 
 #include <Editor/Core/AssetOpen.hpp>
 #include <Editor/Core/CommandHistory.hpp>
+#include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/PreviewViewpoints.hpp>
 #include <Editor/Core/SubjectTitle.hpp>
+#include <Editor/Import/ImportOptionsDialog.hpp>
 #include <Editor/Panels/AnimationEditor/AnimationNotifyTracks.hpp>
 #include <Editor/Panels/AnimationEditor/SkeletonTree.hpp>
 #include <Editor/Panels/Sequencer/TimelineRuler.hpp>
@@ -1119,16 +1121,9 @@ namespace Desert::Editor
         size_t      keys = 0;
         for ( const auto& track : clip.Tracks )
             keys += track.PositionKeys.size() + track.RotationKeys.size() + track.ScaleKeys.size();
-        if ( !ImGui::BeginTable( "##clipdetails", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp ) )
+        if ( !Utils::ImGuiUtilities::BeginFactTable( "##clipdetails" ) )
             return;
-        const auto row = []( const char* label, const std::string& value )
-        {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TextDisabled( "%s", label );
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted( value.c_str() );
-        };
+        const auto row = &Utils::ImGuiUtilities::FactRow;
         row( "Animation", clip.AnimationName.empty() ? m_ClipName : clip.AnimationName );
         row( "File", m_ClipPath.empty() ? std::string( "(none)" ) : m_ClipPath.filename().string() );
         row( "Skeleton", std::format( "{:016x}", clip.SkeletonSignature ) );
@@ -1142,7 +1137,7 @@ namespace Desert::Editor
         row( "Keys", std::format( "{}", keys ) );
         row( "Notifies", std::format( "{}", clip.Notifies.size() ) );
         row( "Sections", std::format( "{}", clip.Sections.size() ) );
-        ImGui::EndTable();
+        Utils::ImGuiUtilities::EndFactTable();
     }
 
     void AnimationEditorDocument::DrawPreviewSceneSettings()
@@ -1724,18 +1719,15 @@ namespace Desert::Editor
         }
         // Only what a SkinnedMeshAsset holds (UE's LOD settings and physics asset have no field here).
         const auto& mesh = *m_Mesh;
-        const auto  row  = []( const char* label, const std::string& value )
-        {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TextDisabled( "%s", label );
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted( value.c_str() );
-        };
+        const auto  row  = &Utils::ImGuiUtilities::FactRow;
         SectionHeader( "Mesh" );
-        if ( ImGui::BeginTable( "##meshdetails", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp ) )
+        if ( Utils::ImGuiUtilities::BeginFactTable( "##meshdetails" ) )
         {
             row( "File", mesh.GetMetadata().Filepath.filename().string() );
+            // UE's Source File: the raw file this asset was imported from, by the one lookup the Import
+            // Settings and Reimport use; its full path is the tooltip.
+            const auto source = ImportOptions::ImportSourceOfMeshAsset( mesh.GetMetadata().Filepath );
+            row( "Source File", source ? source->generic_string() : std::string( "(not imported)" ) );
             row( "Skeleton", std::format( "{:016x}", mesh.GetSkeletonSignature() ) );
             row( "Vertices", std::format( "{}", mesh.GetVertices().size() ) );
             row( "Triangles", std::format( "{}", mesh.GetIndices().size() / 3 ) );
@@ -1746,10 +1738,10 @@ namespace Desert::Editor
             for ( const auto& section : mesh.GetSubmeshes() )
                 lods = std::max( lods, section.LODs.size() );
             row( "LODs", std::format( "{}", lods ) );
-            ImGui::EndTable();
+            Utils::ImGuiUtilities::EndFactTable();
         }
         SectionHeader( "Material Slots" );
-        if ( ImGui::BeginTable( "##meshslots", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp ) )
+        if ( Utils::ImGuiUtilities::BeginFactTable( "##meshslots" ) )
         {
             const auto& slots = mesh.GetMaterialHandles();
             for ( size_t i = 0; i < slots.size(); ++i )
@@ -1764,7 +1756,7 @@ namespace Desert::Editor
                     name = "None";
                 row( std::format( "Slot {}", i ).c_str(), name );
             }
-            ImGui::EndTable();
+            Utils::ImGuiUtilities::EndFactTable();
         }
 
         // What the weights say about the rig (UE's Skeletal Mesh Editor warnings), against the preview's skeleton
@@ -1789,23 +1781,16 @@ namespace Desert::Editor
     void AnimationEditorDocument::DrawSkeletonDetails()
     {
         const auto* animator = m_Preview ? m_Preview->GetAnimator() : nullptr;
-        if ( !ImGui::BeginTable( "##skeldetails", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp ) )
+        if ( !Utils::ImGuiUtilities::BeginFactTable( "##skeldetails" ) )
             return;
-        const auto row = []( const char* label, const std::string& value )
-        {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TextDisabled( "%s", label );
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted( value.c_str() );
-        };
+        const auto row = &Utils::ImGuiUtilities::FactRow;
         row( "Skeleton", GetName() );
         row( "Signature", std::format( "{:016x}", m_Signature ) );
         row( "Bones", animator != nullptr ? std::format( "{}", animator->GetSkeleton().GetBones().size() )
                                           : std::string( "(the preview has not built the rig yet)" ) );
         row( "Preview Mesh", m_MeshName );
         row( "Meshes on it", std::format( "{}", m_MeshCandidates.size() ) );
-        ImGui::EndTable();
+        Utils::ImGuiUtilities::EndFactTable();
     }
 
     namespace

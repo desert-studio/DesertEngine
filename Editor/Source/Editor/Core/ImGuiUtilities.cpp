@@ -174,6 +174,24 @@ namespace Desert::Editor::Utils
 
         ImGui::Columns( 2 );
         ImGui::SetColumnWidth( 0, PropertyLabelWidth() );
+        // BeginColumns cut each column's clip rect from the offsets it held BEFORE SetColumnWidth — the
+        // default half-and-half split for a set seen for the first time — and NextColumn pushes that stale
+        // rect, so the start of a value (the "Fox" of "Fox.glb") was clipped away under the label column's
+        // old extent. The rects are re-cut from the offsets the row actually uses, and column 0's re-pushed.
+        {
+            ImGuiWindow*     window  = ImGui::GetCurrentWindow();
+            ImGuiOldColumns* columns = window->DC.CurrentColumns;
+            for ( int n = 0; n < columns->Count; ++n )
+            {
+                auto&       column = columns->Columns[n];
+                const float x1     = IM_ROUND( window->Pos.x + ImGui::GetColumnOffset( n ) );
+                const float x2     = IM_ROUND( window->Pos.x + ImGui::GetColumnOffset( n + 1 ) - 1.0f );
+                column.ClipRect    = ImRect( x1, -FLT_MAX, x2, +FLT_MAX );
+                column.ClipRect.ClipWithFull( window->ClipRect );
+            }
+            ImGui::PopClipRect();
+            ImGui::PushColumnClipRect( 0 );
+        }
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted( label );
         if ( tooltip )
@@ -189,6 +207,33 @@ namespace Desert::Editor::Utils
         ImGui::NextColumn();
         PropertyColumnRule();
         ImGui::Columns( 1 );
+    }
+
+    bool ImGuiUtilities::BeginFactTable( const char* id )
+    {
+        constexpr ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
+                                          ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_SizingFixedFit;
+        if ( !ImGui::BeginTable( id, 2, flags ) )
+            return false;
+        ImGui::TableSetupColumn( "Label", ImGuiTableColumnFlags_WidthFixed, PropertyLabelWidth() );
+        ImGui::TableSetupColumn( "Value", ImGuiTableColumnFlags_WidthStretch );
+        return true;
+    }
+
+    void ImGuiUtilities::FactRow( const char* label, const std::string& value )
+    {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::TextDisabled( "%s", label );
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted( value.c_str() );
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( "%s", value.c_str() );
+    }
+
+    void ImGuiUtilities::EndFactTable()
+    {
+        ImGui::EndTable();
     }
 
     bool ImGuiUtilities::AccentButton( const char* label, float height )
