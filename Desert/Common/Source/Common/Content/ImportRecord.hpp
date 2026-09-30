@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <optional>
 #include <string_view>
+#include <vector>
 
 // THE IMPORT RECORD (FIX8; UE: the persistent GUID and the AssetImportData a .uasset carries). Since AF4h an
 // imported static mesh has no file of its own: its source envelope lives in the DDC, keyed by the source's
@@ -34,6 +35,11 @@ namespace Common::Content
 
     // True for a `<name>.<ext>.deimport` file.
     [[nodiscard]] bool IsImportRecord( const std::filesystem::path& file );
+
+    // THE SOURCES WHOSE RECORDS LIE IN @p folder (base.fbx.deimport -> folder/base.fbx), in directory order: the
+    // one walk every "which import wrote this file" question starts from (a node `.stmesh`, a `.skmesh`, a
+    // `.skeleton`); the record's own body answers it. Empty for a folder that cannot be read.
+    [[nodiscard]] std::vector<std::filesystem::path> SourcesRecordedIn( const std::filesystem::path& folder );
 
     // The static mesh asset path a record stands for: base.fbx.deimport -> base.stmesh.
     [[nodiscard]] std::filesystem::path MeshAssetOfImportRecord( const std::filesystem::path& record );

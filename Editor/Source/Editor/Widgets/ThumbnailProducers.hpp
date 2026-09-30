@@ -96,6 +96,48 @@ namespace Desert::Editor::ThumbnailProducers
         return std::nullopt;
     }
 
+    /// UE "EDIT THUMBNAIL" IS OFFERED FOR EVERY KIND WHOSE PICTURE IS SHOT THROUGH AN ORBIT CAMERA (UE: every
+    /// class whose thumbnail renderer reads a USceneThumbnailInfo — a static mesh, a skeletal mesh, a skeleton, an
+    /// animation, a material): a rendered mesh, a posed skinned asset, a material. A decoded, painted or dome-sky
+    /// picture has no orbit to edit.
+    [[nodiscard]] constexpr bool HasThumbnailOrbit( FileType type )
+    {
+        const std::optional<Producer> how = ProducerOf( type );
+        return how && ( *how == Producer::RenderedMesh || *how == Producer::RenderedPose ||
+                        *how == Producer::RenderedMaterial );
+    }
+
+    /// Which file a picture the user CAPTURES is filed under — the key its showers read and the hash their judge
+    /// compares (ThumbnailService::PictureKey).
+    enum class CaptureKey
+    {
+        ImportedMesh, // a model or foliage type: MeshPictureKey of the cooked mesh its tile draws (MeshPictureFor)
+        PosedFile,    // a .skmesh, .skeleton, .anim: MeshPictureKey of the file itself, its own cooked form
+        MaterialFile, // a material: MaterialPictureKey of the asset itself
+    };
+
+    /// UE "CAPTURE THUMBNAIL" (FContentBrowserModule's "Capture Thumbnail": the active viewport's view saved as
+    /// the selected asset's thumbnail) — offered for every kind whose picture is shot through a camera, the same
+    /// kinds as Edit Thumbnail: a static mesh, a skeletal mesh, a skeleton, an animation, a material.
+    /// nullopt for a kind whose picture is decoded, painted or drawn under the dome camera.
+    [[nodiscard]] constexpr std::optional<CaptureKey> CaptureKeyOf( FileType type )
+    {
+        const std::optional<Producer> how = ProducerOf( type );
+        if ( !how )
+            return std::nullopt;
+        switch ( *how )
+        {
+            case Producer::RenderedMesh:
+                return CaptureKey::ImportedMesh;
+            case Producer::RenderedPose:
+                return CaptureKey::PosedFile;
+            case Producer::RenderedMaterial:
+                return CaptureKey::MaterialFile;
+            default:
+                return std::nullopt;
+        }
+    }
+
     /// The whole chain for one file: its extension, the kind the browser types it as, that kind's producer.
     /// nullopt only for a kind with no row — the same census failure ProducerOf reports.
     [[nodiscard]] inline std::optional<Producer> ProducerOfPath( std::string_view path )

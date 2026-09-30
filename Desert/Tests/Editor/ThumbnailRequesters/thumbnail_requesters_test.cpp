@@ -41,7 +41,9 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <format>
 #include <fstream>
+#include <initializer_list>
 #include <set>
 #include <utility>
 #include <sstream>
@@ -806,16 +808,26 @@ TEST( ThumbnailRequesters, MeshPictureShowersAskTheServicesOneJudgement )
                     .find( "ThumbnailService::JudgeMaterialPicture" ),
                std::string::npos );
     const std::string service = CodeOf( root, "Editor/Source/Editor/Widgets/ThumbnailService.cpp" );
-    const std::string judge   = FunctionBody( service, "ThumbnailService::JudgeMeshPicture" );
-    ASSERT_FALSE( judge.empty() );
-    for ( const char* shared : { "MeshRequestOf", "NeedsCapture", "SourceHash" } )
-        EXPECT_NE( judge.find( shared ), std::string::npos )
-             << "JudgeMeshPicture must build its answer from the enqueue gate's own " << shared;
-    const std::string material = FunctionBody( service, "ThumbnailService::JudgeMaterialPicture" );
-    ASSERT_FALSE( material.empty() );
-    for ( const char* shared : { "ThumbnailKey::DiskPath", "NeedsCapture", "ThumbnailFreshness::ContentHash" } )
-        EXPECT_NE( material.find( shared ), std::string::npos )
-             << "JudgeMaterialPicture must build its answer from RequestMaterial's own " << shared;
+    // Each judge reads ONE key (UI-FIX2c: the picture's PNG and hash, which Capture Thumbnail also files under),
+    // and that key is built from the enqueue gate's own parts - so judge, gate and manual capture agree.
+    const auto judgedThroughItsKey =
+         [&]( const char* judgeName, const char* keyName, std::initializer_list<const char*> gateParts )
+    {
+        const std::string judge = FunctionBody( service, judgeName );
+        ASSERT_FALSE( judge.empty() ) << judgeName;
+        for ( const char* shared : { keyName, "NeedsCapture" } )
+            EXPECT_NE( judge.find( shared ), std::string::npos )
+                 << judgeName << " must build its answer from the enqueue gate's own " << shared;
+        const std::string key = FunctionBody( service, std::format( "ThumbnailService::{}", keyName ) );
+        ASSERT_FALSE( key.empty() ) << keyName;
+        for ( const char* shared : gateParts )
+            EXPECT_NE( key.find( shared ), std::string::npos )
+                 << keyName << " must build the key from the enqueue gate's own " << shared;
+    };
+    judgedThroughItsKey( "ThumbnailService::JudgeMeshPicture", "MeshPictureKey",
+                         { "MeshRequestOf", "SourceHash" } );
+    judgedThroughItsKey( "ThumbnailService::JudgeMaterialPicture", "MaterialPictureKey",
+                         { "ThumbnailKey::DiskPath", "ThumbnailFreshness::ContentHash" } );
 }
 
 TEST( ThumbnailRequesters, AComponentWidgetBuiltPerDrawOwnsNoPictureCache )

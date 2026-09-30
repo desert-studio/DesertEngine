@@ -21,9 +21,13 @@ namespace Desert::Editor::ThumbnailEdit
             return asset.extension() == ".demat";
         }
 
-        // The file a mesh's orbit is keyed by (MeshThumbnailOrbit): the browser lists the source or the .stmesh.
+        // The file a mesh's orbit is keyed by (MeshThumbnailOrbit), the one the picture is judged against
+        // (ThumbnailService::MeshRequestOf): a static mesh's source or .stmesh; a skinned import's .skmesh,
+        // .skeleton or .anim itself (its own cooked form, never an extension swap to a .stmesh).
         std::filesystem::path MeshFile( const std::filesystem::path& asset )
         {
+            if ( CookPaths::IsSkinnedAssetFile( asset ) )
+                return ThumbnailFreshness::MeshFreshnessSource( asset );
             return ThumbnailFreshness::MeshFreshnessSource( CookPaths::MeshAsset( asset ) );
         }
 

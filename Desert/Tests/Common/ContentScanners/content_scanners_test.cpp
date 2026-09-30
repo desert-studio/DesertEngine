@@ -129,6 +129,13 @@ namespace
            "ListFilesRecursive itself: the disk half of the content world, merged with the pak half.", "" },
 
          // ── not content ─────────────────────────────────────────────────────────────────────────────
+         { "Desert/Common/Source/Common/Content/ImportRecord.cpp", Verdict::NotContent,
+           "the IMPORT RECORDS (.deimport sidecars of source art) in one folder (SourcesRecordedIn), to find "
+           "which "
+           "import wrote a node .stmesh, a .skmesh or a .skeleton beside them - authoring bookkeeping of the "
+           "loose "
+           "tree. A package carries no source and no record.",
+           "" },
          { "Desert/Common/Source/Common/Utilities/ContentManifest.cpp", Verdict::NotContent,
            "hashes a SOURCE tree to produce a release artifact. The manifest of a mounted archive comes "
            "from FromPak, which reads the index instead of the bytes.",
@@ -162,10 +169,6 @@ namespace
          { "Editor/Source/Editor/Import/ImportManager.cpp", Verdict::NotContent,
            "source art (.fbx and friends) awaiting cook. A packaged game imports nothing.", "" },
          { "Editor/Source/Editor/Import/MeshDnD.cpp", Verdict::NotContent, "same: source art, pre-cook.", "" },
-         { "Editor/Source/Editor/Import/ImportedMeshAsset.cpp", Verdict::NotContent,
-           "the IMPORT RECORDS (.import sidecars of source art) beside a node mesh, to find which source split "
-           "it - authoring bookkeeping of the loose tree. A package carries no source and no record.",
-           "" },
          { "Editor/Source/Editor/Import/TextureImporter.cpp", Verdict::NotContent,
            "source IMAGES awaiting cook (LooseTextureSources) - the editor's startup cook and the packager's. "
            "A packaged game decodes no image; it reads the .tex this walk produces through the registry.",
