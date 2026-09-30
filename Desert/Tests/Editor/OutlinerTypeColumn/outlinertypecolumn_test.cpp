@@ -65,7 +65,8 @@ TEST( OutlinerTypeColumn, WidthIsDrivenByTheWidestNameNotTheFirstOne )
 }
 
 // UI-FIX2c: in a docked, narrow Outliner the fixed Type column kept its full width and Name, the column the panel
-// exists for, was squeezed to one character ("F Actor"). UE's Label column fills and keeps a minimum; Type gives way.
+// exists for, was squeezed to one character ("F Actor"). UE's Label column fills and keeps a minimum; Type gives
+// way.
 TEST( OutlinerTypeColumn, NameKeepsItsMinimumAndTypeGivesWay )
 {
     constexpr float kType    = 120.0f;

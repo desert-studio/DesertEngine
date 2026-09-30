@@ -2749,7 +2749,8 @@ namespace Desert::Editor
             {
                 const std::optional<MeshPicture> picture = MeshPictureFor( entry.AssetPath, entry.Type );
                 if ( !picture )
-                    return Common::MakeError<bool>( "not imported: there is no cooked mesh to file a picture under" );
+                    return Common::MakeError<bool>(
+                         "not imported: there is no cooked mesh to file a picture under" );
                 key = ThumbnailService::MeshPictureKey( picture->Cooked );
                 break;
             }
@@ -2921,9 +2922,8 @@ namespace Desert::Editor
                 if ( m_ViewportScene.expired() )
                     return Common::MakeFormattedError<bool>( "'{}': there is no viewport scene to capture",
                                                              label );
-                return overEntries(
-                     [&]( DirectoryInformation& entry ) -> Common::BoolResultStr
-                     { return CaptureThumbnailFromViewport( entry ); } );
+                return overEntries( [&]( DirectoryInformation& entry ) -> Common::BoolResultStr
+                                    { return CaptureThumbnailFromViewport( entry ); } );
             case ContentBrowserCommand::EditThumbnail:
             {
                 const auto target = one();
