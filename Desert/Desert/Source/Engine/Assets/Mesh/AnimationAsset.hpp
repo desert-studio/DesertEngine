@@ -6,6 +6,8 @@
 
 #include <Engine/Animation/AnimationClip.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
+
 namespace Desert::Assets
 {
     class AnimationAsset : public AssetBase
@@ -28,6 +30,11 @@ namespace Desert::Assets
         {
             return m_Clip;
         }
+
+        /// THE CLIP'S SKELETON, BY GUID (SKEL-TREE; contract: Engine/Animation/SkeletonReference.hpp). UE
+        /// UAnimSequence::Skeleton. Whether the clip plays on a mesh is ClipPlaysOnMesh over this and the mesh's
+        /// SkinnedMeshAsset::GetSkeleton(); GetSkeletonSignature goes away.
+        [[nodiscard]] Common::Content::AssetGuid GetSkeleton() const;
 
         uint64_t GetSkeletonSignature() const
         {
