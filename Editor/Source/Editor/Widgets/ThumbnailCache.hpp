@@ -62,12 +62,13 @@ namespace Desert::Editor
          *        EditorLayer::OnDetach.
          *
          * WHY A STATIC SWEEP RATHER THAN A CALL PER OWNER. Most caches belong to a panel and go down with
-         * `m_Panels.clear()`, which is safely inside the editor's teardown. Four do NOT: the component
+         * `m_Panels.clear()`, which is safely inside the editor's teardown. Five do NOT: the component
          * widgets keep theirs in FUNCTION-STATICS —
          *
          *     StaticMeshComponent.cpp           `static MaterialComponentWidget materialComponent;`
          *     StaticMeshComponent.cpp           `static ThumbnailCache s_Thumbnails;`
          *     SkinnedMeshComponentWidget.cpp    `static MaterialComponentWidget materials;`
+         *     SkinnedMeshComponentWidget.cpp    `static ThumbnailCache s_Pictures;` (SlotPictures)
          *     ComponentEditorRegistrations.cpp  `static MaterialComponentWidget s_InstancedMaterials;`
          *
          * (the fourth is the Instanced Static Mesh editor's material slots, added when an ISM gained a

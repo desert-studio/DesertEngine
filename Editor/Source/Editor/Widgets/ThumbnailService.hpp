@@ -121,6 +121,13 @@ namespace Desert::Editor
         // mesh in pose.Handle, the clip (null: bind pose) in pose.Clip. The same enqueue as RequestMesh.
         std::string RequestPose( const ThumbnailSubject::Mesh& pose );
 
+        /// THE ONE JUDGEMENT OF A MESH PICTURE (UE: ThumbnailTools' one freshness answer per asset key). Every
+        /// shower of a static, skinned or posed mesh picture — the Content Browser tile, the Details slots —
+        /// asks this and draws the PNG exactly when it says Show; RequestMesh/RequestPose gate their enqueue on
+        /// the same key (MeshRequestOf) and the same hash (SourceHash), so a shower that says Capture is a
+        /// service that queues, and a repeated request of a queued picture is a no-op.
+        [[nodiscard]] static ThumbnailFreshness::Verdict JudgeMeshPicture( const std::string& cookedPath );
+
         /**
          * @brief Queue a picture that is PAINTED ON THE CPU from the file's own bytes — the four cloud
          *        formats (Editor/Widgets/CloudThumbnail.hpp).

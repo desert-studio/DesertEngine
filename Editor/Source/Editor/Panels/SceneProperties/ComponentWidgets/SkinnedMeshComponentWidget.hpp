@@ -2,7 +2,6 @@
 
 #include "IComponentWidget.hpp"
 
-#include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
 #include <memory>
@@ -14,7 +13,8 @@ namespace Desert::Editor
     class SkinnedMeshComponentWidget final : public IComponentWidget
     {
     public:
-        SkinnedMeshComponentWidget( const std::weak_ptr<Assets::AssetManager>& assetManager );
+        /// @p ui is the host panel's (ComponentEditContext::UIHelper): the preview's texture id lives as long as it.
+        SkinnedMeshComponentWidget( const std::weak_ptr<Assets::AssetManager>& assetManager, UI::UIHelper* ui );
 
         bool CanRemove() const override
         {
@@ -31,8 +31,6 @@ namespace Desert::Editor
                                 bool filled );
 
         const std::weak_ptr<Assets::AssetManager> m_AssetManager;
-        std::unique_ptr<UI::UIHelper>             m_UIHelper;
-        ThumbnailCache                            m_Thumbnails;
-        std::unordered_set<std::string>           m_RefusedThumbnails; // logged once, no per-frame retry
+        UI::UIHelper*                             m_UI = nullptr; // the host's; the pictures are SlotPictures()
     };
 } // namespace Desert::Editor

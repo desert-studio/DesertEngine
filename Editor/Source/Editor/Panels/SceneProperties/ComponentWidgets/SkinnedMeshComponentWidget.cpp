@@ -12,7 +12,11 @@
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
 #include <Editor/Widgets/ThumbnailPose.hpp>
+#include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
+
+#include <string>
+#include <unordered_set>
 
 #include "MaterialsPanelComponent.hpp"
 
@@ -56,14 +60,31 @@ namespace Desert::Editor
             if ( filled )
                 dl->AddRectFilled( ImVec2( at.x + 1.0f, br.y - 3.0f ), ImVec2( br.x - 1.0f, br.y ), tint );
         }
+
+        // THE SLOT'S PICTURES OUTLIVE THE FRAME. The registration below builds this widget per draw (as every
+        // component row is), so a cache it owned was born empty every frame: it asked the worker for the
+        // .skmesh PNG, the decode landed in a cache already destroyed, and the next frame asked again — 417
+        // decodes in 90 s, the slot and the browser tile (whose decode the loop kept stealing) on their
+        // icons, 111 -> 59 FPS while the Fox was selected (THM-FIXD). Kept where the static-mesh slot keeps
+        // its own (StaticMeshComponent.cpp `s_Thumbnails`), released with every live cache (ReleaseAll).
+        ThumbnailCache& SlotPictures()
+        {
+            static ThumbnailCache s_Pictures;
+            return s_Pictures;
+        }
+
+        // A refusal is logged once for the session, not once per frame of a widget rebuilt per frame.
+        std::unordered_set<std::string>& RefusedSlots()
+        {
+            static std::unordered_set<std::string> s_Refused;
+            return s_Refused;
+        }
     } // namespace
 
-    SkinnedMeshComponentWidget::SkinnedMeshComponentWidget(
-         const std::weak_ptr<Assets::AssetManager>& assetManager )
-         : IComponentWidget( "Skinned Mesh" ), m_AssetManager( assetManager ),
-           m_UIHelper( std::make_unique<UI::UIHelper>() )
+    SkinnedMeshComponentWidget::SkinnedMeshComponentWidget( const std::weak_ptr<Assets::AssetManager>& assetManager,
+                                                            UI::UIHelper*                              ui )
+         : IComponentWidget( "Skinned Mesh" ), m_AssetManager( assetManager ), m_UI( ui )
     {
-        m_UIHelper->Init();
     }
 
     void SkinnedMeshComponentWidget::DrawMeshThumbnail( Assets::AssetManager& manager, const std::string& meshPath,
@@ -74,26 +95,25 @@ namespace Desert::Editor
         // asked for through the service — never a read of the disk cache hoping the browser walked past it
         // (Desert/Tests/Editor/ThumbnailRequesters keeps every showing slot a requesting slot).
         std::shared_ptr<Graphic::Image2D> thumb;
-        if ( !meshPath.empty() && !m_RefusedThumbnails.contains( meshPath ) )
+        if ( !meshPath.empty() && !RefusedSlots().contains( meshPath ) )
         {
             const std::string png = ThumbnailKey::DiskPath( meshPath );
-            if ( ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
-                      png, MeshThumbnailFreshness( meshPath ) ) ) == ThumbnailFreshness::Verdict::Show )
-                thumb = m_Thumbnails.Get( png );
+            if ( ThumbnailService::JudgeMeshPicture( meshPath ) == ThumbnailFreshness::Verdict::Show )
+                thumb = SlotPictures().Get( png );
             else
             {
-                m_Thumbnails.Invalidate( png ); // the old render must not be handed back once the new one lands
+                SlotPictures().Invalidate( png ); // the old render must not be handed back once the new one lands
                 const auto subject = ThumbnailPose::ResolvePoseSubject( manager, meshPath );
                 if ( !subject )
                 {
                     LOG_WARN( "[Thumbnail] Skeletal Mesh slot '{}': {}", meshPath, subject.GetError() );
-                    m_RefusedThumbnails.insert( meshPath );
+                    RefusedSlots().insert( meshPath );
                 }
                 else if ( !subject.GetValue().Pending ) // read in flight: asked again next frame
                     ThumbnailService::Get().RequestPose( subject.GetValue() );
             }
         }
-        const void* picture = thumb ? m_UIHelper->GetTextureID( thumb ) : nullptr;
+        const void* picture = thumb && m_UI ? m_UI->GetTextureID( thumb ) : nullptr;
         DrawAssetBox( size, ICON_MDI_HUMAN, filled, kSkeletalMeshTint, picture );
     }
 
@@ -199,5 +219,5 @@ namespace Desert::Editor
     DESERT_REGISTER_CUSTOM_COMPONENT(
          ECS::SkinnedMeshComponent, "Skinned Mesh", false,
          ( []( ECS::Entity& e, ::Desert::Core::Scene* s, const ComponentEditContext& ctx )
-           { SkinnedMeshComponentWidget( ctx.AssetManager ).Render( e, s ); } ) )
+           { SkinnedMeshComponentWidget( ctx.AssetManager, ctx.UIHelper ).Render( e, s ); } ) )
 } // namespace Desert::Editor

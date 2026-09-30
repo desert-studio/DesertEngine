@@ -717,6 +717,60 @@ TEST( ThumbnailRequesters, NoCensusedFileHidesAnUndeclaredDrawingSite )
                                "them, and a scanner that finds nothing certifies nothing";
 }
 
+// ---------------------------------------------------------------------------------------------------
+// THM-FIXD. ONE JUDGEMENT OF A MESH PICTURE, AND A PICTURE CACHE THAT OUTLIVES THE FRAME.
+//
+// The Details Skeletal Mesh slot and the browser's skinned tile each composed Judge(Observe(png,
+// MeshThumbnailFreshness(path))) themselves, beside a service that gated its enqueue on its own spelling of the
+// same question; and the slot kept its ThumbnailCache in a widget its registration builds per draw, so every
+// frame re-asked the worker for the .skmesh PNG (417 decodes in 90 s, FPS 111 -> 59, both pictures on icons).
+// Mutations: put `ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(` back in either shower -> the first
+// test reds; put `ThumbnailCache m_Thumbnails;` back in SkinnedMeshComponentWidget.hpp -> the second reds.
+// ---------------------------------------------------------------------------------------------------
+TEST( ThumbnailRequesters, MeshPictureShowersAskTheServicesOneJudgement )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const std::pair<const char*, const char*> showers[] = {
+         { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkinnedMeshComponentWidget.cpp",
+           "SkinnedMeshComponentWidget::DrawMeshThumbnail" },
+         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
+           "FileExplorerPanel::DrawRenderedPoseThumbnail" } };
+    for ( const auto& [file, function] : showers )
+    {
+        const std::string body = FunctionBody( CodeOf( root, file ), function );
+        ASSERT_FALSE( body.empty() ) << function << " is not in " << file;
+        EXPECT_NE( body.find( "ThumbnailService::JudgeMeshPicture" ), std::string::npos )
+             << function << " must judge its picture through ThumbnailService::JudgeMeshPicture — the key and hash "
+                           "RequestPose gates on — or it can say Capture where the service says Show";
+        EXPECT_EQ( body.find( "ThumbnailFreshness::Observe" ), std::string::npos )
+             << function << " composes its own freshness observation again";
+    }
+    const std::string service = CodeOf( root, "Editor/Source/Editor/Widgets/ThumbnailService.cpp" );
+    const std::string judge   = FunctionBody( service, "ThumbnailService::JudgeMeshPicture" );
+    ASSERT_FALSE( judge.empty() );
+    for ( const char* shared : { "MeshRequestOf", "NeedsCapture", "SourceHash" } )
+        EXPECT_NE( judge.find( shared ), std::string::npos )
+             << "JudgeMeshPicture must build its answer from the enqueue gate's own " << shared;
+}
+
+TEST( ThumbnailRequesters, AComponentWidgetBuiltPerDrawOwnsNoPictureCache )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const std::string header =
+         CodeOf( root, "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkinnedMeshComponentWidget.hpp" );
+    const std::string source =
+         CodeOf( root, "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkinnedMeshComponentWidget.cpp" );
+    ASSERT_FALSE( header.empty() );
+    ASSERT_NE( source.find( "SkinnedMeshComponentWidget( ctx.AssetManager, ctx.UIHelper ).Render" ), std::string::npos )
+         << "the registration no longer builds the widget per draw: re-read this test's premise";
+    EXPECT_EQ( header.find( "ThumbnailCache" ), std::string::npos )
+         << "a widget rebuilt every frame holds a ThumbnailCache: it is born empty each frame and re-decodes forever";
+    EXPECT_EQ( header.find( "std::unique_ptr<UI::UIHelper>" ), std::string::npos )
+         << "a widget rebuilt every frame builds its own UIHelper: texture ids die with the frame";
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
