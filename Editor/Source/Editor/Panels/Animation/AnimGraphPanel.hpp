@@ -136,6 +136,9 @@ namespace Desert::Editor
         // and by the liveness answer, so "the window found something to draw" and "the subject is alive"
         // cannot disagree.
         [[nodiscard]] ECS::AnimationComponent* ResolveComponent() const;
+        /// The subject entity's SkinnedMeshComponent::MeshHandle (null without one): the mesh whose skeleton
+        /// reference decides which clips this graph's states can name.
+        [[nodiscard]] Assets::AssetHandle ResolveMeshHandle() const;
 
         /// @p width and @p height are passed rather than taken from the child window that used to wrap
         /// this: see the note at the call site, and `Graph::DeferredFrameAll` for what the child was

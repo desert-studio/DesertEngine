@@ -244,6 +244,15 @@ namespace Common::Constants
         // the historical `Resources/Assets/` tree.
         inline constexpr std::string_view SANDBOX_ASSETS_ROOT = "Resources/Assets";
 
+        // THE ENGINE'S CONTENT MOUNT (UE: /Engine/Content, mounted in every project). ONLY the assets the engine
+        // itself cannot run without — the built-in humanoid's Humanoid.skeleton among them — live in this
+        // tree; the sandbox's own content (scenes, clouds, samples under SANDBOX_ASSETS_ROOT) is project
+        // content and never reaches a user's project. The content scan walks this tree BESIDE the project's
+        // assets root in every project, the sandbox included (Content::ScanRootsOf is the one home of that
+        // list). Engine-shared like SHADERDIR_PATH: never remapped, resolved against the host's working
+        // directory, and under RESOURCE_PATH, so its keys are `engine:Engine/...` in every project.
+        inline const std::filesystem::path ENGINE_CONTENT_PATH = std::filesystem::path( "Resources/Engine" ) / "";
+
         namespace Detail
         {
             // Derives every census row from the root pair. THE only writer of the storage below —

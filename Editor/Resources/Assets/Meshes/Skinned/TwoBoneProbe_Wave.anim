@@ -5,10 +5,13 @@
         "Versions": {
             "ANIM": 6
         },
-        "Dependencies": []
+        "Dependencies": ["14df187f6fede36fad0b96f4420f4c5b"]
     },
     "Name": "TwoBoneProbe_Wave",
-    "SkeletonSignature": 13952148091082370875,
+    "Skeleton": {
+        "Guid": "14df187f6fede36fad0b96f4420f4c5b",
+        "Path": "Meshes/Skinned/TwoBoneProbe.skeleton"
+    },
     "Sequence": {
         "Header": {
             "Kind": "",
@@ -25,14 +28,14 @@
         "End": 48000,
         "Bindings": [
             {
-                "Guid": "fce016d7d880613872c599cba0d195f4",
+                "Guid": "e00304d30fd0e1d974879d234202d882",
                 "Kind": 1,
                 "Locator": "Base",
                 "Label": "Base",
                 "Parent": ""
             },
             {
-                "Guid": "bee3aac2d1c742662604f349fc0dfa7d",
+                "Guid": "e062ac7886a88d56d801dd474e4be68f",
                 "Kind": 1,
                 "Locator": "Arm",
                 "Label": "Arm",
@@ -41,7 +44,7 @@
         ],
         "Tracks": [
             {
-                "Binding": "fce016d7d880613872c599cba0d195f4",
+                "Binding": "e00304d30fd0e1d974879d234202d882",
                 "Property": "",
                 "Kind": 3,
                 "Muted": false,
@@ -235,7 +238,7 @@
                 ]
             },
             {
-                "Binding": "bee3aac2d1c742662604f349fc0dfa7d",
+                "Binding": "e062ac7886a88d56d801dd474e4be68f",
                 "Property": "",
                 "Kind": 3,
                 "Muted": false,

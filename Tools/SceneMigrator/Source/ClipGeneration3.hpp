@@ -14,6 +14,7 @@
 #include <Engine/Animation/TimeModel.hpp>
 #include <Engine/Animation/Timeline/Section.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
+#include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Assets/Serialization/ImportSourceInfo.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
@@ -579,11 +580,6 @@ namespace Desert::Migration::ClipGen3
         /// clip set to 1.0 so that "tick" meant "second", is what they replace.
         FrameRate TickRate    = PROJECT_TICK_RATE;
         FrameRate DisplayRate = DEFAULT_DISPLAY_RATE;
-        // 0 = "no rig claimed", and it needed an initialiser: a default-constructed clip read back
-        // whatever was on the heap, and this number is what the animation system matches a skeleton on —
-        // so an unset one does not fail to match, it matches something arbitrary. Its neighbours all had
-        // one; this field was the exception.
-        uint64_t SkeletonSignature = 0;
 
         // Named tracks, in the order the source file listed them. THIS IS NOT INDEXED BY BONE: it used to be
         // scattered by a serialised bone index, which left unnamed holes wherever the source rig was sparse
@@ -872,7 +868,9 @@ namespace Desert::Migration::ClipGen3
         /// Length of the clip in ticks on `TickRate`'s grid.
         int32_t DurationTicks = 0;
 
-        uint64_t                 SkeletonSignature = 0; // 0 = "no rig claimed", as on AnimationClip
+        // THE CLIP'S SKELETON, BY GUID (ANIM 5, SKEL-TREE). ANIM 4 stated a bone hash `SkeletonSignature` instead,
+        // which MigrateClipGeneration3 resolves (Animation::MigrateSkeletonReference); absent = no skeleton.
+        std::optional<Assets::AssetGuidRef> Skeleton;
         std::vector<ChannelData> Channels;
         // New field — clips cooked before notifies existed load with rfl::DefaultIfMissing (empty list).
         std::vector<NotifyData>  Notifies;

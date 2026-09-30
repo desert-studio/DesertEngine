@@ -332,7 +332,7 @@ namespace Desert::Assets::Serialization
 
     // THERE IS DELIBERATELY NO `BuildRetargeter` HERE. Building one needs the SOURCE RIG KEPT, which is a
     // lifetime decision rather than a format one: `Animation::Retarget::RetargetSource::Create` owns it,
-    // takes this setup and `SourceSkeletonSignature`, and is the ONE place a `Retargeter` is initialised.
+    // takes this setup and the `SourceSkeleton` rig, and is the ONE place a `Retargeter` is initialised.
     // A second initialiser in this layer would be a second answer to "is this the right rig", and the
     // engine would call one of them while the suites called the other.
 

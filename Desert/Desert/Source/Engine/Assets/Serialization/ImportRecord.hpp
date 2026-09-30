@@ -51,6 +51,8 @@ namespace Desert::Assets::Serialization
         float       UniformScale  = 1.0f;
         std::string UpAxis;
         std::string LodPolicy;
+        /// SourceImportSettings::Skeleton as its GUID's text; absent = none chosen.
+        std::optional<std::string> Skeleton;
     };
     [[nodiscard]] SourceImportSettingsText ImportSettingsToText( const Assets::SourceImportSettings& settings );
     /// Refused, by name, for an unknown up axis or LOD policy or a scale that is not finite and > 0.
@@ -72,13 +74,21 @@ namespace Desert::Assets::Serialization
 
         // THE SOURCE'S IMPORT OPTIONS (THM1l; UE UFbxImportUI): Combine Meshes, Uniform Scale, Up Axis, LOD
         // policy - the one home of what the Import Options window and the Details' Import Settings edit. Absent
-        // means UE's defaults (SourceImportSettings{}). Written by every import with the options it ran with.
+        // means UE's defaults (SourceImportSettings{}), and the defaults are written as no key (one spelling).
+        // Written by every import with the options it ran with.
         std::optional<SourceImportSettingsText> Settings;
 
         // THE NODE MESHES THE LAST SPLIT IMPORT WROTE (THM1j), by node name: <stem>_<node>.stmesh beside the
         // source (NodeMeshSplit). Present only when the source was split; then there is NO combined mesh, and
         // the import's freshness is these files' (each states the source's hash), not a combined envelope's.
         std::optional<std::vector<std::string>> Nodes;
+
+        // THE SOURCE'S BYTES THE LAST SKINNED, SKELETON OR CLIP IMPORT READ (UE UAssetImportData's source file
+        // hash, HashMeshSourceFile): such an import is current when this states the source's current hash. It
+        // lives in the record, not in a written asset, because the rig the import names may be an existing
+        // skeleton another source wrote (SkeletonReference.hpp). Absent = no complete import yet. A static
+        // import's hash is in each mesh it writes (MeshImportInfo::SourceHash).
+        std::optional<uint64_t> SourceHash;
 
         // HOW EACH MESH THIS IMPORT WRITES IS PHOTOGRAPHED (UE: UStaticMesh::ThumbnailInfo, a USceneThumbnailInfo
         // saved in the mesh's package). The record IS the imported mesh's package: the combined mesh lives in the
@@ -127,6 +137,18 @@ namespace Desert::Assets::Serialization
     /// The record must exist (EnsureImportRecord runs first); written only when the list changes.
     Common::BoolResultStr SetImportRecordNodes( const std::filesystem::path&                   source,
                                                 const std::optional<std::vector<std::string>>& nodes );
+
+    /// Rewrites the record's `SourceHash`: the import of @p source that read bytes of @p hash completed. The
+    /// record must exist (EnsureImportRecord runs first); written only when the hash changes.
+    Common::BoolResultStr SetImportRecordSourceHash( const std::filesystem::path& source, uint64_t hash );
+
+    /// Rewrites the skeleton the record's `Settings` choose (SourceImportSettings::Skeleton; UE: the Skeleton of
+    /// the source's AssetImportData, which Reimport repeats): the artist's assignment of another skeleton to the
+    /// imported mesh, so a re-import keeps it instead of reverting to the rig the file matched. The record must
+    /// exist; its other settings are kept (UE's defaults when it states none); written only when the choice
+    /// changes. An error for a null @p skeleton.
+    Common::BoolResultStr SetImportRecordSkeleton( const std::filesystem::path& source,
+                                                   Common::Content::AssetGuid   skeleton );
 
     /// The orbit @p source's record states for the mesh asset named @p meshFile (ImportRecordData::Thumbnail);
     /// the default orbit when it states none for it. An error naming the record when it is missing or unreadable.

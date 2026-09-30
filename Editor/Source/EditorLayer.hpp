@@ -145,6 +145,11 @@ namespace Desert::Editor
         // content root. See DrawCommandPalette for what makes rebuilding on OPEN correct rather than a
         // snapshot going stale.
         [[nodiscard]] std::vector<PaletteCommand> BuildPaletteCommands();
+        // "Assets | Assign Skeleton…": the selected .skmesh / .anim onto a registered .skeleton
+        // (CheckSkeletonAssignment first; a clip is saved after). Named, not a lambda, so the palette entry binds
+        // it.
+        [[nodiscard]] Common::BoolResultStr AssignSkeletonFromPalette( const std::string& subject,
+                                                                       const std::string& skeleton ) const;
         /// Turns the authoring context's selected control about its own @p axis and records one undo entry.
         [[nodiscard]] Common::BoolResultStr RotateSelectedControl( int axis, float degrees );
 

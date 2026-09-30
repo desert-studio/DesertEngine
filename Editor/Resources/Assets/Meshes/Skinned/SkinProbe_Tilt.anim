@@ -5,10 +5,13 @@
         "Versions": {
             "ANIM": 6
         },
-        "Dependencies": []
+        "Dependencies": ["acf475090f8a76b0eac6ee0c3e5d32fd"]
     },
     "Name": "SkinProbe_Tilt",
-    "SkeletonSignature": 4699069763035776985,
+    "Skeleton": {
+        "Guid": "acf475090f8a76b0eac6ee0c3e5d32fd",
+        "Path": "Meshes/Skinned/SkinProbe.skeleton"
+    },
     "Sequence": {
         "Header": {
             "Kind": "",
@@ -25,7 +28,7 @@
         "End": 48000,
         "Bindings": [
             {
-                "Guid": "9e1dcd49d653d10ec43dc2e728e5a48f",
+                "Guid": "29f73a5c0302367c3281fb9b755e56a3",
                 "Kind": 1,
                 "Locator": "Root",
                 "Label": "Root",
@@ -34,7 +37,7 @@
         ],
         "Tracks": [
             {
-                "Binding": "9e1dcd49d653d10ec43dc2e728e5a48f",
+                "Binding": "29f73a5c0302367c3281fb9b755e56a3",
                 "Property": "",
                 "Kind": 3,
                 "Muted": false,

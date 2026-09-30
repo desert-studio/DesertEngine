@@ -5,10 +5,13 @@
         "Versions": {
             "ANIM": 6
         },
-        "Dependencies": []
+        "Dependencies": ["e2d99946999e4f5e83d40477c2056500"]
     },
     "Name": "A6Curve_Linear",
-    "SkeletonSignature": 9748021389765177955,
+    "Skeleton": {
+        "Guid": "e2d99946999e4f5e83d40477c2056500",
+        "Path": "Meshes/Skinned/IKProbe.skeleton"
+    },
     "Sequence": {
         "Header": {
             "Kind": "",
@@ -25,7 +28,7 @@
         "End": 48000,
         "Bindings": [
             {
-                "Guid": "79cc8aea42708456dd38040473d1bb96",
+                "Guid": "b9014e05aec332d934de5ad15340339c",
                 "Kind": 1,
                 "Locator": "IK_Shoulder",
                 "Label": "IK_Shoulder",
@@ -34,7 +37,7 @@
         ],
         "Tracks": [
             {
-                "Binding": "79cc8aea42708456dd38040473d1bb96",
+                "Binding": "b9014e05aec332d934de5ad15340339c",
                 "Property": "",
                 "Kind": 3,
                 "Muted": false,

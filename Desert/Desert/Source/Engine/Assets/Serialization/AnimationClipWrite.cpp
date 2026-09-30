@@ -1,5 +1,6 @@
 #include "AnimationClipWrite.hpp"
 #include "AnimationClipBuild.hpp"
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Common/Content/CanonicalText.hpp>
 
@@ -38,12 +39,27 @@ namespace Desert::Assets::Serialization
         // A SAVE KEEPS THE CLIP'S IDENTITY: the GUID the file being replaced states, minted only for a new
         // file (ANIM 4, T7e). Sequencer tracks and anim graphs name the clip, and a fresh GUID would orphan
         // them. The header is stamped here, at the writer, so the version it states is this build's.
+        Common::Content::AssetGuid identity = ReadTextHeaderGuid( path );
+        if ( identity.IsNull() )
+            identity = Common::Content::AssetGuid::Generate();
+        return SaveClipToFile( path, clip, identity );
+    }
+
+    Common::BoolResultStr SaveClipToFile( const std::filesystem::path& path, const Animation::AnimationClip& clip,
+                                          const Common::Content::AssetGuid& identity )
+    {
+        if ( identity.IsNull() )
+            return Common::MakeFormattedError<bool>( "clip '{}' was not saved to '{}': no identity was stated",
+                                                     clip.AnimationName, path.string() );
         auto built = BuildAssetDataFromClip( clip );
         if ( !built )
             return Common::MakeError<bool>( built.GetError() );
         AnimationAssetData data = built.ExtractValue();
-        data.Header =
-             HeaderKeepingFileGuid( path, Common::Content::ContentKind::Animation, AnimationTextSubsystems() );
+        data.Header = Common::Content::MakeTextHeader( Common::Content::ContentKind::Animation, identity,
+                                                       AnimationTextSubsystems() );
+        // THE CLIP'S SKELETON (SKEL-TREE): the GUID it holds, spelled with the registry's path for it.
+        if ( !clip.Skeleton.IsNull() )
+            data.Skeleton = ContentRegistry::ReferenceTo( clip.Skeleton );
         const auto import = ImportOfFileBeingReplaced( path );
         if ( !import )
             return Common::MakeError<bool>( import.GetError() );

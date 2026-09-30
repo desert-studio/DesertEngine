@@ -4,10 +4,9 @@
 // migrator step is proved on its own input:
 //   - TMLN v1 -> v2 in every host: a key's mode moves from the segment ARRIVING at it to the one LEAVING it
 //     (UE's rule), proved bit for bit by VerifyInterpShift — a .dseq (the tool's file loop), a scene's UIAnim
-//     block (MigrateUIAnimationTimelinesV1ToV2), and ANIM v5 .anim (MigrateClipInterpShift);
-//   - ANIM v6 whose block still states TMLN v1: its modes were ALREADY shifted, so only the number moves
-//     (MigrateClipTimelineV1ToV2) — a second shift would move every shape one segment too far;
-//   - generation 3 (ANIM v4, per-bone Channels): lifted straight to ANIM v6 / TMLN v2 (MigrateClipGeneration3).
+//     block (MigrateUIAnimationTimelinesV1ToV2);
+//   - generation 3 (ANIM v4/v5, per-bone Channels; SKEL-TREE made v5 the last Channels generation, so there is
+//     no ANIM v5 TMLN clip to shift): lifted straight to ANIM v6 / TMLN v2 (MigrateClipGeneration3).
 // Generations 0-2 have no reader left anywhere (ANIM-I8a removed MigrateAnimationJson); the engine refuses them.
 
 #include <ClipMigration.hpp>
@@ -139,20 +138,6 @@ namespace
         return read ? read.ExtractValue() : Timeline::Sequence{};
     }
 
-    /// A `.anim` text around @p block stating ANIM @p animVersion, written as it was (no restamp).
-    std::string ClipText( const std::string& block, uint32_t animVersion )
-    {
-        Ser::AnimationAssetData data;
-        data.Name   = "Probe";
-        data.Header = Common::Content::MakeTextHeader(
-             Common::Content::ContentKind::Animation, Common::Content::AssetGuid::Generate(),
-             std::array{ Common::Content::SubsystemVersion{ Desert::Assets::kAnimationSchemaTag, animVersion } } );
-        auto sequence = Common::Json::Read<Common::Json::Value>( block );
-        EXPECT_TRUE( sequence ) << sequence.GetError();
-        data.Sequence = sequence.ExtractValue();
-        return Common::Json::Write( data );
-    }
-
     Anim::AnimationClip EngineClip( const std::string& text )
     {
         const auto read = Ser::ReadAnimationJson( text );
@@ -263,37 +248,6 @@ TEST( ClipTimelineMigration, AUIAnimBlockIsShiftedOnceAndItsOtherMembersStay )
 
 // ---- .anim ----------------------------------------------------------------------------------------------
 
-TEST( ClipTimelineMigration, AnAnimV5ClipIsShiftedToAnimV6AndTimelineV2 )
-{
-    const std::string v5 = ClipText( BlockStating( FloatSequence( Timeline::SequenceHost::AnimationClip ), 1 ),
-                                     Ser::kAnimationLastArrivingInterpVersion );
-    ASSERT_FALSE( Ser::ReadAnimationJson( v5 ) ) << "the engine must refuse ANIM v5";
-
-    const auto shifted = Migration::MigrateClipInterpShift( v5 );
-    ASSERT_TRUE( shifted ) << shifted.GetError();
-    EXPECT_EQ( Modes( EngineClip( shifted.GetValue().Text ).Sequence ), kLeaving );
-}
-
-TEST( ClipTimelineMigration, AnAnimV6ClipStatingTimelineV1MovesOnlyItsNumber )
-{
-    // ANIM v6 already means the leaving rule (MigrateClipInterpShift / LiftClip shifted it); an engine save
-    // between those steps and TMLN v2 still stated TMLN v1. A shift here would move every shape twice.
-    const std::string stale = ClipText( BlockStating( FloatSequence( Timeline::SequenceHost::AnimationClip ), 1 ),
-                                        static_cast<uint32_t>( Ser::kAnimationVersion ) );
-    const auto        staleData = Ser::ReadAnimationJson( stale );
-    ASSERT_FALSE( staleData && Ser::BuildClipFromAssetData( staleData.GetValue() ) )
-         << "the engine must refuse a TMLN v1 block";
-
-    const auto raised = Migration::MigrateClipTimelineV1ToV2( stale );
-    ASSERT_TRUE( raised ) << raised.GetError();
-    ASSERT_TRUE( raised.GetValue().has_value() ) << "a TMLN v1 clip was reported as current";
-    EXPECT_EQ( Modes( EngineClip( *raised.GetValue() ).Sequence ), kAuthored ) << "the modes were shifted twice";
-
-    const auto current = Migration::MigrateClipTimelineV1ToV2( *raised.GetValue() );
-    ASSERT_TRUE( current ) << current.GetError();
-    EXPECT_FALSE( current.GetValue().has_value() ) << "a TMLN v2 clip was raised again";
-}
-
 TEST( ClipTimelineMigration, AGenerationThreeClipLandsOnAnimV6UnderTheLeavingRule )
 {
     Migration::ClipGen3::AnimationAssetData gen3;
@@ -316,7 +270,7 @@ TEST( ClipTimelineMigration, AGenerationThreeClipLandsOnAnimV6UnderTheLeavingRul
     gen3.Channels.push_back( hips );
     Migration::ClipGen3::EnsureStatedSections( gen3 );
 
-    const auto lifted = Migration::MigrateClipGeneration3( Common::Json::Write( gen3 ) );
+    const auto lifted = Migration::MigrateClipGeneration3( "Gen3.anim", Common::Json::Write( gen3 ), {} );
     ASSERT_TRUE( lifted ) << lifted.GetError();
     const Anim::AnimationClip clip = EngineClip( lifted.GetValue().Text );
     ASSERT_FALSE( clip.Sequence.Tracks.empty() );

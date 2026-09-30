@@ -17,6 +17,7 @@
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Animation/Graph/AnimGraphValidation.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 
 #include <imgui-node-editor/imgui_node_editor.h>
@@ -147,6 +148,17 @@ namespace Desert::Editor
         return &entity.GetComponent<ECS::AnimationComponent>();
     }
 
+    Assets::AssetHandle AnimGraphPanel::ResolveMeshHandle() const
+    {
+        const auto scene = m_Scene.lock();
+        if ( !scene )
+            return {};
+        const auto entOpt = scene->FindEntityByID( Subject().Owner );
+        if ( !entOpt || !entOpt->get().HasComponent<ECS::SkinnedMeshComponent>() )
+            return {}; // no mesh = no skeleton reference: IdentifyMeshHandle refuses every clip
+        return entOpt->get().GetComponent<ECS::SkinnedMeshComponent>().MeshHandle;
+    }
+
     Assets::Asset<Assets::AnimGraphAsset> AnimGraphPanel::ResolveAsset() const
     {
         const ECS::AnimationComponent* anim = ResolveComponent();
@@ -256,8 +268,9 @@ namespace Desert::Editor
         {
             return names; // no skeleton to ask about yet; NOT the same fact as "this skeleton has none"
         }
-        // The SAME rule AnimationECSSystem resolves the chosen name with.
-        for ( const auto& asset : m_Library->GetForSkeleton( anim.Animator->GetSkeleton() ) )
+        // The SAME rule AnimationECSSystem resolves the chosen name with: the mesh's skeleton reference under
+        // ClipPlaysOnMesh (SkeletonReference.hpp).
+        for ( const auto& asset : m_Library->GetForMesh( m_Library->IdentifyMeshHandle( ResolveMeshHandle() ) ) )
         {
             names.push_back( asset->GetClip().AnimationName );
         }

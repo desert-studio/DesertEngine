@@ -1,22 +1,17 @@
 #include "ProceduralCharacterAnimations.hpp"
 
+#include <algorithm>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Animation/BoneInfo.hpp>
-#include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Animation/Timeline/Section.hpp>
 #include <Engine/Animation/Timeline/Track.hpp>
-#include <Engine/Assets/AssetManager.hpp>
-#include <Engine/Assets/Mesh/AnimationAsset.hpp>
-#include <Engine/Geometry/ProceduralCharacterFactory.hpp>
-
-#include <Common/Core/Logger.hpp>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include <cmath>
+#include <format>
 #include <functional>
-#include <optional>
 #include <unordered_map>
 
 namespace Desert::Animation
@@ -29,11 +24,10 @@ namespace Desert::Animation
         // Builds a clip from per-bone angle functions. `angleFns[name] = f(u)` where u in [0,1] is the cycle
         // fraction and f returns the rotation angle (radians) about X. Bones with no entry keep their bind
         // pose. Every authored track also carries the bone's constant bind-local translation.
-        AnimationClip Build( const char* name, float duration,
-                             const std::unordered_map<std::string, std::function<float( float )>>& angleFns )
+        AnimationClip BuildClip( const Skeleton& skeleton, const char* name, float duration,
+                                 const std::unordered_map<std::string, std::function<float( float )>>& angleFns )
         {
-            const Skeleton* skel = Geometry::ProceduralCharacterFactory::GetHumanoidSkeleton();
-            const auto&     bones = skel->GetBones();
+            const auto& bones = skeleton.GetBones();
 
             std::unordered_map<std::string, uint32_t> nameToIdx;
             for ( uint32_t i = 0; i < bones.size(); ++i )
@@ -46,22 +40,25 @@ namespace Desert::Animation
                  FrameNumber{ NearestTick( SecondsToFrameTime( duration, PROJECT_TICK_RATE ) ) };
 
             AnimationClip clip;
-            clip.AnimationName            = name;
-            clip.SkeletonSignature        = skel->GetSignature();
-            clip.Sequence.TickRate        = PROJECT_TICK_RATE;
-            clip.Sequence.Start           = FrameNumber{ 0 };
-            clip.Sequence.End             = durationTicks;
-            // A bone with no entry has no binding and keeps its bind pose (the pose the evaluator is seeded with).
+            clip.AnimationName     = name;
+            clip.Sequence.TickRate = PROJECT_TICK_RATE;
+            clip.Sequence.Start    = FrameNumber{ 0 };
+            clip.Sequence.End      = durationTicks;
+            // clip.Skeleton is stated by the generator (ProceduralCharacterFactory::WriteEngineAssets).
+            // ONE NAMED BONE BINDING PER ANIMATED BONE, IN SKELETON ORDER (angleFns is unordered): playback binds
+            // a track by its bone name only; a bone with no binding holds its bind pose.
+            std::vector<std::pair<uint32_t, std::string>> animated;
             for ( const auto& [boneName, fn] : angleFns )
+                if ( const auto it = nameToIdx.find( boneName ); it != nameToIdx.end() )
+                    animated.emplace_back( it->second, boneName );
+            std::sort( animated.begin(), animated.end() );
+            for ( const auto& [idx, boneName] : animated )
             {
-                auto it = nameToIdx.find( boneName );
-                if ( it == nameToIdx.end() )
-                    continue;
-                const uint32_t  idx     = it->second;
+                const auto&     fn      = angleFns.at( boneName );
                 const glm::vec3 bindPos = glm::vec3( bones[idx].LocalBindTransform[3] );
 
                 Timeline::Binding binding;
-                binding.Guid    = Timeline::BindingGuid::Generate();
+                binding.Guid    = Timeline::BindingGuid::ForObject( Timeline::BindingKind::Bone, boneName );
                 binding.Kind    = Timeline::BindingKind::Bone;
                 binding.Locator = boneName;
                 binding.Label   = boneName;
@@ -98,109 +95,83 @@ namespace Desert::Animation
 
         constexpr float kTau = 6.2831853f;
 
-        std::optional<AnimationClip> s_Idle, s_Walk, s_Run, s_Jump;
-    } // namespace
-
-    const AnimationClip& ProceduralCharacterAnimations::Idle()
-    {
-        if ( !s_Idle )
+        AnimationClip Idle( const Skeleton& skeleton )
         {
             // Subtle breathing/sway so a standing character isn't a frozen statue.
-            s_Idle = Build( "Idle", 3.0f,
-                            { { "Spine", []( float u ) { return 0.04f * std::sin( kTau * u ); } },
-                              { "Chest", []( float u ) { return 0.03f * std::sin( kTau * u ); } },
-                              { "Shoulder.L", []( float u ) { return 0.05f * std::sin( kTau * u ); } },
-                              { "Shoulder.R", []( float u ) { return 0.05f * std::sin( kTau * u ); } },
-                              { "Elbow.L", []( float ) { return -0.15f; } },
-                              { "Elbow.R", []( float ) { return -0.15f; } } } );
+            return BuildClip( skeleton, "Idle", 3.0f,
+                              { { "Spine", []( float u ) { return 0.04f * std::sin( kTau * u ); } },
+                                { "Chest", []( float u ) { return 0.03f * std::sin( kTau * u ); } },
+                                { "Shoulder.L", []( float u ) { return 0.05f * std::sin( kTau * u ); } },
+                                { "Shoulder.R", []( float u ) { return 0.05f * std::sin( kTau * u ); } },
+                                { "Elbow.L", []( float ) { return -0.15f; } },
+                                { "Elbow.R", []( float ) { return -0.15f; } } } );
         }
-        return *s_Idle;
-    }
 
-    const AnimationClip& ProceduralCharacterAnimations::Walk()
-    {
-        if ( !s_Walk )
+        AnimationClip Walk( const Skeleton& skeleton )
         {
             constexpr float A_hip = 0.5f, A_knee = 0.7f, A_arm = 0.4f;
-            s_Walk = Build(
-                 "Walk", 1.0f,
+            return BuildClip(
+                 skeleton, "Walk", 1.0f,
                  { // legs swing opposite; arms counter-swing the legs
                    { "Hip.L", []( float u ) { return A_hip * std::sin( kTau * u ); } },
                    { "Hip.R", []( float u ) { return A_hip * std::sin( kTau * u + kTau * 0.5f ); } },
-                   { "Knee.L", []( float u ) { return A_knee * ( 0.5f - 0.5f * std::cos( kTau * u - kTau * 0.25f ) ); } },
-                   { "Knee.R", []( float u ) { return A_knee * ( 0.5f - 0.5f * std::cos( kTau * u + kTau * 0.25f ) ); } },
+                   { "Knee.L",
+                     []( float u ) { return A_knee * ( 0.5f - 0.5f * std::cos( kTau * u - kTau * 0.25f ) ); } },
+                   { "Knee.R",
+                     []( float u ) { return A_knee * ( 0.5f - 0.5f * std::cos( kTau * u + kTau * 0.25f ) ); } },
                    { "Shoulder.L", []( float u ) { return A_arm * std::sin( kTau * u + kTau * 0.5f ); } },
                    { "Shoulder.R", []( float u ) { return A_arm * std::sin( kTau * u ); } },
                    { "Elbow.L", []( float ) { return -0.25f; } },
                    { "Elbow.R", []( float ) { return -0.25f; } } } );
         }
-        return *s_Walk;
-    }
 
-    const AnimationClip& ProceduralCharacterAnimations::Run()
-    {
-        if ( !s_Run )
+        AnimationClip Run( const Skeleton& skeleton )
         {
             constexpr float A_hip = 0.85f, A_knee = 1.1f, A_arm = 0.7f;
-            s_Run = Build(
-                 "Run", 0.6f,
+            return BuildClip(
+                 skeleton, "Run", 0.6f,
                  { { "Spine", []( float ) { return 0.20f; } }, // forward lean
                    { "Hip.L", []( float u ) { return A_hip * std::sin( kTau * u ); } },
                    { "Hip.R", []( float u ) { return A_hip * std::sin( kTau * u + kTau * 0.5f ); } },
-                   { "Knee.L", []( float u ) { return A_knee * ( 0.5f - 0.5f * std::cos( kTau * u - kTau * 0.25f ) ); } },
-                   { "Knee.R", []( float u ) { return A_knee * ( 0.5f - 0.5f * std::cos( kTau * u + kTau * 0.25f ) ); } },
+                   { "Knee.L",
+                     []( float u ) { return A_knee * ( 0.5f - 0.5f * std::cos( kTau * u - kTau * 0.25f ) ); } },
+                   { "Knee.R",
+                     []( float u ) { return A_knee * ( 0.5f - 0.5f * std::cos( kTau * u + kTau * 0.25f ) ); } },
                    { "Shoulder.L", []( float u ) { return A_arm * std::sin( kTau * u + kTau * 0.5f ); } },
                    { "Shoulder.R", []( float u ) { return A_arm * std::sin( kTau * u ); } },
                    { "Elbow.L", []( float ) { return -0.6f; } },
                    { "Elbow.R", []( float ) { return -0.6f; } } } );
         }
-        return *s_Run;
-    }
 
-    const AnimationClip& ProceduralCharacterAnimations::Jump()
-    {
-        if ( !s_Jump )
+        AnimationClip Jump( const Skeleton& skeleton )
         {
             // A held airborne pose: knees tucked, slight forward lean, arms raised forward. Constant (it just
             // holds while the character is off the ground); loops trivially.
-            s_Jump = Build( "Jump", 0.5f,
-                            { { "Spine", []( float ) { return 0.12f; } },
-                              { "Hip.L", []( float ) { return -0.25f; } },
-                              { "Hip.R", []( float ) { return -0.25f; } },
-                              { "Knee.L", []( float ) { return 0.9f; } },
-                              { "Knee.R", []( float ) { return 0.9f; } },
-                              { "Shoulder.L", []( float ) { return -0.45f; } },
-                              { "Shoulder.R", []( float ) { return -0.45f; } },
-                              { "Elbow.L", []( float ) { return -0.6f; } },
-                              { "Elbow.R", []( float ) { return -0.6f; } } } );
+            return BuildClip( skeleton, "Jump", 0.5f,
+                              { { "Spine", []( float ) { return 0.12f; } },
+                                { "Hip.L", []( float ) { return -0.25f; } },
+                                { "Hip.R", []( float ) { return -0.25f; } },
+                                { "Knee.L", []( float ) { return 0.9f; } },
+                                { "Knee.R", []( float ) { return 0.9f; } },
+                                { "Shoulder.L", []( float ) { return -0.45f; } },
+                                { "Shoulder.R", []( float ) { return -0.45f; } },
+                                { "Elbow.L", []( float ) { return -0.6f; } },
+                                { "Elbow.R", []( float ) { return -0.6f; } } } );
         }
-        return *s_Jump;
-    }
 
-    size_t ProceduralCharacterAnimations::RegisterClips( Assets::AssetManager& assets, AnimationLibrary& library )
+    } // namespace
+
+    Common::ResultStr<AnimationClip> ProceduralCharacterAnimations::Build( const Skeleton&  skeleton,
+                                                                           std::string_view name )
     {
-        const AnimationClip* clips[] = { &Idle(), &Walk(), &Run(), &Jump() };
-
-        size_t registered = 0;
-        for ( const AnimationClip* clip : clips )
-        {
-            auto asset = assets.CreateAsset<Assets::AnimationAsset>(
-                 Common::Filepath( "procedural://humanoid/" + clip->AnimationName ), false );
-            if ( !asset )
-            {
-                // Not silent, and it never was reachable before: CreateAsset returning nothing for one of
-                // four compiled-in clips means the manager refused a path it has already accepted three
-                // times, and the humanoid loses that state with no other trace.
-                LOG_ERROR( "[Animation] the built-in locomotion clip '{}' could not be created as an asset; "
-                           "the procedural humanoid will have no '{}' state.",
-                           clip->AnimationName, clip->AnimationName );
-                continue;
-            }
-
-            asset->SetInMemoryClip( *clip );
-            library.Register( asset );
-            ++registered;
-        }
-        return registered;
+        if ( name == "Idle" )
+            return Common::MakeSuccess( Idle( skeleton ) );
+        if ( name == "Walk" )
+            return Common::MakeSuccess( Walk( skeleton ) );
+        if ( name == "Run" )
+            return Common::MakeSuccess( Run( skeleton ) );
+        if ( name == "Jump" )
+            return Common::MakeSuccess( Jump( skeleton ) );
+        return Common::MakeFormattedError<AnimationClip>( "the humanoid has no locomotion clip named '{}'", name );
     }
 } // namespace Desert::Animation

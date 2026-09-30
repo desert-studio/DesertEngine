@@ -2,6 +2,7 @@
 
 #include <Engine/Animation/ClipSkeletonMatch.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
+#include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 
@@ -32,17 +33,27 @@ namespace Desert::Animation
         void Register( const Assets::Asset<Assets::AnimationAsset>& animation );
         void Unregister( const Assets::AssetHandle& handle );
 
-        // THE ONLY LOOKUP. It replaced a pair — an exact-signature one used by the runtime and a tolerant
-        // bone-name one used by the editor's pickers — whose disagreement is described in
-        // ClipSkeletonMatch.hpp. Both of those spellings are gone: with two of them in the tree, a caller
-        // chose a semantics by choosing a function name, and nothing made the choices agree.
-        std::vector<Assets::Asset<Assets::AnimationAsset>> GetForSkeleton( const Skeleton& skeleton ) const;
+        /// The mesh side of ClipPlaysOnMesh, from the mesh's skeleton reference (SkinnedMeshAsset::GetSkeleton)
+        /// and that skeleton's CompatibleSkeletons (its bound SkeletonAsset). The one place callers get it.
+        [[nodiscard]] static MeshSkeletonIdentity IdentifyMesh( const Assets::SkinnedMeshAsset& mesh );
+
+        /// IdentifyMesh of the SkinnedMeshAsset @p mesh names, if it is resident; else none. Not (not resident, or
+        /// an editor-built runtime rig, which has no asset) = an identity that references no skeleton: every clip
+        /// is refused.
+        [[nodiscard]] MeshSkeletonIdentity IdentifyMeshHandle( const Assets::AssetHandle& mesh ) const;
+
+        /// A skeleton reference with its name for refusals (the registry key of its row, or its GUID text).
+        [[nodiscard]] static SkeletonAssetRef SkeletonRefOf( const Common::Content::AssetGuid& skeleton );
+
+        // THE ONLY LOOKUP, over THE ONLY RULE (ClipPlaysOnMesh, SkeletonReference.hpp): the pickers and the
+        // runtime both ask here, so what a picker offers is what a state can resolve.
+        std::vector<Assets::Asset<Assets::AnimationAsset>> GetForMesh( const MeshSkeletonIdentity& mesh ) const;
 
         // The single-clip form the runtime needs, over the SAME rule and the same records. It reports WHY it
         // found nothing, naming the clip, the rig and what the rig does have — the caller cannot turn a
         // refusal into a state that quietly plays nothing without discarding a message first.
         [[nodiscard]] Common::ResultStr<Assets::Asset<Assets::AnimationAsset>>
-        FindForSkeleton( const Skeleton& skeleton, const std::string& clipName ) const;
+        FindForMesh( const MeshSkeletonIdentity& mesh, const std::string& clipName ) const;
 
         void Clear();
 
@@ -94,8 +105,7 @@ namespace Desert::Animation
     /// What one population run put in the library, so a caller can say which half is empty.
     struct LibraryPopulation
     {
-        size_t FromFiles  = 0; ///< clips registered out of `.anim` assets the scan created
-        size_t Procedural = 0; ///< the engine's built-in humanoid locomotion clips
+        size_t FromFiles = 0; ///< clips registered out of `.anim` assets the scan created
     };
 
     /**

@@ -35,9 +35,11 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace Desert::Animation::Timeline
 {
+    enum class BindingKind : uint8_t;
     /**
      * @brief A binding's identity inside ONE sequence. 128 bits, minted once, then only copied.
      *
@@ -52,6 +54,35 @@ namespace Desert::Animation::Timeline
         [[nodiscard]] static BindingGuid Generate()
         {
             return BindingGuid{ Common::Content::AssetGuid::Generate() };
+        }
+
+        /**
+         * @brief The binding GUID of the object @p kind / @p locator names, derived and not minted: the same
+         * pair gives the same 128 bits on every machine and every run.
+         *
+         * A binding's GUID only has to be unique INSIDE its sequence, and a sequence binds an object once
+         * (one Bone binding per bone, TrackEditing's find-or-create), so the pair is already an identity
+         * there. Deriving it makes generated content deterministic the way UE's DDC keys are: the importer,
+         * the procedural clip generator and the migrator write the same bytes for the same input, so a
+         * regenerated `.anim` diffs empty. Two FNV-1a 64 passes (different offset bases) over the kind byte
+         * and the locator's bytes; never null. The value is PERSISTED in every `.anim`: changing the
+         * derivation is a format change.
+         */
+        [[nodiscard]] static BindingGuid ForObject( BindingKind kind, std::string_view locator ) noexcept
+        {
+            const auto fold = [&]( uint64_t hash ) noexcept
+            {
+                constexpr uint64_t kPrime = 0x100000001b3ULL;
+                hash                      = ( hash ^ static_cast<uint8_t>( kind ) ) * kPrime;
+                for ( const char c : locator )
+                    hash = ( hash ^ static_cast<unsigned char>( c ) ) * kPrime;
+                return hash;
+            };
+            BindingGuid guid{
+                 Common::Content::AssetGuid{ fold( 0xcbf29ce484222325ULL ), fold( 0x84222325cbf29ce4ULL ) } };
+            if ( guid.IsNull() )
+                guid.Value.Lo = 1;
+            return guid;
         }
         [[nodiscard]] bool IsNull() const
         {

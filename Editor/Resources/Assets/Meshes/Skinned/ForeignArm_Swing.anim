@@ -5,10 +5,13 @@
         "Versions": {
             "ANIM": 6
         },
-        "Dependencies": []
+        "Dependencies": ["6e7625493009a5445f91e22e58561d44"]
     },
     "Name": "ForeignArm_Swing",
-    "SkeletonSignature": 8155024733651207695,
+    "Skeleton": {
+        "Guid": "6e7625493009a5445f91e22e58561d44",
+        "Path": "Meshes/Skinned/ForeignArm.skeleton"
+    },
     "Sequence": {
         "Header": {
             "Kind": "",
@@ -25,21 +28,21 @@
         "End": 48000,
         "Bindings": [
             {
-                "Guid": "25e32abf3888c7c7164f9e8caeeacb5d",
+                "Guid": "b9014e05aec332d934de5ad15340339c",
                 "Kind": 1,
                 "Locator": "IK_Shoulder",
                 "Label": "IK_Shoulder",
                 "Parent": ""
             },
             {
-                "Guid": "fd42a47365fe0f456f6456d73eafbcad",
+                "Guid": "d06e9391fd03cf1c35203f9f6031c5fb",
                 "Kind": 1,
                 "Locator": "IK_Elbow",
                 "Label": "IK_Elbow",
                 "Parent": ""
             },
             {
-                "Guid": "f65f1d24e77727cba77236e0936d5570",
+                "Guid": "e8f9c91cd751b12c1a015d5f718e1c4b",
                 "Kind": 1,
                 "Locator": "Foreign_Hand",
                 "Label": "Foreign_Hand",
@@ -48,7 +51,7 @@
         ],
         "Tracks": [
             {
-                "Binding": "25e32abf3888c7c7164f9e8caeeacb5d",
+                "Binding": "b9014e05aec332d934de5ad15340339c",
                 "Property": "",
                 "Kind": 3,
                 "Muted": false,
@@ -242,7 +245,7 @@
                 ]
             },
             {
-                "Binding": "fd42a47365fe0f456f6456d73eafbcad",
+                "Binding": "d06e9391fd03cf1c35203f9f6031c5fb",
                 "Property": "",
                 "Kind": 3,
                 "Muted": false,
@@ -436,7 +439,7 @@
                 ]
             },
             {
-                "Binding": "f65f1d24e77727cba77236e0936d5570",
+                "Binding": "e8f9c91cd751b12c1a015d5f718e1c4b",
                 "Property": "",
                 "Kind": 3,
                 "Muted": false,

@@ -1,0 +1,16 @@
+{
+    "Header": {
+        "Kind": "SkinnedMesh",
+        "Guid": "253f912e7899da1de30408cfc5da4131",
+        "Versions": {
+            "DIMP": 2
+        },
+        "Dependencies": []
+    },
+    "Source": "TwoJointProbe.gltf",
+    "Bounds": {
+        "Min": [-20.0, 0.0, 0.0],
+        "Max": [20.0, 80.0, 0.0]
+    },
+    "SourceHash": 2080282809576534268
+}

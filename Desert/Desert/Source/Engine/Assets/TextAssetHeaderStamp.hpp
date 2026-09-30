@@ -64,14 +64,19 @@ namespace Desert::Assets
     // StateMachine node wired to Output Pose, in the files.
     inline constexpr uint32_t kAnimGraphSchemaVersion = 2;
     // A .skeleton: the rig file layout, stated in the header since v1 (T7e). The files before it stated no
-    // version at all - that generation is 0, and a file of it is refused by name.
+    // version at all - that generation is 0, and a file of it is refused by name. v2 (SKEL-TREE): PreviewMesh
+    // and CompatibleSkeletons, as GUID references. v3 (SKEL-eng2): the dead `Import` provenance is gone (the
+    // import record's SourceHash is the one freshness). Tools/SceneMigrator raises v1 and v2 to v3.
     inline constexpr uint32_t kSkeletonSchemaTag     = Common::Content::FourCC( "SKEL" );
-    inline constexpr uint32_t kSkeletonSchemaVersion = 1;
+    inline constexpr uint32_t kSkeletonSchemaVersion = 3;
     // A .anim: the clip file layout, stated in the header since v4 (T7e; v0-v3 had a top-level `Version`,
     // absent meaning 0, and no header). The number continues the clip's own sequence (kAnimationVersion).
+    // v5 (SKEL-TREE): the clip names its skeleton by GUID (`Skeleton`, an AssetGuidRef, also the header's one
+    // Dependency); the bone-hash `SkeletonSignature` is gone. Tools/SceneMigrator raises v4 through
+    // Animation::MigrateSkeletonReference (exactly one .skeleton with that signature, else a refusal).
+    // v6 (ANIM-I8a/I8b-6, ANIM-SKEL): the body is the TMLN block (a key's mode shapes the segment LEAVING it,
+    // UE's rule) beside the Skeleton GUID; SceneMigrator lifts v5's per-bone Channels, proved per tick.
     inline constexpr uint32_t kAnimationSchemaTag     = Common::Content::FourCC( "ANIM" );
-    // v5 (ANIM-I8a): the body is the TMLN block. v6 (ANIM-I8b-6): a key's mode shapes the segment LEAVING it
-    // (UE's rule); v5 stated the segment arriving at it — SceneMigrator shifts the modes one key back.
     inline constexpr uint32_t kAnimationSchemaVersion = 6;
     // A timeline block (Animation/Timeline/Sequence.hpp): the Sequence every host (.anim, a UI clip, .dseq)
     // carries, stated since v1 under this tag; its version is Timeline::kTimelineFormatVersion, which the

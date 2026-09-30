@@ -32,6 +32,6 @@ namespace Desert::Editor
                                 bool filled );
 
         const std::weak_ptr<Assets::AssetManager> m_AssetManager;
-        UI::UIHelper*                             m_UI = nullptr; // the host's; the pictures are SlotPictures()
+        UI::UIHelper*                             m_UI = nullptr; // the host's; the pictures are SlotThumbnails()
     };
 } // namespace Desert::Editor

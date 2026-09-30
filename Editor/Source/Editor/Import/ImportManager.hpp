@@ -110,13 +110,13 @@ namespace Desert::Editor
         [[nodiscard]] Common::BoolResultStr SerializeMaterialAsset( const ImportedMaterial&      material,
                                                                     const std::filesystem::path& sourcePath );
 
-        [[nodiscard]] Common::BoolResultStr
+        // The GUID the written .skeleton states (kept from the file it replaces, minted for a new one).
+        [[nodiscard]] Common::ResultStr<Common::Content::AssetGuid>
         SerializeSkeletonAsset( const Desert::Assets::Serialization::SkeletonAssetData& data,
                                 const std::filesystem::path&                            sourcePath );
 
-        [[nodiscard]] Common::BoolResultStr
-        SerializeAnimationAsset( const Desert::Assets::Serialization::AnimationAssetData& data,
-                                 const std::filesystem::path&                             sourcePath );
+        [[nodiscard]] Common::BoolResultStr SerializeAnimationAsset( const Desert::Animation::AnimationClip& clip,
+                                                                     const std::filesystem::path& sourcePath );
 
     private:
         std::unordered_map<std::string, std::unique_ptr<IAssetImporter>> m_Importers;

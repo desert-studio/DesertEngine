@@ -1,5 +1,6 @@
 #include "ThumbnailPose.hpp"
 
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
@@ -139,15 +140,15 @@ namespace Desert::Editor::ThumbnailPose
             return Common::MakeFormattedError<Mesh>( "{} '{}' has no row in the content registry, so its rig is "
                                                      "unknown and no preview mesh can be chosen",
                                                      kindName, subjectPath );
-        if ( row->RigSignature == 0 )
-            return Common::MakeFormattedError<Mesh>( "{} '{}' states no rig (signature 0): no mesh stands on it",
+        if ( row->Skeleton.IsNull() )
+            return Common::MakeFormattedError<Mesh>( "{} '{}' references no skeleton: no mesh stands on it",
                                                      kindName, subjectPath );
-        const auto preview = Assets::ContentRegistry::PreviewMeshRow( row->RigSignature );
+        const auto preview = Assets::ContentRegistry::PreviewMeshRow( row->Skeleton );
         if ( !preview )
             return Common::MakeFormattedError<Mesh>(
                  "{} '{}' has no preview mesh: no skeletal mesh in the content "
-                 "registry stands on its rig {:016x}",
-                 kindName, subjectPath, row->RigSignature );
+                 "registry references its skeleton {}",
+                 kindName, subjectPath, Common::Content::AssetGuidToText( row->Skeleton ) );
 
         auto mesh = ResolveSkinnedMesh( manager, preview->Path.generic_string() );
         if ( !mesh )

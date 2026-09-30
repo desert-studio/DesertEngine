@@ -5,10 +5,13 @@
         "Versions": {
             "ANIM": 6
         },
-        "Dependencies": []
+        "Dependencies": ["e287e4cefcdec52a99588849bcf0a0a0"]
     },
     "Name": "ArmSwing",
-    "SkeletonSignature": 6545059686777644984,
+    "Skeleton": {
+        "Guid": "e287e4cefcdec52a99588849bcf0a0a0",
+        "Path": "Meshes/TwoJointProbe.skeleton"
+    },
     "Sequence": {
         "Header": {
             "Kind": "",
@@ -25,7 +28,7 @@
         "End": 24000,
         "Bindings": [
             {
-                "Guid": "4578595540657d8a48b8299e558bcdd2",
+                "Guid": "22b84cb0185a8b05beb64da382b76abc",
                 "Kind": 1,
                 "Locator": "Joint_Arm",
                 "Label": "Joint_Arm",
@@ -34,7 +37,7 @@
         ],
         "Tracks": [
             {
-                "Binding": "4578595540657d8a48b8299e558bcdd2",
+                "Binding": "22b84cb0185a8b05beb64da382b76abc",
                 "Property": "",
                 "Kind": 3,
                 "Muted": false,

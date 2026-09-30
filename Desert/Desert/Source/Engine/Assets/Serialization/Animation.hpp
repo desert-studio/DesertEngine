@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Assets/Serialization/ImportSourceInfo.hpp>
 #include <Engine/Assets/TextAssetHeaderCheck.hpp>
 
@@ -40,7 +41,11 @@ namespace Desert::Assets::Serialization
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
 
         std::string Name;
-        uint64_t    SkeletonSignature = 0; // 0 = "no rig claimed", as on AnimationClip
+
+        /// THE CLIP'S SKELETON (ANIM 5, SKEL-TREE; UE UAnimSequence::Skeleton): the .skeleton's header GUID and
+        /// its path for the reader. Absent = the clip names no skeleton and plays on no mesh (ClipPlaysOnMesh).
+        /// The writer states the same GUID as the header's one Dependency.
+        std::optional<AssetGuidRef> Skeleton;
 
         /// The clip's sequence: the TMLN block (WriteSequence's document), Host = AnimationClip.
         Common::Json::Value Sequence;
@@ -59,6 +64,10 @@ namespace Desert::Assets::Serialization
     ///       channel (A28, report 05 §938)
     ///   4 - the text asset header: the version moves from a top-level `Version` into the header under
     ///       `ANIM`, beside the GUID that is the clip's identity (T7e)
+    ///   5 - the clip names its skeleton by GUID (`Skeleton`); the bone hash `SkeletonSignature` is gone
+    ///       (SKEL-TREE, Engine/Animation/SkeletonReference.hpp)
+    ///   6 - the body is ONE timeline block (TMLN, Timeline/Sequence.hpp) in place of per-bone Channels,
+    ///       curves, notifies and sections; a key's mode shapes the segment leaving it (ANIM-I8a, I8b-6)
     ///
     /// A number given by the teamlead, as the contract requires, and given on a condition: the step had
     /// to make the corpus SAY something new, not merely claim a newer number. See KeyShape.
@@ -88,18 +97,21 @@ namespace Desert::Assets::Serialization
         AnimationAssetData out = data;
         out.Header =
              StampTextHeader( data.Header, Common::Content::ContentKind::Animation, AnimationTextSubsystems() );
+        // ONE REFERENCE, TWO STATEMENTS: the header's Dependencies are exactly the skeleton the clip names.
+        out.Header->Dependencies.clear();
+        if ( data.Skeleton )
+            out.Header->Dependencies.push_back( data.Skeleton->Guid );
         return Common::Json::Write( out );
     }
 
     /// Refuses a file with no header (generations 0-3, a top-level `Version`) by name, pointing at
     /// Tools/SceneMigrator, and a header of another kind or version; otherwise an error string on bad JSON.
     /// DefaultIfMissing: clips cooked before a field existed (e.g. Notifies) still load with it empty.
-    /// The last ANIM version whose body was per-bone `Channels` (generation 3); v5 is the TMLN body.
-    inline constexpr uint32_t kAnimationLastChannelsVersion = 4;
-    /// The last ANIM version whose key modes shaped the segment ARRIVING at the key (v6: leaving it, UE).
-    inline constexpr uint32_t kAnimationLastArrivingInterpVersion = 5;
+    /// The last ANIM version whose body was per-bone `Channels` (generation 3; v5 beside the Skeleton GUID);
+    /// v6 is the TMLN body.
+    inline constexpr uint32_t kAnimationLastChannelsVersion = 5;
 
-    /// A file stating ANIM v4 is generation 3: refused BY NAME before the strict parse would call it a
+    /// A file stating ANIM v4 or v5 is generation 3: refused BY NAME before the strict parse would call it a
     /// missing `Sequence` member, with the one way forward.
     [[nodiscard]] inline Common::BoolResultStr RefuseGeneration3( std::string_view text )
     {
@@ -118,11 +130,6 @@ namespace Desert::Assets::Serialization
                 return Common::MakeError<bool>( std::format(
                      "clip states ANIM v{}: generation 3 (per-bone Channels), not the TMLN body of ANIM v{}; "
                      "run Tools/SceneMigrator on it",
-                     *stated, kAnimationSchemaVersion ) );
-            if ( stated && *stated == kAnimationLastArrivingInterpVersion )
-                return Common::MakeError<bool>( std::format(
-                     "clip states ANIM v{}: its key modes shape the segment ARRIVING at a key, not the one "
-                     "leaving it (ANIM v{}, UE's rule); run Tools/SceneMigrator on it",
                      *stated, kAnimationSchemaVersion ) );
         }
         return Common::MakeSuccess( true );

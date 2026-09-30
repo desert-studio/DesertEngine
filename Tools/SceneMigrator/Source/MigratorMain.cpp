@@ -57,14 +57,16 @@
 #include "SceneMigration.hpp"
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include "SettingsCanonical.hpp"
-#include "ClipMigration.hpp"
 #include "ClipInterpShift.hpp"
+#include "ClipMigration.hpp"
+#include "ImportRecordSourceHash.hpp"
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Content/ImportRecord.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
@@ -580,6 +582,8 @@ namespace Desert::Migration
         }
 
         int changed = 0;
+        // Mesh files raised (MeshBinary 3/4 -> 5, mesh Source 2 -> 3): a --check with any is pending work.
+        int meshesRaised = 0;
         int failed  = 0;
         int relaid  = 0;
 
@@ -588,18 +592,92 @@ namespace Desert::Migration
         // through the register of <project>/Resources/Assets; one under an assets root's Meshes/ through
         // that root's. A file that is not a cooked mesh this build reads (a JSON-era mesh, a foreign file, a
         // later version) FAILS by name and is left untouched - never "ok".
+        // THE SKELETONS the SKEL-TREE raises (ANIM 4 -> 5, MeshBinary 3/4 -> 5) resolve a bone hash against.
+        std::vector<Desert::Animation::SkeletonCandidate> skeletons;
+        for ( const auto& path : texts )
+        {
+            if ( path.extension() != ".skeleton" )
+                continue;
+            const auto rig = Desert::Migration::ReadSkeletonCandidate( path, ReadAll( path ) );
+            if ( !rig )
+            {
+                err << "FAIL   " << rig.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            skeletons.push_back( rig.GetValue() );
+        }
+
         for ( const auto& path : meshes )
         {
             const std::string bytes = ReadAll( path );
+            if ( uint32_t stated = 0;
+                 bytes.size() >= 16 &&
+                 std::string_view( bytes ).starts_with( std::string_view(
+                      Common::Content::kMeshBinaryMagic, sizeof( Common::Content::kMeshBinaryMagic ) ) ) &&
+                 ( std::memcpy( &stated, bytes.data() + 12, 4 ), stated == 3u || stated == 4u ) )
+            {
+                const auto raised = Desert::Migration::MigrateMeshBinaryToV5( path.string(), bytes, skeletons );
+                if ( !raised )
+                {
+                    err << "FAIL   " << raised.GetError() << "\n";
+                    ++failed;
+                    continue;
+                }
+                ++meshesRaised;
+                out << ( check ? "would raise " : "raised " ) << path.string() << " MeshBinary " << stated
+                    << " -> " << Common::Content::kMeshBinaryVersion << "\n";
+                if ( !check )
+                {
+                    if ( const auto written =
+                              Common::Utils::FileSystem::WriteContentToFileAtomic( path, raised.GetValue() );
+                         !written )
+                    {
+                        err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                        ++failed;
+                    }
+                }
+                continue;
+            }
             // THE MESH ASSET (AF4b/AF4d): a `.stmesh`/`.skmesh` that is an AF1 envelope stamped 'MSAS' carries its
-            // editable source and has no step in this tool yet. It is judged by the engine's own reader - the
-            // whole envelope, every section hash and the SRCE decode - so a torn file FAILS by name and only a
-            // file the editor would open is "ok". Anything not opening with DESTMESH that is not such an asset
-            // falls through to the cooked-mesh refusal below, which names what it is instead.
+            // editable source. SRCE 2 is raised to 3 (SKEL-eng3: the skin's signature -> its skeleton's GUID).
+            // The rest is judged by the engine's own reader - the whole envelope, every section hash and the SRCE
+            // decode - so a torn file FAILS by name and only a file the editor would open is "ok". Anything not
+            // opening with DESTMESH that is not such an asset falls through to the cooked-mesh refusal below,
+            // which names what it is instead.
             if ( !std::string_view( bytes ).starts_with( std::string_view(
                       Common::Content::kMeshBinaryMagic, sizeof( Common::Content::kMeshBinaryMagic ) ) ) &&
                  ( bytes.empty() || bytes.front() != '{' ) )
             {
+                uint32_t sourceVersion = 0;
+                if ( const auto envelope = Common::Content::ReadAssetEnvelope(
+                          std::as_bytes( std::span( bytes ) ), Desert::Assets::MeshAssetHeaderReadContext() );
+                     envelope )
+                    for ( const auto& section : envelope.GetValue().Sections )
+                        if ( section.Tag == Common::Content::EnvelopeSection::Source && section.Bytes.size() >= 4 )
+                            std::memcpy( &sourceVersion, section.Bytes.data(), 4 );
+                if ( sourceVersion == 2u )
+                {
+                    const auto raised =
+                         Desert::Migration::MigrateMeshSourceToV3( path.string(), bytes, skeletons );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    ++meshesRaised;
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " mesh Source 2 -> 3\n";
+                    if ( !check )
+                        if ( const auto written =
+                                  Common::Utils::FileSystem::WriteContentToFileAtomic( path, raised.GetValue() );
+                             !written )
+                        {
+                            err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                            ++failed;
+                        }
+                    continue;
+                }
                 const auto asset = Desert::Assets::DecodeMeshSourceAsset( std::as_bytes( std::span( bytes ) ) );
                 if ( !asset )
                 {
@@ -984,54 +1062,25 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            // ANIM v5 -> v6 (ANIM-I8b-6): every key's mode moves to the segment leaving it, proved per tick.
+            // ANIM 4/5 -> 6 (SKEL-TREE, ANIM-I8a, I8b-6): generation 3 names its skeleton by GUID (ANIM 4's bone
+            // hash resolved to the one .skeleton stating it), is lifted to the TMLN body, proved, and rewritten.
             if ( const auto stated = ReadStatedVersion( path, source, "ANIM" );
-                 stated && stated.GetValue() == Desert::Assets::Serialization::kAnimationLastArrivingInterpVersion )
+                 stated && stated.GetValue() >= 4u &&
+                 stated.GetValue() <= Desert::Assets::Serialization::kAnimationLastChannelsVersion )
             {
-                const auto shifted = Desert::Migration::MigrateClipInterpShift( source );
-                if ( !shifted )
-                {
-                    err << "FAIL   " << path.string() << " — " << shifted.GetError() << "\n";
-                    ++failed;
-                    continue;
-                }
-                const auto&       o    = shifted.GetValue();
-                const std::string what = std::format(
-                     "ANIM v5 -> v{} (key modes shape the segment leaving the key): {} key lists, {} samples "
-                     "proved bit for bit",
-                     Desert::Assets::kAnimationSchemaVersion, o.KeyLists, o.SamplesProved );
-                if ( check )
-                {
-                    out << "stale  " << path.string() << " — would shift " << what << "\n";
-                    ++relaid;
-                    continue;
-                }
-                if ( !WriteText( path, o.Text, err ) )
-                {
-                    ++failed;
-                    continue;
-                }
-                out << "shifted " << path.string() << " — " << what << "\n";
-                ++relaid;
-                continue;
-            }
-            // ANIM v4 -> v6 (ANIM-I8a, I8b-6): generation 3 is lifted to the TMLN body, proved, and rewritten.
-            if ( const auto stated = ReadStatedVersion( path, source, "ANIM" );
-                 stated && stated.GetValue() == Desert::Assets::Serialization::kAnimationLastChannelsVersion )
-            {
-                const auto lifted = Desert::Migration::MigrateClipGeneration3( source );
+                const auto lifted = Desert::Migration::MigrateClipGeneration3( path.string(), source, skeletons );
                 if ( !lifted )
                 {
                     err << "FAIL   " << path.string() << " — " << lifted.GetError() << "\n";
                     ++failed;
                     continue;
                 }
-                const auto& o = lifted.GetValue();
-                const std::string what =
-                     std::format( "ANIM v4 -> v{} (TMLN): {} bone tracks, {} curves, {} notifies, {} sections, "
-                                  "{} ticks proved bit for bit",
-                                  Desert::Assets::kAnimationSchemaVersion, o.BoneTracks, o.Curves, o.Notifies,
-                                  o.Sections, o.TicksProved );
+                const auto&       o    = lifted.GetValue();
+                const std::string what = std::format(
+                     "ANIM v{} -> v{} (TMLN, Skeleton GUID): {} bone tracks, {} curves, {} notifies, {} sections, "
+                     "{} ticks proved bit for bit",
+                     stated.GetValue(), Desert::Assets::kAnimationSchemaVersion, o.BoneTracks, o.Curves, o.Notifies,
+                     o.Sections, o.TicksProved );
                 if ( check )
                 {
                     out << "stale  " << path.string() << " — would lift " << what << "\n";
@@ -1051,32 +1100,6 @@ namespace Desert::Migration
             {
                 ++failed;
                 continue;
-            }
-            // TMLN v1 -> v2 (ANIM-FMT): an ANIM v6 clip's modes are already the leaving key's; the number moves.
-            {
-                const auto raised = Desert::Migration::MigrateClipTimelineV1ToV2( source );
-                if ( !raised )
-                {
-                    err << "FAIL   " << path.string() << " — " << raised.GetError() << "\n";
-                    ++failed;
-                    continue;
-                }
-                if ( raised.GetValue() )
-                {
-                    const std::string what = std::format( "TMLN v1 -> v{} (modes already shifted at ANIM v6)",
-                                                          Desert::Animation::Timeline::kTimelineFormatVersion );
-                    if ( check )
-                        out << "stale  " << path.string() << " — would raise " << what << "\n";
-                    else if ( !WriteText( path, *raised.GetValue(), err ) )
-                    {
-                        ++failed;
-                        continue;
-                    }
-                    else
-                        out << "raised " << path.string() << " — " << what << "\n";
-                    ++relaid;
-                    continue;
-                }
             }
             if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
                  layout != Layout::Canonical )
@@ -1231,6 +1254,28 @@ namespace Desert::Migration
         for ( const auto& path : texts )
         {
             const std::string text = ReadAll( path );
+            if ( path.extension() == ".skeleton" )
+            {
+                // SKEL 1/2 -> 3: SKEL 2 (SKEL-TREE) gave the rig PreviewMesh / CompatibleSkeletons, SKEL 3 dropped
+                // the dead Import provenance.
+                const auto stated = ReadStatedVersion( path, text, "SKEL" );
+                if ( stated && ( stated.GetValue() == 1u || stated.GetValue() == 2u ) )
+                {
+                    const auto raised = Desert::Migration::MigrateSkeletonToV3( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — SKEL " << stated.GetValue() << " -> "
+                            << Desert::Assets::kSkeletonSchemaVersion << ": " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " SKEL " << stated.GetValue()
+                        << " -> " << Desert::Assets::kSkeletonSchemaVersion << "\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                        ++failed;
+                    continue;
+                }
+            }
             if ( path.extension() == Desert::Assets::Serialization::kFoliageTypeExtension )
             {
                 const auto stated = ReadStatedVersion( path, text, "FOLT" );
@@ -1298,18 +1343,58 @@ namespace Desert::Migration
                 ++( layout == Layout::Failed ? failed : relaid );
         }
 
+        // THE SKINNED IMPORTS' SOURCE HASH (SKEL-fixa, ImportRecordSourceHash.hpp): a `.skmesh` with its raw
+        // source beside it is that source's import; its record states the source's hash, or the editor re-imports
+        // it at its first start and rewrites committed files.
+        int recordsStated = 0;
+        for ( const auto& path : meshes )
+        {
+            if ( path.extension() != Common::Constants::Extensions::SKINNED_MESH )
+                continue;
+            const auto source = Common::Content::MeshSourceBeside( path );
+            if ( !source )
+                continue; // a hand-authored mesh: no import, no record
+            const auto stated = Desert::Migration::ImportRecordWithSourceHash( *source, path );
+            if ( !stated )
+            {
+                err << "FAIL   " << path.string() << " — " << stated.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            if ( !stated.GetValue() )
+                continue;
+            const std::filesystem::path record = Common::Content::ImportRecordPathFor( *source );
+            ++recordsStated;
+            out << ( check ? "would state " : "stated " ) << record.string() << " SourceHash\n";
+            if ( check )
+                continue;
+            if ( const auto written = Common::Content::WriteCanonicalJsonFileAtomic( record, *stated.GetValue() );
+                 !written )
+            {
+                err << "FAIL   " << record.string() << " — " << written.GetError() << "\n";
+                ++failed;
+            }
+        }
+
         out << "SceneMigrator: " << scenes.size() << " scene(s), " << changed
             << ( check ? " would change, " : " raised, " ) << clips.size() << " clip(s), " << materials.size()
             << " material(s), " << prefabs.size() << " prefab(s), " << prefabsChanged
             << ( check ? " would change, " : " raised, " ) << texts.size() << " other text asset(s), " << relaid
             << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << foliageRaised
-            << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << tiles.size()
-            << " landscape tile(s), " << failed << " failed\n";
+            << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << meshesRaised
+            << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
+            << " landscape tile(s), " << recordsStated
+            << ( check ? " import record(s) would state their source hash, "
+                       : " import record(s) stated their source hash, " )
+            << failed << " failed\n";
 
         failedOut = failed;
         if ( failed > 0 )
             return 1;
-        return ( check && ( changed > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 ) ) ? 1 : 0;
+        return ( check && ( changed > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 ||
+                            meshesRaised > 0 || recordsStated > 0 ) )
+                    ? 1
+                    : 0;
     }
 
     // ALL OR NOTHING. A write run used to raise file after file and let one refusal fail only itself: over

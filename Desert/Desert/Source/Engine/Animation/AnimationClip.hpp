@@ -3,7 +3,8 @@
 #include <Engine/Animation/TimeModel.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 
-#include <cstdint>
+#include <Common/Content/AssetEnvelope.hpp>
+
 #include <string>
 
 namespace Desert::Animation
@@ -23,9 +24,10 @@ namespace Desert::Animation
     public:
         std::string AnimationName;
 
-        // 0 = "no rig claimed", and it needs an initialiser: this number is what the animation system matches a
-        // skeleton on, so an unset one would not fail to match — it would match something arbitrary.
-        uint64_t SkeletonSignature = 0;
+        // THE CLIP'S SKELETON, BY GUID (SKEL-TREE; Engine/Animation/SkeletonReference.hpp) — the one home of the
+        // value: AnimationAsset::GetSkeleton reads it, SaveClipToFile writes it. Null = the clip names no
+        // skeleton and plays on no mesh (ClipPlaysOnMesh refuses it by name).
+        Common::Content::AssetGuid Skeleton;
 
         Timeline::Sequence Sequence = MakeClipSequence();
 

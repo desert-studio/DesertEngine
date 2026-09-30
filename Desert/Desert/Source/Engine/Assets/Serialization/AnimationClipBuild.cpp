@@ -28,8 +28,16 @@ namespace Desert::Assets::Serialization
         }
         Animation::AnimationClip clip;
         clip.AnimationName     = data.Name;
-        clip.SkeletonSignature = data.SkeletonSignature;
-        clip.Sequence          = sequence.ExtractValue();
+        if ( data.Skeleton )
+        {
+            auto skeleton = Common::Content::AssetGuidFromText( data.Skeleton->Guid );
+            if ( !skeleton )
+                return Common::MakeFormattedError<Animation::AnimationClip>(
+                     "clip '{}' names skeleton '{}' by a GUID that does not parse: {}", data.Name,
+                     data.Skeleton->Path, skeleton.GetError() );
+            clip.Skeleton = skeleton.GetValue();
+        }
+        clip.Sequence = sequence.ExtractValue();
         return Common::MakeSuccess( std::move( clip ) );
     }
 
@@ -56,9 +64,10 @@ namespace Desert::Assets::Serialization
                                                                    clip.AnimationName, value.GetError() );
         }
         AnimationAssetData data;
-        data.Name              = clip.AnimationName;
-        data.SkeletonSignature = clip.SkeletonSignature;
-        data.Sequence          = value.ExtractValue();
+        // `Skeleton` is not stated here: its AssetGuidRef path is the content registry's (ReferenceTo), which
+        // the writer (SaveClipToFile) asks; this function stays pure for Tools/SceneMigrator.
+        data.Name     = clip.AnimationName;
+        data.Sequence = value.ExtractValue();
         return Common::MakeSuccess( std::move( data ) );
     }
 } // namespace Desert::Assets::Serialization

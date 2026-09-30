@@ -13,6 +13,9 @@
 
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
+#include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
+#include <Engine/Animation/Timeline/Binding.hpp>
+#include <Engine/Animation/SkeletonReference.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include "ImportedMeshAsset.hpp"
@@ -78,30 +81,135 @@ namespace Desert::Editor
 
     namespace
     {
-        // A skinned import is current when its mesh exists and its rig states the hash of the source's CURRENT
-        // bytes (AF8b, the texture IMPT rule of AF7). Bytes, not times: the skinned assets are authored content
-        // committed beside their source, and a fresh checkout writes both in no particular order - an mtime
-        // test re-imported them at the first editor start and left the tree dirty.
+        // A skinned import is current when its mesh exists and the source's import record states the hash of the
+        // source's CURRENT bytes (AF8b, the texture IMPT rule of AF7; UE UAssetImportData). Bytes, not times: the
+        // skinned assets are authored content committed beside their source, and a fresh checkout writes both in
+        // no particular order - an mtime test re-imported them at the first editor start and left the tree dirty.
+        // The record, not the rig: an import onto an existing skeleton writes no .skeleton of its own
+        // (ExistingSkeletonFor), and reading the hash from one re-imported such a file at every editor start.
         bool SkinnedImportIsFresh( const std::filesystem::path& source )
         {
             std::error_code ec;
             if ( !std::filesystem::exists( CookPaths::SkinnedAsset( source, ".skmesh" ), ec ) )
                 return false;
-            const auto text = Common::Utils::FileSystem::ReadFileContentIfExists(
-                 CookPaths::SkinnedAsset( source, ".skeleton" ) );
-            if ( !text )
+            const auto record = Assets::Serialization::ReadImportRecord( source );
+            if ( !record )
                 return false;
-            const auto& content = text.GetValue();
-            if ( !content.has_value() )
+            const auto& stored = record.GetValue();
+            if ( !stored.has_value() )
                 return false;
-            const auto rig = Assets::Serialization::ReadSkeletonJson( content.value() );
-            if ( !rig )
-                return false;
-            const auto& import = rig.GetValue().Import;
-            if ( !import.has_value() )
+            const auto& recorded = stored->SourceHash;
+            if ( !recorded.has_value() )
                 return false;
             const auto hash = Assets::HashMeshSourceFile( source );
-            return hash && import.value().SourceHash == hash.GetValue();
+            return hash && *recorded == hash.GetValue();
+        }
+
+        // THE IMPORTED RIG IS AN EXISTING SKELETON WHEN ONE REGISTERED .skeleton STATES ITS BONES (SKEL-TREE,
+        // Engine/Animation/SkeletonReference.hpp; UE's FBX import "Skeleton" field): the bones' hash pre-selects
+        // (FindSkeletonsBySignature: exactly one, never the first of several), and the assignment check proves
+        // every bone the mesh (with its parent) and the clips need is on it (CheckSkeletonAssignment). The
+        // import's OWN .skeleton (a re-import) is no candidate: rewriting it keeps its GUID. The Import Options'
+        // Skeleton (SourceImportSettings::Skeleton), when chosen, IS the rig's skeleton: it passes the assignment
+        // check or the import is refused - never a new .skeleton in its place. Several skeletons stating the bones
+        // with none chosen is the options' default, a new skeleton, and the log names the candidates to choose
+        // from. nullopt = the rig is a new skeleton - the import writes its .skeleton and references that.
+        Common::ResultStr<std::optional<Common::Content::AssetGuid>>
+        ExistingSkeletonFor( const Assets::Serialization::SkeletonAssetData& rig, const bool skinnedMesh,
+                             const std::vector<Animation::AnimationClip>&     clips,
+                             const std::optional<Common::Content::AssetGuid>& chosenSkeleton,
+                             const std::filesystem::path& ownSkeleton, const std::filesystem::path& source )
+        {
+            using Result = std::optional<Common::Content::AssetGuid>;
+            std::error_code ec;
+            if ( !chosenSkeleton && std::filesystem::exists( ownSkeleton, ec ) )
+                return Common::MakeSuccess( Result{} );
+
+            std::vector<Animation::SkeletonCandidate>             candidates;
+            std::vector<Assets::Serialization::SkeletonAssetData> rigs;
+            for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Skeleton ) )
+            {
+                if ( !row.Guid )
+                    continue;
+                const auto text = Common::Utils::FileSystem::ReadFileContent( row.Path );
+                auto       read = text ? Assets::Serialization::ReadSkeletonJson( text.GetValue() )
+                                       : Common::MakeError<Assets::Serialization::SkeletonAssetData>( text.GetError() );
+                if ( !read )
+                {
+                    LOG_WARN( "[Import] '{}': skeleton '{}' is no candidate for its rig: {}",
+                              source.generic_string(), row.Path.generic_string(), read.GetError() );
+                    continue;
+                }
+                candidates.push_back( Animation::SkeletonCandidate{ *row.Guid, read.GetValue().Signature,
+                                                                    row.Path.generic_string() } );
+                rigs.push_back( read.ExtractValue() );
+            }
+
+            size_t pick = candidates.size();
+            if ( chosenSkeleton )
+            {
+                for ( size_t i = 0; i < candidates.size(); ++i )
+                    if ( candidates[i].Guid == *chosenSkeleton )
+                        pick = i;
+                if ( pick == candidates.size() )
+                    return Common::MakeFormattedError<Result>(
+                         "'{}': the Import Options' Skeleton {} is no readable skeleton of the content registry",
+                         source.generic_string(), Common::Content::AssetGuidToText( *chosenSkeleton ) );
+            }
+            else
+            {
+                const auto matches = Animation::FindSkeletonsBySignature( rig.Signature, candidates );
+                if ( matches.size() > 1 )
+                {
+                    std::string paths;
+                    for ( const size_t i : matches )
+                        std::format_to( std::back_inserter( paths ), "{}'{}'", paths.empty() ? "" : ", ",
+                                        candidates[i].Path );
+                    LOG_WARN( "[Import] '{}': its rig's bones are stated by {} skeletons ({}) and the Import "
+                              "Options' Skeleton chooses none - a new .skeleton is written; choose one in Import "
+                              "Settings and Reimport to share it",
+                              source.generic_string(), matches.size(), paths );
+                }
+                if ( matches.size() != 1 )
+                    return Common::MakeSuccess( Result{} );
+                pick = matches.front();
+            }
+
+            std::vector<Animation::RequiredBone> required;
+            if ( skinnedMesh )
+            {
+                // The mesh is skinned to the imported rig: every bone of it, with its parent (UE
+                // IsCompatibleMesh).
+                const Animation::Skeleton imported( std::vector<Animation::BoneInfo>( rig.Bones ) );
+                const auto&               bones = imported.GetBones();
+                for ( uint32_t i = 0; i < bones.size(); ++i )
+                {
+                    const uint32_t parent = imported.ResolveParent( i );
+                    required.push_back( Animation::RequiredBone{
+                         bones[i].Name,
+                         parent == Animation::Skeleton::NO_PARENT ? std::string() : bones[parent].Name } );
+                }
+            }
+            for ( const auto& clip : clips )
+                for ( const auto& binding : clip.Sequence.Bindings )
+                    if ( binding.Kind == Animation::Timeline::BindingKind::Bone && !binding.Locator.empty() )
+                        required.push_back( Animation::RequiredBone{ binding.Locator, std::nullopt } );
+
+            const auto&               chosen = candidates[pick];
+            const Animation::Skeleton existing( std::move( rigs[pick].Bones ) );
+            if ( const auto checked = Animation::CheckSkeletonAssignment( existing, chosen.Path, required,
+                                                                          source.generic_string() );
+                 !checked )
+            {
+                // The user's choice is refused by name; a signature match that fails the check is no choice.
+                if ( chosenSkeleton )
+                    return Common::MakeError<Result>( checked.GetError() );
+                LOG_WARN( "[Import] {} - a new .skeleton is written", checked.GetError() );
+                return Common::MakeSuccess( Result{} );
+            }
+            LOG_INFO( "[Import] '{}': its rig is the existing skeleton '{}'", source.generic_string(),
+                      chosen.Path );
+            return Common::MakeSuccess( Result{ chosen.Guid } );
         }
     } // namespace
 
@@ -299,28 +407,49 @@ namespace Desert::Editor
         }
         // THE RIG AND ITS CLIPS ENTER THE REGISTRY BEFORE THE MESH THAT NAMES THEM (UE creates the USkeleton
         // before the USkeletalMesh). Each write is registered the moment it exists (CookedJsonWrite.hpp), and a
-        // skinned mesh is resolved through the Skeleton row its signature names (MeshService::Arrived): with the
+        // skinned mesh is resolved through the Skeleton row its GUID names (MeshService::Arrived): with the
         // mesh written first, a draw or thumbnail between the two writes failed the mesh for the session - live on
         // Fox.glb, "no Skeleton row of the content registry states it".
+        // THE SKELETON EVERY SKINNED ASSET OF THE FILE REFERENCES BY GUID (SKEL-TREE): an existing one that states
+        // the rig, else the .skeleton this import writes.
+        Common::Content::AssetGuid skeleton;
         if ( resolved.Skeleton )
         {
-            const auto serialized = SerializeSkeletonAsset( resolved.Skeleton.value(), sourcePath );
-            if ( serialized )
-                written.WrittenSkeletons.push_back( SkinnedAssetPath( sourcePath, ".skeleton" ) );
-            record( serialized );
+            const auto ownSkeleton = SkinnedAssetPath( sourcePath, ".skeleton" );
+            const auto existing =
+                 ExistingSkeletonFor( resolved.Skeleton.value(), resolved.Mesh && resolved.Mesh->IsSkinned,
+                                      resolved.Animations, settings.Skeleton, ownSkeleton, sourcePath );
+            if ( !existing )
+                return Common::MakeError<bool>( existing.GetError() );
+            if ( const auto& found = existing.GetValue(); found.has_value() )
+                skeleton = *found;
+            else
+            {
+                const auto serialized = SerializeSkeletonAsset( resolved.Skeleton.value(), sourcePath );
+                if ( serialized )
+                {
+                    skeleton = serialized.GetValue();
+                    written.WrittenSkeletons.push_back( ownSkeleton );
+                    record( Common::MakeSuccess( true ) );
+                }
+                else
+                    record( Common::MakeError<bool>( serialized.GetError() ) );
+            }
         }
 
-        for ( const auto& anim : resolved.Animations )
+        for ( auto& anim : resolved.Animations )
         {
+            anim.Skeleton         = skeleton;
             const auto serialized = SerializeAnimationAsset( anim, sourcePath );
             if ( serialized )
                 written.WrittenClips.push_back(
-                     SkinnedAssetPath( sourcePath, std::format( "_{}.anim", anim.Name ) ) );
+                     SkinnedAssetPath( sourcePath, std::format( "_{}.anim", anim.AnimationName ) ) );
             record( serialized );
         }
 
         if ( resolved.Mesh && resolved.Mesh->IsSkinned )
         {
+            resolved.Mesh->Skeleton = skeleton;
             if ( settings.Mesh.LodPolicy == Assets::MeshLodPolicy::Generate )
                 BakeMeshLODs( resolved.Mesh.value() );
             const auto serialized = SerializeMeshAsset( resolved.Mesh.value(), sourcePath );
@@ -362,6 +491,17 @@ namespace Desert::Editor
 
         if ( !firstFailure.empty() )
             return Common::MakeError<bool>( firstFailure );
+        // THE IMPORT IS COMPLETE: its record states the bytes it read (SkinnedImportIsFresh reads them back). Only
+        // now - a partial import leaves the old hash, so the next start imports the file again.
+        if ( !staticMesh && ( resolved.Mesh || resolved.Skeleton || !resolved.Animations.empty() ) )
+        {
+            const auto hash = Assets::HashMeshSourceFile( sourcePath );
+            if ( !hash )
+                return Common::MakeError<bool>( hash.GetError() );
+            if ( auto stated = Assets::Serialization::SetImportRecordSourceHash( sourcePath, hash.GetValue() );
+                 !stated )
+                return stated;
+        }
         return BOOLSUCCESS;
     }
 
@@ -387,7 +527,7 @@ namespace Desert::Editor
         data.Guid = Common::Content::AssetGuid::Generate();
         // First import: no file yet, so absence is an answer here, not an error.
         if ( const auto prefix = Common::Utils::FileSystem::ReadFileContentPrefixIfExists(
-                  cookedPath, Common::Content::kMeshBinaryPrefixV3 ) )
+                  cookedPath, Common::Content::kMeshBinaryPrefixSize ) )
         {
             const auto& previous = prefix.GetValue();
             if ( previous.has_value() )
@@ -399,7 +539,7 @@ namespace Desert::Editor
                                  Desert::Assets::Serialization::MeshDataBounds( data ) );
     }
 
-    Common::BoolResultStr
+    Common::ResultStr<Common::Content::AssetGuid>
     ImportManager::SerializeSkeletonAsset( const Desert::Assets::Serialization::SkeletonAssetData& data,
                                            const std::filesystem::path&                            sourcePath )
     {
@@ -409,26 +549,29 @@ namespace Desert::Editor
         auto stamped   = data;
         stamped.Header = Assets::HeaderKeepingFileGuid( cookedPath, Common::Content::ContentKind::Skeleton,
                                                         Assets::Serialization::SkeletonTextSubsystems() );
-        // The rig carries the import's source hash: SkinnedImportIsFresh reads it back.
-        const auto hash = Assets::HashMeshSourceFile( sourcePath );
-        if ( !hash )
-            return Common::MakeError<bool>( hash.GetError() );
-        stamped.Import =
-             Assets::Serialization::ImportSourceInfo{ sourcePath.filename().generic_string(), hash.GetValue() };
-        return WriteCookedJson( stamped, cookedPath );
+        if ( const auto wrote = WriteCookedJson( stamped, cookedPath ); !wrote )
+            return Common::MakeError<Common::Content::AssetGuid>( wrote.GetError() );
+        return Common::Content::AssetGuidFromText( stamped.Header->Guid );
     }
 
-    Common::BoolResultStr
-    ImportManager::SerializeAnimationAsset( const Desert::Assets::Serialization::AnimationAssetData& data,
-                                            const std::filesystem::path&                             sourcePath )
+    Common::BoolResultStr ImportManager::SerializeAnimationAsset( const Animation::AnimationClip& clip,
+                                                                  const std::filesystem::path&    sourcePath )
     {
-        auto cookedPath = SkinnedAssetPath( sourcePath, "_" + data.Name + ".anim" );
+        auto cookedPath = SkinnedAssetPath( sourcePath, "_" + clip.AnimationName + ".anim" );
+        // THE ONE CLIP WRITER'S BODY (BuildAssetDataFromClip, as SaveClipToFile): the import adds only what a
+        // save keeps from the file it replaces — the header GUID — and the source it came from.
+        auto built = Assets::Serialization::BuildAssetDataFromClip( clip );
+        if ( !built )
+            return Common::MakeError<bool>( built.GetError() );
+        const Assets::Serialization::AnimationAssetData data = built.ExtractValue();
         // A RE-IMPORT KEEPS THE CLIP'S IDENTITY (T7e, ANIM 4), as the rig's above: sequencer tracks and anim
         // graphs name the clip, and a fresh GUID would orphan them.
-        auto stamped   = data;
+        auto stamped = data;
+        if ( !clip.Skeleton.IsNull() )
+            stamped.Skeleton = Assets::ContentRegistry::ReferenceTo( clip.Skeleton );
         stamped.Header = Assets::HeaderKeepingFileGuid( cookedPath, Common::Content::ContentKind::Animation,
                                                         Assets::Serialization::AnimationTextSubsystems() );
-        // THE CLIP NAMES ITS SOURCE (THM-FIXJ; UE: UAnimSequence::AssetImportData), as the rig does: Reimport of
+        // THE CLIP NAMES ITS SOURCE (THM-FIXJ; UE: UAnimSequence::AssetImportData): Reimport of
         // the clip re-imports this file (ImportOptions::ImportSourceOfAsset), which rewrites every asset made
         // from it. The clip's file name cannot say it - `<stem>_<clip>.anim` has no inverse.
         const auto hash = Assets::HashMeshSourceFile( sourcePath );

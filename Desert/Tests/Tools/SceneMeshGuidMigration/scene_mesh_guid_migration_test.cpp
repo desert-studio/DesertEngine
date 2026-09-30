@@ -29,14 +29,14 @@ namespace
     const AssetGuid kMeshGuid{ 0x0123456789abcdefULL, 0xfedcba9876543210ULL };
     const char*     kMeshGuidText = "0123456789abcdeffedcba9876543210";
 
-    // A project on disk: <root>/Cooked/Meshes/Probe.skmesh stating kMeshGuid (or a v2 prefix stating
-    // none), and the assets root <root>/Resources/Assets the migrator is handed.
+    // A project on disk: <root>/Cooked/Meshes/Probe.skmesh stating kMeshGuid in the current prefix (or a v2
+    // prefix stating none), and the assets root <root>/Resources/Assets the migrator is handed.
     struct Project
     {
         fs::path Root;
         fs::path AssetsRoot;
 
-        explicit Project( const char* name, uint32_t version = 3 )
+        explicit Project( const char* name, uint32_t version = Common::Content::kMeshBinaryVersion )
         {
             Root       = fs::temp_directory_path() / ( std::string( "af7o_" ) + name );
             AssetsRoot = Root / "Resources" / "Assets";
@@ -47,7 +47,7 @@ namespace
             std::memcpy( header.Magic, Common::Content::kMeshBinaryMagic, 8 );
             header.ByteOrder = Common::Content::kMeshBinaryByteOrderTag;
             header.Version   = version;
-            std::string bytes( Common::Content::kMeshBinaryPrefixV3, '\0' );
+            std::string bytes( Common::Content::kMeshBinaryPrefixSize, '\0' );
             std::memcpy( bytes.data(), &header, sizeof( header ) );
             std::memcpy( bytes.data() + Common::Content::kMeshBinaryGuidOffset, &kMeshGuid.Hi, 8 );
             std::memcpy( bytes.data() + Common::Content::kMeshBinaryGuidOffset + 8, &kMeshGuid.Lo, 8 );

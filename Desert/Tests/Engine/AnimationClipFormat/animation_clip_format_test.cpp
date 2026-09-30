@@ -82,7 +82,8 @@ namespace
     Anim::AnimationClip SampleClip()
     {
         Anim::AnimationClip clip  = ClipFixture::Clip( "Walk", Anim::FrameNumber{ 60000 } );
-        clip.SkeletonSignature    = 0x1234'5678'9abc'def0ULL;
+        const auto skeleton       = Common::Content::AssetGuidFromText( "123456789abcdef00fedcba987654321" );
+        clip.Skeleton             = skeleton.GetValue();
         clip.Sequence.DisplayRate = Anim::FrameRate{ 30, 1 };
 
         Timeline::TransformChannel hips;
@@ -154,15 +155,38 @@ TEST( AnimationClipFormat, AssetFieldCensus )
 {
     // ANIM-I8a (ANIM v5): Channels/Notifies/Curves/Sections/TickRate/DisplayRate/DurationTicks are the TMLN
     // block's now, stated once in `Sequence`; the file restates none of them.
+    // SKEL-TREE: `Skeleton` — the clip's .skeleton by GUID (UE: UAnimSequence::Skeleton); no bone hash.
     // THM-FIXJ: `Import` — the source file the clip was imported from (UE: UAnimSequence::AssetImportData).
     EXPECT_EQ( FieldNames<Ser::AnimationAssetData>(),
-               ( std::vector<std::string>{ "Header", "Import", "Name", "Sequence", "SkeletonSignature" } ) );
+               ( std::vector<std::string>{ "Header", "Import", "Name", "Sequence", "Skeleton" } ) );
+}
+
+// SKEL-TREE: a clip naming its skeleton by a GUID that does not parse is refused, naming the path it stated.
+TEST( AnimationClipFormat, ASkeletonGuidThatDoesNotParseIsRefusedNamingThePath )
+{
+    auto data = Ser::BuildAssetDataFromClip( SampleClip() );
+    ASSERT_TRUE( data ) << data.GetError();
+    Ser::AnimationAssetData stated = data.ExtractValue();
+    stated.Skeleton                = Desert::Assets::AssetGuidRef{ "not-a-guid", "Meshes/Skinned/Broken.skeleton" };
+    const auto built               = Ser::BuildClipFromAssetData( stated );
+    ASSERT_FALSE( built );
+    EXPECT_NE( built.GetError().find( "Meshes/Skinned/Broken.skeleton" ), std::string::npos ) << built.GetError();
+}
+
+// SKEL-TREE: a clip stating no skeleton builds with a null reference (it plays on no mesh; ClipPlaysOnMesh).
+TEST( AnimationClipFormat, AClipStatingNoSkeletonBuildsWithANullReference )
+{
+    auto data = Ser::BuildAssetDataFromClip( SampleClip() );
+    ASSERT_TRUE( data ) << data.GetError();
+    const auto built = Ser::BuildClipFromAssetData( data.GetValue() );
+    ASSERT_TRUE( built ) << built.GetError();
+    EXPECT_TRUE( built.GetValue().Skeleton.IsNull() );
 }
 
 TEST( AnimationClipFormat, SkeletonFieldCensus )
 {
     EXPECT_EQ( FieldNames<Ser::SkeletonAssetData>(),
-               ( std::vector<std::string>{ "Bones", "Header", "Import", "Signature" } ) );
+               ( std::vector<std::string>{ "Bones", "CompatibleSkeletons", "Header", "PreviewMesh", "Signature" } ) );
     // BoneInfo is written to .skeleton verbatim; it carried a redundant BoneIndex once.
     EXPECT_EQ( FieldNames<Anim::BoneInfo>(),
                ( std::vector<std::string>{ "LocalBindTransform", "Name", "OffsetMatrix", "ParentBoneID" } ) );
@@ -209,12 +233,12 @@ TEST( AnimationClipFormat, AGenerationThreeClipIsRefusedByNameNotAsAMissingSeque
     EXPECT_NE( read.GetError().find( "SceneMigrator" ), std::string::npos ) << read.GetError();
 }
 
-TEST( AnimationClipFormat, AnAnimV5ClipIsRefusedByNameForItsArrivingKeyModes )
+// ANIM 4 (bone hash) is generation 3 as much as ANIM 5 (Skeleton GUID): both per-bone Channels, both refused by name.
+TEST( AnimationClipFormat, AnAnimV4ClipIsRefusedAsGenerationThreeToo )
 {
-    const auto read =
-         Ser::ReadAnimationJson( Common::Json::Write( HeadedAt( Ser::kAnimationLastArrivingInterpVersion ) ) );
+    const auto read = Ser::ReadAnimationJson( Common::Json::Write( HeadedAt( 4u ) ) );
     ASSERT_FALSE( read );
-    EXPECT_NE( read.GetError().find( "ARRIVING" ), std::string::npos ) << read.GetError();
+    EXPECT_NE( read.GetError().find( "generation 3" ), std::string::npos ) << read.GetError();
     EXPECT_NE( read.GetError().find( "SceneMigrator" ), std::string::npos ) << read.GetError();
 }
 
@@ -281,7 +305,11 @@ TEST( AnimationClipFormat, AClipWrittenToDiskReadsBackAsTheSameClipBitForBit )
     const Anim::AnimationClip& back = rebuilt.GetValue();
 
     EXPECT_EQ( back.AnimationName, clip.AnimationName );
-    EXPECT_EQ( back.SkeletonSignature, clip.SkeletonSignature ) << "the rig the clip claims did not survive";
+    EXPECT_TRUE( back.Skeleton == clip.Skeleton ) << "the skeleton the clip names did not survive";
+    // ONE REFERENCE, TWO STATEMENTS: the header's one Dependency is that skeleton.
+    ASSERT_TRUE( read.GetValue().Skeleton.has_value() );
+    EXPECT_EQ( read.GetValue().Header->Dependencies,
+               ( std::vector<std::string>{ Common::Content::AssetGuidToText( clip.Skeleton ) } ) );
     EXPECT_EQ( back.Sequence.Host, Timeline::SequenceHost::AnimationClip );
     EXPECT_EQ( back.DurationTicks().Value, clip.DurationTicks().Value );
     EXPECT_EQ( back.Sequence.DisplayRate, clip.Sequence.DisplayRate );
@@ -335,7 +363,8 @@ TEST( AnimationClipFormat, BuildAssetDataFromClipStatesTheCurrentTimelineAndEver
     const auto                data = Ser::BuildAssetDataFromClip( clip );
     ASSERT_TRUE( data ) << data.GetError();
     EXPECT_EQ( data.GetValue().Name, "Walk" );
-    EXPECT_EQ( data.GetValue().SkeletonSignature, clip.SkeletonSignature );
+    // The skeleton's AssetGuidRef is the writer's (SaveClipToFile asks the registry for its path).
+    EXPECT_FALSE( data.GetValue().Skeleton.has_value() );
     EXPECT_EQ( Common::Json::Write( data.GetValue().Sequence ),
                Common::Json::Write( BlockStating( clip.Sequence, Timeline::kTimelineFormatVersion ) ) )
          << "the Sequence member is not the one writer's TMLN v" << Timeline::kTimelineFormatVersion << " block";

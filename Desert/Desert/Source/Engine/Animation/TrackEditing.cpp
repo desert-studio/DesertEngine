@@ -475,7 +475,7 @@ namespace Desert::Animation
         else
         {
             Timeline::Binding created;
-            created.Guid    = Timeline::BindingGuid::Generate();
+            created.Guid    = Timeline::BindingGuid::ForObject( Timeline::BindingKind::Bone, bone );
             created.Kind    = Timeline::BindingKind::Bone;
             created.Locator = bone;
             created.Label   = bone;

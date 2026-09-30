@@ -158,7 +158,7 @@ TEST( KeyInterpolationWitness, TheTwoClipsDifferInExactlyOneFieldPerKey )
                Ser::kAnimationVersion );
     EXPECT_EQ( Desert::Assets::StatedVersion( cubicData.Header, Desert::Assets::kAnimationSchemaTag ),
                Ser::kAnimationVersion );
-    EXPECT_EQ( linearData.SkeletonSignature, cubicData.SkeletonSignature );
+    EXPECT_EQ( linearData.Skeleton, cubicData.Skeleton );
 
     const auto linear = Built( "A6Curve_Linear" );
     const auto cubic  = Built( "A6Curve_Cubic" );

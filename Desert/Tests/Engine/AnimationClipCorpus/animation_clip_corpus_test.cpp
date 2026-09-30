@@ -11,15 +11,16 @@
 // WHAT THIS SUITE IS FOR, and it is not "the format parses". It pins the three properties that make the
 // corpus USABLE AS AN INSTRUMENT, each of which can be destroyed by an edit that still parses:
 //
-//   1. The clips must claim the rig the shipped probe skeleton actually has. A signature typo turns every
+//   1. The clips must name the shipped probe skeleton (its header GUID). A wrong reference turns every
 //      frame taken against them into a picture of a bind pose, and the frame still renders — which is the
 //      worst kind of broken evidence, because it looks like evidence.
 //   2. The clips must MOVE something, by a lot. A corpus whose keys are all the bind value is a corpus
 //      that proves an animation system works while it does nothing at all. So the travel is asserted, in
 //      centimetres and in radians, against a floor far above rounding.
-//   3. Foreign_Hips must NOT drive the probe rig. A positive control alone cannot tell "the match rule
-//      works" from "the match rule says yes to everything", and this project has already paid for a
-//      match rule that was wrong in one direction (see ClipSkeletonMatch.hpp).
+//   3. A clip on ANOTHER skeleton must NOT play on the probe mesh. A positive control alone cannot tell
+//      "the match rule works" from "the match rule says yes to everything". The negative control is built
+//      in memory (test data does not live in Editor/), and it animates a bone the probe HAS, so only the
+//      skeleton reference can refuse it (ClipPlaysOnMesh, SkeletonReference.hpp).
 //
 // The files are read from the repository rather than written into a temp directory: the point is these
 // exact bytes, the ones a frame is taken against, the way Desert/Tests/Engine/StaticMeshCooked reads the
@@ -30,7 +31,9 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Engine/Animation/AnimationClip.hpp>
+#include <Engine/Animation/ClipSkeletonMatch.hpp>
 #include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Animation/SkeletonReference.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
@@ -46,6 +49,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <format>
 #include <string>
 
 #include <optional>
@@ -151,6 +155,43 @@ namespace
     // The clip exactly as AnimationAsset::Load builds it: the same reader with the same DefaultIfMissing
     // policy, then the same pure build step. Anything this suite accepts, the engine accepts.
 
+    Desert::Animation::AnimationClip LoadClip( const std::string& stem )
+    {
+        const std::string path = RepoRoot() + kCorpusDir + stem + ".anim";
+        const auto        data = Desert::Assets::Serialization::ReadAnimationJson( ReadFile( path ) );
+        EXPECT_TRUE( data.IsSuccess() ) << path << ": " << ( data.IsSuccess() ? "" : data.GetError() );
+        if ( !data.IsSuccess() )
+            return {};
+        auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data.GetValue() );
+        EXPECT_TRUE( built.IsSuccess() ) << path << ": " << ( built.IsSuccess() ? "" : built.GetError() );
+        if ( !built.IsSuccess() )
+            return {};
+        return built.ExtractValue();
+    }
+
+    Desert::Animation::ClipRigIdentity IdentityOf( const Desert::Animation::AnimationClip& clip )
+    {
+        Desert::Animation::ClipRigIdentity id;
+        id.ClipName = clip.AnimationName;
+        id.Skeleton = { clip.Skeleton, std::format( "{}'s skeleton", clip.AnimationName ) };
+        return id;
+    }
+
+    // The probe skeleton's identity: the GUID in SkinProbe.skeleton's own header, which is what a clip names.
+    Common::Content::AssetGuid ProbeSkeletonGuid()
+    {
+        const std::string raw  = ReadFile( RepoRoot() + kProbeRig );
+        auto              data = Desert::Assets::Serialization::ReadSkeletonJson( raw );
+        EXPECT_TRUE( data.IsSuccess() ) << kProbeRig << ": " << ( data.IsSuccess() ? "" : data.GetError() );
+        if ( !data.IsSuccess() )
+            return {};
+        const auto& header = data.GetValue().Header;
+        if ( !header.has_value() )
+            return {};
+        auto guid = Common::Content::AssetGuidFromText( header->Guid );
+        EXPECT_TRUE( guid.IsSuccess() ) << kProbeRig << " has no readable header GUID";
+        return guid.IsSuccess() ? guid.GetValue() : Common::Content::AssetGuid{};
+    }
 } // namespace
 
 // ANIM v5 (ANIM-I8a): every `.anim` the repository carries is an AnimationClip-hosted TMLN block that reads
@@ -200,10 +241,50 @@ TEST( AnimationClipCorpus, EveryClipIsWhatTheOneWriterWritesForIt )
         AnimationAssetData out = written.ExtractValue();
         out.Header             = data.GetValue().Header;
         out.Import             = data.GetValue().Import;
+        out.Skeleton           = data.GetValue().Skeleton; // the writer's (SaveClipToFile) registry spelling
         const auto canonical   = Common::Content::CanonicalJsonTextOfWriterOutput( WriteAnimationJson( out ) );
         ASSERT_TRUE( canonical.IsSuccess() ) << path;
         EXPECT_EQ( canonical.GetValue(), text ) << path << ": the file is not what the writer writes";
     }
+}
+
+// SKEL-TREE: THE PROBE CLIPS NAME SkinProbe.skeleton BY GUID. A clip naming another skeleton would show a bind
+// pose in every frame taken against it and still render — broken evidence rather than no evidence.
+TEST( AnimationClipCorpus, TheProbeClipsNameTheProbeSkeleton )
+{
+    ASSERT_FALSE( ProbeSkeletonGuid().IsNull() );
+    for ( const char* stem : { "SkinProbe_Hover", "SkinProbe_Tilt" } )
+        EXPECT_TRUE( LoadClip( stem ).Skeleton == ProbeSkeletonGuid() )
+             << stem << " names a different skeleton from SkinProbe.skeleton";
+}
+
+// THE NEGATIVE CONTROL, built in memory: a clip that names a SEPARATE skeleton is refused for the probe mesh by
+// the one rule (ClipPlaysOnMesh), and the refusal names both skeletons; the picker asks the same rule.
+TEST( AnimationClipCorpus, AClipOnAnotherSkeletonIsRefusedForTheProbeMesh )
+{
+    const Desert::Animation::SkeletonAssetRef probe{ ProbeSkeletonGuid(), "SkinProbe" };
+    ASSERT_FALSE( probe.Guid.IsNull() );
+
+    Desert::Animation::AnimationClip foreign;
+    foreign.AnimationName = "Foreign_Hips";
+    foreign.Skeleton      = Common::Content::AssetGuid::Generate();
+    ASSERT_FALSE( foreign.Skeleton == probe.Guid );
+
+    const Desert::Animation::SkeletonAssetRef foreignSkeleton{ foreign.Skeleton, "ForeignHipsSkeleton" };
+    const auto refused = Desert::Animation::ClipPlaysOnMesh( foreignSkeleton, probe, {} );
+    ASSERT_FALSE( refused.IsSuccess() ) << "a clip on another skeleton plays on the probe mesh.";
+    EXPECT_NE( refused.GetError().find( "ForeignHipsSkeleton" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "SkinProbe" ), std::string::npos ) << refused.GetError();
+
+    std::vector<Desert::Animation::ClipRigIdentity> clips{ IdentityOf( foreign ) };
+    for ( const char* stem : { "SkinProbe_Hover", "SkinProbe_Tilt" } )
+        clips.push_back( IdentityOf( LoadClip( stem ) ) );
+    const auto offered = Desert::Animation::SelectClipsForMesh( clips, { probe, {} } );
+    EXPECT_EQ( offered, ( std::vector<size_t>{ 1, 2 } ) )
+         << "the picker offers the foreign clip, or refuses a probe clip that names SkinProbe.skeleton.";
+
+    const std::vector<Common::Content::AssetGuid> compatible{ foreign.Skeleton };
+    EXPECT_TRUE( Desert::Animation::ClipPlaysOnMesh( foreignSkeleton, probe, compatible ).IsSuccess() );
 }
 
 // GENERATION 3 IS REFUSED BY NAME, pointing at the migrator — not reported as a missing member.

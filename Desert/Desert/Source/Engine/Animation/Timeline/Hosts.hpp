@@ -10,7 +10,7 @@
  *
  * ── AnimationClip (.anim) ─────────────────────────────────────────────────────────────────────────────
  *
- * END STATE: `AnimationClip` keeps its identity fields (name, SkeletonSignature) and holds ONE
+ * END STATE: `AnimationClip` keeps its identity fields (name, Skeleton GUID) and holds ONE
  * `Timeline::Sequence Sequence` (Host = AnimationClip). `Tracks`, `Curves`, `Notifies` and `Sections`
  * are deleted; `DurationTicks`/`TickRate`/`DisplayRate` are the sequence's. `.anim` generation 4 stores
  * the `TMLN` block (as ANIM v5); generation 3 (ANIM v4) is lifted by `LiftClip` in Tools/SceneMigrator
