@@ -1759,14 +1759,26 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
     EXPECT_EQ( frame.find( "AddLegacy(" ), std::string::npos );
     EXPECT_NE( frame.find( "pass.ColorTarget(" ), std::string::npos );
     EXPECT_NE( frame.find( "pass.DepthTarget(" ), std::string::npos );
+    // The call is matched with its whitespace collapsed: where clang-format breaks "AddRaster(" from its arguments
+    // is layout, not a different call.
+    std::string collapsed;
+    for ( const char c : frame )
+        if ( !std::isspace( static_cast<unsigned char>( c ) ) )
+            collapsed.push_back( c );
     for ( const char* node : { "\"Deferred: GBuffer\"", "\"TerrainGBuffer\"", "\"Deferred: RSM\"",
                                "\"Deferred: Generic\"", "\"Deferred: Skinned\"", "\"Deferred: Glass\"",
                                "\"Debug: Overdraw\"", "\"Debug: Overdraw Resolve\"" } )
-        EXPECT_NE( frame.find( std::format( "AddRaster( graph, {}", node ) ), std::string::npos ) << node;
+    {
+        std::string call = std::format( "AddRaster(graph,{}", node );
+        std::erase_if( call, []( const char c ) { return std::isspace( static_cast<unsigned char>( c ) ); } );
+        EXPECT_NE( collapsed.find( call ), std::string::npos ) << node;
+    }
 
     const auto bodyOf = []( const std::string& source, std::string_view function )
     {
-        const size_t begin = source.find( std::format( "::{}()", function ) );
+        // "::Name(" and not "::Name()": a body is the same body whatever parameters it takes (RenderGlassManual
+        // receives the scene-colour copy it composites over).
+        const size_t begin = source.find( std::format( "::{}(", function ) );
         if ( begin == std::string::npos )
             return std::string{};
         const size_t end = source.find( "\n    }\n", begin );

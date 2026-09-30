@@ -188,6 +188,12 @@ namespace
             return m_NoImage;
         }
 
+        const std::shared_ptr<Desert::Graphic::Image2D>&
+        GetMultisampleColorAttachmentImage( uint32_t ) const override
+        {
+            return m_NoImage;
+        }
+
     private:
         Desert::Graphic::FramebufferSpecification m_Spec;
         std::shared_ptr<Desert::Graphic::Image2D> m_NoImage;
