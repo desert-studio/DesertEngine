@@ -479,8 +479,8 @@ TEST_F( SkinnedImport, AReimportAtTenTimesTheScaleScalesMeshRigAndClipTogether )
     }
 
     // The clip: rotations are scale-free, translations x10.
-    const Animation::AnimationClip was = ClipOf( before.Clip );
-    const Animation::AnimationClip now = ClipOf( after.Clip );
+    const Animation::AnimationClip was   = ClipOf( before.Clip );
+    const Animation::AnimationClip now   = ClipOf( after.Clip );
     const std::vector<std::string> bones = BoneLocators( now );
     ASSERT_FALSE( bones.empty() );
     ASSERT_EQ( bones, BoneLocators( was ) );
