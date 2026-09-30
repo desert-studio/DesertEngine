@@ -38,6 +38,7 @@
 #include <Engine/Graphic/Clouds/CloudSkyOcclusionPayload.hpp>
 #include <Engine/Graphic/SkyPayload.hpp>
 #include <Engine/Graphic/Systems/Scene/Particles/ParticleGpuLayout.hpp>
+#include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 
 #include <Common/Core/Constants.hpp>
 
@@ -2789,4 +2790,40 @@ TEST_F( ShaderRootFixture, OnlyTheGeneratedDispatchBranchesOnAShadingModel )
         EXPECT_EQ( source.find( "SHADING_MODEL_ID_" ), std::string::npos )
              << user.File << " still names the removed hand-written table";
     }
+}
+
+TEST_F( ShaderRootFixture, TheGeneratedShadingModelIndicesAreTheRegistrys )
+{
+    // THE RELATION: the index a G-buffer writer packs and the index the dispatch switches on are the SAME number —
+    // the registry's (Unlit 0, the rest by Guid), written by the registry into SHADING_MODEL_INDEX_<NAME> of the
+    // generated include every lighting pass compiles. A define that differed would light a surface with another
+    // model's formula, and nothing else would notice.
+    namespace SM       = Desert::Core::ShadingModels;
+    const auto& models = SM::ShaderRootShadingModels();
+    ASSERT_TRUE( models.IsSuccess() ) << models.GetError();
+    const auto header = std::filesystem::path( "Resources/Shaders" ) / SM::kGeneratedInclude;
+    const auto text   = ReadFile( header );
+    EXPECT_EQ( text, models.GetValue().GeneratedGlsl ) << header.string() << " is not the loaded set's text";
+
+    std::map<std::string, int> defined; // every SHADING_MODEL_INDEX_* the header defines, by name
+    std::istringstream         lines( text );
+    for ( std::string line; std::getline( lines, line ); )
+    {
+        std::istringstream words( line );
+        std::string        directive;
+        std::string        name;
+        int                value = -1;
+        if ( words >> directive >> name >> value && directive == "#define" &&
+             name.starts_with( "SHADING_MODEL_INDEX_" ) )
+            defined[name] = value;
+    }
+    const auto entries = models.GetValue().Registry.Entries();
+    ASSERT_EQ( defined.size(), entries.size() ) << header.string();
+    for ( const SM::ShadingModelEntry& e : entries )
+    {
+        const std::string name = SM::ShadingModelIndexDefine( e.Manifest.Name );
+        ASSERT_TRUE( defined.contains( name ) ) << header.string() << " does not define " << name;
+        EXPECT_EQ( defined[name], e.Index ) << name;
+    }
+    EXPECT_EQ( defined["SHADING_MODEL_INDEX_UNLIT"], 0 ) << "a writer that forgets the index must read as Unlit";
 }

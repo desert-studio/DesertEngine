@@ -184,3 +184,6 @@ __pycache__/
 
 # per-tree scratch of scripts/Dev (handoff markers)
 .cache/
+
+# Written by ShadingModelRegistry from ShadingModels/*.shadingmodel at the first shader compile (ShaderRootShadingModels).
+Editor/Resources/Shaders/ShadingModels/ShadingModels.generated.glslh
