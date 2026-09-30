@@ -35,6 +35,7 @@ namespace Desert::Assets
 {
     class AssetManager;
     class LevelSequenceAsset;
+    class AnimationAsset;
 }
 namespace Desert::Animation
 {
@@ -206,6 +207,15 @@ namespace Desert::Editor
         /// Keys @p binding's entity's live Transform at the playhead (UE: "Key Transform" on the track row).
         void KeyLevelTransform( const Animation::Timeline::BindingGuid& binding );
         void AddLevelCameraCut( const Animation::Timeline::BindingGuid& camera );
+        /// The clips that play on @p binding's entity (SkinnedMesh + Animation): the AnimationLibrary's clips
+        /// for the mesh's skeleton (UE: "+ Track → Animation" lists the assets compatible with the skeleton).
+        /// Empty when the binding names no such entity.
+        [[nodiscard]] std::vector<std::shared_ptr<Assets::AnimationAsset>>
+             LevelAnimationClips( const Animation::Timeline::BindingGuid& binding ) const;
+        /// "+ Track → Animation <clip>": an Animation section of @p clip from the playhead for the clip's
+        /// length, one undo step.
+        void AddLevelAnimation( const Animation::Timeline::BindingGuid&         binding,
+                                const std::shared_ptr<Assets::AnimationAsset>& clip );
         void SaveLevelSequence();
         void SetLevelTimePercent( int percent );
         /// Poses the scene at m_LevelTick when the tick or the sequence's Revision moved since the last pose.

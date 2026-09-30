@@ -13,9 +13,13 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ToastManager.hpp>
 
+#include <Engine/Animation/AnimationLibrary.hpp>
+#include <Engine/Animation/TimeModel.hpp>
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Animation/Timeline/Track.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -172,6 +176,54 @@ namespace Desert::Editor
             ToastManager::Push( std::format( "Camera Cut refused: {}", cut.GetError() ), ToastLevel::Error, 6.0f );
     }
 
+    std::vector<std::shared_ptr<Assets::AnimationAsset>>
+         SequencerPanel::LevelAnimationClips( const TL::BindingGuid& binding ) const
+    {
+        const auto asset = ResolveLevelAsset();
+        const auto scene = m_Scene.lock();
+        if ( !asset || !scene || m_Library == nullptr )
+            return {};
+        const auto* bound  = TL::FindBinding( asset->GetSequence(), binding );
+        const auto  entity = bound != nullptr ? BoundEntity( *scene, *bound ) : std::nullopt;
+        if ( !entity || !entity->HasComponent<ECS::SkinnedMeshComponent>() ||
+             !entity->HasComponent<ECS::AnimationComponent>() )
+            return {};
+        // The SAME skeleton identity the skeletal timeline's clip picker lists by: a clip is offered only where
+        // it plays on this mesh's skeleton.
+        return m_Library->GetForMesh(
+             m_Library->IdentifyMeshHandle( entity->GetComponent<ECS::SkinnedMeshComponent>().MeshHandle ) );
+    }
+
+    void SequencerPanel::AddLevelAnimation( const TL::BindingGuid&                         binding,
+                                            const std::shared_ptr<Assets::AnimationAsset>& clip )
+    {
+        const auto asset = ResolveLevelAsset();
+        if ( !asset || !clip )
+            return;
+        // A section names its clip by the asset's header GUID (the section's source resolves it back through
+        // HandleForGuid); a clip with no cooked registry row has no GUID a section could keep.
+        const auto guid = Assets::ContentRegistry::GuidForHandle( static_cast<uint64_t>( clip->GetMetadata().Handle ) );
+        if ( !guid )
+        {
+            ToastManager::Push( std::format( "+ Track → Animation refused: '{}' has no asset GUID (not in the cooked "
+                                             "registry) — a section could not name it",
+                                             clip->GetClip().AnimationName ),
+                                ToastLevel::Error, 6.0f );
+            return;
+        }
+        TL::Sequence& sequence = asset->EditSequence();
+        // UE: the section starts at the playhead and spans the clip once, in the SEQUENCE's ticks.
+        const auto& clipSequence = clip->GetClip().Sequence;
+        const auto  length = Animation::ConvertTick( clip->GetClip().DurationTicks(), clipSequence.TickRate,
+                                                     sequence.TickRate );
+        const Animation::FrameNumber end{ m_LevelTick.Value + std::max<int32_t>( 1, length.Ticks.Value ) };
+        const ScopedSequenceEdit     undoStep( m_LevelEdit, LevelOwner() );
+        if ( const auto added = ECS::AddAnimationSection( sequence, binding, *guid, m_LevelTick, end, true );
+             !added.IsSuccess() )
+            ToastManager::Push( std::format( "+ Track → Animation refused: {}", added.GetError() ),
+                                ToastLevel::Error, 6.0f );
+    }
+
     void SequencerPanel::SaveLevelSequence()
     {
         const auto asset = ResolveLevelAsset();
@@ -273,6 +325,28 @@ namespace Desert::Editor
                 if ( ImGui::SmallButton( ICON_MDI_VIDEO " Cut" ) )
                     AddLevelCameraCut( binding.Guid );
             }
+            if ( entity && entity->HasComponent<ECS::SkinnedMeshComponent>() &&
+                 entity->HasComponent<ECS::AnimationComponent>() )
+            {
+                // "+ Track ▸ Animation <clip>" on the actor's row (UE: the binding's "+ Track → Animation").
+                ImGui::SameLine();
+                if ( ImGui::SmallButton( ICON_MDI_PLUS " Track" ) )
+                    ImGui::OpenPopup( "##LevelBindingTrack" );
+                if ( ImGui::BeginPopup( "##LevelBindingTrack" ) )
+                {
+                    if ( ImGui::BeginMenu( "Animation" ) )
+                    {
+                        const auto clips = LevelAnimationClips( binding.Guid );
+                        if ( clips.empty() )
+                            ImGui::TextDisabled( "No clip plays on this mesh's skeleton." );
+                        for ( const auto& clip : clips )
+                            if ( clip && ImGui::MenuItem( clip->GetClip().AnimationName.c_str() ) )
+                                AddLevelAnimation( binding.Guid, clip );
+                        ImGui::EndMenu();
+                    }
+                    ImGui::EndPopup();
+                }
+            }
             if ( const TL::Track* track =
                       TL::FindTrack( sequence, binding.Guid, ECS::kLevelSequenceTransformProperty ) )
             {
@@ -352,6 +426,14 @@ namespace Desert::Editor
                                                [this, guid] { KeyLevelTransform( guid ); } } );
             actions.push_back( DocumentAction{ std::format( "Camera Cut {}", binding.Label ),
                                                [this, guid] { AddLevelCameraCut( guid ); } } );
+            for ( const auto& clip : LevelAnimationClips( guid ) )
+            {
+                if ( !clip )
+                    continue;
+                actions.push_back( DocumentAction{
+                     std::format( "Add Animation {} {}", binding.Label, clip->GetClip().AnimationName ),
+                     [this, guid, clip] { AddLevelAnimation( guid, clip ); } } );
+            }
         }
         return actions;
     }
