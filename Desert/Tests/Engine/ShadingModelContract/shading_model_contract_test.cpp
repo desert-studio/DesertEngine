@@ -65,7 +65,7 @@ namespace
 
     const SM::ShadingWordField& Field( std::string_view name )
     {
-        const auto* const it = std::ranges::find( SM::kShadingWordFields, name, &SM::ShadingWordField::Name );
+        const auto it = std::ranges::find( SM::kShadingWordFields, name, &SM::ShadingWordField::Name );
         EXPECT_NE( it, SM::kShadingWordFields.end() ) << name;
         return *it;
     }
