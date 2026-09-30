@@ -621,17 +621,19 @@ TEST( GraphCanvasIdentity, BothGraphDocumentsOfferFrameAllWithoutAMouse )
         const char* Relative;
         const char* Canvas;
     };
-    for ( const Document& doc : { Document{ "Editor/Source/Editor/Panels/Animation/AnimGraphPanel.cpp", "ShownCanvas()" },
-                                  Document{ "Editor/Source/Editor/Panels/NodeGraph/NodeGraphPanel.cpp", "m_Context" } } )
+    for ( const Document& doc :
+          { Document{ "Editor/Source/Editor/Panels/Animation/AnimGraphPanel.cpp", "ShownCanvas()" },
+            Document{ "Editor/Source/Editor/Panels/NodeGraph/NodeGraphPanel.cpp", "m_Context" } } )
     {
         SCOPED_TRACE( doc.Relative );
         const std::string source = PanelSource( doc.Relative );
         ASSERT_FALSE( source.empty() ) << doc.Relative;
-        EXPECT_NE( source.find( std::format( R"({{ "Frame All", [this] {{ Graph::FrameAll( {} ); }} }},)", doc.Canvas ) ),
+        EXPECT_NE( source.find(
+                        std::format( R"({{ "Frame All", [this] {{ Graph::FrameAll( {} ); }} }},)", doc.Canvas ) ),
                    std::string::npos )
              << "no Frame All among this document's actions";
-        EXPECT_NE( source.find( std::format( R"({{ "Frame Selection", [this] {{ Graph::FrameSelection( {} ); }} }},)",
-                                             doc.Canvas ) ),
+        EXPECT_NE( source.find( std::format(
+                        R"({{ "Frame Selection", [this] {{ Graph::FrameSelection( {} ); }} }},)", doc.Canvas ) ),
                    std::string::npos )
              << "no Frame Selection among this document's actions";
     }

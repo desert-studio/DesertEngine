@@ -219,7 +219,8 @@ TEST( PoseGraphEdit, ThePanelEditsThePoseGraphThroughTheUnit )
     const std::string source = ReadSource( "Editor/Source/Editor/Panels/Animation/AnimGraphPanelPoseGraph.cpp" );
     ASSERT_FALSE( source.empty() );
     EXPECT_NE( source.find( "Graph::AddPoseNode( graph, target.Nodes, kind, target.Scope" ), std::string::npos );
-    EXPECT_NE( source.find( "Graph::CanConnectPose( nodes, name, into.Name, pin ).IsSuccess()" ), std::string::npos )
+    EXPECT_NE( source.find( "Graph::CanConnectPose( nodes, name, into.Name, pin ).IsSuccess()" ),
+               std::string::npos )
          << "the Wire actions are not the unit's own answer to \"would this wire be accepted\"";
     EXPECT_NE( source.find( "Graph::ConnectPose( trial, from" ), std::string::npos )
          << "the canvas drag does not ask the unit before it wires";
