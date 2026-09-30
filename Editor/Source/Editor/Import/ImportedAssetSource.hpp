@@ -75,8 +75,8 @@ namespace Desert::Editor::ImportedAssetSource
                 return Common::MakeSuccess( Source{} );
             if ( writers.size() > 1 )
                 return Common::MakeFormattedError<Source>(
-                     "'{}' is written by the imports of both '{}' and '{}': one file, two sources",
-                     asset.string(), writers[0].string(), writers[1].string() );
+                     "'{}' is written by the imports of both '{}' and '{}': one file, two sources", asset.string(),
+                     writers[0].string(), writers[1].string() );
             return Common::MakeSuccess( Source{ writers.front() } );
         }
     } // namespace Detail

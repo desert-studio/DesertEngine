@@ -311,8 +311,9 @@ TEST_F( SkinnedImport, TheClipNamesTheSourceItWasImportedFrom )
 // wrote. Live after SKEL-TREE: the Editor no longer compiled (the lookup read the rig's `Import`).
 TEST_F( SkinnedImport, EveryFileTheImportWroteTracesBackToItsSource )
 {
-    namespace IAS = Desert::Editor::ImportedAssetSource;
-    std::vector<std::filesystem::path> written = { Desert::Editor::CookPaths::SkinnedAsset( m_Source, ".skmesh" ) };
+    namespace IAS                              = Desert::Editor::ImportedAssetSource;
+    std::vector<std::filesystem::path> written = {
+         Desert::Editor::CookPaths::SkinnedAsset( m_Source, ".skmesh" ) };
     written.insert( written.end(), m_Outcome.WrittenSkeletons.begin(), m_Outcome.WrittenSkeletons.end() );
     written.insert( written.end(), m_Outcome.WrittenClips.begin(), m_Outcome.WrittenClips.end() );
     ASSERT_FALSE( m_Outcome.WrittenSkeletons.empty() ) << "the first import of the file writes its own rig";
@@ -701,12 +702,13 @@ TEST( SkinnedImportCorpus, TheCommittedTwoJointProbeIsCurrentAndItsImportWritesN
     Assets::ContentRegistry::ResetForTest();
 }
 
-// A posed picture's orbit lives in the record of the source that WROTE the skinned file (MeshThumbnailHome, ImportOptions::ImportSourceOfAsset via
-// ImportedAssetSource::SkinnedAssetSource), never the one its name suggests: `Fox_Extra_Walk.anim` is clip
-// "Extra_Walk" of Fox.glb here although Fox_Extra.glb, the longer matching stem, sits beside it (MCP-CMD2's
-// "longest stem wins" filed it under Fox_Extra.glb). A clip states its source; a mesh and a rig state none
-// (SKEL 3: the rig is a shared asset), so the import record beside them that wrote them answers - by its Kind,
-// not by the first record with the stem (Fox.fbx, a static import beside, wrote no `.skmesh`).
+// A posed picture's orbit lives in the record of the source that WROTE the skinned file (MeshThumbnailHome,
+// ImportOptions::ImportSourceOfAsset via ImportedAssetSource::SkinnedAssetSource), never the one its name
+// suggests: `Fox_Extra_Walk.anim` is clip "Extra_Walk" of Fox.glb here although Fox_Extra.glb, the longer matching
+// stem, sits beside it (MCP-CMD2's "longest stem wins" filed it under Fox_Extra.glb). A clip states its source; a
+// mesh and a rig state none (SKEL 3: the rig is a shared asset), so the import record beside them that wrote them
+// answers - by its Kind, not by the first record with the stem (Fox.fbx, a static import beside, wrote no
+// `.skmesh`).
 TEST( ThumbnailOrbitKinds, ASkinnedFileIsFiledUnderTheSourceThatWroteIt )
 {
     namespace IAS        = Desert::Editor::ImportedAssetSource;
