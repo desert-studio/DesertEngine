@@ -195,7 +195,7 @@ TEST( RenderGraphPassBindings, DeclaredEntriesResolveWithTheirRangeAndAccess )
          {
              const float  push[3] = { 1.0f / 32.0f, 1.0f / 32.0f, 1.0f };
              PassBindings bindings( context );
-             bindings.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+             bindings.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp())
                   .Storage( "u_Output", chain, Access::StorageWrite, 0 )
                   .PushConstants( push, sizeof( push ) );
              EXPECT_TRUE( bindings.GetStatus().IsSuccess() ) << bindings.GetStatus().GetError();
@@ -230,7 +230,7 @@ TEST( RenderGraphPassBindings, AnUndeclaredResourceFailsNamingPassSlotAndResourc
          [&]( PassContext& context, TextureRef, TextureRef other ) -> Common::BoolResultStr
          {
              PassBindings bindings( context );
-             bindings.Sampled( "u_Source", other, Access::SampledCompute );
+             bindings.Sampled( "u_Source", other, Access::SampledCompute, SubresourceRange::All(), SamplerDesc::LinearClamp());
              error = bindings.GetStatus().IsSuccess() ? std::string() : bindings.GetStatus().GetError();
              return Common::MakeSuccess( true );
          } );
@@ -249,7 +249,7 @@ TEST( RenderGraphPassBindings, AnAccessOrRangeOtherThanTheDeclaredOneFails )
          [&]( PassContext& context, TextureRef chain, TextureRef ) -> Common::BoolResultStr
          {
              PassBindings a( context );
-             a.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 0 ) );
+             a.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 0 ), SamplerDesc::LinearClamp());
              wrongRange = a.GetStatus().IsSuccess() ? std::string() : a.GetStatus().GetError();
              PassBindings b( context );
              b.Storage( "u_Output", chain, Access::StorageWrite, 1 );
@@ -269,12 +269,44 @@ TEST( RenderGraphPassBindings, ASlotBoundTwiceFailsAndTheFirstFailureIsKept )
          [&]( PassContext& context, TextureRef chain, TextureRef ) -> Common::BoolResultStr
          {
              PassBindings bindings( context );
-             bindings.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
-                  .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+             bindings.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp())
+                  .Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ), SamplerDesc::LinearClamp())
                   .Storage( "u_Output", chain, Access::StorageWrite, 0 );
              error = bindings.GetStatus().IsSuccess() ? std::string() : bindings.GetStatus().GetError();
              return Common::MakeSuccess( true );
          } );
     EXPECT_NE( error.find( "u_Source" ), std::string::npos ) << error;
     EXPECT_EQ( error.find( "u_Output" ), std::string::npos ) << error;
+}
+
+// A sampled entry carries the sampler its call site named, and only a sampled entry has one: there is no
+// implicit sampler on the graph route (SamplerDesc cannot be default-constructed), and distinct descriptions
+// are distinct keys of the backend's sampler cache.
+TEST( RenderGraphPassBindings, ASampledEntryCarriesItsSampler )
+{
+    static_assert( !std::is_default_constructible_v<SamplerDesc> );
+    static_assert( SamplerDesc::LinearClamp().GetKey() != SamplerDesc::PointClamp().GetKey() );
+    static_assert( SamplerDesc::LinearClamp().GetKey() != SamplerDesc::LinearRepeat().GetKey() );
+    const Common::BoolResultStr executed = RunBloomLikePass(
+         []( PassContext& context, TextureRef chain, TextureRef ) -> Common::BoolResultStr
+         {
+             PassBindings bindings( context );
+             bindings.Sampled( "u_Source", chain, Access::SampledCompute, SubresourceRange::Mip( 1 ),
+                               SamplerDesc::PointClamp() )
+                  .Storage( "u_Output", chain, Access::StorageWrite, 0 );
+             EXPECT_TRUE( bindings.GetStatus().IsSuccess() ) << bindings.GetStatus().GetError();
+             EXPECT_EQ( bindings.GetTextures().size(), 2u );
+             if ( bindings.GetTextures().size() != 2u )
+                 return Common::MakeSuccess( true );
+             const BoundTexture& source = bindings.GetTextures()[0];
+             EXPECT_TRUE( source.Sampler.has_value() );
+             if ( source.Sampler )
+             {
+                 EXPECT_EQ( *source.Sampler, SamplerDesc::PointClamp() );
+                 EXPECT_NE( *source.Sampler, SamplerDesc::LinearClamp() );
+             }
+             EXPECT_FALSE( bindings.GetTextures()[1].Sampler.has_value() );
+             return Common::MakeSuccess( true );
+         } );
+    EXPECT_TRUE( executed.IsSuccess() ) << executed.GetError();
 }

@@ -20,6 +20,7 @@ namespace Desert::Graphic
     {
         class Builder;
         class IPhysicalTexture;
+        class PassBindings;
         struct ExternalTexture;
         struct ExternalBuffer;
     } // namespace RDG
@@ -125,6 +126,17 @@ namespace Desert::Graphic
          */
         virtual void DispatchComputeInFrame( const ComputePipeline* pipeline, uint32_t groupCountX,
                                              uint32_t groupCountY, uint32_t groupCountZ ) = 0;
+
+        // The in-graph consumers of an RDG::PassBindings (see Renderer::DispatchCompute / DrawFullscreen): record
+        // into the command buffer of the pass the bindings were built in, with descriptor sets written for this
+        // exec only.
+        [[nodiscard]] virtual Common::BoolResultStr DispatchCompute( const RDG::PassBindings& bindings,
+                                                                     const ComputePipeline&   pipeline,
+                                                                     uint32_t groupCountX, uint32_t groupCountY,
+                                                                     uint32_t groupCountZ ) = 0;
+        [[nodiscard]] virtual Common::BoolResultStr DrawFullscreen( const RDG::PassBindings& bindings,
+                                                                    const GraphicsPipeline&  pipeline,
+                                                                    const MaterialExecutor*  material ) = 0;
 
         // Transition a storage image to GENERAL for compute writes in the current frame command buffer,
         // making prior graphics (color/shader) writes visible to compute. Pair with ComputeImageEndWrite.

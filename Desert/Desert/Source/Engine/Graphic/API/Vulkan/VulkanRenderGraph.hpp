@@ -18,6 +18,8 @@
 #include <string>
 #include <tuple>
 #include <vector>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <unordered_map>
 
 // The Vulkan side of the render graph (RDG2): physical resources for the graph's descriptions, a pool
 // that hands the same images back while the graph does not change, the device's memory requirements for
@@ -300,6 +302,9 @@ namespace Desert::Graphic::API::Vulkan
                                            const RDG::BufferBinding& buffer );
         // The frame loop, after the slot's fence: resets that slot's pool.
         void BeginFrameSlot( uint32_t slot );
+        // The sampler @p desc describes: made on its first request, kept until this object is destroyed (with the
+        // device), shared by every entry with an equal description. Nothing is created per frame.
+        Common::ResultStr<VkSampler> GetSampler( const RDG::SamplerDesc& desc );
 
     private:
         struct SlotPools
@@ -313,6 +318,8 @@ namespace Desert::Graphic::API::Vulkan
         VkDevice               m_Device = VK_NULL_HANDLE;
         std::vector<SlotPools> m_Slots; // one per frame slot
         uint32_t               m_Slot = 0;
+        // SamplerDesc::GetKey -> the sampler; owned here, destroyed in the destructor.
+        std::unordered_map<uint32_t, VkSampler> m_Samplers;
     };
 
     // Memory requirements from the device, for Compile's aliasing plan: the same create info the pool uses,

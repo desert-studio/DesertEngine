@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <Engine/Graphic/API/Vulkan/VulkanPipelineCompute.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -77,9 +78,7 @@ namespace Desert::Graphic::API::Vulkan
         }
     } // namespace
 
-    void VulkanPipelineCompute::RecordDescriptorsAndDispatch( VkCommandBuffer cmd, VkDescriptorSet descriptorSet,
-                                                              uint32_t groupsX, uint32_t groupsY,
-                                                              uint32_t groupsZ )
+    Common::BoolResultStr VulkanPipelineCompute::WriteBoundResources( VkDescriptorSet descriptorSet )
     {
         // The image infos must outlive UpdateDescriptorSet (each write stores a pointer into here),
         // so reserve up front to avoid a reallocation invalidating those pointers.
@@ -120,21 +119,19 @@ namespace Desert::Graphic::API::Vulkan
                  graphTexture );
             if ( !resolved.IsSuccess() )
             {
-                LOG_ERROR(
+                return Common::MakeFormattedError(
                      "ComputePipeline '{}': input at binding {} has no view of the subresource it declared: {}; "
                      "dispatch skipped",
                      m_Specification.DebugName, binding, resolved.GetError() );
-                return;
             }
             const VkImageView      view           = resolved.GetValue();
             const RDG::ImageLayout declaredLayout = RDG::GetAccessState( input.Declared ).Layout;
             if ( declaredLayout != RDG::ImageLayout::ShaderReadOnly &&
                  declaredLayout != RDG::ImageLayout::General )
             {
-                LOG_ERROR( "ComputePipeline '{}': input at binding {} is declared as {}, which does not "
+                return Common::MakeFormattedError( "ComputePipeline '{}': input at binding {} is declared as {}, which does not "
                            "leave the image sampleable; dispatch skipped",
                            m_Specification.DebugName, binding, RDG::GetAccessName( input.Declared ) );
-                return;
             }
             const VkImageLayout layout = RdgVulkanLayout( declaredLayout );
 
@@ -145,11 +142,10 @@ namespace Desert::Graphic::API::Vulkan
                 // No fallback exists for a volume, and dispatching with a stale descriptor would read
                 // whatever the previous user of this ring slot bound. Say exactly what is missing and
                 // drop the dispatch instead.
-                LOG_ERROR( "ComputePipeline '{}': volume input at binding {} is not sampleable "
+                return Common::MakeFormattedError( "ComputePipeline '{}': volume input at binding {} is not sampleable "
                            "(view={}, sampler={}, layout={}); dispatch skipped",
                            m_Specification.DebugName, binding, view != VK_NULL_HANDLE,
                            r.Sampler != VK_NULL_HANDLE, static_cast<int>( layout ) );
-                return;
             }
 
             infos.push_back( { r.Sampler, view, layout } );
@@ -188,10 +184,9 @@ namespace Desert::Graphic::API::Vulkan
             const auto                                    bound = vkBuffer->BindActiveCopy( frameIndex, copy );
             if ( !bound.IsSuccess() )
             {
-                LOG_ERROR( "ComputePipeline '{}': storage buffer at binding {} has no copy to bind; dispatch "
+                return Common::MakeFormattedError( "ComputePipeline '{}': storage buffer at binding {} has no copy to bind; dispatch "
                            "skipped -- {}",
                            m_Specification.DebugName, binding, bound.GetError() );
-                return;
             }
             bufferInfos.push_back( copy.Info );
             writes.push_back( DescriptorSetBuilder::GetStorageWDS( m_VulkanMaterialBackend.get(), 0, 0, binding, 1,
@@ -200,6 +195,19 @@ namespace Desert::Graphic::API::Vulkan
 
         // Retarget every write at the supplied set, then update it in one shot.
         UpdateDescriptorSet( 0, writes, descriptorSet );
+        return Common::MakeSuccess( true );
+    }
+
+
+    void VulkanPipelineCompute::RecordDescriptorsAndDispatch( VkCommandBuffer cmd, VkDescriptorSet descriptorSet,
+                                                              uint32_t groupsX, uint32_t groupsY,
+                                                              uint32_t groupsZ )
+    {
+        if ( const Common::BoolResultStr written = WriteBoundResources( descriptorSet ); !written.IsSuccess() )
+        {
+            LOG_ERROR( "{}", written.GetError() );
+            return;
+        }
 
         vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipeline );
         vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipelineLayout, 0, 1,
@@ -326,6 +334,21 @@ namespace Desert::Graphic::API::Vulkan
                                                .descriptorSetCount = kInFrameRingSize,
                                                .pSetLayouts        = layouts.data() };
         VK_CHECK_RESULT( vkAllocateDescriptorSets( device, &allocInfo, m_InFrameRing.data() ) );
+    }
+
+    std::vector<uint32_t> VulkanPipelineCompute::GetBoundBindings() const
+    {
+        std::vector<uint32_t> bindings;
+        bindings.reserve( m_BoundInputs.size() + m_BoundOutputs.size() + m_BoundStorageBuffers.size() );
+        for ( const auto& [binding, input] : m_BoundInputs )
+            bindings.push_back( binding );
+        for ( const auto& [binding, output] : m_BoundOutputs )
+            bindings.push_back( binding );
+        for ( const auto& [binding, buffer] : m_BoundStorageBuffers )
+            bindings.push_back( binding );
+        std::sort( bindings.begin(), bindings.end() );
+        bindings.erase( std::unique( bindings.begin(), bindings.end() ), bindings.end() );
+        return bindings;
     }
 
     void VulkanPipelineCompute::RecordInFrame( VkCommandBuffer cmd, uint32_t groupsX, uint32_t groupsY,
