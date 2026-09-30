@@ -57,9 +57,13 @@ namespace Desert::Core
                         return found;
                     continue;
                 }
-                PawnBlock block;
+                Common::Json::Value merged;
+                bool                found = false;
                 if ( const auto own = record.Components.get( "CharacterController" ); own.has_value() )
-                    block = own.value();
+                {
+                    merged = own.value();
+                    found  = true;
+                }
                 // Only an entity with an id is addressed by an override (its path ends at that id).
                 if ( record.id.has_value() )
                 {
@@ -71,17 +75,12 @@ namespace Desert::Core
                         const auto fields = over.Over->Components.get( "CharacterController" );
                         if ( !fields.has_value() )
                             continue;
-                        const Common::Json::Value& addition = *fields;
-                        if ( !block.has_value() )
-                        {
-                            block = addition;
-                            continue;
-                        }
-                        block = Assets::MergePayload( *block, addition );
+                        merged = found ? Assets::MergePayload( merged, fields.value() ) : fields.value();
+                        found  = true;
                     }
                 }
-                if ( block )
-                    return Common::MakeSuccess( std::move( block ) );
+                if ( found )
+                    return Common::MakeSuccess( PawnBlock{ std::move( merged ) } );
             }
             return Common::MakeSuccess( PawnBlock{} );
         }
