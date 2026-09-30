@@ -83,6 +83,13 @@ namespace Desert::Editor
         // source of the mesh asset at @p assetPath imported again with the section's edited options, the
         // record's when nothing is edited. An error for a mesh with no source or a failed import.
         Common::BoolResultStr Reimport( const std::filesystem::path& assetPath );
+        // UE's "Reimport with New File" (Content Browser > Asset Actions): @p newFile's bytes replace the recorded
+        // source of the mesh asset at @p assetPath, then Reimport runs as above - the asset keeps its name, its
+        // record and its references. The new file must be of the source's format (same extension): the asset
+        // finds its source by name beside it, so a changed format would orphan the record. An error names the
+        // refusal: no source, a missing new file, a format change, a failed copy or import.
+        Common::BoolResultStr ReimportWithNewFile( const std::filesystem::path& assetPath,
+                                                   const std::filesystem::path& newFile );
         // The section's Uniform Scale and Up Axis fields without a mouse (the palette's "Details / Import
         // Settings: ..."): the fields' own SetUniformScale / SetUpAxis on the section's working copy of the mesh
         // asset at @p assetPath's source - the copy Reimport imports with. An error for a mesh with no source or

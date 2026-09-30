@@ -2,7 +2,6 @@
 
 #include "IComponentWidget.hpp"
 
-#include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
@@ -35,11 +34,5 @@ namespace Desert::Editor
         std::unique_ptr<UI::UIHelper>             m_UIHelper;
         ThumbnailCache                            m_Thumbnails;
         std::unordered_set<std::string>           m_RefusedThumbnails; // logged once, no per-frame retry
-
-        // THIS PANEL'S OWN COPY OF WHAT IT AUTHORS. The state lives in the surface that owns it and is
-        // PUBLISHED while that surface is the one being used — which is the whole of what replaced the four
-        // process-wide statics in SkeletonEditMode. Kept here rather than read back out of the host so that
-        // the tree still has an entity to name when nothing is published at all.
-        Core::AuthoringContext m_Authoring;
     };
 } // namespace Desert::Editor

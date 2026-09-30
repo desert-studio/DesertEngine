@@ -742,7 +742,8 @@ TEST( AuthoringContextCensus, OnlyTheThreeOwningSurfacesWriteTheContext )
     const std::set<std::string> allowed = {
          "Editor/Source/Editor/Panels/ViewportPanel/ViewportPanel.cpp",
          "Editor/Source/Editor/Panels/Sequencer/SequencerPanel.cpp",
-         "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkinnedMeshComponentWidget.cpp",
+         // The Details bone tree (SkinnedMeshComponentWidget) left with DET1: a component's Details shows the slot,
+         // not the asset's skeleton - the bone tree is the Skeleton editor's (SKEL-TREE).
          // The two control-rig surfaces, added by 07 §14.2 when `ControlRigEditMode`'s three statics were
          // dissolved into this type. They are the SAME two halves the bone side already had — a panel
          // that says which control, and a viewport overlay that draws and drags it — and they arrive as
