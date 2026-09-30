@@ -22,6 +22,7 @@
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
+#include <Engine/Geometry/MeshStats.hpp>
 #include <Engine/Assets/Serialization/AnimationClipWrite.hpp>
 #include <Engine/Animation/Animator.hpp>
 
@@ -1729,15 +1730,15 @@ namespace Desert::Editor
             const auto source = ImportOptions::ImportSourceOfAsset( mesh.GetMetadata().Filepath );
             row( "Source File", source ? source->generic_string() : std::string( "(not imported)" ) );
             row( "Skeleton", std::format( "{:016x}", mesh.GetSkeletonSignature() ) );
-            row( "Vertices", std::format( "{}", mesh.GetVertices().size() ) );
-            row( "Triangles", std::format( "{}", mesh.GetIndices().size() / 3 ) );
-            row( "Sections", std::format( "{}", mesh.GetSubmeshes().size() ) );
+            // The mesh's counts from the one home the Elements rows and the viewport stats read
+            // (Geometry::ComputeMeshStats): GetIndices() holds whole triangles, so dividing its size by
+            // three showed a third of the mesh.
+            const Geometry::MeshStats stats = Geometry::ComputeMeshStats( mesh.GetSubmeshes() );
+            row( "Vertices", std::format( "{}", stats.Vertices ) );
+            row( "Triangles", std::format( "{}", stats.Triangles ) );
+            row( "Sections", std::format( "{}", stats.Elements ) );
             row( "Morph Targets", std::format( "{}", mesh.GetMorphTargets().size() ) );
-            // Each section carries its own LOD ranges; the mesh has as many levels as its richest section.
-            size_t lods = 1;
-            for ( const auto& section : mesh.GetSubmeshes() )
-                lods = std::max( lods, section.LODs.size() );
-            row( "LODs", std::format( "{}", lods ) );
+            row( "LODs", std::format( "{}", stats.LODLevels ) );
             Utils::ImGuiUtilities::EndFactTable();
         }
         SectionHeader( "Material Slots" );

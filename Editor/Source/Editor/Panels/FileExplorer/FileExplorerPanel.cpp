@@ -557,10 +557,21 @@ namespace Desert::Editor
                 case WarmKind::Mesh:
                 case WarmKind::Pose:
                 {
-                    // Resolved by TickWarmMeshes by the path it reads: the cooked one.
-                    if ( const std::optional<MeshPicture> picture = pictureOf( item ) )
+                    // Resolved by TickWarmMeshes with the path each resolver takes, as the tile resolves it: a
+                    // pose by its cooked asset (ResolvePoseSubject), a static mesh by the FILE ITS PICTURE IS OF
+                    // (MeshFreshnessSource: a hand-authored .stmesh itself, else the raw source beside it).
+                    // ResolveMesh asks the DDC for the source's import; handed the cooked path of an import
+                    // (a scene root names base.stmesh, which an import never writes) it hashed a file that is
+                    // not on disk and logged "Could not read file" for every imported mesh the scene used.
+                    const std::optional<MeshPicture> picture = pictureOf( item );
+                    if ( !picture )
+                        break;
+                    if ( picture->Pose )
+                        m_WarmMeshesPending.push_back( { picture->Cooked, WarmKind::Pose } );
+                    else
                         m_WarmMeshesPending.push_back(
-                             { picture->Cooked, picture->Pose ? WarmKind::Pose : item.Kind } );
+                             { ThumbnailFreshness::MeshFreshnessSource( picture->Cooked ).generic_string(),
+                               WarmKind::Mesh } );
                     break;
                 }
                 case WarmKind::Painted:
