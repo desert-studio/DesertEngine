@@ -2360,7 +2360,6 @@ TEST( RenderGraphCompile, NoLegacyConstructRemainsInTheEngine )
     EXPECT_GT( scanned, 0u );
     std::string list;
     for ( const std::string& hit : found )
-        std::format_to( std::back_inserter( list ), "
-  {}", hit );
+        std::format_to( std::back_inserter( list ), "\n  {}", hit );
     EXPECT_TRUE( found.empty() ) << found.size() << " legacy construct(s) remain:" << list;
 }
