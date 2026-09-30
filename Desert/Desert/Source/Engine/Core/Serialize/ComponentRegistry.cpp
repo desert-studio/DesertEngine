@@ -425,7 +425,8 @@ namespace Desert::Core::Serialize
                               comp.TileX, comp.TileZ );
                     return;
                 }
-                auto loaded = World::Landscape::ReadLandscapeTileFile( comp.HeightFile );
+                auto loaded = World::Landscape::ReadLandscapeTileFile(
+                     Common::Constants::Path::FullPath( comp.HeightFile ) );
                 if ( !loaded )
                 {
                     LOG_ERROR( "[Landscape] tile ({0}, {1}) has no terrain: {2}", comp.TileX, comp.TileZ,

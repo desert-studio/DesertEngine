@@ -7,6 +7,7 @@
 // container and runs the SAME CPU BC7 decoder the block-compression suite measures the encoder with, on
 // the splash's own thread, into the RGBA8 a window system can take.
 
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstdint>
@@ -15,19 +16,31 @@
 
 namespace Desert::Editor::Splash
 {
-    // The editor's splash SOURCE, relative to the engine's working directory (the directory holding
-    // `Resources/`). One spelling, read by the cook stage, by the splash and by nothing else.
+    // The editor's splash SOURCE, relative to the ENGINE DIRECTORY (Common::Constants::Path::EngineDir(), the
+    // directory holding `Resources/`). One spelling, read by the cook stage, by the splash and by nothing else.
     inline const std::filesystem::path kSplashSource = "Resources/Splash/Splash.jpg";
     // THE PICTURE THE SPLASH SHOWS IS COMMITTED, NOT COOKED AT START (owner, 2026-09-23: "it must have its
     // picture at once — just keep it in the assets"). The splash reads it before the editor can cook
     // anything, so a cook-on-start meant a grey first start on every fresh clone. It is an ENGINE resource
     // beside its source, like the fonts; regenerate it with Tools/TextureCook when Splash.jpg changes
-    // (Tools/SplashBake/README.md). Relative to the working directory, as every engine resource is.
+    // (Tools/SplashBake/README.md). Relative to the engine directory; the file itself is SplashTextureFile().
     inline const std::filesystem::path kSplashTexture = "Resources/Splash/Splash.tex";
 
     // The application icon (Resources/Branding/README.md). macOS takes it from here for the Dock at the
     // first moment the process is an app, which is the splash; Windows takes it from the Editor.rc resource.
     inline const std::filesystem::path kAppIcon = "Resources/Branding/DesertIcon1024.png";
+
+    // The files themselves, off the engine directory — never off the working directory, so the editor can be
+    // started from any folder (UE: FPaths::EngineDir() / ...). The relative spellings above stay the layout's
+    // one home; these are what a reader opens.
+    inline std::filesystem::path SplashTextureFile()
+    {
+        return Common::Constants::Path::EngineDir() / kSplashTexture;
+    }
+    inline std::filesystem::path AppIconFile()
+    {
+        return Common::Constants::Path::EngineDir() / kAppIcon;
+    }
 
     struct SplashPixels
     {

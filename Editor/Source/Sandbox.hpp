@@ -297,7 +297,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // Vulkan instance and device, the renderer, the shader preload in OnAttach — is the wait it covers.
     auto splash = Desert::Editor::Splash::SplashScreen::Show( { Desert::Editor::ProjectContext::Current().Name,
                                                                 Common::Version::Base(),
-                                                                Desert::Editor::Splash::kSplashTexture } );
+                                                                Desert::Editor::Splash::SplashTextureFile() } );
     // The plan is not made yet — the editor layer that owns it does not exist — so the bar is empty; the
     // renderer's start is not weighed, and the first weighed stage is the shader preload.
     splash->SetProgress( { "Starting the renderer...", "", 0.0 } );

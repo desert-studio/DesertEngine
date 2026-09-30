@@ -89,8 +89,9 @@ namespace Common::DDC
 
     std::filesystem::path Root()
     {
-        return ResolveRoot( Settings::MachineSettings::Get().DerivedDataCachePath,
-                            Constants::Path::CurrentProjectRoot().ProjectDir );
+        // ProjectDir(), not the open project's folder alone: the built-in sandbox's project directory IS the
+        // engine directory (UE: FPaths::ProjectDir), so the sandbox caches beside its own content too.
+        return ResolveRoot( Settings::MachineSettings::Get().DerivedDataCachePath, Constants::Path::ProjectDir() );
     }
 
     Common::ResultStr<std::filesystem::path> WritableRoot()
@@ -98,14 +99,12 @@ namespace Common::DDC
         std::filesystem::path root = Root();
         if ( root.is_absolute() )
             return Common::MakeSuccess( root );
-        std::error_code ec;
         return Common::MakeFormattedError<std::filesystem::path>(
-             "the derived data cache has no root: no project is open and machine.json's DerivedDataCachePath "
-             "('{}') is not an absolute path, so the cache would be written into the working directory '{}'. "
-             "Open a project or set an absolute DerivedDataCachePath (a test: hold a "
-             "Desert::TestSupport::DerivedDataSandbox)",
-             Settings::MachineSettings::Get().DerivedDataCachePath,
-             std::filesystem::current_path( ec ).generic_string() );
+             "the derived data cache has no root: neither a project nor the engine directory is set and "
+             "machine.json's DerivedDataCachePath ('{}') is not an absolute path, so the cache would be written "
+             "into the working directory. Open a project, set the engine directory, or set an absolute "
+             "DerivedDataCachePath (a test: hold a Desert::TestSupport::DerivedDataSandbox)",
+             Settings::MachineSettings::Get().DerivedDataCachePath );
     }
 
     Common::BoolResultStr CheckWritable( const std::filesystem::path& entry )
@@ -116,12 +115,10 @@ namespace Common::DDC
         if ( !root.IsSuccess() )
             return Common::MakeFormattedError<bool>( "DDC entry '{}' refused: {}", entry.generic_string(),
                                                      root.GetError() );
-        std::error_code ec;
         return Common::MakeFormattedError<bool>(
              "DDC entry '{}' refused: it is relative although the cache root '{}' is not, so it would be written "
-             "into the working directory '{}'",
-             entry.generic_string(), root.GetValue().generic_string(),
-             std::filesystem::current_path( ec ).generic_string() );
+             "into the working directory",
+             entry.generic_string(), root.GetValue().generic_string() );
     }
 
     std::filesystem::path RelativePath( const Deriver& deriver, const uint64_t key )
@@ -236,7 +233,6 @@ namespace Common::DDC
 
     std::filesystem::path PlatformCookedDir()
     {
-        return ( Constants::Path::CurrentProjectRoot().ProjectDir / "Saved" / "Cooked" / CookPlatformName() )
-             .lexically_normal();
+        return ( Constants::Path::ProjectDir() / "Saved" / "Cooked" / CookPlatformName() ).lexically_normal();
     }
 } // namespace Common::DDC

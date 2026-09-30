@@ -636,11 +636,15 @@ namespace Desert::Editor
             // The RULE itself lives in Editor/Core/CommandLine.hpp as a pure function taking the existence
             // as a parameter, so it is asserted by a test rather than only observable by launching the
             // editor at a path that is not there. This call site supplies the filesystem it cannot.
-            const auto verdict = ValidateSceneForCapture( shot, std::filesystem::exists( shot.Scene ) );
+            //
+            // A relative `--scene` is PROJECT content, so it is read off the project's directory
+            // (FPaths::ProjectDir), never off the working directory — the editor may be started from any
+            // folder. An absolute path is taken as given (operator/ keeps an absolute right-hand side).
+            const std::filesystem::path scenePath = Common::Constants::Path::ProjectDir() / shot.Scene;
+            const auto verdict = ValidateSceneForCapture( shot, std::filesystem::exists( scenePath ) );
             if ( !verdict.IsSuccess() )
             {
-                LOG_ERROR( "[Shot] {} (looked from '{}')", verdict.GetError(),
-                           std::filesystem::current_path().string() );
+                LOG_ERROR( "[Shot] {} (looked for '{}')", verdict.GetError(), scenePath.string() );
                 // NOT std::exit(). The job system's workers are already running by the time this line is
                 // reached, and exit() runs static destructors under them: nine threads threw
                 // "recursive_mutex lock failed: Invalid argument" and the process aborted with 134. A
@@ -651,7 +655,7 @@ namespace Desert::Editor
             }
             else
             {
-                LoadScene( Common::Filepath( shot.Scene ) );
+                LoadScene( Common::Filepath( scenePath ) );
             }
         }
         else if ( ProjectContext::HasProject() )
@@ -765,7 +769,7 @@ namespace Desert::Editor
         ::ImGui::CreateContext();
 
         // 2. Initialize Editor Resources (Adds fonts to the atlas)
-        Editor::EditorResources::Initialize( UI::kIconFontFile.string() );
+        Editor::EditorResources::Initialize( UI::IconFontFile().string() );
 
         // 3. Initialize Engine ImGui Layer (Initializes backend and uploads fonts)
         m_ImGuiLayer = ImGui::ImGuiLayer::Create();

@@ -8,6 +8,8 @@
 // a colour changed for one window is changed for both; kept in each drawer, the first change would part
 // them.
 
+#include <Common/Core/Constants.hpp>
+
 #include <filesystem>
 
 namespace Desert::Editor::UI
@@ -36,7 +38,11 @@ namespace Desert::Editor::UI
     inline constexpr const char* kMinimizeGlyph = "\xf3\xb0\x96\xb0"; // U+F05B0
     inline constexpr const char* kCloseGlyph    = "\xf3\xb0\x96\xad"; // U+F05AD
 
-    // The icon font's file, relative to the editor's working directory. The editor's ImGui atlas merges it
+    // The icon font's file — an engine resource, so it hangs off the engine's Fonts directory (derived from
+    // EngineDir(), never from the working directory). The editor's ImGui atlas merges it
     // (EditorResources::Initialize); the splash loads it natively.
-    inline const std::filesystem::path kIconFontFile = "Resources/Fonts/materialdesignicons-webfont.ttf";
+    inline std::filesystem::path IconFontFile()
+    {
+        return Common::Constants::Path::FONTS_PATH / "materialdesignicons-webfont.ttf";
+    }
 } // namespace Desert::Editor::UI

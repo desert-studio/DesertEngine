@@ -95,7 +95,7 @@ namespace Desert::Editor::Splash
         // once, when the file is missing: the buttons then draw the system font's closest characters.
         CTFontRef LoadIconFont( const CGFloat size )
         {
-            NSURL* const url = [NSURL fileURLWithPath:ToNS( UI::kIconFontFile.string() )];
+            NSURL* const url = [NSURL fileURLWithPath:ToNS( UI::IconFontFile().string() )];
             // The toll-free bridge NSURL -> CFURLRef has no C++ cast spelling.
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
             CFArrayRef descriptors = CTFontManagerCreateFontDescriptorsFromURL( (__bridge CFURLRef)url );
@@ -107,7 +107,7 @@ namespace Desert::Editor::Splash
                 CFRelease( descriptors );
             if ( font == nullptr )
                 LOG_WARN( "[Splash] icon font '{}' could not be read; the window buttons draw system characters",
-                          UI::kIconFontFile.string() );
+                          UI::IconFontFile().string() );
             return font; // +1 or null
         }
 
@@ -177,11 +177,11 @@ namespace Desert::Editor::Splash
             [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
             // A bare executable has no bundle, so the Dock would show the generic "exec" icon. A missing
             // file keeps that generic icon and says so once; it is not a reason to stop the start.
-            if ( NSImage* icon = [[NSImage alloc] initWithContentsOfFile:ToNS( kAppIcon.string() )] )
+            if ( NSImage* icon = [[NSImage alloc] initWithContentsOfFile:ToNS( AppIconFile().string() )] )
                 [NSApp setApplicationIconImage:icon];
             else
                 LOG_WARN( "[Splash] application icon '{}' not found; the Dock keeps the generic icon",
-                          kAppIcon.string() );
+                          AppIconFile().string() );
 
             NSScreen* const screen = [NSScreen mainScreen];
             const NSRect    visible =

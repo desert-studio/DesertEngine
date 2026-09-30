@@ -8,6 +8,7 @@
 #include <mach-o/dyld.h>
 #endif
 
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/Core.hpp>
 #include <Common/Utilities/ContentScanLedger.hpp>
 
@@ -311,10 +312,10 @@ namespace Common::Utils
         // /var -> /private/var) those are two spellings of one file.
         std::unordered_set<std::string> seen;
         std::error_code                 ec;
-        const fs::path                  cwd  = fs::current_path( ec );
         auto                            push = [&]( const fs::path& p )
         {
-            const fs::path  raw = ( p.is_absolute() ? p : cwd / p ).lexically_normal();
+            // The SAME absolute spelling VFS::CanonicalAbs builds: relative = off ProjectDir(), not the cwd.
+            const fs::path  raw = Common::Constants::Path::FullPath( p );
             std::error_code canonEc;
             fs::path        abs = fs::weakly_canonical( raw, canonEc );
             if ( canonEc || abs.empty() )

@@ -3240,10 +3240,14 @@ namespace Desert::Editor
                 std::snprintf( buffer, sizeof( buffer ), "%.1f KB", entry->FileSize / 1024.0f );
             sizeText = buffer;
         }
+        // Shown relative to the PROJECT's directory (FPaths::ProjectDir), never to the working directory the
+        // editor happened to be started from; a file outside the project (engine content in a foreign
+        // project) keeps its full path rather than a chain of "..".
         std::error_code   ec;
         const std::string shownPath =
-             std::filesystem::relative( path, std::filesystem::current_path(), ec ).generic_string();
-        const std::string& pathText = ec || shownPath.empty() ? entry->AssetPath : shownPath;
+             std::filesystem::relative( path, Common::Constants::Path::ProjectDir(), ec ).generic_string();
+        const bool         outside  = shownPath.starts_with( ".." );
+        const std::string& pathText = ec || shownPath.empty() || outside ? entry->AssetPath : shownPath;
 
         // Natural size of the content: a 96 px picture beside name / type+size / path, the text wrapped
         // to what is left of the width cap. Layout::Compute then caps and places it on screen.
