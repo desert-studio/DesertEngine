@@ -10,8 +10,6 @@ namespace Desert::Editor::ImportOptions
 {
     namespace
     {
-        namespace Ser = Assets::Serialization;
-
         std::unordered_map<std::string, ImportSettingsEdit>& Edits()
         {
             static std::unordered_map<std::string, ImportSettingsEdit> s_Edits;
@@ -33,10 +31,10 @@ namespace Desert::Editor::ImportOptions
              it != edits.end() && it->second.RecordTime == written )
             return Common::MakeSuccess( &it->second );
 
-        auto settings = Ser::ReadImportRecordSettings( source );
+        auto settings = Assets::Serialization::ReadImportRecordSettings( source );
         if ( !settings )
             return Common::MakeError<ImportSettingsEdit*>( settings.GetError() );
-        auto kind = Ser::ReadImportRecordKind( source );
+        auto kind = Assets::Serialization::ReadImportRecordKind( source );
         if ( !kind )
             return Common::MakeError<ImportSettingsEdit*>( kind.GetError() );
         ImportSettingsEdit& edit = edits[source.generic_string()];

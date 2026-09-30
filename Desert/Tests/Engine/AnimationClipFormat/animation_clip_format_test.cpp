@@ -101,9 +101,11 @@ TEST( AnimationClipFormat, AssetFieldCensus )
     // A28 (generation 3): `Sections` — a clip now states the range, blend type and weight its values are
     // read under, which is report 05 §938's "from day one".
     // T7e (generation 4): `Version` moves into the text asset `Header`, beside the clip's GUID.
+    // THM-FIXJ: `Import` — the source file the clip was imported from (UE: UAnimSequence::
+    // AssetImportData), so Reimport reads it from the asset itself.
     EXPECT_EQ( FieldNames<Ser::AnimationAssetData>(),
-               ( std::vector<std::string>{ "Channels", "Curves", "DisplayRate", "DurationTicks", "Header", "Name",
-                                           "Notifies", "Sections", "SkeletonSignature", "TickRate" } ) );
+               ( std::vector<std::string>{ "Channels", "Curves", "DisplayRate", "DurationTicks", "Header", "Import",
+                                           "Name", "Notifies", "Sections", "SkeletonSignature", "TickRate" } ) );
     // ANV1b: a notify states the Animation Editor row it is drawn on (UE's Notify Tracks).
     // ANV3: and its length — a notify with one is UE's Notify State.
     EXPECT_EQ( FieldNames<Ser::NotifyData>(),

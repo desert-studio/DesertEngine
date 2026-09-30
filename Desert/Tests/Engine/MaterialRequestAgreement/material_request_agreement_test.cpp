@@ -79,6 +79,20 @@ namespace
         const Common::Json::Node root = Common::Json::Root( parsed.GetValue() );
         EXPECT_EQ( root.GetKind(), Common::Json::Kind::Object ) << path;
 
+        // The template the author asked for is part of the request (SURF2): read the file's Shader
+        // reference, so an absent one is the file's silence and not this reader's.
+        if ( const auto shader = root.Find( "Shader" ) )
+        {
+            AssetGuidRef ref;
+            if ( const auto guid = shader->Find( "Guid" ) )
+                if ( const auto text = guid->AsString() )
+                    ref.Guid = text.GetValue();
+            if ( const auto where = shader->Find( "Path" ) )
+                if ( const auto text = where->AsString() )
+                    ref.Path = text.GetValue();
+            data.Shader = std::move( ref );
+        }
+
         const auto params = root.Find( "Params" );
         if ( !params.has_value() )
             return data;
