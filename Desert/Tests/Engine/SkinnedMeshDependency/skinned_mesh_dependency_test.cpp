@@ -450,7 +450,7 @@ TEST( SkinnedMeshDependency, TheShippedProbeKeepsTheIdentityTheSceneWasSavedWith
     EXPECT_EQ( *meshRig, kProbeSkeletonGuid ) << kProbeMeshPath << " names another skeleton";
 
     const std::ifstream rigIn( root / kProbeSkeletonPath, std::ios::binary );
-    std::stringstream rigText;
+    std::stringstream   rigText;
     rigText << rigIn.rdbuf();
     const auto rig = Desert::Assets::Serialization::ReadSkeletonJson( rigText.str() );
     ASSERT_TRUE( rig ) << rig.GetError();

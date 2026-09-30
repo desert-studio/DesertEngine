@@ -37,8 +37,8 @@ namespace
         {
             const std::filesystem::path corpus =
                  Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Assets/Meshes";
-            m_Gltf                             = ReadBytes( corpus / "TwoJointProbe.gltf" );
-            m_Mesh                             = ReadBytes( corpus / "TwoJointProbe.skmesh" );
+            m_Gltf = ReadBytes( corpus / "TwoJointProbe.gltf" );
+            m_Mesh = ReadBytes( corpus / "TwoJointProbe.skmesh" );
             ASSERT_FALSE( m_Gltf.empty() ) << "run from the tree root";
             ASSERT_FALSE( m_Mesh.empty() ) << "run from the tree root";
             std::error_code ec;

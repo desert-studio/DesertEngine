@@ -765,15 +765,15 @@ namespace Desert::Migration
             return Common::MakeFormattedError<std::string>(
                  "the header states SKEL {}, and this step raises SKEL 1 and 2 only", version );
 
-        Assets::Serialization::SkeletonAssetData data;
+        Assets::Serialization::SkeletonAssetData   data;
         Common::Content::TextAssetHeaderSerialized stamped = header;
         stamped.Versions["SKEL"]                           = Assets::kSkeletonSchemaVersion;
         data.Header                                        = std::move( stamped );
-        data.Signature                = old.Signature;
-        data.Bones                    = old.Bones;
-        data.PreviewMesh              = old.PreviewMesh;
-        data.CompatibleSkeletons      = old.CompatibleSkeletons.value_or( std::vector<Assets::AssetGuidRef>{} );
-        std::string written           = Common::Json::Write( data );
+        data.Signature                                     = old.Signature;
+        data.Bones                                         = old.Bones;
+        data.PreviewMesh                                   = old.PreviewMesh;
+        data.CompatibleSkeletons = old.CompatibleSkeletons.value_or( std::vector<Assets::AssetGuidRef>{} );
+        std::string written      = Common::Json::Write( data );
         // What the step writes, the engine's reader must read.
         if ( auto back = Assets::Serialization::ReadSkeletonJson( written ); !back )
             return Common::MakeFormattedError<std::string>( "the raised file does not read as SKEL {}: {}",

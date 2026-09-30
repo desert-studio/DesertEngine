@@ -33,8 +33,8 @@ namespace Desert::Editor
                 continue;
             }
 
-            const ImVec2 P  = *parentPoint;
-            const ImVec2 C  = *childPoint;
+            const ImVec2 P   = *parentPoint;
+            const ImVec2 C   = *childPoint;
             const float  dx  = C.x - P.x;
             const float  dy  = C.y - P.y;
             const float  len = std::sqrt( dx * dx + dy * dy );
@@ -72,9 +72,9 @@ namespace Desert::Editor
             if ( pickRecord != nullptr )
                 pickRecord->emplace_back( static_cast<int>( i ), c ); // absolute-screen — for PickBone
 
-            const bool  sel     = ( static_cast<int>( i ) == selectedBone );
-            const bool  hovered = ( std::abs( mouse.x - c.x ) < 7.0f && std::abs( mouse.y - c.y ) < 7.0f );
-            const bool  isRoot  = ( parents[i] < 0 );
+            const bool sel     = ( static_cast<int>( i ) == selectedBone );
+            const bool hovered = ( std::abs( mouse.x - c.x ) < 7.0f && std::abs( mouse.y - c.y ) < 7.0f );
+            const bool isRoot  = ( parents[i] < 0 );
             // The selection wins over hover (radius) and over the root tint (fill).
             float r    = 4.0f;
             ImU32 fill = isRoot ? jointRoot : jointCol;

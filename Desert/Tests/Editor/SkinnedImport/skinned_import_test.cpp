@@ -35,8 +35,6 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
-#include "../../TestSupport/scratch_dir.hpp"
-
 #include <gtest/gtest.h>
 
 #include <array>
@@ -641,9 +639,9 @@ TEST_F( SkinnedImport, ASkeletonChosenOnTheMeshIsKeptByAReimport )
 TEST( SkinnedImportCorpus, TheCommittedTwoJointProbeIsCurrentAndItsImportWritesNothing )
 {
     const std::filesystem::path corpus = Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Assets/Meshes";
-    const std::vector<std::string>     files  = { "TwoJointProbe.gltf", "TwoJointProbe.gltf.deimport",
-                                                  "TwoJointProbe.skmesh", "TwoJointProbe.skeleton",
-                                                  "TwoJointProbe_ArmSwing.anim" };
+    const std::vector<std::string>     files = { "TwoJointProbe.gltf", "TwoJointProbe.gltf.deimport",
+                                                 "TwoJointProbe.skmesh", "TwoJointProbe.skeleton",
+                                                 "TwoJointProbe_ArmSwing.anim" };
     std::map<std::string, std::string> committed;
     for ( const std::string& name : files )
     {
@@ -655,7 +653,7 @@ TEST( SkinnedImportCorpus, TheCommittedTwoJointProbeIsCurrentAndItsImportWritesN
     Assets::ContentRegistry::ResetForTest();
     const TestSupport::DerivedDataSandbox derivedData{ "SkinnedImportCorpus" };
     const TestSupport::AssetsSandbox      sandbox{ "SkinnedImportCorpus", {} };
-    const std::filesystem::path     folder = "Resources/Assets/Meshes";
+    const std::filesystem::path           folder = "Resources/Assets/Meshes";
     std::filesystem::create_directories( folder );
     for ( const auto& [name, bytes] : committed )
         std::ofstream( folder / name, std::ios::binary ) << bytes;

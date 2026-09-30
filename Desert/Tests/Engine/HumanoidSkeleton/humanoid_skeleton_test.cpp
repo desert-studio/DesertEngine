@@ -50,7 +50,7 @@ namespace
         static Assets::Serialization::SkeletonAssetData FileData()
         {
             const std::ifstream in( kHumanoid, std::ios::binary );
-            std::ostringstream text;
+            std::ostringstream  text;
             text << in.rdbuf();
             auto read = Assets::Serialization::ReadSkeletonJson( text.str() );
             EXPECT_TRUE( read.IsSuccess() ) << read.GetError();

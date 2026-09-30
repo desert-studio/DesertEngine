@@ -169,9 +169,11 @@ TEST_F( AnimationLibraryOnDemand, AClipAnImportWritesAfterPopulationIsOffered )
     std::vector<std::string> refused;
     ASSERT_TRUE( Assets::ContentRegistry::Gather( &refused ) );
 
+    // The engine's content (the built-in humanoid's clips) is mounted in every project, as UE's is, so population
+    // finds rows; the empty project itself holds no clip.
     Animation::AnimationLibrary library( &m_Manager );
-    ASSERT_EQ( library.IndexRegistryRows(), 0U ) << "the empty project already has clips";
-    EXPECT_FALSE( library.HasPending( kClip ) );
+    static_cast<void>( library.IndexRegistryRows() );
+    EXPECT_FALSE( library.HasPending( kClip ) ) << "the empty project already has the clip";
 
     // The import writes the clip.
     const fs::path written = clipDir / "Imported_Tilt.anim";

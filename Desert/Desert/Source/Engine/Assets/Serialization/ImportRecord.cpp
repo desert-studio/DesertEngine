@@ -306,7 +306,7 @@ namespace Desert::Assets::Serialization
         ImportRecordData out = *stored;
         if ( out.SourceHash == hash )
             return BOOLSUCCESS;
-        out.SourceHash  = hash;
+        out.SourceHash = hash;
         if ( !out.Header.has_value() )
             return Common::MakeFormattedError<bool>( "'{}' states no header", record.string() );
         const auto kind = Common::Content::ContentKindNamed( out.Header->Kind );

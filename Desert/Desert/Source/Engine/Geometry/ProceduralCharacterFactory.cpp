@@ -90,10 +90,10 @@ namespace Desert::Geometry
                     const glm::vec3 n( std::sin( theta ) * std::cos( phi ), std::cos( theta ),
                                        std::sin( theta ) * std::sin( phi ) );
                     Assets::Serialization::SkinnedVertexData v{};
-                    v.Position  = center + radius * n;
-                    v.Normal    = n;
-                    v.Tangent   = glm::vec3( -std::sin( phi ), 0.0f, std::cos( phi ) );
-                    v.Bitangent = glm::cross( n, v.Tangent );
+                    v.Position               = center + radius * n;
+                    v.Normal                 = n;
+                    v.Tangent                = glm::vec3( -std::sin( phi ), 0.0f, std::cos( phi ) );
+                    v.Bitangent              = glm::cross( n, v.Tangent );
                     v.TexCoord               = { static_cast<float>( j ) / static_cast<float>( slices ),
                                                  static_cast<float>( i ) / static_cast<float>( stacks ) };
                     v.BoneIDs[0]             = bone;

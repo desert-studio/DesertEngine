@@ -271,8 +271,8 @@ TEST( MeshSourceAsset, SkinWithoutSkeletonIsRefused )
     MeshSourceAsset a = MakeQuad( true );
     if ( !a.Source.Skin.has_value() )
         FAIL() << "MakeQuad( true ) built no skin";
-    a.Source.Skin->Skeleton        = {};
-    const auto encoded             = EncodeMeshSourceAsset( a );
+    a.Source.Skin->Skeleton = {};
+    const auto encoded      = EncodeMeshSourceAsset( a );
     ASSERT_FALSE( encoded.IsSuccess() );
     EXPECT_NE( encoded.GetError().find( "skeleton" ), std::string::npos ) << encoded.GetError();
 }
