@@ -15,6 +15,7 @@
 //     overwritten. A registry that quietly loses a line is a game that quietly ships without a texture.
 
 #include <Common/Content/ContentScan.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Core/Constants.hpp>
