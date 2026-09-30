@@ -897,9 +897,9 @@ namespace
         graph.Name = "Rifle";
         graph.Nodes.push_back( PoseGraphFixture::Sequence( "Main" ) );
         graph.OutputPose = "Main";
-        graph.Layers     = G::AnimGraphLayers{ { G::AnimLayerInterface{ "Weapon", { "UpperBody" } } },
-                                               { G::AnimLayerGraph{ "Weapon", "UpperBody",
-                                                                    { PoseGraphFixture::Sequence( "Own" ) }, "Own" } } };
+        graph.Layers     = G::AnimGraphLayers{
+                 { G::AnimLayerInterface{ "Weapon", { "UpperBody" } } },
+                 { G::AnimLayerGraph{ "Weapon", "UpperBody", { PoseGraphFixture::Sequence( "Own" ) }, "Own" } } };
         return graph;
     }
 } // namespace
@@ -917,9 +917,10 @@ TEST( AnimatorBlending, ABasePlayerAtGraphWeightZeroIsSilentAndAtOneIsHeard )
         if ( replaced )
             ASSERT_TRUE( animator.LinkLayers( 7, ReplacingLayer() ) );
         EXPECT_EQ( CountFrom( PlayOneSecond( animator ), "Step", Kind::Fire, -1 ), replaced ? 0 : 1 )
-             << ( replaced ? "a base clip the graph no longer plays (weight 0) was heard: the Source stage stepped "
-                             "its notifies before the evaluation, with no weight"
-                           : "the base clip at full graph weight lost its notify" );
+             << ( replaced
+                       ? "a base clip the graph no longer plays (weight 0) was heard: the Source stage stepped "
+                         "its notifies before the evaluation, with no weight"
+                       : "the base clip at full graph weight lost its notify" );
     }
 }
 
@@ -927,7 +928,8 @@ TEST( AnimatorBlending, ACrossFadesOutgoingNotifyIsHeardUntilItsWeightReachesZer
 {
     const Skeleton skeleton = MakeRig();
     AnimationClip  outgoing = SteppingClip( "Out" ); // "Step" at 0.5 s
-    AnimationClip  incoming = StaticClip( "In", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+    AnimationClip  incoming =
+         StaticClip( "In", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
     ClipFixture::AddNotify( incoming, "Land", At( 0.2 ) );
     AddState( incoming, "Trail", 0.1, 0.9 );
 
@@ -939,13 +941,15 @@ TEST( AnimatorBlending, ACrossFadesOutgoingNotifyIsHeardUntilItsWeightReachesZer
         animator.CrossFade( incoming, duration, false );
         const auto events = PlayOneSecond( animator );
         EXPECT_EQ( CountFrom( events, "Step", Kind::Fire, -1 ), duration > 0.5F ? 1 : 0 )
-             << "fade " << duration << " s: the outgoing player is heard while (1 - alpha) is above "
-                                       "NotifyTriggerWeight and not after";
+             << "fade " << duration
+             << " s: the outgoing player is heard while (1 - alpha) is above "
+                "NotifyTriggerWeight and not after";
         EXPECT_EQ( CountFrom( events, "Land", Kind::Fire, -1 ), 1 )
              << "fade " << duration << " s: the incoming player's notify at alpha 0.2 was not heard";
         EXPECT_EQ( CountFrom( events, "Trail", Kind::Begin, -1 ), 1 )
-             << "fade " << duration << " s: the incoming clip's state must begin once, not again when it "
-                                       "becomes the current clip";
+             << "fade " << duration
+             << " s: the incoming clip's state must begin once, not again when it "
+                "becomes the current clip";
         EXPECT_EQ( CountFrom( events, "Trail", Kind::End, -1 ), 1 ) << "fade " << duration << " s";
     }
 }

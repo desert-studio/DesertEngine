@@ -239,9 +239,9 @@ namespace Desert::Animation
         // Returns (and clears) the notify events since the last call — instant notifies crossed by playback
         // (Fire), and notify states entered / left (Begin / End) by playback, a loop, a scrub (SetTick /
         // SetTime) or a clip change — of the base players (the current clip, the incoming one of a crossfade)
-        // AND of every pose-graph source (a linked layer's too) whose total weight (`PoseGraphInstance::Weight`) is above `Graph::kNotifyTriggerWeight`, as UE's
-        // notify queue takes every relevant player's; a source falling below it ends its states. For the ECS
-        // to dispatch to scripts; call once per frame after Update.
+        // AND of every pose-graph source (a linked layer's too) whose total weight (`PoseGraphInstance::Weight`)
+        // is above `Graph::kNotifyTriggerWeight`, as UE's notify queue takes every relevant player's; a source
+        // falling below it ends its states. For the ECS to dispatch to scripts; call once per frame after Update.
         std::vector<NotifyEvent> ConsumeNotifyEvents()
         {
             std::vector<NotifyEvent> out;
@@ -488,8 +488,8 @@ namespace Desert::Animation
         void StepNotifiesOf( const ClipPlayback& playback, FrameTime previous, bool wrapped, bool played,
                              bool backward, bool relevant, std::vector<ActiveNotifyState>& active, int node,
                              int slot );
-        /// Every pose-graph source's notifies but the base's (StepBaseNotifies), weighted by the last evaluation (see
-        /// ConsumeNotifyEvents). `played`: the step of each clock's last Update; else a scrub (states only).
+        /// Every pose-graph source's notifies but the base's (StepBaseNotifies), weighted by the last evaluation
+        /// (see ConsumeNotifyEvents). `played`: the step of each clock's last Update; else a scrub (states only).
         void StepGraphNotifies( bool played );
         /// Ends every state in `active` (tagged `node`, `slot`) and empties it.
         void RetireStates( std::vector<ActiveNotifyState>& active, int node, int slot );
