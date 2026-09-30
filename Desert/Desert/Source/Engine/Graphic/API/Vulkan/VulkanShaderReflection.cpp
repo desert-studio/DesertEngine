@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <format>
+#include <iterator>
 #include <map>
 #include <utility>
 
@@ -459,6 +460,16 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                      "the vertex stage reads location {}, which the vertex layout does not feed", location ) );
         }
         return state;
+    }
+
+    std::optional<std::string> VertexInputRefusal( const VertexInputState& state )
+    {
+        if ( state.Errors.empty() )
+            return std::nullopt;
+        std::string reasons;
+        for ( const auto& error : state.Errors )
+            std::format_to( std::back_inserter( reasons ), "{}{}", reasons.empty() ? "" : "; ", error );
+        return reasons;
     }
 
     std::vector<VkDescriptorSetLayoutBinding> BuildLayoutBindings( const ShaderResource::ShaderDescriptorSet& set )

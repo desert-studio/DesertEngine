@@ -88,7 +88,7 @@ namespace Desert::Graphic::API::Vulkan
         VkStencilOpState ConvertStencilOpState( const StencilOpState& state );
 
         void CreatePipelineLayout();
-        void CreateVertexInputState();
+        [[nodiscard]] bool CreateVertexInputState(); // false = refused (reason logged)
         void CreateInputAssemblyState();
         void CreateDynamicState();
         void CreateViewportState();

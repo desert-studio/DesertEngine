@@ -19,6 +19,7 @@
 
 #include <spirv_cross/spirv_glsl.hpp>
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -127,5 +128,12 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
     };
     VertexInputState BuildVertexInput( const VertexBufferLayout&    layout,
                                        const std::vector<uint32_t>& consumedLocations );
+
+    /**
+     * Why a pipeline with this vertex input must not be built, or nothing when it may (UE: a shader reading an
+     * attribute its vertex factory does not provide fails the shader map; it is not drawn with garbage input).
+     * One message carrying every reason, so the refusal is logged once. Pure, like BuildVertexInput.
+     */
+    [[nodiscard]] std::optional<std::string> VertexInputRefusal( const VertexInputState& state );
 
 } // namespace Desert::Graphic::API::Vulkan::ShaderReflection

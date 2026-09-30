@@ -553,6 +553,28 @@ void main() { gl_Position = a_Unfed; }
     EXPECT_NE( state.Errors.front().find( "location 5" ), std::string::npos ) << state.Errors.front();
 }
 
+// The pipeline's side of the rule (VulkanPipeline::CreateVertexInputState): an unfed location is a REFUSAL —
+// the pipeline is not built — and the one message names the location; a matching stage is no refusal.
+TEST( ShaderReflection, VertexInputRefusesAStageReadingAnUnfedLocation )
+{
+    const char* kReadsUnfed = R"(#version 450
+layout(location = 0) in vec3 a_Position;
+layout(location = 15) in vec4 a_Unfed;
+void main() { gl_Position = vec4(a_Position, 1.0) + a_Unfed; }
+)";
+    const auto  layout      = Desert::Graphic::MeshVertexLayout( Desert::Graphic::MeshVertexPath::Static );
+    const auto  refused     = ShaderReflection::VertexInputRefusal( ShaderReflection::BuildVertexInput(
+         layout,
+         ShaderReflection::ReflectVertexInputLocations( Compile( kReadsUnfed, shaderc_glsl_vertex_shader ) ) ) );
+    ASSERT_TRUE( refused.has_value() );
+    EXPECT_NE( refused->find( "location 15" ), std::string::npos ) << *refused;
+
+    const auto clean = ShaderReflection::VertexInputRefusal(
+         ShaderReflection::BuildVertexInput( layout, ShaderReflection::ReflectVertexInputLocations( Compile(
+                                                          kStreamsVertex, shaderc_glsl_vertex_shader ) ) ) );
+    EXPECT_FALSE( clean.has_value() ) << *clean;
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
