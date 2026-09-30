@@ -850,7 +850,9 @@ TEST( ControlInput, AChordPressesModifiersFirstAndReleasesThemLast )
     EXPECT_EQ( frames[0][1].Code, 83 );
     EXPECT_EQ( frames[0][1].Mods, C::kModControl );
     EXPECT_EQ( frames[1].back().Code, 341 );
-    EXPECT_EQ( C::PlanInput( "key", 0.0f, 0.0f, 0, "t", {} ).GetValue()[0][0].Code, 84 );
+    const auto lower = C::PlanInput( "key", 0.0f, 0.0f, 0, "t", {} );
+    ASSERT_TRUE( lower.IsSuccess() );
+    EXPECT_EQ( lower.GetValue()[0][0].Code, 84 );
     EXPECT_FALSE( C::PlanInput( "key", 0.0f, 0.0f, 0, "Hyper+T", {} ).IsSuccess() );
     EXPECT_FALSE( C::PlanInput( "wiggle", 0.0f, 0.0f, 0, "", {} ).IsSuccess() );
 }
