@@ -18,19 +18,19 @@ namespace Desert::Graphic
                                       const std::shared_ptr<Image2D>& lensFlareImage, const Params& params )
     {
         if ( m_GeometryTexture && targetImage )
-            m_GeometryTexture->SetImage( targetImage.get() );
+            m_GeometryTexture->SetImage( targetImage.get(), RDG::Access::SampledGraphics );
 
         if ( m_BloomTexture && bloomImage )
-            m_BloomTexture->SetImage( bloomImage.get() );
+            m_BloomTexture->SetImage( bloomImage.get(), RDG::Access::SampledGraphics );
 
         if ( m_AvgLuminance && avgLuminance )
-            m_AvgLuminance->SetImage( avgLuminance.get() );
+            m_AvgLuminance->SetImage( avgLuminance.get(), RDG::Access::SampledGraphics );
 
         if ( m_LightShaftTexture && lightShaftImage )
-            m_LightShaftTexture->SetImage( lightShaftImage.get() );
+            m_LightShaftTexture->SetImage( lightShaftImage.get(), RDG::Access::SampledGraphics );
 
         if ( m_LensFlareTexture && lensFlareImage )
-            m_LensFlareTexture->SetImage( lensFlareImage.get() );
+            m_LensFlareTexture->SetImage( lensFlareImage.get(), RDG::Access::SampledGraphics );
 
         SetExposure( params.Exposure );
         SetGamma( params.Gamma );

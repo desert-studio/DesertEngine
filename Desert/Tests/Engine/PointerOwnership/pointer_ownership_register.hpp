@@ -325,13 +325,13 @@ namespace Desert::Tests::PointerCensus
           "renderer resize it names last frame's image; every dispatch site re-Sets it in the same "
           "function immediately before dispatching, and that is the whole guarantee" },
         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanPipelineCompute.hpp",
-          "VulkanPipelineCompute", "m_BoundInputs", Guard::ReboundBeforeEveryUse,
-          "the map is NEVER cleared and the pipelines are long-lived members, so a stale entry survives "
-          "a resize that destroyed the image it names; it is dereferenced (dynamic_cast reads the vtable) "
-          "only from RecordDescriptorsAndDispatch, and every call site re-Sets in the same function first" },
+          "InputBinding", "Image", Guard::ReboundBeforeEveryUse,
+          "m_BoundInputs holds these and is NEVER cleared, and the pipelines are long-lived members, so a stale "
+          "entry survives a resize that destroyed the image it names; it is dereferenced (dynamic_cast reads the "
+          "vtable) only from RecordDescriptorsAndDispatch, and every call site re-Sets in the same function first" },
         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanPipelineCompute.hpp",
           "VulkanPipelineCompute", "m_BoundStorageBuffers", Guard::ReboundBeforeEveryUse,
-          "same as m_BoundInputs: never cleared, and safe only because every dispatch site re-Sets the "
+          "same as InputBinding::Image: never cleared, and safe only because every dispatch site re-Sets the "
           "binding from the live owner in the same function before dispatching" },
         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanQueue.hpp",
           "VulkanQueue", "m_SwapChain", Guard::ObservedContainsUs,

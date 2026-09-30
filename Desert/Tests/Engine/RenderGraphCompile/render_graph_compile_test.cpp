@@ -1945,6 +1945,27 @@ namespace
         const size_t end = text.find( next, begin + signature.size() );
         return text.substr( begin, end == std::string::npos ? std::string::npos : end - begin );
     }
+
+    // The definition of @p signature in @p text up to its closing brace, so a comment inside the body naming
+    // another member cannot cut it short. Empty when the signature or a balanced body is not found.
+    std::string FunctionBody( const std::string& text, std::string_view signature )
+    {
+        const size_t begin = text.find( signature );
+        if ( begin == std::string::npos )
+            return {};
+        const size_t open = text.find( '{', begin + signature.size() );
+        if ( open == std::string::npos )
+            return {};
+        int depth = 0;
+        for ( size_t i = open; i < text.size(); ++i )
+        {
+            if ( text[i] == '{' )
+                ++depth;
+            else if ( text[i] == '}' && --depth == 0 )
+                return text.substr( begin, i + 1 - begin );
+        }
+        return {};
+    }
 } // namespace
 
 // THE PHASE PASSES ARE REAL GRAPH NODES THAT DECLARE THEIR TARGETS (RDG-LEG1-L5a). The AddGraphPhasePasses bridge
@@ -2071,7 +2092,7 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
              "Write(m_HistoryImage[writeIndex],RDG::Access::StorageWrite" } } };
     for ( const Declares& d : declares )
     {
-        const std::string body = SqueezedBody( source( d.File ), d.Function, "::Declare" );
+        const std::string body = FunctionBody( source( d.File ), d.Function );
         ASSERT_FALSE( body.empty() ) << d.File << ": no " << d.Function;
         for ( const char* needle : d.Needles )
             EXPECT_NE( body.find( needle ), std::string::npos ) << d.Function << " does not declare " << needle;
