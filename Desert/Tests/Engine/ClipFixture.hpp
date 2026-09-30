@@ -1,12 +1,12 @@
 #pragma once
 
 // Clips the Animator suites play (AnimatorBlending, AnimatorPose, the rig, rebind and retarget suites): ONE
-// spelling of "a clip whose data is its Timeline::Sequence", built the way the engine builds one (ProceduralCharacterAnimations): a Bone binding with
-// a Transform track per animated bone, the clip's notifies as keys of an Event track on the Sequence (master)
-// binding, its curves as Float tracks named by Property on that same binding. Every track holds ONE section
-// spanning the clip's playback range, Absolute at full weight — what every migrated `.anim` carries — and the
-// suites that need a section's Weight/Blend get that section back to edit. Included by relative path;
-// header-only.
+// spelling of "a clip whose data is its Timeline::Sequence", built the way the engine builds one
+// (ProceduralCharacterAnimations): a Bone binding with a Transform track per animated bone, the clip's notifies as
+// keys of an Event track on the Sequence (master) binding, its curves as Float tracks named by Property on that
+// same binding. Every track holds ONE section spanning the clip's playback range, Absolute at full weight — what
+// every migrated `.anim` carries — and the suites that need a section's Weight/Blend get that section back to
+// edit. Included by relative path; header-only.
 
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/KeyInterpolation.hpp>

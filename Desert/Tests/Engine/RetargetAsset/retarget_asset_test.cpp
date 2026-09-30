@@ -967,7 +967,7 @@ TEST( RetargetAssetTest, AClipThatDrivesNothingLeavesTheTargetInItsOwnRetargetRe
     const Skeleton source = SourceRig();
     const Skeleton target = RigFrom( kTargetRig );
 
-    AnimationClip empty = ClipFixture::Clip( "A25_Empty", FrameNumber{ 48000 } );
+    AnimationClip empty     = ClipFixture::Clip( "A25_Empty", FrameNumber{ 48000 } );
     empty.Sequence.TickRate = FrameRate{ 24000, 1 };
 
     Animator animator( target );
@@ -1011,7 +1011,7 @@ TEST( RetargetAssetTest, AnAdditiveLayerOfNothingIsANoOpOnlyBecauseItsReferenceI
          "IK_Elbow", glm::angleAxis( glm::radians( 20.0F ), glm::vec3( 1.0F, 0.0F, 0.0F ) ) } );
     ASSERT_TRUE( File::ValidateRetargetData( posed ).IsSuccess() );
 
-    AnimationClip empty = ClipFixture::Clip( "A25_Empty", FrameNumber{ 48000 } );
+    AnimationClip empty     = ClipFixture::Clip( "A25_Empty", FrameNumber{ 48000 } );
     empty.Sequence.TickRate = FrameRate{ 24000, 1 };
 
     // A NAMED LOCAL, not the call's own temporary: the animator keeps the clip's ADDRESS, so the clip

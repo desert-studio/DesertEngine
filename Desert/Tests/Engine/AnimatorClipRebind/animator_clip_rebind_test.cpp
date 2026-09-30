@@ -11,9 +11,9 @@
 // underneath it are replaced: `Unload()` releases the Sequence's bindings and tracks (returning the storage
 // to the allocator) and a later `Load()` allocates fresh ones and stamps a new `Sequence.Revision`. Asset
 // eviction does exactly that to a clip an entity is still playing — DELIBERATELY, because
-// `AnimationLibrary::Resolve` reloads on every lookup and the library's design accepts eviction on that basis. The animator then dereferenced pointers
-// into freed memory and the process died inside `std::lower_bound` over a keyframe vector that no longer
-// existed.
+// `AnimationLibrary::Resolve` reloads on every lookup and the library's design accepts eviction on that basis. The
+// animator then dereferenced pointers into freed memory and the process died inside `std::lower_bound` over a
+// keyframe vector that no longer existed.
 //
 // It had never fired before 2026-09-09 for one reason: this repository contained no `.anim` file, so no
 // file-backed clip had ever played, so no clip an animator held had ever been unloaded. D34 filled the
