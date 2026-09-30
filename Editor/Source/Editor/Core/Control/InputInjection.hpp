@@ -128,7 +128,7 @@ namespace Desert::Editor::Control
     PlanInput( std::string_view kind, float x, float y, int32_t button, std::string_view key,
                const std::vector<std::string>& paths )
     {
-        using Frames = std::vector<InputFrame>;
+        using Frames           = std::vector<InputFrame>;
         const InputStep cursor = MakeInputStep( InputAction::Cursor, x, y );
         if ( kind == "move" )
             return Common::MakeSuccess( Frames{ { cursor } } );
@@ -147,7 +147,7 @@ namespace Desert::Editor::Control
             if ( paths.empty() )
                 return Common::MakeError<Frames>( "'drop' needs at least one file path." );
             InputStep drop = MakeInputStep( InputAction::Drop, x, y );
-            drop.Paths = paths;
+            drop.Paths     = paths;
             return Common::MakeSuccess( Frames{ { cursor }, { cursor, drop } } );
         }
         if ( kind == "key" )
