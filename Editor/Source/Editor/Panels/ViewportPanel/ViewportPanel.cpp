@@ -319,7 +319,10 @@ namespace Desert::Editor
         if ( std::error_code ec;
              !std::filesystem::is_regular_file( Common::Content::ImportRecordPathFor( path ), ec ) )
         {
+            // The closure (a std::string and an ActorDrop::Target, moved into std::function) throws nothing the
+            // check can name: it flags the closure's implicit constructor, not the drop.
             ImportOptions::Request( path,
+                                    // NOLINTNEXTLINE(bugprone-exception-escape)
                                     [path, target]
                                     {
                                         if ( const auto placed = DropMeshIntoActiveViewport( path, target );

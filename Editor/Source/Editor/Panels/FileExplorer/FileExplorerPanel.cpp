@@ -522,8 +522,10 @@ namespace Desert::Editor
                 return ThumbnailService::JudgeSkyboxPicture( item.Path ); // the tile's and RequestSkybox's verdict
             return ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( ThumbnailPngFor( item.Path ), item.Path ) );
         };
-        const auto needsCapture = [&]( const WarmItem& item )
-        { return !m_FailedThumbs.count( item.Path ) && verdictOf( item ) == ThumbnailFreshness::Verdict::Capture; };
+        const auto needsCapture = [&]( const WarmItem& item ) {
+            return !m_FailedThumbs.contains( item.Path ) &&
+                   verdictOf( item ) == ThumbnailFreshness::Verdict::Capture;
+        };
 
         // EVERY PICTURE OF THE PROJECT IS ASKED FOR — the one the disk has goes to a worker decode now, the one
         // a capture below writes is asked for again when the captures have landed (RequestProjectPictures).
@@ -1946,7 +1948,7 @@ namespace Desert::Editor
 
     bool FileExplorerPanel::DrawRenderedMaterialThumbnail( DirectoryInformation* entry, const ImVec2& size )
     {
-        if ( !m_UIHelper || !m_Thumbnails || !m_AssetManager )
+        if ( !m_UIHelper || !m_Thumbnails || m_AssetManager == nullptr )
             return false;
 
         // Cache PNG path: <versioned thumbnail dir>/<sanitized source path>.png (persists across restarts).
@@ -2034,9 +2036,9 @@ namespace Desert::Editor
 
     bool FileExplorerPanel::DrawRenderedMeshThumbnail( DirectoryInformation* entry, const ImVec2& size )
     {
-        if ( !m_UIHelper || !m_Thumbnails || !m_AssetManager )
+        if ( !m_UIHelper || !m_Thumbnails || m_AssetManager == nullptr )
             return false;
-        if ( m_FailedThumbs.count( entry->AssetPath ) ) // failed to load before -> icon, no per-frame retry
+        if ( m_FailedThumbs.contains( entry->AssetPath ) ) // failed to load before -> icon, no per-frame retry
             return false;
 
         // ONE PICTURE, ONE KEY, AND THE KEY IS THE FILE THAT IS ACTUALLY PHOTOGRAPHED.
@@ -2111,9 +2113,9 @@ namespace Desert::Editor
     bool FileExplorerPanel::DrawRenderedPoseThumbnail( DirectoryInformation* entry, const ImVec2& size,
                                                        const std::string& subject )
     {
-        if ( !m_UIHelper || !m_Thumbnails || !m_AssetManager )
+        if ( !m_UIHelper || !m_Thumbnails || m_AssetManager == nullptr )
             return false;
-        if ( m_FailedThumbs.count( entry->AssetPath ) ) // refused before -> icon, no per-frame retry
+        if ( m_FailedThumbs.contains( entry->AssetPath ) ) // refused before -> icon, no per-frame retry
             return false;
 
         // The mesh tile's rule, with the .skmesh as its own cooked form: one key, one freshness source.
@@ -2149,7 +2151,7 @@ namespace Desert::Editor
     {
         if ( type != FileType::FoliageType )
             return assetPath;
-        if ( m_FailedThumbs.count( assetPath ) )
+        if ( m_FailedThumbs.contains( assetPath ) )
             return std::nullopt;
         std::error_code                       ec;
         const std::filesystem::file_time_type written = std::filesystem::last_write_time( assetPath, ec );
@@ -2818,15 +2820,17 @@ namespace Desert::Editor
 
     void FileExplorerPanel::RequestThumbnailPreview( const DirectoryInformation& entry, ThumbnailGesture& gesture )
     {
-        if ( !m_AssetManager )
+        if ( m_AssetManager == nullptr )
             return;
         if ( entry.Type == FileType::Material )
         {
             const auto subject = ThumbnailSubject::ResolveMaterial(
                  *m_AssetManager, entry.AssetPath, []( const std::string&, const auto& ) {} ); // tile asks again
-            if ( subject && subject.GetValue() )
-                gesture.PreviewPng = ThumbnailService::Get().RequestPreviewMaterial(
-                     *subject.GetValue(), entry.AssetPath, gesture.Live );
+            if ( !subject )
+                return;
+            if ( const auto& material = subject.GetValue(); material )
+                gesture.PreviewPng =
+                     ThumbnailService::Get().RequestPreviewMaterial( *material, entry.AssetPath, gesture.Live );
             return;
         }
         // A skinned source's picture is the pose of the asset its import wrote (MeshPictureFor), the tile's own
@@ -2880,8 +2884,13 @@ namespace Desert::Editor
                 }
                 previewKey = picture->Cooked;
             }
-            m_ThumbnailGesture             = ThumbnailGesture{ stated.GetValue(), stated.GetValue() };
-            m_ThumbnailGesture->PreviewKey = std::move( previewKey );
+            m_ThumbnailGesture = ThumbnailGesture{ .From       = stated.GetValue(),
+                                                   .Live       = stated.GetValue(),
+                                                   .Drag       = ImVec2( 0.0f, 0.0f ),
+                                                   .Wheel      = 0.0f,
+                                                   .LastWheel  = 0.0,
+                                                   .PreviewKey = std::move( previewKey ),
+                                                   .PreviewPng = {} };
         }
         if ( m_ThumbnailGesture )
         {
@@ -2900,9 +2909,8 @@ namespace Desert::Editor
             if ( !g.PreviewPng.empty() && m_Thumbnails && m_UIHelper &&
                  ThumbnailService::Get().PreviewLanded( g.PreviewKey ) )
                 if ( const auto img = m_Thumbnails->Get( g.PreviewPng ) )
-                    if ( const void* tex = m_UIHelper->GetTextureID( img ) )
-                        ImGui::GetWindowDrawList()->AddImage(
-                             reinterpret_cast<ImTextureID>( const_cast<void*>( tex ) ), min, max );
+                    if ( const ImTextureID tex = m_UIHelper->GetTextureID( img ); tex != nullptr )
+                        ImGui::GetWindowDrawList()->AddImage( tex, min, max );
 
             const bool wheelRests = g.Wheel != 0.0f && ImGui::GetTime() - g.LastWheel > kThumbnailWheelRestSeconds;
             if ( !active && ( ImGui::IsItemDeactivated() || !hovered || wheelRests ) )

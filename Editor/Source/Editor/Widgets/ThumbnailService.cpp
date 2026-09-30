@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <format>
 
 namespace Desert::Editor
 {
@@ -132,7 +133,7 @@ namespace Desert::Editor
         if ( !resolved )
         {
             Refuse( assetPath, resolved.GetError() );
-            return std::string();
+            return {};
         }
         return RequestMaterial( resolved.GetValue(), assetPath );
     }
@@ -243,7 +244,7 @@ namespace Desert::Editor
             {
                 if ( static_cast<uint64_t>( handle ) != 0 )
                     pins.push_back( std::make_unique<Assets::AssetRootPin>(
-                         handle, "a thumbnail of '" + req.Source + "' is queued for capture" ) );
+                         handle, std::format( "a thumbnail of '{}' is queued for capture", req.Source ) ) );
             }
         }
     }

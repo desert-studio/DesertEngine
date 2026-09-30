@@ -56,13 +56,13 @@ namespace Desert::Editor::ThumbnailEdit
             {
                 return Apply( m_After );
             }
-            std::string GetLabel() const override
+            [[nodiscard]] std::string GetLabel() const override
             {
                 return std::format( "Edit Thumbnail: {}", m_Asset.filename().string() );
             }
 
         private:
-            bool Apply( const Assets::ThumbnailOrbit& orbit ) const
+            [[nodiscard]] bool Apply( const Assets::ThumbnailOrbit& orbit ) const
             {
                 const auto written = WriteOrbit( m_Asset, orbit );
                 return static_cast<bool>( written );

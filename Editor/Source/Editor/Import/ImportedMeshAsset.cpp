@@ -20,8 +20,10 @@
 #include <cctype>
 #include <cstddef>
 #include <cstring>
+#include <format>
 #include <map>
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace Desert::Editor
@@ -251,9 +253,9 @@ namespace Desert::Editor
 
     bool ImportedMeshAssetIsCurrent( const std::filesystem::path& source )
     {
-        if ( const auto record = Assets::Serialization::ReadImportRecord( source );
-             record && record.GetValue() && record.GetValue()->Nodes )
-            return SplitImportIsCurrent( source, *record.GetValue()->Nodes );
+        if ( const auto record = Assets::Serialization::ReadImportRecord( source ); record )
+            if ( const auto& stated = record.GetValue(); stated && stated->Nodes )
+                return SplitImportIsCurrent( source, *stated->Nodes );
         return ImportedMeshAssetIsFresh( source ) && ImportedMaterialsPresent( source );
     }
 
@@ -292,15 +294,16 @@ namespace Desert::Editor
             if ( !Common::Content::IsImportRecord( entry.path() ) )
                 continue;
             const std::filesystem::path source = entry.path().parent_path() / entry.path().stem();
-            const std::string           prefix = source.stem().string() + "_";
+            const std::string           prefix = std::format( "{}_", source.stem().string() );
             if ( stem.size() <= prefix.size() || stem.compare( 0, prefix.size(), prefix ) != 0 )
                 continue;
             const auto record = Ser::ReadImportRecord( source );
             if ( !record )
                 return Common::MakeError<Home>( record.GetError() );
-            if ( !record.GetValue() || !record.GetValue()->Nodes )
+            const auto& stated = record.GetValue();
+            if ( !stated || !stated->Nodes )
                 continue;
-            for ( const std::string& node : *record.GetValue()->Nodes )
+            for ( const std::string& node : *stated->Nodes )
                 if ( NodeMeshAssetPath( source, node ).filename() == meshFile.filename() )
                 {
                     const std::lock_guard lock( mutex );
@@ -316,9 +319,10 @@ namespace Desert::Editor
         const auto home = MeshThumbnailHome( meshFile );
         if ( !home )
             return Common::MakeError<Assets::ThumbnailOrbit>( home.GetError() );
-        if ( !home.GetValue() )
+        const auto& source = home.GetValue();
+        if ( !source )
             return Common::MakeSuccess( Assets::ThumbnailOrbit{} );
-        return Ser::ReadImportRecordThumbnail( *home.GetValue(), meshFile.filename().string() );
+        return Ser::ReadImportRecordThumbnail( *source, meshFile.filename().string() );
     }
 
     Common::BoolResultStr SetMeshThumbnailOrbit( const std::filesystem::path&  meshFile,
@@ -327,11 +331,12 @@ namespace Desert::Editor
         const auto home = MeshThumbnailHome( meshFile );
         if ( !home )
             return Common::MakeError<bool>( home.GetError() );
-        if ( !home.GetValue() )
+        const auto& source = home.GetValue();
+        if ( !source )
             return Common::MakeFormattedError<bool>(
                  "'{}' was written by no import, so there is no import record to state its thumbnail orbit",
                  meshFile.string() );
-        return Ser::SetImportRecordThumbnail( *home.GetValue(), meshFile.filename().string(), orbit );
+        return Ser::SetImportRecordThumbnail( *source, meshFile.filename().string(), orbit );
     }
 
     std::optional<uint64_t> MeshThumbnailFreshness( const std::filesystem::path& cooked )
@@ -343,17 +348,18 @@ namespace Desert::Editor
         const auto home = MeshThumbnailHome( meshFile );
         if ( !home )
             return std::nullopt;
-        if ( !home.GetValue() )
+        const auto& source = home.GetValue();
+        if ( !source )
             return bytes; // no record, no orbit but the default
         const std::string name   = meshFile.filename().string();
-        const auto        record = Common::Content::ImportRecordPathFor( *home.GetValue() );
+        const auto        record = Common::Content::ImportRecordPathFor( *source );
         // The orbit's hash, memoised on the record's (size, modtime); 0 stands for "the record states the
         // default".
         const std::optional<uint64_t> info = ThumbnailFreshness::Detail::MemoisedAs(
-             record, record.generic_string() + "#thumbnail#" + name,
+             record, std::format( "{}#thumbnail#{}", record.generic_string(), name ),
              [&]( const std::filesystem::path& ) -> std::optional<uint64_t>
              {
-                 const auto orbit = Ser::ReadImportRecordThumbnail( *home.GetValue(), name );
+                 const auto orbit = Ser::ReadImportRecordThumbnail( *source, name );
                  if ( !orbit )
                      return std::nullopt;
                  if ( orbit.GetValue() == Assets::ThumbnailOrbit{} )
@@ -400,8 +406,7 @@ namespace Desert::Editor
         // the Details' Import Settings keeps the bytes and changes the scale, the axis or the LOD policy).
         if ( const auto cached = Common::DDC::Get( Assets::kMeshSourceDeriver, key ) )
         {
-            const auto decoded = Assets::DecodeMeshSourceAsset( std::span<const std::byte>(
-                 reinterpret_cast<const std::byte*>( cached->data() ), cached->size() ) );
+            const auto decoded = Assets::DecodeMeshSourceAsset( std::as_bytes( std::span{ *cached } ) );
             if ( decoded && decoded.GetValue().Import.Settings == settings.GetValue().Mesh )
                 return Common::MakeSuccess( MeshAssetWrite::Unchanged );
         }
