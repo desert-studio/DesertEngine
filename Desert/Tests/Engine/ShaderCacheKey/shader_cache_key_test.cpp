@@ -690,6 +690,32 @@ TEST_F( ShaderRootFixture, TheClosureFollowsAHeaderThatIncludesAnother )
     EXPECT_TRUE( contains( "MaterialTransport.glslh" ) );
 }
 
+TEST_F( ShaderRootFixture, AProgramIsMadeOfItsFileAndTheClosureOfItsTextOnDisk )
+{
+    // THE HOT-RELOAD DEPENDENCY RULE (SHM1-hr). Editing DefaultLit.shadingmodel rewrote the generated include and
+    // recompiled nothing: the reloader walked the ShaderAsset's in-memory text, which an unloaded asset no longer
+    // holds. ShaderSourceFiles reads the file — so DeferredLighting (which includes the generated dispatch) and a
+    // program that reaches a header only through another header both name it, with no asset loaded at all.
+    const auto has = []( const std::vector<std::filesystem::path>& files, std::string_view suffix )
+    {
+        return std::any_of( files.begin(), files.end(),
+                            [&]( const auto& f ) { return f.generic_string().ends_with( suffix ); } );
+    };
+
+    const auto lighting = ShaderPath( "Deferred/DeferredLighting.shader" );
+    const auto files    = Desert::Core::ShaderSourceFiles( lighting );
+    ASSERT_FALSE( files.empty() );
+    EXPECT_EQ( files.front(), lighting ) << "the program's own file comes first";
+    EXPECT_TRUE( has( files, Desert::Core::ShadingModels::kGeneratedInclude ) );
+    EXPECT_TRUE( has( files, "Mesh/DirectLighting.glslh" ) );
+
+    const auto ui = Desert::Core::ShaderSourceFiles( ShaderPath( "UI/UIMatError.shader" ) );
+    EXPECT_TRUE( has( ui, "Common/MaterialTransport.glslh" ) ) << "transitive: only UIVertex.glslh names it";
+
+    const auto missing = Desert::Core::ShaderSourceFiles( ShaderPath( "NoSuch/Missing.shader" ) );
+    EXPECT_EQ( missing.size(), 1u ) << "a missing file is just itself; the reload reports it";
+}
+
 TEST_F( ShaderRootFixture, TheClosureListsEachFileOnce )
 {
     const auto path     = ShaderPath( "Fog/HeightFog.shader" );

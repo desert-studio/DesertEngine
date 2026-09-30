@@ -181,6 +181,23 @@ namespace Desert::Core
         return includes;
     }
 
+    std::string ShaderFileText( const std::filesystem::path& shaderFile )
+    {
+        const auto file = ReadShaderFileCached( shaderFile );
+        return file->Readable ? file->Text : std::string{};
+    }
+
+    std::vector<std::filesystem::path> ShaderSourceFiles( const std::filesystem::path& shaderFile )
+    {
+        std::vector<std::filesystem::path> files{ shaderFile };
+        const auto                         file = ReadShaderFileCached( shaderFile );
+        if ( !file->Readable )
+            return files;
+        for ( auto& include : CollectShaderIncludes( file->Text, shaderFile ) )
+            files.push_back( std::move( include ) );
+        return files;
+    }
+
     bool SpirvDebugInfoThisBuild()
     {
         // The one home of the policy. ShaderCompiler generates debug info exactly when this is true,

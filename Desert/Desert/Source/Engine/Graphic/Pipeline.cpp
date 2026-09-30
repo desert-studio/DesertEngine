@@ -6,6 +6,31 @@
 
 namespace Desert::Graphic
 {
+    bool AnyPipelineBehindItsShader()
+    {
+        std::lock_guard lock( detail::LivePipelines().Mutex );
+        for ( const IPipeline* pipeline : detail::LivePipelines().All )
+            if ( pipeline->IsBehindItsShader() )
+                return true;
+        return false;
+    }
+
+    size_t RebuildPipelinesBehindTheirShader()
+    {
+        // Under the lock for the whole pass: a pipeline destroyed on another thread mid-pass would otherwise be
+        // rebuilt after its destructor ran. A rebuild creates no pipeline objects, so it never re-enters here.
+        std::lock_guard lock( detail::LivePipelines().Mutex );
+        size_t          rebuilt = 0;
+        for ( IPipeline* pipeline : detail::LivePipelines().All )
+        {
+            if ( !pipeline->IsBehindItsShader() )
+                continue;
+            pipeline->Invalidate(); // records the new generation; a refusal logs its reason and leaves it unbuilt
+            ++rebuilt;
+        }
+        return rebuilt;
+    }
+
     Common::ResultStr<std::shared_ptr<GraphicsPipeline>>
     GraphicsPipeline::Create( const GraphicsPipelineSpecification& spec )
     {
