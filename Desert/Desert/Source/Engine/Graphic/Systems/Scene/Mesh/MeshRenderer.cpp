@@ -13,6 +13,7 @@
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 // MeshShaderFor / MeshVertexPath / MeshPass — the (path x pass) table this file asks for its pipelines.
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
+#include <Engine/Graphic/Systems/Scene/Mesh/TranslucentSortOrder.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexLayout.hpp>
 #include <Engine/Graphic/Materials/Mesh/InstancedRecorder.hpp>
 #include <Engine/Graphic/ShaderProtocols/SkinnedMaterialUB.hpp>
@@ -827,12 +828,14 @@ namespace Desert::Graphic::System
             uint32_t                    Row;
         };
         std::vector<Draw>                                            draws;
+        std::vector<TranslucentSortItem>                             sortKeys;
         std::unordered_map<TranslucentDraw*, std::vector<glm::vec4>> rows;
         for ( const auto& data : m_StaticQueue )
         {
             if ( !data.Mesh || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
                 continue;
-            if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
+            const Common::Math::AABB localBounds = Geometry::LocalBounds( data.Mesh->GetSubmeshes() );
+            if ( !IsVisibleInView( frustum, data.Transform, localBounds ) )
                 continue;
             const auto [pbrInst, mat] = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
             if ( pbrInst == nullptr )
@@ -843,9 +846,14 @@ namespace Desert::Graphic::System
             if ( !state )
                 continue; // refused once, by name, inside TranslucentDrawFor
             draws.push_back( { &data, state, AppendRow( rows[state], EffectiveRow( mat, pbrInst ) ) } );
+            const Common::Math::AABB world = Geometry::TransformBounds( data.Transform, localBounds );
+            sortKeys.push_back( { .WorldBoundsCenter = ( world.Min + world.Max ) * 0.5f,
+                                  .Priority          = data.TranslucencySortPriority } );
         }
         if ( draws.empty() )
             return;
+        // Blending is order-dependent: far glass first, near glass over it (see TranslucentSortOrder.hpp).
+        const std::vector<uint32_t> drawOrder = TranslucentSortOrder( camera->GetPosition(), sortKeys );
 
         auto& renderer = Renderer::GetInstance();
 
@@ -861,15 +869,16 @@ namespace Desert::Graphic::System
                     tex->SetImage( sceneColor.get() );
         }
 
-        // --- Draw over the composited scene (LOAD + blend), in queue order, each with its own pipeline ---
+        // --- Draw over the composited scene (LOAD + blend), in sort order, each with its own pipeline ---
         RenderPassSpecification rpSpec;
         rpSpec.TargetFramebuffer = target;
         rpSpec.DebugName         = "TranslucencyPass";
         auto rp                  = RenderPass::Create( rpSpec );
 
         renderer.BeginRenderPass( rp.get(), false ); // LOAD: composite over the opaque scene
-        for ( const auto& draw : draws )
+        for ( const uint32_t index : drawOrder )
         {
+            const Draw& draw     = draws[index];
             const auto* obj      = draw.Object;
             auto&       material = *draw.State->Material;
             material.SetPushMatrix( obj->Transform );
@@ -3077,6 +3086,7 @@ namespace Desert::Graphic::System
                 staticData.LODBias         = data.LODBias;
                 staticData.CastShadows     = data.CastShadows;
                 staticData.ReceiveShadows  = data.ReceiveShadows;
+                staticData.TranslucencySortPriority = data.TranslucencySortPriority;
 
                 m_StaticQueue.push_back( staticData );
                 break;

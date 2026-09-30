@@ -149,6 +149,10 @@ namespace Desert::ECS
         int  LODBias        = 0;    // shifts the AUTO-picked LOD (+coarser, -finer); ignored when ForcedLOD >= 0
         bool CastShadows    = true; // false = skipped by the shadow (depth) passes
         bool ReceiveShadows = true; // false = sun shadows are not applied to this mesh (forward path)
+        // Translucency pass order override (UE's TranslucencySortPriority): a LOWER value draws first, i.e.
+        // behind a higher one whatever their distances; within one value the pass sorts back to front
+        // (Graphic::System::TranslucentSortOrder). Only meaningful for a Translucent-blend material.
+        int TranslucencySortPriority = 0;
         // Per-submesh visibility: bit i set = submesh i is HIDDEN (skipped at draw). 0 = all visible. Up to
         // 64 submeshes; edited per Element in the Materials panel.
         uint64_t HiddenSubmeshes = 0;

@@ -1239,6 +1239,8 @@ namespace Desert::Core::Serialize
                     meshSer.CastShadows = smc.CastShadows;
                 if ( !smc.ReceiveShadows )
                     meshSer.ReceiveShadows = smc.ReceiveShadows;
+                if ( smc.TranslucencySortPriority != 0 )
+                    meshSer.TranslucencySortPriority = smc.TranslucencySortPriority;
                 if ( smc.HiddenSubmeshes != 0 )
                     meshSer.HiddenSubmeshes = smc.HiddenSubmeshes;
 
@@ -1284,6 +1286,8 @@ namespace Desert::Core::Serialize
                 smc.LODBias         = meshData.LODBias.value_or( smc.LODBias );
                 smc.CastShadows     = meshData.CastShadows.value_or( smc.CastShadows );
                 smc.ReceiveShadows  = meshData.ReceiveShadows.value_or( smc.ReceiveShadows );
+                smc.TranslucencySortPriority =
+                     meshData.TranslucencySortPriority.value_or( smc.TranslucencySortPriority );
                 smc.HiddenSubmeshes = meshData.HiddenSubmeshes.value_or( smc.HiddenSubmeshes );
 
                 if ( meshData.EditMesh )

@@ -354,7 +354,7 @@ namespace Desert::ECS
                              renderCommandBuffer.Emplace<Graphic::Render::DrawStaticMeshCommand>(
                                   targetMesh, mesh.RuntimeSlots, worldTransform, outlined, pbrHidden,
                                   mesh.ForcedLOD, mesh.LODBias, shadowRoute == Rules::MeshShadowCaster::PbrDraw,
-                                  mesh.ReceiveShadows );
+                                  mesh.ReceiveShadows, mesh.TranslucencySortPriority );
                      } );
             }
 

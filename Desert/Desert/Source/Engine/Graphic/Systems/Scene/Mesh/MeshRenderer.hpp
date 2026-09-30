@@ -57,6 +57,7 @@ namespace Desert::Graphic::System
         int      LODBias         = 0;  // shifts the auto LOD (ignored when forced)
         bool     CastShadows     = true;
         bool     ReceiveShadows  = true;
+        int      TranslucencySortPriority = 0; // lower draws first (translucency pass)
     };
 
     class MeshRenderer final : public RenderSystem
@@ -75,6 +76,7 @@ namespace Desert::Graphic::System
             int                    LODBias         = 0;  // shifts the auto LOD (ignored when forced)
             bool                   CastShadows     = true;
             bool                   ReceiveShadows  = true;
+            int                    TranslucencySortPriority = 0; // lower draws first (TranslucentSortOrder)
         };
 
         struct SkinnedMeshRenderData
@@ -175,7 +177,8 @@ namespace Desert::Graphic::System
         // Called by SceneRenderer when RenderPath == Deferred, before the deferred lighting pass.
         void RenderGBufferManual();
         // Translucency pass: draws the meshes whose material's template is BlendMode Translucent over the
-        // composited scene, each with its OWN template's cell/pipeline (TranslucentDrawFor), in queue order.
+        // composited scene, each with its OWN template's cell/pipeline (TranslucentDrawFor), in the order of
+        // TranslucentSortOrder: priority, then back to front from the frame's camera, stable on ties.
         // sceneColor = a snapshot of the opaque scene the translucent cells sample for refraction (may be null).
         void RenderGlassManual( const std::shared_ptr<Image2D>& sceneColor );
         // Deferred path: draws the generic (custom-shader) meshes FORWARD over the deferred

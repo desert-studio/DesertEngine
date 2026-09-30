@@ -25,14 +25,16 @@ namespace Desert::Graphic::Render
         int                                            LODBias         = 0;  // shifts the auto LOD (ignored when forced)
         bool                                           CastShadows     = true;
         bool                                           ReceiveShadows  = true;
+        int                                            TranslucencySortPriority = 0; // lower draws first
 
         DrawStaticMeshCommand( Desert::Mesh* mesh, Graphic::MaterialSlotBindingPtr materialSlots,
                                const glm::mat4& transform, bool outlined = false, uint64_t hiddenSubmeshes = 0,
                                int forcedLOD = -1, int lodBias = 0, bool castShadows = true,
-                               bool receiveShadows = true )
+                               bool receiveShadows = true, int translucencySortPriority = 0 )
              : Mesh( mesh ), MaterialSlots( std::move( materialSlots ) ), Transform( transform ),
                Outlined( outlined ), HiddenSubmeshes( hiddenSubmeshes ), ForcedLOD( forcedLOD ),
-               LODBias( lodBias ), CastShadows( castShadows ), ReceiveShadows( receiveShadows )
+               LODBias( lodBias ), CastShadows( castShadows ), ReceiveShadows( receiveShadows ),
+               TranslucencySortPriority( translucencySortPriority )
         {
         }
 
@@ -40,12 +42,13 @@ namespace Desert::Graphic::Render
         {
             if ( MaterialSlots )
                 renderer.SubmitMesh( Mesh, MaterialSlots, Transform,
-                                     { .Outlined        = Outlined,
-                                       .HiddenSubmeshes = HiddenSubmeshes,
-                                       .ForcedLOD       = ForcedLOD,
-                                       .LODBias         = LODBias,
-                                       .CastShadows     = CastShadows,
-                                       .ReceiveShadows  = ReceiveShadows } );
+                                     { .Outlined                 = Outlined,
+                                       .HiddenSubmeshes          = HiddenSubmeshes,
+                                       .ForcedLOD                = ForcedLOD,
+                                       .LODBias                  = LODBias,
+                                       .CastShadows              = CastShadows,
+                                       .ReceiveShadows           = ReceiveShadows,
+                                       .TranslucencySortPriority = TranslucencySortPriority } );
         }
     };
 

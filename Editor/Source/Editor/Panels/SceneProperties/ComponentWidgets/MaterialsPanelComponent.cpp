@@ -239,6 +239,13 @@ namespace Desert::Editor
             ImGui::Checkbox( "##recvshadows", &materialComp.ReceiveShadows );
             Utils::ImGuiUtilities::EndPropertyRow();
 
+            Utils::ImGuiUtilities::BeginPropertyRow(
+                 "Translucency Sort Priority",
+                 "Translucent materials only: a lower value draws first (behind a higher one) regardless of "
+                 "distance; equal values sort back to front from the camera" );
+            ImGui::DragInt( "##translucencysort", &materialComp.TranslucencySortPriority, 0.1f );
+            Utils::ImGuiUtilities::EndPropertyRow();
+
             const size_t subCount = lodMesh ? lodMesh->GetSubmeshes().size() : 0;
             if ( subCount > 1 )
             {
