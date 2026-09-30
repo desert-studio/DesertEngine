@@ -65,6 +65,9 @@ namespace
     // IS are the same symbol and cannot drift apart.
     constexpr float kPrimitiveExtent = Common::Units::UnitsPerMetre;
 
+    // The default orbit every asset has when it states none (Assets::ThumbnailInfo): straight on.
+    constexpr Desert::Assets::ThumbnailOrbit kStraightOn{};
+
     struct TestCamera
     {
         const char* Name;
@@ -188,7 +191,8 @@ TEST( ThumbnailFraming, SubjectIsInsideTheFrustumForEveryCamera )
     for ( const TestCamera& cam : CameraFamily() )
     {
         SCOPED_TRACE( cam.Name );
-        const auto placement = TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, glm::vec3( 0.0f ) );
+        const auto placement =
+             TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, glm::vec3( 0.0f ), kStraightOn );
 
         const glm::vec3 worldCenter = placement.Translation; // center == 0
         EXPECT_LT( AngleOffViewAxis( cam, worldCenter ), HalfFovDegrees( cam ) );
@@ -208,7 +212,8 @@ TEST( ThumbnailFraming, WholeSubjectFitsTheFrameForEveryCamera )
     for ( const TestCamera& cam : CameraFamily() )
     {
         SCOPED_TRACE( cam.Name );
-        const auto placement = TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, glm::vec3( 0.0f ) );
+        const auto placement =
+             TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, glm::vec3( 0.0f ), kStraightOn );
 
         const glm::mat4 invView = glm::inverse( cam.View );
         const glm::vec3 right   = glm::normalize( glm::vec3( invView[0] ) );
@@ -238,7 +243,8 @@ TEST( ThumbnailFraming, SubjectLandsAtFrameCentreForEveryCamera )
         SCOPED_TRACE( cam.Name );
         for ( const glm::vec3& center : { glm::vec3( 0.0f ), glm::vec3( 37.0f, -12.0f, 400.0f ) } )
         {
-            const auto placement = TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, center );
+            const auto placement =
+                 TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, center, kStraightOn );
 
             // The subject's own centre after placement (uniform scale + translation applied to `center`).
             const glm::vec3 worldCenter = placement.Scale * center + placement.Translation;
@@ -259,7 +265,8 @@ TEST( ThumbnailFraming, SubjectFillsTheFrameForEveryCamera )
     for ( const TestCamera& cam : CameraFamily() )
     {
         SCOPED_TRACE( cam.Name );
-        const auto placement = TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, glm::vec3( 0.0f ) );
+        const auto placement =
+             TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, glm::vec3( 0.0f ), kStraightOn );
 
         const glm::mat4 invView = glm::inverse( cam.View );
         const glm::vec3 right   = glm::normalize( glm::vec3( invView[0] ) );
@@ -283,7 +290,7 @@ TEST( ThumbnailFraming, DegenerateExtentStaysFinite )
 {
     const TestCamera cam = MigratedEditorCamera();
 
-    const auto placement = TF::PlaceInView( cam.View, cam.Projection, 0.0f, glm::vec3( 0.0f ) );
+    const auto placement = TF::PlaceInView( cam.View, cam.Projection, 0.0f, glm::vec3( 0.0f ), kStraightOn );
 
     EXPECT_FLOAT_EQ( placement.Scale, 1.0f );
     EXPECT_TRUE( std::isfinite( placement.Translation.x ) );
@@ -332,6 +339,71 @@ TEST( ThumbnailFraming, SkinnedMeshIsFramedByItsPosedVertices )
     EXPECT_FLOAT_EQ( frame.Center.y, 4000.0f );
 
     EXPECT_FALSE( Desert::Geometry::MeasurePosedVertices( std::vector<StubSkinnedVertex>{}, skin ).Valid() );
+}
+
+// THM1l: THE ORBIT IS THE ASSET'S (UE USceneThumbnailInfo), and the framing rule is where it takes effect.
+// The default orbit must be the picture every thumbnail had before the info existed: no turn at all.
+TEST( ThumbnailFraming, DefaultOrbitLeavesTheSubjectUnturned )
+{
+    for ( const TestCamera& cam : CameraFamily() )
+    {
+        SCOPED_TRACE( cam.Name );
+        const auto placement =
+             TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, glm::vec3( 0.0f ), kStraightOn );
+        EXPECT_NEAR( std::abs( placement.Rotation.w ), 1.0f, 1e-6f );
+    }
+}
+
+// The RELATION that makes the orbit a camera orbit: the side of the subject that faces the camera. Straight on
+// it is the subject's local -forward; orbited by Yaw 180 the camera sees the OTHER side (+forward), and by Yaw
+// 90 a side at right angles. A renderer that dropped the yaw would face the camera with -forward every time.
+TEST( ThumbnailFraming, OrbitYawShowsTheSubjectFromAnotherSide )
+{
+    for ( const TestCamera& cam : CameraFamily() )
+    {
+        SCOPED_TRACE( cam.Name );
+        const glm::mat4 invView = glm::inverse( cam.View );
+        const glm::vec3 forward = -glm::normalize( glm::vec3( invView[2] ) );
+        auto            facing  = [&]( float yaw, float pitch )
+        {
+            const auto placement = TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, glm::vec3( 0.0f ),
+                                                    Desert::Assets::ThumbnailOrbit{ pitch, yaw, 0.0f } );
+            // The subject-local direction that ends up pointing at the camera.
+            return glm::inverse( placement.Rotation ) * -forward;
+        };
+        EXPECT_NEAR( glm::dot( facing( 0.0f, 0.0f ), -forward ), 1.0f, 1e-4f );
+        EXPECT_NEAR( glm::dot( facing( 180.0f, 0.0f ), forward ), 1.0f, 1e-4f );
+        EXPECT_NEAR( glm::dot( facing( 90.0f, 0.0f ), forward ), 0.0f, 1e-4f );
+        // Pitch: seen from above, the subject's top (camera up) turns toward the camera.
+        const glm::vec3 up = glm::normalize( glm::vec3( invView[1] ) );
+        EXPECT_GT( glm::dot( facing( 0.0f, 45.0f ), up ), 0.5f );
+    }
+}
+
+// Orbiting turns the subject about ITS OWN centre: an off-origin centre still lands at the frame centre.
+TEST( ThumbnailFraming, OrbitedSubjectStaysAtFrameCentre )
+{
+    const Desert::Assets::ThumbnailOrbit orbit{ 30.0f, 120.0f, 0.0f };
+    for ( const TestCamera& cam : CameraFamily() )
+    {
+        SCOPED_TRACE( cam.Name );
+        const glm::vec3 center( 37.0f, -12.0f, 400.0f );
+        const auto      placement   = TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, center, orbit );
+        const glm::vec3 worldCenter = placement.Rotation * ( placement.Scale * center ) + placement.Translation;
+        const glm::vec2 ndc         = ProjectToNdc( cam, worldCenter );
+        EXPECT_NEAR( ndc.x, 0.0f, 0.02f );
+        EXPECT_NEAR( ndc.y, 0.0f, 0.02f );
+    }
+}
+
+// Zoom backs the camera off as a fraction of the fitted distance: Zoom 1 = twice as far = half the size.
+TEST( ThumbnailFraming, OrbitZoomScalesTheFit )
+{
+    const TestCamera cam = MigratedEditorCamera();
+    const auto fit = TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, glm::vec3( 0.0f ), kStraightOn );
+    const auto away = TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, glm::vec3( 0.0f ),
+                                       Desert::Assets::ThumbnailOrbit{ 0.0f, 0.0f, 1.0f } );
+    EXPECT_NEAR( away.Scale, fit.Scale * 0.5f, fit.Scale * 1e-4f );
 }
 
 int main( int argc, char** argv )

@@ -1,3 +1,5 @@
+#include <Engine/Assets/MaterialFormat.hpp>
+#include <iterator>
 // THM1i: one static mesh per source node (UE's Combine Meshes OFF), Combine Meshes ON keeps the one mesh.
 //
 // The assimp half (which node placed which submesh, ImportResult::SubmeshNodes) is not linkable here; the
@@ -239,4 +241,126 @@ TEST( NodeMeshSplit, ASplitImportWritesNoCombinedMesh )
     const auto after = Ser::ReadImportRecord( project.Source );
     ASSERT_TRUE( after.IsSuccess() && after.GetValue() );
     EXPECT_FALSE( after.GetValue()->Nodes.has_value() );
+}
+
+// THE ORBIT'S ONE HOME IS THE IMPORT RECORD (THM1l-c2; UE: UStaticMesh::ThumbnailInfo in the package): each mesh
+// the import writes reads its own entry, the entry survives a re-import that rewrites every node mesh, and a
+// stated default is refused so one picture has one spelling.
+TEST( NodeMeshSplit, EachImportedMeshReadsItsOrbitFromTheRecord )
+{
+    const GrassProject project;
+    const auto [data, nodes] = project.Import( { "TuftA", "TuftB", "TuftC" } );
+    const fs::path material  = Editor::MaterialAdoption::MaterialAssetPath( project.Source, "GrassAtlas" );
+    fs::create_directories( material.parent_path() );
+    std::ofstream( material ) << "{}";
+    auto split = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source );
+    ASSERT_TRUE( split.IsSuccess() ) << split.GetError();
+    ASSERT_EQ( split.GetValue().size(), 3u );
+    const fs::path tuftB = split.GetValue()[1].second;
+
+    const auto before = Editor::MeshThumbnailOrbit( tuftB );
+    ASSERT_TRUE( before.IsSuccess() ) << before.GetError();
+    EXPECT_EQ( before.GetValue(), Assets::ThumbnailOrbit{} ) << "no entry = the default orbit";
+
+    const auto record = Ser::ReadImportRecord( project.Source );
+    ASSERT_TRUE( record.IsSuccess() && record.GetValue() );
+    Ser::ImportRecordData        stated = *record.GetValue();
+    const Assets::ThumbnailOrbit yawed{ 10.0f, 180.0f, 0.25f };
+    stated.Thumbnail = std::map<std::string, Assets::ThumbnailOrbitRecord>{
+         { tuftB.filename().string(), Assets::ToRecord( yawed ) },
+         { project.Source.filename().string(), Assets::ThumbnailOrbitRecord{ .Yaw = 90.0f } } };
+    const fs::path recordPath = Common::Content::ImportRecordPathFor( project.Source );
+    std::ofstream( recordPath, std::ios::binary | std::ios::trunc ) << Ser::WriteImportRecord( stated );
+
+    const auto node = Editor::MeshThumbnailOrbit( tuftB );
+    ASSERT_TRUE( node.IsSuccess() ) << node.GetError();
+    EXPECT_EQ( node.GetValue(), yawed ) << "the node mesh reads its own key";
+    const auto other = Editor::MeshThumbnailOrbit( split.GetValue()[0].second );
+    ASSERT_TRUE( other.IsSuccess() ) << other.GetError();
+    EXPECT_EQ( other.GetValue(), Assets::ThumbnailOrbit{} ) << "a sibling node does not read TuftB's orbit";
+    const auto combined = Editor::MeshThumbnailOrbit( project.Source );
+    ASSERT_TRUE( combined.IsSuccess() ) << combined.GetError();
+    EXPECT_EQ( combined.GetValue().Yaw, 90.0f ) << "the combined mesh is keyed by the source's own name";
+
+    // A re-import rewrites every node .stmesh; the record, and so the orbit, is kept.
+    auto again = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source );
+    ASSERT_TRUE( again.IsSuccess() ) << again.GetError();
+    const auto kept = Editor::MeshThumbnailOrbit( tuftB );
+    ASSERT_TRUE( kept.IsSuccess() ) << kept.GetError();
+    EXPECT_EQ( kept.GetValue(), yawed ) << "a re-import lost the orbit";
+
+    // A stated default is refused by name.
+    stated.Thumbnail->at( tuftB.filename().string() ) = Assets::ThumbnailOrbitRecord{ .Pitch = 0.0f };
+    const auto refused                                = Ser::ParseImportRecord( Ser::WriteImportRecord( stated ) );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "default" ), std::string::npos ) << refused.GetError();
+}
+
+// EDIT THUMBNAIL WRITES THE RECORD AND THE PICTURE GOES STALE (THM1l-c3): SetMeshThumbnailOrbit is the one writer,
+// MeshThumbnailFreshness the hash a mesh picture is judged against; the default orbit removes the entry and
+// gives the bytes' own hash back.
+TEST( NodeMeshSplit, AnEditedOrbitIsWrittenToTheRecordAndStalesThePicture )
+{
+    const GrassProject project;
+    const auto [data, nodes] = project.Import( { "TuftA", "TuftB", "TuftC" } );
+    const fs::path material  = Editor::MaterialAdoption::MaterialAssetPath( project.Source, "GrassAtlas" );
+    fs::create_directories( material.parent_path() );
+    std::ofstream( material ) << "{}";
+    auto split = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source );
+    ASSERT_TRUE( split.IsSuccess() ) << split.GetError();
+    const fs::path tuftB = split.GetValue()[1].second;
+
+    const auto untouched = Editor::MeshThumbnailFreshness( tuftB );
+    ASSERT_TRUE( untouched.has_value() );
+
+    const Assets::ThumbnailOrbit yawed{ 10.0f, 135.0f, 0.5f };
+    const auto                   written = Editor::SetMeshThumbnailOrbit( tuftB, yawed );
+    ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
+    const auto read = Editor::MeshThumbnailOrbit( tuftB );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    EXPECT_EQ( read.GetValue(), yawed );
+    const auto edited = Editor::MeshThumbnailFreshness( tuftB );
+    ASSERT_TRUE( edited.has_value() );
+    EXPECT_NE( *edited, *untouched ) << "an edit of the orbit left the picture fresh";
+
+    const auto reset = Editor::SetMeshThumbnailOrbit( tuftB, Assets::ThumbnailOrbit{} );
+    ASSERT_TRUE( reset.IsSuccess() ) << reset.GetError();
+    const auto record = Ser::ReadImportRecord( project.Source );
+    ASSERT_TRUE( record.IsSuccess() && record.GetValue() );
+    EXPECT_FALSE( record.GetValue()->Thumbnail.has_value() ) << "the default is written as no key";
+    EXPECT_EQ( Editor::MeshThumbnailFreshness( tuftB ), untouched );
+
+    EXPECT_FALSE(
+         Editor::SetMeshThumbnailOrbit( tuftB, Assets::ThumbnailOrbit{ 0.0f, 0.0f, -1.0f } ).IsSuccess() );
+}
+
+// EDIT THUMBNAIL'S WRITER FOR A MATERIAL (THM1l-c3): the .demat's Thumbnail replaced in place, the default info
+// written as no key.
+TEST( MaterialThumbnailEdit, SetMaterialFileThumbnailWritesTheInfoAndTheDefaultAsNoKey )
+{
+    const auto dir = std::filesystem::temp_directory_path() / "desert_material_thumbnail_edit";
+    std::filesystem::create_directories( dir );
+    const auto file = dir / "edit.demat";
+    ASSERT_TRUE( Desert::Assets::WriteMaterialFile( file, Desert::Assets::MaterialData{} ) );
+
+    Desert::Assets::ThumbnailInfo info;
+    info.Primitive = Desert::Assets::ThumbnailPrimitive::Cylinder;
+    info.Orbit     = Desert::Assets::ThumbnailOrbit{ 20.0f, -45.0f, 0.5f };
+    const auto set = Desert::Assets::SetMaterialFileThumbnail( file, info );
+    ASSERT_TRUE( set ) << set.GetError();
+    const auto readBack = [&file]
+    {
+        std::ifstream     in( file, std::ios::binary );
+        const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+        return Desert::Assets::ParseMaterialJson( file.generic_string(), text );
+    };
+    auto back = readBack();
+    ASSERT_TRUE( back ) << back.GetError();
+    EXPECT_EQ( back.GetValue().ThumbnailOrDefault(), info );
+
+    ASSERT_TRUE( Desert::Assets::SetMaterialFileThumbnail( file, Desert::Assets::ThumbnailInfo{} ) );
+    back = readBack();
+    ASSERT_TRUE( back ) << back.GetError();
+    EXPECT_FALSE( back.GetValue().Thumbnail.has_value() );
+    std::filesystem::remove_all( dir );
 }

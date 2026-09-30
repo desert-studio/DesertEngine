@@ -131,6 +131,7 @@
 #include "Editor/Panels/Debug/ShaderLibraryPanel.hpp"
 #include "Editor/Panels/Debug/UIDebuggerPanel.hpp"
 #include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
+#include "Editor/Widgets/ThumbnailEdit.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
 #include "Editor/Panels/ViewportPanel/Tools/ActiveToolBar.hpp"
 #include "Editor/Panels/Scalability/ScalabilityPanel.hpp"
@@ -4603,6 +4604,18 @@ namespace Desert::Editor
                 commands.push_back( { "Assets", "Select asset " + path,
                                       std::bind_front( &FileExplorerPanel::SelectEntry,
                                                        std::to_address( m_FileExplorerPanel ), path ) } );
+            }
+            // UE "Edit Thumbnail" in steps, for the selected models and materials (the tile's drag is the free
+            // form). The file name addresses the entry: the selection lives in one folder, so it is unique.
+            for ( const std::string& path : m_FileExplorerPanel->SelectedThumbnailSubjects() )
+            {
+                const std::string file = std::filesystem::path( path ).filename().string();
+                for ( const Editor::ThumbnailEdit::OrbitStep step : Editor::ThumbnailEdit::kOrbitSteps )
+                    commands.push_back( { "Assets",
+                                          std::format( "Edit Thumbnail: {} {}", file,
+                                                       Editor::ThumbnailEdit::OrbitStepName( step ) ),
+                                          std::bind_front( &Editor::ThumbnailEdit::EditOrbitStep,
+                                                           std::filesystem::path( path ), step ) } );
             }
         }
 

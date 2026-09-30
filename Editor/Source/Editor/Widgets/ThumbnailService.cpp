@@ -1,5 +1,6 @@
 #include "ThumbnailService.hpp"
 
+#include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Widgets/CloudThumbnail.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
@@ -44,17 +45,23 @@ namespace Desert::Editor
     }
 
     bool ThumbnailService::ShouldQueue( const std::string& identity, const std::string& png,
-                                        const std::string& source )
+                                        std::optional<uint64_t> current )
     {
         if ( identity.empty() )
             return false;
         if ( m_Failed.count( identity ) || m_Queued.count( identity ) )
             return false;
 
-        return NeedsCapture( png, source );
+        return NeedsCapture( png, current );
     }
 
-    bool ThumbnailService::NeedsCapture( const std::string& png, const std::string& source )
+    std::optional<uint64_t> ThumbnailService::SourceHash( Kind type, const std::string& source )
+    {
+        // A posed skinned mesh is a mesh picture: judged by its bytes AND the orbit its import record states.
+        return type == Kind::Material ? ThumbnailFreshness::ContentHash( source ) : MeshThumbnailFreshness( source );
+    }
+
+    bool ThumbnailService::NeedsCapture( const std::string& png, std::optional<uint64_t> current )
     {
         // THROUGH THE SHARED RULE, and this is the whole of M8's defect. This used to be
         // `exists(png) -> nothing to do`, with a comment saying staleness was "the caller's call via
@@ -66,7 +73,7 @@ namespace Desert::Editor
         // the Details slot showing a flat colour swatch, across a restart, with the PNG's modification time
         // unchanged and no capture ever logged. Invalidate() cannot rescue it either — it clears the two
         // process-local sets and the file it would have to look past is still there.
-        return ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( png, source ) ) ==
+        return ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( png, current ) ) ==
                ThumbnailFreshness::Verdict::Capture;
     }
 
@@ -79,7 +86,7 @@ namespace Desert::Editor
         // that never drains and a thumbnail that never refreshes.
         const std::string identity = ThumbnailKey::Identity( assetPath );
         const std::string png      = ThumbnailKey::DiskPath( assetPath );
-        if ( ShouldQueue( identity, png, assetPath ) )
+        if ( ShouldQueue( identity, png, ThumbnailFreshness::ContentHash( assetPath ) ) )
         {
             m_Queue.push_back( { Kind::Material, material, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
                                  identity, assetPath, png, how } );
@@ -94,12 +101,13 @@ namespace Desert::Editor
     {
         const std::string identity = ThumbnailKey::Identity( assetPath );
         const std::string png      = ThumbnailKey::DiskPath( assetPath );
-        if ( ShouldQueue( identity, png, assetPath ) )
+        if ( ShouldQueue( identity, png, ThumbnailFreshness::ContentHash( assetPath ) ) )
         {
             Request req{ Kind::Material, material.Handle, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
                          identity,       assetPath,       png,
                          material.How };
             req.PreviewMesh = material.PreviewMesh;
+            req.Thumbnail   = material.Thumbnail;
             m_Queue.push_back( req );
             m_Queued.insert( identity );
             HoldSubjects();
@@ -116,7 +124,7 @@ namespace Desert::Editor
         std::string       png      = ThumbnailKey::DiskPath( assetPath );
         if ( m_Failed.contains( identity ) )
             return {};
-        if ( !ShouldQueue( identity, png, assetPath ) )
+        if ( !ShouldQueue( identity, png, ThumbnailFreshness::ContentHash( assetPath ) ) )
             return png;
         const auto resolved = ThumbnailSubject::ResolveLoadedMaterial( manager, asset, assetPath );
         if ( !resolved )
@@ -144,6 +152,7 @@ namespace Desert::Editor
                      ThumbnailKey::DiskPath( assetPath ),
                      material.How };
         req.PreviewMesh = material.PreviewMesh;
+        req.Thumbnail   = material.Thumbnail;
         Warm( std::move( req ) );
     }
 
@@ -151,13 +160,17 @@ namespace Desert::Editor
     {
         // Keyed and judged exactly as RequestMesh keys and judges it, so the browser tile and the splash
         // ask for ONE picture of the cooked mesh, never two.
-        Warm( MeshRequestOf( Kind::Mesh, mesh.Handle, mesh.CookedPath, mesh.Material ) );
+        auto req = MeshRequestOf( Kind::Mesh, mesh.Handle, mesh.CookedPath, mesh.Material );
+        if ( ReadMeshOrbit( req ) )
+            Warm( std::move( req ) );
     }
 
     void ThumbnailService::WarmPose( const ThumbnailSubject::Mesh& mesh )
     {
-        Warm( MeshRequestOf( Kind::Pose, mesh.Handle, mesh.CookedPath,
-                             Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) ) );
+        auto req = MeshRequestOf( Kind::Pose, mesh.Handle, mesh.CookedPath,
+                                  Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
+        if ( ReadMeshOrbit( req ) )
+            Warm( std::move( req ) );
     }
 
     ThumbnailService::Request ThumbnailService::MeshRequestOf( Kind kind, const Assets::AssetHandle& mesh,
@@ -171,6 +184,19 @@ namespace Desert::Editor
                  ThumbnailFreshness::MeshFreshnessSource( cookedPath ).generic_string(),
                  ThumbnailKey::DiskPath( cookedPath ),
                  ThumbnailSubject::Preview::Sphere };
+    }
+
+    bool ThumbnailService::ReadMeshOrbit( Request& req )
+    {
+        const auto orbit = MeshThumbnailOrbit( req.Source );
+        if ( !orbit )
+        {
+            LOG_WARN( "[Thumbnails] no picture for '{}': {}", req.Source, orbit.GetError() );
+            m_Failed.insert( req.Identity );
+            return false;
+        }
+        req.Thumbnail.Orbit = orbit.GetValue();
+        return true;
     }
 
     void ThumbnailService::Warm( Request req )
@@ -188,7 +214,7 @@ namespace Desert::Editor
             m_SceneWarm.insert( moved.Identity );
             return;
         }
-        if ( !ShouldQueue( req.Identity, req.Png, req.Source ) )
+        if ( !ShouldQueue( req.Identity, req.Png, SourceHash( req.Type, req.Source ) ) )
             return;
         m_Queued.insert( req.Identity );
         m_SceneWarm.insert( req.Identity );
@@ -235,8 +261,10 @@ namespace Desert::Editor
     std::string ThumbnailService::EnqueueMeshLike( Request req )
     {
         std::string png = req.Png;
-        if ( ShouldQueue( req.Identity, req.Png, req.Source ) )
+        if ( ShouldQueue( req.Identity, req.Png, SourceHash( req.Type, req.Source ) ) )
         {
+            if ( !ReadMeshOrbit( req ) )
+                return {};
             m_Queued.insert( req.Identity );
             m_Queue.push_back( std::move( req ) );
             HoldSubjects();
@@ -252,7 +280,7 @@ namespace Desert::Editor
         // depend on who drew it.
         const std::string identity = ThumbnailKey::Identity( assetPath );
         const std::string png      = ThumbnailKey::DiskPath( assetPath );
-        if ( ShouldQueue( identity, png, assetPath ) )
+        if ( ShouldQueue( identity, png, ThumbnailFreshness::ContentHash( assetPath ) ) )
         {
             m_PaintQueue.push_back( { identity, assetPath, png } );
             m_Queued.insert( identity );
@@ -401,7 +429,9 @@ namespace Desert::Editor
         // Drop anything the queue no longer owes, exactly as the capture path does and for the same
         // reason: two panels can name one asset, and a request can sit here while the other one's paint
         // lands.
-        while ( !m_PaintQueue.empty() && !NeedsCapture( m_PaintQueue.front().Png, m_PaintQueue.front().Source ) )
+        while ( !m_PaintQueue.empty() &&
+                !NeedsCapture( m_PaintQueue.front().Png,
+                               ThumbnailFreshness::ContentHash( m_PaintQueue.front().Source ) ) )
         {
             m_Queued.erase( m_PaintQueue.front().Identity );
             m_PaintQueue.erase( m_PaintQueue.begin() );
@@ -435,6 +465,97 @@ namespace Desert::Editor
     void ThumbnailService::TickDiskAndDecode()
     {
         ThumbnailPrefetch::Get().Tick();
+    }
+
+    Common::BoolResultStr ThumbnailService::Dispatch( const Request& req )
+    {
+        if ( req.Type == Kind::Mesh )
+            return m_Renderer->RequestMesh( req.Handle, req.Png, req.Thumbnail.Orbit, req.Material );
+        if ( req.Type == Kind::Pose )
+            return m_Renderer->RequestPose( req.Handle, nullptr, req.Png, req.Thumbnail.Orbit ); // the bind pose
+        if ( req.How != ThumbnailSubject::Preview::Mesh )
+            return m_Renderer->RequestMaterial( req.Handle, req.Png, req.How, req.Thumbnail );
+        if ( static_cast<uint64_t>( req.PreviewMesh ) == 0 )
+            return Common::MakeError<bool>( "the material names a PreviewMesh, and this request came through "
+                                            "the form that cannot carry it — ask RequestMaterial with the "
+                                            "resolved ThumbnailSubject::Material" );
+        return m_Renderer->RequestMesh( req.PreviewMesh, req.Png, req.Thumbnail.Orbit, req.Handle );
+    }
+
+    std::string ThumbnailService::RequestPreviewMaterial( const ThumbnailSubject::Material& material,
+                                                          const std::string&                assetPath,
+                                                          const Assets::ThumbnailOrbit&     orbit )
+    {
+        const std::string identity = ThumbnailKey::Identity( assetPath );
+        const std::string png      = ThumbnailKey::PreviewPath( assetPath );
+        Request           req{ Kind::Material, material.Handle, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
+                     identity,       assetPath,       png,
+                     material.How };
+        req.PreviewMesh     = material.PreviewMesh;
+        req.Thumbnail       = material.Thumbnail;
+        req.Thumbnail.Orbit = orbit;
+        m_Preview.Put( identity, orbit, std::move( req ) );
+        return png;
+    }
+
+    std::string ThumbnailService::RequestPreviewMesh( const ThumbnailSubject::Mesh& mesh,
+                                                      const Assets::ThumbnailOrbit& orbit )
+    {
+        const std::string identity = ThumbnailKey::Identity( mesh.CookedPath );
+        const std::string png      = ThumbnailKey::PreviewPath( mesh.CookedPath );
+        Request           req{ Kind::Mesh,
+                     mesh.Handle,
+                     mesh.Material,
+                     identity,
+                     mesh.CookedPath,
+                     png,
+                     ThumbnailSubject::Preview::Sphere };
+        req.Thumbnail.Orbit = orbit;
+        m_Preview.Put( identity, orbit, std::move( req ) );
+        return png;
+    }
+
+    void ThumbnailService::EndPreview( const std::string& assetPath )
+    {
+        m_Preview.End( ThumbnailKey::Identity( assetPath ) );
+    }
+
+    bool ThumbnailService::PreviewLanded( const std::string& assetPath ) const
+    {
+        return m_Preview.LandedOrbit( ThumbnailKey::Identity( assetPath ) ).has_value();
+    }
+
+    bool ThumbnailService::TickPreview( const ThumbnailWarmup::CaptureScope scope )
+    {
+        if ( m_Preview.InFlight() )
+        {
+            if ( m_Renderer->HasPending() )
+                return true;
+            m_Preview.Land(); // written (ThumbnailCache re-decodes the rewritten file) or refused below
+            return true;
+        }
+        // A person is dragging: ahead of the background queue and its budget, never on the splash, and never
+        // into a background capture still in flight (the renderer has a single slot).
+        if ( !m_Preview.Waiting() || scope != ThumbnailWarmup::CaptureScope::Everything ||
+             m_Capture.Outstanding() || m_Renderer->HasPending() )
+            return false;
+        const auto      entry = m_Preview.Take();
+        std::error_code ec;
+        std::filesystem::create_directories( std::filesystem::path( entry->What.Png ).parent_path(), ec );
+        if ( ec )
+        {
+            LOG_WARN( "[Thumbnails] live preview of '{}': the folder of '{}' cannot be made: {}", entry->Identity,
+                      entry->What.Png, ec.message() );
+            m_Preview.Land();
+            return true;
+        }
+        if ( const auto queued = Dispatch( entry->What ); !queued )
+        {
+            LOG_WARN( "[Thumbnails] live preview of '{}' was refused by the renderer: {}", entry->Identity,
+                      queued.GetError() );
+            m_Preview.Land();
+        }
+        return true;
     }
 
     void ThumbnailService::TickCapture( const ThumbnailWarmup::CaptureScope scope )
@@ -475,13 +596,13 @@ namespace Desert::Editor
         }
 
         // Nothing to preview this session -> never pay for the renderer (it owns a full SceneRenderer).
-        if ( m_Queue.empty() && !m_Renderer )
+        if ( !CaptureOwed() && !m_Renderer )
             return;
 
         // Idle for long enough: hand the renderer slot back. Counted here rather than at the point the last
         // capture finished, because "the queue drained" and "no panel has asked for anything since" are
         // different facts and only the second one means the service is done.
-        if ( m_Renderer && m_Queue.empty() && !m_Capture.Outstanding() && !m_Renderer->HasPending() )
+        if ( m_Renderer && !CaptureOwed() && !m_Capture.Outstanding() && !m_Renderer->HasPending() )
         {
             // The run's own report used to be here, and it moved to the top of this function when the
             // paint queue arrived — see the note there. What is left in this branch is only the thing
@@ -507,6 +628,11 @@ namespace Desert::Editor
         m_Renderer->Tick();
         m_Budget.Spend(
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - tickBegan ).count() );
+
+        // The live preview first: its capture is settled, or the newest orbit dispatched, before anything the
+        // background queue owes (Edit Thumbnail; the two never share the renderer's single slot).
+        if ( TickPreview( scope ) )
+            return;
 
         // Settle the capture that was dispatched. A CAPTURE ENDS ONLY BY THE RENDERER'S ANSWER (THM1n-3, UE's
         // UThumbnailManager renders synchronously and has no timeout): the renderer goes idle having written
@@ -559,7 +685,8 @@ namespace Desert::Editor
         // captured through another entry (two panels showing one material), or the panel that asked may
         // have called Invalidate() and asked again, leaving a duplicate behind it. Dispatching those would
         // re-render a picture that is already correct, at full cost, one after another.
-        while ( !m_Queue.empty() && !NeedsCapture( m_Queue.front().Png, m_Queue.front().Source ) )
+        while ( !m_Queue.empty() &&
+                !NeedsCapture( m_Queue.front().Png, SourceHash( m_Queue.front().Type, m_Queue.front().Source ) ) )
         {
             m_Queued.erase( m_Queue.front().Identity );
             m_Queue.erase( m_Queue.begin() );
@@ -578,20 +705,7 @@ namespace Desert::Editor
         // whose geometry is not built, whose capture would have written a photograph of empty sky and called it
         // the asset. A MATERIAL ON ITS PREVIEW MESH IS A MESH CAPTURE WEARING THAT MATERIAL: the mesh branch
         // already frames by the mesh's bounds and puts one material on every slot, which is the whole picture.
-        const auto queued = [&]() -> Common::BoolResultStr
-        {
-            if ( req.Type == Kind::Mesh )
-                return m_Renderer->RequestMesh( req.Handle, req.Png, req.Material );
-            if ( req.Type == Kind::Pose )
-                return m_Renderer->RequestPose( req.Handle, nullptr, req.Png ); // the bind pose
-            if ( req.How != ThumbnailSubject::Preview::Mesh )
-                return m_Renderer->RequestMaterial( req.Handle, req.Png, req.How );
-            if ( static_cast<uint64_t>( req.PreviewMesh ) == 0 )
-                return Common::MakeError<bool>( "the material names a PreviewMesh, and this request came through "
-                                                "the form that cannot carry it — ask RequestMaterial with the "
-                                                "resolved ThumbnailSubject::Material" );
-            return m_Renderer->RequestMesh( req.PreviewMesh, req.Png, req.Handle );
-        }();
+        const Common::BoolResultStr queued = Dispatch( req );
         if ( !queued.IsSuccess() )
         {
             // A REFUSAL IS PERMANENT ONLY IF IT IS ABOUT THE ASSET. The renderer says no for two kinds of
@@ -617,7 +731,7 @@ namespace Desert::Editor
             return;
         }
 
-        m_Capture.Begin( req.Identity, req.Png, req.Source );
+        m_Capture.Begin( req.Identity, req.Png, SourceHash( req.Type, req.Source ) );
         if ( !m_RunBegan )
             m_RunBegan = std::chrono::steady_clock::now();
     }

@@ -59,9 +59,10 @@ namespace Desert::Editor
          * express the third picture, so every Volume-domain material in the project was queued as a mesh
          * draw and photographed as an empty sphere.
          */
-        [[nodiscard]] Common::BoolResultStr RequestMaterial( const Assets::AssetHandle& materialHandle,
-                                                             const std::string&         outPng,
-                                                             ThumbnailSubject::Preview  how );
+        [[nodiscard]] Common::BoolResultStr RequestMaterial( const Assets::AssetHandle&   materialHandle,
+                                                             const std::string&           outPng,
+                                                             ThumbnailSubject::Preview    how,
+                                                             const Assets::ThumbnailInfo& thumbnail );
 
         /**
          * @brief Queue a mesh, auto-framed by its bounds, to outPng. If `material` is non-null it is applied
@@ -81,15 +82,18 @@ namespace Desert::Editor
          */
         [[nodiscard]] Common::BoolResultStr
         RequestMesh( const Assets::AssetHandle& meshHandle, const std::string& outPng,
-                     const Assets::AssetHandle& material = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
+                     const Assets::ThumbnailOrbit& orbit,
+                     const Assets::AssetHandle&    material = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
 
         /// A SKINNED mesh posed (THM1n-6; UE: USkeletalMesh's thumbnail is the reference pose, UAnimSequence's
         /// the clip on its preview mesh). No @p clip -> the bind pose; a clip -> its middle frame. The same
         /// refusals as RequestMesh, plus one: a mesh that is not skinned has no skeleton to pose. The pose is
         /// built at staging as PreviewViewport builds it (SkinnedMeshComponent + AnimationComponent + Animator).
+        /// @p orbit is the mesh's own (its import record's), as RequestMesh takes it.
         [[nodiscard]] Common::BoolResultStr RequestPose( const Assets::AssetHandle&            meshHandle,
                                                          Assets::Asset<Assets::AnimationAsset> clip,
-                                                         const std::string&                    outPng );
+                                                         const std::string&                    outPng,
+                                                         const Assets::ThumbnailOrbit&         orbit );
 
         // Is a capture in flight? Gates requests to one at a time.
         // Pending until the picture is ON DISK: the GPU copy and the worker's encode are part of the capture.
@@ -189,6 +193,9 @@ namespace Desert::Editor
         Assets::Asset<Assets::AnimationAsset> m_PendingClip;
         // How a MATERIAL capture is drawn. Meaningless unless m_PendingSubject is Material.
         ThumbnailSubject::Preview m_PendingPreview = ThumbnailSubject::Preview::Sphere;
+        // THE ASSET'S THUMBNAIL INFO for the pending capture (UE: the renderer reads only UThumbnailInfo): the
+        // primitive a material is drawn on and the orbit FitTarget frames from. Set by both Request* entries.
+        Assets::ThumbnailInfo m_PendingThumbnail;
         int                 m_Phase = 0; // 0 = idle, else = remaining render frames (capture on the last)
 
         // THE CAPTURE AFTER THE LAST RENDER FRAME, off the frame (TH3). The copy is submitted and polled by

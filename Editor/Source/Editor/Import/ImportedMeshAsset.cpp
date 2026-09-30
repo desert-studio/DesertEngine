@@ -10,6 +10,10 @@
 #include <Common/Core/Logger.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Geometry/EditMeshBridge.hpp>
+#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <array>
+#include <mutex>
+#include <unordered_map>
 
 #include <algorithm>
 #include <cctype>
@@ -256,6 +260,110 @@ namespace Desert::Editor
     {
         std::error_code ec;
         return std::filesystem::exists( cooked, ec ) || ImportedMeshAssetIsFresh( source );
+    }
+
+    Common::ResultStr<std::optional<std::filesystem::path>>
+    MeshThumbnailHome( const std::filesystem::path& meshFile )
+    {
+        using Home = std::optional<std::filesystem::path>;
+        std::error_code ec;
+        if ( std::filesystem::is_regular_file( Common::Content::ImportRecordPathFor( meshFile ), ec ) )
+            return Common::MakeSuccess( Home{ meshFile } );
+
+        // A node mesh: `<source stem>_<node>.stmesh` beside its source. Only the records whose source stem
+        // prefixes this name can have written it; the record's own `Nodes` decides. Remembered: the browser asks
+        // per visible tile per frame, and the answer changes only when that record goes away.
+        static std::mutex                                             mutex;
+        static std::unordered_map<std::string, std::filesystem::path> found;
+        const std::string                                             key = meshFile.generic_string();
+        {
+            const std::lock_guard lock( mutex );
+            if ( const auto it = found.find( key ); it != found.end() )
+            {
+                if ( std::filesystem::is_regular_file( Common::Content::ImportRecordPathFor( it->second ), ec ) )
+                    return Common::MakeSuccess( Home{ it->second } );
+                found.erase( it );
+            }
+        }
+        const std::string stem = meshFile.stem().string();
+        for ( const auto& entry : std::filesystem::directory_iterator( meshFile.parent_path(), ec ) )
+        {
+            if ( !Common::Content::IsImportRecord( entry.path() ) )
+                continue;
+            const std::filesystem::path source = entry.path().parent_path() / entry.path().stem();
+            const std::string           prefix = source.stem().string() + "_";
+            if ( stem.size() <= prefix.size() || stem.compare( 0, prefix.size(), prefix ) != 0 )
+                continue;
+            const auto record = Ser::ReadImportRecord( source );
+            if ( !record )
+                return Common::MakeError<Home>( record.GetError() );
+            if ( !record.GetValue() || !record.GetValue()->Nodes )
+                continue;
+            for ( const std::string& node : *record.GetValue()->Nodes )
+                if ( NodeMeshAssetPath( source, node ).filename() == meshFile.filename() )
+                {
+                    const std::lock_guard lock( mutex );
+                    found[key] = source;
+                    return Common::MakeSuccess( Home{ source } );
+                }
+        }
+        return Common::MakeSuccess( Home{} );
+    }
+
+    Common::ResultStr<Assets::ThumbnailOrbit> MeshThumbnailOrbit( const std::filesystem::path& meshFile )
+    {
+        const auto home = MeshThumbnailHome( meshFile );
+        if ( !home )
+            return Common::MakeError<Assets::ThumbnailOrbit>( home.GetError() );
+        if ( !home.GetValue() )
+            return Common::MakeSuccess( Assets::ThumbnailOrbit{} );
+        return Ser::ReadImportRecordThumbnail( *home.GetValue(), meshFile.filename().string() );
+    }
+
+    Common::BoolResultStr SetMeshThumbnailOrbit( const std::filesystem::path&  meshFile,
+                                                 const Assets::ThumbnailOrbit& orbit )
+    {
+        const auto home = MeshThumbnailHome( meshFile );
+        if ( !home )
+            return Common::MakeError<bool>( home.GetError() );
+        if ( !home.GetValue() )
+            return Common::MakeFormattedError<bool>(
+                 "'{}' was written by no import, so there is no import record to state its thumbnail orbit",
+                 meshFile.string() );
+        return Ser::SetImportRecordThumbnail( *home.GetValue(), meshFile.filename().string(), orbit );
+    }
+
+    std::optional<uint64_t> MeshThumbnailFreshness( const std::filesystem::path& cooked )
+    {
+        const std::filesystem::path   meshFile = ThumbnailFreshness::MeshFreshnessSource( cooked );
+        const std::optional<uint64_t> bytes    = ThumbnailFreshness::ContentHash( meshFile );
+        if ( !bytes )
+            return std::nullopt;
+        const auto home = MeshThumbnailHome( meshFile );
+        if ( !home )
+            return std::nullopt;
+        if ( !home.GetValue() )
+            return bytes; // no record, no orbit but the default
+        const std::string name   = meshFile.filename().string();
+        const auto        record = Common::Content::ImportRecordPathFor( *home.GetValue() );
+        // The orbit's hash, memoised on the record's (size, modtime); 0 stands for "the record states the
+        // default".
+        const std::optional<uint64_t> info = ThumbnailFreshness::Detail::MemoisedAs(
+             record, record.generic_string() + "#thumbnail#" + name,
+             [&]( const std::filesystem::path& ) -> std::optional<uint64_t>
+             {
+                 const auto orbit = Ser::ReadImportRecordThumbnail( *home.GetValue(), name );
+                 if ( !orbit )
+                     return std::nullopt;
+                 if ( orbit.GetValue() == Assets::ThumbnailOrbit{} )
+                     return uint64_t{ 0 };
+                 const std::array<float, 3> fields{ orbit.GetValue().Pitch, orbit.GetValue().Yaw,
+                                                    orbit.GetValue().Zoom };
+                 return Common::Utils::PakContentHash( fields.data(), sizeof( fields ) );
+             } );
+        if ( !info )
+            return std::nullopt;
+        return ThumbnailFreshness::WithInfo( bytes, *info == 0 ? std::nullopt : info );
     }
 
     Common::ResultStr<MeshAssetWrite> WriteImportedMeshAsset( const Ser::MeshAssetData&                 imported,

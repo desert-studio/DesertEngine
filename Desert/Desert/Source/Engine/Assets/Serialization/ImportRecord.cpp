@@ -26,6 +26,24 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<ImportRecordData>( "import record names no Source" );
         if ( !data.Bounds )
             return Common::MakeFormattedError<ImportRecordData>( "import record states no Bounds" );
+        if ( data.Thumbnail )
+        {
+            if ( data.Thumbnail->empty() )
+                return Common::MakeFormattedError<ImportRecordData>(
+                     "import record states an empty Thumbnail: no orbit for any mesh is written as no key" );
+            for ( const auto& [mesh, stated] : *data.Thumbnail )
+            {
+                const ThumbnailOrbit orbit = Resolve( stated );
+                if ( !IsValidThumbnailOrbit( orbit ) )
+                    return Common::MakeFormattedError<ImportRecordData>(
+                         "import record: the Thumbnail orbit of '{}' is not finite or zooms to -1 or in", mesh );
+                if ( orbit == ThumbnailOrbit{} )
+                    return Common::MakeFormattedError<ImportRecordData>(
+                         "import record states the default Thumbnail orbit for '{}': the default is written as no "
+                         "entry",
+                         mesh );
+            }
+        }
         return Common::MakeSuccess( std::move( data ) );
     }
 
@@ -129,6 +147,22 @@ namespace Desert::Assets::Serialization
         return Common::MakeSuccess( Result{ parsed.ExtractValue() } );
     }
 
+    Common::ResultStr<ThumbnailOrbit> ReadImportRecordThumbnail( const std::filesystem::path& source,
+                                                                 const std::string&           meshFile )
+    {
+        const auto data = ReadImportRecord( source );
+        if ( !data )
+            return Common::MakeError<ThumbnailOrbit>( data.GetError() );
+        if ( !data.GetValue() )
+            return Common::MakeFormattedError<ThumbnailOrbit>(
+                 "'{}' has no import record, so the orbit of '{}' has no home", source.string(), meshFile );
+        const auto& thumbnail = data.GetValue()->Thumbnail;
+        if ( !thumbnail )
+            return Common::MakeSuccess( ThumbnailOrbit{} );
+        const auto it = thumbnail->find( meshFile );
+        return Common::MakeSuccess( it == thumbnail->end() ? ThumbnailOrbit{} : Resolve( it->second ) );
+    }
+
     Common::BoolResultStr SetImportRecordNodes( const std::filesystem::path&                   source,
                                                 const std::optional<std::vector<std::string>>& nodes )
     {
@@ -143,6 +177,38 @@ namespace Desert::Assets::Serialization
         if ( out.Nodes == nodes )
             return BOOLSUCCESS;
         out.Nodes = nodes;
+        if ( auto written = Common::Content::WriteCanonicalJsonFileAtomic( record, WriteImportRecord( out ) );
+             !written )
+            return Common::MakeFormattedError<bool>( "'{}' could not be written: {}", record.string(),
+                                                     written.GetError() );
+        return BOOLSUCCESS;
+    }
+    Common::BoolResultStr SetImportRecordThumbnail( const std::filesystem::path& source,
+                                                    const std::string& meshFile, const ThumbnailOrbit& orbit )
+    {
+        if ( !IsValidThumbnailOrbit( orbit ) )
+            return Common::MakeFormattedError<bool>(
+                 "the Thumbnail orbit for '{}' is not finite or zooms to -1 or in", meshFile );
+        const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
+        auto                        data   = ReadImportRecord( source );
+        if ( !data )
+            return Common::MakeError<bool>( data.GetError() );
+        if ( !data.GetValue() )
+            return Common::MakeFormattedError<bool>( "'{}' does not exist, so the orbit of '{}' has no home",
+                                                     record.string(), meshFile );
+        ImportRecordData                            out = *data.GetValue();
+        std::map<std::string, ThumbnailOrbitRecord> entries =
+             out.Thumbnail.value_or( std::map<std::string, ThumbnailOrbitRecord>{} );
+        if ( orbit == ThumbnailOrbit{} )
+            entries.erase( meshFile );
+        else
+            entries[meshFile] = ToRecord( orbit );
+        std::optional<std::map<std::string, ThumbnailOrbitRecord>> next;
+        if ( !entries.empty() )
+            next = std::move( entries );
+        if ( out.Thumbnail == next )
+            return BOOLSUCCESS;
+        out.Thumbnail = std::move( next );
         if ( auto written = Common::Content::WriteCanonicalJsonFileAtomic( record, WriteImportRecord( out ) );
              !written )
             return Common::MakeFormattedError<bool>( "'{}' could not be written: {}", record.string(),

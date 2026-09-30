@@ -62,7 +62,8 @@ namespace Desert::Editor::ThumbnailSubject
 
         // The domain alone decides. A masked material is NOT flattened onto a card: it goes on the ball
         // like any other surface and the mesh path's alpha discard cuts it (StaticMeshPBR.shader).
-        if ( const auto how = PreviewForMaterial( domain, asset.Data().PreviewMesh.has_value() ) )
+        if ( const auto how =
+                  PreviewForMaterial( domain, asset.Data().ThumbnailOrDefault().PreviewMesh.has_value() ) )
             return Common::MakeSuccess( *how );
 
         // Skybox, Terrain, PostProcess, Unspecified. NAMED RATHER THAN DROPPED: until now these reached
@@ -145,10 +146,11 @@ namespace Desert::Editor::ThumbnailSubject
         // THE PREVIEW MESH IS RESOLVED HERE, where the manager is: named by GUID, located by its path, and
         // the record at that path must state the same GUID — a moved or replaced source is refused by
         // name rather than photographed as whatever now sits there.
-        Common::AssetHandle previewMesh{ static_cast<uint64_t>( 0 ) };
+        const Assets::ThumbnailInfo thumbnail = asset->Data().ThumbnailOrDefault();
+        Common::AssetHandle         previewMesh{ static_cast<uint64_t>( 0 ) };
         if ( route.GetValue() == Preview::Mesh )
         {
-            const auto& preview = asset->Data().PreviewMesh;
+            const auto& preview = thumbnail.PreviewMesh;
             if ( !preview.has_value() )
                 return Common::MakeFormattedError<Material>( "'{}': its preview is its mesh, and it names none",
                                                              assetPath );
@@ -193,6 +195,7 @@ namespace Desert::Editor::ThumbnailSubject
         out.Handle      = asset->GetMetadata().Handle;
         out.How         = route.GetValue();
         out.PreviewMesh = previewMesh;
+        out.Thumbnail   = thumbnail;
         return Common::MakeSuccess( out );
     }
 

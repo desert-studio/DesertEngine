@@ -156,6 +156,9 @@ namespace Desert::Editor
         // loaded, or the copy was refused. The view controls still draw; the actions that would change or
         // write a material are not offered rather than offered and doing nothing.
         void DrawToolbar( Assets::SurfaceMaterialAsset* working, bool isInstance );
+        // The Thumbnail section's Primitive choice, one function for the combo and its palette rows
+        // ("Material Thumbnail: primitive <name>"): the working copy's ThumbnailInfo with that primitive.
+        void SetThumbnailPrimitive( Assets::ThumbnailPrimitive primitive );
 
         // Unity-style shader picker inside the material. Base assets only: an instance always renders with
         // its parent chain's shader, so a picker on one would be a control with nothing behind it.

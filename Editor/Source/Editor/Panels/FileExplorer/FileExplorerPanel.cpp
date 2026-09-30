@@ -29,6 +29,7 @@
 #include <Editor/Widgets/ThumbnailKey.hpp>
 #include <Editor/Widgets/ThumbnailFoliage.hpp>
 #include <Editor/Widgets/ThumbnailPose.hpp>
+#include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Editor/Widgets/ThumbnailSubject.hpp>
@@ -61,7 +62,10 @@
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
+#include <Editor/Widgets/ThumbnailEdit.hpp>
+
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <system_error>
 
@@ -383,6 +387,7 @@ namespace Desert::Editor
     {
         if ( !directory )
             return;
+        LeaveThumbnailEdit(); // the edited tile is not in the folder being opened
 
         m_PreviousDirectory    = m_CurrentDir;
         m_CurrentDir           = directory;
@@ -501,7 +506,7 @@ namespace Desert::Editor
                 if ( !cooked )
                     return ThumbnailFreshness::Verdict::Show; // refused and named by MeshSourceFor: no capture
                 return ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
-                     ThumbnailKey::DiskPath( *cooked ), ThumbnailFreshness::MeshFreshnessSource( *cooked ) ) );
+                     ThumbnailKey::DiskPath( *cooked ), MeshThumbnailFreshness( *cooked ) ) );
             }
             return ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( ThumbnailPngFor( item.Path ), item.Path ) );
         };
@@ -2011,9 +2016,9 @@ namespace Desert::Editor
         const std::string pngPath = ThumbnailKey::DiskPath( cookedStr );
 
         // Same shared rule as the material grid above (Editor/Widgets/ThumbnailFreshness.hpp).
-        const bool haveFresh = ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
-                                    pngPath, ThumbnailFreshness::MeshFreshnessSource( cookedStr ) ) ) ==
-                               ThumbnailFreshness::Verdict::Show;
+        const bool haveFresh =
+             ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
+                  pngPath, MeshThumbnailFreshness( cookedStr ) ) ) == ThumbnailFreshness::Verdict::Show;
         if ( !haveFresh )
             m_Thumbnails->Invalidate( pngPath );
         if ( haveFresh )
@@ -2058,9 +2063,9 @@ namespace Desert::Editor
 
         // The mesh tile's rule, with the .skmesh as its own cooked form: one key, one freshness source.
         const std::string& pngPath   = ThumbnailPngFor( entry->AssetPath );
-        const bool         haveFresh = ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
-                                    pngPath, ThumbnailFreshness::MeshFreshnessSource( entry->AssetPath ) ) ) ==
-                               ThumbnailFreshness::Verdict::Show;
+        const bool         haveFresh =
+             ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
+                  pngPath, MeshThumbnailFreshness( entry->AssetPath ) ) ) == ThumbnailFreshness::Verdict::Show;
         if ( !haveFresh )
             m_Thumbnails->Invalidate( pngPath );
         else if ( auto img = m_Thumbnails->Get( pngPath ) )
@@ -2306,6 +2311,23 @@ namespace Desert::Editor
                 ImGui::Separator();
                 if ( ImGui::MenuItem( "Capture Thumbnail (from viewport)" ) )
                     CaptureThumbnailFromViewport( entry.AssetPath );
+            }
+
+            // UE "Edit Thumbnail": the tile itself becomes the orbit control. Offered only when the asset states
+            // an orbit to edit (a model with no import record has none); the item says why when it cannot.
+            if ( entry.Type == FileType::Model || entry.Type == FileType::Material )
+            {
+                ImGui::Separator();
+                const auto stated = ThumbnailEdit::ReadOrbit( entry.AssetPath );
+                if ( ImGui::MenuItem( "Edit Thumbnail", "drag / wheel, Esc",
+                                      m_EditThumbnailPath == entry.AssetPath, stated.IsSuccess() ) )
+                {
+                    if ( m_ThumbnailGesture )
+                        CommitThumbnailGesture();
+                    m_EditThumbnailPath = entry.AssetPath;
+                }
+                if ( !stated && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+                    ImGui::SetTooltip( "%s", stated.GetError().c_str() );
             }
         }
         else
@@ -2642,6 +2664,123 @@ namespace Desert::Editor
         LOG_INFO( "[Thumbnail] Captured from viewport -> {}", png );
     }
 
+    std::vector<std::string> FileExplorerPanel::SelectedThumbnailSubjects() const
+    {
+        std::vector<std::string> subjects;
+        if ( m_CurrentDir == nullptr )
+            return subjects;
+        const std::vector<std::string> selected = SelectionPaths();
+        for ( const DirectoryInformation* child : m_CurrentDir->Children )
+            if ( child->IsFile && ( child->Type == FileType::Model || child->Type == FileType::Material ) &&
+                 std::find( selected.begin(), selected.end(), child->AssetPath ) != selected.end() )
+                subjects.push_back( child->AssetPath );
+        return subjects;
+    }
+
+    void FileExplorerPanel::CommitThumbnailGesture()
+    {
+        if ( !m_ThumbnailGesture )
+            return;
+        const Assets::ThumbnailOrbit live = m_ThumbnailGesture->Live;
+        ThumbnailService::Get().EndPreview( m_ThumbnailGesture->PreviewKey );
+        m_ThumbnailGesture.reset();
+        if ( auto edited = ThumbnailEdit::EditOrbit( m_EditThumbnailPath, live ); !edited )
+            LOG_WARN( "[Thumbnail] Edit Thumbnail '{}': {}", m_EditThumbnailPath, edited.GetError() );
+    }
+
+    void FileExplorerPanel::LeaveThumbnailEdit()
+    {
+        CommitThumbnailGesture();
+        m_EditThumbnailPath.clear();
+    }
+
+    void FileExplorerPanel::RequestThumbnailPreview( const DirectoryInformation& entry, ThumbnailGesture& gesture )
+    {
+        if ( !m_AssetManager )
+            return;
+        if ( entry.Type == FileType::Material )
+        {
+            const auto subject = ThumbnailSubject::ResolveMaterial(
+                 *m_AssetManager, entry.AssetPath, []( const std::string&, const auto& ) {} ); // tile asks again
+            if ( subject && subject.GetValue() )
+                gesture.PreviewPng = ThumbnailService::Get().RequestPreviewMaterial(
+                     *subject.GetValue(), entry.AssetPath, gesture.Live );
+            return;
+        }
+        const auto subject = ThumbnailSubject::ResolveMesh( *m_AssetManager, entry.AssetPath );
+        if ( subject && !subject.GetValue().Pending )
+            gesture.PreviewPng = ThumbnailService::Get().RequestPreviewMesh( subject.GetValue(), gesture.Live );
+    }
+
+    void FileExplorerPanel::DrawThumbnailEdit( const DirectoryInformation& entry, const ImVec2& min,
+                                               const ImVec2& max )
+    {
+        const ImGuiIO& io      = ImGui::GetIO();
+        const bool     hovered = ImGui::IsItemHovered();
+        const bool     active  = ImGui::IsItemActive();
+        if ( hovered )
+            ImGui::SetItemUsingMouseWheel(); // the wheel zooms the tile instead of scrolling the browser
+
+        const bool dragging = active && ImGui::IsMouseDragging( ImGuiMouseButton_Left, 0.0f );
+        const bool wheeled  = hovered && io.MouseWheel != 0.0f;
+        if ( ( dragging || wheeled ) && !m_ThumbnailGesture )
+        {
+            // The gesture starts from what the home states NOW (an undo since the last gesture moved it).
+            const auto stated = ThumbnailEdit::ReadOrbit( entry.AssetPath );
+            if ( !stated )
+            {
+                LOG_WARN( "[Thumbnail] Edit Thumbnail '{}': {}", entry.AssetPath, stated.GetError() );
+                m_EditThumbnailPath.clear();
+                return;
+            }
+            m_ThumbnailGesture = ThumbnailGesture{ stated.GetValue(), stated.GetValue() };
+            m_ThumbnailGesture->PreviewKey = entry.Type == FileType::Model
+                                                  ? CookPaths::MeshAsset( entry.AssetPath ).generic_string()
+                                                  : entry.AssetPath;
+        }
+        if ( m_ThumbnailGesture )
+        {
+            ThumbnailGesture& g = *m_ThumbnailGesture;
+            if ( dragging )
+                g.Drag = ImGui::GetMouseDragDelta( ImGuiMouseButton_Left, 0.0f );
+            if ( wheeled )
+            {
+                g.Wheel += io.MouseWheel;
+                g.LastWheel = ImGui::GetTime();
+            }
+            g.Live = ThumbnailEdit::Orbited( g.From, g.Drag.x, g.Drag.y, g.Wheel );
+            RequestThumbnailPreview( entry, g ); // the service keeps only the newest orbit
+
+            // THE LIVE PICTURE over the tile, once this gesture's first preview has landed.
+            if ( !g.PreviewPng.empty() && m_Thumbnails && m_UIHelper &&
+                 ThumbnailService::Get().PreviewLanded( g.PreviewKey ) )
+                if ( const auto img = m_Thumbnails->Get( g.PreviewPng ) )
+                    if ( const void* tex = m_UIHelper->GetTextureID( img ) )
+                        ImGui::GetWindowDrawList()->AddImage(
+                             reinterpret_cast<ImTextureID>( const_cast<void*>( tex ) ), min, max );
+
+            const bool wheelRests = g.Wheel != 0.0f && ImGui::GetTime() - g.LastWheel > kThumbnailWheelRestSeconds;
+            if ( !active && ( ImGui::IsItemDeactivated() || !hovered || wheelRests ) )
+                CommitThumbnailGesture();
+        }
+
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRect( ImVec2( min.x - 2.0f, min.y - 2.0f ), ImVec2( max.x + 2.0f, max.y + 2.0f ),
+                     ImGui::GetColorU32( ImGuiCol_DragDropTarget ), 4.0f, 0, 2.0f );
+        const std::string readout =
+             m_ThumbnailGesture
+                  ? std::format( "yaw {:.0f}  pitch {:.0f}  zoom {:.2f}", m_ThumbnailGesture->Live.Yaw,
+                                 m_ThumbnailGesture->Live.Pitch, m_ThumbnailGesture->Live.Zoom )
+                  : std::string( "drag / wheel" );
+        dl->AddText( ImVec2( min.x + 4.0f, min.y + 2.0f ), IM_COL32( 255, 255, 255, 230 ), readout.c_str() );
+
+        // Leaving: Esc, or a click anywhere outside this tile. A running gesture is committed first.
+        const bool clickedOutside = !hovered && ( ImGui::IsMouseClicked( ImGuiMouseButton_Left ) ||
+                                                  ImGui::IsMouseClicked( ImGuiMouseButton_Right ) );
+        if ( ImGui::IsKeyPressed( ImGuiKey_Escape, false ) || clickedOutside )
+            LeaveThumbnailEdit();
+    }
+
     bool FileExplorerPanel::RenderFile( int dirIndex, bool folder, int shownIndex, bool gridView )
     {
         DirectoryInformation* entry         = m_CurrentDir->Children[dirIndex];
@@ -2687,12 +2826,18 @@ namespace Desert::Editor
             const ImVec2 thumbMin = ImGui::GetItemRectMin();
             const ImVec2 thumbMax = ImGui::GetItemRectMax();
 
+            // In Edit Thumbnail mode the tile's drag is the orbit, not an asset drag.
+            const bool editingThumbnail = entry->IsFile && entry->AssetPath == m_EditThumbnailPath;
+            if ( editingThumbnail )
+                DrawThumbnailEdit( *entry, thumbMin, thumbMax );
+
             if ( ImGui::IsItemClicked() )
                 SelectClick( entry, shownIndex );
             if ( ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked( ImGuiMouseButton_Left ) )
                 doubleClicked = true;
 
-            EmitAssetDragSource( *entry );
+            if ( !editingThumbnail )
+                EmitAssetDragSource( *entry );
             DrawItemContextMenu( *entry );
 
             if ( ImGui::IsItemHovered() && !ImGui::IsDragDropActive() )

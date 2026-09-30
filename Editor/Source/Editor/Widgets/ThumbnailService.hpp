@@ -4,6 +4,7 @@
 #include <Editor/Widgets/AssetThumbnailRenderer.hpp>
 #include <Editor/Widgets/ThumbnailEncode.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Widgets/ThumbnailPreview.hpp>
 
 #include <Engine/Assets/AssetRootPin.hpp>
 
@@ -169,6 +170,25 @@ namespace Desert::Editor
         /// Scene-warm captures still queued or in flight: what holds the hand-over within its budget.
         [[nodiscard]] std::size_t SceneWarmPending() const;
 
+        /**
+         * @brief THE LIVE PREVIEW of Edit Thumbnail (UE renders the tile in real time with the orbit being
+         *        dragged): a capture of the subject seen from @p orbit, an orbit NOT stated anywhere yet.
+         *
+         * Through the same renderer and the same dispatch as every capture - no second renderer - but into
+         * ThumbnailKey::PreviewPath, never recorded, never judged fresh and never the cached thumbnail. One slot,
+         * the last request wins (ThumbnailPreview::Slot), dispatched ahead of the background queue because a
+         * person is dragging. Returns the preview PNG to draw once it exists (ThumbnailCache re-decodes it on
+         * every rewrite). The gesture's end is EndPreview; the orbit it settles on is written by
+         * ThumbnailEdit::EditOrbit and re-shot by freshness like any edit.
+         */
+        std::string RequestPreviewMaterial( const ThumbnailSubject::Material& material,
+                                            const std::string& assetPath, const Assets::ThumbnailOrbit& orbit );
+        std::string RequestPreviewMesh( const ThumbnailSubject::Mesh& mesh, const Assets::ThumbnailOrbit& orbit );
+        /// The gesture on @p assetPath ended: a waiting preview is dropped (one in flight still lands).
+        void EndPreview( const std::string& assetPath );
+        /// A preview of @p assetPath has landed since its gesture began: the PreviewPath file is this gesture's.
+        [[nodiscard]] bool PreviewLanded( const std::string& assetPath ) const;
+
         // Forget a cached/failed result, e.g. after the asset was edited.
         void Invalidate( const std::string& assetPath );
 
@@ -206,7 +226,7 @@ namespace Desert::Editor
 
         [[nodiscard]] bool HasWork() const
         {
-            return !m_Queue.empty() || ( m_Renderer && m_Renderer->HasPending() ) || !m_PaintQueue.empty() ||
+            return CaptureOwed() || ( m_Renderer && m_Renderer->HasPending() ) || !m_PaintQueue.empty() ||
                    m_PaintInFlight.valid();
         }
 
@@ -232,15 +252,33 @@ namespace Desert::Editor
             ThumbnailSubject::Preview How = ThumbnailSubject::Preview::Sphere;
             // Materials with How == Mesh only: the mesh they are photographed on (ThumbnailSubject::Material).
             Assets::AssetHandle PreviewMesh{ static_cast<uint64_t>( 0 ) };
+            // THE ASSET'S THUMBNAIL INFO, carried to the renderer (the only thing it frames by): a material's
+            // whole info, a mesh's orbit in Thumbnail.Orbit (its primitive and PreviewMesh unused).
+            Assets::ThumbnailInfo Thumbnail;
         };
+
+        // The renderer's own dispatch of @p req (a mesh, a material, a material on its preview mesh).
+        Common::BoolResultStr Dispatch( const Request& req );
+        // The live preview (RequestPreview*): one slot, last wins, never recorded.
+        ThumbnailPreview::Slot<Request> m_Preview;
+        // Dispatch or settle the preview. True when it used this tick's renderer turn.
+        bool TickPreview( ThumbnailWarmup::CaptureScope scope );
+        // Anything the renderer still owes: the background queue or the preview.
+        [[nodiscard]] bool CaptureOwed() const
+        {
+            return !m_Queue.empty() || m_Preview.Waiting() || m_Preview.InFlight();
+        }
 
         // Shared by both Request* entry points: decides whether the work is needed at all. Takes the
         // asset's IDENTITY (ThumbnailKey::Identity), never a raw path — the sets below are keyed on it.
-        bool ShouldQueue( const std::string& identity, const std::string& png, const std::string& source );
+        bool ShouldQueue( const std::string& identity, const std::string& png, std::optional<uint64_t> current );
         // THE ONE REQUEST SHAPE of a mesh-like capture (Mesh, Pose): keyed and judged on the cooked file, so the
         // browser tile, the splash and every kind ask for one picture of one file.
         static Request MeshRequestOf( Kind kind, const Assets::AssetHandle& mesh, const std::string& cookedPath,
                                       const Assets::AssetHandle& material );
+        // THE ORBIT FROM THE MESH'S PACKAGE (its import record) into @p req, read only when a capture is owed;
+        // an unreadable record is said and the asset marked failed (false).
+        bool ReadMeshOrbit( Request& req );
         // RequestMesh and RequestPose: one enqueue, one deduplication.
         std::string EnqueueMeshLike( Request req );
         // Identities WarmMaterial queued; an entry leaves with its m_Queued one (settled, failed or skipped).
@@ -260,7 +298,11 @@ namespace Desert::Editor
 
         // The identity-free half of the question: is the PICTURE on disk missing or out of date? Split out
         // because dispatch asks it a second time, when the dedup sets deliberately still hold the entry.
-        static bool NeedsCapture( const std::string& png, const std::string& source );
+        static bool NeedsCapture( const std::string& png, std::optional<uint64_t> current );
+
+        // WHAT A PICTURE OF @p source IS JUDGED AGAINST: the file's bytes, and for a mesh also the orbit its
+        // import record states (MeshThumbnailFreshness) - an edit of the record re-shoots it (UE: Edit Thumbnail).
+        static std::optional<uint64_t> SourceHash( Kind type, const std::string& source );
 
         /**
          * @brief Build the renderer — but only if a background job is entitled to a slot right now.

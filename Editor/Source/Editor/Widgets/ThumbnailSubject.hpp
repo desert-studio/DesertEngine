@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Assets/ThumbnailInfo.hpp>
+
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -144,6 +146,10 @@ namespace Desert::Editor::ThumbnailSubject
 
         /// How == Mesh only: the preview mesh, registered and drawable (ResolveMesh). Zero otherwise.
         Common::AssetHandle PreviewMesh{ static_cast<uint64_t>( 0 ) };
+
+        /// THE MATERIAL'S OWN THUMBNAIL INFO (MaterialData::ThumbnailOrDefault): the primitive a Sphere route
+        /// is drawn on and the orbit every mesh-path route is seen from. The renderer reads them only here.
+        Assets::ThumbnailInfo Thumbnail;
     };
 
     /**

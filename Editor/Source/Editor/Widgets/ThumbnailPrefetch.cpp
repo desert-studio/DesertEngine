@@ -143,7 +143,8 @@ namespace Desert::Editor
 
     ThumbnailPrefetch::Decoded ThumbnailPrefetch::Run( const Item& item )
     {
-        Decoded         out;
+        Decoded out;
+        out.ReadBegan = std::chrono::steady_clock::now();
         std::error_code ec;
         // The stamp is read BEFORE the decode: a file rewritten while the worker reads it then carries a
         // newer stamp than this entry, Take() refuses it and Get() decodes the new file itself.
@@ -213,6 +214,7 @@ namespace Desert::Editor
         {
             Decoded decoded = std::move( it->second );
             m_Ready.erase( it );
+            out.ReadBegan = decoded.ReadBegan;
             if ( decoded.Stamp == stamp && decoded.Pixels.has_value() )
             {
                 if ( decoded.Pixels->DecodedOn == std::this_thread::get_id() )

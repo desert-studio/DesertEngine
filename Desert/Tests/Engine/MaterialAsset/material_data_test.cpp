@@ -236,20 +236,24 @@ int main( int argc, char** argv )
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
-// THM1e: PreviewMesh round-trips and is a stated dependency; a file naming it outside the header is refused.
-TEST( MaterialData, PreviewMeshRoundTripsAsAStatedDependency )
+// THM1e/THM1l: the thumbnail info (primitive, PreviewMesh, orbit) round-trips, its PreviewMesh is a stated
+// dependency; a file naming it outside the header is refused.
+TEST( MaterialData, ThumbnailInfoRoundTripsWithItsPreviewMeshAStatedDependency )
 {
-    Desert::Assets::MaterialData m;
-    m.PreviewMesh =
+    Desert::Assets::MaterialData  m;
+    Desert::Assets::ThumbnailInfo info;
+    info.Primitive = Desert::Assets::ThumbnailPrimitive::Cube;
+    info.PreviewMesh =
          Desert::Assets::AssetGuidRef{ "45d579b03cc0d0a8df2e4cb025d6bea5", "Resources/Assets/Meshes/G.fbx" };
+    info.Orbit      = Desert::Assets::ThumbnailOrbit{ -11.25f, 90.0f, 0.25f };
+    m.SetThumbnail( info );
     const auto text = Desert::Assets::WriteMaterialJson( m );
     ASSERT_TRUE( text ) << text.GetError();
     const auto back = Desert::Assets::ParseMaterialJson( "g.demat", text.GetValue() );
     ASSERT_TRUE( back ) << back.GetError();
-    const auto& readBack = back.GetValue().PreviewMesh;
-    if ( !readBack.has_value() || !m.PreviewMesh.has_value() )
-        FAIL() << "PreviewMesh did not survive the round trip";
-    EXPECT_EQ( *readBack, *m.PreviewMesh );
+    if ( !back.GetValue().Thumbnail.has_value() )
+        FAIL() << "Thumbnail did not survive the round trip";
+    EXPECT_EQ( back.GetValue().ThumbnailOrDefault(), info );
 
     std::string unstated = text.GetValue();
     const auto  at       = unstated.find( "\"Dependencies\"" );
@@ -305,4 +309,69 @@ TEST( MaterialData, TwoSidedRoundTripsAndAnUnstatedOneStaysUnstated )
         ASSERT_TRUE( back ) << back.GetError();
         EXPECT_EQ( back.GetValue().TwoSided, stated );
     }
+}
+
+// THM1l-c6: every member of the Thumbnail block may be left out and reads as its default (UE ThumbnailInfo:
+// only the properties that differ from the class default are saved). A hand-written record naming only the
+// primitive is a complete statement — it was "not a readable material file" while Orbit was required. The
+// writer states only what differs, so the same picture is written the same way however it was spelled.
+TEST( MaterialData, ThumbnailMembersLeftOutAreTheirDefaults )
+{
+    const auto base = Desert::Assets::WriteMaterialJson( Desert::Assets::MaterialData{} );
+    ASSERT_TRUE( base ) << base.GetError();
+    const auto withThumbnail = [&]( std::string_view block )
+    {
+        std::string text = base.GetValue();
+        text.insert( text.rfind( '}' ), ",\"Thumbnail\":" + std::string( block ) );
+        return Desert::Assets::ParseMaterialJson( "p.demat", text );
+    };
+
+    const auto cube = withThumbnail( R"({"Primitive":"Cube"})" );
+    ASSERT_TRUE( cube ) << cube.GetError();
+    Desert::Assets::ThumbnailInfo expected;
+    expected.Primitive = Desert::Assets::ThumbnailPrimitive::Cube;
+    EXPECT_EQ( cube.GetValue().ThumbnailOrDefault(), expected );
+
+    const auto yawOnly = withThumbnail( R"({"Orbit":{"Yaw":45.0}})" );
+    ASSERT_TRUE( yawOnly ) << yawOnly.GetError();
+    Desert::Assets::ThumbnailInfo yawed;
+    yawed.Orbit.Yaw = 45.0f;
+    EXPECT_EQ( yawOnly.GetValue().ThumbnailOrDefault(), yawed );
+
+    const auto empty = withThumbnail( "{}" );
+    ASSERT_TRUE( empty ) << empty.GetError();
+    EXPECT_EQ( empty.GetValue().ThumbnailOrDefault(), Desert::Assets::ThumbnailInfo{} );
+
+    EXPECT_FALSE( withThumbnail( R"({"Orbit":{"Zoom":-1.0}})" ) ) << "a stated orbit is still validated";
+    EXPECT_FALSE( withThumbnail( R"({"Primitive":"Cube","Roll":1})" ) ) << "an unknown member is still refused";
+
+    Desert::Assets::MaterialData written;
+    written.SetThumbnail( expected );
+    ASSERT_TRUE( written.Thumbnail.has_value() );
+    EXPECT_EQ( *written.Thumbnail,
+               Desert::Assets::ThumbnailInfoRecord{ .Primitive = Desert::Assets::ThumbnailPrimitive::Cube } )
+         << "the writer states only the members that differ";
+    const auto text = Desert::Assets::WriteMaterialJson( written );
+    ASSERT_TRUE( text ) << text.GetError();
+    EXPECT_EQ( text.GetValue().find( "Orbit" ), std::string::npos ) << text.GetValue();
+    const auto back = Desert::Assets::ParseMaterialJson( "p.demat", text.GetValue() );
+    ASSERT_TRUE( back ) << back.GetError();
+    EXPECT_EQ( back.GetValue().ThumbnailOrDefault(), expected );
+}
+
+// No Thumbnail block = the default info (the sphere, straight on): the format's meaning of absent. The retired
+// top-level key is refused by name (NoExtraFields), never read and dropped.
+TEST( MaterialData, AbsentThumbnailIsTheDefaultAndTheOldKeyIsRefused )
+{
+    const auto text = Desert::Assets::WriteMaterialJson( Desert::Assets::MaterialData{} );
+    ASSERT_TRUE( text ) << text.GetError();
+    const auto back = Desert::Assets::ParseMaterialJson( "d.demat", text.GetValue() );
+    ASSERT_TRUE( back ) << back.GetError();
+    EXPECT_FALSE( back.GetValue().Thumbnail.has_value() );
+    EXPECT_EQ( back.GetValue().ThumbnailOrDefault(), Desert::Assets::ThumbnailInfo{} );
+
+    std::string old = text.GetValue();
+    old.insert( old.rfind( '}' ),
+                ",\"PreviewMesh\":{\"Guid\":\"45d579b03cc0d0a8df2e4cb025d6bea5\",\"Path\":\"G.fbx\"}" );
+    EXPECT_FALSE( Desert::Assets::ParseMaterialJson( "d.demat", old ) ) << "the pre-THM1l key was accepted";
 }

@@ -247,6 +247,26 @@ namespace Desert::Editor
         m_Inited = true;
     }
 
+    namespace
+    {
+        // The asset's thumbnail primitive as the shared primitive mesh drawn for it.
+        Geometry::PrimitiveType PrimitiveFor( const Assets::ThumbnailPrimitive primitive )
+        {
+            switch ( primitive )
+            {
+                case Assets::ThumbnailPrimitive::Sphere:
+                    return Geometry::PrimitiveType::Sphere;
+                case Assets::ThumbnailPrimitive::Cube:
+                    return Geometry::PrimitiveType::Cube;
+                case Assets::ThumbnailPrimitive::Plane:
+                    return Geometry::PrimitiveType::Plane;
+                case Assets::ThumbnailPrimitive::Cylinder:
+                    return Geometry::PrimitiveType::Cylinder;
+            }
+            return Geometry::PrimitiveType::Sphere;
+        }
+    } // namespace
+
     void AssetThumbnailRenderer::FitTarget( const glm::vec3& center, float worldSize )
     {
         auto& tc    = m_Target.GetComponent<ECS::TransformComponent>();
@@ -265,10 +285,11 @@ namespace Desert::Editor
             return;
         }
 
-        const auto placement =
-             ThumbnailFraming::PlaceInView( cam->GetViewMatrix(), cam->GetProjectionMatrix(), worldSize, center );
+        const auto placement = ThumbnailFraming::PlaceInView( cam->GetViewMatrix(), cam->GetProjectionMatrix(),
+                                                              worldSize, center, m_PendingThumbnail.Orbit );
         tc.Scale       = glm::vec3( placement.Scale );
         tc.Translation = placement.Translation;
+        tc.Rotation          = glm::eulerAngles( placement.Rotation );
     }
 
     void AssetThumbnailRenderer::RecordRender()
@@ -282,9 +303,10 @@ namespace Desert::Editor
             LOG_ERROR( "[AssetThumbnailRenderer] preview frame skipped: {}", frame.GetError() );
     }
 
-    Common::BoolResultStr AssetThumbnailRenderer::RequestMaterial( const Assets::AssetHandle& materialHandle,
-                                                                   const std::string&         outPng,
-                                                                   ThumbnailSubject::Preview  how )
+    Common::BoolResultStr AssetThumbnailRenderer::RequestMaterial( const Assets::AssetHandle&   materialHandle,
+                                                                   const std::string&           outPng,
+                                                                   ThumbnailSubject::Preview    how,
+                                                                   const Assets::ThumbnailInfo& thumbnail )
     {
         if ( static_cast<uint64_t>( materialHandle ) == 0 )
             return Common::MakeFormattedError( "no material handle for '{}'", outPng );
@@ -335,7 +357,8 @@ namespace Desert::Editor
         m_PendingHandle  = materialHandle;
         m_PendingPng     = outPng;
         m_PendingSubject = Subject::Material;
-        m_PendingPreview = how;
+        m_PendingPreview   = how;
+        m_PendingThumbnail = thumbnail;
         // Render for several frames before reading back: the first renders after init aren't "warm" yet
         // (GPU mesh buffers + per-frame uniform-buffer ring slots need a few frames to fully populate), so an
         // early readback returns an empty frame. Capture happens on the last count (reads the prior, warm
@@ -406,9 +429,10 @@ namespace Desert::Editor
         }
     } // namespace
 
-    Common::BoolResultStr AssetThumbnailRenderer::RequestMesh( const Assets::AssetHandle& meshHandle,
-                                                               const std::string&         outPng,
-                                                               const Assets::AssetHandle& material )
+    Common::BoolResultStr AssetThumbnailRenderer::RequestMesh( const Assets::AssetHandle&    meshHandle,
+                                                               const std::string&            outPng,
+                                                               const Assets::ThumbnailOrbit& orbit,
+                                                               const Assets::AssetHandle&    material )
     {
         if ( static_cast<uint64_t>( meshHandle ) == 0 )
             return Common::MakeFormattedError( "no mesh handle for '{}'", outPng );
@@ -456,7 +480,9 @@ namespace Desert::Editor
         }
 
         m_PendingHandle   = meshHandle;
-        m_PendingMaterial = material;
+        m_PendingMaterial        = material;
+        m_PendingThumbnail       = Assets::ThumbnailInfo{};
+        m_PendingThumbnail.Orbit = orbit;
         m_PendingPng      = outPng;
         m_PendingSubject  = Subject::Mesh;
         m_PendingClip     = nullptr;
@@ -471,7 +497,8 @@ namespace Desert::Editor
 
     Common::BoolResultStr AssetThumbnailRenderer::RequestPose( const Assets::AssetHandle&            meshHandle,
                                                                Assets::Asset<Assets::AnimationAsset> clip,
-                                                               const std::string&                    outPng )
+                                                               const std::string&                    outPng ,
+                                                               const Assets::ThumbnailOrbit&         orbit)
     {
         // Refused BEFORE the shared checks queue anything: a static mesh posed would stage a skinned
         // component on geometry with no skeleton and photograph nothing.
@@ -510,7 +537,7 @@ namespace Desert::Editor
                                                    static_cast<uint64_t>( meshHandle ), outPng, cell.GetError() );
         }
 
-        auto queued = RequestMesh( meshHandle, outPng );
+        auto queued = RequestMesh( meshHandle, outPng, orbit );
         if ( !queued.IsSuccess() )
             return queued;
 
@@ -712,7 +739,7 @@ namespace Desert::Editor
             // rebuild against the current material handle. Always the sphere: a masked material is cut by
             // the mesh path's alpha discard, so its blades show against the backdrop.
             smc.MeshHandle    = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
-            smc.Primitive     = Geometry::PrimitiveType::Sphere;
+            smc.Primitive     = PrimitiveFor( m_PendingThumbnail.Primitive );
             smc.MaterialSlots = { m_PendingHandle };
             smc.RuntimeMaterialInstances.clear();
             ECS::ClearEditableMesh( smc ); // drop any previously-built primitive so the type change rebuilds

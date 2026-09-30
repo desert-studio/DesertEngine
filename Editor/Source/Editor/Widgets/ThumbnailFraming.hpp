@@ -1,6 +1,9 @@
 #pragma once
 
+#include <Engine/Assets/ThumbnailInfo.hpp>
+
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -104,7 +107,27 @@ namespace Desert::Editor::ThumbnailFraming
     {
         glm::vec3 Translation{ 0.0f };
         float     Scale = 1.0f;
+        // The subject turned so the fixed capture camera sees it from the asset's ORBIT (UE orbits the
+        // camera; turning the subject about its own centre by the inverse is the same picture and keeps the
+        // camera — and every sky/light term tied to it — untouched). Identity for the default orbit.
+        glm::quat Rotation{ 1.0f, 0.0f, 0.0f, 0.0f };
     };
+
+    /**
+     * @brief The subject's turn that shows it from @p orbit under a camera whose right/up axes are given.
+     *
+     * Yaw orbits the camera about the camera's UP axis (positive = the camera moves to the subject's right,
+     * so the subject turns by -Yaw); Pitch raises the camera over the subject (positive = seen from above,
+     * so the subject's top turns toward the camera: +Pitch about the camera's RIGHT axis). Yaw first, then
+     * Pitch — UE's order (FSceneThumbnailInfo: yaw about Z, then pitch).
+     */
+    inline glm::quat OrbitRotation( const glm::vec3& right, const glm::vec3& up,
+                                    const Assets::ThumbnailOrbit& orbit )
+    {
+        const glm::quat yaw   = glm::angleAxis( glm::radians( -orbit.Yaw ), up );
+        const glm::quat pitch = glm::angleAxis( glm::radians( orbit.Pitch ), right );
+        return glm::normalize( pitch * yaw );
+    }
 
     /**
      * @brief Frame a subject in the camera's view.
@@ -113,6 +136,10 @@ namespace Desert::Editor::ThumbnailFraming
      * @param projection camera view->clip matrix (Camera::GetProjectionMatrix()).
      * @param extent     the subject's largest world-space dimension, MEASURED from the mesh actually drawn.
      * @param center     the subject's own centre in its local space (subtracted so it lands on the axis).
+     * @param orbit      the ASSET'S thumbnail orbit (Assets::ThumbnailInfo), the only place it is read from:
+     *                   turns the subject about its centre (OrbitRotation) and moves it along the view axis
+     *                   by Zoom as a fraction of the fitted distance (the fit is solved, then divided by
+     *                   1 + Zoom — the same picture as the camera backing off).
      *
      * The subject centre is put on the view axis at @ref kViewAxisDistance (screen centre), then the
      * on-screen size of one world unit at that depth is measured by projecting points through
@@ -121,7 +148,7 @@ namespace Desert::Editor::ThumbnailFraming
      * by ~zero.
      */
     inline Placement PlaceInView( const glm::mat4& view, const glm::mat4& projection, float extent,
-                                  const glm::vec3& center )
+                                  const glm::vec3& center, const Assets::ThumbnailOrbit& orbit )
     {
         // Camera world pose from the inverse view: translation is the eye, -Z the forward, +X the right,
         // +Y the up.
@@ -156,16 +183,18 @@ namespace Desert::Editor::ThumbnailFraming
         const float     ndcPerWorld = std::max( glm::length( ndcSide - ndcAt ), glm::length( ndcUp - ndcAt ) );
 
         Placement placement;
+        placement.Rotation = OrbitRotation( right, up, orbit );
         if ( extent <= 1e-4f || ndcPerWorld <= 1e-6f )
         {
             placement.Scale       = 1.0f;
-            placement.Translation = axisPoint - center;
+            placement.Translation = axisPoint - placement.Rotation * center;
             return placement;
         }
 
+        // Zoom > -1 is the orbit's own invariant (IsValidThumbnailOrbit); the formats refuse anything else.
         const float worldSpan = ( kFillFraction * 2.0f ) / ndcPerWorld; // world units to fill the frame
-        placement.Scale       = worldSpan / extent;
-        placement.Translation = axisPoint - center * placement.Scale;
+        placement.Scale       = worldSpan / extent / ( 1.0f + orbit.Zoom );
+        placement.Translation = axisPoint - placement.Rotation * ( center * placement.Scale );
         return placement;
     }
 } // namespace Desert::Editor::ThumbnailFraming

@@ -13,6 +13,7 @@
 //
 // Deliberately free of ThumbnailService and of the device, so Desert/Tests/Editor/ThumbnailPrefetch can link it.
 
+#include <chrono>
 #include <cstddef>
 #include <filesystem>
 #include <functional>
@@ -103,6 +104,8 @@ namespace Desert::Editor
         {
             std::optional<ThumbnailPixels> Pixels; ///< ready to upload, decoded from the file as it is now
             bool Undecodable = false;              ///< a worker read the file as it is now and stb refused it
+            /// When the worker began reading the file (Pixels or Undecodable): ThumbnailOutdated::Settle's input.
+            std::chrono::steady_clock::time_point ReadBegan{};
         };
 
         /// THE ONE DOOR ThumbnailCache::Get takes pixels through, and it never decodes on the calling thread.
@@ -153,8 +156,9 @@ namespace Desert::Editor
     private:
         struct Decoded
         {
-            std::filesystem::file_time_type Stamp;
-            std::optional<ThumbnailPixels>  Pixels; ///< empty: stale, missing or undecodable — Get decides
+            std::filesystem::file_time_type       Stamp;
+            std::chrono::steady_clock::time_point ReadBegan; ///< taken before the stamp is read
+            std::optional<ThumbnailPixels>        Pixels; ///< empty: stale, missing or undecodable — Get decides
             bool                            Attempted = false; ///< stb ran on it (empty Pixels = undecodable)
         };
         struct InFlight
