@@ -579,8 +579,9 @@ TEST( PointerOwnership, VulkanRendererDeclaresItsFrameObjectsBeforeTheGraphBacke
     {
         const std::size_t at = src.find( host );
         ASSERT_NE( at, std::string::npos ) << host << " is no longer a member of VulkanRendererAPI.";
-        EXPECT_LT( at, backend ) << host << " is now declared AFTER m_RdgBackend, so it is destroyed BEFORE "
-                                            "the backend that holds a raw pointer to it.";
+        EXPECT_LT( at, backend ) << host
+                                 << " is now declared AFTER m_RdgBackend, so it is destroyed BEFORE "
+                                    "the backend that holds a raw pointer to it.";
     }
     EXPECT_LT( queues, backend ) << "m_RdgQueues is now declared AFTER m_RdgBackend, which holds `&m_RdgQueues`.";
     EXPECT_LT( src.find( "m_RdgQueueObjects;" ), queues )

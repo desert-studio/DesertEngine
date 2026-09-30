@@ -104,7 +104,7 @@ namespace Desert::Graphic::API::Vulkan
                                                        const VulkanRdgQueueSet& queues );
         // The graph ended (its final barriers are recorded): its compile result is let go, and its submissions
         // and open tail stay for Take.
-        void                             EndGraph();
+        void EndGraph();
         // Drops what the abandoned graph queued; earlier graphs' submissions stay.
         void                             AbandonGraph();
         std::vector<VulkanRdgSubmission> Take();
