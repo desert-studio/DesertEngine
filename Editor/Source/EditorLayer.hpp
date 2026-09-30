@@ -16,6 +16,8 @@
 #include "Editor/Panels/IPanel.hpp"
 #include "Editor/Core/CommandPalette.hpp"
 #include "Editor/Core/Commands/CommandRegistry.hpp"
+#include "Editor/Core/Selection/EntityCommands.hpp"
+#include "Editor/Panels/FileExplorer/AssetCommands.hpp"
 #include "Editor/Core/PlayWorldCommands.hpp"
 #include "Editor/Core/Control/ControlPipeline.hpp"
 #include "Editor/Core/Control/ControlProtocol.hpp"
@@ -145,17 +147,18 @@ namespace Desert::Editor
 
         // The palette's and the control channel's list, built from m_Commands (see CommandRegistry.hpp).
         [[nodiscard]] std::vector<PaletteCommand> BuildPaletteCommands();
-        // The editor's own palette entries, registered as two providers around the subject-owned ones (Landscape,
-        // Modeling, Humanoid) until EDL-2b gives each group its own provider.
-        void AppendShellHeadCommands( std::vector<PaletteCommand>& commands );
-        void AppendShellCommands( std::vector<PaletteCommand>& commands );
-        // "Assets | Assign Skeleton…": the selected .skmesh / .anim onto a registered .skeleton
-        // (CheckSkeletonAssignment first; a clip is saved after). Named, not a lambda, so the palette entry binds
-        // it.
-        [[nodiscard]] Common::BoolResultStr AssignSkeletonFromPalette( const std::string& subject,
-                                                                       const std::string& skeleton ) const;
-        /// Turns the authoring context's selected control about its own @p axis and records one undo entry.
-        [[nodiscard]] Common::BoolResultStr RotateSelectedControl( int axis, float degrees );
+        // The palette groups of modules not cut out yet (panels, documents, menu, add shape, the palette's own
+        // door, open, scenes/views, save/play/undo/window): registered in palette order between the subject-owned
+        // providers; the later EDL cuts move each to its module (DockLayout, DocumentHost, MainMenu, SceneFiles...).
+        void AppendPanelCommands( std::vector<PaletteCommand>& commands );
+        void AppendMaximizeCommands( std::vector<PaletteCommand>& commands );
+        void AppendDocumentCommands( std::vector<PaletteCommand>& commands );
+        void AppendMenuCommands( std::vector<PaletteCommand>& commands );
+        void AppendAddShapeCommands( std::vector<PaletteCommand>& commands );
+        void AppendPaletteDoorCommand( std::vector<PaletteCommand>& commands );
+        void AppendOpenCommands( std::vector<PaletteCommand>& commands );
+        void AppendSceneCommands( std::vector<PaletteCommand>& commands );
+        void AppendSceneTailCommands( std::vector<PaletteCommand>& commands );
 
         // Runs one action a document published (ISubjectDocument::Actions), addressed by subject + label.
         // Named rather than a lambda in the list above — see the definition for both reasons.
@@ -921,15 +924,11 @@ namespace Desert::Editor
         // judges it: by then the answer has moved on, and the question is about the picture.
         Control::EditorQuiescence m_FrameQuiescence;
 
-        // ── THE PALETTE AS AN AUTHORING OWNER ─────────────────────────────────────────────────────
-        //
-        // The command palette can put the editor into Control mode and pick a control, so it is a WRITER
-        // of the authoring context and therefore has to hold it like every other writer -- Kind::Panel,
-        // its own durable copy, and refusals that name it. Without this the two entries would have to
-        // reach into a viewport's context, which is the process-wide-statics shape AuthoringContext.hpp
-        // was written to end.
-        Core::AuthoringContext     m_PaletteAuthoring;
-        const Core::AuthoringOwner m_PaletteAuthoringOwner = Core::AuthoringOwner::ForPanel( "Command Palette" );
+        // The palette providers that hold state or several slots (EDL-2b). Declared after every slot they point
+        // at; the census is taken once per build (m_Commands.OnBuildBegin) and read by Assets, Foliage and Open.
+        AssetFileCensus m_PaletteAssetFiles;
+        std::unique_ptr<EntityCommands> m_EntityCommands;
+        std::unique_ptr<AssetCommands>  m_AssetCommands;
 
         // Frames since the layer attached. The gate's clock — deliberately this layer's own count and not
         // the renderer's frame-in-flight index, which wraps at three and could not order anything.

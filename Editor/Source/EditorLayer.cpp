@@ -145,6 +145,12 @@
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include "Editor/Panels/Landscape/LandscapePanel.hpp"
 #include "Editor/Panels/Landscape/LandscapeCommands.hpp"
+#include "Editor/LevelEditor/ViewportCommands.hpp"
+#include "Editor/Panels/Clouds/CloudCommands.hpp"
+#include "Editor/Panels/Localization/LanguageCommands.hpp"
+#include "Editor/Panels/Build/BuildCommands.hpp"
+#include "Editor/Panels/UI/UICommands.hpp"
+#include "Editor/Core/DebugCommands.hpp"
 #include "Editor/Panels/Modeling/ModelingCommands.hpp"
 #include "Editor/Panels/Foliage/FoliageCommands.hpp"
 #include "Editor/Core/Rigging/HumanoidCommands.hpp"
@@ -278,21 +284,11 @@ namespace Desert::Editor
     } // namespace
 
     // THE MENU BAR'S OWN MENUS, named once. Read by DrawMenuBar, which opens whichever one is held, and
-    // by BuildPaletteCommands, which offers exactly these as commands. Two readers of one list, so the
+    // by AppendMenuCommands, which offers exactly these as commands. Two readers of one list, so the
     // palette cannot offer a menu the bar does not draw — the shape a hand-copied second list always ends
     // up in.
     static constexpr const char* kMenuBarMenus[] = { "File",   "Edit",     "View", "Window",
                                                      "Scenes", "Graphics", "About" };
-
-    // THE SNAP STEPS A PERSON ACTUALLY USES, named once for the same reason the menus above are. Read by
-    // DrawSnapControl, which draws them as the magnet popup's list, and by BuildPaletteCommands, which
-    // offers exactly these as commands — so the palette cannot offer a step the toolbar does not, which
-    // is the shape a hand-copied second list always ends up in.
-    //
-    // Translation in CENTIMETRES because 1 world unit IS 1 cm here, so the label and the value are the
-    // same number and nothing has to be converted in anyone's head.
-    static constexpr float kGridSteps[]  = { 1.0f, 5.0f, 10.0f, 25.0f, 50.0f, 100.0f, 500.0f };
-    static constexpr float kAngleSteps[] = { 1.0f, 5.0f, 10.0f, 15.0f, 30.0f, 45.0f, 90.0f };
 
     // "Unsaved changes" marker: the CommandHistory revision at the last save/load. Compared against the
     // current revision for the status-bar dirty dot; reset wherever the scene is (re)loaded or saved.
@@ -878,18 +874,47 @@ namespace Desert::Editor
         // document cannot be here to be listed. See Editor/Core/PanelRegistry.hpp.
         // THE PALETTE'S PROVIDERS, in palette order (CommandRegistry.hpp). Each subject-owned provider reads the
         // main-scene / asset-manager SLOT when an entry runs, so re-pointing the slot needs no re-registration.
-        m_Commands.Register( "EditorLayer (head)",
-                             [this]( std::vector<PaletteCommand>& out ) { AppendShellHeadCommands( out ); } );
-        m_Commands.Register( "Landscape", [this]( std::vector<PaletteCommand>& out )
-                             { AppendLandscapeCommands( out, m_MainScene ); } );
-        m_Commands.Register( "Modeling", [this]( std::vector<PaletteCommand>& out )
-                             { AppendModelingCommands( out, m_MainScene ); } );
-        m_Commands.Register( "Humanoid", [this]( std::vector<PaletteCommand>& out )
-                             { AppendHumanoidCommands( out, m_MainScene ); } );
-        m_Commands.Register( "EditorLayer",
-                             [this]( std::vector<PaletteCommand>& out ) { AppendShellCommands( out ); } );
-        m_Commands.Register( "Foliage", [this]( std::vector<PaletteCommand>& out )
-                             { AppendFoliageCommands( out, m_MainScene, m_AssetManager ); } );
+        // The order of these calls IS the palette's order of groups (and the control channel's list).
+        {
+            const auto camera = [this] { return ActiveEditorCamera(); };
+            m_EntityCommands  = std::make_unique<EntityCommands>( m_MainScene, m_SubjectEditors, camera );
+            m_AssetCommands   = std::make_unique<AssetCommands>(
+                 m_FileExplorerPanel, m_WorldPartitionPanel, m_MainScene, m_AssetManager, m_PaletteAssetFiles, camera,
+                 [this]( const std::string& folder ) { return ShowFolderInBrowser( folder ); } );
+            using Out = std::vector<PaletteCommand>;
+            m_Commands.OnBuildBegin( [this] { m_PaletteAssetFiles.Take(); } );
+            m_Commands.Register( "Panels", [this]( Out& out ) { AppendPanelCommands( out ); } );
+            m_Commands.Register( "Debug (crash)", []( Out& out ) { AppendCrashCommand( out ); } );
+            m_Commands.Register( "Assets (selection)",
+                                 [this]( Out& out ) { m_AssetCommands->AppendSelectionCommands( out ); } );
+            m_Commands.Register( "Panels (maximize), Details", [this]( Out& out ) { AppendMaximizeCommands( out ); } );
+            m_Commands.Register( "Clouds", []( Out& out ) { AppendCloudCommands( out ); } );
+            m_Commands.Register( "Language", []( Out& out ) { AppendLanguageCommands( out ); } );
+            m_Commands.Register( "Documents", [this]( Out& out ) { AppendDocumentCommands( out ); } );
+            m_Commands.Register( "Entity", [this]( Out& out ) { m_EntityCommands->Append( out ); } );
+            m_Commands.Register( "Modeling (Mesh To Collision)",
+                                 [this]( Out& out ) { AppendMeshToCollisionCommands( out, m_MainScene ); } );
+            m_Commands.Register( "Entity (collapse)", [this]( Out& out ) { m_EntityCommands->AppendCollapse( out ); } );
+            m_Commands.Register( "Menu", [this]( Out& out ) { AppendMenuCommands( out ); } );
+            m_Commands.Register( "Level viewport", []( Out& out ) { AppendViewportCommands( out ); } );
+            m_Commands.Register( "Modeling (Select Elements)", []( Out& out ) { AppendSelectElementsCommand( out ); } );
+            m_Commands.Register( "Landscape", [this]( Out& out ) { AppendLandscapeCommands( out, m_MainScene ); } );
+            m_Commands.Register( "Modeling (Create Shape)", []( Out& out ) { AppendCreateShapeCommands( out ); } );
+            m_Commands.Register( "Humanoid", [this]( Out& out ) { AppendHumanoidCommands( out, m_MainScene ); } );
+            m_Commands.Register( "Scene (add shape)", [this]( Out& out ) { AppendAddShapeCommands( out ); } );
+            m_Commands.Register( "Modeling", [this]( Out& out ) { AppendModelingCommands( out, m_MainScene ); } );
+            m_Commands.Register( "UI", [this]( Out& out ) { AppendUICommands( out, m_MainScene ); } );
+            m_Commands.Register( "Palette", [this]( Out& out ) { AppendPaletteDoorCommand( out ); } );
+            m_Commands.Register( "Assets (import)", [this]( Out& out ) { m_AssetCommands->AppendImportCommands( out ); } );
+            m_Commands.Register( "Foliage", [this]( Out& out )
+                                 { AppendFoliageCommands( out, m_MainScene, m_AssetManager, m_PaletteAssetFiles.Files() ); } );
+            m_Commands.Register( "Open", [this]( Out& out ) { AppendOpenCommands( out ); } );
+            m_Commands.Register( "Assets (folders)", [this]( Out& out ) { m_AssetCommands->AppendFolderCommands( out ); } );
+            m_Commands.Register( "Scene", [this]( Out& out ) { AppendSceneCommands( out ); } );
+            m_Commands.Register( "Debug (GPU allocations)", []( Out& out ) { AppendGpuAllocationCommand( out ); } );
+            m_Commands.Register( "Scene (views), Actions, Window", [this]( Out& out ) { AppendSceneTailCommands( out ); } );
+            m_Commands.Register( "Build", []( Out& out ) { AppendBuildCommands( out ); } );
+        }
         m_Panels.Add<Editor::SceneHierarchyPanel>( m_MainScene, m_AssetManager );
         m_Panels.Add<Editor::ScenePropertiesPanel>( m_MainScene, m_AssetManager, m_AnimationLibrary.get() );
         m_Panels.Add<Editor::ShaderLibraryPanel>();
@@ -4584,80 +4609,6 @@ namespace Desert::Editor
              label );
     }
 
-    Common::BoolResultStr EditorLayer::RotateSelectedControl( int axis, float degrees )
-    {
-        const auto& host    = Core::ActiveAuthoringContext();
-        const auto  control = host.SelectedControl();
-        if ( !control.has_value() || !m_MainScene )
-        {
-            return Common::MakeError<bool>( "no control is selected; run 'Select control <name>' first" );
-        }
-        const auto found = m_MainScene->FindEntityByID( host.Entity() );
-        if ( !found || !found->get().HasComponent<ECS::AnimationComponent>() )
-        {
-            return Common::MakeError<bool>( "the authoring context's entity has no animation component" );
-        }
-        auto& animation = found->get().GetComponent<ECS::AnimationComponent>();
-        if ( !animation.Animator || animation.Animator->GetRig() == nullptr )
-        {
-            return Common::MakeError<bool>( "the authoring context's entity has no built control rig" );
-        }
-        Animation::ControlHierarchy& hierarchy = animation.Animator->GetRig()->GetHierarchy();
-        if ( *control >= hierarchy.Size() )
-        {
-            return Common::MakeFormattedError<bool>( "the selected control {} is not in a rig of {} controls",
-                                                     *control, hierarchy.Size() );
-        }
-        // One call for the turn AND its undo entry, so the one-entry rule is the suite's (ClipEditUndo) to
-        // measure.
-        if ( auto turned = RotateControlRecorded( &hierarchy, *control, axis, degrees ); !turned.IsSuccess() )
-        {
-            return Common::MakeError<bool>( turned.GetError() );
-        }
-        return Common::MakeSuccess( true );
-    }
-
-    Common::BoolResultStr EditorLayer::AssignSkeletonFromPalette( const std::string& subject,
-                                                                  const std::string& skeleton ) const
-    {
-        using Common::Content::ContentKind;
-        std::optional<Common::Content::AssetGuid> guid;
-        for ( const auto& row : Assets::ContentRegistry::Rows( ContentKind::Skeleton ) )
-            if ( row.Guid && row.Path.generic_string() == skeleton )
-                guid = *row.Guid;
-        if ( !guid )
-            return Common::MakeError(
-                 std::format( "Assign Skeleton: '{}' is not a registered .skeleton", skeleton ) );
-        const std::filesystem::path path( subject );
-        auto                        load = [&]<typename T>() -> Common::ResultStr<std::shared_ptr<T>>
-        {
-            auto asset = m_AssetManager->FindByPath<T>( path );
-            if ( !asset )
-                asset = m_AssetManager->CreateAsset<T>( path, false );
-            if ( !asset )
-                return Common::MakeError<std::shared_ptr<T>>(
-                     std::format( "Assign Skeleton: '{}' could not be registered", subject ) );
-            if ( const auto loaded = asset->EnsureLoaded( *m_AssetManager ); !loaded )
-                return Common::MakeError<std::shared_ptr<T>>(
-                     std::format( "Assign Skeleton: '{}' would not load: {}", subject, loaded.GetError() ) );
-            return Common::MakeSuccess( std::shared_ptr<T>( std::move( asset ) ) );
-        };
-        if ( path.extension() == ".skmesh" )
-        {
-            const auto mesh = load.template operator()<Assets::SkinnedMeshAsset>();
-            if ( !mesh )
-                return Common::MakeError( mesh.GetError() );
-            return SkeletonSlots::AssignMeshSkeleton( *m_AssetManager, *mesh.GetValue(), *guid );
-        }
-        const auto clip = load.template operator()<Assets::AnimationAsset>();
-        if ( !clip )
-            return Common::MakeError( clip.GetError() );
-        if ( auto assigned = SkeletonSlots::AssignClipSkeleton( *m_AssetManager, *clip.GetValue(), *guid );
-             !assigned )
-            return assigned;
-        return Assets::Serialization::SaveClipToFile( path, clip.GetValue()->GetClip() );
-    }
-
     std::vector<PaletteCommand> EditorLayer::BuildPaletteCommands()
     {
         std::vector<PaletteCommand> commands;
@@ -4666,10 +4617,7 @@ namespace Desert::Editor
         return commands;
     }
 
-    // The editor's own entries ahead of the Landscape group: panels, debug, assets, details, clouds, language,
-    // documents, entities, camera, control rig, menu, snap, transform and view. Split into providers of their own
-    // by EDL-2b.
-    void EditorLayer::AppendShellHeadCommands( std::vector<PaletteCommand>& commands )
+    void EditorLayer::AppendPanelCommands( std::vector<PaletteCommand>& commands )
     {
         // Panels — jump to / reveal any tool window. TOOLS ONLY, and by construction rather than by a
         // filter: m_Panels is a PanelRegistry, which cannot hold a document. Before the split this loop
@@ -4689,97 +4637,10 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
         }
+    }
 
-        // DELIBERATE CRASH. It is here and not behind a build flag because the thing it proves — that a
-        // crash leaves a report on the machine it happened on — has to be provable on a developer's or a
-        // QA machine with the editor they are already running, not only on a build that was compiled for
-        // the purpose. It refuses when the handler is not installed, rather than killing the process and
-        // leaving nothing: that refusal IS the useful answer.
-        commands.push_back( { "Debug", "Crash (test)", []
-                              {
-                                  if ( !Common::Crash::IsInstalled() )
-                                  {
-                                      return Common::MakeFormattedError(
-                                           "the crash handler is not installed in this process, so a "
-                                           "deliberate crash would leave no report" );
-                                  }
-                                  Common::Crash::TriggerTestCrash( Common::Crash::TestKind::Segv );
-                              } } );
-
-        // Switching a world on (UE's "Convert Level to World Partition"). Offered UNCONDITIONALLY, unlike
-        // the panel's button: a command that vanishes from the palette cannot tell the user WHY it is not
-        // available, and the refusal this one returns names the scene and the grids it already has.
-        commands.push_back( { "Scene", std::string( ::Desert::Core::Rules::kConvertToWorldPartitionLabel ), [this]
-                              {
-                                  if ( m_WorldPartitionPanel == nullptr )
-                                      return Common::MakeError( "convert to World Partition: the World "
-                                                                "Partition window does not exist" );
-                                  return m_WorldPartitionPanel->ConvertSceneToWorldPartition();
-                              } } );
-
-        // The rename dialog on the Assets window's selection, with the registry's referrers listed; the
-        // same dialog F2 opens.
-        commands.push_back( { "Assets", "Rename the selected asset", [this]
-                              {
-                                  if ( m_FileExplorerPanel == nullptr )
-                                      return Common::MakeError( "rename: the Assets window does not exist" );
-                                  return m_FileExplorerPanel->RenameSelected();
-                              } } );
-        // ASSIGN SKELETON (UE's Assign Skeleton on a mesh / clip): the selected .skmesh / .anim against each
-        // registered .skeleton, through the Details slot's CheckSkeletonAssignment path — a refusal lists the
-        // missing and mis-parented bones and writes nothing. A clip's reference lives in its .anim, so an
-        // accepted clip is saved here, as the Animation Editor saves it after the same assignment.
-        {
-            std::vector<std::string> skeletons;
-            for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Skeleton ) )
-                if ( row.Guid )
-                    skeletons.push_back( row.Path.generic_string() );
-            const std::vector<std::string> selected = m_FileExplorerPanel != nullptr
-                                                           ? m_FileExplorerPanel->SelectionPaths()
-                                                           : std::vector<std::string>{};
-            for ( PaletteCommand& command : Editor::SkeletonAssignPaletteCommands(
-                       selected, skeletons, std::bind_front( &EditorLayer::AssignSkeletonFromPalette, this ) ) )
-                commands.push_back( std::move( command ) );
-        }
-        // One command per entry the Assets window shows, as a click would reach it (AF10c). Bound, not a
-        // lambda: `bugprone-exception-escape` fires on a parameter-less lambda here (see RunDocumentAction).
-        if ( m_FileExplorerPanel != nullptr )
-        {
-            for ( const std::string& path : m_FileExplorerPanel->ShownEntries( false ) )
-                commands.push_back( { "Assets", "Select asset " + path,
-                                      std::bind_front( &FileExplorerPanel::SelectEntry,
-                                                       std::to_address( m_FileExplorerPanel ), path ) } );
-            for ( const std::string& path : m_FileExplorerPanel->ShownEntries( true ) )
-            {
-                commands.push_back( { "Assets", "Select asset " + path,
-                                      std::bind_front( &FileExplorerPanel::SelectEntry,
-                                                       std::to_address( m_FileExplorerPanel ), path ) } );
-            }
-            // UE "Edit Thumbnail" in steps, for the selected models and materials (the tile's drag is the free
-            // form). The file name addresses the entry: the selection lives in one folder, so it is unique.
-            for ( const auto& subject : m_FileExplorerPanel->SelectedThumbnailSubjects() )
-            {
-                const std::string file = std::filesystem::path( subject.Asset ).filename().string();
-                for ( const Editor::ThumbnailEdit::OrbitStep step : Editor::ThumbnailEdit::kOrbitSteps )
-                    commands.push_back( { "Assets",
-                                          std::format( "Edit Thumbnail: {} {}", file,
-                                                       Editor::ThumbnailEdit::OrbitStepName( step ) ),
-                                          std::bind_front( &Editor::ThumbnailEdit::EditOrbitStep,
-                                                           std::filesystem::path( subject.OrbitFile ), step ) } );
-            }
-        }
-
-        // Asset creation, the Assets window's context menu as commands (UE "Add Level Sequence"). Offered
-        // whether or not the window exists: the refusal says why, where a missing entry would not.
-        for ( PaletteCommand& command : ContentCreatePaletteCommands(
-                   [this]
-                   {
-                       if ( m_FileExplorerPanel == nullptr )
-                           return Common::MakeError( "New Level Sequence: the Assets window does not exist" );
-                       return m_FileExplorerPanel->CreateNewLevelSequence();
-                   } ) )
-            commands.push_back( std::move( command ) );
-
+    void EditorLayer::AppendMaximizeCommands( std::vector<PaletteCommand>& commands )
+    {
         // Maximize any panel that sits in a dock now; restore the maximized one.
         {
             std::vector<std::string> docked;
@@ -4799,41 +4660,10 @@ namespace Desert::Editor
         // Details: scroll to a field / open an asset picker, as the last Details frame drew them (CTL2).
         for ( PaletteCommand& command : DetailsPaletteCommands( GetDetailsNavigation() ) )
             commands.push_back( std::move( command ) );
+    }
 
-        // THE SIX STAGES OF THE SKY, each as a command that opens the Clouds window ON that stage.
-        //
-        // Generated from the enum rather than typed, so a seventh stage is offered here the moment it
-        // exists and cannot be forgotten — CloudStageName has no `default:`, which is what makes that safe.
-        // They are the same CloudsPanel::OpenAt the Details panel's two buttons call, so a person with
-        // Ctrl+P and a client on the control channel reach the window exactly the way the button does.
-        for ( uint32_t i = 0; i < kCloudStageCount; ++i )
-        {
-            const auto stage = static_cast<CloudStage>( i );
-            commands.push_back( { "Clouds", std::to_string( i + 1 ) + " " + CloudStageName( stage ), [stage]
-                                  {
-                                      CloudsPanel::OpenAt( stage );
-                                      return PaletteCommandDone();
-                                  } } );
-        }
-
-        // LANGUAGE — one entry per language the compiled locale table knows, generated from the table so
-        // a language added there is offered here the moment it exists and cannot be forgotten.
-        //
-        // OFFERED FOR EVERY KNOWN LANGUAGE, not only the ones this project has strings in, and that is
-        // deliberate: switching to a language with no translations is how an author SEES what is missing
-        // (every keyed label draws its own key, and the log names each one). Hiding the entry would hide
-        // the hole.
-        //
-        // It is also the only way a language change can be photographed on this machine, where synthetic
-        // input is closed at the OS: the control channel runs these entries, so `run` then `shot.window`
-        // captures the switched interface in one session.
-        for ( const Localization::LocaleRow& row : Localization::Locales() )
-        {
-            const std::string tag = std::string( row.Tag );
-            commands.push_back( { "Language", tag + " - " + std::string( row.Endonym ),
-                                  [tag] { return Localization::Localization::Get().SetLanguage( tag ); } } );
-        }
-
+    void EditorLayer::AppendDocumentCommands( std::vector<PaletteCommand>& commands )
+    {
         // Documents — FOCUS an open one. A separate category because the verb is different and the
         // difference is the point of this task: a tool is opened, a document is switched to. Nothing here
         // creates or destroys a window, so a mistyped search cannot cost the user one.
@@ -4944,368 +4774,10 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
         }
+    }
 
-        // Entities — select any object in the open scene.
-        if ( m_MainScene )
-        {
-            for ( const auto& entity : m_MainScene->GetAllEntities() )
-            {
-                if ( !entity.HasComponent<ECS::UUIDComponent>() )
-                    continue;
-                const Common::UUID uuid = entity.GetComponent<ECS::UUIDComponent>().UUID;
-                std::string        name = entity.HasComponent<ECS::TagComponent>()
-                                               ? entity.GetComponent<ECS::TagComponent>().Tag
-                                               : std::string( "Entity" );
-                commands.push_back( { "Entity", name, [uuid]
-                                      {
-                                          Core::SelectionManager::SetSelected( uuid );
-                                          return PaletteCommandDone();
-                                      } } );
-                // Ctrl+click: a two-input tool (Boolean, Trim) reads A and B in selection order.
-                commands.push_back( { "Entity", "Add to selection " + name, [uuid]
-                                      {
-                                          Core::SelectionManager::AddToSelection( uuid );
-                                          return PaletteCommandDone();
-                                      } } );
-
-                // AND ITS EDITORS, because until now there was NO WAY TO OPEN ONE without a mouse. A
-                // subject document — the Sequencer, the AnimGraph — is opened by a button in the Details
-                // panel, and a button is the one gesture an unattended run cannot make. So every claim
-                // about those windows was unphotographable, including the one this task exists to make.
-                //
-                // Generated from the registry rather than listed, so an editor registered tomorrow is
-                // offered here the moment it exists. The two filters are the registry's own: the digest of
-                // the registered type name has to BE the key it is registered under (which is what excludes
-                // the asset editors, whose subject is a file and not a component), and `Exists` has to say
-                // there is something on this entity to open — the same predicate the Details button asks.
-                for ( const SubjectTypeKey type : m_SubjectEditors.RegisteredTypes() )
-                {
-                    const std::string typeName = m_SubjectEditors.TypeName( type );
-                    if ( ComponentSubjectType( typeName ) != type )
-                    {
-                        continue;
-                    }
-                    const SubjectId subject = ComponentSubject( uuid, typeName );
-                    if ( !m_SubjectEditors.Exists( subject ) )
-                    {
-                        continue;
-                    }
-                    commands.push_back( { "Open", "Editor: " + typeName + " on " + name, [subject]
-                                          {
-                                              Core::SubjectOpenRequests::Request( subject );
-                                              return PaletteCommandDone();
-                                          } } );
-                }
-
-                // DELETING ONE IS ALSO SOMETHING A PERSON DOES, and until now the palette could only
-                // SELECT. The Outliner's context menu and the Delete key both reach
-                // Commands::DeleteEntity — the same undoable command this runs — so the capability
-                // was always there and only the dictionary entry was missing.
-                //
-                // FOUND BY NEEDING IT. Verifying "a document closes with its subject" through the control
-                // channel means killing a subject through the control channel, and there was no way to
-                // destroy an entity without a mouse: the channel runs these closures and nothing else. A
-                // gap in the palette is a gap in what an agent can do at all, which is the one claim the
-                // palette exists to make good on.
-                commands.push_back( { "Entity", "Delete " + name, [uuid]
-                                      {
-                                          Commands::DeleteEntity( uuid );
-                                          return PaletteCommandDone();
-                                      } } );
-
-                // Pilot, the Outliner's and the Details panel's third door: the one an unattended run can
-                // open, so "the viewport shows what the camera sees" can be photographed at all.
-                if ( entity.HasComponent<ECS::CameraComponent>() )
-                {
-                    commands.push_back(
-                         { "Camera", "Pilot " + name, [uuid] { return Editor::PilotCameraEntity( uuid ); } } );
-                }
-
-                // LOCKING ONE IS TOO, and by the paragraph directly above it has to be here. The padlock
-                // in the Outliner's gutter and the row's context menu are both a MOUSE, and the lock's
-                // whole subject is what the viewport will and will not let you touch — so a channel that
-                // cannot set it cannot check it either. Same recursive setter both of those call.
-                {
-                    // Captures the UUID and re-resolves at RUN time, exactly as Delete above does, rather
-                    // than holding a Scene* and an entt handle from build time. The list is rebuilt per
-                    // use, so a stale pointer is not reachable today — but "not reachable today" is a
-                    // lifetime argument the next reader has to reconstruct, and a UUID lookup that simply
-                    // finds nothing needs no argument at all. Asked through the shared predicate, so this
-                    // label cannot disagree with the padlock the Outliner draws for the same entity.
-                    const bool locked = ECS::IsLocked( m_MainScene->GetRegistry(), entity.GetHandle() );
-                    commands.push_back( { "Entity", ( locked ? "Unlock " : "Lock " ) + name, [this, uuid, locked]
-                                          {
-                                              if ( !m_MainScene )
-                                                  return PaletteCommandDone();
-                                              if ( auto ref = m_MainScene->FindEntityByID( uuid ) )
-                                                  ECS::SetLockedRecursive( m_MainScene->GetRegistry(),
-                                                                           ref->get().GetHandle(), !locked );
-                                              return PaletteCommandDone();
-                                          } } );
-                }
-
-                // ── AND WHAT CAN BE OPENED *FROM* THIS ENTITY ─────────────────────────────────────────
-                //
-                // The other half of U7, and the half that makes a component document reachable at all
-                // without a mouse. The Details panel's button is how a person opens one; this is the same
-                // request under a name, which is what puts it in THE DICTIONARY — the palette, and
-                // therefore the control channel, which runs these same closures.
-                //
-                // A DOCUMENT REACHABLE ONLY BY CLICKING A BUTTON IS MISSING FROM THAT DICTIONARY, and the
-                // dictionary is this editor's one claim that "anything a person can do, an agent can do".
-                // The asset documents already had their entry (the Open group below, over the registered
-                // assets); a subject that is not a file had none, because there was no file to enumerate.
-                // Enumerating the ENTITIES against the registered COMPONENT kinds is the same loop over
-                // the other domain.
-                //
-                // DERIVED FROM THE REGISTRY, never a hand-written list of the two kinds that exist today:
-                // a third component document appears here the moment its factory is registered, which is
-                // the census this task exists to stop anybody having to refill.
-                for ( const SubjectTypeKey& type : m_SubjectEditors.RegisteredTypes() )
-                {
-                    if ( type.Domain != SubjectDomain::EntityComponent )
-                        continue;
-
-                    const SubjectId subject{ type.Domain, type.Facet, uuid };
-                    if ( !m_SubjectEditors.Exists( subject ) )
-                        continue;
-
-                    commands.push_back( { "Open", name + " \xc2\xb7 " + m_SubjectEditors.TypeName( type ),
-                                          [subject]
-                                          {
-                                              Core::SubjectOpenRequests::Request( subject );
-                                              return PaletteCommandDone();
-                                          } } );
-                }
-            }
-        }
-
-        if ( m_MainScene )
-        {
-            // The material pencil's request, made from the palette: macOS gives the control channel no
-            // synthetic click, and this is the same AssetFieldRequests entry the pencil and the field menu use.
-            if ( const auto& primary = Core::SelectionManager::GetSelected(); primary.has_value() )
-            {
-                const Common::UUID owner = *primary;
-                commands.push_back(
-                     { "Entity", "Open the selected entity's material", [this, owner]
-                       {
-                           auto ref = m_MainScene ? m_MainScene->FindEntityByID( owner ) : std::nullopt;
-                           if ( !ref )
-                               return Common::MakeFormattedError<bool>( "the selection is gone" );
-                           ECS::Entity entity =
-                                ref->get(); // HostOf takes a mutable entity; the handle copy is cheap
-                           const auto host = MaterialComponentWidget::HostOf( entity );
-                           if ( host.Slots == nullptr || host.Slots->empty() )
-                               return Common::MakeFormattedError<bool>(
-                                    "the selected entity has no material slot" );
-                           Core::AssetFieldRequests::Request( host.Slots->front(), Core::AssetFieldAction::Open );
-                           return PaletteCommandDone();
-                       } } );
-            }
-        }
-        // SELECT EVERY PROP THAT MATCHES THIS ONE — UE's "Select > Matching", and the step without which
-        // the collapse below has no input. A five-hundred-entity selection is five hundred ctrl-clicks,
-        // which is also a gesture no unattended run can make; this turns "pick one crate" into "pick every
-        // crate like it". The match is the FOLD'S OWN identity rule, so a selection this builds is never a
-        // selection the fold then refuses for a reason nobody can see.
-        if ( m_MainScene )
-        {
-            if ( const auto& primary = Core::SelectionManager::GetSelected(); primary.has_value() )
-            {
-                const Common::UUID seed = *primary;
-                commands.push_back( { "Entity", "Select all with the same static mesh", [seed]
-                                      {
-                                          const size_t selected = Commands::SelectMatchingStaticMeshes( seed );
-                                          return PaletteCommandOutcome(
-                                               selected > 0,
-                                               "The selected entity carries no static mesh to match." );
-                                      } } );
-            }
-        }
-
-        // ── THE CONTROL RIG, UNDER NAMES ─────────────────────────────────────────────────────────────
-        //
-        // FOUND BY NEEDING IT, exactly as the snap steps and the transform tools above were. Every gesture
-        // in `ControlManipulator` is a MOUSE gesture -- enter Control mode with a checkbox, click a shape,
-        // drag it -- and synthetic input is closed on this machine at both doors. So `ControlDrag`, which
-        // a suite and a census both cover, had never appeared in a single frame: there was no way to put
-        // it on screen without a human. Three entries close that, and none of them is a second
-        // implementation: the mode goes through the authoring context's own gate, the selection through
-        // `SetSelectedControl`, and the nudge through the very `ControlDrag` object the mouse grabs.
-        //
-        // THE PALETTE IS AN OWNER LIKE ANY OTHER. It takes the authoring context as `Kind::Panel`, so a
-        // viewport or a Sequencer that wants it back takes it the same way they take it from each other,
-        // and the refusals name who holds it.
-        if ( m_MainScene )
-        {
-            if ( const auto& primary = Core::SelectionManager::GetSelected(); primary.has_value() )
-            {
-                const Common::UUID subject = *primary;
-                commands.push_back( { "Control Rig", "Author the control rig on the selection", [this, subject]
-                                      {
-                                          auto& host                = Core::ActiveAuthoringContext();
-                                          m_PaletteAuthoring.Entity = subject;
-                                          // Focus FIRST and set the mode after: Focus adopts the published context
-                                          // when the entity matches, so a mode written into `mine` beforehand is
-                                          // overwritten by whatever the previous holder was in.
-                                          (void)host.Focus( m_PaletteAuthoringOwner, m_PaletteAuthoring );
-                                          return host.SetMode( m_PaletteAuthoringOwner, m_PaletteAuthoring,
-                                                               Core::AuthoringMode::Control );
-                                      } } );
-
-                // ONE ENTRY PER CONTROL, built from the rig the selection actually carries -- the same
-                // shape the per-entity and per-document entries above use. A single "select control by
-                // index" entry could not be offered, because `PaletteCommand::Run` takes no arguments;
-                // and a client that cannot see the viewport needs to ask for a control BY NAME anyway.
-                if ( const auto& found = m_MainScene->FindEntityByID( subject ) )
-                {
-                    const ECS::Entity& entity = found->get();
-                    if ( entity.HasComponent<ECS::AnimationComponent>() )
-                    {
-                        const auto& animation = entity.GetComponent<ECS::AnimationComponent>();
-                        if ( animation.Animator && animation.Animator->GetRig() != nullptr )
-                        {
-                            const Animation::ControlHierarchy& hierarchy =
-                                 animation.Animator->GetRig()->GetHierarchy();
-                            for ( uint32_t control = 0; control < static_cast<uint32_t>( hierarchy.Size() );
-                                  ++control )
-                            {
-                                const std::string name = hierarchy.Get( control ).Name;
-                                commands.push_back( { "Control Rig", "Select control " + name,
-                                                      [this, subject, control]
-                                                      {
-                                                          // The palette takes the context the way it does for
-                                                          // "Author": after "Viewport mode: Control" the viewport
-                                                          // holds it, and picking a control by name refused.
-                                                          // Focus adopts the holder's mode for the same entity.
-                                                          auto& host = Core::ActiveAuthoringContext();
-                                                          m_PaletteAuthoring.Entity = subject;
-                                                          (void)host.Focus( m_PaletteAuthoringOwner,
-                                                                            m_PaletteAuthoring );
-                                                          return host.SetSelectedControl( m_PaletteAuthoringOwner,
-                                                                                          m_PaletteAuthoring,
-                                                                                          control );
-                                                      } } );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // THE DRAG ITSELF. Offered unconditionally, like the snap steps: the refusal a client gets when
-        // no control is selected is more useful than an entry that quietly is not in the dictionary, and
-        // the dictionary is rebuilt per query anyway so a conditional one would come and go.
-        //
-        // PIXELS, NOT WORLD UNITS, and that is not a shortcut: `ControlDrag` converts a POINTER OFFSET
-        // into the control's parent space, so the honest parameter of the gesture is the one the gesture
-        // takes. A "move 10 cm" entry would have to invent the projection the drag exists to do, and the
-        // two would disagree at every zoom but one.
-        {
-            constexpr struct
-            {
-                const char* Label;
-                float       X;
-                float       Y;
-            } kNudges[] = {
-                 { "Nudge the selected control 20 px right", 20.0f, 0.0f },
-                 { "Nudge the selected control 20 px left", -20.0f, 0.0f },
-                 { "Nudge the selected control 20 px up", 0.0f, -20.0f },
-                 { "Nudge the selected control 20 px down", 0.0f, 20.0f },
-                 { "Nudge the selected control 80 px right", 80.0f, 0.0f },
-                 { "Nudge the selected control 80 px left", -80.0f, 0.0f },
-                 { "Nudge the selected control 80 px up", 0.0f, -80.0f },
-                 { "Nudge the selected control 80 px down", 0.0f, 80.0f },
-            };
-            for ( const auto& nudge : kNudges )
-            {
-                // Y GROWS DOWNWARD -- ImGui's convention and therefore the viewport's
-                // (ControlManipulator.hpp), which is why "up" is negative here.
-                const glm::vec2 delta( nudge.X, nudge.Y );
-                commands.push_back( { "Control Rig", nudge.Label,
-                                      [delta] { return Core::ControlNudgeRequests::Request( delta ); } } );
-            }
-        }
-
-        // EXACT ROTATION, THE GIZMO'S ARITHMETIC WITHOUT A MOUSE. A nudge is pixels through the arcball, so
-        // "turn the elbow 45 degrees" has no nudge spelling; this is UE's local rotate gizmo as one gesture:
-        // the pose turns about the control's own axis, drives carry it to the bone on the next evaluation,
-        // and the gesture is ONE undo entry (RecordControlDrag, the same recorder the mouse drag uses).
-        {
-            constexpr std::array<const char*, 3> kAxes = { "X", "Y", "Z" };
-            for ( int axis = 0; axis < 3; ++axis )
-            {
-                for ( const float degrees : { 45.0f, -45.0f, 90.0f, -90.0f } )
-                {
-                    const std::string label = std::format( "Rotate selected {} {:+g}", kAxes[axis], degrees );
-                    commands.push_back( { "Control Rig", label, [this, axis, degrees]
-                                          { return RotateSelectedControl( axis, degrees ); } } );
-                }
-            }
-        }
-
-        // COLLAPSE THE SELECTION INTO ONE INSTANCED DRAW. Offered ONCE, not per entity, because its
-        // subject is the selection and not an entity — the same reason the snap entries below are not
-        // repeated per viewport.
-        //
-        // WHY IT IS A COMMAND AND NOT ONLY A BUTTON. Five hundred transforms are not typed by hand, so
-        // the Details panel's instance list has no author without this; and a control that exists only
-        // as a mouse click cannot be photographed or checked on this machine, where synthetic input is
-        // closed at the OS. Save, "+ State" and the warning-strip rows are here for the same reason.
-        //
-        // It returns the planner's own refusal rather than PaletteCommandDone: a fold that would have
-        // destroyed a collider must say so to whoever asked, on the channel and in the toast alike.
-        // Placement by ray: the one door to it that does not need a mouse drag, so the control channel can
-        // put an object on a hill and shoot the result. The ray is the active viewport's line of sight, and
-        // the surface is whatever Scene::Raycast meets first — the landscape included.
-        commands.push_back( { "Entity", "Place a cube on the surface at the viewport centre", [this]
-                              {
-                                  ::Desert::Core::EditorCamera* camera = ActiveEditorCamera();
-                                  if ( ( camera == nullptr ) || !m_MainScene )
-                                      return PaletteCommandOutcome( false, "no viewport camera or no scene" );
-                                  const Common::Math::Ray    ray( camera->GetPosition(), camera->GetDirection() );
-                                  ::Desert::Core::RaycastHit hit;
-                                  if ( !m_MainScene->Raycast( ray, hit ) )
-                                      return PaletteCommandOutcome( false,
-                                                                    "the viewport centre looks at no surface" );
-                                  auto& e       = m_MainScene->CreateNewEntity( "Cube" );
-                                  auto& smc     = e.AddComponent<ECS::StaticMeshComponent>();
-                                  smc.Primitive = Geometry::PrimitiveType::Cube;
-                                  // The primitive cube is one metre, centred on its pivot: lift it by half
-                                  // along the surface normal so it stands on the surface, not in it.
-                                  e.GetComponent<ECS::TransformComponent>().Translation =
-                                       hit.Point + hit.Normal * ( 0.5f * Common::Units::UnitsPerMetre );
-                                  const auto uuid = e.GetComponent<ECS::UUIDComponent>().UUID;
-                                  Core::SelectionManager::SetSelected( uuid );
-                                  Commands::NotifyCreated( { uuid } );
-                                  return PaletteCommandDone();
-                              } } );
-        // UE's Convert to Static Mesh: the selected EditMesh entity's geometry becomes a new .stmesh asset,
-        // written where the modeling tools' Output settings say (Modeling panel, "Output Type").
-        commands.push_back(
-             { "Entity", "Convert to Static Mesh", []
-               {
-                   const auto& selection = Core::SelectionManager::GetSelection();
-                   if ( selection.size() != 1 )
-                       return Common::MakeFormattedError<bool>(
-                            "select exactly one object to convert ({} selected)", selection.size() );
-                   const auto& out     = Core::ModelingState::Get().Output;
-                   const auto  written = Commands::ConvertToStaticMesh( selection.front(), out.Folder, out.Name );
-                   if ( !written.IsSuccess() )
-                       return Common::MakeError<bool>( written.GetError() );
-                   LOG_INFO( "[Modeling] converted to static mesh '{}'", written.GetValue().generic_string() );
-                   return Common::MakeSuccess( true );
-               } } );
-        commands.push_back( { "Entity", "Collapse selection into Instanced Static Mesh", []
-                              {
-                                  const auto folded = Commands::CollapseIntoInstancedMesh(
-                                       Core::SelectionManager::GetSelection() );
-                                  if ( !folded.IsSuccess() )
-                                      return Common::MakeError<bool>( folded.GetError() );
-                                  return Common::MakeSuccess( true );
-                              } } );
-
+    void EditorLayer::AppendMenuCommands( std::vector<PaletteCommand>& commands )
+    {
         // THE MENU BAR. `--open-menu` is gone and this is where its capability went: a menu can be opened,
         // photographed and closed again, as many times as a session likes, instead of being pinned open
         // for a whole run by a flag with no way to say "now let go".
@@ -5323,152 +4795,9 @@ namespace Desert::Editor
                                   m_HeldOpenMenu.clear();
                                   return PaletteCommandDone();
                               } } );
-
-        // THE SNAP, AND THE PERF HUD. Both are things a person does with a single click and neither had a
-        // name, so neither could be done unattended — and a gap in this dictionary is a gap in what an
-        // agent can do at all, which is the claim the palette exists to make good on. Found by needing
-        // them: К6 moved the snap step to one owner and then could not photograph the defect it fixed,
-        // because the sequence is "set a step, do something unrelated, look" and the channel could reach
-        // neither half. The three toolbar popups and the View -> Show menu were the only ways in.
-        //
-        // THE STEPS ARE THE TOOLBAR'S OWN LISTS, not a copy: kGridSteps and kAngleSteps are declared once
-        // at the top of this file and read by DrawSnapControl as well, so a step added there appears here
-        // and the two can never offer different menus.
-        //
-        // Labels are ASCII on purpose. A client addresses a command by its exact label over the control
-        // channel (`desertctl run Snap "Angle snap 15 deg"`), and the degree sign the toolbar button draws
-        // is two UTF-8 bytes that a shell argument carries badly.
-        for ( const float step : kGridSteps )
-        {
-            char label[48];
-            if ( step >= 100.0f )
-                std::snprintf( label, sizeof( label ), "Grid snap %.0f m", step / 100.0f );
-            else
-                std::snprintf( label, sizeof( label ), "Grid snap %.0f cm", step );
-            commands.push_back( { "Snap", label, [step]
-                                  {
-                                      Core::GizmoState::SetTranslateSnap( step );
-                                      return PaletteCommandDone();
-                                  } } );
-        }
-        for ( const float step : kAngleSteps )
-        {
-            char label[48];
-            std::snprintf( label, sizeof( label ), "Angle snap %.0f deg", step );
-            commands.push_back( { "Snap", label, [step]
-                                  {
-                                      Core::GizmoState::SetRotateSnapDegrees( step );
-                                      return PaletteCommandDone();
-                                  } } );
-        }
-        commands.push_back( { "Snap", "Toggle snapping", []
-                              {
-                                  Core::GizmoState::SetPersistentSnap( !Core::GizmoState::PersistentSnap() );
-                                  return PaletteCommandDone();
-                              } } );
-
-        // ── THE TRANSFORM TOOLS AND THE SPACE THEY WORK IN ───────────────────────────────────────────
-        //
-        // FOUND BY NEEDING IT, exactly as the Delete-entity entry above was. Every one of these is a
-        // toolbar button and a W/E/R keystroke, and both of those are a HUMAN — so the space toggle could
-        // be photographed in one of its two states and the "a locked entity draws no gizmo" claim could
-        // not be photographed at all, because nothing without a mouse could put a gizmo on screen first.
-        //
-        // The same Core::GizmoState setters the buttons call, so these are a second SPELLING of the
-        // request and never a second copy of the state.
-        {
-            using Gz = Core::GizmoState;
-
-            constexpr struct
-            {
-                const char*   Label;
-                Gz::Operation Op;
-            } kTools[] = {
-                 { "Select (no gizmo)", Gz::Operation::None },
-                 { "Move", Gz::Operation::Translate },
-                 { "Rotate", Gz::Operation::Rotate },
-                 { "Scale", Gz::Operation::Scale },
-            };
-            for ( const auto& tool : kTools )
-            {
-                const auto op = tool.Op;
-                commands.push_back( { "Transform", tool.Label, [op]
-                                      {
-                                          Gz::Set( op );
-                                          return PaletteCommandDone();
-                                      } } );
-            }
-
-            // Both spaces are offered by name rather than as one "toggle", because a client that cannot
-            // see the button needs to be able to ASK for a state instead of flipping an unknown one.
-            constexpr struct
-            {
-                const char* Label;
-                Gz::Space   Space;
-            } kSpaces[] = {
-                 { "Space: World", Gz::Space::World },
-                 { "Space: Local", Gz::Space::Local },
-            };
-            for ( const auto& choice : kSpaces )
-            {
-                const auto space = choice.Space;
-                commands.push_back( { "Transform", choice.Label, [space]
-                                      {
-                                          Gz::SetSpace( space );
-                                          return PaletteCommandDone();
-                                      } } );
-            }
-        }
-
-        // The View -> Show item, under a name. It is the cheapest action in the editor that saves the
-        // preferences file while having nothing whatever to do with the gizmo, which is exactly what makes
-        // it the other half of К6's scenario — and it is a dictionary entry in its own right, since
-        // "turn the frame timings on" is something a person asks for by name.
-        commands.push_back( { "Action", "Toggle the Perf HUD", []
-                              {
-                                  EditorPreferences::Get().ShowPerfHud = !EditorPreferences::Get().ShowPerfHud;
-                                  EditorPreferences::Save();
-                                  return PaletteCommandDone();
-                              } } );
-
-        commands.push_back( { "Camera", "Eject (stop piloting)", [] { return Editor::EjectPilot(); } } );
-
-        // THE TWO ENDS OF К10's SCENARIO, UNDER NAMES, for the reason К6 named the snap steps and the item
-        // above: a scenario whose steps can only be reached by clicking is a scenario no unattended run can
-        // walk, and a claim about it is therefore unphotographable. Both are dictionary entries in their own
-        // right — "show me the grid" and "switch to 2D" are things a person asks for by name, and UE's own
-        // Show > Grid is searchable for the same reason.
-        //
-        // Note which one saves and which one does not, because that IS К10: the grid is the USER'S ANSWER
-        // and persists on the click; 2D UI mode is a VIEWPORT MODE and persists nowhere at all.
-        commands.push_back( { "View", "Toggle the grid", []
-                              {
-                                  auto& view    = EditorPreferences::Get().DebugView;
-                                  view.ShowGrid = !view.ShowGrid;
-                                  EditorPreferences::Save();
-                                  return PaletteCommandDone();
-                              } } );
-        // THE VIEWPORT'S FOUR AUTHORING MODES (07 §14.2), and the reason they are palette entries rather
-        // than only toolbar segments is Г14's rule applied to this tier: a capability reachable only by a
-        // mouse click does not exist for the control channel, so no unattended run could ever photograph
-        // the bone overlay or the control shapes — and an overlay whose appearance cannot be checked is
-        // exactly the "built, tested and unseen" shape this project keeps paying for. They are VIEWPORT
-        // MODES and persist nowhere, like 2D UI mode above and unlike the grid.
-        //
-        // GENERATED FROM THE MODE TABLE, not typed out: a fifth mode reaches the channel by existing.
-        // This replaced one entry, "Toggle the control rig overlay", which flipped a process-wide static
-        // directly — it could name no owner, so over the channel it could not be refused and could not
-        // say which character it had just started posing.
-        for ( const Core::AuthoringMode mode : Core::kAuthoringModes )
-        {
-            commands.push_back( { "View", std::string( "Viewport mode: " ) + Core::AuthoringModeName( mode ),
-                                  [mode] { return Editor::ViewportPanel::RequestAuthoringMode( mode ); } } );
-        }
     }
 
-    // The editor's own entries after the Humanoid group: add shape, 2D UI, the palette itself, assets and import
-    // options, open, scene views, documents, release/rebuild, save, play, undo/redo, window and build.
-    void EditorLayer::AppendShellCommands( std::vector<PaletteCommand>& commands )
+    void EditorLayer::AppendAddShapeCommands( std::vector<PaletteCommand>& commands )
     {
         // ADD SHAPE: the outliner's Add > Shapes, one entry per authorable primitive, through the same spawn.
         for ( const Geometry::PrimitiveType type : Geometry::kAuthorablePrimitives )
@@ -5482,18 +4811,10 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
         }
-        commands.push_back( { "View", "Toggle 2D UI mode", [this]
-                              {
-                                  // REFUSES RATHER THAN DOING NOTHING when there is no scene. The mode is
-                                  // a property OF a scene, so "there is none" is a fact the caller has to
-                                  // hear — over the channel it used to come back as a plain success.
-                                  if ( !m_MainScene )
-                                      return Common::MakeError<bool>( "there is no open scene to switch "
-                                                                      "into 2D UI mode." );
-                                  Editor::ViewportPanel::ToggleUIMode( *m_MainScene );
-                                  return PaletteCommandDone();
-                              } } );
+    }
 
+    void EditorLayer::AppendPaletteDoorCommand( std::vector<PaletteCommand>& commands )
+    {
         // THE PALETTE'S OWN DOOR. Ctrl+P is the only other way to it and a keystroke is not available to
         // this machine, so the command palette was the single window in this editor that no unattended run
         // could put on screen — and therefore the one whose appearance no change to it could ever be
@@ -5505,242 +4826,10 @@ namespace Desert::Editor
                                   m_OpenPaletteRequested = true;
                                   return PaletteCommandDone();
                               } } );
+    }
 
-        // OPENABLE ASSETS. This is where `--open-panel <path-to-asset>` went — the half of that flag that
-        // opened a DOCUMENT rather than a tool, and the only way a document has ever been put on screen
-        // unattended, since a document does not exist until something opens its asset and therefore has
-        // no name to be reached by.
-        //
-        // ENUMERATED FROM THE PROJECT'S FILES, NOT FROM THE ASSET MANAGER'S CACHE. This loop used to walk
-        // `RegisteredAssets()` — whatever the startup preloader had got round to registering — which is a
-        // container whose contents are derived from the same source as the question being asked of it.
-        // Measured through the control channel, once per frame: the group goes 0 -> 106 -> 130 entries,
-        // because FIVE separate startup stages fill that cache, so for 3.3 s of every boot the palette
-        // successfully offered every material in this project and none of its twenty-four cloud assets.
-        //
-        // The entity half above never had that problem, and the reason is the shape: it walks the SCENE,
-        // which is what says which entities exist. The equivalent for files is the content enumeration —
-        // ListFilesRecursive, which is also what the preloader walks to build the cache in the first
-        // place, and which covers a mounted .dpak as well as loose files. Reading it one step earlier
-        // removes the window rather than shortening it.
-        //
-        // Nothing is loaded to build this list, which is the other half of the argument: a project with
-        // ten thousand materials costs one directory walk here, and the file is parsed by the OPENER, on
-        // the frame somebody actually asks for it.
-        //
-        // See Editor/Core/OpenableAssets.hpp for the labelling rule and the three `model.demat` that
-        // motivated it.
-        const std::vector<std::filesystem::path> assetFiles =
-             Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::ASSETS_PATH );
-        // THE MESH DROP WITHOUT A MOUSE: one entry per model source, running the viewport's own drop body at
-        // the surface the active view's centre looks at. The control channel had "Place a cube" and nothing
-        // that exercised MeshDnD — AL1-5b could not check a dropped mesh for in-frame reads.
-        for ( const std::filesystem::path& file : assetFiles )
-        {
-            std::string ext = file.extension().string();
-            std::transform( ext.begin(), ext.end(), ext.begin(),
-                            []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
-            if ( ext != ".fbx" && ext != ".obj" && ext != ".gltf" && ext != ".glb" && ext != ".blend" )
-                continue;
-            const std::string path = file.generic_string();
-            const std::string label =
-                 "Drop into the viewport: " +
-                 file.lexically_relative( Common::Constants::Path::ASSETS_PATH ).generic_string();
-            // The same clang-tidy 18 finding as the folder entries below: the closure's implicit copy of
-            // `path`, which std::function needs.
-            // NOLINTBEGIN(bugprone-exception-escape)
-            commands.push_back(
-                 { "Assets", label, [this, path]
-                   {
-                       ::Desert::Core::EditorCamera* camera = ActiveEditorCamera();
-                       if ( camera == nullptr || !m_MainScene )
-                           return PaletteCommandOutcome( false, "no viewport camera or no scene" );
-                       // The view centre's ray: the surface it meets, or UE's background drop distance.
-                       const Common::Math::Ray    ray( camera->GetPosition(), camera->GetDirection() );
-                       ::Desert::Core::RaycastHit hit;
-                       const bool                 met     = m_MainScene->Raycast( ray, hit );
-                       const auto                 dropped = ViewportPanel::DropMeshIntoActiveViewport(
-                            path, ActorDrop::TargetFor( met ? std::optional<glm::vec3>( hit.Point ) : std::nullopt,
-                                                        hit.Normal, ray.Origin, ray.Direction ) );
-                       if ( !dropped )
-                           return Common::MakeError<bool>( dropped.GetError() );
-                       return PaletteCommandDone();
-                   } } );
-            // NOLINTEND(bugprone-exception-escape)
-        }
-        // THE IMPORT OPTIONS WINDOW WITHOUT A MOUSE: its three buttons, each running the button's own body.
-        const auto importOptionsCommand = [&commands]( const char* label, Common::BoolResultStr ( *answer )() )
-        {
-            commands.push_back( { "Assets", label, [answer]
-                                  {
-                                      if ( const auto answered = answer(); !answered )
-                                          return Common::MakeError<bool>( answered.GetError() );
-                                      return PaletteCommandDone();
-                                  } } );
-        };
-        importOptionsCommand( "Import Options: Import", [] { return ImportOptions::ConfirmImport( false ); } );
-        importOptionsCommand( "Import Options: Import All", [] { return ImportOptions::ConfirmImport( true ); } );
-        importOptionsCommand( "Import Options: Cancel", [] { return ImportOptions::CancelImport(); } );
-        // ITS FIELDS WITHOUT A MOUSE: the same edits the fields make (ImportOptions::SetShown*), on the options
-        // the window shows. Uniform Scale offers the unit conversions (metres, decimetres, centimetres, ...).
-        for ( const float scale : { 0.01f, 0.1f, 1.0f, 10.0f, 100.0f } )
-            commands.push_back( { "Assets", std::format( "Import Options: Uniform Scale {}", scale ),
-                                  [scale] { return ImportOptions::SetShownUniformScale( scale ); } } );
-        for ( const auto& [label, axis] :
-              { std::pair{ "From File", Assets::MeshSourceUpAxis::FromFile },
-                std::pair{ "Y", Assets::MeshSourceUpAxis::Y }, std::pair{ "Z", Assets::MeshSourceUpAxis::Z } } )
-            commands.push_back( { "Assets", std::format( "Import Options: Up Axis {}", label ),
-                                  [axis] { return ImportOptions::SetShownUpAxis( axis ); } } );
-        for ( const bool on : { true, false } )
-            commands.push_back( { "Assets", std::format( "Import Options: Combine Meshes {}", on ? "on" : "off" ),
-                                  [on] { return ImportOptions::SetShownCombineMeshes( on ); } } );
-        // UE's Content Browser > Asset Actions > Reimport (and the Import Settings fields Reimport imports with):
-        // over the assets SELECTED IN THE CONTENT BROWSER, the RMB item's and the Import Settings button's own
-        // ImportOptions bodies. Without a selected asset each is unavailable and says why; an asset with no import
-        // source is refused by name by the body it reaches.
-        const auto selectedAssets = [this]() -> Common::ResultStr<std::vector<std::string>>
-        {
-            if ( m_FileExplorerPanel == nullptr )
-                return Common::MakeError<std::vector<std::string>>( "the Content Browser is not open" );
-            std::vector<std::string> selected = m_FileExplorerPanel->SelectionPaths();
-            if ( selected.empty() )
-                return Common::MakeError<std::vector<std::string>>(
-                     "no asset is selected in the Content Browser" );
-            return Common::MakeSuccess( std::move( selected ) );
-        };
-        // One body over every selected asset; the first refusal is the command's answer, the others still run.
-        const auto overSelectedAssets =
-             [selectedAssets]( const std::function<Common::BoolResultStr( const std::filesystem::path& )>& body )
-             -> Common::BoolResultStr
-        {
-            const auto assets = selectedAssets();
-            if ( !assets )
-                return Common::MakeError<bool>( assets.GetError() );
-            Common::BoolResultStr outcome = PaletteCommandDone();
-            for ( const std::string& asset : assets.GetValue() )
-                if ( const auto done = body( asset ); !done && outcome )
-                    outcome = Common::MakeError<bool>( std::format( "'{}': {}", asset, done.GetError() ) );
-            return outcome;
-        };
-        // The Content Browser's commands — the item context menu's rows, the same executor (UE's
-        // FContentBrowserCommands). Reimport over the selection is "Content Browser / Reimport".
-        if ( m_FileExplorerPanel != nullptr )
-            for ( const Editor::ContentBrowserCommand command : Editor::kContentBrowserCommandOrder )
-                commands.push_back( { std::string( Editor::CommandInfo( command ).Context ),
-                                      std::string( Editor::CommandInfo( command ).Label ),
-                                      std::bind_front( &FileExplorerPanel::RunCommand,
-                                                       std::to_address( m_FileExplorerPanel ), command ) } );
-        // UE's SyncBrowserToFolders / SyncBrowserToAssets: the label carries the path (as "Select asset <path>"
-        // does), one entry per folder / file under the browser's root, so a client reaches any asset.
-        if ( m_FileExplorerPanel != nullptr )
-        {
-            for ( const std::string& folder : m_FileExplorerPanel->ContentFolders() )
-                commands.push_back( { std::string( Editor::kContentBrowserContext ),
-                                      Editor::ContentBrowserPathLabel( Editor::kGoToFolderLabel, folder ),
-                                      std::bind_front( &FileExplorerPanel::GoToFolder,
-                                                       std::to_address( m_FileExplorerPanel ), folder ) } );
-            for ( const std::string& file : m_FileExplorerPanel->ContentFiles() )
-                commands.push_back( { std::string( Editor::kContentBrowserContext ),
-                                      Editor::ContentBrowserPathLabel( Editor::kSyncToAssetLabel, file ),
-                                      std::bind_front( &FileExplorerPanel::SyncToAsset,
-                                                       std::to_address( m_FileExplorerPanel ), file ) } );
-        }
-        for ( const float scale : { 0.01f, 0.1f, 1.0f, 10.0f, 100.0f } )
-            commands.push_back( { "Assets", std::format( "Import Settings: Uniform Scale {}", scale ),
-                                  [overSelectedAssets, scale]
-                                  {
-                                      return overSelectedAssets(
-                                           [scale]( const std::filesystem::path& asset )
-                                           { return ImportOptions::SetSectionUniformScale( asset, scale ); } );
-                                  } } );
-        for ( const auto& [label, axis] :
-              { std::pair{ "From File", Assets::MeshSourceUpAxis::FromFile },
-                std::pair{ "Y", Assets::MeshSourceUpAxis::Y }, std::pair{ "Z", Assets::MeshSourceUpAxis::Z } } )
-            commands.push_back(
-                 { "Assets", std::format( "Import Settings: Up Axis {}", label ), [overSelectedAssets, axis]
-                   {
-                       return overSelectedAssets( [axis]( const std::filesystem::path& asset )
-                                                  { return ImportOptions::SetSectionUpAxis( asset, axis ); } );
-                   } } );
-        for ( const OpenableAsset& asset : CollectOpenableAssets( assetFiles, m_SubjectEditors.ClaimedExtensions(),
-                                                                  Common::Constants::Path::ASSETS_PATH ) )
-        {
-            const std::string path = asset.Path;
-            commands.push_back( { "Open", asset.Label, [this, path]
-                                  {
-                                      // THROUGH THE PATH OPENERS, the same route the asset browser's
-                                      // double-click takes. Resolving a path to a subject here would be a
-                                      // second copy of the find-or-create-and-load chain — the exact
-                                      // duplication SubjectEditorRegistry::RegisterPathOpener was
-                                      // introduced to delete, when the browser and EditorLayer each
-                                      // carried one.
-                                      //
-                                      // AND THE OUTCOME IS ANSWERED, WHICH IS A6-2 POINT 1. `(void)` stood
-                                      // here: a `.demat` that would not resolve logged its reason and came
-                                      // back over the channel as `{"ok":true}`, so a script opened nothing
-                                      // and carried on. The opener has already said WHY in the log, with
-                                      // the path — this refuses without repeating a guess at the cause,
-                                      // exactly as PathOpenOutcome::Failed is documented to mean.
-                                      switch ( m_SubjectEditors.OpenPath( path ) )
-                                      {
-                                          case SubjectEditorRegistry::PathOpenOutcome::Requested:
-                                              return PaletteCommandDone();
-                                          case SubjectEditorRegistry::PathOpenOutcome::Failed:
-                                              return Common::MakeFormattedError<bool>(
-                                                   "'{}' is a document this editor opens and it would not "
-                                                   "resolve; the log line above names the reason.",
-                                                   path );
-                                          case SubjectEditorRegistry::PathOpenOutcome::NotMine:
-                                              // The palette offered it, so an opener claimed its
-                                              // extension — NotMine here means the file has GONE since
-                                              // the dictionary was built, which is a fact and not a
-                                              // no-op.
-                                              return Common::MakeFormattedError<bool>(
-                                                   "'{}' is no longer there — no registered opener claims "
-                                                   "it now. It existed when this list was built.",
-                                                   path );
-                                      }
-                                      return Common::MakeFormattedError<bool>(
-                                           "opening '{}' produced an outcome this build does not handle; "
-                                           "that is a defect in the palette, not in the request.",
-                                           path );
-                                  } } );
-        }
-
-        // FOLDERS, one "Open folder: <path under the assets root>" entry each (the ONE folder command — the
-        // Assets window's own per-shown-folder duplicate that took an absolute path is gone): brings the Assets
-        // browser forward ON that folder. Derived from the SAME content enumeration as the "Open" entries above
-        // (every folder that holds content, each ancestor up to the assets root included), not from a second walk
-        // of the disk: that one call sees a mounted .dpak as well as loose files, and the ContentScanners gate
-        // holds every content walk to it. A folder with no file anywhere beneath it is therefore not offered,
-        // which is the packaged project's truth too. The label is the path under the assets root.
-        {
-            const std::filesystem::path assetsRoot =
-                 std::filesystem::path( Common::Constants::Path::ASSETS_PATH ).lexically_normal();
-            std::set<std::string> folders;
-            for ( const std::filesystem::path& file : assetFiles )
-            {
-                std::error_code             ec;
-                const std::filesystem::path rel =
-                     std::filesystem::relative( file, Common::Constants::Path::ASSETS_PATH, ec );
-                if ( ec || rel.empty() || *rel.begin() == std::filesystem::path( ".." ) )
-                    continue; // not under the assets root (the enumeration's contract, but not trusted blind)
-                for ( std::filesystem::path dir = rel.parent_path(); !dir.empty(); dir = dir.parent_path() )
-                    folders.insert( dir.generic_string() );
-            }
-            for ( const std::string& label : folders )
-            {
-                const std::string folder = ( assetsRoot / label ).generic_string();
-                // clang-tidy 18 reports every palette lambda that captures a std::string by copy (the "Open",
-                // "Menu" and "Open Scene" entries above and below draw the same finding): it blames the
-                // closure's implicit copy, which std::function needs; nothing in the body throws.
-                // NOLINTBEGIN(bugprone-exception-escape)
-                commands.push_back( { "Assets", "Open folder: " + label,
-                                      [this, folder] { return ShowFolderInBrowser( folder ); } } );
-                // NOLINTEND(bugprone-exception-escape)
-            }
-        }
-
+    void EditorLayer::AppendSceneCommands( std::vector<PaletteCommand>& commands )
+    {
         // THE LEVELS, which every other kind of document could already be opened by name from here and a
         // level could not — the one thing an editor exists to open was the one thing the palette had no
         // entry for, and therefore the one thing the control channel could not ask for either (the
@@ -5787,25 +4876,10 @@ namespace Desert::Editor
                                   m_AddSceneViewportRequested = true;
                                   return PaletteCommandDone();
                               } } );
+    }
 
-        // THE ALLOCATOR'S OWN CENSUS, for the leak no view ledger can see: device usage that grows while every
-        // view's HeldBytes stays flat (RT2k). One line per tag, so a before/after pair diffs to the culprit.
-        commands.push_back(
-             { "Debug", "Log GPU allocations by tag", []() -> Common::BoolResultStr
-               {
-                   const auto context = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanContext>(
-                        EngineContext::GetInstance().GetRendererContext() );
-                   if ( !context || !context->GetVulkanAllocator() )
-                       return Common::MakeError<bool>(
-                            "the renderer is not Vulkan; there is no allocator to read." );
-                   const auto& ledger = context->GetVulkanAllocator()->Ledger();
-                   LOG_INFO( "[AllocLedger] {} live allocation(s), {:.2f} MiB", ledger.LiveCount(),
-                             static_cast<double>( ledger.LiveBytes() ) / ( 1024.0 * 1024.0 ) );
-                   for ( const auto& row : ledger.ByTag() )
-                       LOG_INFO( "[AllocLedger] tag '{}': {} x, {} B", row.Tag, row.Count, row.Bytes );
-                   return PaletteCommandDone();
-               } } );
-
+    void EditorLayer::AppendSceneTailCommands( std::vector<PaletteCommand>& commands )
+    {
         // FOUR ANGLES IN ONE ACTION. Opening three viewports by hand and dragging each into a quarter is
         // eleven gestures, none of which a headless run can make (synthetic input is closed on this
         // machine) — so without this entry the arrangement the owner asked for could never be
@@ -6120,65 +5194,79 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
         }
+    }
 
-        // ── BUILD: THE ONE ACTION WHOSE PRODUCT A STRANGER RUNS, AND IT WAS UNREACHABLE ────────────────
+    void EditorLayer::AppendOpenCommands( std::vector<PaletteCommand>& commands )
+    {
+        // OPENABLE ASSETS. This is where `--open-panel <path-to-asset>` went — the half of that flag that
+        // opened a DOCUMENT rather than a tool, and the only way a document has ever been put on screen
+        // unattended, since a document does not exist until something opens its asset and therefore has
+        // no name to be reached by.
         //
-        // `PackageGame` had exactly one caller in this repository — a button in the Build Settings panel
-        // — so the only way to produce a game was a mouse click. On this machine synthetic input is
-        // closed at both doors (osascript and CGEventPost, measured), and the control channel's own
-        // promise is that "anything a human can do, it can do": packaging was the counter-example. The
-        // consequence was not theoretical. The packager has been in the tree for weeks, its output has
-        // unit tests over temp fixtures, and NOBODY HAD EVER STARTED THE GAME IT PRODUCES — every
-        // verification of the runtime, twenty-five runs of it, was done against loose files on disk,
-        // which is the developer's path and not the player's.
+        // ENUMERATED FROM THE PROJECT'S FILES, NOT FROM THE ASSET MANAGER'S CACHE. This loop used to walk
+        // `RegisteredAssets()` — whatever the startup preloader had got round to registering — which is a
+        // container whose contents are derived from the same source as the question being asked of it.
+        // Measured through the control channel, once per frame: the group goes 0 -> 106 -> 130 entries,
+        // because FIVE separate startup stages fill that cache, so for 3.3 s of every boot the palette
+        // successfully offered every material in this project and none of its twenty-four cloud assets.
         //
-        // SYNCHRONOUS, unlike the panel's button, which submits to a JobSystem worker and paints a
-        // spinner. A palette entry's contract is that its `Run` RETURNS the outcome (see
-        // CommandPalette.hpp): the channel turns that into a refusal a script can stop on. Handing the
-        // work to a worker would mean returning success the instant it was queued — the exact
-        // "failure reads as success" the return type was introduced to end. The cost is a frame that
-        // lasts as long as the cook does, which for an explicit "build me a game" is the honest
-        // behaviour rather than a surprise.
+        // The entity half above never had that problem, and the reason is the shape: it walks the SCENE,
+        // which is what says which entities exist. The equivalent for files is the content enumeration —
+        // ListFilesRecursive, which is also what the preloader walks to build the cache in the first
+        // place, and which covers a mounted .dpak as well as loose files. Reading it one step earlier
+        // removes the window rather than shortening it.
         //
-        // THE THIRD STATE IS A REFUSAL HERE, and that is a choice this entry is allowed to make where
-        // `PackageResult` is not. `Complete()` exists because a package with unbaked content is neither
-        // success nor failure (GamePackager.hpp says why at length, and the panel paints it amber). A
-        // palette command has two outcomes and no third colour, so an incomplete package reports the
-        // counts as an error string: an unattended caller that got "ok" for a package with a missing
-        // font would ship it.
-        commands.push_back(
-             { "Build", "Package Game", []() -> Common::BoolResultStr
-               {
-                   const auto&    prefs = EditorPreferences::Get();
-                   PackageOptions options;
-                   options.OutputDir    = prefs.PackageOutputDir;
-                   options.Config       = prefs.PackageConfig;
-                   options.MacAppBundle = prefs.PackageAppBundle;
-
-                   const PackageResult result = PackageGame( options );
-                   if ( !result.Success )
-                       return Common::MakeError<bool>( result.Message );
-                   if ( !result.Complete() )
-                   {
-                       return Common::MakeFormattedError<bool>(
-                            "packaged to '{}', but {} item(s) would not cook and {} artifact(s) never "
-                            "reached the disk — the game will rebuild them on the player's machine at "
-                            "every start.",
-                            result.PackageDir, result.CookFailures, result.CookUnwritten );
-                   }
-                   return Common::MakeSuccess( true );
-               } } );
-
-        // The Build Settings panel's "Create default ContentChunks.json", reachable by a script: the
-        // packager refuses a project with no chunk scheme, and the way out must not need a mouse.
-        commands.push_back( { "Build", "Create Default ContentChunks.json", []() -> Common::BoolResultStr
-                              { return Editor::ProjectChunkScheme().CreateDefault(); } } );
-        // Re-reads the file into the one session, for a scheme edited outside the editor.
-        commands.push_back( { "Build", "Reload ContentChunks.json", []() -> Common::BoolResultStr
-                              {
-                                  Editor::ProjectChunkScheme().Reload();
-                                  return Common::MakeSuccess( true );
-                              } } );
+        // Nothing is loaded to build this list, which is the other half of the argument: a project with
+        // ten thousand materials costs one directory walk here, and the file is parsed by the OPENER, on
+        // the frame somebody actually asks for it.
+        //
+        // See Editor/Core/OpenableAssets.hpp for the labelling rule and the three `model.demat` that
+        // motivated it.
+        const std::vector<std::filesystem::path>& assetFiles = m_PaletteAssetFiles.Files();
+        for ( const OpenableAsset& asset : CollectOpenableAssets( assetFiles, m_SubjectEditors.ClaimedExtensions(),
+                                                                  Common::Constants::Path::ASSETS_PATH ) )
+        {
+            const std::string path = asset.Path;
+            commands.push_back( { "Open", asset.Label, [this, path]
+                                  {
+                                      // THROUGH THE PATH OPENERS, the same route the asset browser's
+                                      // double-click takes. Resolving a path to a subject here would be a
+                                      // second copy of the find-or-create-and-load chain — the exact
+                                      // duplication SubjectEditorRegistry::RegisterPathOpener was
+                                      // introduced to delete, when the browser and EditorLayer each
+                                      // carried one.
+                                      //
+                                      // AND THE OUTCOME IS ANSWERED, WHICH IS A6-2 POINT 1. `(void)` stood
+                                      // here: a `.demat` that would not resolve logged its reason and came
+                                      // back over the channel as `{"ok":true}`, so a script opened nothing
+                                      // and carried on. The opener has already said WHY in the log, with
+                                      // the path — this refuses without repeating a guess at the cause,
+                                      // exactly as PathOpenOutcome::Failed is documented to mean.
+                                      switch ( m_SubjectEditors.OpenPath( path ) )
+                                      {
+                                          case SubjectEditorRegistry::PathOpenOutcome::Requested:
+                                              return PaletteCommandDone();
+                                          case SubjectEditorRegistry::PathOpenOutcome::Failed:
+                                              return Common::MakeFormattedError<bool>(
+                                                   "'{}' is a document this editor opens and it would not "
+                                                   "resolve; the log line above names the reason.",
+                                                   path );
+                                          case SubjectEditorRegistry::PathOpenOutcome::NotMine:
+                                              // The palette offered it, so an opener claimed its
+                                              // extension — NotMine here means the file has GONE since
+                                              // the dictionary was built, which is a fact and not a
+                                              // no-op.
+                                              return Common::MakeFormattedError<bool>(
+                                                   "'{}' is no longer there — no registered opener claims "
+                                                   "it now. It existed when this list was built.",
+                                                   path );
+                                      }
+                                      return Common::MakeFormattedError<bool>(
+                                           "opening '{}' produced an outcome this build does not handle; "
+                                           "that is a defect in the palette, not in the request.",
+                                           path );
+                                  } } );
+        }
     }
 
     void EditorLayer::DrawCommandPalette()
