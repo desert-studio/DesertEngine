@@ -898,7 +898,7 @@ namespace Desert::Migration::ClipGen3
         // clip re-imports this file, beside the clip, with its record's options. Absent on a hand-authored clip;
         // a save of an imported clip keeps it (SaveClipToFile). No ANIM step: no value any file held changes
         // meaning - the one imported clip of the corpus was given the statement in the same change.
-        std::optional<ImportSourceInfo> Import;
+        std::optional<Assets::Serialization::ImportSourceInfo> Import;
     };
 
     /**

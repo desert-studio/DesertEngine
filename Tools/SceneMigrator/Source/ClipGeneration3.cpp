@@ -10,7 +10,6 @@ namespace Desert::Migration::ClipGen3
 {
     using namespace Desert::Animation;
 
-{
     namespace
     {
         bool SameState( const AnimationNotify& a, const AnimationNotify& b )
