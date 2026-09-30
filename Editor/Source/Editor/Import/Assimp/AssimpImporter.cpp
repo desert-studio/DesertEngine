@@ -91,6 +91,48 @@ namespace Desert::Editor
 
             return Animation::FrameRate{ static_cast<int32_t>( std::llround( rate * 1000000.0 ) ), 1000000 };
         }
+
+        /**
+         * @brief The cadence a clip without a stated frame rate was authored on: the standard rate nearest to
+         * the finest spacing of its distinct key times (Fox Walk: 18 keys 1/24 s apart -> 24 fps). A clip
+         * with a single key time has no spacing and shows the project's own 24.
+         */
+        [[nodiscard]] Animation::FrameRate CadenceOfKeys( const aiAnimation& anim )
+        {
+            const double        ticksPerSecond = anim.mTicksPerSecond != 0.0 ? anim.mTicksPerSecond : 1.0;
+            std::vector<double> seconds;
+            for ( uint32_t c = 0; c < anim.mNumChannels; ++c )
+            {
+                const aiNodeAnim& channel = *anim.mChannels[c];
+                for ( uint32_t k = 0; k < channel.mNumPositionKeys; ++k )
+                    seconds.push_back( channel.mPositionKeys[k].mTime / ticksPerSecond );
+                for ( uint32_t k = 0; k < channel.mNumRotationKeys; ++k )
+                    seconds.push_back( channel.mRotationKeys[k].mTime / ticksPerSecond );
+                for ( uint32_t k = 0; k < channel.mNumScalingKeys; ++k )
+                    seconds.push_back( channel.mScalingKeys[k].mTime / ticksPerSecond );
+            }
+            std::sort( seconds.begin(), seconds.end() );
+            double finest = 0.0;
+            for ( size_t i = 1; i < seconds.size(); ++i )
+            {
+                const double step = seconds[i] - seconds[i - 1];
+                if ( step > 1.0e-5 && ( finest == 0.0 || step < finest ) )
+                    finest = step;
+            }
+            if ( finest == 0.0 )
+                return Animation::FrameRate{ 24, 1 };
+            const double rate = 1.0 / finest;
+            for ( const Animation::FrameRate standard :
+                  { Animation::FrameRate{ 12, 1 }, Animation::FrameRate{ 15, 1 },
+                    Animation::FrameRate{ 24000, 1001 }, Animation::FrameRate{ 24, 1 },
+                    Animation::FrameRate{ 25, 1 }, Animation::FrameRate{ 30000, 1001 },
+                    Animation::FrameRate{ 30, 1 }, Animation::FrameRate{ 48, 1 }, Animation::FrameRate{ 50, 1 },
+                    Animation::FrameRate{ 60000, 1001 }, Animation::FrameRate{ 60, 1 },
+                    Animation::FrameRate{ 90, 1 }, Animation::FrameRate{ 120, 1 } } )
+                if ( std::fabs( rate - standard.AsDouble() ) < standard.AsDouble() * 1.0e-3 )
+                    return standard;
+            return RationalFromRate( std::round( rate ) );
+        }
     } // namespace
 
     class ScopedAssimpLogger
@@ -866,17 +908,41 @@ namespace Desert::Editor
             // exporter realistically states: 30 -> x800, 25 -> x960, 24 -> x1000, 1000 (glTF ms) -> x24.
             const double sourceRateValue          = anim->mTicksPerSecond != 0.0 ? anim->mTicksPerSecond : 25.0;
             const Animation::FrameRate sourceRate = RationalFromRate( sourceRateValue );
+            // glTF has no frame rate: key times are SECONDS (assimp reports them as milliseconds, 1000 ticks/s).
+            // 1000 is a unit, not the cadence the clip was authored on, so the display grid comes from the keys.
+            const bool timeIsContinuous = SourceFormatOf( sourcePath ) == "gltf";
 
             animData.TickRate = { Animation::PROJECT_TICK_RATE.Numerator,
                                   Animation::PROJECT_TICK_RATE.Denominator };
             // The file's own rate becomes the DISPLAY grid: it is the cadence the animation was authored
             // on, which is exactly what an artist should see on the ruler and snap to.
-            animData.DisplayRate = { sourceRate.Numerator, sourceRate.Denominator };
+            const Animation::FrameRate displayRate = timeIsContinuous ? CadenceOfKeys( *anim ) : sourceRate;
+            animData.DisplayRate                   = { displayRate.Numerator, displayRate.Denominator };
+            if ( timeIsContinuous )
+                LOG_INFO(
+                     "[Import] clip '{}': key times in seconds (glTF); authored cadence from the keys: {}/{} fps",
+                     animData.Name, displayRate.Numerator, displayRate.Denominator );
 
             std::size_t roundedKeys   = 0;
             int64_t     worstMicro    = 0;
             const auto  toProjectTick = [&]( double sourceTick ) -> int32_t
             {
+                // A fractional source tick (glTF: 1/24 s = 41.666... ms) is converted as a time, not rounded to
+                // a whole source tick first — that moved every 24 fps glTF key by up to half a millisecond.
+                // The file stores float seconds, so a key within the float's own precision counts as exact.
+                if ( std::fabs( sourceTick - std::round( sourceTick ) ) > 1.0e-6 )
+                {
+                    const double exact =
+                         sourceTick * Animation::PROJECT_TICK_RATE.AsDouble() / sourceRate.AsDouble();
+                    const double  rounded = std::round( exact );
+                    const int64_t micro   = std::llround( std::fabs( exact - rounded ) * 1.0e6 );
+                    if ( micro > std::llround( std::fabs( exact ) * 0.25 ) + 1 )
+                    {
+                        ++roundedKeys;
+                        worstMicro = std::max( worstMicro, micro );
+                    }
+                    return static_cast<int32_t>( rounded );
+                }
                 const auto converted = Animation::ConvertTick(
                      Animation::FrameNumber{ static_cast<int32_t>( llround( sourceTick ) ) }, sourceRate,
                      Animation::PROJECT_TICK_RATE );
@@ -954,7 +1020,17 @@ namespace Desert::Editor
             result.Animations.push_back( animData );
         }
 
-        result.Materials = materialData;
+        // Only the materials a mesh draws with. assimp appends its own default material to a glTF whose
+        // primitives all name one (Fox: fox_material + an unnamed default that became "Material_1"); a
+        // material nothing references is not content of this file. Filtered here, after the submeshes took
+        // their GUIDs by index, so every kept material keeps its index-derived GUID.
+        std::vector<bool> referenced( scene->mNumMaterials, false );
+        for ( uint32_t m = 0; m < scene->mNumMeshes; ++m )
+            if ( scene->mMeshes[m]->mMaterialIndex < scene->mNumMaterials )
+                referenced[scene->mMeshes[m]->mMaterialIndex] = true;
+        for ( uint32_t m = 0; m < materialData.size(); ++m )
+            if ( referenced[m] )
+                result.Materials.push_back( materialData[m] );
 
         return result;
     }
