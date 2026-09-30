@@ -283,9 +283,12 @@ namespace Common::Content
             if ( !text )
                 return {};
             const auto document = Json::Read<StatedClipSkeleton>( text.GetValue() );
-            if ( !document || !document.GetValue().Skeleton )
+            if ( !document )
                 return {};
-            const auto guid = AssetGuidFromText( document.GetValue().Skeleton->Guid );
+            const auto& skeleton = document.GetValue().Skeleton;
+            if ( !skeleton.has_value() )
+                return {};
+            const auto guid = AssetGuidFromText( skeleton->Guid );
             return guid ? guid.GetValue() : AssetGuid{};
         }
 

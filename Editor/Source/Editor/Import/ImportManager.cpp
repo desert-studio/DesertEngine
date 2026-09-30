@@ -91,10 +91,16 @@ namespace Desert::Editor
             if ( !std::filesystem::exists( CookPaths::SkinnedAsset( source, ".skmesh" ), ec ) )
                 return false;
             const auto record = Assets::Serialization::ReadImportRecord( source );
-            if ( !record || !record.GetValue() || !record.GetValue()->SourceHash )
+            if ( !record )
+                return false;
+            const auto& stored = record.GetValue();
+            if ( !stored.has_value() )
+                return false;
+            const auto& recorded = stored->SourceHash;
+            if ( !recorded.has_value() )
                 return false;
             const auto hash = Assets::HashMeshSourceFile( source );
-            return hash && *record.GetValue()->SourceHash == hash.GetValue();
+            return hash && *recorded == hash.GetValue();
         }
 
         // THE IMPORTED RIG IS AN EXISTING SKELETON WHEN ONE REGISTERED .skeleton STATES ITS BONES (SKEL-TREE,
@@ -413,8 +419,8 @@ namespace Desert::Editor
                                       resolved.Animations, settings.Skeleton, ownSkeleton, sourcePath );
             if ( !existing )
                 return Common::MakeError<bool>( existing.GetError() );
-            if ( existing.GetValue() )
-                skeleton = *existing.GetValue();
+            if ( const auto& found = existing.GetValue(); found.has_value() )
+                skeleton = *found;
             else
             {
                 const auto serialized = SerializeSkeletonAsset( resolved.Skeleton.value(), sourcePath );

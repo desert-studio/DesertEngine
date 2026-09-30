@@ -105,7 +105,7 @@ TEST( ClipSkeletonMatch, AgreesWithRuntimeResolution )
     {
         const auto offered = SelectClipsForMesh( clips, mesh );
         ASSERT_FALSE( offered.empty() );
-        for ( size_t i : offered )
+        for ( const size_t i : offered )
         {
             const auto found = FindClipForMesh( clips, mesh, clips[i].ClipName );
             ASSERT_TRUE( found.IsSuccess() ) << "the picker offered '" << clips[i].ClipName

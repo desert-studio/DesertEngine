@@ -118,9 +118,12 @@ namespace
     {
         auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>(
              ReadFile( RepoRoot() + relPath ) );
-        if ( !data.IsSuccess() || !data.GetValue().Header.has_value() )
+        if ( !data.IsSuccess() )
             return {};
-        const auto guid = Common::Content::AssetGuidFromText( data.GetValue().Header->Guid );
+        const auto& header = data.GetValue().Header;
+        if ( !header.has_value() )
+            return {};
+        const auto guid = Common::Content::AssetGuidFromText( header->Guid );
         return guid ? guid.GetValue() : Common::Content::AssetGuid{};
     }
 

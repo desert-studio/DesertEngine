@@ -119,10 +119,10 @@ namespace Desert::Editor
                                                       const Core::PersonaMode mode, Assets::AssetManager* assets,
                                                       const SubjectEditorRegistry* editors )
          : AnimationEditorBase( AssetSubjectTitle( asset, assets, PersonaModeName( mode ) ), asset, mode ),
-           m_Assets( assets ), m_Editors( editors ), m_ClipPin( asset, "open in the Animation Editor" )
+           m_Assets( assets ), m_Editors( editors ), m_ClipPin( asset, "open in the Animation Editor" ),
+           // UE's Skeleton Editor opens with the bones drawn: they are what it edits.
+           m_ShowBones( mode == Core::PersonaMode::Skeleton )
     {
-        // UE's Skeleton Editor opens with the bones drawn: they are what it edits.
-        m_ShowBones = mode == Core::PersonaMode::Skeleton;
     }
 
     AnimationEditorDocument::~AnimationEditorDocument()
@@ -1678,7 +1678,7 @@ namespace Desert::Editor
         {
             case Core::PersonaMode::Skeleton:
                 // The skeleton every mode here is on, by the GUID the subject names.
-                return Assets::AssetHandle( SkeletonSlots::HandleOf( m_Skeleton ) );
+                return { SkeletonSlots::HandleOf( m_Skeleton ) };
             case Core::PersonaMode::Mesh:
                 return m_Mesh ? m_Mesh->GetMetadata().Handle : Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
             case Core::PersonaMode::Animation:

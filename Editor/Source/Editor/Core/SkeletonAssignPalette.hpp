@@ -49,13 +49,14 @@ namespace Desert::Editor
         std::vector<PaletteCommand> commands;
         if ( subjects.empty() || skeletons.empty() )
         {
-            const bool        noSubject = subjects.empty();
-            const std::string reason    = noSubject
-                                               ? "Assign Skeleton: select a .skmesh or .anim in the Assets window"
-                                               : "Assign Skeleton: no .skeleton is registered in the project — "
-                                                 "import a skinned model first";
-            commands.push_back(
-                 { "Assets", kAssignSkeletonLabel, [reason] { return Common::MakeError( reason ); } } );
+            // The closures below hold their captures by value and NOT const: a const member is copied, not moved,
+            // when std::function takes the closure, and that copy can throw from a move that must not.
+            const bool  noSubject = subjects.empty();
+            std::string reason    = noSubject ? "Assign Skeleton: select a .skmesh or .anim in the Assets window"
+                                              : "Assign Skeleton: no .skeleton is registered in the project — "
+                                                "import a skinned model first";
+            commands.push_back( { "Assets", kAssignSkeletonLabel,
+                                  [reason = std::move( reason )] { return Common::MakeError( reason ); } } );
             return commands;
         }
         for ( const std::string& subject : subjects )
@@ -64,7 +65,8 @@ namespace Desert::Editor
                                       std::format( "{} {} <- {}", kAssignSkeletonLabel,
                                                    std::filesystem::path( subject ).filename().string(),
                                                    std::filesystem::path( skeleton ).filename().string() ),
-                                      [assign, subject, skeleton] { return assign( subject, skeleton ); } } );
+                                      [assign = assign, subject = subject, skeleton = skeleton]
+                                      { return assign( subject, skeleton ); } } );
         return commands;
     }
 } // namespace Desert::Editor

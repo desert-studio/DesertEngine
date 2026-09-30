@@ -46,6 +46,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <format>
 #include <string>
 
 #include <optional>
@@ -190,7 +191,7 @@ namespace
     {
         Desert::Animation::ClipRigIdentity id;
         id.ClipName = clip.AnimationName;
-        id.Skeleton = { clip.Skeleton, clip.AnimationName + "'s skeleton" };
+        id.Skeleton = { clip.Skeleton, std::format( "{}'s skeleton", clip.AnimationName ) };
         return id;
     }
 
@@ -200,9 +201,12 @@ namespace
         const std::string raw  = ReadFile( RepoRoot() + kProbeRig );
         auto              data = Desert::Assets::Serialization::ReadSkeletonJson( raw );
         EXPECT_TRUE( data.IsSuccess() ) << kProbeRig << ": " << ( data.IsSuccess() ? "" : data.GetError() );
-        if ( !data.IsSuccess() || !data.GetValue().Header )
+        if ( !data.IsSuccess() )
             return {};
-        auto guid = Common::Content::AssetGuidFromText( data.GetValue().Header->Guid );
+        const auto& header = data.GetValue().Header;
+        if ( !header.has_value() )
+            return {};
+        auto guid = Common::Content::AssetGuidFromText( header->Guid );
         EXPECT_TRUE( guid.IsSuccess() ) << kProbeRig << " has no readable header GUID";
         return guid.IsSuccess() ? guid.GetValue() : Common::Content::AssetGuid{};
     }

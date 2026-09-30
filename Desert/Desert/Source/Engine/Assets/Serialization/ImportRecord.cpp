@@ -298,14 +298,17 @@ namespace Desert::Assets::Serialization
         auto                        data   = ReadImportRecord( source );
         if ( !data )
             return Common::MakeError<bool>( data.GetError() );
-        if ( !data.GetValue() )
+        const auto& stored = data.GetValue();
+        if ( !stored.has_value() )
             return Common::MakeFormattedError<bool>( "'{}' does not exist, so its import's source hash cannot be "
                                                      "recorded",
                                                      record.string() );
-        ImportRecordData out = *data.GetValue();
+        ImportRecordData out = *stored;
         if ( out.SourceHash == hash )
             return BOOLSUCCESS;
         out.SourceHash  = hash;
+        if ( !out.Header.has_value() )
+            return Common::MakeFormattedError<bool>( "'{}' states no header", record.string() );
         const auto kind = Common::Content::ContentKindNamed( out.Header->Kind );
         const auto text = WriteImportRecord( out, kind.value_or( Common::Content::ContentKind::StaticMesh ) );
         if ( !text )
@@ -326,11 +329,12 @@ namespace Desert::Assets::Serialization
         auto data = ReadImportRecord( source );
         if ( !data )
             return Common::MakeError<bool>( data.GetError() );
-        if ( !data.GetValue() )
+        const auto& stored = data.GetValue();
+        if ( !stored.has_value() )
             return Common::MakeFormattedError<bool>( "'{}' does not exist, so its import's skeleton cannot be "
                                                      "recorded",
                                                      record.string() );
-        ImportRecordData             out = *data.GetValue();
+        ImportRecordData             out = *stored;
         Assets::SourceImportSettings chosen; // UE's defaults when the record states no settings
         if ( out.Settings )
         {
@@ -343,6 +347,8 @@ namespace Desert::Assets::Serialization
             return BOOLSUCCESS;
         chosen.Skeleton = skeleton;
         out.Settings    = ImportSettingsToText( chosen );
+        if ( !out.Header.has_value() )
+            return Common::MakeFormattedError<bool>( "'{}' states no header", record.string() );
         const auto kind = Common::Content::ContentKindNamed( out.Header->Kind );
         const auto text = WriteImportRecord( out, kind.value_or( Common::Content::ContentKind::StaticMesh ) );
         if ( !text )

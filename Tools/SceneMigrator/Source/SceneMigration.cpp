@@ -55,6 +55,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cctype>
 #include <cmath>
 #include <cstring>
@@ -730,19 +731,26 @@ namespace Desert::Migration
 
         // The rig as ANY generation this tool raises states it (SKEL 1, 2 or the current one), with the
         // version it states; an unreadable body or a missing header is an error naming why.
-        static Common::ResultStr<std::pair<SkeletonAssetDataV1V2, uint32_t>>
-        ReadAnySkeleton( const std::string& text )
+        // The header is handed out on its own, as a value: the reader is what proves it is there.
+        struct AnySkeleton
         {
-            using Out       = std::pair<SkeletonAssetDataV1V2, uint32_t>;
+            SkeletonAssetDataV1V2                      Data;
+            Common::Content::TextAssetHeaderSerialized Header;
+            uint32_t                                   Version = 0;
+        };
+        static Common::ResultStr<AnySkeleton> ReadAnySkeleton( const std::string& text )
+        {
             const auto read = Common::Json::Read<SkeletonAssetDataV1V2>( text );
             if ( !read )
-                return Common::MakeFormattedError<Out>( "the skeleton body does not read: {}", read.GetError() );
-            if ( !read.GetValue().Header )
-                return Common::MakeFormattedError<Out>( "the file states no header" );
-            const auto stated = read.GetValue().Header->Versions.find( "SKEL" );
-            if ( stated == read.GetValue().Header->Versions.end() )
-                return Common::MakeFormattedError<Out>( "the header states no SKEL version" );
-            return Common::MakeSuccess( Out{ read.GetValue(), stated->second } );
+                return Common::MakeFormattedError<AnySkeleton>( "the skeleton body does not read: {}",
+                                                                read.GetError() );
+            const auto& header = read.GetValue().Header;
+            if ( !header.has_value() )
+                return Common::MakeFormattedError<AnySkeleton>( "the file states no header" );
+            const auto stated = header->Versions.find( "SKEL" );
+            if ( stated == header->Versions.end() )
+                return Common::MakeFormattedError<AnySkeleton>( "the header states no SKEL version" );
+            return Common::MakeSuccess( AnySkeleton{ read.GetValue(), *header, stated->second } );
         }
     } // namespace SkeletonLegacy
     using SkeletonLegacy::ReadAnySkeleton;
@@ -752,14 +760,15 @@ namespace Desert::Migration
         const auto any = ReadAnySkeleton( text );
         if ( !any )
             return Common::MakeError<std::string>( any.GetError() );
-        const auto& [old, version] = any.GetValue();
+        const auto& [old, header, version] = any.GetValue();
         if ( version != 1u && version != 2u )
             return Common::MakeFormattedError<std::string>(
                  "the header states SKEL {}, and this step raises SKEL 1 and 2 only", version );
 
         Assets::Serialization::SkeletonAssetData data;
-        data.Header                   = old.Header;
-        data.Header->Versions["SKEL"] = Assets::kSkeletonSchemaVersion;
+        Common::Content::TextAssetHeaderSerialized stamped = header;
+        stamped.Versions["SKEL"]                           = Assets::kSkeletonSchemaVersion;
+        data.Header                                        = std::move( stamped );
         data.Signature                = old.Signature;
         data.Bones                    = old.Bones;
         data.PreviewMesh              = old.PreviewMesh;
@@ -780,8 +789,8 @@ namespace Desert::Migration
         if ( !read )
             return Common::MakeFormattedError<Animation::SkeletonCandidate>(
                  "'{}' is not a skeleton candidate: {}", path.string(), read.GetError() );
-        const auto& data = read.GetValue().first;
-        const auto  guid = Common::Content::AssetGuidFromText( data.Header->Guid );
+        const auto& data = read.GetValue().Data;
+        const auto  guid = Common::Content::AssetGuidFromText( read.GetValue().Header.Guid );
         if ( !guid )
             return Common::MakeFormattedError<Animation::SkeletonCandidate>( "'{}' header GUID: {}", path.string(),
                                                                              guid.GetError() );
@@ -865,8 +874,11 @@ namespace Desert::Migration
 
         if ( bytes.size() < kOldPrefix || std::memcmp( bytes.data(), C::kMeshBinaryMagic, 8 ) != 0 )
             return Common::MakeFormattedError<std::string>( "'{}' is not a cooked mesh", path );
-        uint32_t version = 0, sectionCount = 0, flags = 0;
-        uint64_t fileSize = 0, signature = 0;
+        uint32_t version      = 0;
+        uint32_t sectionCount = 0;
+        uint32_t flags        = 0;
+        uint64_t fileSize     = 0;
+        uint64_t signature    = 0;
         std::memcpy( &version, bytes.data() + 12, 4 );
         std::memcpy( &fileSize, bytes.data() + 16, 8 );
         std::memcpy( &sectionCount, bytes.data() + 24, 4 );
@@ -905,7 +917,8 @@ namespace Desert::Migration
 
         std::string raised;
         raised.reserve( static_cast<std::size_t>( header.FileSize ) );
-        raised.append( reinterpret_cast<const char*>( &header ), sizeof( header ) );
+        const auto headerBytes = std::bit_cast<std::array<char, sizeof( header )>>( header );
+        raised.append( headerBytes.data(), headerBytes.size() );
         raised.append( bytes.data() + kOldHeader, 16 ); // the mesh GUID
         for ( uint32_t i = 0; i < kRows; ++i )
         {
@@ -917,7 +930,8 @@ namespace Desert::Migration
             }
             else // v3 had no Colors / UV1: empty sections at the end of the file
                 row = Row{ i + 1, i + 1 == 11 ? 4u : 8u, header.FileSize, 0 };
-            raised.append( reinterpret_cast<const char*>( &row ), sizeof( row ) );
+            const auto rowBytes = std::bit_cast<std::array<char, sizeof( row )>>( row );
+            raised.append( rowBytes.data(), rowBytes.size() );
         }
         raised.append( bytes.data() + oldEnd, bytes.size() - oldEnd );
 
@@ -1042,8 +1056,11 @@ namespace Desert::Migration
         const auto encoded = Assets::EncodeMeshSourceAsset( decoded.GetValue() );
         if ( !encoded )
             return Common::MakeFormattedError<std::string>( "'{}': {}", path, encoded.GetError() );
-        return Common::MakeSuccess( std::string( reinterpret_cast<const char*>( encoded.GetValue().data() ),
-                                                 encoded.GetValue().size() ) );
+        const auto& canonical = encoded.GetValue();
+        std::string text( canonical.size(), '\0' );
+        std::ranges::transform( canonical, text.begin(),
+                                []( const std::byte b ) { return static_cast<char>( b ); } );
+        return Common::MakeSuccess( std::move( text ) );
     }
 
     Common::ResultStr<std::string> MigrateFoliageTypeV1ToV2( const std::string& text )

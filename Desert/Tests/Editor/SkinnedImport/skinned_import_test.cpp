@@ -117,12 +117,12 @@ namespace
         EXPECT_EQ( b.size(), 264u );
 
         const std::string          uri    = std::format( "data:application/octet-stream;base64,{}", Base64( b ) );
-        const std::string head = R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],
+        constexpr std::string_view head     = R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],
 "nodes":[
  {"name":"Z_UP","matrix":[1,0,0,0, 0,0,-1,0, 0,1,0,0, 0,0,0,1],"children":[1,3]},
  {"name":"Root","children":[2]},
- {"name":")" + tipName +
-                                 R"(","translation":[0,0,1]},
+ {"name":")";
+        constexpr std::string_view afterTip = R"(","translation":[0,0,1]},
  {"name":"Body","mesh":0,"skin":0}],
 "skins":[{"joints":[1,2],"inverseBindMatrices":3,"skeleton":1}],
 "meshes":[{"name":"Body","primitives":[{"attributes":{"POSITION":0,"JOINTS_0":1,"WEIGHTS_0":2},"material":0}]}],
@@ -148,7 +148,7 @@ namespace
  {"buffer":0,"byteOffset":232,"byteLength":32}],
 "buffers":[{"byteLength":264,"uri":")";
         constexpr std::string_view tail   = R"("}]})";
-        return std::format( "{}{}{}{}{}", head, OnePixelPng, middle, uri, tail );
+        return std::format( "{}{}{}{}{}{}{}", head, tipName, afterTip, OnePixelPng, middle, uri, tail );
     }
 
     std::string Read( const std::filesystem::path& file )
@@ -478,9 +478,10 @@ namespace
     {
         const auto rig = Ser::ReadSkeletonJson( Read( file ) );
         EXPECT_TRUE( rig.IsSuccess() ) << rig.GetError();
-        if ( !rig.IsSuccess() || !rig.GetValue().Header )
+        if ( !rig.IsSuccess() )
             return {};
-        return rig.GetValue().Header->Guid;
+        const auto& header = rig.GetValue().Header;
+        return header.has_value() ? header->Guid : std::string{};
     }
 
     std::string MeshSkeletonGuidOf( const std::filesystem::path& file )
@@ -494,7 +495,10 @@ namespace
     {
         const auto clip = Ser::ReadAnimationJson( Read( file ) );
         EXPECT_TRUE( clip.IsSuccess() ) << clip.GetError();
-        return clip.IsSuccess() && clip.GetValue().Skeleton ? clip.GetValue().Skeleton->Guid : std::string{};
+        if ( !clip.IsSuccess() )
+            return {};
+        const auto& skeleton = clip.GetValue().Skeleton;
+        return skeleton.has_value() ? skeleton->Guid : std::string{};
     }
 
     size_t SkeletonRowCount()
@@ -596,7 +600,8 @@ TEST_F( SkinnedImport, ASkeletonChosenOnTheMeshIsKeptByAReimport )
     auto                        rig  = Ser::ReadSkeletonJson( Read( m_Outcome.WrittenSkeletons.front() ) );
     ASSERT_TRUE( rig.IsSuccess() ) << rig.GetError();
     Ser::SkeletonAssetData copy = rig.ExtractValue();
-    ASSERT_TRUE( copy.Header.has_value() ) << "the first import's .skeleton states no header";
+    if ( !copy.Header.has_value() )
+        FAIL() << "the first import's .skeleton states no header";
     const Common::Content::AssetGuid other{ 0x5EE1E70100000000ULL, 0x00000000000000B2ULL };
     const std::string                otherText = Common::Content::AssetGuidToText( other );
     ASSERT_NE( copy.Header->Guid, otherText );
@@ -613,9 +618,10 @@ TEST_F( SkinnedImport, ASkeletonChosenOnTheMeshIsKeptByAReimport )
     EXPECT_EQ( MeshSkeletonGuidOf( mesh ), otherText ) << "the .skmesh header does not name the chosen skeleton";
     const auto settings = Ser::ReadImportRecordSettings( m_Source );
     ASSERT_TRUE( settings.IsSuccess() ) << settings.GetError();
-    ASSERT_TRUE( settings.GetValue().Skeleton.has_value() )
-         << "the source's import record states no skeleton: a Reimport rebinds the rig the bones match";
-    EXPECT_EQ( *settings.GetValue().Skeleton, other );
+    const auto& chosen = settings.GetValue().Skeleton;
+    if ( !chosen.has_value() )
+        FAIL() << "the source's import record states no skeleton: a Reimport rebinds the rig the bones match";
+    EXPECT_EQ( *chosen, other );
 
     ASSERT_EQ( ImportManager().Import( m_Source, true ), Editor::CookVerdict::Cooked );
     EXPECT_EQ( MeshSkeletonGuidOf( mesh ), otherText )
@@ -645,8 +651,8 @@ TEST( SkinnedImportCorpus, TheCommittedTwoJointProbeIsCurrentAndItsImportWritesN
     }
 
     Assets::ContentRegistry::ResetForTest();
-    TestSupport::DerivedDataSandbox derivedData{ "SkinnedImportCorpus" };
-    TestSupport::AssetsSandbox      sandbox{ "SkinnedImportCorpus", {} };
+    const TestSupport::DerivedDataSandbox derivedData{ "SkinnedImportCorpus" };
+    const TestSupport::AssetsSandbox      sandbox{ "SkinnedImportCorpus", {} };
     const std::filesystem::path     folder = "Resources/Assets/Meshes";
     std::filesystem::create_directories( folder );
     for ( const auto& [name, bytes] : committed )

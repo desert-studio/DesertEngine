@@ -51,6 +51,7 @@
 #include <fstream>
 #include <sstream>
 #include <optional>
+#include <format>
 #include <string>
 #include <vector>
 
@@ -174,7 +175,7 @@ namespace
     {
         Desert::Animation::ClipRigIdentity id;
         id.ClipName = clip.AnimationName;
-        id.Skeleton = { clip.Skeleton, clip.AnimationName + "'s skeleton" };
+        id.Skeleton = { clip.Skeleton, std::format( "{}'s skeleton", clip.AnimationName ) };
         return id;
     }
 

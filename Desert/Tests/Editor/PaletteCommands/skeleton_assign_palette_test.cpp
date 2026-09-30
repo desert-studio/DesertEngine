@@ -4,6 +4,7 @@
 
 #include <gtest/gtest.h>
 
+#include <format>
 #include <string>
 #include <utility>
 #include <vector>
@@ -20,7 +21,7 @@ namespace
     {
         std::vector<std::string> labels;
         for ( const auto& command : SkeletonAssignPaletteCommands( selected, skeletons, kNeverCalled ) )
-            labels.push_back( command.Group + "/" + command.Label );
+            labels.push_back( std::format( "{}/{}", command.Group, command.Label ) );
         return labels;
     }
 } // namespace

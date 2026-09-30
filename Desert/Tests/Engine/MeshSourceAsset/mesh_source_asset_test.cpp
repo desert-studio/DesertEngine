@@ -268,8 +268,10 @@ TEST( MeshSourceAsset, KindAndSkinMustAgree )
 // SKEL-eng3: a skin binds to one .skeleton by GUID; a null GUID is no binding and is refused on both sides.
 TEST( MeshSourceAsset, SkinWithoutSkeletonIsRefused )
 {
-    MeshSourceAsset a              = MakeQuad( true );
-    a.Source.Skin.value().Skeleton = {};
+    MeshSourceAsset a = MakeQuad( true );
+    if ( !a.Source.Skin.has_value() )
+        FAIL() << "MakeQuad( true ) built no skin";
+    a.Source.Skin->Skeleton        = {};
     const auto encoded             = EncodeMeshSourceAsset( a );
     ASSERT_FALSE( encoded.IsSuccess() );
     EXPECT_NE( encoded.GetError().find( "skeleton" ), std::string::npos ) << encoded.GetError();

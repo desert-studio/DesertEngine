@@ -49,7 +49,7 @@ namespace
         // The file read on its own, NOT through ReadSkeletonFile, so the comparison has two sides.
         static Assets::Serialization::SkeletonAssetData FileData()
         {
-            std::ifstream      in( kHumanoid, std::ios::binary );
+            const std::ifstream in( kHumanoid, std::ios::binary );
             std::ostringstream text;
             text << in.rdbuf();
             auto read = Assets::Serialization::ReadSkeletonJson( text.str() );

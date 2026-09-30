@@ -219,7 +219,7 @@ namespace Desert::Editor
                                                  const Animation::MeshSkeletonIdentity& mesh )
     {
         // A clip that references no skeleton plays on nothing (ClipPlaysOnMesh); the button is disabled then.
-        if ( !m_AssetManager || !m_Library || mesh.Skeleton.Guid.IsNull() )
+        if ( m_AssetManager == nullptr || m_Library == nullptr || mesh.Skeleton.Guid.IsNull() )
             return {};
 
         // Unique name so repeated "New Clip" presses don't collide (scan the clips this mesh already plays).
@@ -368,8 +368,9 @@ namespace Desert::Editor
             return;
         }
         const Animation::Skeleton& skeleton = static_cast<SkinnedMesh*>( mesh )->GetSkeleton();
-        const auto clips = m_Library ? m_Library->GetForMesh( m_Library->IdentifyMeshHandle( smc.MeshHandle ) )
-                                     : std::vector<Assets::Asset<Assets::AnimationAsset>>{};
+        const auto                 clips    = m_Library != nullptr
+                                                   ? m_Library->GetForMesh( m_Library->IdentifyMeshHandle( smc.MeshHandle ) )
+                                                   : std::vector<Assets::Asset<Assets::AnimationAsset>>{};
 
         // Names for the clip combos + the index of the currently-selected clip.
         std::vector<const char*> clipNames;
@@ -413,7 +414,8 @@ namespace Desert::Editor
             // The new clip references the mesh's skeleton asset; an editor-built rig (Convert to Skinned) has
             // none yet, so there is nothing a clip could name and the button says so instead of acting.
             const Animation::MeshSkeletonIdentity meshSkeleton =
-                 m_Library ? m_Library->IdentifyMeshHandle( smc.MeshHandle ) : Animation::MeshSkeletonIdentity{};
+                 m_Library != nullptr ? m_Library->IdentifyMeshHandle( smc.MeshHandle )
+                                      : Animation::MeshSkeletonIdentity{};
             const bool canCreate = !meshSkeleton.Skeleton.Guid.IsNull();
             ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.20f, 0.40f, 0.28f, 1.0f ) );
             ImGui::PushStyleColor( ImGuiCol_ButtonHovered, ImVec4( 0.26f, 0.50f, 0.36f, 1.0f ) );

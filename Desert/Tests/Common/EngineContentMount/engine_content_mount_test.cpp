@@ -11,6 +11,8 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <format>
+#include <optional>
 #include <string>
 
 namespace
@@ -45,7 +47,7 @@ namespace
 
             // A project whose own assets tree holds nothing at all.
             m_Project = fs::temp_directory_path() /
-                        ( "engine_mount_" + std::to_string( ::testing::UnitTest::GetInstance()->random_seed() ) );
+                        std::format( "engine_mount_{}", ::testing::UnitTest::GetInstance()->random_seed() );
             fs::remove_all( m_Project );
             fs::create_directories( m_Project / "Content" );
             Path::SetProjectRoot( m_Project, "Content" );
@@ -78,8 +80,7 @@ TEST_F( EngineContentMount, AProjectWithoutTheEngineTreeStillScansHumanoidSkelet
 TEST_F( EngineContentMount, AFileUnderTheMountIsItsKind )
 {
     const auto kind = Common::Content::KindOfContentFile( Path::ENGINE_CONTENT_PATH / kHumanoid );
-    ASSERT_TRUE( kind.has_value() );
-    EXPECT_EQ( *kind, ContentKind::Skeleton );
+    EXPECT_EQ( kind, std::optional<ContentKind>{ ContentKind::Skeleton } );
 }
 
 TEST_F( EngineContentMount, AnAssetsKindHasTwoRootsAndTheShadersOne )

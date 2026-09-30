@@ -445,16 +445,19 @@ TEST( SkinnedMeshDependency, TheShippedProbeKeepsTheIdentityTheSceneWasSavedWith
 
     // THE RELATION: the skeleton the shipped mesh names IS the shipped skeleton's header GUID.
     const auto meshRig = Common::Content::ReadMeshHeaderSkeleton( prefix );
-    ASSERT_TRUE( meshRig.has_value() ) << kProbeMeshPath << " is not a version 5 mesh";
+    if ( !meshRig.has_value() )
+        FAIL() << kProbeMeshPath << " is not a version 5 mesh";
     EXPECT_EQ( *meshRig, kProbeSkeletonGuid ) << kProbeMeshPath << " names another skeleton";
 
-    std::ifstream     rigIn( root / kProbeSkeletonPath, std::ios::binary );
+    const std::ifstream rigIn( root / kProbeSkeletonPath, std::ios::binary );
     std::stringstream rigText;
     rigText << rigIn.rdbuf();
     const auto rig = Desert::Assets::Serialization::ReadSkeletonJson( rigText.str() );
     ASSERT_TRUE( rig ) << rig.GetError();
-    ASSERT_TRUE( rig.GetValue().Header.has_value() );
-    const auto rigGuid = Common::Content::AssetGuidFromText( rig.GetValue().Header->Guid );
+    const auto& rigHeader = rig.GetValue().Header;
+    if ( !rigHeader.has_value() )
+        FAIL() << kProbeSkeletonPath << " states no header";
+    const auto rigGuid = Common::Content::AssetGuidFromText( rigHeader->Guid );
     ASSERT_TRUE( rigGuid ) << rigGuid.GetError();
     EXPECT_EQ( rigGuid.GetValue(), kProbeSkeletonGuid )
          << kProbeSkeletonPath << "'s GUID changed; SkinProbe.skmesh names the old one and binds no rig";

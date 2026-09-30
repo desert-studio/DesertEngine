@@ -246,7 +246,8 @@ TEST( IKProbeRig, TheShippedRigIsTheChainThisSuiteDescribes )
 
     // ONE identity, written into three files no compiler reads: the skeleton's header GUID, which the mesh
     // (.skmesh header SkeletonGuid) and the clip (AnimationClip::Skeleton) name it by (SKEL-TREE).
-    ASSERT_TRUE( data.Header.has_value() ) << "IKProbe.skeleton states no text header, so it has no GUID";
+    if ( !data.Header.has_value() )
+        FAIL() << "IKProbe.skeleton states no text header, so it has no GUID";
     const auto rigGuid = Common::Content::AssetGuidFromText( data.Header->Guid );
     ASSERT_TRUE( rigGuid.IsSuccess() ) << "IKProbe.skeleton's header GUID does not parse: " << data.Header->Guid;
     ASSERT_FALSE( rigGuid.GetValue().IsNull() ) << "IKProbe.skeleton states a null GUID";

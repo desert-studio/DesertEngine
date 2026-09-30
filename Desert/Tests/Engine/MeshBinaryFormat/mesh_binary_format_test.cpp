@@ -422,13 +422,15 @@ TEST( MeshBinaryFormat, TheHeaderStatesTheMeshSkeletonGuid )
     const std::string        bytes = Ser::EncodeMeshBinary( mesh );
     const auto               rig   = Common::Content::ReadMeshHeaderSkeleton(
          std::string_view( bytes ).substr( 0, sizeof( Common::Content::MeshBinaryFileHeader ) ) );
-    ASSERT_TRUE( rig.has_value() );
+    if ( !rig.has_value() )
+        FAIL() << "the header states no skeleton";
     EXPECT_EQ( *rig, mesh.Skeleton ) << "the header's skeleton is not the one the mesh was written with";
 
     Ser::MeshAssetData unrigged = FullyPopulated();
     unrigged.Skeleton           = {};
     const auto none             = Common::Content::ReadMeshHeaderSkeleton( Ser::EncodeMeshBinary( unrigged ) );
-    ASSERT_TRUE( none.has_value() );
+    if ( !none.has_value() )
+        FAIL() << "the header of an unrigged mesh states nothing";
     EXPECT_TRUE( none->IsNull() ) << "a mesh that names no skeleton must state null, not a leftover";
 
     std::string    older = bytes;

@@ -57,7 +57,8 @@ namespace Desert::Geometry
                     v.Normal                 = glm::normalize( dir );
                     v.Tangent                = axis;
                     v.Bitangent              = glm::cross( v.Normal, axis );
-                    v.TexCoord               = { static_cast<float>( s ) / radial, static_cast<float>( ring ) };
+                    v.TexCoord               = { static_cast<float>( s ) / static_cast<float>( radial ),
+                                                 static_cast<float>( ring ) };
                     v.BoneIDs[0]             = bone;
                     v.BoneWeights[0]         = 1.0f;
                     verts.push_back( v );
@@ -93,7 +94,8 @@ namespace Desert::Geometry
                     v.Normal    = n;
                     v.Tangent   = glm::vec3( -std::sin( phi ), 0.0f, std::cos( phi ) );
                     v.Bitangent = glm::cross( n, v.Tangent );
-                    v.TexCoord  = { static_cast<float>( j ) / slices, static_cast<float>( i ) / stacks };
+                    v.TexCoord               = { static_cast<float>( j ) / static_cast<float>( slices ),
+                                                 static_cast<float>( i ) / static_cast<float>( stacks ) };
                     v.BoneIDs[0]             = bone;
                     v.BoneWeights[0]         = 1.0f;
                     verts.push_back( v );
@@ -157,7 +159,9 @@ namespace Desert::Geometry
         constexpr float M = Common::Units::UnitsPerMetre; // radii are authored in metres
         for ( const HumanoidSegment& seg : HumanoidSegments() )
         {
-            const uint32_t a = BoneOf( seg.BoneA ), b = BoneOf( seg.BoneB ), skin = BoneOf( seg.SkinBone );
+            const uint32_t a    = BoneOf( seg.BoneA );
+            const uint32_t b    = BoneOf( seg.BoneB );
+            const uint32_t skin = BoneOf( seg.SkinBone );
             AppendCylinder( verts, indices, PositionOf( a ), PositionOf( b ), seg.RadiusA * M, seg.RadiusB * M,
                             skin );
         }
@@ -187,7 +191,8 @@ namespace Desert::Geometry
         sub.IndexOffset  = 0;
         sub.IndexCount   = static_cast<uint32_t>( indices.size() * 3 );
         sub.Transform    = glm::mat4( 1.0f );
-        glm::vec3 lo( std::numeric_limits<float>::max() ), hi( std::numeric_limits<float>::lowest() );
+        glm::vec3 lo( std::numeric_limits<float>::max() );
+        glm::vec3 hi( std::numeric_limits<float>::lowest() );
         for ( const auto& v : verts )
         {
             lo = glm::min( lo, v.Position );

@@ -614,8 +614,8 @@ TEST( CookedAssetRegistry, TheRigTagCarriesTheFullSignatureOnBothRowsAndRefusesA
     ASSERT_TRUE( written.Insert( rig ) );
 
     const std::string text = written.Serialize();
-    EXPECT_NE( text.find( " Skinned,Rig=" + Common::Content::AssetGuidToText( kSkeleton ) +
-                          " assets:Meshes/Hero.skmesh" ),
+    EXPECT_NE( text.find( std::format( " Skinned,Rig={} assets:Meshes/Hero.skmesh",
+                                       Common::Content::AssetGuidToText( kSkeleton ) ) ),
                std::string::npos )
          << text;
     const auto parsed = AssetRegistry::Parse( text );

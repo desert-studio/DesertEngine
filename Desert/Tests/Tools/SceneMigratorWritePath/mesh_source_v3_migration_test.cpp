@@ -52,14 +52,21 @@ namespace
         return a;
     }
 
+    // Bytes as the std::string the migration step hands back.
+    std::string TextOf( const std::vector<std::byte>& bytes )
+    {
+        std::string text( bytes.size(), '\0' );
+        std::ranges::transform( bytes, text.begin(), []( const std::byte b ) { return static_cast<char>( b ); } );
+        return text;
+    }
+
     std::string Encode( const Assets::MeshSourceAsset& asset )
     {
         const auto encoded = Assets::EncodeMeshSourceAsset( asset );
         EXPECT_TRUE( encoded.IsSuccess() ) << encoded.GetError();
         if ( !encoded.IsSuccess() )
             return {};
-        return std::string( reinterpret_cast<const char*>( encoded.GetValue().data() ),
-                            encoded.GetValue().size() );
+        return TextOf( encoded.GetValue() );
     }
 
     std::array<std::byte, 16> GuidBytes( const CC::AssetGuid& guid )
@@ -110,8 +117,7 @@ namespace
         EXPECT_TRUE( written.IsSuccess() ) << written.GetError();
         if ( !written.IsSuccess() )
             return {};
-        return std::string( reinterpret_cast<const char*>( written.GetValue().data() ),
-                            written.GetValue().size() );
+        return TextOf( written.GetValue() );
     }
 
     std::vector<Animation::SkeletonCandidate> Candidates()
@@ -153,8 +159,10 @@ TEST( MeshSourceV3Migration, ASkinnedSourceNamesTheSkeletonItsSignatureMatches )
     const auto decoded = Assets::DecodeMeshSourceAsset(
          std::as_bytes( std::span( raised.GetValue().data(), raised.GetValue().size() ) ) );
     ASSERT_TRUE( decoded.IsSuccess() ) << decoded.GetError();
-    ASSERT_TRUE( decoded.GetValue().Source.Skin.has_value() );
-    EXPECT_EQ( decoded.GetValue().Source.Skin->Skeleton, kSkeleton );
+    const auto& skin = decoded.GetValue().Source.Skin;
+    if ( !skin.has_value() )
+        FAIL() << "the raised skinned source states no skin";
+    EXPECT_EQ( skin->Skeleton, kSkeleton );
 }
 
 // No candidate, or two with the signature: refused naming the source (and every matching skeleton) - never the

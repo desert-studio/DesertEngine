@@ -32,6 +32,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <format>
 #include <string>
 #include <vector>
 
@@ -492,8 +493,10 @@ TEST( AnimationClipFormat, AClipWrittenToDiskReadsBackAsTheSameClip )
     EXPECT_EQ( back.Skeleton, clip.Skeleton ) << "the rig the clip claims did not survive the round trip";
     // The writer states the skeleton as the header's dependency too (UE: the package imports its USkeleton),
     // so the registry's reference graph sees the edge without parsing the body.
-    ASSERT_TRUE( parsed.GetValue().Header.has_value() );
-    const auto& deps = parsed.GetValue().Header->Dependencies;
+    const auto& header = parsed.GetValue().Header;
+    if ( !header.has_value() )
+        FAIL() << "the written clip states no header";
+    const auto& deps = header->Dependencies;
     EXPECT_NE( std::find( deps.begin(), deps.end(), Common::Content::AssetGuidToText( clip.Skeleton ) ),
                deps.end() )
          << "the clip's skeleton is not among the header's dependencies";
@@ -633,7 +636,8 @@ TEST( AnimationClipFormat, BuildAssetDataFromClipCarriesEveryChannelAndNotify )
     const auto data = Desert::Assets::Serialization::BuildAssetDataFromClip( clip );
 
     EXPECT_EQ( data.Name, "Walk" );
-    ASSERT_TRUE( data.Skeleton.has_value() ) << "the clip names a skeleton; the data must state it";
+    if ( !data.Skeleton.has_value() )
+        FAIL() << "the clip names a skeleton; the data must state it";
     EXPECT_EQ( data.Skeleton->Guid, Common::Content::AssetGuidToText( clip.Skeleton ) );
     ASSERT_EQ( data.Channels.size(), 2u );
     EXPECT_EQ( data.Channels[0].BoneName, "Hips" );
@@ -688,7 +692,8 @@ namespace
 
         // Written WITHOUT the sections field, which is what a real generation-2 file on disk looks like.
         // ...and naming its rig by the bone hash, as every generation before ANIM 5 did.
-        std::string json = R"({"Version":2,"SkeletonSignature":7,)" + Common::Json::Write( data ).substr( 1 );
+        std::string json =
+             std::format( R"({{"Version":2,"SkeletonSignature":7,{})", Common::Json::Write( data ).substr( 1 ) );
         const auto  at   = json.find( R"(,"Sections":[])" );
         if ( at != std::string::npos )
         {

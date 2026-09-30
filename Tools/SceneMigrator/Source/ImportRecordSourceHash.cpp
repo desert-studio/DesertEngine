@@ -46,9 +46,9 @@ namespace Desert::Migration
             return Common::MakeError<Result>( record.GetError() );
         Ser::ImportRecordData data;
         auto                  kind = Common::Content::ContentKind::SkinnedMesh;
-        if ( record.GetValue() )
+        if ( const auto& stored = record.GetValue(); stored.has_value() )
         {
-            data = *record.GetValue();
+            data = *stored;
             if ( data.Header )
             {
                 const auto stated = Common::Content::ContentKindNamed( data.Header->Kind );

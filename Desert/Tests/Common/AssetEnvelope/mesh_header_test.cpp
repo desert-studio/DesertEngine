@@ -11,6 +11,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <format>
 #include <string>
 
 namespace
@@ -42,8 +43,10 @@ namespace
         std::memcpy( bytes.data() + kMeshBinaryGuidOffset, &kMesh.Hi, 8 );
         std::memcpy( bytes.data() + kMeshBinaryGuidOffset + 8, &kMesh.Lo, 8 );
 
-        const uint32_t id = kMeshBinarySubmeshSectionId, size = kMeshBinarySubmeshSizeV3;
-        const uint64_t offset = submsh, count = 1;
+        const uint32_t id     = kMeshBinarySubmeshSectionId;
+        const uint32_t size   = kMeshBinarySubmeshSizeV3;
+        const uint64_t offset = submsh;
+        const uint64_t count  = 1;
         std::memcpy( bytes.data() + rows, &id, 4 );
         std::memcpy( bytes.data() + rows + 4, &size, 4 );
         std::memcpy( bytes.data() + rows + 8, &offset, 8 );
@@ -102,7 +105,7 @@ TEST( MeshBinaryHeader, AnOlderGenerationIsRefusedByVersionNamingTheMigrator )
         const auto     header = ReadAssetHeader( file, AssetHeaderReadContext{} );
         ASSERT_FALSE( header ) << "a version " << version << " mesh was read";
         const std::string& error = header.GetError();
-        EXPECT_NE( error.find( "version " + std::to_string( version ) ), std::string::npos ) << error;
+        EXPECT_NE( error.find( std::format( "version {}", version ) ), std::string::npos ) << error;
         EXPECT_NE( error.find( "SceneMigrator" ), std::string::npos ) << error;
         EXPECT_EQ( error.find( "null GUID" ), std::string::npos ) << error;
         fs::remove( file );

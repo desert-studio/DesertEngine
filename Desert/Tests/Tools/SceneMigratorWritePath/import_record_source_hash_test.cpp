@@ -68,27 +68,34 @@ TEST_F( ImportRecordSourceHash, ASourceWithoutARecordGetsItsHashAndTheMeshsBox )
 {
     const auto stated = Desert::Migration::ImportRecordWithSourceHash( m_Source, m_Skinned );
     ASSERT_TRUE( stated.IsSuccess() ) << stated.GetError();
-    ASSERT_TRUE( stated.GetValue().has_value() ) << "a source with no record was left without one";
+    const auto& record = stated.GetValue();
+    if ( !record.has_value() )
+        FAIL() << "a source with no record was left without one";
 
-    const auto parsed = Ser::ParseImportRecord( *stated.GetValue() );
+    const auto parsed = Ser::ParseImportRecord( *record );
     ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
-    const auto hash = Desert::Assets::HashMeshSourceFile( m_Source );
+    const Ser::ImportRecordData& data = parsed.GetValue();
+    const auto                   hash = Desert::Assets::HashMeshSourceFile( m_Source );
     ASSERT_TRUE( hash.IsSuccess() ) << hash.GetError();
-    ASSERT_TRUE( parsed.GetValue().SourceHash.has_value() );
-    EXPECT_EQ( *parsed.GetValue().SourceHash, hash.GetValue() );
-    ASSERT_TRUE( parsed.GetValue().Header.has_value() );
-    EXPECT_EQ( parsed.GetValue().Header->Kind, "SkinnedMesh" );
-    EXPECT_EQ( parsed.GetValue().Source, "TwoJointProbe.gltf" );
+    if ( !data.SourceHash.has_value() )
+        FAIL() << "the record states no source hash";
+    EXPECT_EQ( *data.SourceHash, hash.GetValue() );
+    if ( !data.Header.has_value() )
+        FAIL() << "the record states no header";
+    EXPECT_EQ( data.Header->Kind, "SkinnedMesh" );
+    EXPECT_EQ( data.Source, "TwoJointProbe.gltf" );
 
     const auto mesh = Ser::ReadMeshAssetData( m_Mesh, m_Skinned.string() );
     ASSERT_TRUE( mesh.IsSuccess() ) << mesh.GetError();
     const auto box = Ser::MeshDataBounds( mesh.GetValue() );
-    ASSERT_TRUE( box.has_value() );
-    ASSERT_TRUE( parsed.GetValue().Bounds.has_value() );
+    if ( !box.has_value() )
+        FAIL() << "the committed mesh states no box";
+    if ( !data.Bounds.has_value() )
+        FAIL() << "the record states no Bounds";
     for ( int axis = 0; axis < 3; ++axis )
     {
-        EXPECT_EQ( parsed.GetValue().Bounds->Min[axis], box->Min[axis] ) << "axis " << axis;
-        EXPECT_EQ( parsed.GetValue().Bounds->Max[axis], box->Max[axis] ) << "axis " << axis;
+        EXPECT_EQ( data.Bounds->Min[axis], box->Min[axis] ) << "axis " << axis;
+        EXPECT_EQ( data.Bounds->Max[axis], box->Max[axis] ) << "axis " << axis;
     }
 }
 
@@ -98,8 +105,10 @@ TEST_F( ImportRecordSourceHash, AStatedRecordIsLeftAsItIs )
 {
     const auto first = Desert::Migration::ImportRecordWithSourceHash( m_Source, m_Skinned );
     ASSERT_TRUE( first.IsSuccess() ) << first.GetError();
-    ASSERT_TRUE( first.GetValue().has_value() );
-    std::ofstream( Common::Content::ImportRecordPathFor( m_Source ), std::ios::binary ) << *first.GetValue();
+    const auto& firstRecord = first.GetValue();
+    if ( !firstRecord.has_value() )
+        FAIL() << "a source with no record was left without one";
+    std::ofstream( Common::Content::ImportRecordPathFor( m_Source ), std::ios::binary ) << *firstRecord;
 
     const auto second = Desert::Migration::ImportRecordWithSourceHash( m_Source, m_Skinned );
     ASSERT_TRUE( second.IsSuccess() ) << second.GetError();

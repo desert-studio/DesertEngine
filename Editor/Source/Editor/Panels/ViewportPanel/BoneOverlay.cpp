@@ -35,7 +35,8 @@ namespace Desert::Editor
 
             const ImVec2 P  = *parentPoint;
             const ImVec2 C  = *childPoint;
-            const float  dx = C.x - P.x, dy = C.y - P.y;
+            const float  dx  = C.x - P.x;
+            const float  dy  = C.y - P.y;
             const float  len = std::sqrt( dx * dx + dy * dy );
             if ( len < 1.0f )
                 continue;
@@ -74,8 +75,16 @@ namespace Desert::Editor
             const bool  sel     = ( static_cast<int>( i ) == selectedBone );
             const bool  hovered = ( std::abs( mouse.x - c.x ) < 7.0f && std::abs( mouse.y - c.y ) < 7.0f );
             const bool  isRoot  = ( parents[i] < 0 );
-            const float r       = sel ? 6.0f : ( hovered ? 5.5f : 4.0f );
-            const ImU32 fill    = sel ? jointSel : ( isRoot ? jointRoot : jointCol );
+            // The selection wins over hover (radius) and over the root tint (fill).
+            float r    = 4.0f;
+            ImU32 fill = isRoot ? jointRoot : jointCol;
+            if ( hovered )
+                r = 5.5f;
+            if ( sel )
+            {
+                r    = 6.0f;
+                fill = jointSel;
+            }
 
             // Soft outer glow on the interactive handle so it reads as grabbable (accent when selected).
             if ( sel || hovered )
