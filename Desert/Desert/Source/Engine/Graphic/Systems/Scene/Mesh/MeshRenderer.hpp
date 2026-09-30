@@ -285,7 +285,8 @@ namespace Desert::Graphic::System
         // MeshCellPipelineKey; the default template's cell is served the pass's own pipeline back by the cache's
         // dedupe, with no case for it here. Null (logged once per key) when the cell's shader is not registered
         // or the pipeline is refused — the caller skips that draw rather than binding another template's program.
-        [[nodiscard]] GraphicsPipeline* CellPipeline( GraphicsPipeline* passState, const DataDrivenMaterial& cell );
+        [[nodiscard]] GraphicsPipeline* CellPipeline( GraphicsPipeline*         passState,
+                                                      const DataDrivenMaterial& cell );
         std::unordered_map<MeshCellPipelineKey, std::shared_ptr<GraphicsPipeline>, MeshCellPipelineKeyHash>
              m_CellPipelines; // null = refused
 

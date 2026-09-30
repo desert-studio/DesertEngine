@@ -215,9 +215,9 @@ namespace Desert::Graphic
     const char* MeshVertexPathName( MeshVertexPath path );
     const char* MeshPassName( MeshPass pass );
 
-    // THE PIPELINE A MESH DRAW BINDS (UE: a PSO is the MATERIAL's shader for the vertex factory x the pass). The pass
-    // fixes the state — vertex layout, target, depth, polygon mode, load/clear — and names it by the pass's own
-    // pipeline (@p PassState); the DRAWING material fixes the program — its template's (path x pass) cell
+    // THE PIPELINE A MESH DRAW BINDS (UE: a PSO is the MATERIAL's shader for the vertex factory x the pass). The
+    // pass fixes the state — vertex layout, target, depth, polygon mode, load/clear — and names it by the pass's
+    // own pipeline (@p PassState); the DRAWING material fixes the program — its template's (path x pass) cell
     // (@p CellShader, a MeshShaderFor name). The descriptor sets a draw binds come from that same cell, so a
     // pipeline chosen by the pass alone (the default template's cell) disagrees with every other template's
     // sets: the object vanishes and the validation layer counts the difference. The default surface is one entry

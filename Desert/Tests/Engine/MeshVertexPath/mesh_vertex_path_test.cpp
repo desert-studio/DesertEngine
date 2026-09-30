@@ -1050,8 +1050,7 @@ TEST( MeshCellPipeline, TwoTemplatesInOnePassAreTwoPipelines )
     using Desert::Graphic::MeshCellPipelineKeyHash;
     const int  forwardState = 0;
     const int  gbufferState = 0;
-    const auto keyOf        = []( const void* state, std::string_view templateName, MeshVertexPath path,
-                           MeshPass pass )
+    const auto keyOf = []( const void* state, std::string_view templateName, MeshVertexPath path, MeshPass pass )
     {
         const auto cell = Desert::Graphic::MeshShaderFor( templateName, path, pass );
         EXPECT_TRUE( cell.has_value() ) << templateName;
