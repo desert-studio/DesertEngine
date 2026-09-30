@@ -21,6 +21,7 @@
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/Mesh/SkeletonReferenceAssets.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
@@ -545,6 +546,45 @@ TEST_F( SkinnedImport, ARepeatedRunReimportsNothingUntilTheSourceBytesChange )
     std::ofstream( m_Source, std::ios::binary | std::ios::app ) << "\n";
     EXPECT_EQ( ImportManager().Import( m_Source ), Editor::CookVerdict::Cooked )
          << "a source whose bytes changed was taken as up to date";
+}
+
+// A SKELETON CHOSEN ON THE MESH IS PART OF ITS IMPORT SETTINGS (UE: the skeleton is an FBX import option, and
+// Reimport repeats the options): SaveMeshSkeletonReference on an imported .skmesh rewrites its header AND the raw
+// source's import record, so a Reimport binds the chosen rig - not the one the file's bones match again.
+// The other skeleton is the first rig's bones under another GUID (compatible by construction), registered the way
+// the editor's hot reload notes a written file.
+// Mutation: SkeletonReferenceAssets.cpp SaveMeshSkeletonReference without its SetImportRecordSkeleton call => the
+// record states no skeleton and the Reimport rebinds by bones => red here.
+TEST_F( SkinnedImport, ASkeletonChosenOnTheMeshIsKeptByAReimport )
+{
+    const std::filesystem::path mesh = m_Outcome.WrittenMeshes.front();
+    auto                        rig  = Ser::ReadSkeletonJson( Read( m_Outcome.WrittenSkeletons.front() ) );
+    ASSERT_TRUE( rig.IsSuccess() ) << rig.GetError();
+    Ser::SkeletonAssetData copy = rig.ExtractValue();
+    ASSERT_TRUE( copy.Header.has_value() ) << "the first import's .skeleton states no header";
+    const Common::Content::AssetGuid other{ 0x5EE1E70100000000ULL, 0x00000000000000B2ULL };
+    const std::string                otherText = Common::Content::AssetGuidToText( other );
+    ASSERT_NE( copy.Header->Guid, otherText );
+    copy.Header->Guid = otherText;
+    copy.PreviewMesh.reset();
+    const std::filesystem::path otherFile = "Resources/Assets/Mock/RigOther.skeleton";
+    std::ofstream( otherFile, std::ios::binary | std::ios::trunc ) << Ser::WriteSkeletonJson( copy );
+    Assets::ContentRegistry::Update( otherFile );
+    ASSERT_TRUE( Assets::ContentRegistry::RigRow( other ).has_value() )
+         << "precondition: the registry does not know the other skeleton";
+
+    const auto saved = Ser::SaveMeshSkeletonReference( mesh, other );
+    ASSERT_TRUE( saved.IsSuccess() ) << saved.GetError();
+    EXPECT_EQ( MeshSkeletonGuidOf( mesh ), otherText ) << "the .skmesh header does not name the chosen skeleton";
+    const auto settings = Ser::ReadImportRecordSettings( m_Source );
+    ASSERT_TRUE( settings.IsSuccess() ) << settings.GetError();
+    ASSERT_TRUE( settings.GetValue().Skeleton.has_value() )
+         << "the source's import record states no skeleton: a Reimport rebinds the rig the bones match";
+    EXPECT_EQ( *settings.GetValue().Skeleton, other );
+
+    ASSERT_EQ( ImportManager().Import( m_Source, true ), Editor::CookVerdict::Cooked );
+    EXPECT_EQ( MeshSkeletonGuidOf( mesh ), otherText )
+         << "the Reimport reverted the mesh to the skeleton its bones match: the artist's choice was lost";
 }
 
 int main( int argc, char** argv )
