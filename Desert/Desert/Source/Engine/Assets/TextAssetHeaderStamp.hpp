@@ -75,7 +75,8 @@ namespace Desert::Assets
     inline constexpr uint32_t kAnimationSchemaVersion = 6;
     // A timeline block (Animation/Timeline/Sequence.hpp): the Sequence every host (.anim, a UI clip, .dseq)
     // carries, stated since v1 under this tag; its version is Timeline::kTimelineFormatVersion, which the
-    // contract header owns.
+    // contract header owns. v2 (ANIM-FMT): a key's mode shapes the segment LEAVING it; v1 is read by
+    // SceneMigrator only.
     inline constexpr uint32_t kTimelineSchemaTag = Common::Content::FourCC( "TMLN" );
     // A .shader: stated since v1 (T7j) on the source's first line (ShaderAssetHeader.hpp). The files before it
     // stated nothing - that generation is 0, and a file of it is refused by name.

@@ -268,6 +268,19 @@ namespace Desert::Migration
     // kSceneVersionUIAnimationSequences states; refuses a UIAnim in a prefab override. PURE.
     UIAnimationsReport MigrateUIAnimationsV40ToV41( std::vector<Assets::EntityData>& entities );
 
+    // What MigrateUIAnimationTimelinesV1ToV2 did to one file.
+    struct UIAnimationTimelinesReport
+    {
+        std::size_t              Clips         = 0; // UIAnim blocks whose TMLN v1 sequence was shifted
+        std::size_t              SamplesProved = 0; // (component, tick) samples equal under both rules
+        std::vector<std::string> Refused;           // one line per block that could not be shifted
+    };
+
+    // TMLN v1 -> v2 (ANIM-FMT): every UIAnim block whose Sequence states TMLN v1 has each key's mode moved to
+    // the segment leaving it (ClipInterpShift.hpp), proved bit for bit, rewritten by the one writer. Keyed on
+    // the block's own number, not the scene's: the timeline block states its meaning itself. PURE.
+    UIAnimationTimelinesReport MigrateUIAnimationTimelinesV1ToV2( std::vector<Assets::EntityData>& entities );
+
     // What MigrateInstanceTransformsV36ToV37 did to one scene.
     struct InstanceTransformsReport
     {
@@ -380,12 +393,16 @@ namespace Desert::Migration
         bool               UIAnimationsRaised = false; // below kSceneVersionUIAnimationSequences
         UIAnimationsReport UIAnimations;
 
+        // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
+        bool                       UIAnimationTimelinesRaised = false;
+        UIAnimationTimelinesReport UIAnimationTimelines;
+
         bool Changed() const
         {
             return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised ||
                    ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised ||
                    LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised ||
-                   UIAnimationsRaised;
+                   UIAnimationsRaised || UIAnimationTimelinesRaised;
         }
     };
 

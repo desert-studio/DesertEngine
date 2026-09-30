@@ -539,6 +539,13 @@ namespace Desert::Animation::Timeline
         {
             return Common::MakeFormattedError<Sequence>( "timeline block states no TMLN version in its header" );
         }
+        if ( *stated == kTimelineLastArrivingInterpVersion )
+        {
+            return Common::MakeFormattedError<Sequence>(
+                 "timeline block is TMLN v{}: its key modes shape the segment ARRIVING at a key, v{} the segment "
+                 "leaving it; run SceneMigrator (scripts/Dev/migrate.sh --write) to shift them",
+                 *stated, kTimelineFormatVersion );
+        }
         if ( *stated != kTimelineFormatVersion )
         {
             return Common::MakeFormattedError<Sequence>( "timeline block is TMLN v{}; this build reads v{} only",

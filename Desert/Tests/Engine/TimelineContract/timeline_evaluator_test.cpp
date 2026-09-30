@@ -157,11 +157,19 @@ TEST( TimelineFormat, WriteReadRoundTripsAndATruncatedBlockIsRefused )
 
     // The version is the header's, and an unknown one is refused by name.
     std::string text( bytes.begin(), bytes.end() );
-    const size_t stated = text.find( "\"TMLN\": 1" );
+    const size_t stated = text.find( "\"TMLN\": 2" );
     ASSERT_NE( stated, std::string::npos ) << text;
-    text.replace( stated, 9, "\"TMLN\": 2" );
+    text.replace( stated, 9, "\"TMLN\": 3" );
     const auto newer = ReadSequence( std::span( reinterpret_cast<const uint8_t*>( text.data() ), text.size() ) );
     ASSERT_FALSE( newer.IsSuccess() );
-    EXPECT_NE( newer.GetError().find( "TMLN v2" ), std::string::npos ) << newer.GetError();
+    EXPECT_NE( newer.GetError().find( "TMLN v3" ), std::string::npos ) << newer.GetError();
+
+    // v1 (a key's mode shaped the segment ARRIVING at it) has v2's layout and is refused by name all the
+    // same: only SceneMigrator reads it (ANIM-FMT).
+    text.replace( stated, 9, "\"TMLN\": 1" );
+    const auto older = ReadSequence( std::span( reinterpret_cast<const uint8_t*>( text.data() ), text.size() ) );
+    ASSERT_FALSE( older.IsSuccess() );
+    EXPECT_NE( older.GetError().find( "TMLN v1" ), std::string::npos ) << older.GetError();
+    EXPECT_NE( older.GetError().find( "SceneMigrator" ), std::string::npos ) << older.GetError();
 }
 
