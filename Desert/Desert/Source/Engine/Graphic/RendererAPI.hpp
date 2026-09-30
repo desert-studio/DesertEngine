@@ -137,8 +137,9 @@ namespace Desert::Graphic
 
         // Present an image that a graphics pass produced to a compute SAMPLER, and hand it back
         // afterwards. This is what lets a compute pass read the scene DEPTH attachment: depth lives in
-        // DEPTH_STENCIL_ATTACHMENT_OPTIMAL, ComputePipeline::SetInput binds the tracked layout verbatim,
-        // and a depth-attachment layout in a COMBINED_IMAGE_SAMPLER is a validation error. EndRead
+        // DEPTH_STENCIL_ATTACHMENT_OPTIMAL, ComputePipeline::SetInput binds the layout of the declared
+        // access, so the image must actually be in that sampled layout when the dispatch runs — a
+        // depth-attachment layout in a COMBINED_IMAGE_SAMPLER is a validation error. EndRead
         // restores the image's default layout so the owning framebuffer can keep using it as an
         // attachment next frame. Works for any format — the aspect is derived, never assumed to be COLOR.
         virtual void ComputeImageBeginRead( Image* image ) = 0;
