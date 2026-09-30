@@ -179,9 +179,10 @@ namespace Desert::Editor
         // The two volume formats are generated on a worker; see m_CloudBake.
         void CreateNewCloudAsset( CloudAssetKind kind );
         // UE-style "Capture Thumbnail": grab the current main-viewport rendered image, center-crop to a
-        // square, downscale, and save it AS this asset's thumbnail (same DiskPath key the grid reads). Lets
-        // the user frame the asset in the scene and use that exact view as the preview.
-        void CaptureThumbnailFromViewport( const std::string& assetPath );
+        // square, downscale, and save it AS this asset's thumbnail — under the key its tile reads, with the
+        // hash its judge compares (ThumbnailProducers::CaptureKeyOf -> ThumbnailService::PictureKey), so the
+        // service does not re-shoot over it. Lets the user frame the asset in the scene and use that view.
+        Common::BoolResultStr CaptureThumbnailFromViewport( const DirectoryInformation& entry );
         // Filtered (m_SearchBuf) + sorted (m_SortMode) child indices for the current directory.
         std::vector<size_t> BuildDisplayOrder() const;
         void DrawFolder( DirectoryInformation* dirInfo, bool defaultOpen = false );
