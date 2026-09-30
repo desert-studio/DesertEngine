@@ -185,7 +185,7 @@ namespace
         header.ByteOrder = Common::Content::kMeshBinaryByteOrderTag;
         header.Version   = Common::Content::kMeshBinaryVersion;
         constexpr std::size_t kTableEnd =
-             Common::Content::kMeshBinaryPrefixV3 + Common::Content::kMeshBinarySectionRowSize;
+             Common::Content::kMeshBinaryPrefixSize + Common::Content::kMeshBinarySectionRowSize;
         header.FileSize     = kTableEnd;
         header.SectionCount = 1;
         header.Flags        = skinned ? Common::Content::kMeshFlagIsSkinned : 0u;
@@ -195,7 +195,7 @@ namespace
         const uint32_t elementSize = Common::Content::kMeshBinarySubmeshSizeV3;
         const uint64_t offset      = kTableEnd;
         const uint64_t count       = 0;
-        const auto     rowAt       = bytes.begin() + Common::Content::kMeshBinaryPrefixV3;
+        const auto     rowAt       = bytes.begin() + Common::Content::kMeshBinaryPrefixSize;
         const auto     idBytes     = std::bit_cast<std::array<char, 4>>( id );
         const auto     sizeBytes   = std::bit_cast<std::array<char, 4>>( elementSize );
         const auto     offsetBytes = std::bit_cast<std::array<char, 8>>( offset );

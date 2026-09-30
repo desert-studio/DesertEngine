@@ -11,15 +11,16 @@
 // WHAT THIS SUITE IS FOR, and it is not "the format parses". It pins the three properties that make the
 // corpus USABLE AS AN INSTRUMENT, each of which can be destroyed by an edit that still parses:
 //
-//   1. The clips must claim the rig the shipped probe skeleton actually has. A signature typo turns every
+//   1. The clips must name the shipped probe skeleton (its header GUID). A wrong reference turns every
 //      frame taken against them into a picture of a bind pose, and the frame still renders — which is the
 //      worst kind of broken evidence, because it looks like evidence.
 //   2. The clips must MOVE something, by a lot. A corpus whose keys are all the bind value is a corpus
 //      that proves an animation system works while it does nothing at all. So the travel is asserted, in
 //      centimetres and in radians, against a floor far above rounding.
-//   3. Foreign_Hips must NOT drive the probe rig. A positive control alone cannot tell "the match rule
-//      works" from "the match rule says yes to everything", and this project has already paid for a
-//      match rule that was wrong in one direction (see ClipSkeletonMatch.hpp).
+//   3. A clip on ANOTHER skeleton must NOT play on the probe mesh. A positive control alone cannot tell
+//      "the match rule works" from "the match rule says yes to everything". The negative control is built
+//      in memory (test data does not live in Editor/), and it animates a bone the probe HAS, so only the
+//      skeleton reference can refuse it (ClipPlaysOnMesh, SkeletonReference.hpp).
 //
 // The files are read from the repository rather than written into a temp directory: the point is these
 // exact bytes, the ones a frame is taken against, the way Desert/Tests/Engine/StaticMeshCooked reads the
@@ -32,6 +33,7 @@
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/ClipSkeletonMatch.hpp>
 #include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Animation/SkeletonReference.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
@@ -44,6 +46,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <format>
 #include <string>
 
 #include <optional>
@@ -187,12 +190,25 @@ namespace
     Desert::Animation::ClipRigIdentity IdentityOf( const Desert::Animation::AnimationClip& clip )
     {
         Desert::Animation::ClipRigIdentity id;
-        id.ClipName          = clip.AnimationName;
-        id.SkeletonSignature = clip.SkeletonSignature;
-        for ( const auto& track : clip.Tracks )
-            if ( !track.BoneName.empty() )
-                id.AnimatedBones.push_back( track.BoneName );
+        id.ClipName = clip.AnimationName;
+        id.Skeleton = { clip.Skeleton, std::format( "{}'s skeleton", clip.AnimationName ) };
         return id;
+    }
+
+    // The probe skeleton's identity: the GUID in SkinProbe.skeleton's own header, which is what a clip names.
+    Common::Content::AssetGuid ProbeSkeletonGuid()
+    {
+        const std::string raw  = ReadFile( RepoRoot() + kProbeRig );
+        auto              data = Desert::Assets::Serialization::ReadSkeletonJson( raw );
+        EXPECT_TRUE( data.IsSuccess() ) << kProbeRig << ": " << ( data.IsSuccess() ? "" : data.GetError() );
+        if ( !data.IsSuccess() )
+            return {};
+        const auto& header = data.GetValue().Header;
+        if ( !header.has_value() )
+            return {};
+        auto guid = Common::Content::AssetGuidFromText( header->Guid );
+        EXPECT_TRUE( guid.IsSuccess() ) << kProbeRig << " has no readable header GUID";
+        return guid.IsSuccess() ? guid.GetValue() : Common::Content::AssetGuid{};
     }
 
     const Desert::Animation::BoneTrack* TrackFor( const Desert::Animation::AnimationClip& clip,
@@ -219,9 +235,10 @@ TEST( AnimationClipCorpus, TheProbeClipsClaimTheRigTheProbeSkeletonHas )
     for ( const char* stem : { "SkinProbe_Hover", "SkinProbe_Tilt" } )
     {
         const auto clip = LoadClip( stem );
-        EXPECT_EQ( clip.SkeletonSignature, rig.GetSignature() )
+        EXPECT_FALSE( ProbeSkeletonGuid().IsNull() );
+        EXPECT_TRUE( clip.Skeleton == ProbeSkeletonGuid() )
              << stem
-             << " claims a different rig from SkinProbe.skeleton. Every frame taken against it would show a "
+             << " names a different skeleton from SkinProbe.skeleton. Every frame taken against it would show a "
                 "bind pose and still render, which is broken evidence rather than no evidence.";
         // A5 REPLACED THE SENTENCE THAT USED TO STAND HERE, and the old one is worth quoting because it
         // was the fiction itself: "Key times ARE seconds when TicksPerSecond is 1, and the whole corpus is
@@ -295,34 +312,43 @@ TEST( AnimationClipCorpus, TheProbeClipsTravelFarEnoughToBeSeenInAFrame )
     }
 }
 
-// PROPERTY 3: THE NEGATIVE CONTROL. `Foreign_Hips` is a different rig signature animating a bone name the
-// probe does not have, so a library that offers it to this rig is wrong -- and a suite with only positive
-// controls cannot tell a working match rule from one that says yes to everything.
-TEST( AnimationClipCorpus, TheForeignClipIsRefusedForTheProbeRig )
+// PROPERTY 3: THE NEGATIVE CONTROL, built in memory: a clip that animates the probe's own bone name but names
+// a SEPARATE skeleton. Bone names decide nothing at play time any more, so only the reference can refuse it
+// -- and the refusal must name both skeletons, or nobody can act on it.
+TEST( AnimationClipCorpus, AClipOnAnotherSkeletonIsRefusedForTheProbeMesh )
 {
     ASSERT_FALSE( RepoRoot().empty() );
 
-    const auto rig      = Desert::Animation::IdentifyRig( ProbeRig() );
-    const auto foreign  = LoadClip( "Foreign_Hips" );
-    const auto identity = IdentityOf( foreign );
+    const auto rig = ProbeRig();
+    ASSERT_FALSE( rig.GetBones().empty() );
+    const Desert::Animation::SkeletonAssetRef probe{ ProbeSkeletonGuid(), "SkinProbe" };
+    ASSERT_FALSE( probe.Guid.IsNull() );
 
-    ASSERT_FALSE( identity.AnimatedBones.empty() );
-    EXPECT_NE( identity.SkeletonSignature, rig.Signature )
-         << "Foreign_Hips claims the probe rig, so it is no longer a negative control at all.";
-    EXPECT_EQ( rig.BoneNames.count( identity.AnimatedBones.front() ), 0u )
-         << "Foreign_Hips animates '" << identity.AnimatedBones.front()
-         << "', which the probe rig HAS. ClipDrivesRig accepts a clip whose animated bones are mostly "
-            "present by name -- deliberately, see ClipSkeletonMatch.hpp -- so a foreign clip sharing bone "
-            "names is not foreign. Rename the bone in the corpus file, not the rule.";
+    Desert::Animation::AnimationClip foreign;
+    foreign.AnimationName = "Foreign_Hips";
+    foreign.Skeleton      = Common::Content::AssetGuid::Generate();
+    Desert::Animation::BoneTrack track;
+    track.BoneName = rig.GetBones()[0].Name; // the probe HAS this bone: names must not rescue the clip
+    foreign.Tracks.push_back( track );
+    ASSERT_FALSE( foreign.Skeleton == probe.Guid );
 
-    EXPECT_FALSE( Desert::Animation::ClipDrivesRig( identity, rig ) )
-         << "the match rule offers Foreign_Hips to the probe rig.";
+    const Desert::Animation::SkeletonAssetRef foreignSkeleton{ foreign.Skeleton, "ForeignHipsSkeleton" };
+    const auto refused = Desert::Animation::ClipPlaysOnMesh( foreignSkeleton, probe, {} );
+    ASSERT_FALSE( refused.IsSuccess() ) << "a clip on another skeleton plays on the probe mesh.";
+    EXPECT_NE( refused.GetError().find( "ForeignHipsSkeleton" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "SkinProbe" ), std::string::npos ) << refused.GetError();
 
-    // And the two probe clips must still be accepted by the same rule, in the same test: a rule that
-    // refuses everything would pass the assertion above.
+    // The picker asks the same rule: the foreign clip is not offered, the two probe clips are.
+    std::vector<Desert::Animation::ClipRigIdentity> clips{ IdentityOf( foreign ) };
     for ( const char* stem : { "SkinProbe_Hover", "SkinProbe_Tilt" } )
-        EXPECT_TRUE( Desert::Animation::ClipDrivesRig( IdentityOf( LoadClip( stem ) ), rig ) )
-             << stem << " is not offered to the rig it names.";
+        clips.push_back( IdentityOf( LoadClip( stem ) ) );
+    const auto offered = Desert::Animation::SelectClipsForMesh( clips, { probe, {} } );
+    EXPECT_EQ( offered, ( std::vector<size_t>{ 1, 2 } ) )
+         << "the picker offers the foreign clip, or refuses a probe clip that names SkinProbe.skeleton.";
+
+    // Listing the foreign skeleton as compatible on the MESH side is the one way to let it play.
+    const std::vector<Common::Content::AssetGuid> compatible{ foreign.Skeleton };
+    EXPECT_TRUE( Desert::Animation::ClipPlaysOnMesh( foreignSkeleton, probe, compatible ).IsSuccess() );
 }
 
 // A CENSUS OVER THE WHOLE REPOSITORY, not over the six names this suite knows. The loader refuses a

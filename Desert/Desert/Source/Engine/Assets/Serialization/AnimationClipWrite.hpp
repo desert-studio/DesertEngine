@@ -43,4 +43,13 @@ namespace Desert::Assets::Serialization
      */
     [[nodiscard]] Common::BoolResultStr SaveClipToFile( const std::filesystem::path&    path,
                                                         const Animation::AnimationClip& clip );
+
+    /**
+     * @brief The same write with the file's identity STATED by the caller instead of kept from the file being
+     *        replaced: engine content generated with fixed GUIDs (Geometry::ProceduralCharacterFactory) states
+     *        the same GUID on every regeneration. A null @p identity is refused.
+     */
+    [[nodiscard]] Common::BoolResultStr SaveClipToFile( const std::filesystem::path&      path,
+                                                        const Animation::AnimationClip&   clip,
+                                                        const Common::Content::AssetGuid& identity );
 } // namespace Desert::Assets::Serialization

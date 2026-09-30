@@ -2,6 +2,7 @@
 
 #include <Engine/Assets/TextAssetHeaderCheck.hpp>
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Json/Json.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -13,7 +14,10 @@ namespace Desert::Assets::Serialization
     {
         return { settings.CombineMeshes, settings.Mesh.UniformScale,
                  std::string( Assets::MeshSourceUpAxisName( settings.Mesh.UpAxis ) ),
-                 std::string( Assets::MeshLodPolicyName( settings.Mesh.LodPolicy ) ) };
+                 std::string( Assets::MeshLodPolicyName( settings.Mesh.LodPolicy ) ),
+                 settings.Skeleton
+                      ? std::optional<std::string>( Common::Content::AssetGuidToText( *settings.Skeleton ) )
+                      : std::nullopt };
     }
 
     Common::ResultStr<Assets::SourceImportSettings> ImportSettingsFromText( const SourceImportSettingsText& text )
@@ -29,6 +33,14 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<Result>(
                  "import settings state scale {}, not a finite positive number", text.UniformScale );
         Result out;
+        if ( text.Skeleton )
+        {
+            auto skeleton = Common::Content::AssetGuidFromText( *text.Skeleton );
+            if ( !skeleton || skeleton.GetValue().IsNull() )
+                return Common::MakeFormattedError<Result>( "import settings name skeleton '{}', not an asset GUID",
+                                                           *text.Skeleton );
+            out.Skeleton = skeleton.GetValue();
+        }
         out.CombineMeshes     = text.CombineMeshes;
         out.Mesh.UniformScale = text.UniformScale;
         out.Mesh.UpAxis       = *axis;
@@ -189,7 +201,8 @@ namespace Desert::Assets::Serialization
             if ( !parsed )
                 return Common::MakeFormattedError<AssetGuid>( "'{}': {}", record.string(), parsed.GetError() );
             data = parsed.ExtractValue();
-            bool sameSettings = false;
+            // No Settings key IS UE's defaults (ReadImportRecordSettings), so a default import matches it.
+            bool sameSettings = !data.Settings && settings == Assets::SourceImportSettings{};
             if ( data.Settings )
                 if ( const auto stated = ImportSettingsFromText( *data.Settings ) )
                     sameSettings = stated.GetValue() == settings;
@@ -204,7 +217,12 @@ namespace Desert::Assets::Serialization
             data.Source = source.filename().string(); // no header: the stamp mints the GUID
         if ( box )
             data.Bounds = box;
-        data.Settings   = ImportSettingsToText( settings );
+        // ONE SPELLING OF THE DEFAULTS: no key (as a default thumbnail orbit is no key). Stating them made every
+        // committed record that predates the Settings key a rewrite at its first import - a DDC miss on a fresh
+        // checkout rewrote base.fbx.deimport at the first editor start with nothing in it changed.
+        data.Settings   = settings == Assets::SourceImportSettings{}
+                               ? std::nullopt
+                               : std::optional<SourceImportSettingsText>( ImportSettingsToText( settings ) );
         const auto text = WriteImportRecord( data, kind );
         if ( !text )
             return Common::MakeFormattedError<AssetGuid>( "'{}': {}", record.string(), text.GetError() );
@@ -274,6 +292,73 @@ namespace Desert::Assets::Serialization
                                                      written.GetError() );
         return BOOLSUCCESS;
     }
+    Common::BoolResultStr SetImportRecordSourceHash( const std::filesystem::path& source, const uint64_t hash )
+    {
+        const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
+        auto                        data   = ReadImportRecord( source );
+        if ( !data )
+            return Common::MakeError<bool>( data.GetError() );
+        const auto& stored = data.GetValue();
+        if ( !stored.has_value() )
+            return Common::MakeFormattedError<bool>( "'{}' does not exist, so its import's source hash cannot be "
+                                                     "recorded",
+                                                     record.string() );
+        ImportRecordData out = *stored;
+        if ( out.SourceHash == hash )
+            return BOOLSUCCESS;
+        out.SourceHash = hash;
+        if ( !out.Header.has_value() )
+            return Common::MakeFormattedError<bool>( "'{}' states no header", record.string() );
+        const auto kind = Common::Content::ContentKindNamed( out.Header->Kind );
+        const auto text = WriteImportRecord( out, kind.value_or( Common::Content::ContentKind::StaticMesh ) );
+        if ( !text )
+            return Common::MakeFormattedError<bool>( "'{}': {}", record.string(), text.GetError() );
+        if ( auto written = Common::Content::WriteCanonicalJsonFileAtomic( record, text.GetValue() ); !written )
+            return Common::MakeFormattedError<bool>( "'{}' could not be written: {}", record.string(),
+                                                     written.GetError() );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr SetImportRecordSkeleton( const std::filesystem::path&     source,
+                                                   const Common::Content::AssetGuid skeleton )
+    {
+        const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
+        if ( skeleton.IsNull() )
+            return Common::MakeFormattedError<bool>(
+                 "'{}': an import chooses a skeleton by GUID; the GUID is null", record.string() );
+        auto data = ReadImportRecord( source );
+        if ( !data )
+            return Common::MakeError<bool>( data.GetError() );
+        const auto& stored = data.GetValue();
+        if ( !stored.has_value() )
+            return Common::MakeFormattedError<bool>( "'{}' does not exist, so its import's skeleton cannot be "
+                                                     "recorded",
+                                                     record.string() );
+        ImportRecordData             out = *stored;
+        Assets::SourceImportSettings chosen; // UE's defaults when the record states no settings
+        if ( out.Settings )
+        {
+            const auto settings = ImportSettingsFromText( *out.Settings );
+            if ( !settings )
+                return Common::MakeFormattedError<bool>( "'{}': {}", record.string(), settings.GetError() );
+            chosen = settings.GetValue();
+        }
+        if ( out.Settings && chosen.Skeleton == skeleton )
+            return BOOLSUCCESS;
+        chosen.Skeleton = skeleton;
+        out.Settings    = ImportSettingsToText( chosen );
+        if ( !out.Header.has_value() )
+            return Common::MakeFormattedError<bool>( "'{}' states no header", record.string() );
+        const auto kind = Common::Content::ContentKindNamed( out.Header->Kind );
+        const auto text = WriteImportRecord( out, kind.value_or( Common::Content::ContentKind::StaticMesh ) );
+        if ( !text )
+            return Common::MakeFormattedError<bool>( "'{}': {}", record.string(), text.GetError() );
+        if ( auto written = Common::Content::WriteCanonicalJsonFileAtomic( record, text.GetValue() ); !written )
+            return Common::MakeFormattedError<bool>( "'{}' could not be written: {}", record.string(),
+                                                     written.GetError() );
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr SetImportRecordThumbnail( const std::filesystem::path& source,
                                                     const std::string& meshFile, const ThumbnailOrbit& orbit )
     {

@@ -31,7 +31,15 @@ namespace Desert::Assets::Serialization
         clip.DurationTicks     = Animation::FrameNumber{ data.DurationTicks };
         clip.TickRate          = tickRate;
         clip.DisplayRate       = displayRate;
-        clip.SkeletonSignature = data.SkeletonSignature;
+        if ( data.Skeleton )
+        {
+            auto skeleton = Common::Content::AssetGuidFromText( data.Skeleton->Guid );
+            if ( !skeleton )
+                return Common::MakeFormattedError<Animation::AnimationClip>(
+                     "clip '{}' names skeleton '{}' by a GUID that does not parse: {}", data.Name,
+                     data.Skeleton->Path, skeleton.GetError() );
+            clip.Skeleton = skeleton.GetValue();
+        }
         clip.Tracks.reserve( data.Channels.size() );
 
         std::unordered_set<std::string> claimed;

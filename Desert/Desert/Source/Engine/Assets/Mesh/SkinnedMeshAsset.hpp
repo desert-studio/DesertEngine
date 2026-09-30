@@ -6,6 +6,8 @@
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
+
 #include <optional>
 #include <vector>
 
@@ -67,78 +69,18 @@ namespace Desert::Assets
             return m_SkeletonDependency;
         }
 
-        virtual void ResolveDependencies( AssetManager& manager ) override
-        {
-            // Re-runnable by construction: the previous answer is dropped first, so a second call after the
-            // file is parsed cannot leave a stale binding behind and cannot be mistaken for the first.
-            m_SkeletonDependency.Handle = Common::AssetHandle::Null();
-            m_SkeletonDependency.Cached.reset();
+        /// Binds GetSkeleton() - BY GUID, the rig's identity - to its SkeletonAsset, bones resident.
+        /// Re-runnable: the previous answer is dropped first. A null GUID (unparsed shell) binds nothing.
+        void ResolveDependencies( AssetManager& manager ) override;
 
-            // A SIGNATURE OF ZERO MEANS "NOT KNOWN YET", NEVER "MATCHES ANYTHING". The signature is a field
-            // inside the .skmesh, so an unparsed shell carries 0 — and SkeletonAsset::GetSignature() also
-            // returns 0 for a skeleton whose own file has not been read. Comparing the two would bind this
-            // mesh to the first unloaded skeleton in the project and report the dependency as resolved,
-            // which is a worse failure than the unresolved one because nothing downstream can detect it.
-            // AssetBase::EnsureLoaded runs this again the moment the parse fills the signature in.
-            if ( m_SkeletonSignature == 0 )
-            {
-                return;
-            }
+        /// THE MESH'S SKELETON, BY GUID (SKEL-TREE; contract: Engine/Animation/SkeletonReference.hpp). UE
+        /// USkeletalMesh::Skeleton. Null = the mesh names no skeleton and plays no clip. Replaces the signature
+        /// as identity: ResolveDependencies binds HandleForGuid of this, GetSkeletonSignature goes away.
+        [[nodiscard]] Common::Content::AssetGuid GetSkeleton() const;
 
-            const auto& allSkeletons = manager.FindAllByType<Assets::SkeletonAsset>();
-            for ( const auto& [handle, skeleton] : allSkeletons )
-            {
-                if ( skeleton->GetSignature() != m_SkeletonSignature )
-                    continue;
-
-                // THE RIG'S BONES MUST BE RESIDENT BEFORE THIS COUNTS AS RESOLVED, and that is not a
-                // nicety: the only thing anyone does with this dependency is
-                // `MeshFactory::CreateSkinned`, which reads `GetSkeleton()` and refuses the whole mesh
-                // when it is null. Asset eviction releases a rig whenever a scene without a skinned mesh
-                // is open (it is reachable only through this very dependency), so "registered but cold"
-                // is the ORDINARY state here rather than an edge case — it is what every scene opened
-                // after the first one finds.
-                if ( const auto loaded = skeleton->EnsureLoaded( manager ); !loaded )
-                {
-                    LOG_ERROR( "SkinnedMeshAsset '{}': rig sig {} is registered as '{}' but could not be "
-                               "read back: {}",
-                               m_Metadata.Filepath.string(), m_SkeletonSignature,
-                               skeleton->GetMetadata().Filepath.string(), loaded.GetError() );
-                    continue;
-                }
-
-                // AND THE REMEMBERED NUMBER IS RE-CHECKED AGAINST THE BONES JUST READ. A cold rig answers
-                // with the signature of the last payload it held, which is what makes it findable at all;
-                // that value may be stale if the `.skeleton` was re-cooked while it was cold. Verifying
-                // here is what keeps the remembered signature a HINT THAT STARTS A LOOKUP rather than a
-                // fact that completes one — binding a mesh to a rig it no longer matches is the failure
-                // this file's zero-guard was written to prevent, arriving from the other direction.
-                if ( skeleton->GetSignature() != m_SkeletonSignature )
-                {
-                    LOG_WARN( "SkinnedMeshAsset '{}': rig '{}' was remembered as sig {} and reads back as "
-                              "{} — it has been re-cooked. Not bound.",
-                              m_Metadata.Filepath.string(), skeleton->GetMetadata().Filepath.string(),
-                              m_SkeletonSignature, skeleton->GetSignature() );
-                    continue;
-                }
-
-                m_SkeletonDependency.Handle = handle;
-                m_SkeletonDependency.Cached = skeleton;
-                break;
-            }
-
-            if ( !m_SkeletonDependency.IsValid() )
-            {
-                LOG_WARN( "SkinnedMeshAsset '{}': skeleton sig {} not found among {} skeletons.",
-                          m_Metadata.Filepath.string(), m_SkeletonSignature, allSkeletons.size() );
-            }
-        }
-
-        // The rig this mesh was cooked against, as stored in the .skmesh. Zero until the file is parsed.
-        uint64_t GetSkeletonSignature() const
-        {
-            return m_SkeletonSignature;
-        }
+        /// Authoring (Details slot, after CheckSkeletonAssignment): in memory, re-resolves on the next
+        /// ResolveDependencies. Serialization::SaveMeshSkeletonReference writes the .skmesh and the source.
+        void SetSkeleton( Common::Content::AssetGuid skeleton );
 
         bool IsReadyForUse() const override
         {
@@ -154,7 +96,7 @@ namespace Desert::Assets
         std::vector<MeshVertexStreams> m_VertexStreams;
         std::vector<Common::UUID>  m_MaterialAssetHandles;
 
-        uint64_t m_SkeletonSignature = 0U;
+        Common::Content::AssetGuid m_Skeleton; // the .skmesh header's SkeletonGuid; null until parsed
 
         // Dependency
         AssetDependency<SkeletonAsset> m_SkeletonDependency;

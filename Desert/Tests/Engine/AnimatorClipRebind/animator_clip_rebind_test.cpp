@@ -77,7 +77,7 @@ namespace
         // used to say "one second" by setting the rate so a tick WAS a second.
         clip.AnimationName     = "Probe";
         clip.DurationTicks     = FrameNumber{ PROJECT_TICK_RATE.Numerator };
-        clip.SkeletonSignature = 0;
+        clip.Skeleton          = {}; // the probe names no skeleton asset; it is bound by bone names only
 
         BoneTrack rootTrack;
         rootTrack.BoneName = "Root";

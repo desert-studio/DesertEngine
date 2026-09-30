@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/Animation/Skeleton.hpp>
-#include <Engine/Assets/Serialization/ImportSourceInfo.hpp>
+#include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Assets/TextAssetHeaderCheck.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
@@ -9,8 +9,11 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Common/Json/Json.hpp>
+#include <Common/Utilities/FileSystem.hpp>
+#include <Common/Utilities/VFS.hpp>
 
 #include <array>
+#include <filesystem>
 #include <format>
 #include <optional>
 #include <span>
@@ -28,7 +31,14 @@ namespace Desert::Assets::Serialization
         // and 0 is the value SkinnedMeshAsset already reads as "no rig claimed".
         uint64_t                                 Signature = 0;
         std::vector<Desert::Animation::BoneInfo> Bones;
-        std::optional<ImportSourceInfo>          Import; // absent on a hand-authored rig
+        /// SKEL 3 dropped `Import` (source name + hash): a skinned import's freshness is its import record's
+        /// SourceHash (ImportRecord.hpp), which nothing on the rig restated.
+        /// SKEL 2 (SKEL-TREE, contract Engine/Animation/SkeletonReference.hpp): the skinned mesh the Skeleton
+        /// Editor previews this rig on (UE USkeleton::PreviewSkeletalMesh); null = bones only.
+        std::optional<AssetGuidRef> PreviewMesh;
+        /// SKEL 2: skeletons whose clips play on meshes of THIS one (UE USkeleton::CompatibleSkeletons) - one
+        /// direction, not transitive. Every file states the list, empty when there is none.
+        std::vector<AssetGuidRef> CompatibleSkeletons;
     };
 
     [[nodiscard]] inline std::span<const Common::Content::SubsystemVersion> SkeletonTextSubsystems()
@@ -63,5 +73,31 @@ namespace Desert::Assets::Serialization
              !header )
             return Common::MakeError<SkeletonAssetData>( std::format( "skeleton {}", header.GetError() ) );
         return Common::MakeSuccess( parsed.GetValue() );
+    }
+
+    /// THE ONE READ OF A .skeleton FILE: through the VFS first, so a packaged build reads the rig out of its
+    /// .dpak like every other asset, then off the disk for a loose file the pak does not carry. Both readers of
+    /// a rig — SkeletonAsset and the built-in humanoid (ProceduralCharacterSkeleton) — come through here. An
+    /// error names the file.
+    [[nodiscard]] inline Common::ResultStr<SkeletonAssetData> ReadSkeletonFile( const std::filesystem::path& file )
+    {
+        std::string text;
+        if ( const auto packed =
+                  Common::Utils::VFS::Exists( file ) ? Common::Utils::VFS::ReadFile( file ) : std::nullopt;
+             packed.has_value() )
+            text = packed.value();
+        else
+        {
+            auto raw = Common::Utils::FileSystem::ReadFileContent( file );
+            if ( !raw )
+                return Common::MakeError<SkeletonAssetData>(
+                     std::format( "'{}': {}", file.string(), raw.GetError() ) );
+            text = raw.ExtractValue();
+        }
+        auto read = ReadSkeletonJson( text );
+        if ( !read )
+            return Common::MakeError<SkeletonAssetData>(
+                 std::format( "'{}': {}", file.string(), read.GetError() ) );
+        return read;
     }
 } // namespace Desert::Assets::Serialization

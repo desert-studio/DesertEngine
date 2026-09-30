@@ -5,6 +5,8 @@
 #include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/TimeModel.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
+
 #include <glm/glm.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
@@ -380,11 +382,10 @@ namespace Desert::Animation
         /// clip set to 1.0 so that "tick" meant "second", is what they replace.
         FrameRate TickRate    = PROJECT_TICK_RATE;
         FrameRate DisplayRate = DEFAULT_DISPLAY_RATE;
-        // 0 = "no rig claimed", and it needed an initialiser: a default-constructed clip read back
-        // whatever was on the heap, and this number is what the animation system matches a skeleton on —
-        // so an unset one does not fail to match, it matches something arbitrary. Its neighbours all had
-        // one; this field was the exception.
-        uint64_t SkeletonSignature = 0;
+        // THE CLIP'S SKELETON, BY GUID (SKEL-TREE; Engine/Animation/SkeletonReference.hpp) — the one home of the
+        // value: AnimationAsset::GetSkeleton reads it, SaveClipToFile writes it. Null = the clip names no
+        // skeleton and plays on no mesh (ClipPlaysOnMesh refuses it by name).
+        Common::Content::AssetGuid Skeleton;
 
         // Named tracks, in the order the source file listed them. THIS IS NOT INDEXED BY BONE: it used to be
         // scattered by a serialised bone index, which left unnamed holes wherever the source rig was sparse

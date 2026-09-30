@@ -74,27 +74,20 @@ namespace Desert::Editor
         // CLIP SELECTION
         // ============================================================
 
-        const auto&    skeleton = animator->GetSkeleton();
-        const uint64_t sig      = skeleton.GetSignature();
-
-        static std::vector<Assets::Asset<Assets::AnimationAsset>> cached;
-        static uint64_t                                           cachedSig = 0;
-
-        if ( cachedSig != sig )
-        {
-            // ONE rule, shared with AnimationECSSystem's resolution of the very name this combo writes into
-            // the component (see ClipSkeletonMatch.hpp). The picker asking one question and the runtime
-            // another is what made a chosen clip fail to play in silence.
-            cached    = m_AnimationLibrary->GetForSkeleton( skeleton );
-            cachedSig = sig;
-        }
+        // The clips this entity's mesh can play: the mesh's skeleton reference (GUID) under ClipPlaysOnMesh, the
+        // SAME rule AnimationECSSystem resolves the name this combo writes (SkeletonReference.hpp). Asked when the
+        // widget draws, not cached: a cache keyed by anything but the library's contents offered stale clips.
+        const Assets::AssetHandle meshHandle = entity.HasComponent<ECS::SkinnedMeshComponent>()
+                                                    ? entity.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle
+                                                    : Assets::AssetHandle{};
+        const auto clips = m_AnimationLibrary->GetForMesh( m_AnimationLibrary->IdentifyMeshHandle( meshHandle ) );
 
         const char* preview = animation.CurrentClip.empty() ? "Select Clip" : animation.CurrentClip.c_str();
 
         Utils::ImGuiUtilities::BeginPropertyRow( "Clip" );
         if ( ImGui::BeginCombo( "##ClipSelect", preview ) )
         {
-            for ( const auto& animAsset : cached )
+            for ( const auto& animAsset : clips )
             {
                 const auto& clip     = animAsset->GetClip();
                 bool        selected = ( animation.CurrentClip == clip.AnimationName );
@@ -160,9 +153,9 @@ namespace Desert::Editor
         // queues its handle through the one route every Details asset field uses (EditorLayer answers it with
         // RequestOpenAsset). Disabled, with the reason, when the name matches no clip for this skeleton.
         const auto currentClip =
-             std::ranges::find_if( cached, [&animation]( const auto& asset )
+             std::ranges::find_if( clips, [&animation]( const auto& asset )
                                    { return asset && asset->GetClip().AnimationName == animation.CurrentClip; } );
-        const bool hasClip = currentClip != cached.end();
+        const bool hasClip = currentClip != clips.end();
         ImGui::BeginDisabled( !hasClip );
         if ( ImGui::Button( ICON_MDI_RUN "  Open in Animation Editor",
                             ImVec2( ImGui::GetContentRegionAvail().x, 0.0f ) ) &&
@@ -173,7 +166,7 @@ namespace Desert::Editor
         Utils::ImGuiUtilities::Tooltip( hasClip ? "Preview this clip on its skeletal mesh, with a transport"
                                                 : "Select a clip first: the editor opens a clip FILE" );
 
-        RenderAnimGraph( entity, animation, cached );
+        RenderAnimGraph( entity, animation, clips );
 
         Utils::ImGuiUtilities::PopID();
     }

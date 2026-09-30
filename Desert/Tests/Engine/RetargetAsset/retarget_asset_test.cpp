@@ -89,6 +89,12 @@ namespace
     constexpr const char* kTargetRig    = "Editor/Resources/Assets/Meshes/Skinned/IKProbe.skeleton";
     constexpr const char* kSourceRig    = "Editor/Resources/Assets/Meshes/Skinned/ForeignArm.skeleton";
     constexpr const char* kSourceClip   = "Editor/Resources/Assets/Meshes/Skinned/ForeignArm_Swing.anim";
+
+    /// The clip's skeleton reference (SKEL-TREE: a clip names its .skeleton by GUID, UE UAnimSequence::Skeleton):
+    /// the header GUID `kSourceRig` states and its path relative to the assets root. The shipped-corpus test
+    /// pins that the file really states this GUID.
+    constexpr const char* kSourceRigGuid    = "6e7625493009a5445f91e22e58561d44";
+    constexpr const char* kSourceRigRefPath = "Meshes/Skinned/ForeignArm.skeleton";
     constexpr const char* kRetargetFile = "Editor/Resources/Assets/Retargets/ForeignArm_To_IKProbe.retarget";
 
     /// The clip is 48000 ticks long and its motion is one full sine, so tick 0 and tick 48000 are the rest
@@ -279,7 +285,7 @@ namespace
         clip.TickRate          = File::FrameRateData{ 24000, 1 };
         clip.DisplayRate       = File::FrameRateData{ 8, 1 };
         clip.DurationTicks     = kClipDurationTicks;
-        clip.SkeletonSignature = rig.Signature;
+        clip.Skeleton          = Desert::Assets::AssetGuidRef{ kSourceRigGuid, kSourceRigRefPath };
         clip.Channels          = {
              SwingChannel( rig.Bones[0], glm::vec3( 0.0F, 0.0F, 1.0F ), kShoulderSwingDeg, kRootLiftCm ),
              SwingChannel( rig.Bones[1], glm::vec3( 1.0F, 0.0F, 0.0F ), kElbowSwingDeg, 0.0F ),
@@ -1202,7 +1208,10 @@ TEST( RetargetAssetTest, TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstr
     EXPECT_TRUE( shippedClip.GetValue().Header.has_value() );
     EXPECT_EQ( shippedClip.GetValue().Name, builtClip.Name );
     EXPECT_EQ( shippedClip.GetValue().DurationTicks, builtClip.DurationTicks );
-    EXPECT_EQ( shippedClip.GetValue().SkeletonSignature, builtClip.SkeletonSignature );
+    EXPECT_EQ( shippedClip.GetValue().Skeleton, builtClip.Skeleton );
+    EXPECT_EQ( Common::Content::AssetGuidToText( Desert::Assets::ReadTextHeaderGuid( root + kSourceRig ) ),
+               kSourceRigGuid )
+         << kSourceRig << " does not state the GUID the clip references";
     EXPECT_EQ( shippedClip.GetValue().TickRate.Numerator, builtClip.TickRate.Numerator );
     EXPECT_EQ( shippedClip.GetValue().TickRate.Denominator, builtClip.TickRate.Denominator );
     ASSERT_EQ( shippedClip.GetValue().Channels.size(), builtClip.Channels.size() );
@@ -1263,7 +1272,7 @@ TEST( RetargetAssetTest, EveryLinkFromTheFileToTheSkinningMatricesHasACaller )
            "AttachRetarget( built.ExtractValue() )",
            "without this the retargeter is built and never joins the pipeline" },
          { "Desert/Desert/Source/Engine/ECS/System/AnimationECSSystem.hpp",
-           "FindForSkeleton( clipRig, anim.CurrentClip )",
+           "FindForMesh( clipRig, anim.CurrentClip )",
            "the clip is looked up against the rig it is AUTHORED on; asking the target rig refuses exactly "
            "the clips a retarget exists to play" },
          { "Desert/Desert/Source/Engine/Animation/Animator.cpp", "m_Retarget->Run( m_Skeleton, sourcePose, pose )",
