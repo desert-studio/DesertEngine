@@ -11,6 +11,10 @@
 #include <Editor/Panels/FileExplorer/NewCloudAsset.hpp>
 #include <Editor/Panels/MaterialEditor/MaterialDocumentOpen.hpp>
 #include <Editor/Core/AssetFileOps.hpp>
+#include <Editor/Core/ContentCreateCommands.hpp>
+#include <Engine/Animation/Timeline/Hosts.hpp>
+#include <Engine/Animation/Timeline/Sequence.hpp>
+#include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Editor/Core/MaterialAssetUtils.hpp>
 #include <Editor/Core/Commands/AssetMoveCommand.hpp>
 #include <Editor/Core/AssetReferences.hpp>
@@ -69,6 +73,7 @@
 #include <Editor/Widgets/ThumbnailEdit.hpp>
 
 #include <filesystem>
+#include <utility>
 #include <format>
 #include <fstream>
 #include <system_error>
@@ -818,6 +823,30 @@ namespace Desert::Editor
         QueueRefresh();
     }
 
+    Common::BoolResultStr FileExplorerPanel::CreateNewLevelSequence()
+    {
+        if ( m_CurrentDir == nullptr )
+            return Common::MakeError( "New Level Sequence: the Assets window has no folder open" );
+        const std::string ext( ::Desert::Animation::Timeline::kLevelSequenceExtension );
+        const std::string name = AssetFileOps::UniqueName(
+             "NewLevelSequence", ext, [&]( const std::string& n )
+             { return std::filesystem::exists( std::filesystem::path( m_CurrentDir->AssetPath ) / n ); } );
+        const auto path = std::filesystem::path( m_CurrentDir->AssetPath ) / name;
+        // UE's new ULevelSequence: no bindings, no tracks, a five-second playback range on the project's
+        // tick rate. The range is stated, never implied by an empty 0..0 a player would clamp to one frame.
+        ::Desert::Animation::Timeline::Sequence sequence;
+        sequence.Host = ::Desert::Animation::Timeline::SequenceHost::LevelSequence;
+        sequence.End  = ::Desert::Animation::SecondsToFrameTime( 5.0, sequence.TickRate ).Frame;
+        if ( const auto saved =
+                  Assets::LevelSequenceAsset::Save( path, sequence, Common::Content::AssetGuid::Generate() );
+             !saved )
+            return Common::MakeFormattedError( "New Level Sequence: {}", saved.GetError() );
+        // Selected once the refresh lists it (UE selects the new asset in the Content Browser).
+        m_SelectAfterRefresh = path.generic_string();
+        QueueRefresh();
+        return Common::MakeSuccess( true );
+    }
+
     void FileExplorerPanel::CreateNewCloudAsset( CloudAssetKind kind )
     {
         if ( !m_CurrentDir )
@@ -1279,6 +1308,13 @@ namespace Desert::Editor
             {
                 RefreshCurrentDirectory(); // in-place: keeps navigation (watcher / import / rebuild)
                 m_Refresh = false;
+                if ( !m_SelectAfterRefresh.empty() )
+                {
+                    if ( const auto selected = SelectEntry( std::exchange( m_SelectAfterRefresh, {} ) );
+                         !selected )
+                        LOG_ERROR( "[Content] the new asset was created but not selected: {}",
+                                   selected.GetError() );
+                }
             }
 
             // ── Content Browser: two panes split by a draggable vertical splitter. LEFT = pinned Favorites
@@ -1715,6 +1751,10 @@ namespace Desert::Editor
 
                             if ( ImGui::Selectable( "New Material" ) )
                                 CreateNewMaterial();
+
+                            if ( ImGui::Selectable( std::string( kNewLevelSequenceLabel ).c_str() ) )
+                                if ( const auto created = CreateNewLevelSequence(); !created )
+                                    LOG_ERROR( "[Content] {}", created.GetError() );
 
                             // Pick the domain up front (like Unreal's Material Domain / Godot's Mode):
                             // it decides the output node, vertex contract and palette of the new graph.

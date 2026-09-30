@@ -44,6 +44,11 @@
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Panels/SceneProperties/ComponentWidgets/MaterialsPanelComponent.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/LevelSequenceAsset.hpp>
+#include <Engine/Animation/Timeline/Hosts.hpp>
+#include <Engine/Animation/Timeline/Player.hpp>
+#include <Engine/Animation/Timeline/Sequence.hpp>
+#include <rfl.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/MaterialData.hpp>
@@ -1810,6 +1815,99 @@ namespace Desert::Editor
         return e;
     }
 
+    // LEVEL SEQUENCE ACTOR (UE: ALevelSequenceActor's Details - Sequence, Playback Settings, Binding
+    // Overrides). The sequence is chosen by dropping a `.dseq` from the Assets window; Loop by its NAME (the
+    // saved form, ComponentRegistry.cpp); the overrides are listed under their binding's label and removable
+    // (adding one is the Sequencer's binding menu, not this panel's).
+    static ComponentEditorEntry MakeLevelSequenceEntry()
+    {
+        using C = ::Desert::ECS::LevelSequenceComponent;
+        ComponentEditorEntry e;
+        e.Name      = "Level Sequence";
+        e.CanRemove = true;
+        e.Has       = []( ::Desert::ECS::Entity& en ) { return en.HasComponent<C>(); };
+        e.Add       = []( ::Desert::ECS::Entity& en ) { en.AddComponent<C>(); };
+        e.Remove    = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<C>(); };
+        e.Draw      = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene*, const ComponentEditContext& context )
+        {
+            namespace T   = ::Desert::Animation::Timeline;
+            auto& actor   = en.GetComponent<C>();
+            auto  manager = context.AssetManager.lock();
+            if ( !manager )
+                return;
+
+            const auto sequence =
+                 actor.Sequence ? manager->FindByHandle<::Desert::Assets::LevelSequenceAsset>( actor.Sequence )
+                                : nullptr;
+            ImGui::TextUnformatted( "Sequence" );
+            ImGui::SameLine();
+            ImGui::Button( sequence ? sequence->GetMetadata().Filepath.filename().string().c_str()
+                                    : "Drop a .dseq to choose the sequence",
+                           ImVec2( -1, 0 ) );
+            if ( ImGui::BeginDragDropTarget() )
+            {
+                if ( const ImGuiPayload* p =
+                          ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
+                {
+                    const std::filesystem::path named( static_cast<const char*>( p->Data ) );
+                    if ( named.extension() == T::kLevelSequenceExtension )
+                    {
+                        const std::filesystem::path full =
+                             named.is_absolute()
+                                  ? named
+                                  : ( ::Desert::Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+                        auto dropped = manager->FindByPath<::Desert::Assets::LevelSequenceAsset>( full );
+                        if ( !dropped )
+                            dropped = manager->CreateAsset<::Desert::Assets::LevelSequenceAsset>(
+                                 full, /*loadAfterCreate=*/false );
+                        if ( dropped )
+                            actor.Sequence = dropped->GetMetadata().Handle;
+                        else
+                            LOG_ERROR( "[LevelSequence] '{}' is not a sequence this project can open",
+                                       full.string() );
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+
+            // Playback Settings.
+            const auto loops   = rfl::get_enumerator_array<T::LoopMode>();
+            const auto current = rfl::enum_to_string( actor.Loop );
+            if ( ImGui::BeginCombo( "Loop", current.c_str() ) )
+            {
+                for ( const auto& [name, mode] : loops )
+                    if ( ImGui::Selectable( std::string( name ).c_str(), mode == actor.Loop ) )
+                        actor.Loop = mode;
+                ImGui::EndCombo();
+            }
+            ImGui::Checkbox( "Auto Play", &actor.AutoPlay );
+
+            // Binding Overrides.
+            ImGui::SeparatorText( "Binding Overrides" );
+            if ( actor.BindingOverrides.empty() )
+                ImGui::TextDisabled( "None: every binding plays on the entity its locator names" );
+            for ( std::size_t i = 0; i < actor.BindingOverrides.size(); )
+            {
+                const auto&       over    = actor.BindingOverrides[i];
+                const T::Binding* binding = sequence && sequence->IsReadyForUse()
+                                                 ? T::FindBinding( sequence->GetSequence(), over.Binding )
+                                                 : nullptr;
+                ImGui::PushID( static_cast<int>( i ) );
+                ImGui::Text( "%s -> entity %s", binding ? binding->Label.c_str() : "(binding not in the sequence)",
+                             over.Entity.ToString().c_str() );
+                ImGui::SameLine();
+                const bool remove = ImGui::SmallButton( "Remove" );
+                ImGui::PopID();
+                if ( remove )
+                    actor.BindingOverrides.erase( actor.BindingOverrides.begin() +
+                                                  static_cast<std::ptrdiff_t>( i ) );
+                else
+                    ++i;
+            }
+        };
+        return e;
+    }
+
     // Character controller: the authored capsule (reflected) and, in Play, what the physics step is
     // actually reporting back. "Why does he not jump" is answered by On Ground, which the component has
     // always carried and the panel never showed.
@@ -1960,6 +2058,8 @@ namespace
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeProjectileEntry() );
     const int _desert_foliage_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeFoliageEntry() );
+    const int _desert_level_sequence_component_reg =
+         ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeLevelSequenceEntry() );
 
     const int _desert_uicanvas_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeUICanvasEntry() );

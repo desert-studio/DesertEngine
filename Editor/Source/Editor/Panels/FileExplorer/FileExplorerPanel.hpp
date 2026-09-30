@@ -159,6 +159,10 @@ namespace Desert::Editor
         // Phase-4 engine integration: instantiate a prefab into the open scene; create a new material asset.
         void AddPrefabToScene( const std::string& prefabPath );
         void CreateNewMaterial();
+        // UE's "Add Level Sequence": an empty `.dseq` (LevelSequenceAsset::Save) in the open folder, selected
+        // once the folder is re-listed. The ONE creation route: the Assets window's context menu and the
+        // palette's "Assets / New Level Sequence" (Editor/Core/ContentCreateCommands.hpp) both call this.
+        Common::BoolResultStr CreateNewLevelSequence();
 
         /// Which of the four cloud formats a "New Cloud Asset" item creates.
         ///
@@ -304,6 +308,9 @@ namespace Desert::Editor
         std::string m_AssetPath;
 
         bool m_Refresh = false;
+        // A file this panel just created, selected by the refresh that lists it (the entry does not exist
+        // before that re-listing, so it cannot be selected at creation).
+        std::string m_SelectAfterRefresh;
 
         bool m_UpdateNavigationPath = true;
 

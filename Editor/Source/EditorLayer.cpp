@@ -5,6 +5,7 @@
 #include <Engine/Core/Glfw.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include <Editor/Core/SaveShortcut.hpp>
+#include <Editor/Core/ContentCreateCommands.hpp>
 #include <Editor/Core/DetailsNavigation.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Graphic/Environment/EnvironmentBake.hpp>
@@ -4618,6 +4619,17 @@ namespace Desert::Editor
                                                            std::filesystem::path( path ), step ) } );
             }
         }
+
+        // Asset creation, the Assets window's context menu as commands (UE "Add Level Sequence"). Offered
+        // whether or not the window exists: the refusal says why, where a missing entry would not.
+        for ( PaletteCommand& command : ContentCreatePaletteCommands(
+                   [this]
+                   {
+                       if ( m_FileExplorerPanel == nullptr )
+                           return Common::MakeError( "New Level Sequence: the Assets window does not exist" );
+                       return m_FileExplorerPanel->CreateNewLevelSequence();
+                   } ) )
+            commands.push_back( std::move( command ) );
 
         // Maximize any panel that sits in a dock now; restore the maximized one.
         {

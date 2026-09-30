@@ -260,6 +260,15 @@ namespace
                                          "\"LayerName\":\"AF10a_Probe\"}\n";
                 return { text.begin(), text.end() };
             }
+            case ContentKind::LevelSequence:
+            {
+                // No sequence ships with the corpus yet; the least `.dseq` header (a TMLN block whose header
+                // states this kind, LevelSequenceAsset.hpp) - the header reader is all the scan consults.
+                const std::string text = "{\"Header\":{\"Kind\":\"LevelSequence\",\"Guid\":\"" +
+                                         Common::Content::AssetGuidToText( guid ) +
+                                         "\",\"Versions\":{\"TMLN\":1},\"Dependencies\":[]}}\n";
+                return { text.begin(), text.end() };
+            }
             default:
                 // Skeleton, animation: formats with no header at all.
                 return { 'N', 'O', 'H', 'D', 'R' };
