@@ -20,6 +20,8 @@
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Editor/Core/Selection/ModelingStateProperties.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
+#include <Editor/Panels/ViewportPanel/ViewportPanel.hpp>
+#include <Editor/Panels/ViewportPanel/Tools/CubeGridTool.hpp>
 #include <Editor/Panels/Modeling/ModelingPanel.hpp>
 #include <array>
 #include <initializer_list>

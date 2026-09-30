@@ -59,6 +59,7 @@
 #include <Engine/Geometry/PrimitiveType.hpp>
 #include <Common/Core/Units.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
+#include <Engine/Geometry/ProceduralCharacterFactory.hpp>
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Rig/ControlHierarchy.hpp>
 #include <Engine/Animation/Rig/ControlRigStage.hpp>
