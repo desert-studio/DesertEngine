@@ -125,35 +125,13 @@ namespace Desert::Runtime::Factory
             // could see that they did not. Measured on the witness scene this task added: 1 of 2
             // overrides "named an entity that prefab no longer contains", because the entity was never
             // created.
-            //
-            // The const_cast is the idiom this tree already uses for exactly this — resolving an asset
-            // reference found inside a file being read (ComponentRegistry.cpp's AssetResolver::FromPath,
-            // same reason, same shape). Changing the signature would push non-constness through seven
-            // call sites to reach the two lines that need it.
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-            auto& mutableAssets = const_cast<Assets::AssetManager&>( assetManager );
-
-            auto nested = assetManager.FindByPath<Assets::PrefabAsset>( *data.PrefabPath );
+            const auto nested = ResolveNested( assetManager, *data.PrefabPath );
             if ( !nested )
             {
-                nested = mutableAssets.CreateAsset<Assets::PrefabAsset>( *data.PrefabPath );
-            }
-            if ( !nested )
-            {
-                LOG_ERROR( "[PrefabFactory] '{0}' nests '{1}', and no asset could be made for that path. "
-                           "That part of the prefab is MISSING from the instance.",
-                           prefab.GetMetadata().Filepath.string(), *data.PrefabPath );
+                LOG_ERROR( "[PrefabFactory] '{0}' nests '{1}': {2}. That part of the prefab is MISSING from the "
+                           "instance.",
+                           prefab.GetMetadata().Filepath.string(), *data.PrefabPath, nested.GetError() );
                 continue;
-            }
-            if ( !nested->IsReadyForUse() )
-            {
-                if ( const auto loaded = nested->Load(); !loaded )
-                {
-                    LOG_ERROR( "[PrefabFactory] '{0}' nests '{1}', which did not load: {2}. That part of "
-                               "the prefab is MISSING from the instance.",
-                               prefab.GetMetadata().Filepath.string(), *data.PrefabPath, loaded.GetError() );
-                    continue;
-                }
             }
 
             // The nested instance's entities are addressed BELOW the nesting record: its id is the prefix
@@ -176,7 +154,7 @@ namespace Desert::Runtime::Factory
             std::vector<Common::UUID> nestedPrefix = pathPrefix;
             nestedPrefix.push_back( data.id.value_or( Common::UUID::Null() ) );
 
-            const ECS::Entity nestedRoot = Instantiate( *nested, scene, assetManager, stack, nestedPrefix );
+            const ECS::Entity nestedRoot = Instantiate( *nested.GetValue(), scene, assetManager, stack, nestedPrefix );
             if ( plannedPrefab.Parent != Core::Rules::kNoSlot )
             {
                 scene.Attach( created[plannedPrefab.Parent], nestedRoot );
@@ -223,6 +201,30 @@ namespace Desert::Runtime::Factory
 
         stack.erase( prefabID );
         return rootEntity;
+    }
+
+    Common::ResultStr<Assets::Asset<Assets::PrefabAsset>>
+    PrefabFactory::ResolveNested( const Assets::AssetManager& assetManager, const std::string& path )
+    {
+        // The const_cast is the idiom this tree already uses for exactly this — resolving an asset
+        // reference found inside a file being read (ComponentRegistry.cpp's AssetResolver::FromPath,
+        // same reason, same shape). Changing the signature would push non-constness through every
+        // call site to reach the two lines that need it.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+        auto& mutableAssets = const_cast<Assets::AssetManager&>( assetManager );
+
+        auto nested = assetManager.FindByPath<Assets::PrefabAsset>( path );
+        if ( !nested )
+            nested = mutableAssets.CreateAsset<Assets::PrefabAsset>( path );
+        if ( !nested )
+            return Common::MakeError<Assets::Asset<Assets::PrefabAsset>>( "no asset could be made for that path" );
+        if ( !nested->IsReadyForUse() )
+        {
+            if ( const auto loaded = nested->Load(); !loaded )
+                return Common::MakeFormattedError<Assets::Asset<Assets::PrefabAsset>>( "it did not load: {}",
+                                                                                      loaded.GetError() );
+        }
+        return Common::MakeSuccess( nested );
     }
 
     std::unordered_map<std::string, ECS::Entity> PrefabFactory::IndexInstance( ECS::Entity instanceRoot )
