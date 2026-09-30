@@ -229,7 +229,7 @@ namespace Desert::Graphic
 
         [[nodiscard]] virtual Common::BoolResultStr RT_Invalidate() = 0;
 
-        static std::shared_ptr<VertexBuffer> Create( void* data, uint32_t size,
+        static std::shared_ptr<VertexBuffer> Create( const void* data, uint32_t size,
                                                      BufferUsage usage = BufferUsage::Static );
         static std::shared_ptr<VertexBuffer> Create( uint32_t size, BufferUsage usage = BufferUsage::Dynamic );
 

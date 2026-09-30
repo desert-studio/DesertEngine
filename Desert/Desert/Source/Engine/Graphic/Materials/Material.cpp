@@ -54,8 +54,9 @@ namespace Desert::Graphic
         WritePushField( "WindB", &wind.B, sizeof( glm::vec4 ) );
     }
 
-    // NOLINTNEXTLINE(readability-make-member-function-const): writes the Bones buffer; const only because
-    // Get<> is const and hands out a mutable property (PBRSceneFrame pins the non-const signature).
+    // Writes the Bones buffer; tidy sees it as const only because Get<> is const and hands out a mutable
+    // property (PBRSceneFrame pins the non-const signature).
+    // NOLINTNEXTLINE(readability-make-member-function-const)
     void Material::UploadSkinnedBones( const glm::mat4* matrices, size_t count )
     {
         if ( matrices == nullptr || count == 0 )
