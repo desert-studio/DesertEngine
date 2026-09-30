@@ -202,11 +202,8 @@ namespace Desert::Animation
 
     void Animator::RetireNotifyStates()
     {
-        for ( const auto& state : m_ActiveStates )
-        {
-            m_NotifyEvents.push_back( NotifyEvent{ state.Name, NotifyEventKind::End } );
-        }
-        m_ActiveStates.clear();
+        RetireStates( m_ActiveStates, -1, -1 );
+        RetireStates( m_NextActiveStates, -1, -1 );
     }
 
     std::optional<float> Animator::GetCurveValue( const std::string_view name ) const
@@ -272,6 +269,8 @@ namespace Desert::Animation
             return;
         }
 
+        // A crossfade that replaces an incoming clip still fading in: that clip stops playing.
+        RetireStates( m_NextActiveStates, -1, -1 );
         m_Next = { &clip, FrameTime{}, loop };
 
         m_IsBlending    = true;
@@ -326,16 +325,18 @@ namespace Desert::Animation
                     UpdatePlayback( source, deltaTime );
 
         EvaluatePipeline();
-        // After the evaluation, which is what weighed every source this tick.
+        // After the evaluation, which is what weighed every source this tick — the base players included.
+        StepBaseNotifies( true );
         StepGraphNotifies( true );
 
         // Retire the blend AFTER evaluating, so the frame that reaches alpha 1 renders the target clip
         // rather than a pose built from a blend that has already been thrown away.
         if ( m_IsBlending && m_Next.IsValid() && BlendAlpha() >= 1.0F )
         {
-            // The outgoing clip's states end here; the incoming clip's begin on its next step, by the
-            // difference of the (now empty) active set against its playhead.
-            RetireNotifyStates();
+            // The outgoing clip is at weight 0 now (its states ended in StepBaseNotifies); the incoming one's
+            // states, reported while it faded in, are the current clip's from here.
+            RetireStates( m_ActiveStates, -1, -1 );
+            m_ActiveStates.swap( m_NextActiveStates );
             m_Current    = m_Next;
             m_Next       = {};
             m_IsBlending = false;
@@ -567,17 +568,13 @@ namespace Desert::Animation
             playback.Time = FrameTime{ duration, 0.0F };
         }
 
-        // The CURRENT clip's notifies: instant ones crossed this frame fire (forward playback only), and
-        // states Begin / End as the playhead enters / leaves them. The covered interval is (previous, now];
-        // on a loop wrap it is (previous, duration) then [0, now]. One frame is assumed not to skip a whole
-        // loop, which holds for real playback.
+        // The step, for this clock's notifies AFTER the evaluation has weighed it (StepBaseNotifies,
+        // StepGraphNotifies). The covered interval is (previous, now]; on a loop wrap it is
+        // (previous, duration) then [0, now]. One frame is assumed not to skip a whole loop, which holds for
+        // real playback.
         playback.StepFrom     = previous;
         playback.StepWrapped  = looped;
         playback.StepBackward = deltaTime < 0.0F;
-        if ( &playback == &m_Current )
-        {
-            StepNotifies( previous, looped, true, deltaTime < 0.0F );
-        }
     }
 
     // ============================================================
@@ -687,9 +684,21 @@ namespace Desert::Animation
         }
     }
 
-    void Animator::StepNotifies( const FrameTime previous, const bool wrapped, const bool played, const bool backward )
+    void Animator::StepBaseNotifies( const bool played )
     {
-        StepNotifiesOf( m_Current, previous, wrapped, played, backward, true, m_ActiveStates, -1, -1 );
+        // UE: the base is a sequence player like any other — its notifies enter the queue with its weight, and
+        // an outgoing state of a crossfade is heard while (1 - alpha) x weight is above the trigger weight.
+        float weight = 1.0F;
+        if ( m_PoseGraph )
+            weight = m_PoseGraph->BaseSource >= 0
+                          ? m_PoseGraph->Instance.Weight( static_cast<size_t>( m_PoseGraph->BaseSource ) )
+                          : 0.0F; // a graph that does not play the Source stage
+        const float alpha = m_IsBlending && m_Next.IsValid() ? BlendAlpha() : 0.0F;
+        StepNotifiesOf( m_Current, m_Current.StepFrom, m_Current.StepWrapped, played, m_Current.StepBackward,
+                        ( 1.0F - alpha ) * weight > Graph::kNotifyTriggerWeight, m_ActiveStates, -1, -1 );
+        if ( m_Next.IsValid() || !m_NextActiveStates.empty() )
+            StepNotifiesOf( m_Next, m_Next.StepFrom, m_Next.StepWrapped, played, m_Next.StepBackward,
+                            alpha * weight > Graph::kNotifyTriggerWeight, m_NextActiveStates, -1, -1 );
     }
 
     void Animator::StepNotifiesOf( const ClipPlayback& playback, const FrameTime previous, const bool wrapped,
@@ -772,7 +781,7 @@ namespace Desert::Animation
         state.ActiveStates.resize( state.Sources.size() );
         for ( size_t node = 0; node < state.Sources.size(); ++node )
         {
-            if ( static_cast<int>( node ) == state.BaseSource ) // the Source stage's: StepNotifies
+            if ( static_cast<int>( node ) == state.BaseSource ) // the Source stage's: StepBaseNotifies
                 continue;
             const ClipPlayback& source = state.Sources[node];
             if ( !source.IsValid() && state.ActiveStates[node].empty() )
@@ -854,11 +863,7 @@ namespace Desert::Animation
         };
 
         if ( m_Current.IsValid() )
-        {
-            const FrameTime before = m_Current.Time;
             ScrubTo( m_Current, time );
-            StepNotifies( before, false, false, false );
-        }
         scrub( m_Next );
         if ( m_PoseGraph )
             for ( auto& source : m_PoseGraph->Sources )
@@ -867,6 +872,7 @@ namespace Desert::Animation
             for ( auto& source : layer )
                 scrub( source );
         EvaluatePipeline();
+        StepBaseNotifies( false );
         StepGraphNotifies( false );
     }
 

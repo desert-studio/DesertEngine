@@ -865,3 +865,92 @@ TEST( AnimatorBlending, TwoPlayersCurvesAtFullWeightNormalizeToTheirMean )
     EXPECT_NEAR( *animator.GetCurveValue( "Only" ), 3.0F, 1e-5F );
     EXPECT_FALSE( animator.GetCurveValue( "Missing" ).has_value() );
 }
+
+// ── I8b-8: the base players are sequence players like any other — heard by their weight ────────────────
+
+namespace
+{
+    /// Output Pose = LinkedAnimLayer "Call" (Weapon.UpperBody) over the base machine "Base"; unlinked, the call
+    /// passes the base through at full weight.
+    Animation::Graph::AnimGraph CallingHost()
+    {
+        namespace G = Animation::Graph;
+        G::AnimGraph graph;
+        graph.Name = "Host";
+        graph.Nodes.push_back( PoseGraphFixture::BaseMachine() );
+        G::PoseNode call;
+        call.Name        = "Call";
+        call.Kind        = static_cast<int>( G::PoseNodeKind::LinkedAnimLayer );
+        call.PoseInputs  = { "Base" };
+        call.LinkedLayer = G::LinkedAnimLayerNode{ "Weapon", "UpperBody" };
+        graph.Nodes.push_back( std::move( call ) );
+        graph.OutputPose = "Call";
+        graph.Layers     = G::AnimGraphLayers{ { G::AnimLayerInterface{ "Weapon", { "UpperBody" } } }, {} };
+        return graph;
+    }
+
+    /// Implements Weapon.UpperBody with its own sequence player and NO LinkedInputPose: the host's base is
+    /// in no output any more, so its weight is 0.
+    Animation::Graph::AnimGraph ReplacingLayer()
+    {
+        namespace G = Animation::Graph;
+        G::AnimGraph graph;
+        graph.Name = "Rifle";
+        graph.Nodes.push_back( PoseGraphFixture::Sequence( "Main" ) );
+        graph.OutputPose = "Main";
+        graph.Layers     = G::AnimGraphLayers{
+                 { G::AnimLayerInterface{ "Weapon", { "UpperBody" } } },
+                 { G::AnimLayerGraph{ "Weapon", "UpperBody", { PoseGraphFixture::Sequence( "Own" ) }, "Own" } } };
+        return graph;
+    }
+} // namespace
+
+TEST( AnimatorBlending, ABasePlayerAtGraphWeightZeroIsSilentAndAtOneIsHeard )
+{
+    const Skeleton skeleton = MakeRig();
+    AnimationClip  base     = SteppingClip( "Base" );
+
+    for ( const bool replaced : { false, true } )
+    {
+        Animator animator( skeleton );
+        animator.Play( base, false );
+        ASSERT_TRUE( animator.SetPoseGraph( CallingHost() ) );
+        if ( replaced )
+            ASSERT_TRUE( animator.LinkLayers( 7, ReplacingLayer() ) );
+        EXPECT_EQ( CountFrom( PlayOneSecond( animator ), "Step", Kind::Fire, -1 ), replaced ? 0 : 1 )
+             << ( replaced
+                       ? "a base clip the graph no longer plays (weight 0) was heard: the Source stage stepped "
+                         "its notifies before the evaluation, with no weight"
+                       : "the base clip at full graph weight lost its notify" );
+    }
+}
+
+TEST( AnimatorBlending, ACrossFadesOutgoingNotifyIsHeardUntilItsWeightReachesZero )
+{
+    const Skeleton skeleton = MakeRig();
+    AnimationClip  outgoing = SteppingClip( "Out" ); // "Step" at 0.5 s
+    AnimationClip  incoming =
+         StaticClip( "In", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+    ClipFixture::AddNotify( incoming, "Land", At( 0.2 ) );
+    AddState( incoming, "Trail", 0.1, 0.9 );
+
+    // 1 s: at 0.5 s the outgoing clip is at weight 0.5 — heard. 0.45 s: at 0.5 s alpha is 1 — silent.
+    for ( const float duration : { 1.0F, 0.45F } )
+    {
+        Animator animator( skeleton );
+        animator.Play( outgoing, false );
+        animator.CrossFade( incoming, duration, false );
+        const auto events = PlayOneSecond( animator );
+        EXPECT_EQ( CountFrom( events, "Step", Kind::Fire, -1 ), duration > 0.5F ? 1 : 0 )
+             << "fade " << duration
+             << " s: the outgoing player is heard while (1 - alpha) is above "
+                "NotifyTriggerWeight and not after";
+        EXPECT_EQ( CountFrom( events, "Land", Kind::Fire, -1 ), 1 )
+             << "fade " << duration << " s: the incoming player's notify at alpha 0.2 was not heard";
+        EXPECT_EQ( CountFrom( events, "Trail", Kind::Begin, -1 ), 1 )
+             << "fade " << duration
+             << " s: the incoming clip's state must begin once, not again when it "
+                "becomes the current clip";
+        EXPECT_EQ( CountFrom( events, "Trail", Kind::End, -1 ), 1 ) << "fade " << duration << " s";
+    }
+}
