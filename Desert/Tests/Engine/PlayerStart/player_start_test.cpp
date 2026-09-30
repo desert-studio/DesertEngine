@@ -256,8 +256,9 @@ TEST( PawnBody, TheControllerOfANestedPrefabIsThePawns )
     const auto block = PawnControllerBlock( pawn, lib.Nested );
     ASSERT_TRUE( block ) << block.GetError();
     const auto& found = block.GetValue();
-    ASSERT_TRUE( found.has_value() ) << "the nested prefab's controller was not found";
-    EXPECT_EQ( FieldOf( found.value(), "Radius" ), FieldOf( Controller( 80.0 ), "Radius" ) );
+    if ( !found.has_value() )
+        FAIL() << "the nested prefab's controller was not found";
+    EXPECT_EQ( FieldOf( *found, "Radius" ), FieldOf( Controller( 80.0 ), "Radius" ) );
 }
 
 TEST( PawnBody, AnOverrideOnTheNestingRecordIsMergedOntoTheNestedBlock )
@@ -277,10 +278,12 @@ TEST( PawnBody, AnOverrideOnTheNestingRecordIsMergedOntoTheNestedBlock )
     const auto block = PawnControllerBlock( pawn, lib.Nested );
     ASSERT_TRUE( block ) << block.GetError();
     const auto& merged = block.GetValue();
-    ASSERT_TRUE( merged.has_value() );
-    EXPECT_EQ( FieldOf( merged.value(), "Radius" ), FieldOf( Controller( 45.0 ), "Radius" ) )
+    if ( !merged.has_value() )
+        FAIL() << "the nested block was not found";
+    const Common::Json::Value& mergedBlock = *merged;
+    EXPECT_EQ( FieldOf( mergedBlock, "Radius" ), FieldOf( Controller( 45.0 ), "Radius" ) )
          << "the instance's override was not applied";
-    EXPECT_EQ( FieldOf( merged.value(), "Height" ), FieldOf( Controller( 0.0, 300.0 ), "Height" ) )
+    EXPECT_EQ( FieldOf( mergedBlock, "Height" ), FieldOf( Controller( 0.0, 300.0 ), "Height" ) )
          << "the merge reset a field it did not name";
 }
 

@@ -17,14 +17,14 @@ namespace Desert::Core
         // An override not yet applied, with the part of its path still to walk from the records being read.
         struct PendingOverride
         {
-            const Assets::PrefabOverrideData* Over;
-            std::span<const Common::UUID>     Rest;
+            const Assets::PrefabOverrideData* Over = nullptr;
+            std::span<const Common::UUID>     Rest{};
         };
 
         using PawnBlock = std::optional<Common::Json::Value>;
 
-        // NOLINTNEXTLINE(misc-no-recursion) -- a prefab nests prefabs; the depth is the file's nesting (a cycle
-        // is refused by the stack)
+        // A prefab nests prefabs; the depth is the file's nesting (a cycle is refused by the stack).
+        // NOLINTNEXTLINE(misc-no-recursion)
         Common::ResultStr<PawnBlock> FindPawnBlock( const std::vector<Assets::EntityData>& records,
                                                     const std::vector<PendingOverride>&    pending,
                                                     const NestedPrefabRecords&             nested,
@@ -61,19 +61,25 @@ namespace Desert::Core
                 if ( const auto own = record.Components.get( "CharacterController" ); own.has_value() )
                     block = own.value();
                 // Only an entity with an id is addressed by an override (its path ends at that id).
-                if ( const auto& id = record.id; id.has_value() )
+                if ( record.id.has_value() )
+                {
+                    const Common::UUID id = *record.id;
                     for ( const PendingOverride& over : pending )
                     {
-                        if ( over.Rest.size() != 1 || over.Rest.front() != id.value() )
+                        if ( over.Rest.size() != 1 || over.Rest.front() != id )
                             continue;
                         const auto fields = over.Over->Components.get( "CharacterController" );
                         if ( !fields.has_value() )
                             continue;
-                        if ( block.has_value() )
-                            block = Assets::MergePayload( block.value(), fields.value() );
-                        else
-                            block = fields.value();
+                        const Common::Json::Value& addition = *fields;
+                        if ( !block.has_value() )
+                        {
+                            block = addition;
+                            continue;
+                        }
+                        block = Assets::MergePayload( *block, addition );
                     }
+                }
                 if ( block )
                     return Common::MakeSuccess( std::move( block ) );
             }
