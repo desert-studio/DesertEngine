@@ -381,6 +381,233 @@ TEST( RenderGraphCompile, CullingFollowsAChainBackFromTheRootOnly )
     EXPECT_TRUE( HasEdge( result, 1, 3, DependencyKind::ReadAfterWrite ) );
 }
 
+// ── Culling (RDG-CULL): subresource accuracy, buffers, extraction chains, the switch, diagnostics ──────────
+
+// Liveness is per SUBRESOURCE. A pass writing mip 0 that a live pass samples is kept; a pass writing mip 1 of
+// the SAME texture, which nobody reads, is culled. A per-resource rule would keep both.
+TEST( RenderGraphCompile, CullingIsPerMipAWriterOfAnUnreadMipIsCulled )
+{
+    ExternalTexture  backbuffer( Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None );
+    Builder          graph( "mips" );
+    const TextureRef chain = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA16F, 2 ), "Chain" );
+    const TextureRef back  = graph.RegisterExternal( backbuffer, "Backbuffer" );
+
+    graph.AddPass(
+         "WriteMip0", PassFlags::Compute,
+         [&]( PassBuilder& pass ) { pass.Write( chain, Access::StorageWrite, SubresourceRange::Mip( 0 ) ); }, Ok );
+    graph.AddPass(
+         "WriteMip1", PassFlags::Compute,
+         [&]( PassBuilder& pass ) { pass.Write( chain, Access::StorageWrite, SubresourceRange::Mip( 1 ) ); }, Ok );
+    graph.AddPass(
+         "Present", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( chain, Access::SampledGraphics, SubresourceRange::Mip( 0 ) );
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+         },
+         Ok );
+
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_EQ( result.CulledPasses, std::vector<uint32_t>{ 1 } );
+    EXPECT_EQ( result.CulledPassNames, std::vector<std::string>{ "WriteMip1" } );
+    EXPECT_NE( result.FindPass( "WriteMip0" ), nullptr );
+    EXPECT_EQ( result.FindPass( "WriteMip1" ), nullptr );
+    EXPECT_TRUE( HasEdge( result, 0, 2, DependencyKind::ReadAfterWrite ) );
+}
+
+// A chain of transients ending in an EXTRACTED texture survives although no pass of the graph reads the end of
+// it: the extraction is the consumer. The unrelated dead pass beside it is still culled, by name.
+TEST( RenderGraphCompile, AChainFeedingAnExtractedTextureIsKept )
+{
+    ExternalTexture  history;
+    Builder          graph( "extract" );
+    const TextureRef a    = graph.CreateTexture( Tex2D( 32, 32, ImageFormat::RGBA16F ), "A" );
+    const TextureRef b    = graph.CreateTexture( Tex2D( 32, 32, ImageFormat::RGBA16F ), "B" );
+    const TextureRef dead = graph.CreateTexture( Tex2D( 32, 32, ImageFormat::RGBA16F ), "Dead" );
+    graph.Extract( b, history, Access::SampledGraphics );
+
+    graph.AddPass(
+         "WriteA", PassFlags::Compute, [&]( PassBuilder& pass ) { pass.Write( a, Access::StorageWrite ); }, Ok );
+    graph.AddPass(
+         "WriteDead", PassFlags::Compute, [&]( PassBuilder& pass ) { pass.Write( dead, Access::StorageWrite ); },
+         Ok );
+    graph.AddPass(
+         "AtoB", PassFlags::Compute,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( a, Access::SampledCompute );
+             pass.Write( b, Access::StorageWrite );
+         },
+         Ok );
+
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_EQ( result.CulledPasses, std::vector<uint32_t>{ 1 } );
+    EXPECT_EQ( result.CulledPassNames, std::vector<std::string>{ "WriteDead" } );
+    ASSERT_EQ( result.Passes.size(), 2u );
+    EXPECT_EQ( result.Passes[0].Name, "WriteA" ); // kept only because AtoB consumes it
+    EXPECT_EQ( result.Passes[1].Name, "AtoB" );   // writes the extracted texture
+}
+
+// Buffers take part: a producer is kept by a live reader of its buffer, and a producer of a buffer nobody reads
+// is culled even when it runs between the two.
+TEST( RenderGraphCompile, ABufferProducerIsKeptByALiveBufferReader )
+{
+    ExternalTexture  backbuffer( Tex2D( 32, 32, ImageFormat::BGRA8F ), Access::None );
+    Builder          graph( "buffers" );
+    const BufferRef  counts = graph.CreateBuffer( BufferDesc{ 1024 }, "Counts" );
+    const BufferRef  unread = graph.CreateBuffer( BufferDesc{ 1024 }, "Unread" );
+    const TextureRef back   = graph.RegisterExternal( backbuffer, "Backbuffer" );
+
+    graph.AddPass(
+         "Produce", PassFlags::Compute, [&]( PassBuilder& pass ) { pass.Write( counts, Access::StorageWrite ); },
+         Ok );
+    graph.AddPass(
+         "ProduceUnread", PassFlags::Compute,
+         [&]( PassBuilder& pass ) { pass.Write( unread, Access::StorageWrite ); }, Ok );
+    graph.AddPass(
+         "Draw", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( counts, Access::StorageRead );
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+         },
+         Ok );
+
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_EQ( result.CulledPassNames, std::vector<std::string>{ "ProduceUnread" } );
+    EXPECT_NE( result.FindPass( "Produce" ), nullptr );
+    EXPECT_TRUE( HasEdge( result, 0, 2, DependencyKind::ReadAfterWrite ) );
+    EXPECT_EQ( result.FindAllocation( unread.Index ), nullptr );
+    EXPECT_NE( result.FindAllocation( counts.Index ), nullptr );
+}
+
+// A culled pass records nothing and gets no barrier: the backend never sees it, and no barrier anywhere in the
+// plan (per pass or final) touches the resource only it wrote. Its reads do not extend a lifetime either: the
+// range of a texture a live and a culled pass both read ends at the live one.
+TEST( RenderGraphCompile, CulledPassesGetNoBarriersRecordNothingAndShrinkLifetimes )
+{
+    ExternalTexture  backbuffer( Tex2D( 32, 32, ImageFormat::BGRA8F ), Access::None );
+    Builder          graph( "nobarriers" );
+    const TextureRef lit  = graph.CreateTexture( Tex2D( 32, 32, ImageFormat::RGBA16F ), "Lit" );
+    const TextureRef dead = graph.CreateTexture( Tex2D( 32, 32, ImageFormat::RGBA16F ), "Dead" );
+    const TextureRef back = graph.RegisterExternal( backbuffer, "Backbuffer" );
+
+    graph.AddPass(
+         "Light", PassFlags::Compute, [&]( PassBuilder& pass ) { pass.Write( lit, Access::StorageWrite ); }, Ok );
+    graph.AddPass(
+         "Present", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( lit, Access::SampledGraphics );
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+         },
+         Ok );
+    graph.AddPass(
+         "Dead", PassFlags::Compute,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( lit, Access::SampledCompute );
+             pass.Write( dead, Access::StorageWrite );
+         },
+         Ok );
+
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_EQ( result.CulledPassNames, std::vector<std::string>{ "Dead" } );
+    auto touchesDead = [&]( const Barrier& barrier ) { return barrier.Resource == dead.Index; };
+    for ( const CompiledPass& pass : result.Passes )
+        EXPECT_TRUE( std::none_of( pass.Barriers.begin(), pass.Barriers.end(), touchesDead ) ) << pass.Name;
+    EXPECT_TRUE( std::none_of( result.FinalBarriers.begin(), result.FinalBarriers.end(), touchesDead ) );
+    // Lit: first written by Light (AddPass 0), last read by Present (1) - not by the culled Dead (2).
+    const auto lifetime = std::find_if( result.Lifetimes.begin(), result.Lifetimes.end(),
+                                        [&]( const ResourceLifetime& l ) { return l.Resource == lit.Index; } );
+    ASSERT_NE( lifetime, result.Lifetimes.end() );
+    EXPECT_EQ( lifetime->FirstPass, 0u );
+    EXPECT_EQ( lifetime->LastPass, 1u );
+    EXPECT_EQ( lifetime->FirstPosition, 0u );
+    EXPECT_EQ( lifetime->LastPosition, 1u );
+
+    RecordingBackend backend;
+    ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
+    for ( const std::string& call : backend.Calls )
+    {
+        EXPECT_EQ( call.find( std::format( kBeginPassFormat, "Dead" ) ), std::string::npos ) << call;
+        EXPECT_EQ( call.find( std::format( kEndPassFormat, "Dead" ) ), std::string::npos ) << call;
+    }
+}
+
+// The debug switch is real: with culling off every pass runs (the one nothing reads included), CulledPasses is
+// empty and the result says culling was off; the frame sets it from DebugViewState, and the viewport edits it.
+TEST( RenderGraphCompile, TheCullingSwitchKeepsEveryPassAndTheFrameAndViewportWireIt )
+{
+    auto build = []( Builder& graph, ExternalTexture& backbuffer, std::vector<std::string>& ran )
+    {
+        const TextureRef orphan = graph.CreateTexture( Tex2D( 16, 16, ImageFormat::RGBA8F ), "Orphan" );
+        const TextureRef back   = graph.RegisterExternal( backbuffer, "Backbuffer" );
+        graph.AddPass(
+             "Orphan", PassFlags::Compute,
+             [&, orphan]( PassBuilder& pass ) { pass.Write( orphan, Access::StorageWrite ); },
+             [&ran]( PassContext& )
+             {
+                 ran.emplace_back( "Orphan" );
+                 return Common::MakeSuccess( true );
+             } );
+        graph.AddPass(
+             "Present", PassFlags::Raster,
+             [&, back]( PassBuilder& pass ) { pass.ColorTarget( 0, back, LoadOp::ClearColor( 0, 0, 0, 1 ) ); },
+             [&ran]( PassContext& )
+             {
+                 ran.emplace_back( "Present" );
+                 return Common::MakeSuccess( true );
+             } );
+    };
+
+    ExternalTexture          culledBack( Tex2D( 16, 16, ImageFormat::BGRA8F ), Access::None );
+    std::vector<std::string> culledRan;
+    Builder                  culled( "switch-on" );
+    build( culled, culledBack, culledRan );
+    EXPECT_TRUE( culled.IsPassCullingEnabled() );
+    const CompileResult on = CompileOrFail( culled );
+    EXPECT_TRUE( on.PassCulling );
+    EXPECT_EQ( on.CulledPassNames, std::vector<std::string>{ "Orphan" } );
+    ASSERT_TRUE( ExecuteRecorded( culled ).IsSuccess() );
+    EXPECT_EQ( culledRan, std::vector<std::string>{ "Present" } );
+
+    ExternalTexture          keptBack( Tex2D( 16, 16, ImageFormat::BGRA8F ), Access::None );
+    std::vector<std::string> keptRan;
+    Builder                  kept( "switch-off" );
+    kept.SetPassCulling( false );
+    build( kept, keptBack, keptRan );
+    const CompileResult off = CompileOrFail( kept );
+    EXPECT_FALSE( off.PassCulling );
+    EXPECT_TRUE( off.CulledPasses.empty() );
+    EXPECT_TRUE( off.CulledPassNames.empty() );
+    ASSERT_EQ( off.Passes.size(), 2u );
+    ASSERT_TRUE( ExecuteRecorded( kept ).IsSuccess() );
+    EXPECT_EQ( keptRan, ( std::vector<std::string>{ "Orphan", "Present" } ) );
+
+    // The seam: the view's graph takes the switch from the pushed DebugViewState, and the viewport's Show menu
+    // is what sets it (whitespace-insensitive, like the frame-order census).
+    auto stripped = []( const fs::path& path )
+    {
+        std::ifstream     file( path.string() );
+        std::stringstream text;
+        text << file.rdbuf();
+        std::string out;
+        for ( char c : text.str() )
+            if ( !std::isspace( static_cast<unsigned char>( c ) ) )
+                out.push_back( c );
+        return out;
+    };
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    EXPECT_NE( stripped( root / "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" )
+                    .find( "graph.SetPassCulling(!m_DebugView.DisablePassCulling);" ),
+               std::string::npos );
+    EXPECT_NE( stripped( root / "Editor/Source/Editor/Panels/ViewportPanel/ViewportPanel.cpp" )
+                    .find( "ImGui::Checkbox(\"DisablePassCulling\",&view.DisablePassCulling)" ),
+               std::string::npos );
+}
+
 // ── Barriers ────────────────────────────────────────────────────────────────────────────────────────────
 
 // Bloom: pass i writes mip i while sampling mip i-1 of the SAME texture. Per-subresource state is what

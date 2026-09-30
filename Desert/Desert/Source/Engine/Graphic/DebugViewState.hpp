@@ -102,5 +102,11 @@ namespace Desert::Graphic
 
         ShadowDebugMode   ShadowDebug   = ShadowDebugMode::Off;
         DeferredDebugMode DeferredDebug = DeferredDebugMode::Off;
+
+        // Render-graph pass culling off (RDG::Builder::SetPassCulling, set on the view's graph every frame).
+        // Every pass then executes, including those whose output nothing reads: a frame that looks different
+        // with this on names a pass whose effect the graph cannot see - it needs a declaration or NeverCull.
+        // Costs GPU time only, never the picture of a correct graph.
+        bool DisablePassCulling = false;
     };
 } // namespace Desert::Graphic

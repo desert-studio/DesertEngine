@@ -78,13 +78,24 @@ namespace Desert::Graphic::RDG
         uint32_t       Resource = kInvalidResource;
     };
 
-    // Only transients used by an executed pass have a lifetime; a transient whose every user was culled
-    // allocates nothing.
+    // Where a graph-owned resource is live in the compiled plan: from the first to the last EXECUTED pass that
+    // declares any subresource of it. This is the contract the aliasing plan (step 6 of Compile) is built on, and
+    // the one a later async-compute scheduler or a cross-graph transient pool must build on too:
+    //   * only transients have an entry - created with CreateTexture / CreateBuffer, extracted or not. An external
+    //     resource has none: its memory belongs to its owner and outlives every graph;
+    //   * only executed passes count. A culled pass neither opens nor extends a lifetime, so culling shrinks the
+    //     range, and a transient whose every user was culled has no entry and allocates nothing;
+    //   * FirstPass / LastPass are AddPass indices (what PassFlags, names and CulledPasses use); FirstPosition /
+    //     LastPosition index CompileResult::Passes and name the same two passes. First <= Last;
+    //   * an extracted transient is still live after LastPass (it leaves the graph), so it never shares memory;
+    //     any other transient's memory is free for reuse by a pass after LastPosition.
     struct ResourceLifetime
     {
         uint32_t Resource      = kInvalidResource;
         uint32_t FirstPosition = 0;
         uint32_t LastPosition  = 0;
+        uint32_t FirstPass     = 0;
+        uint32_t LastPass      = 0;
     };
 
     struct Allocation
@@ -129,6 +140,8 @@ namespace Desert::Graphic::RDG
     {
         std::vector<CompiledPass>       Passes;        // executed passes, in AddPass order (never reordered)
         std::vector<uint32_t>           CulledPasses;  // AddPass indices that do not execute
+        std::vector<std::string>        CulledPassNames; // their names, same order: what a log or debug view shows
+        bool PassCulling = true;                         // false: Builder::SetPassCulling(false) kept every pass
         std::vector<DependencyEdge>     Edges;         // between executed passes
         std::vector<Barrier>            FinalBarriers; // after the last pass: extraction / final accesses
         std::vector<ResourceLifetime>   Lifetimes;
