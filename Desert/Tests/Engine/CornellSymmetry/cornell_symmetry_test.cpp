@@ -301,20 +301,23 @@ namespace
         return light;
     }
 
-    // What the deferred composite computes for one point light on one surface, through the SHIPPED
-    // text: Mesh/PointLight.glslh's `CalculatePointLight` is `LightFalloffFactor` (PBRFunctions.glslh)
-    // followed by `EvaluateDirectLight` (DirectLighting.glslh), and both of those are compiled as C++
-    // by the reference header. The three lines below are the wrapper, which declares an SSBO and
-    // therefore cannot be.
-    glm::vec3 PointLightResponse( const PointLightPayload& light, const glm::vec3& surface,
+    // What the deferred composite computes for one point light on one DefaultLit surface, through the SHIPPED
+    // text: the source becomes a DesertLight in Mesh/LightSources.glslh's `DesertPointLightAt` (colour *
+    // intensity * `LightFalloffFactor`, PBRFunctions.glslh), and DefaultLit's Evaluate
+    // (ShadingModels/DefaultLit.shadingmodel) is `EvaluateDirectLight` (DirectLighting.glslh) on it times its
+    // Shadow. All three are compiled as C++ by the reference header; the model body sits behind a manifest,
+    // so its one line is the last statement here.
+    glm::vec3 PointLightResponse( const PointLightPayload& payload, const glm::vec3& surface,
                                   const glm::vec3& normal, const Material& material )
     {
-        const glm::vec3 toLight  = light.Position - surface;
-        const float     distance = glm::length( toLight );
-        const glm::vec3 L        = glm::normalize( toLight );
-
-        const float     attenuation = LightFalloffFactor( distance, light.MinRadius, light.Radius, light.Falloff );
-        const glm::vec3 radiance    = light.Color * light.Intensity * attenuation;
+        PointLight source{};
+        source.color     = payload.Color;
+        source.intensity = payload.Intensity;
+        source.position  = payload.Position;
+        source.radius    = payload.Radius;
+        source.minRadius = payload.MinRadius;
+        source.falloff   = payload.Falloff;
+        const DesertLight light = DesertPointLightAt( source, surface );
 
         const glm::vec3 view = glm::normalize( kCameraPosition - surface );
         const glm::vec3 F0   = glm::mix( kDielectricF0, material.Albedo, material.Metallic );
@@ -322,8 +325,9 @@ namespace
         // The deferred composite clamps roughness off zero before shading (`max(gb.a, 0.04)` in
         // DeferredLighting.shader), and the BRDF's contract says the caller must. Clamping here is what
         // makes this the same evaluation the GPU performs, not a kinder one.
-        return EvaluateDirectLight( L, radiance, view, normal, F0, material.Metallic,
-                                    glm::max( material.Roughness, 0.04f ), material.Albedo );
+        return EvaluateDirectLight( light.L, light.Radiance, view, normal, F0, material.Metallic,
+                                    glm::max( material.Roughness, 0.04f ), material.Albedo ) *
+               light.Shadow;
     }
 
     float Luminance( const glm::vec3& c )
