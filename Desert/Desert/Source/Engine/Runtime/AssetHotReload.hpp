@@ -51,7 +51,7 @@ namespace Desert::Runtime
 
     private:
         void PollMaterials( Assets::AssetManager& assetManager, Core::Scene* scene );
-        void PollShaders( Assets::AssetManager& assetManager, Core::Scene* scene );
+        void PollShaders( Assets::AssetManager& assetManager );
         // No scene argument: a volume is not referenced by any component the way a material is — the
         // renderer looks its own up by handle every frame — so there is nothing in the scene to refresh.
         void PollCloudNoiseVolumes( Assets::AssetManager& assetManager );
