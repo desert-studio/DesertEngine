@@ -6242,11 +6242,14 @@ namespace Desert::Editor
                     outcome = Common::MakeError<bool>( std::format( "'{}': {}", asset, done.GetError() ) );
             return outcome;
         };
-        commands.push_back( { "Assets", "Reimport selected", [overSelectedAssets]
-                              {
-                                  return overSelectedAssets( []( const std::filesystem::path& asset )
-                                                             { return ImportOptions::Reimport( asset ); } );
-                              } } );
+        // The Content Browser's commands — the item context menu's rows, the same executor (UE's
+        // FContentBrowserCommands). Reimport over the selection is "Content Browser / Reimport".
+        if ( m_FileExplorerPanel != nullptr )
+            for ( const Editor::ContentBrowserCommand command : Editor::kContentBrowserCommandOrder )
+                commands.push_back( { std::string( Editor::CommandInfo( command ).Context ),
+                                      std::string( Editor::CommandInfo( command ).Label ),
+                                      std::bind_front( &FileExplorerPanel::RunCommand,
+                                                       std::to_address( m_FileExplorerPanel ), command ) } );
         for ( const float scale : { 0.01f, 0.1f, 1.0f, 10.0f, 100.0f } )
             commands.push_back( { "Assets", std::format( "Import Settings: Uniform Scale {}", scale ),
                                   [overSelectedAssets, scale]
@@ -6625,6 +6628,11 @@ namespace Desert::Editor
         //
         // Sets the same deferred flag the menu item does rather than calling AddSceneView(): it allocates a
         // renderer slot and GPU resources, which must not happen inside the ImGui pass.
+        // The Level Viewport commands the F / Esc keys run, on the viewport the user works in.
+        for ( const Editor::ViewportCommand command : Editor::kViewportCommandOrder )
+            commands.push_back( { std::string( Editor::CommandInfo( command ).Context ),
+                                  std::string( Editor::CommandInfo( command ).Label ),
+                                  std::bind_front( &Editor::ViewportPanel::RequestCommand, command ) } );
         commands.push_back( { "Scene", "New Scene View", [this]
                               {
                                   m_AddSceneViewRequested = true;

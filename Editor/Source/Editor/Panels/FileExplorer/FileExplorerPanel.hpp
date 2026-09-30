@@ -3,6 +3,7 @@
 #include "../IPanel.hpp"
 
 #include <Editor/Core/SubjectEditorRegistry.hpp>
+#include <Editor/Panels/FileExplorer/ContentBrowserCommands.hpp>
 #include <Editor/Panels/FileExplorer/FileType.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
 #include <Editor/Widgets/ThumbnailProducers.hpp>
@@ -220,6 +221,10 @@ namespace Desert::Editor
         // "Edit Thumbnail: <file> <step>" commands are offered for these.
         std::vector<std::string> SelectedThumbnailSubjects() const;
         Common::BoolResultStr    SelectEntry( const std::string& path );
+        // The Content Browser commands (ContentBrowserCommands.hpp) on the selection: the item context menu
+        // draws them through CommandMenuItem and the palette offers them; both land here. Refused, with the
+        // reason, when the selection does not fit the command.
+        Common::BoolResultStr RunCommand( ContentBrowserCommand command );
 
     private:
         // EDIT THUMBNAIL (UE: context menu -> "Edit Thumbnail"): the tile of m_EditThumbnailPath is interactive —
@@ -246,6 +251,11 @@ namespace Desert::Editor
         void DrawThumbnailEdit( const DirectoryInformation& entry, const ImVec2& min, const ImVec2& max );
         // The gesture's orbit written as one edit; the gesture ends whether or not the write succeeded.
         void CommitThumbnailGesture();
+        // One context-menu row for @p command: its label and shortcut from the command's info, RunCommand on
+        // click, a refusal logged by name.
+        void CommandMenuItem( ContentBrowserCommand command, bool selected = false, bool enabled = true );
+        // The entries of the current folder that are selected (SelectionPaths, resolved to entries).
+        std::vector<DirectoryInformation*> SelectedEntries() const;
         // The live orbit asked of ThumbnailService as a preview (subject resolved as the tile resolves it).
         void RequestThumbnailPreview( const DirectoryInformation& entry, ThumbnailGesture& gesture );
         // Leaves Edit Thumbnail: a running gesture is committed first, its preview ended.
