@@ -9,18 +9,6 @@
 
 namespace Desert::Assets::Serialization
 {
-    /**
-     * @brief The runtime clip -> the `.anim` file's channel list. The exact mirror of
-     *        BuildClipFromAssetData, and it lives beside it for that reason.
-     *
-     * WHY IT EXISTS AS A FUNCTION AT ALL (Д35). This conversion used to be twenty lines inside
-     * SequencerPanel::SaveClipToDisk, which is a member of an ImGui panel that drags the renderer, the
-     * ECS and the asset manager in with it — so the WRITE half of the `.anim` format was the one half
-     * no suite could compile, while the READ half had had its own suite since AnimationClipFormat. A
-     * format whose two directions are not testable together is a format whose round trip is an
-     * assumption.
-     */
-    [[nodiscard]] AnimationAssetData BuildAssetDataFromClip( const Animation::AnimationClip& clip );
 
     /**
      * @brief Serialise @p clip and write it to @p path, reporting whether the BYTES ARRIVED.

@@ -273,70 +273,17 @@ namespace Desert::UI
             return out;
         }
 
-        // A keyed CLIP (UIAnim) on top of the one-shot tween: several property lanes, many keys, one
-        // playhead. Segments ease with the key they arrive at, so an author shapes each leg separately.
-        void ApplyAnimClip( WalkCtx& ctx, entt::registry& reg, entt::entity e, TweenSample& out )
+        // A keyed CLIP (UIAnim) on top of the one-shot tween. The clips were stepped and evaluated once for the
+        // whole frame (BeginUIFrame → PlayUIAnimations), because a clip may drive an element other than its
+        // own; here the element only folds in what the frame computed for it.
+        void ApplyAnimClip( WalkCtx& ctx, entt::entity e, TweenSample& out )
         {
-            if ( !reg.has<ECS::UIAnimComponent>( e ) )
+            const auto it = ctx.View.AnimClips.Samples.find( e );
+            if ( it == ctx.View.AnimClips.Samples.end() )
                 return;
-            auto& clip = reg.get<ECS::UIAnimComponent>( e ).Data;
-
-            // The playhead is a runtime field (never serialized): the canvas drives it while Playing, and
-            // the Sequencer pauses playback and writes it directly to scrub.
-            //
-            // It is the one clock in this walk that lives in the SCENE rather than in the view, so only the
-            // view that owns the scene's time advances it. Let both an editor viewport and the UI Editor
-            // preview advance it and every clip runs at twice its authored speed — the mirror image of the
-            // bug the context fixes, and the reason DrivesSceneAnimation is a field and not an assumption.
-            if ( clip.Playing && ctx.View.DrivesSceneAnimation )
-            {
-                clip.Time += ctx.View.FrameDt;
-                if ( clip.Duration > 0.0f )
-                    clip.Time =
-                         clip.Loop ? std::fmod( clip.Time, clip.Duration ) : std::min( clip.Time, clip.Duration );
-            }
-
-            for ( const ECS::UIAnimTrack& tr : clip.Tracks )
-            {
-                if ( tr.Keys.empty() )
-                    continue;
-
-                glm::vec4 v = tr.Keys.front().Value;
-                if ( clip.Time >= tr.Keys.back().Time )
-                {
-                    v = tr.Keys.back().Value;
-                }
-                else
-                {
-                    for ( size_t i = 1; i < tr.Keys.size(); ++i )
-                    {
-                        const ECS::UIAnimKey& k0 = tr.Keys[i - 1];
-                        const ECS::UIAnimKey& k1 = tr.Keys[i];
-                        if ( clip.Time < k0.Time || clip.Time > k1.Time )
-                            continue;
-                        const float span = k1.Time - k0.Time;
-                        const float u    = span > 1e-6f ? ( clip.Time - k0.Time ) / span : 1.0f;
-                        v                = glm::mix( k0.Value, k1.Value, Ease( k1.Easing, u ) );
-                        break;
-                    }
-                }
-
-                switch ( tr.Property )
-                {
-                    case ECS::UITweenProperty::Offset:
-                        out.Offset += glm::vec2( v );
-                        break;
-                    case ECS::UITweenProperty::Size:
-                        out.Size += glm::vec2( v );
-                        break;
-                    case ECS::UITweenProperty::Opacity:
-                        out.Tint.a *= v.x;
-                        break;
-                    case ECS::UITweenProperty::Color:
-                        out.Tint *= glm::vec4( glm::vec3( v ), 1.0f );
-                        break;
-                }
-            }
+            out.Offset += it->second.Offset;
+            out.Size += it->second.Size;
+            out.Tint *= it->second.Tint;
         }
 
         // --- Data binding (MVVM-lite) -----------------------------------------------------------------
@@ -1355,7 +1302,7 @@ namespace Desert::UI
             // Tween: shift/resize the resolved rect and stage the colour multiplier its draws will use.
             // Applied on the way out, never written back — see SampleTween.
             TweenSample tween = SampleTween( ctx, reg, e );
-            ApplyAnimClip( ctx, reg, e, tween ); // a clip layers on top of the one-shot tween
+            ApplyAnimClip( ctx, e, tween ); // a clip layers on top of the one-shot tween
 
             // A binding can hide the element outright — skip the sub-tree, input included.
             const BindingSample binding = SampleBinding( reg, e, tween, ctx.Canvas );
@@ -2191,6 +2138,9 @@ namespace Desert::UI
         view.LastFrameTime = now;
         view.HasDrawn      = true;
         ++view.FrameIndex; // drives the tween rewind-on-hide check
+
+        // The scene's UI clips, stepped by the one view that owns scene time and evaluated by every view.
+        PlayUIAnimations( reg, view.FrameDt, view.DrivesSceneAnimation, view.AnimClips );
 
         // A scene swap leaves the elected entity dangling — drop it rather than matching a recycled id.
         if ( view.Hot != entt::null && !reg.valid( view.Hot ) )

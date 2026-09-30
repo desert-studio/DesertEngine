@@ -6,6 +6,7 @@
 #include <Common/Core/UUID.hpp>
 
 #include <filesystem>
+#include <optional>
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
@@ -23,6 +24,9 @@
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/Timeline/Binding.hpp>
+#include <Engine/Animation/Timeline/Player.hpp>
+#include <Engine/Animation/Timeline/Sequence.hpp>
 
 #include <Engine/Physics/PhysicsWorld.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
@@ -253,6 +257,26 @@ namespace Desert::ECS
         Assets::AssetHandle FoliageType;
     };
 
+    // One binding of the sequence re-pointed at another entity of THIS scene (UE: a binding override on
+    // ALevelSequenceActor). The `.dseq` stays the same file for every actor that plays it.
+    struct LevelSequenceBindingOverride
+    {
+        Animation::Timeline::BindingGuid Binding;
+        Common::UUID                     Entity = Common::UUID::Null();
+    };
+
+    // A LEVEL SEQUENCE ACTOR (UE: ALevelSequenceActor + FMovieSceneSequencePlaybackSettings). Plays the
+    // `.dseq` named by `Sequence` in Play (ECS/System/LevelSequenceSystem.hpp); its Entity bindings name
+    // entities of this scene by UUID. Saved as {SequenceGuid, SequencePath, Loop, AutoPlay, BindingOverrides}
+    // (ComponentRegistry.cpp); a sequence the project does not have refuses the load with both.
+    struct LevelSequenceComponent
+    {
+        Assets::AssetHandle                       Sequence;
+        Animation::Timeline::LoopMode             Loop     = Animation::Timeline::LoopMode::Once;
+        bool                                      AutoPlay = true;
+        std::vector<LevelSequenceBindingOverride> BindingOverrides;
+    };
+
     // HOW A LANDSCAPE LOOKS (UE: ALandscape::LandscapeMaterial), on the root entity beside its
     // LandscapeComponent. Apart from the frame because the frame is authored as raw numbers
     // (MakeAuthored) and this is reflected: one asset handle the Details panel builds.
@@ -447,6 +471,30 @@ namespace Desert::ECS
             float       Value = 0.0f; // bool as 0/1, int as a whole number — read through the declaration
         };
         std::vector<PendingGraphParam> PendingGraphParams;
+
+        /**
+         * @brief The `.danimgraph`s whose implemented layers answer this entity's LinkedAnimLayer nodes, in
+         *        link order (UE: the Default Linked Layers of the AnimBP plus what LinkAnimClassLayers /
+         *        UnlinkAnimClassLayers did since). AUTHORED — the scene states it — and the one list both the
+         *        Details default and a script's `linkAnimLayers` write, so "what is linked" has one home.
+         *
+         * Applied by AnimationECSSystem whenever the entity's pose graph is set or the list / a listed
+         * graph changes: every link is undone and the list is linked again in order, so a later entry
+         * replaces an earlier one's interfaces exactly as a later LinkAnimClassLayers does. A GUID and not
+         * a name, because a link is identified by its graph (UE: its class) and two files may share a name.
+         */
+        std::vector<Assets::AssetHandle> LinkedLayerGraphs;
+
+        /// What the Animator's links were last built from: per entry of LinkedLayerGraphs its GUID, graph
+        /// object and asset revision. TRANSIENT, plain numbers (not references; see BuiltGraphSource).
+        struct AppliedLayerLink
+        {
+            uint64_t                           Guid                                        = 0;
+            const Animation::Graph::AnimGraph* Graph                                       = nullptr;
+            uint32_t                           Revision                                    = 0;
+            bool                               operator==( const AppliedLayerLink& ) const = default;
+        };
+        std::vector<AppliedLayerLink> AppliedLayerLinks;
 
         /**
          * @brief What this entity's evaluator was built FROM. TRANSIENT, and the same shape as
@@ -1840,37 +1888,25 @@ namespace Desert::ECS
         UIBindingData Data;
     };
 
-    // One keyframe of a UI animation track. Value is read exactly like UITweenData::From/To — xy for
-    // Offset/Size, x for Opacity, rgb for Color — and Easing shapes the segment ENDING at this key.
-    struct UIAnimKey
-    {
-        float     Time   = 0.0f;
-        glm::vec4 Value  = glm::vec4( 0.0f );
-        UIEasing  Easing = UIEasing::CubicOut;
-    };
-
-    // One property's lane on the timeline. Keys are kept sorted by time; a lane with a single key just
-    // holds that value.
-    struct UIAnimTrack
-    {
-        UITweenProperty        Property = UITweenProperty::Offset;
-        std::vector<UIAnimKey> Keys;
-    };
-
-    // A multi-key UI animation, authored on the timeline (View -> Sequencer with a UI element selected).
-    // UITween is the one-shot from->to; this is the clip: several properties, many keys, one clock.
-    // Serialized by hand (ComponentRegistry) because the reflected path has no vector-of-struct support —
-    // the Sequencer is its editor, not the Details grid.
+    // A multi-key UI animation: a Timeline::Sequence hosted as UIAnimation (Timeline/Hosts.hpp) — UE's
+    // UWidgetAnimation, the same MovieScene core a LevelSequence plays; widgets own no key model of their own.
+    // Its Widget bindings name elements by entity UUID, so one clip may drive several elements. Authored on the
+    // Sequencer, serialized by hand (ComponentRegistry) as the TMLN text block.
     struct UIAnimData
     {
-        std::vector<UIAnimTrack> Tracks;
-        float                    Duration = 1.0f;
-        bool                     Loop     = false;
-        bool                     Playing  = true;
+        Animation::Timeline::Sequence Sequence = []
+        {
+            Animation::Timeline::Sequence hosted; // every other field keeps the Sequence's own default
+            hosted.Host = Animation::Timeline::SequenceHost::UIAnimation;
+            return hosted;
+        }();
+        Animation::Timeline::LoopMode Loop     = Animation::Timeline::LoopMode::Once;
+        bool                          AutoPlay = true;
 
-        // Playhead. RUNTIME only — never serialized, so scrubbing in the editor cannot dirty the scene.
-        // The canvas advances it while Playing; the Sequencer pauses and writes it directly to scrub.
-        float Time = 0.0f;
+        // Where playback is. RUNTIME only — never serialized, so scrubbing in the editor cannot dirty the
+        // scene. Created lazily from Sequence.TickRate/Start/End by the one view that drives scene animation
+        // (UIAnimationPlayback.hpp); whoever edits the range resets it so the next frame re-creates it.
+        std::optional<Animation::Timeline::Player> Playback;
     };
     struct UIAnimComponent
     {

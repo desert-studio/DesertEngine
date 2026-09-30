@@ -5,7 +5,7 @@
 #include <string>
 
 #include <Engine/Assets/Serialization/Mesh.hpp>
-#include <Engine/Assets/Serialization/Animation.hpp>
+#include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 #include <Editor/Import/MaterialImportContract.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
@@ -28,7 +28,9 @@ namespace Desert::Editor
     {
         std::optional<Desert::Assets::Serialization::MeshAssetData>     Mesh;
         std::optional<Desert::Assets::Serialization::SkeletonAssetData> Skeleton;
-        std::vector<Desert::Assets::Serialization::AnimationAssetData>  Animations;
+        // The file's clips as the engine holds them (ANIM 6: one Timeline::Sequence each); the import names
+        // their Skeleton and writes each through BuildAssetDataFromClip (ImportManager::SerializeAnimationAsset).
+        std::vector<Desert::Animation::AnimationClip>                   Animations;
         std::vector<ImportedMaterial>                                   Materials;
         // The name of the source node that placed each submesh of Mesh, one per submesh in order (the first node
         // when a mesh is instanced). What NodeMeshSplit groups by when Combine Meshes is off (UE's default).

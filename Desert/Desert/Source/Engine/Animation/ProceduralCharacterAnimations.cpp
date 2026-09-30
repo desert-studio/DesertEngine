@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Animation/BoneInfo.hpp>
+#include <Engine/Animation/Timeline/Section.hpp>
+#include <Engine/Animation/Timeline/Track.hpp>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -39,37 +41,55 @@ namespace Desert::Animation
 
             AnimationClip clip;
             clip.AnimationName     = name;
-            clip.DurationTicks     = durationTicks;
-            clip.TickRate          = PROJECT_TICK_RATE;
+            clip.Sequence.TickRate = PROJECT_TICK_RATE;
+            clip.Sequence.Start    = FrameNumber{ 0 };
+            clip.Sequence.End      = durationTicks;
             // clip.Skeleton is stated by the generator (ProceduralCharacterFactory::WriteEngineAssets).
-            // ONE TRACK PER ANIMATED BONE, NAMED. Playback binds a track by its bone name only; a bone with no
-            // track holds its bind pose. (An index-aligned vector with unnamed filler tracks is refused by the
-            // clip reader: a channel that names no bone can never reach a skeleton.)
-            clip.Tracks.reserve( angleFns.size() );
-
+            // ONE NAMED BONE BINDING PER ANIMATED BONE, IN SKELETON ORDER (angleFns is unordered): playback binds
+            // a track by its bone name only; a bone with no binding holds its bind pose.
+            std::vector<std::pair<uint32_t, std::string>> animated;
             for ( const auto& [boneName, fn] : angleFns )
+                if ( const auto it = nameToIdx.find( boneName ); it != nameToIdx.end() )
+                    animated.emplace_back( it->second, boneName );
+            std::sort( animated.begin(), animated.end() );
+            for ( const auto& [idx, boneName] : animated )
             {
-                auto it = nameToIdx.find( boneName );
-                if ( it == nameToIdx.end() )
-                    continue;
-                const uint32_t idx      = it->second;
+                const auto&     fn      = angleFns.at( boneName );
                 const glm::vec3 bindPos = glm::vec3( bones[idx].LocalBindTransform[3] );
 
-                BoneTrack& t = clip.Tracks.emplace_back();
-                t.BoneName   = boneName;
+                Timeline::Binding binding;
+                binding.Guid    = Timeline::BindingGuid::ForObject( Timeline::BindingKind::Bone, boneName );
+                binding.Kind    = Timeline::BindingKind::Bone;
+                binding.Locator = boneName;
+                binding.Label   = boneName;
+                clip.Sequence.Bindings.push_back( binding );
+
+                Timeline::TransformChannel channel;
                 // constant -> keeps the bone at its bind offset
-                t.PositionKeys.push_back( { FrameNumber{ 0 }, bindPos } );
+                channel.Translation.X.Keys.push_back( ScalarKey{ FrameNumber{ 0 }, bindPos.x } );
+                channel.Translation.Y.Keys.push_back( ScalarKey{ FrameNumber{ 0 }, bindPos.y } );
+                channel.Translation.Z.Keys.push_back( ScalarKey{ FrameNumber{ 0 }, bindPos.z } );
                 for ( int i = 0; i <= kSamples; ++i )
                 {
                     const float       u    = static_cast<float>( i ) / kSamples;
                     const FrameNumber tick = NearestTick(
                          SecondsToFrameTime( static_cast<double>( duration ) * u, PROJECT_TICK_RATE ) );
-                    t.RotationKeys.push_back( { tick, glm::angleAxis( fn( u ), kAxisX ) } );
+                    const glm::quat q = glm::angleAxis( fn( u ), kAxisX );
+                    channel.Rotation.X.Keys.push_back( ScalarKey{ tick, q.x } );
+                    channel.Rotation.Y.Keys.push_back( ScalarKey{ tick, q.y } );
+                    channel.Rotation.Z.Keys.push_back( ScalarKey{ tick, q.z } );
+                    channel.Rotation.W.Keys.push_back( ScalarKey{ tick, q.w } );
                 }
+                Timeline::Section section;
+                section.Start   = clip.Sequence.Start;
+                section.End     = clip.Sequence.End;
+                section.Content = Timeline::Channel{ std::move( channel ) };
+                Timeline::Track track;
+                track.Binding = binding.Guid;
+                track.Kind    = Timeline::TrackKind::Transform;
+                track.Sections.push_back( std::move( section ) );
+                clip.Sequence.Tracks.push_back( std::move( track ) );
             }
-            // In skeleton order, so a regeneration writes the same bytes (angleFns is unordered).
-            std::sort( clip.Tracks.begin(), clip.Tracks.end(), [&]( const BoneTrack& a, const BoneTrack& b )
-                       { return nameToIdx.at( a.BoneName ) < nameToIdx.at( b.BoneName ); } );
             return clip;
         }
 

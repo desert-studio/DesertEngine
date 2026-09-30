@@ -3,35 +3,11 @@
 #include "AnimGraphValidation.hpp"
 
 #include <algorithm>
+#include <format>
 
 namespace Desert::Animation::Graph
 {
-    const char* TypeName( ParamType type )
-    {
-        switch ( type )
-        {
-            case ParamType::Bool:
-                return "Bool";
-            case ParamType::Int:
-                return "Int";
-            case ParamType::Float:
-                return "Float";
-        }
-        return "?";
-    }
-
-    std::string DeclaredParameterList( const AnimGraph& graph )
-    {
-        std::string declared;
-        for ( const auto& p : graph.Parameters )
-        {
-            declared += declared.empty() ? "" : ", ";
-            declared += fmt::format( "'{}' ({})", p.Name, TypeName( static_cast<ParamType>( p.Type ) ) );
-        }
-        return declared.empty() ? std::string( "none at all" ) : declared;
-    }
-
-    Evaluator::Evaluator( AnimGraph graph ) : m_Graph( std::move( graph ) )
+    Evaluator::Evaluator( AnimGraph graph, GraphScope scope ) : m_Graph( std::move( graph ) ), m_Scope( scope )
     {
         Reset();
     }
@@ -42,29 +18,47 @@ namespace Desert::Animation::Graph
         for ( const auto& p : m_Graph.Parameters )
             m_Params[p.Name] = p.Default;
 
-        m_Current = m_Graph.Entry.empty() ? ( m_Graph.States.empty() ? -1 : 0 ) : FindState( m_Graph.Entry );
-        if ( m_Current < 0 && !m_Graph.States.empty() )
-        {
-            m_Current = 0; // entry named a missing state -> fall back to the first
-        }
-
         CheckStructure();
+        EnterMachines();
+    }
+
+    void Evaluator::EnterMachines()
+    {
+        m_Runs.assign( m_Graph.Nodes.size(), MachineRun{} );
+        for ( size_t n = 0; n < m_Graph.Nodes.size(); ++n )
+        {
+            const auto& slot = m_Graph.Nodes[n].Machine;
+            if ( !slot || slot->States.empty() )
+                continue;
+            const StateMachine& machine = *slot;
+            int                 entry   = -1;
+            for ( size_t i = 0; i < machine.States.size(); ++i )
+                if ( machine.States[i].Name == machine.Entry )
+                    entry = static_cast<int>( i );
+            m_Runs[n].Current = entry < 0 ? 0 : entry; // no entry / a missing one -> the first state
+        }
     }
 
     void Evaluator::SyncGraph( AnimGraph graph )
     {
-        const std::string currentName = CurrentState() ? CurrentState()->Name : std::string();
-        auto              savedParams = m_Params;
+        // Each machine keeps running the state it was in, matched by node name then state name.
+        std::unordered_map<std::string, std::string> running;
+        for ( size_t n = 0; n < m_Graph.Nodes.size() && n < m_Runs.size(); ++n )
+            if ( const State* state = StateOf( static_cast<int>( n ), m_Runs[n].Current ) )
+                running[m_Graph.Nodes[n].Name] = state->Name;
+        auto savedParams = m_Params;
 
         m_Graph = std::move( graph );
-
-        // Keep running the same state if it still exists; otherwise re-enter (entry / first).
-        m_Current = FindState( currentName );
-        if ( m_Current < 0 )
+        EnterMachines();
+        for ( size_t n = 0; n < m_Graph.Nodes.size(); ++n )
         {
-            m_Current = m_Graph.Entry.empty() ? ( m_Graph.States.empty() ? -1 : 0 ) : FindState( m_Graph.Entry );
-            if ( m_Current < 0 && !m_Graph.States.empty() )
-                m_Current = 0;
+            const auto  it      = running.find( m_Graph.Nodes[n].Name );
+            const auto& machine = m_Graph.Nodes[n].Machine;
+            if ( it == running.end() || !machine )
+                continue;
+            for ( size_t i = 0; i < machine->States.size(); ++i )
+                if ( machine->States[i].Name == it->second )
+                    m_Runs[n].Current = static_cast<int>( i );
         }
 
         // Preserve live parameter values; seed only parameters that are new.
@@ -148,11 +142,22 @@ namespace Desert::Animation::Graph
 
     void Evaluator::CheckStructure()
     {
-        // ONE SPELLING OF THE RULE, AND IT LIVES IN AnimGraphValidation. This used to be the only place
-        // that knew which conditions name an undeclared parameter, so the panel had no way to draw the
-        // same fact without writing it a second time -- and two spellings of one rule is a strip and a
-        // log that one day disagree about the same graph. The check still happens HERE, once, because
-        // the place the conditions are read cannot refuse; what moved is where the sentence is written.
+        // The plan first: a graph that cannot be ordered has no evaluation to speak of, and saying so is
+        // the whole verdict. Then the conditions (the rule's one spelling lives in AnimGraphValidation).
+        // ANY COMPOSITION IS PLAYED: the pose graph is evaluated node by node (PoseGraphInstance), so a
+        // blend of blends, an additive over a layered blend or a sequence player in a layer are all legal.
+        auto plan = PlanPoseGraph( m_Graph, m_Scope );
+        m_Plan.clear();
+        m_Output = -1;
+        if ( !plan )
+        {
+            m_StructureError = plan.GetError();
+            return;
+        }
+        m_Plan = plan.ExtractValue();
+        if ( const PoseNode* base = BaseSourceNode( m_Graph );
+             base != nullptr && static_cast<PoseNodeKind>( base->Kind ) == PoseNodeKind::StateMachine )
+            m_Output = static_cast<int>( base - m_Graph.Nodes.data() );
         m_StructureError = UndeclaredConditionParameters( m_Graph );
     }
 
@@ -162,26 +167,32 @@ namespace Desert::Animation::Graph
         return it == m_Params.end() ? 0.0f : it->second;
     }
 
-    int Evaluator::FindState( const std::string& name ) const
+    const State* Evaluator::StateOf( int node, int state ) const
     {
-        for ( size_t i = 0; i < m_Graph.States.size(); ++i )
-            if ( m_Graph.States[i].Name == name )
-                return static_cast<int>( i );
-        return -1;
+        if ( node < 0 || node >= static_cast<int>( m_Graph.Nodes.size() ) )
+            return nullptr;
+        const auto& machine = m_Graph.Nodes[static_cast<size_t>( node )].Machine;
+        if ( !machine || state < 0 || state >= static_cast<int>( machine->States.size() ) )
+            return nullptr;
+        return &machine->States[static_cast<size_t>( state )];
     }
 
     const State* Evaluator::CurrentState() const
     {
-        return ( m_Current >= 0 && m_Current < static_cast<int>( m_Graph.States.size() ) )
-                    ? &m_Graph.States[m_Current]
-                    : nullptr;
+        return m_Output < 0 ? nullptr : StateOf( m_Output, m_Runs[static_cast<size_t>( m_Output )].Current );
+    }
+
+    const State* Evaluator::CurrentState( std::string_view node ) const
+    {
+        for ( size_t n = 0; n < m_Graph.Nodes.size(); ++n )
+            if ( m_Graph.Nodes[n].Name == node )
+                return StateOf( static_cast<int>( n ), m_Runs[n].Current );
+        return nullptr;
     }
 
     const State* Evaluator::PreviousState() const
     {
-        return ( m_Previous >= 0 && m_Previous < static_cast<int>( m_Graph.States.size() ) )
-                    ? &m_Graph.States[m_Previous]
-                    : nullptr;
+        return m_Output < 0 ? nullptr : StateOf( m_Output, m_Runs[static_cast<size_t>( m_Output )].Previous );
     }
 
     bool Evaluator::EvaluateCondition( const Condition& c ) const
@@ -211,11 +222,30 @@ namespace Desert::Animation::Graph
 
     Evaluator::Result Evaluator::Update( float normalizedTime )
     {
-        Result result;
+        // The plan, in order: every node after the nodes wired into it. Only a state machine node has an
+        // Update today; the kinds that take Pose pins (layered blend, linked layer) join this walk.
+        Result output;
+        for ( const int node : m_Plan )
+        {
+            const PoseNode& poseNode = m_Graph.Nodes[static_cast<size_t>( node )];
+            if ( static_cast<PoseNodeKind>( poseNode.Kind ) != PoseNodeKind::StateMachine || !poseNode.Machine )
+                continue;
+            // Exit time is measured on the clip Output Pose shows, so only the machine there is given it;
+            // a machine further up the graph has no clip time the caller knows.
+            const Result result =
+                 UpdateMachine( node, *poseNode.Machine, node == m_Output ? normalizedTime : 0.0f );
+            if ( node == m_Output )
+                output = result;
+        }
+        return output;
+    }
 
-        if ( m_Current < 0 )
-            m_Current = m_Graph.States.empty() ? -1 : 0;
-        result.Current = CurrentState();
+    Evaluator::Result Evaluator::UpdateMachine( int node, const StateMachine& machine, float normalizedTime )
+    {
+        Result      result;
+        MachineRun& run = m_Runs[static_cast<size_t>( node )];
+
+        result.Current = StateOf( node, run.Current );
         if ( !result.Current )
             return result;
 
@@ -225,29 +255,25 @@ namespace Desert::Animation::Graph
                 continue;
 
             // Empty condition set is valid: a pure exit-time (or unconditional) transition auto-advances.
-            bool pass = true;
-            for ( const auto& c : t.Conditions )
-            {
-                if ( !EvaluateCondition( c ) )
-                {
-                    pass = false;
-                    break;
-                }
-            }
+            const bool pass = std::all_of( t.Conditions.begin(), t.Conditions.end(),
+                                           [this]( const Condition& c ) { return EvaluateCondition( c ); } );
             if ( !pass )
                 continue;
 
-            const int target = FindState( t.To );
-            if ( target < 0 || target == m_Current )
+            int target = -1;
+            for ( size_t i = 0; i < machine.States.size(); ++i )
+                if ( machine.States[i].Name == t.To )
+                    target = static_cast<int>( i );
+            if ( target < 0 || target == run.Current )
                 continue; // dangling target / self-loop -> ignore (never "changes")
 
             // ОТКУДА ПРИШЛИ — запоминается здесь, в единственном месте, где переход срабатывает.
             // Панель могла бы вывести это наблюдением («имя сменилось — значит был переход»), но она
             // тикает, только когда открыта: закрыл окно на время перехода — и наблюдатель пропустил
             // ровно то событие, ради которого он есть. Здесь же это факт, а не догадка.
-            m_Previous     = m_Current;
-            m_Current      = target;
-            result.Current = CurrentState();
+            run.Previous   = run.Current;
+            run.Current    = target;
+            result.Current = StateOf( node, run.Current );
             result.Changed = true;
             result.Blend   = t.Blend;
             break; // one transition per tick

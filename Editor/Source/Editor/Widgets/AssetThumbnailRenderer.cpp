@@ -444,7 +444,7 @@ namespace Desert::Editor
             {
                 const auto& c = clip->GetClip();
                 animator->Play( c, true );
-                animator->SetTick( Animation::FrameTime{ Animation::FrameNumber{ c.DurationTicks.Value / 2 } } );
+                animator->SetTick( Animation::FrameTime{ Animation::FrameNumber{ c.DurationTicks().Value / 2 } } );
             }
             else
             {

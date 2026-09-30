@@ -15,6 +15,7 @@ project(test_name)
         -- ONE object that several entities share, and the thing that consumes that object is an evaluator.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/AnimGraphAsset.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/PoseGraph.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphEvaluator.cpp",
         -- The evaluator delegates its structure check to the validator (ONE spelling of "which
         -- conditions name an undeclared parameter"), so the two units link together everywhere.

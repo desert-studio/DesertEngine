@@ -2,8 +2,11 @@
 
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Animation/Graph/LayeredBlendPerBone.hpp>
+#include <Engine/Animation/Graph/LinkedAnimLayer.hpp>
 
 #include <optional>
+#include <span>
 
 #include <string>
 #include <string_view>
@@ -87,6 +90,119 @@ namespace Desert::Animation::Graph
         std::vector<Transition> Transitions;
     };
 
+    /// A state machine: the payload of a StateMachine pose node (UE: FAnimNode_StateMachine). Its states
+    /// play clips; its output pose is the running state's.
+    struct StateMachine
+    {
+        std::string        Entry; // entry state name (defaults to the first state if empty)
+        std::vector<State> States;
+    };
+
+    /// What a pose node IS. Append only (stored as int). Each kind states its pins in `PinsOf`.
+    enum class PoseNodeKind : int
+    {
+        StateMachine        = 0,
+        LayeredBlendPerBone = 1, ///< UE FAnimNode_LayeredBoneBlend: a base pose and one pose per layer
+        SequencePlayer      = 2, ///< UE FAnimNode_SequencePlayer: one clip on its own clock, no Pose input
+        ApplyAdditive       = 3, ///< UE FAnimNode_ApplyAdditive: Base + Alpha x (Additive - reference pose)
+        LinkedAnimLayer     = 4, ///< UE FAnimNode_LinkedAnimLayer: a layer of a declared interface, by name
+        LinkedInputPose     = 5, ///< UE FAnimNode_LinkedInputPose: a layer graph's input, only in one
+    };
+
+    /// Where a pose graph lives, which decides one kind: a LinkedInputPose exists only in a LAYER graph (it
+    /// is the input its caller hands in). A layer graph is otherwise a WHOLE pose graph, as UE's layer
+    /// function graph is: it may hold state machines (run by a per-link Evaluator in GraphScope::Layer) and
+    /// call further linked layers of the interfaces its graph declares (a cycle is refused, `LayerCycle`).
+    enum class GraphScope : int
+    {
+        Host  = 0,
+        Layer = 1,
+    };
+
+    /// The Apply Additive node's pins: pin 0 Base, pin 1 Additive, and the `Alpha` parameter pin (unbound: 1).
+    inline constexpr std::string_view kApplyAdditiveAlphaPin = "Alpha";
+
+    /// The payload of a SequencePlayer node: which clip it plays (by name, resolved against the
+    /// AnimationLibrary at runtime, as a State's clip is) and how.
+    struct SequencePlayerNode
+    {
+        std::string Clip;
+        bool        Loop = true;
+    };
+
+    [[nodiscard]] const char* KindName( PoseNodeKind kind );
+
+    /// A kind's pins: how many Pose inputs it takes, and the names of its parameter pins (inputs a graph
+    /// parameter drives, UE's exposed pins such as a blend's weight).
+    struct PoseNodePins
+    {
+        int                          PoseInputs = 0;
+        std::span<const char* const> ParameterPins;
+    };
+    [[nodiscard]] PoseNodePins PinsOf( PoseNodeKind kind );
+
+    struct PoseNode;
+
+    /// The weight pin of a Layered Blend Per Bone node's layer `layer` (UE's `BlendWeights_N`). Unbound, the
+    /// layer's weight is 1 — UE's default — so a layer is on until a parameter says otherwise.
+    [[nodiscard]] std::string LayerWeightPin( size_t layer );
+
+    /// How many Pose pins `node` has: its kind's fixed count, and for a Layered Blend Per Bone the base pin
+    /// plus one per layer of its payload — the pins grow with the layers, as UE's do.
+    [[nodiscard]] int PoseInputCountOf( const PoseNode& node );
+
+    /// Whether `node` has the parameter pin `pin`: its kind's fixed pins, and a Layered Blend Per Bone's
+    /// weight pin of each of its layers.
+    [[nodiscard]] bool HasParameterPin( const PoseNode& node, std::string_view pin );
+
+    /// One parameter pin of a node bound to a declared graph parameter.
+    struct ParameterPin
+    {
+        std::string Pin;       // one of PinsOf(kind).ParameterPins
+        std::string Parameter; // a name in AnimGraph::Parameters
+    };
+
+    /// A node of the pose graph (UE: an FAnimNode_Base in an AnimGraph).
+    struct PoseNode
+    {
+        std::string                 Name; // unique in the graph; wires name nodes by it
+        int                         Kind = static_cast<int>( PoseNodeKind::StateMachine );
+        std::vector<std::string>    PoseInputs;      // the node wired into each Pose pin, in pin order
+        std::vector<ParameterPin>   ParameterInputs; // bound parameter pins
+        std::optional<StateMachine> Machine;         // the payload, present exactly when Kind == StateMachine
+        /// The payload, present exactly when Kind == LayeredBlendPerBone. Pose pin 0 is the base, pin i+1
+        /// layer i's pose; LayerWeightPin(i) its weight.
+        std::optional<LayeredBlendPerBoneNode> LayeredBlend;
+        std::optional<SequencePlayerNode> Sequence; // the payload, present exactly when Kind == SequencePlayer
+        /// The payload, present exactly when Kind == LinkedAnimLayer: the interface and layer it calls.
+        std::optional<LinkedAnimLayerNode> LinkedLayer;
+        float                              X = 0.0f; // node editor canvas position (persisted, unused at runtime)
+        float                              Y = 0.0f;
+    };
+
+    /**
+     * @brief One layer of an interface as an implementing graph implements it (UE: a layer function graph of
+     *        an AnimBlueprint implementing an Anim Layer Interface): a pose graph in `GraphScope::Layer`,
+     *        whose LinkedInputPose node (if any) is the caller's input pose. Its parameter pins read the
+     *        CALLING graph's live parameters by name, so each one must be declared by the implementing graph
+     *        (to plan) and by the host with the same type (checked at link).
+     */
+    struct AnimLayerGraph
+    {
+        std::string           Interface;
+        std::string           Layer;
+        std::vector<PoseNode> Nodes;
+        std::string           OutputPose;
+    };
+
+    /// The linked-layer half of a graph: the interfaces it declares (to call or to implement) and the layer
+    /// graphs it implements. An interface with any layer implemented must have every layer implemented.
+    struct AnimGraphLayers
+    {
+        std::vector<AnimLayerInterface> Interfaces;
+        std::vector<AnimLayerGraph>     Implemented;
+    };
+
     struct AnimGraph
     {
         /// The text asset header (T7d, ANGR 1), FIRST so the registry reads it without parsing the rest:
@@ -94,11 +210,90 @@ namespace Desert::Animation::Graph
         /// constructor), and the format under `ANGR`. Carried on the graph so an editor save keeps the GUID
         /// it was loaded with; absent only on a graph never written - Serialize mints it then.
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
-        std::string            Name = "AnimGraph";
-        std::string            Entry; // entry state name (defaults to the first state if empty)
+        std::string                                               Name = "AnimGraph";
         std::vector<Parameter> Parameters;
-        std::vector<State>     States;
+        /// The pose graph (UE's AnimGraph of an AnimBlueprint): nodes whose Pose pins are wired to other
+        /// nodes by NAME, evaluated from `OutputPose` back through the wires. A state machine is ONE node
+        /// of it, never the whole graph (ANGR 2; an ANGR 1 file was a lone machine and became
+        /// `MakeStateMachineGraph`'s shape in the files).
+        std::vector<PoseNode> Nodes;
+        /// The node wired into the Output Pose sink. Every graph has one: a graph with nothing at its
+        /// output is refused by `PlanPoseGraph`, which is what the loader runs.
+        std::string OutputPose;
+        /// Declared layer interfaces and implemented layer graphs; absent = the graph neither calls nor
+        /// implements a linked layer (the files written before ANIM-I14 are exactly that).
+        std::optional<AnimGraphLayers> Layers;
     };
+
+    /// The interface `name` the graph declares, or nullptr.
+    [[nodiscard]] const AnimLayerInterface* FindLayerInterface( const AnimGraph& graph, std::string_view name );
+
+    /// Layer graph `layer` of `owner` as a graph of its own (`owner`'s parameters, and `owner`'s declared
+    /// interfaces so a nested LinkedAnimLayer call resolves; no implemented layers of its own), the shape
+    /// `PlanPoseGraph( ..., GraphScope::Layer )`, `PoseGraphInstance::Bind` and a layer's Evaluator take.
+    [[nodiscard]] AnimGraph LayerGraphAsGraph( const AnimGraph& owner, const AnimLayerGraph& layer );
+
+    /// The layers the LinkedAnimLayer nodes of `nodes` call, in node order.
+    [[nodiscard]] std::vector<LinkedAnimLayerNode> CalledLayers( const std::vector<PoseNode>& nodes );
+
+    /// One layer graph as the cycle check sees it: which layer it answers and which layers it calls.
+    struct LayerCalls
+    {
+        std::string                      Interface;
+        std::string                      Layer;
+        std::vector<LinkedAnimLayerNode> Calls;
+    };
+
+    /// Empty when no layer of `layers` reaches itself through calls answered within `layers`; otherwise the
+    /// cycle by name, "Weapon.A -> Weapon.B -> Weapon.A" (UE refuses a layer that re-enters itself; here a
+    /// cycle would evaluate forever, so it is refused where it is made: at plan and at link).
+    [[nodiscard]] std::string LayerCycle( const std::vector<LayerCalls>& layers );
+
+    /// The state machine node's name in a graph `MakeStateMachineGraph` built — and the name every ANGR 1
+    /// file's machine was given by the migration.
+    inline constexpr std::string_view kDefaultStateMachineNode = "StateMachine";
+
+    /// A graph of ONE state machine node wired to Output Pose, with no states yet: the shape a new graph
+    /// starts from and the shape the ANGR 1 files were migrated to.
+    [[nodiscard]] AnimGraph MakeStateMachineGraph( std::string name = "AnimGraph" );
+
+    /// The node called `name`, or nullptr.
+    [[nodiscard]] const PoseNode* FindNode( const AnimGraph& graph, std::string_view name );
+    [[nodiscard]] PoseNode*       FindNode( AnimGraph& graph, std::string_view name );
+
+    /// The SOURCE node (a StateMachine or a SequencePlayer) at the bottom of Output Pose's base chain: the
+    /// output node when it is a source, else down pin 0 (the base pin of a Layered Blend Per Bone and of an
+    /// Apply Additive) until one is reached. nullptr when the chain ends in no source. Its pose is the one
+    /// the Animator's Source stage plays — with the crossfade, notifies, curves and root motion — and the
+    /// pose graph reads it as that node's pose.
+    [[nodiscard]] const PoseNode* BaseSourceNode( const AnimGraph& graph );
+
+    /// `BaseSourceNode`'s machine, or nullptr when that node is not a state machine. The machine the state
+    /// machine editor edits until the node editor lets one pick a node.
+    [[nodiscard]] const StateMachine* OutputMachine( const AnimGraph& graph );
+    [[nodiscard]] StateMachine*       OutputMachine( AnimGraph& graph );
+
+    /// Whether `kind` produces a pose from clips with no Pose input (UE: a leaf of the AnimGraph).
+    [[nodiscard]] bool IsSourceKind( PoseNodeKind kind );
+
+    /**
+     * @brief The evaluation order of the pose graph: node indices, every node AFTER the nodes wired into
+     *        its Pose pins, the output node last (UE: the output pose's Update/Evaluate recursion, laid
+     *        flat). Only nodes that reach Output Pose are in it — an unwired node is not evaluated.
+     *
+     * Refuses, naming what is wrong: a graph with no Output Pose or one naming a missing node; two nodes
+     * of one name (wires are by name, so a duplicate makes a wire mean two things); a Pose pin wired to a
+     * missing node; a node wired to more or fewer Pose pins than its kind has; a parameter pin its kind
+     * does not have or bound to an undeclared parameter; a kind's payload missing; and a CYCLE, spelled
+     * as the loop of node names ("A -> B -> A"), because a pose graph with a loop has no first node.
+     */
+    ///
+    /// In `GraphScope::Host` it also checks the graph's `Layers`: interfaces of unique names with unique
+    /// layers, every LinkedAnimLayer node naming a declared interface and one of its layers (refused BY NAME,
+    /// with what is declared), and each implemented layer graph planned in `GraphScope::Layer`, of a declared
+    /// interface and layer, once, with every layer of an implemented interface present.
+    [[nodiscard]] Common::ResultStr<std::vector<int>> PlanPoseGraph( const AnimGraph& graph,
+                                                                     GraphScope       scope = GraphScope::Host );
 
     /// The graph's declared parameters as a readable list ("'Speed' (Float), 'Armed' (Bool)"), or
     /// "none at all". ONE spelling, because both refusals that need it — the evaluator's and the Lua
@@ -116,7 +311,9 @@ namespace Desert::Animation::Graph
     class Evaluator
     {
     public:
-        explicit Evaluator( AnimGraph graph );
+        /// `scope` is where `graph` lives: GraphScope::Layer for a linked layer's graph (LayerGraphAsGraph),
+        /// whose state machines this evaluator runs per link, as UE's linked instance runs its own.
+        explicit Evaluator( AnimGraph graph, GraphScope scope = GraphScope::Host );
 
         void Reset(); // jump to the entry state and seed parameters to their defaults
 
@@ -173,26 +370,53 @@ namespace Desert::Animation::Graph
             float        Blend   = 0.0f;    // cross-fade seconds for the change (valid when Changed)
         };
 
-        // Advances one tick. normalizedTime = the current clip's playback fraction [0,1] (for exit-time gating;
-        // pass 0 if unknown). Fires at most one transition per tick (the first eligible one, in list order).
+        /**
+         * @brief Advances one tick: walks the pose graph in `PlanPoseGraph` order, each node's Update
+         *        after the nodes wired into it (UE: FAnimNode_Base::Update_AnyThread, from the output
+         *        back). A state machine node fires at most one transition per tick (the first eligible
+         *        one, in list order). An unplannable graph updates nothing: its refusal is in
+         *        `GetStructureError()`.
+         * @param normalizedTime The playback fraction [0,1] of the clip Output Pose shows (exit-time
+         *        gating; 0 if unknown).
+         * @return What the state machine wired into Output Pose did this tick.
+         */
         Result Update( float normalizedTime );
 
         [[nodiscard]] const AnimGraph& Graph() const
         {
             return m_Graph;
         }
+        /// The running state of the machine wired into Output Pose (nullptr when it has no states).
         [[nodiscard]] const State* CurrentState() const;
+        /// The running state of the state machine node `node`, or nullptr (no such machine, no states).
+        [[nodiscard]] const State* CurrentState( std::string_view node ) const;
 
-        /// Состояние, из которого пришёл последний сработавший переход, или nullptr до первого.
-        /// Нужно, чтобы показать переход как «откуда → куда», а не только «куда».
+        /// Состояние, из которого пришёл последний сработавший переход машины на выходе, или nullptr
+        /// до первого. Нужно, чтобы показать переход как «откуда → куда», а не только «куда».
         [[nodiscard]] const State* PreviousState() const;
 
     private:
-        [[nodiscard]] int  FindState( const std::string& name ) const;
+        /// A state machine node's running state: indices into its machine's States.
+        struct MachineRun
+        {
+            int Current = -1;
+            int Previous = -1; ///< см. PreviousState(): пишется там же, где срабатывает переход
+        };
+
         [[nodiscard]] bool EvaluateCondition( const Condition& c ) const;
 
-        /// Fills m_StructureError: every condition whose parameter the graph does not declare.
+        /// Plans the graph and fills m_StructureError: the plan's refusal, or every condition whose
+        /// parameter the graph does not declare.
         void CheckStructure();
+
+        /// Enters every state machine node's entry state (entry, or the first state if it names none).
+        void EnterMachines();
+
+        /// One tick of the state machine node at `node`; `machine` is its payload, bound by the caller after
+        /// checking it is present.
+        Result UpdateMachine( int node, const StateMachine& machine, float normalizedTime );
+
+        [[nodiscard]] const State* StateOf( int node, int state ) const;
 
         /// The declared parameter, or nullptr. The one place that answers "does the graph have this".
         [[nodiscard]] const Parameter* FindParameter( const std::string& name ) const;
@@ -201,9 +425,11 @@ namespace Desert::Animation::Graph
         [[nodiscard]] Common::BoolResultStr RefuseUnknown( const std::string& name ) const;
 
         AnimGraph                              m_Graph;
+        GraphScope                             m_Scope = GraphScope::Host;
         std::unordered_map<std::string, float> m_Params;
-        int                                    m_Current = -1;
-        int m_Previous = -1; ///< см. PreviousState(): пишется там же, где срабатывает переход
+        std::vector<int>                       m_Plan; ///< PlanPoseGraph's order; empty when refused
+        std::vector<MachineRun>                m_Runs; ///< one per node, parallel to m_Graph.Nodes
+        int m_Output = -1; ///< the machine whose pose is Output Pose's base (OutputMachine), when planned
         std::string                            m_StructureError;
     };
 } // namespace Desert::Animation::Graph

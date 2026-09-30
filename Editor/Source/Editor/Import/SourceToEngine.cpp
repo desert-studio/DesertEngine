@@ -3,6 +3,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <array>
 #include <limits>
 
 namespace Desert::Editor
@@ -35,7 +36,7 @@ namespace Desert::Editor
     }
 
     void ApplySourceToEngine( const Assets::MeshImportSettings& settings, Ser::MeshAssetData* mesh,
-                              Ser::SkeletonAssetData* skeleton, std::vector<Ser::AnimationAssetData>& animations )
+                              Ser::SkeletonAssetData* skeleton, std::vector<Animation::AnimationClip>& animations )
     {
         if ( settings.UniformScale == 1.0f && settings.UpAxis != Assets::MeshSourceUpAxis::Z )
             return;
@@ -92,23 +93,52 @@ namespace Desert::Editor
         // A local scale's axes move with C's rotation; C turns only by quarter turns, so the rotated vector's
         // magnitudes are the scale re-ordered.
         const auto reorder = [&rotation]( const glm::vec3& s ) { return glm::abs( rotation * s ); };
-        for ( auto& clip : animations )
-            for ( auto& channel : clip.Channels )
+        // A clip's keys are its Transform sections' channels (ANIM 6); the components of one key share an index
+        // across X/Y/Z(/W), which is how every producer keys a transform.
+        const auto vec3Keys = []( Animation::Timeline::VectorChannel& c, auto&& map )
+        {
+            for ( std::size_t k = 0; k < c.X.Keys.size() && k < c.Y.Keys.size() && k < c.Z.Keys.size(); ++k )
             {
-                for ( auto& key : channel.Positions )
+                const auto part = [&]( auto member )
+                { return glm::vec3( c.X.Keys[k].*member, c.Y.Keys[k].*member, c.Z.Keys[k].*member ); };
+                const glm::vec3  v = map( part( &Animation::ScalarKey::Value ), true );
+                const glm::vec3  a = map( part( &Animation::ScalarKey::ArriveTangent ), false );
+                const glm::vec3  l = map( part( &Animation::ScalarKey::LeaveTangent ), false );
+                const std::array axes{ &c.X, &c.Y, &c.Z };
+                for ( int i = 0; i < 3; ++i )
                 {
-                    key.Value         = vector( key.Value );
-                    key.ArriveTangent = vector( key.ArriveTangent );
-                    key.LeaveTangent  = vector( key.LeaveTangent );
-                }
-                for ( auto& key : channel.Rotations )
-                    key.Value = qc * key.Value * glm::conjugate( qc );
-                for ( auto& key : channel.Scales )
-                {
-                    key.Value         = reorder( key.Value );
-                    key.ArriveTangent = rotation * key.ArriveTangent;
-                    key.LeaveTangent  = rotation * key.LeaveTangent;
+                    auto& key         = axes[static_cast<std::size_t>( i )]->Keys[k];
+                    key.Value         = v[i];
+                    key.ArriveTangent = a[i];
+                    key.LeaveTangent  = l[i];
                 }
             }
+        };
+        for ( auto& clip : animations )
+            for ( auto& track : clip.Sequence.Tracks )
+                for ( auto& section : track.Sections )
+                {
+                    auto* content = std::get_if<Animation::Timeline::Channel>( &section.Content );
+                    auto* channel = content != nullptr
+                                         ? std::get_if<Animation::Timeline::TransformChannel>( content )
+                                         : nullptr;
+                    if ( channel == nullptr )
+                        continue;
+                    vec3Keys( channel->Translation, [&]( const glm::vec3& v, bool ) { return vector( v ); } );
+                    auto& r = channel->Rotation;
+                    for ( std::size_t k = 0; k < r.X.Keys.size(); ++k )
+                    {
+                        const glm::quat q = qc *
+                                            glm::quat( r.W.Keys[k].Value, r.X.Keys[k].Value, r.Y.Keys[k].Value,
+                                                       r.Z.Keys[k].Value ) *
+                                            glm::conjugate( qc );
+                        r.X.Keys[k].Value = q.x;
+                        r.Y.Keys[k].Value = q.y;
+                        r.Z.Keys[k].Value = q.z;
+                        r.W.Keys[k].Value = q.w;
+                    }
+                    vec3Keys( channel->Scale, [&]( const glm::vec3& v, bool value )
+                              { return value ? reorder( v ) : rotation * v; } );
+                }
     }
 } // namespace Desert::Editor

@@ -2,7 +2,7 @@
 #include <Common/Core/Math/AABB.hpp>
 
 #include <Engine/Assets/MeshSourceAsset.hpp>
-#include <Engine/Assets/Serialization/Animation.hpp>
+#include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Assets/Serialization/Mesh.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 
@@ -36,8 +36,8 @@ namespace Desert::Editor
     //   - every animation key in a bone's local frame the same way: positions and tangents C t, rotations
     //     q_C q q_C^-1, scales re-ordered along the axes C rotates (C only ever rotates by quarter turns).
     // Identity settings change nothing.
-    void ApplySourceToEngine( const Assets::MeshImportSettings&                       settings,
-                              Assets::Serialization::MeshAssetData*                   mesh,
-                              Assets::Serialization::SkeletonAssetData*               skeleton,
-                              std::vector<Assets::Serialization::AnimationAssetData>& animations );
+    void ApplySourceToEngine( const Assets::MeshImportSettings&         settings,
+                              Assets::Serialization::MeshAssetData*     mesh,
+                              Assets::Serialization::SkeletonAssetData* skeleton,
+                              std::vector<Animation::AnimationClip>&    animations );
 } // namespace Desert::Editor

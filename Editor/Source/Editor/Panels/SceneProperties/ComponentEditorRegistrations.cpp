@@ -44,6 +44,15 @@
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Panels/SceneProperties/ComponentWidgets/MaterialsPanelComponent.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/LevelSequenceAsset.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/ECS/LevelSequencePlayback.hpp>
+#include <Editor/Core/AssetPickerRows.hpp>
+#include <Editor/Core/DetailsNavigation.hpp>
+#include <Editor/Widgets/AssetFieldOpen.hpp>
+#include <Engine/Animation/Timeline/Hosts.hpp>
+#include <Engine/Animation/Timeline/Player.hpp>
+#include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/MaterialData.hpp>
@@ -67,6 +76,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <limits>
 #include <optional>
 
@@ -1810,6 +1820,226 @@ namespace Desert::Editor
         return e;
     }
 
+    // LEVEL SEQUENCE ACTOR (UE: ALevelSequenceActor's Details - Sequence, Playback Settings, Binding
+    // Overrides). The Sequence is an asset field like every other in Details: a slot whose picker lists the
+    // project's `.dseq` rows (the registry's, nothing loaded to list them) with a search, a `.dseq` dropped from
+    // the Assets window, and Open / Show in Content Browser beside it. Loop by its NAME (the saved form,
+    // ComponentRegistry.cpp). Binding Overrides: each row re-points one binding at an entity of this scene
+    // (chosen from the scene's entities, or removed); "+" adds one for a binding with no override yet
+    // (ECS::OverridableBindings).
+    static ComponentEditorEntry MakeLevelSequenceEntry()
+    {
+        using C = ::Desert::ECS::LevelSequenceComponent;
+        ComponentEditorEntry e;
+        e.Name      = "Level Sequence";
+        e.CanRemove = true;
+        e.Has       = []( ::Desert::ECS::Entity& en ) { return en.HasComponent<C>(); };
+        e.Add       = []( ::Desert::ECS::Entity& en ) { en.AddComponent<C>(); };
+        e.Remove    = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<C>(); };
+        e.Draw = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene* scene, const ComponentEditContext& context )
+        {
+            namespace T   = ::Desert::Animation::Timeline;
+            namespace U   = ::Desert::Editor::Utils;
+            auto& actor   = en.GetComponent<C>();
+            auto  manager = context.AssetManager.lock();
+            if ( !manager )
+                return;
+
+            // The one way a file becomes the actor's sequence, for the picker and the drop alike: the asset
+            // the manager already knows by that path, else a shell for it (loaded by whoever plays it).
+            const auto choose = [&]( const std::filesystem::path& full )
+            {
+                auto chosen = manager->FindByPath<::Desert::Assets::LevelSequenceAsset>( full );
+                if ( !chosen )
+                    chosen =
+                         manager->CreateAsset<::Desert::Assets::LevelSequenceAsset>( full,
+                                                                                     /*loadAfterCreate=*/false );
+                if ( chosen )
+                    actor.Sequence = chosen->GetMetadata().Handle;
+                else
+                    LOG_ERROR( "[LevelSequence] '{}' is not a sequence this project can open", full.string() );
+            };
+
+            const auto sequence =
+                 actor.Sequence != 0
+                      ? manager->FindByHandle<::Desert::Assets::LevelSequenceAsset>( actor.Sequence )
+                      : nullptr;
+            const auto rows =
+                 ::Desert::Assets::ContentRegistry::Rows( ::Common::Content::ContentKind::LevelSequence );
+            std::string slotText = "None";
+            for ( const auto& row : rows )
+                if ( actor.Sequence != 0 && row.Handle == actor.Sequence )
+                    slotText = ::Desert::Editor::PickerDisplayName( row );
+            if ( slotText == "None" && sequence )
+                slotText = sequence->GetMetadata().Filepath.stem().string();
+            const bool     emptySlot = actor.Sequence == 0;
+            const uint64_t handle    = emptySlot ? 0 : static_cast<uint64_t>( actor.Sequence );
+
+            U::ImGuiUtilities::ResetPropertyRows();
+            U::ImGuiUtilities::BeginPropertyRow( "Sequence", "The .dseq this actor plays" );
+            const bool clicked = U::ImGuiUtilities::AssetSlot( "levelsequenceslot", slotText.c_str(), emptySlot );
+            if ( ImGui::BeginDragDropTarget() )
+            {
+                if ( const ImGuiPayload* p =
+                          ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
+                {
+                    const std::filesystem::path named( static_cast<const char*>( p->Data ) );
+                    if ( named.extension() == T::kLevelSequenceExtension )
+                        choose( named.is_absolute()
+                                     ? named
+                                     : ( ::Common::Constants::Path::ASSETS_PATH / named ).lexically_normal() );
+                }
+                ImGui::EndDragDropTarget();
+            }
+            if ( ::Desert::Editor::TakeDetailsPickerRequest( "Level sequence" ) || clicked )
+                ImGui::OpenPopup( "level_sequence_selector" );
+            ::Desert::Editor::DrawAssetFieldOpen( handle );
+            ::Desert::Editor::DrawAssetFieldButtons( handle );
+            if ( ImGui::BeginPopup( "level_sequence_selector" ) )
+            {
+                static ImGuiTextFilter filter;
+                filter.Draw( "##Search", 200 );
+                ImGui::Separator();
+                if ( ImGui::Selectable( "None", emptySlot ) )
+                    actor.Sequence = ::Desert::Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+                for ( const auto& row : rows )
+                {
+                    const std::string name = ::Desert::Editor::PickerDisplayName( row );
+                    if ( filter.PassFilter( name.c_str() ) &&
+                         ImGui::Selectable( name.c_str(), !emptySlot && row.Handle == actor.Sequence ) )
+                        choose( row.Path );
+                }
+                ImGui::EndPopup();
+            }
+            U::ImGuiUtilities::EndPropertyRow();
+
+            // Playback Settings.
+            // The names are Player.hpp's (its reflected names, the ones the scene stores).
+            if ( ImGui::BeginCombo( "Loop", T::ToString( actor.Loop ) ) )
+            {
+                for ( const T::LoopMode mode : T::kLoopModes )
+                    if ( ImGui::Selectable( T::ToString( mode ), mode == actor.Loop ) )
+                        actor.Loop = mode;
+                ImGui::EndCombo();
+            }
+            ImGui::Checkbox( "Auto Play", &actor.AutoPlay );
+
+            // Binding Overrides.
+            if ( !U::ImGuiUtilities::SectionHeader( ICON_MDI_LINK_VARIANT "  Binding Overrides", true ) )
+                return;
+
+            // The scene's entities by UUID, named by their Tag: what an override may point at.
+            const auto entityName = [&]( const ::Common::UUID& uuid ) -> std::string
+            {
+                if ( scene != nullptr )
+                    if ( const auto found = scene->FindEntityByID( uuid ) )
+                    {
+                        const ::Desert::ECS::Entity entity = found->get();
+                        return entity.HasComponent<::Desert::ECS::TagComponent>()
+                                    ? entity.GetComponent<::Desert::ECS::TagComponent>().Tag
+                                    : std::string( "Entity" );
+                    }
+                return std::format( "<missing entity {}>", uuid.ToString() );
+            };
+            // Draws the scene's entities with a search; true when one was picked into @p picked.
+            const auto entityList = [&]( ::Common::UUID& picked ) -> bool
+            {
+                if ( scene == nullptr )
+                {
+                    ImGui::TextDisabled( "No scene" );
+                    return false;
+                }
+                static ImGuiTextFilter entityFilter;
+                entityFilter.Draw( "##EntitySearch", 200 );
+                ImGui::Separator();
+                auto& registry = scene->GetRegistry();
+                for ( auto h : registry.view<::Desert::ECS::UUIDComponent>() )
+                {
+                    const ::Desert::ECS::Entity candidate( h, registry );
+                    const auto                  uuid = candidate.GetComponent<::Desert::ECS::UUIDComponent>().UUID;
+                    const std::string           name = candidate.HasComponent<::Desert::ECS::TagComponent>()
+                                                            ? candidate.GetComponent<::Desert::ECS::TagComponent>().Tag
+                                                            : std::string( "Entity" );
+                    if ( !entityFilter.PassFilter( name.c_str() ) )
+                        continue;
+                    ImGui::PushID( static_cast<int>( static_cast<uint32_t>( h ) ) );
+                    const bool chosen = ImGui::Selectable( name.c_str(), uuid == picked );
+                    ImGui::PopID();
+                    if ( chosen )
+                    {
+                        picked = uuid;
+                        return true;
+                    }
+                }
+                return false;
+            };
+
+            const T::Sequence* loaded = sequence && sequence->IsReadyForUse() ? &sequence->GetSequence() : nullptr;
+            if ( actor.BindingOverrides.empty() )
+                ImGui::TextDisabled( "None: every binding plays on the entity its locator names" );
+            U::ImGuiUtilities::ResetPropertyRows();
+            for ( std::size_t i = 0; i < actor.BindingOverrides.size(); )
+            {
+                auto&             over    = actor.BindingOverrides[i];
+                const T::Binding* binding = loaded != nullptr ? T::FindBinding( *loaded, over.Binding ) : nullptr;
+                ImGui::PushID( static_cast<int>( i ) );
+                U::ImGuiUtilities::BeginPropertyRow( binding != nullptr ? binding->Label.c_str()
+                                                                        : "(binding not in the sequence)",
+                                                     "The entity of this scene the binding plays on" );
+                const std::string target = entityName( over.Entity );
+                if ( U::ImGuiUtilities::AssetSlot( "overrideentity", target.c_str(), false ) )
+                    ImGui::OpenPopup( "override_entity" );
+                if ( ImGui::BeginPopup( "override_entity" ) )
+                {
+                    if ( entityList( over.Entity ) )
+                        ImGui::CloseCurrentPopup();
+                    ImGui::EndPopup();
+                }
+                ImGui::SameLine();
+                const bool remove = ImGui::SmallButton( ICON_MDI_CLOSE );
+                if ( ImGui::IsItemHovered() )
+                    ImGui::SetTooltip( "Remove this override" );
+                U::ImGuiUtilities::EndPropertyRow();
+                ImGui::PopID();
+                if ( remove )
+                    actor.BindingOverrides.erase( actor.BindingOverrides.begin() +
+                                                  static_cast<std::ptrdiff_t>( i ) );
+                else
+                    ++i;
+            }
+
+            // "+": a binding of the sequence with no override yet, then the entity it plays on.
+            if ( ImGui::Button( ICON_MDI_PLUS "  Add Override" ) )
+                ImGui::OpenPopup( "add_binding_override" );
+            if ( ImGui::BeginPopup( "add_binding_override" ) )
+            {
+                const auto open = loaded != nullptr ? ::Desert::ECS::OverridableBindings( *loaded, actor )
+                                                    : std::vector<const T::Binding*>{};
+                if ( loaded == nullptr )
+                    ImGui::TextDisabled( "Choose a sequence (loaded) first" );
+                else if ( open.empty() )
+                    ImGui::TextDisabled( "Every entity binding already has an override" );
+                for ( const T::Binding* binding : open )
+                {
+                    ImGui::PushID( binding );
+                    if ( ImGui::BeginMenu( binding->Label.c_str() ) )
+                    {
+                        ::Common::UUID picked = ::Common::UUID::Null();
+                        if ( entityList( picked ) )
+                        {
+                            actor.BindingOverrides.push_back( { binding->Guid, picked } );
+                            ImGui::CloseCurrentPopup();
+                        }
+                        ImGui::EndMenu();
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndPopup();
+            }
+        };
+        return e;
+    }
+
     // Character controller: the authored capsule (reflected) and, in Play, what the physics step is
     // actually reporting back. "Why does he not jump" is answered by On Ground, which the component has
     // always carried and the panel never showed.
@@ -1960,6 +2190,8 @@ namespace
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeProjectileEntry() );
     const int _desert_foliage_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeFoliageEntry() );
+    const int _desert_level_sequence_component_reg =
+         ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeLevelSequenceEntry() );
 
     const int _desert_uicanvas_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeUICanvasEntry() );

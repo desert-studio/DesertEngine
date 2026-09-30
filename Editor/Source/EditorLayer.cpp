@@ -6,6 +6,7 @@
 #include <Engine/Core/Glfw.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include <Editor/Core/SaveShortcut.hpp>
+#include <Editor/Core/ContentCreateCommands.hpp>
 #include <Editor/Core/DetailsNavigation.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Graphic/Environment/EnvironmentBake.hpp>
@@ -162,6 +163,7 @@
 #include "Editor/Panels/AssetReferences/AssetReferencesPanel.hpp"
 #include "Editor/Panels/LuaConsole/LuaConsolePanel.hpp"
 #include "Editor/Panels/Sequencer/SequencerPanel.hpp"
+#include <Engine/Animation/Timeline/Hosts.hpp>
 #include "Editor/Panels/Build/BuildSettingsPanel.hpp"
 #include "Editor/Panels/Build/ContentChunksPanel.hpp"
 #include "Editor/Packaging/ProjectChunkScheme.hpp"
@@ -179,7 +181,6 @@
 #include "Editor/Panels/TextureViewer/TextureViewerDocument.hpp"
 #include "Editor/Panels/Clouds/CloudTypePanel.hpp"
 #include "Editor/Panels/Clouds/CloudsPanel.hpp"
-#include "Editor/Panels/Animation/AnimLayersPanel.hpp"
 #include "Editor/Panels/Animation/ControlRigPanel.hpp"
 #include "Editor/Core/Selection/AuthoringContext.hpp"
 #include "Editor/Core/ToastManager.hpp"
@@ -220,6 +221,7 @@
 #include <Engine/ECS/System/AnimationECSSystem.hpp>
 #include <Engine/ECS/System/AttachmentSystem.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
+#include <Engine/ECS/System/LevelSequenceSystem.hpp>
 #include <Engine/ECS/System/LocomotionSystem.hpp>
 #include <Engine/ECS/System/ScriptSystem.hpp>
 #include <Engine/ECS/System/AudioECSSystem.hpp>
@@ -930,7 +932,6 @@ namespace Desert::Editor
         m_Panels.Add<Editor::PhotogrammetryPanel>( m_MainScene, m_AssetManager.get() );
         m_Panels.Add<Editor::AssetReferencesPanel>( m_MainScene, m_AssetManager );
         m_Panels.Add<Editor::LuaConsolePanel>( m_MainScene.get(), m_AssetManager.get() );
-        m_Panels.Add<Editor::AnimLayersPanel>( m_MainScene, m_AnimationLibrary.get() );
         m_Panels.Add<Editor::ControlRigPanel>( m_MainScene );
         m_Panels.Add<Editor::BuildSettingsPanel>();
         m_Panels.Add<Editor::ContentChunksPanel>();
@@ -1243,6 +1244,29 @@ namespace Desert::Editor
                            [this]( const SubjectId& subject )
                            { return EntityHasComponent<ECS::UIAnimComponent>( subject.Owner ); } } );
 
+        // THE LEVEL SEQUENCE (ANIM-LSEQ) — UE: double-clicking a Level Sequence opens the Sequencer over it.
+        // Its subject is the ASSET; the scene it previews is the main scene, given back when it closes.
+        m_SubjectEditors.Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::LevelSequence ) ),
+             Registration{ "LevelSequence", ICON_MDI_MOVIE_OPEN,
+                           [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                           {
+                               const auto* meta = m_AssetManager ? m_AssetManager->FindMetadataByHandle(
+                                                                        Assets::AssetHandle( subject.Owner ) )
+                                                                 : nullptr;
+                               return std::make_unique<Editor::SequencerPanel>(
+                                    subject,
+                                    meta != nullptr ? meta->Filepath.stem().string()
+                                                    : std::string( "Level Sequence" ),
+                                    Editor::SequencerPanel::Timeline::Level, m_MainScene, m_AnimationLibrary.get(),
+                                    m_AssetManager.get() );
+                           },
+                           [this]( const SubjectId& subject )
+                           {
+                               return m_AssetManager && m_AssetManager->FindMetadataByHandle(
+                                                             Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                           } } );
+
         // ── AND HOW A PATH BECOMES ONE OF THEM ────────────────────────────────────────────────────────
         //
         // The asset browser's double-click used to carry a chain of `else if` over the file types, one arm
@@ -1296,6 +1320,9 @@ namespace Desert::Editor
                      return sky;
                  return RequestTextureDocument( m_AssetManager.get(), path, m_SubjectEditors );
              } );
+        m_SubjectEditors.RegisterPathOpener(
+             { std::string( Animation::Timeline::kLevelSequenceExtension ) }, [this]( const std::string& path )
+             { return Editor::RequestLevelSequenceDocument( m_AssetManager.get(), path, m_SubjectEditors ); } );
         m_SubjectEditors.RegisterPathOpener(
              { std::string( Common::Constants::Extensions::STATIC_MESH ) }, [this]( const std::string& path )
              { return RequestStaticMeshDocument( m_AssetManager.get(), path, m_SubjectEditors ); } );
@@ -3047,6 +3074,9 @@ namespace Desert::Editor
         // (mechanism vs behaviour); runs after it so it reads this frame's state.
         scene.AddSystem<ECS::LocomotionSystem>( &scene );
         scene.AddSystem<ECS::AudioECSSystem>( &scene );
+        // Level sequences play last: a keyed Transform wins over this frame's physics and locomotion (UE
+        // evaluates sequences after the actors' own tick).
+        scene.AddSystem<ECS::LevelSequenceSystem>( &scene, m_AssetManager.get() );
     }
 
     Common::BoolResultStr EditorLayer::UpdateSceneFrame( Desert::Core::Scene&    scene,
@@ -4722,6 +4752,17 @@ namespace Desert::Editor
                                                            std::filesystem::path( subject.OrbitFile ), step ) } );
             }
         }
+
+        // Asset creation, the Assets window's context menu as commands (UE "Add Level Sequence"). Offered
+        // whether or not the window exists: the refusal says why, where a missing entry would not.
+        for ( PaletteCommand& command : ContentCreatePaletteCommands(
+                   [this]
+                   {
+                       if ( m_FileExplorerPanel == nullptr )
+                           return Common::MakeError( "New Level Sequence: the Assets window does not exist" );
+                       return m_FileExplorerPanel->CreateNewLevelSequence();
+                   } ) )
+            commands.push_back( std::move( command ) );
 
         // Maximize any panel that sits in a dock now; restore the maximized one.
         {

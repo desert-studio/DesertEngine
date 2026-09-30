@@ -52,6 +52,10 @@ namespace Desert::Editor
         /// type above.
         LandscapeLayerInfo,
 
+        /// A level sequence (`.dseq`, UE ULevelSequence): its own type so the browser can colour it, give it
+        /// an icon and filter by it; no producer draws its picture (UE shows the class icon too).
+        LevelSequence,
+
         /// An import settings sidecar (`.deimport`) written beside a source file by the importer: it states
         /// HOW the source is brought in, so the browser names it instead of calling it Unknown.
         ImportSettings,
@@ -143,6 +147,7 @@ namespace Desert::Editor
          { "decloudtype", FileType::Cloud },
          { "detheme", FileType::UITheme },
          { "delayerinfo", FileType::LandscapeLayerInfo },
+         { "dseq", FileType::LevelSequence },
          { "deimport", FileType::ImportSettings },
          { "skmesh", FileType::SkinnedMesh },
          { "skeleton", FileType::Skeleton },

@@ -41,6 +41,7 @@
 *.skmesh       -text
 *.derig        -text
 *.danimgraph   -text
+*.dseq         -text
 *.retarget     -text
 *.decloudtype  -text
 *.dclayout     -text

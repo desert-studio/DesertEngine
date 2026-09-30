@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/UI/UIAnimationPlayback.hpp>
 #include <Engine/UI/UIDataStore.hpp>
 #include <Engine/UI/UILayout.hpp>
 #include <Engine/UI/UIMaterialSource.hpp>
@@ -310,11 +311,15 @@ namespace Desert::UI
         // not the one that draws the frame.
         bool AuthoringLastFrame = false;
 
-        // Does this view drive the scene's SHARED animation playheads (UIAnimComponent::Data::Time)? That
+        // Does this view drive the scene's SHARED animation playheads (UIAnimComponent::Data::Playback)? That
         // one clock lives in the component on purpose — the Sequencer scrubs it — so it is scene state, not
         // view state, and exactly one view may advance it. A second view advancing it too runs every UIAnim
         // clip at double speed. The authoring preview sets this false; the viewport / game keeps it true.
         bool DrivesSceneAnimation = true;
+
+        // What the scene's UI clips add to each element THIS frame, as this view evaluated them
+        // (UIAnimationPlayback.hpp). Filled once in BeginUIFrame, read by every canvas walk of the frame.
+        UIClipFrame AnimClips;
 
         // --- Hit testing ------------------------------------------------------------------------------
         // The frame elects a single HOT element (last writer in draw order = topmost) and controls compare
@@ -481,6 +486,7 @@ namespace Desert::UI
             OverlayHoverTrigger    = entt::null;
             OverlayHoverHeld       = 0.0f;
             PrevRightDown          = false;
+            AnimClips.Reset();
         }
 
     private:

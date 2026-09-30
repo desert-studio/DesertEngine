@@ -36,7 +36,7 @@ namespace
 TEST( SceneUndeclaredKeysMigration, VersionIsTheGenerationBeforeHead )
 {
     EXPECT_EQ( Migration::kSceneVersionNoUndeclaredKeys, 39 );
-    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionNoUndeclaredKeys + 1 );
+    EXPECT_EQ( Migration::kSceneVersionPlayerViewFlag, Migration::kSceneVersionNoUndeclaredKeys + 1 );
 }
 
 TEST( SceneUndeclaredKeysMigration, ToggleOnGoesAndValueStays )
