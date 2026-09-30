@@ -261,7 +261,6 @@ namespace Desert::Animation::Timeline
                 return Common::MakeFormattedError<bool>( "binding {} '{}': {}", index,
                                                          sequence.Bindings[index].Label, why );
             };
-            size_t widgets = 0;
             for ( size_t i = 0; i < sequence.Bindings.size(); ++i )
             {
                 const Binding& binding = sequence.Bindings[i];
@@ -289,10 +288,8 @@ namespace Desert::Animation::Timeline
                     return fail( i, std::format( "a {} cannot hold a {} binding", ToString( sequence.Host ),
                                                  ToString( binding.Kind ) ) );
                 }
-                if ( binding.Kind == BindingKind::Widget && ++widgets > 1 )
-                {
-                    return fail( i, "a UI clip binds one widget: the element that owns it" );
-                }
+                // Any number of Widget bindings (UE's UWidgetAnimation binds any widget of its tree): that each
+                // lies inside the owner's tree is the UI host's Resolve, and a stray one lands in ApplyReport.
                 if ( sequence.Host == SequenceHost::AnimationClip && binding.Kind == BindingKind::Bone )
                 {
                     for ( size_t j = 0; j < i; ++j )

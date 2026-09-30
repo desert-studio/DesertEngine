@@ -71,4 +71,4 @@ namespace TimelineFixtures
         sequence.Tracks.push_back( std::move( track ) );
         return sequence;
     }
-    } // namespace TimelineFixtures
+} // namespace TimelineFixtures

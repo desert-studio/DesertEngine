@@ -1,478 +1,38 @@
 #pragma once
 
-#include <Engine/Animation/ClipSection.hpp>
-#include <Engine/Animation/KeyInterpolation.hpp>
-#include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/TimeModel.hpp>
+#include <Engine/Animation/Timeline/Sequence.hpp>
 
-#include <glm/glm.hpp>
-#define GLM_ENABLE_EXPERIMENTAL
-#include <glm/gtx/quaternion.hpp>
-#include <glm/gtx/compatibility.hpp>
-
-#include <algorithm>
+#include <cstdint>
 #include <string>
-#include <string_view>
-#include <vector>
 
 namespace Desert::Animation
 {
-    // A KEY SITS ON A TICK, NOT AT A FLOAT NUMBER OF SECONDS. `float Time` used to live here, and the
-    // ordering predicates below were the whole reason it hurt: `lower_bound` over floats decides which two
-    // keys bracket the playhead, so "the playhead is exactly on this key" depended on two float paths
-    // producing bit-identical values. On the tick grid the comparison is an integer one.
-    struct PositionKeyFrame
-    {
-        FrameNumber Tick;
-        glm::vec3   Position = glm::vec3( 0.0f );
-
-        /// The shape of the segment ENDING at this key, and the slopes that shape it. The convention that
-        /// the later key owns the rule is taken from `UIAnimKey::Easing` rather than invented beside it.
-        KeyInterp   Interp        = KeyInterp::Linear;
-        TangentMode Mode          = TangentMode::Auto;
-        glm::vec3   ArriveTangent = glm::vec3( 0.0f ); // value units per SECOND, one per component
-        glm::vec3   LeaveTangent  = glm::vec3( 0.0f );
-        glm::vec3   ArriveWeight  = glm::vec3( 0.0f ); // RESERVED: unweighted ships first (§969)
-        glm::vec3   LeaveWeight   = glm::vec3( 0.0f );
-
-        bool operator<( const PositionKeyFrame& other ) const
-        {
-            return Tick < other.Tick;
-        }
-        bool operator<( FrameNumber tick ) const
-        {
-            return Tick < tick;
-        }
-    };
-
-    struct RotationKeyFrame
-    {
-        FrameNumber Tick;
-        glm::quat   Rotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
-
-        /// NO TANGENTS, and the reason is the maths: a cubic through quaternions leaves the unit sphere,
-        /// and the curve that does not is `squad`, which is a different construction. `Constant` and
-        /// `Linear` are both meaningful for a rotation, and holding a pose is what `Constant` is for.
-        KeyInterp Interp = KeyInterp::Linear;
-
-        bool operator<( const RotationKeyFrame& other ) const
-        {
-            return Tick < other.Tick;
-        }
-        bool operator<( FrameNumber tick ) const
-        {
-            return Tick < tick;
-        }
-    };
-
-    struct ScaleKeyFrame
-    {
-        FrameNumber Tick;
-        glm::vec3   Scale = glm::vec3( 1.0f );
-
-        KeyInterp   Interp        = KeyInterp::Linear;
-        TangentMode Mode          = TangentMode::Auto;
-        glm::vec3   ArriveTangent = glm::vec3( 0.0f );
-        glm::vec3   LeaveTangent  = glm::vec3( 0.0f );
-        glm::vec3   ArriveWeight  = glm::vec3( 0.0f );
-        glm::vec3   LeaveWeight   = glm::vec3( 0.0f );
-
-        bool operator<( const ScaleKeyFrame& other ) const
-        {
-            return Tick < other.Tick;
-        }
-        bool operator<( FrameNumber tick ) const
-        {
-            return Tick < tick;
-        }
-    };
-
-    // THE BONE NAME IS THE ONLY BINDING KEY. A `uint32_t BoneIndex` used to sit beside it, uninitialised, and
-    // Animator::ResolveTrack has never once read it — it builds name -> track and binds by name, because a
-    // clip and the character it drives come from different files with different bone orders. The index was a
-    // second answer to a question only the name answers, and the Sequencer's "New Clip" left it unset all the
-    // way into the .anim file.
-    struct BoneTrack
-    {
-        std::string BoneName;
-
-        std::vector<PositionKeyFrame> PositionKeys;
-        std::vector<RotationKeyFrame> RotationKeys;
-        std::vector<ScaleKeyFrame>    ScaleKeys;
-
-        /**
-         * @brief The track's value at `animationTime`, in the three quantities it is stored in.
-         *
-         * THE MATRIX IS GONE FROM THE MIDDLE. This used to be `GetTransform`, composing the interpolated
-         * P/R/S into a mat4 — which `Animator::SampleLocalTransform` handed on and layer composition
-         * immediately decomposed again, twice per bone per layer. A round trip with no consumer of the
-         * matrix in it, on the hottest path the animation system has.
-         */
-        /// THE TICK RATE IS AN ARGUMENT, and it has to be: a tangent is value-per-second, so turning one
-        /// into a position inside a segment needs to know how long that segment is in seconds. The track
-        /// does not own the rate — the clip does — so it is passed rather than duplicated here.
-        [[nodiscard]] BoneTransform Sample( FrameTime at, FrameRate tickRate ) const
-        {
-            BoneTransform out;
-            out.Translation = GetInterpolatedPosition( at, tickRate );
-            out.Rotation    = GetInterpolatedRotation( at );
-            out.Scale       = GetInterpolatedScale( at, tickRate );
-            return out;
-        }
-
-        /// True when the track carries anything at all. A track with three empty channels is a name with no
-        /// animation behind it, and the pose it would produce is the bind pose — which the caller already
-        /// has, and which is why every sampler checked this before reading.
-        [[nodiscard]] bool HasKeys() const
-        {
-            return !PositionKeys.empty() || !RotationKeys.empty() || !ScaleKeys.empty();
-        }
-
-        [[nodiscard]] glm::vec3 GetInterpolatedPosition( FrameTime at, FrameRate tickRate ) const
-        {
-            if ( PositionKeys.empty() )
-            {
-                return glm::vec3( 0.0f );
-            }
-            if ( PositionKeys.size() == 1 )
-            {
-                return PositionKeys[0].Position;
-            }
-
-            // The bracketing pair is found by INTEGER comparison on the tick; only the fraction between
-            // them is a float, and it is bounded by one key interval rather than by the clip's length.
-            const auto it = std::lower_bound( PositionKeys.begin(), PositionKeys.end(), at.Frame );
-
-            if ( it == PositionKeys.begin() )
-            {
-                return PositionKeys.front().Position;
-            }
-            if ( it == PositionKeys.end() )
-            {
-                return PositionKeys.back().Position;
-            }
-
-            const auto prev = it - 1;
-            const auto next = it;
-
-            const auto span = static_cast<double>( next->Tick.Value - prev->Tick.Value );
-            if ( span <= 0.0 )
-            {
-                // Two keys on the same tick. On floats this was a divide by zero producing an infinity or
-                // a NaN that flowed into the pose; on the tick grid it is a state the file can hold and
-                // the answer is the later key, which is what a sampler at that tick means.
-                return next->Position;
-            }
-            const auto factor = static_cast<float>( ( at.AsTicks() - prev->Tick.Value ) / span );
-
-            // ONE CALL PER COMPONENT, and no temporary channel built to make them: a tangent is a slope
-            // and a slope is a scalar, which is also why UE stores a transform control as nine scalar
-            // channels rather than three vector ones.
-            const double spanSeconds =
-                 span * static_cast<double>( tickRate.Denominator ) / static_cast<double>( tickRate.Numerator );
-            glm::vec3 out;
-            for ( int c = 0; c < 3; ++c )
-            {
-                out[c] = EvaluateSegment( prev->Position[c], prev->LeaveTangent[c], next->Position[c],
-                                          next->ArriveTangent[c], next->Interp, spanSeconds, factor );
-            }
-            return out;
-        }
-
-        [[nodiscard]] glm::quat GetInterpolatedRotation( FrameTime at ) const
-        {
-            if ( RotationKeys.empty() )
-            {
-                return glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
-            }
-            if ( RotationKeys.size() == 1 )
-            {
-                return RotationKeys[0].Rotation;
-            }
-
-            // The bracketing pair is found by INTEGER comparison on the tick; only the fraction between
-            // them is a float, and it is bounded by one key interval rather than by the clip's length.
-            const auto it = std::lower_bound( RotationKeys.begin(), RotationKeys.end(), at.Frame );
-
-            if ( it == RotationKeys.begin() )
-            {
-                return RotationKeys.front().Rotation;
-            }
-            if ( it == RotationKeys.end() )
-            {
-                return RotationKeys.back().Rotation;
-            }
-
-            const auto prev = it - 1;
-            const auto next = it;
-
-            const auto span = static_cast<double>( next->Tick.Value - prev->Tick.Value );
-            if ( span <= 0.0 )
-            {
-                // Two keys on the same tick. On floats this was a divide by zero producing an infinity or
-                // a NaN that flowed into the pose; on the tick grid it is a state the file can hold and
-                // the answer is the later key, which is what a sampler at that tick means.
-                return next->Rotation;
-            }
-            const auto factor = static_cast<float>( ( at.AsTicks() - prev->Tick.Value ) / span );
-
-            // CONSTANT OR SLERP, and there is no third branch to add later without adding `squad` with
-            // it. A rotation key states its shape like every other key; `Cubic` is refused where a clip
-            // is BUILT (AnimationClipBuild), so it cannot reach here and be quietly treated as linear.
-            if ( next->Interp == KeyInterp::Constant )
-            {
-                return prev->Rotation;
-            }
-            return glm::slerp( prev->Rotation, next->Rotation, factor );
-        }
-
-        [[nodiscard]] glm::vec3 GetInterpolatedScale( FrameTime at, FrameRate tickRate ) const
-        {
-            if ( ScaleKeys.empty() )
-            {
-                return glm::vec3( 1.0f );
-            }
-            if ( ScaleKeys.size() == 1 )
-            {
-                return ScaleKeys[0].Scale;
-            }
-
-            // The bracketing pair is found by INTEGER comparison on the tick; only the fraction between
-            // them is a float, and it is bounded by one key interval rather than by the clip's length.
-            const auto it = std::lower_bound( ScaleKeys.begin(), ScaleKeys.end(), at.Frame );
-
-            if ( it == ScaleKeys.begin() )
-            {
-                return ScaleKeys.front().Scale;
-            }
-            if ( it == ScaleKeys.end() )
-            {
-                return ScaleKeys.back().Scale;
-            }
-
-            const auto prev = it - 1;
-            const auto next = it;
-
-            const auto span = static_cast<double>( next->Tick.Value - prev->Tick.Value );
-            if ( span <= 0.0 )
-            {
-                // Two keys on the same tick. On floats this was a divide by zero producing an infinity or
-                // a NaN that flowed into the pose; on the tick grid it is a state the file can hold and
-                // the answer is the later key, which is what a sampler at that tick means.
-                return next->Scale;
-            }
-            const auto factor = static_cast<float>( ( at.AsTicks() - prev->Tick.Value ) / span );
-
-            // ONE CALL PER COMPONENT, and no temporary channel built to make them: a tangent is a slope
-            // and a slope is a scalar, which is also why UE stores a transform control as nine scalar
-            // channels rather than three vector ones.
-            const double spanSeconds =
-                 span * static_cast<double>( tickRate.Denominator ) / static_cast<double>( tickRate.Numerator );
-            glm::vec3 out;
-            for ( int c = 0; c < 3; ++c )
-            {
-                out[c] = EvaluateSegment( prev->Scale[c], prev->LeaveTangent[c], next->Scale[c],
-                                          next->ArriveTangent[c], next->Interp, spanSeconds, factor );
-            }
-            return out;
-        }
-    };
-
-    // Animation notify / event: a named marker at a time (same unit as Duration / key times). Fires once when
-    // playback crosses it; the Animator queues crossed notifies and the ECS dispatches them to scripts.
-    struct AnimationNotify
-    {
-        std::string Name;
-        FrameNumber Tick;
-        // The notify track (row) it is drawn on in the Animation Editor, UE's Notify Tracks. Authoring-only:
-        // playback fires by tick, whatever the row.
-        int32_t Track = 0;
-        // UE's UAnimNotifyState is the same marker with a LENGTH, so it is one field here and not a second
-        // list: 0 is an instant notify (fires once), more is a state active on [Tick, Tick + DurationTicks)
-        // that Begins when playback enters that span and Ends when it leaves it.
-        FrameNumber DurationTicks;
-
-        [[nodiscard]] bool IsState() const
-        {
-            return DurationTicks.Value > 0;
-        }
-    };
-
-    /// Whether a notify STATE is active at @p at ticks. Half-open [Tick, Tick + Duration), so the Begin
-    /// tick agrees with NotifyCrossed's (before, after] (a state starting where an instant notify sits
-    /// begins on the frame that notify fires) and a state reaching the clip's end ends when a
-    /// non-looping clip stops there.
-    [[nodiscard]] inline bool NotifyStateActiveAt( const AnimationNotify& notify, const double at )
-    {
-        const auto begin = static_cast<double>( notify.Tick.Value );
-        return notify.IsState() && at >= begin && at < begin + static_cast<double>( notify.DurationTicks.Value );
-    }
-
-    /// What one notify did during a step of playback: UE's Notify (instant) / NotifyBegin / NotifyEnd.
-    enum class NotifyEventKind : uint8_t
-    {
-        Fire,
-        Begin,
-        End,
-    };
-
-    struct NotifyEvent
-    {
-        std::string     Name;
-        NotifyEventKind Kind = NotifyEventKind::Fire;
-
-        bool operator==( const NotifyEvent& ) const = default;
-    };
-
     /**
-     * @brief Advance a clip's notify states from @p before to @p after ticks and append the events.
+     * @brief A skeletal animation clip: its identity and ONE `Timeline::Sequence` (Host = AnimationClip).
      *
-     * @p active is the list of states active at @p before, BY VALUE (name, tick, duration) and not by
-     * index: an edit to the notify list between two steps then Ends the state that was edited away and
-     * Begins the one that replaced it, instead of an index silently pointing at a different notify.
-     *
-     * Ends come first, then Begins and instant Fires in notify order. With @p forwardPlayback the
-     * (before, after] interval is swept too, so an instant notify fires and a state shorter than the
-     * frame still reports Begin + End; without it (a scrub, reverse playback) only the difference of the
-     * two active sets is reported and instant notifies stay silent — a scrub is not playback.
+     * UE's shape: a UAnimSequence keeps its data in one place (IAnimationDataModel) and everything else
+     * reads it from there. Here that place is `Sequence` — Bone bindings with Transform tracks, a Sequence
+     * binding with the named Float curves and one Event track (the notifies), each track cut into Sections
+     * (Timeline/Hosts.hpp). The clip restates none of it: its length, tick rate and display rate are the
+     * sequence's (`Sequence.End`, `TickRate`, `DisplayRate`); the per-bone `Tracks`, `Curves`, `Notifies`
+     * and `Sections` of generation 3 are gone, lifted once in the files by Tools/SceneMigrator.
      */
-    void StepNotifyStates( const std::vector<AnimationNotify>& notifies, std::vector<AnimationNotify>& active,
-                           double before, double after, bool forwardPlayback, bool looped,
-                           std::vector<NotifyEvent>& out );
-
-    /**
-     * @brief A named float curve carried by a clip: UE's FFloatCurve. The keys are the scalar keys every
-     *        other channel here uses, with their Constant / Linear / Cubic interpolation.
-     */
-    struct AnimationCurve
-    {
-        std::string            Name;
-        std::vector<ScalarKey> Keys; // sorted by tick
-
-        /// The value at @p at. Held flat before the first key and after the last, like UE's default
-        /// extrapolation. A curve with no keys has no value: callers ask the clip, which refuses by name.
-        [[nodiscard]] float Evaluate( FrameTime at, FrameRate tickRate ) const;
-    };
-
-    /**
-     * @brief Whether playback that moved from tick @p before to tick @p after crossed a notify at @p at.
-     *
-     * The covered interval is (before, after]; on a loop wrap it is (before, duration) then [0, after]. One
-     * frame is assumed not to skip a whole loop. ONE RULE, TWO CONSUMERS: the Animator fires by it and the
-     * Animation Editor lights a notify by it, so the marker that flashes is the one a script heard.
-     */
-    [[nodiscard]] inline bool NotifyCrossed( const double at, const double before, const double after,
-                                             const bool looped )
-    {
-        return looped ? ( at > before || at <= after ) : ( at > before && at <= after );
-    }
-
     class AnimationClip
     {
     public:
         std::string AnimationName;
 
-        /// Length of the clip, in ticks on `TickRate`'s grid.
-        FrameNumber DurationTicks;
-
-        /// The resolution the keys are counted at, and the grid an artist edits on. TWO numbers, because
-        /// they answer two questions — see TimeModel.hpp. `TicksPerSecond`, a float that every shipped
-        /// clip set to 1.0 so that "tick" meant "second", is what they replace.
-        FrameRate TickRate    = PROJECT_TICK_RATE;
-        FrameRate DisplayRate = DEFAULT_DISPLAY_RATE;
-        // 0 = "no rig claimed", and it needed an initialiser: a default-constructed clip read back
-        // whatever was on the heap, and this number is what the animation system matches a skeleton on —
-        // so an unset one does not fail to match, it matches something arbitrary. Its neighbours all had
-        // one; this field was the exception.
+        // 0 = "no rig claimed", and it needs an initialiser: this number is what the animation system matches a
+        // skeleton on, so an unset one would not fail to match — it would match something arbitrary.
         uint64_t SkeletonSignature = 0;
 
-        // Named tracks, in the order the source file listed them. THIS IS NOT INDEXED BY BONE: it used to be
-        // scattered by a serialised bone index, which left unnamed holes wherever the source rig was sparse
-        // and made the vector's length a property of the exporter. Playback resolves by name
-        // (Animator::ResolveTrack), so position here means nothing and is not allowed to pretend otherwise.
-        std::vector<BoneTrack> Tracks;
+        Timeline::Sequence Sequence = MakeClipSequence();
 
-        /**
-         * @brief Bumped whenever `Tracks` is REPLACED. The only honest key for a per-clip track cache.
-         *
-         * The address of the vector's storage is not one, and believing it was left a real hole in
-         * `Animator::TrackBinding`: an unload frees a one-element track list and the reload allocates
-         * another of the same size, so malloc hands back the identical block and BOTH `Tracks.data()` and
-         * `Tracks.size()` come out unchanged across a complete replacement. The cache then kept a binding
-         * built against the OLD list — bone names mapped to the wrong tracks, and a bone the new list
-         * animates mapped to nothing at all. It is not a crash (the binding now stores indices, so it
-         * cannot dangle) and that is exactly why it would have gone unnoticed: a character that plays the
-         * wrong track after an eviction looks like bad animation data.
-         *
-         * NOT SERIALIZED: it describes this process's copy of the list, not the file.
-         */
-        uint32_t TrackRevision = 0;
-
-        std::vector<AnimationNotify> Notifies; // sorted-by-tick markers fired during playback
-
-        /// Anim curves (UE: the clip's float curves), read by name through Animator::GetCurveValue.
-        std::vector<AnimationCurve> Curves;
-
-        [[nodiscard]] const AnimationCurve* FindCurve( std::string_view name ) const
+        /// Length of the clip in ticks on `Sequence.TickRate` — the sequence's playback range, [Start, End].
+        [[nodiscard]] FrameNumber DurationTicks() const
         {
-            const auto it = std::find_if( Curves.begin(), Curves.end(),
-                                          [name]( const AnimationCurve& curve ) { return curve.Name == name; } );
-            return it != Curves.end() ? &*it : nullptr;
-        }
-
-        /**
-         * @brief The clip's sections. EMPTY IS LEGAL AND MEANS "one Absolute section at full weight".
-         *
-         * Every `.anim` of generation 3 states at least one; empty is what an in-memory clip built by an
-         * importer or a test has, and it is the IDENTITY of the section blend rather than a second answer
-         * beside it — `SampleTrack` below returns the authored value in both cases, and the suite pins
-         * that the two are bit-identical rather than trusting this sentence.
-         */
-        std::vector<ClipSection> Sections;
-
-        /**
-         * @brief The section speaking for @p track at @p at, or null when none does.
-         *
-         * THE LATER SECTION WINS. Two sections covering one track at one tick are two statements about a
-         * single stored value, and there is no composition to do because they share this clip's flat
-         * `Tracks` list — see ClipSection.hpp for why real layering is the format step after this one.
-         */
-        [[nodiscard]] const ClipSection* SectionFor( const std::string& trackName, FrameNumber at ) const
-        {
-            const ClipSection* found = nullptr;
-            for ( const ClipSection& section : Sections )
-            {
-                if ( section.Covers( at ) && section.Speaks( trackName ) )
-                {
-                    found = &section;
-                }
-            }
-            return found;
-        }
-
-        /**
-         * @brief The track's value at @p at AS THE CLIP'S SECTIONS SAY IT REACHES THE POSE.
-         *
-         * THE ONE SEAM. `BoneTrack::Sample` answers "what does this curve say"; this answers "what does
-         * the clip put on the bone", and those stopped being the same question the moment a section could
-         * carry a blend type. Playback calls this one (`Animator::SampleLocalTransform`); the curve view
-         * and the keyer call `Sample`, because they are editing the curve and not watching the character.
-         *
-         * @param reference what an unanimated bone would hold — see `ApplySection`.
-         */
-        [[nodiscard]] BoneTransform SampleTrack( const BoneTrack& track, FrameTime at,
-                                                 const BoneTransform& reference ) const
-        {
-            const BoneTransform authored = track.Sample( at, TickRate );
-            const ClipSection*  section  = SectionFor( track.BoneName, at.Frame );
-            if ( section == nullptr )
-            {
-                // NO SECTION SPEAKS FOR IT, so nothing has said what its value means and the only honest
-                // reading is the one the format had before sections existed. This is also the path every
-                // sectionless in-memory clip takes, which is why it must return `authored` itself.
-                return authored;
-            }
-            return ApplySection( *section, authored, reference, section->WeightAt( at, TickRate ) );
+            return FrameNumber{ Sequence.End.Value - Sequence.Start.Value };
         }
 
         /// The clip's length in seconds, for the callers whose question really is about seconds — a
@@ -480,7 +40,16 @@ namespace Desert::Animation
         /// Derived rather than stored: a second copy of the length is a second answer to it.
         [[nodiscard]] double DurationSeconds() const
         {
-            return FrameTimeToSeconds( FrameTime{ DurationTicks, 0.0F }, TickRate );
+            return FrameTimeToSeconds( FrameTime{ DurationTicks(), 0.0F }, Sequence.TickRate );
+        }
+
+        /// An empty sequence that already states it belongs to a clip (Validate refuses a clip host's
+        /// sequence carrying anything a `.anim` may not).
+        [[nodiscard]] static Timeline::Sequence MakeClipSequence()
+        {
+            Timeline::Sequence sequence;
+            sequence.Host = Timeline::SequenceHost::AnimationClip;
+            return sequence;
         }
     };
 } // namespace Desert::Animation

@@ -57,6 +57,8 @@
 #include "SceneMigration.hpp"
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include "SettingsCanonical.hpp"
+#include "ClipMigration.hpp"
+#include <Engine/Assets/Serialization/Animation.hpp>
 
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
@@ -973,6 +975,38 @@ namespace Desert::Migration
             {
                 err << "FAIL   " << path.string() << " — unreadable or empty\n";
                 ++failed;
+                continue;
+            }
+            // ANIM v4 -> v5 (ANIM-I8a): generation 3 is lifted to the TMLN body, proved, and rewritten.
+            if ( const auto stated = ReadStatedVersion( path, source, "ANIM" );
+                 stated && stated.GetValue() == Desert::Assets::Serialization::kAnimationLastChannelsVersion )
+            {
+                const auto lifted = Desert::Migration::MigrateClipGeneration3( source );
+                if ( !lifted )
+                {
+                    err << "FAIL   " << path.string() << " — " << lifted.GetError() << "\n";
+                    ++failed;
+                    continue;
+                }
+                const auto& o = lifted.GetValue();
+                const std::string what =
+                     std::format( "ANIM v4 -> v{} (TMLN): {} bone tracks, {} curves, {} notifies, {} sections, "
+                                  "{} ticks proved bit for bit",
+                                  Desert::Assets::kAnimationSchemaVersion, o.BoneTracks, o.Curves, o.Notifies,
+                                  o.Sections, o.TicksProved );
+                if ( check )
+                {
+                    out << "stale  " << path.string() << " — would lift " << what << "\n";
+                    ++relaid;
+                    continue;
+                }
+                if ( !WriteText( path, o.Text, err ) )
+                {
+                    ++failed;
+                    continue;
+                }
+                out << "lifted " << path.string() << " — " << what << "\n";
+                ++relaid;
                 continue;
             }
             if ( !PassesTextHeaderGate( *TextHeaderGateFor( path ), path, source, err ) )

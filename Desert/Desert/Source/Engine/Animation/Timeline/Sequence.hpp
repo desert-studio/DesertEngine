@@ -20,8 +20,9 @@
  *
  * ── SERIALIZATION ─────────────────────────────────────────────────────────────────────────────────────
  *
- * One binary block, subsystem `TMLN` version `kTimelineFormatVersion`, carried inside each host's asset
- * envelope (`.anim` → its AnimationAssetData, UI → the widget asset, `.dseq` → its own envelope). ONE
+ * One TEXT block — a canonical JSON document (Common/Content/CanonicalText.hpp) whose header states
+ * subsystem `TMLN` version `kTimelineFormatVersion` — nested inside each host's text asset (`.anim` → its
+ * AnimationAssetData `Sequence` member, UI → the widget asset, `.dseq` → its own document). ONE
  * writer and ONE reader for all three hosts: a format a host writes by hand is a second format. Integers
  * for every enum (their orders are append-only), GUIDs as 128 bits, keys as the ScalarKey fields in
  * declaration order including the reserved weights.
@@ -90,7 +91,8 @@ namespace Desert::Animation::Timeline
      */
     [[nodiscard]] Common::BoolResultStr Validate( const Sequence& sequence );
 
-    [[nodiscard]] std::vector<uint8_t> WriteSequence( const Sequence& sequence );
+    /// Refuses (by name) when the canonical layout of its own output fails — never writes an error text as data.
+    [[nodiscard]] Common::ResultStr<std::vector<uint8_t>> WriteSequence( const Sequence& sequence );
     /// Refuses a newer version than this build knows, and bytes that end early, by name. Validates.
     [[nodiscard]] Common::ResultStr<Sequence> ReadSequence( std::span<const uint8_t> bytes );
 } // namespace Desert::Animation::Timeline

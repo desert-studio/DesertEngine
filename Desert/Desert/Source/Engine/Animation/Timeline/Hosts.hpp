@@ -13,7 +13,8 @@
  * END STATE: `AnimationClip` keeps its identity fields (name, SkeletonSignature) and holds ONE
  * `Timeline::Sequence Sequence` (Host = AnimationClip). `Tracks`, `Curves`, `Notifies` and `Sections`
  * are deleted; `DurationTicks`/`TickRate`/`DisplayRate` are the sequence's. `.anim` generation 4 stores
- * the `TMLN` block; generation 3 is lifted by `LiftClip` in the migrator and never read again.
+ * the `TMLN` block (as ANIM v5); generation 3 (ANIM v4) is lifted by `LiftClip` in Tools/SceneMigrator
+ * and never read again.
  *
  *   BoneTrack "Hand_L"          → Binding{Bone, "Hand_L"} + Track{Transform, ""}
  *   AnimationCurve "Footstep"   → Track{Sequence binding, "Footstep", Float}
@@ -51,10 +52,6 @@
 #include <cstdint>
 #include <string_view>
 
-namespace Desert::Animation
-{
-    class AnimationClip;
-}
 namespace Desert::ECS
 {
     struct UIAnimData;
@@ -66,15 +63,8 @@ namespace Desert::Animation::Timeline
     inline constexpr std::string_view kLevelSequenceExtension = ".dseq";
     inline constexpr std::string_view kLevelSequenceKind      = "LevelSequence";
 
-    /**
-     * @brief `.anim` generation 3 → the clip's sequence. LOSSLESS: refuses rather than drops.
-     *
-     * Refuses by name: two BoneTracks with one bone name; a ClipSection naming a track the clip lacks.
-     * Acceptance: for every bone track and every tick in [0, Duration] (and a sub-tick between each),
-     * `EvaluatePose` on the result equals `BoneTrack::Sample` on the source BIT FOR BIT; every curve
-     * equals `AnimationCurve::Evaluate`; every notify fires on the same step.
-     */
-    [[nodiscard]] Common::ResultStr<Sequence> LiftClip( const AnimationClip& generation3 );
+    // `LiftClip` (generation 3 → sequence) lives in Tools/SceneMigrator (ClipGeneration3.hpp): the engine
+    // reads no generation 3, so the lift is the migrator's alone (ANIM-I8a).
 
     struct UILiftReport
     {

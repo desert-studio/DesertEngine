@@ -1,6 +1,6 @@
 // THE TIMELINE CORE'S CONTRACT, group 3 without the fold: WeightAt, AddSection, Find*, Validate and the
 // host's restrictions (ANIM-I23: Section/Track/Sequence.cpp). The fold itself needs the Evaluator (I6) and
-// waits in timeline_contract_test.cpp.
+// lives in timeline_evaluator_test.cpp.
 
 #include "TimelineFixtures.hpp"
 
@@ -73,6 +73,9 @@ TEST( TimelineSequence, TheHostRestrictsWhatASequenceMayHold )
     Sequence ui = clip;
     ui.Host     = SequenceHost::UIAnimation;
     EXPECT_FALSE( Validate( ui ).IsSuccess() ) << "a UI clip binds widgets only";
+    ui.Bindings = { Binding{ Guid( 1 ), BindingKind::Widget, "panel-uuid", "Panel", {} },
+                    Binding{ Guid( 2 ), BindingKind::Widget, "label-uuid", "Label", {} } };
+    EXPECT_TRUE( Validate( ui ).IsSuccess() ) << "a UI clip binds any number of widgets of its tree";
 
     Sequence level = clip;
     level.Host     = SequenceHost::LevelSequence;

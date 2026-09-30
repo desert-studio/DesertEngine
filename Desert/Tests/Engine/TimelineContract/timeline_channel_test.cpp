@@ -2,7 +2,10 @@
 
 #include "TimelineFixtures.hpp"
 
+#include "ClipGeneration3.hpp" // the generation-3 sampler lives in Tools/SceneMigrator since ANIM-I8a
+
 using namespace TimelineFixtures;
+namespace Gen3 = Desert::Migration::ClipGen3;
 
 // ── 1. On-disk integers ─────────────────────────────────────────────────────────────────────────────
 
@@ -57,9 +60,9 @@ TEST( TimelineChannel, RotationIsRotationKeyFramesSlerpBitForBit )
     const glm::quat a = glm::angleAxis( 0.3F, glm::vec3( 0, 1, 0 ) );
     const glm::quat b = glm::angleAxis( 1.7F, glm::normalize( glm::vec3( 1, 1, 0 ) ) );
 
-    BoneTrack legacy;
+    Gen3::BoneTrack legacy;
     legacy.BoneName     = "Spine";
-    legacy.RotationKeys = { RotationKeyFrame{ Tick( 0 ), a }, RotationKeyFrame{ Tick( 60 ), b } };
+    legacy.RotationKeys = { Gen3::RotationKeyFrame{ Tick( 0 ), a }, Gen3::RotationKeyFrame{ Tick( 60 ), b } };
 
     RotationChannel channel;
     channel.X.Keys = { Key( 0, a.x ), Key( 60, b.x ) };

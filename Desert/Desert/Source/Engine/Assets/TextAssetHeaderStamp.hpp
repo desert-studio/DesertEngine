@@ -70,7 +70,11 @@ namespace Desert::Assets
     // A .anim: the clip file layout, stated in the header since v4 (T7e; v0-v3 had a top-level `Version`,
     // absent meaning 0, and no header). The number continues the clip's own sequence (kAnimationVersion).
     inline constexpr uint32_t kAnimationSchemaTag     = Common::Content::FourCC( "ANIM" );
-    inline constexpr uint32_t kAnimationSchemaVersion = 4;
+    inline constexpr uint32_t kAnimationSchemaVersion = 5; // v5 (ANIM-I8a): the body is the TMLN block
+    // A timeline block (Animation/Timeline/Sequence.hpp): the Sequence every host (.anim, a UI clip, .dseq)
+    // carries, stated since v1 under this tag; its version is Timeline::kTimelineFormatVersion, which the
+    // contract header owns.
+    inline constexpr uint32_t kTimelineSchemaTag = Common::Content::FourCC( "TMLN" );
     // A .shader: stated since v1 (T7j) on the source's first line (ShaderAssetHeader.hpp). The files before it
     // stated nothing - that generation is 0, and a file of it is refused by name.
     inline constexpr uint32_t kShaderSchemaTag     = Common::Content::FourCC( "SHDR" );

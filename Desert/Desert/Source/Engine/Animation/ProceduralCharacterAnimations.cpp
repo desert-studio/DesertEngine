@@ -3,6 +3,8 @@
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Animation/BoneInfo.hpp>
 #include <Engine/Animation/AnimationLibrary.hpp>
+#include <Engine/Animation/Timeline/Section.hpp>
+#include <Engine/Animation/Timeline/Track.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Geometry/ProceduralCharacterFactory.hpp>
@@ -44,31 +46,52 @@ namespace Desert::Animation
                  FrameNumber{ NearestTick( SecondsToFrameTime( duration, PROJECT_TICK_RATE ) ) };
 
             AnimationClip clip;
-            clip.AnimationName     = name;
-            clip.DurationTicks     = durationTicks;
-            clip.TickRate          = PROJECT_TICK_RATE;
-            clip.SkeletonSignature = skel->GetSignature();
-            clip.Tracks.resize( bones.size() ); // empty tracks fall back to LocalBindTransform
-
+            clip.AnimationName            = name;
+            clip.SkeletonSignature        = skel->GetSignature();
+            clip.Sequence.TickRate        = PROJECT_TICK_RATE;
+            clip.Sequence.Start           = FrameNumber{ 0 };
+            clip.Sequence.End             = durationTicks;
+            // A bone with no entry has no binding and keeps its bind pose (the pose the evaluator is seeded with).
             for ( const auto& [boneName, fn] : angleFns )
             {
                 auto it = nameToIdx.find( boneName );
                 if ( it == nameToIdx.end() )
                     continue;
-                const uint32_t idx      = it->second;
+                const uint32_t  idx     = it->second;
                 const glm::vec3 bindPos = glm::vec3( bones[idx].LocalBindTransform[3] );
 
-                BoneTrack& t = clip.Tracks[idx];
-                t.BoneName   = boneName;
+                Timeline::Binding binding;
+                binding.Guid    = Timeline::BindingGuid::Generate();
+                binding.Kind    = Timeline::BindingKind::Bone;
+                binding.Locator = boneName;
+                binding.Label   = boneName;
+                clip.Sequence.Bindings.push_back( binding );
+
+                Timeline::TransformChannel channel;
                 // constant -> keeps the bone at its bind offset
-                t.PositionKeys.push_back( { FrameNumber{ 0 }, bindPos } );
+                channel.Translation.X.Keys.push_back( ScalarKey{ FrameNumber{ 0 }, bindPos.x } );
+                channel.Translation.Y.Keys.push_back( ScalarKey{ FrameNumber{ 0 }, bindPos.y } );
+                channel.Translation.Z.Keys.push_back( ScalarKey{ FrameNumber{ 0 }, bindPos.z } );
                 for ( int i = 0; i <= kSamples; ++i )
                 {
                     const float       u    = static_cast<float>( i ) / kSamples;
                     const FrameNumber tick = NearestTick(
                          SecondsToFrameTime( static_cast<double>( duration ) * u, PROJECT_TICK_RATE ) );
-                    t.RotationKeys.push_back( { tick, glm::angleAxis( fn( u ), kAxisX ) } );
+                    const glm::quat q = glm::angleAxis( fn( u ), kAxisX );
+                    channel.Rotation.X.Keys.push_back( ScalarKey{ tick, q.x } );
+                    channel.Rotation.Y.Keys.push_back( ScalarKey{ tick, q.y } );
+                    channel.Rotation.Z.Keys.push_back( ScalarKey{ tick, q.z } );
+                    channel.Rotation.W.Keys.push_back( ScalarKey{ tick, q.w } );
                 }
+                Timeline::Section section;
+                section.Start   = clip.Sequence.Start;
+                section.End     = clip.Sequence.End;
+                section.Content = Timeline::Channel{ std::move( channel ) };
+                Timeline::Track track;
+                track.Binding = binding.Guid;
+                track.Kind    = Timeline::TrackKind::Transform;
+                track.Sections.push_back( std::move( section ) );
+                clip.Sequence.Tracks.push_back( std::move( track ) );
             }
             return clip;
         }
