@@ -67,7 +67,7 @@ namespace Desert::Editor
         // decodes in 90 s, the slot and the browser tile (whose decode the loop kept stealing) on their
         // icons, 111 -> 59 FPS while the Fox was selected (THM-FIXD). Kept where the static-mesh slot keeps
         // its own (StaticMeshComponent.cpp `s_Thumbnails`), released with every live cache (ReleaseAll).
-        ThumbnailCache& SlotPictures()
+        ThumbnailCache& SlotThumbnails()
         {
             static ThumbnailCache s_Pictures;
             return s_Pictures;
@@ -99,10 +99,11 @@ namespace Desert::Editor
         {
             const std::string png = ThumbnailKey::DiskPath( meshPath );
             if ( ThumbnailService::JudgeMeshPicture( meshPath ) == ThumbnailFreshness::Verdict::Show )
-                thumb = SlotPictures().Get( png );
+                thumb = SlotThumbnails().Get( png );
             else
             {
-                SlotPictures().Invalidate( png ); // the old render must not be handed back once the new one lands
+                SlotThumbnails().Invalidate(
+                     png ); // the old render must not be handed back once the new one lands
                 const auto subject = ThumbnailPose::ResolvePoseSubject( manager, meshPath );
                 if ( !subject )
                 {
