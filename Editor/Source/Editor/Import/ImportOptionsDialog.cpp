@@ -141,7 +141,8 @@ namespace Desert::Editor::ImportOptions
             auto* service = Runtime::ResourceRegistry::GetMeshService();
             for ( const std::filesystem::path& path : written )
             {
-                // The row's handle, the number the entities hold (LoadedHandleOf: a `.skmesh` is known by its GUID).
+                // The row's handle, the number the entities hold (LoadedHandleOf: a `.skmesh` is known by its
+                // GUID).
                 const auto known = LoadedHandleOf( path );
                 if ( !known )
                 {
