@@ -6,7 +6,7 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
-#include <Editor/Panels/AnimationEditor/AnimationEditorDocument.hpp>
+#include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
 
