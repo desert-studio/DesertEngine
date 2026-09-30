@@ -1146,7 +1146,9 @@ namespace Desert::Graphic::System
 
         for ( auto& [mat, objects] : groups )
         {
-            if ( objects.empty() )
+            // A Translucent template's objects belong to the translucency pass alone (RenderGlassManual):
+            // no opaque bucket, no instanced variant is asked of them.
+            if ( objects.empty() || IsTranslucent( mat ) )
                 continue;
 
             // Where this group's batches accumulate, and WITH WHICH MATERIAL they will be recorded.
@@ -1178,8 +1180,6 @@ namespace Desert::Graphic::System
                 od.Obj  = obj;
                 od.Inst = FirstPBRSlot( obj->MaterialSlots->Slots, MeshVertexPath::Static ).Instance;
                 od.Row  = EffectiveRow( mat, od.Inst );
-                if ( IsTranslucent( mat ) )
-                    continue;
                 if ( od.Inst )
                     for ( const auto& [pname, prop] : od.Inst->GetPropertySet().GetProperties() )
                         if ( prop.bIsOverridden )
@@ -1638,9 +1638,9 @@ namespace Desert::Graphic::System
                 mat->SetSkinnedBoneOffset( boneOffsets[i] );
                 mat->Bind( obj->Instance );
 
-                auto* twin = CullPermutation( CellPipeline( pipeline, *mat ), obj->Instance != nullptr
-                                                                                   ? obj->Instance->IsTwoSided()
-                                                                                   : mat->IsTwoSided() );
+                auto* twin =
+                     CullPermutation( CellPipeline( pipeline, *mat ),
+                                      obj->Instance != nullptr ? obj->Instance->IsTwoSided() : mat->IsTwoSided() );
                 if ( twin == nullptr )
                     continue;
                 renderer.RenderMesh( twin, obj->Mesh, obj->Transform, mat->GetMaterialExecutor() );
@@ -2313,8 +2313,8 @@ namespace Desert::Graphic::System
         auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( key.CellShader );
         if ( !shader )
         {
-            LOG_ERROR( "[MeshRenderer] cell '{}' will not draw in '{}': no such shader is registered", key.CellShader,
-                       passState->GetSpecification().DebugName );
+            LOG_ERROR( "[MeshRenderer] cell '{}' will not draw in '{}': no such shader is registered",
+                       key.CellShader, passState->GetSpecification().DebugName );
             return nullptr;
         }
         GraphicsPipelineSpecification spec = passState->GetSpecification();
