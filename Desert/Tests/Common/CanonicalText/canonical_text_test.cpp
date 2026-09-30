@@ -171,12 +171,14 @@ TEST( CanonicalText, NumbersRoundTripExactlyAndShortest )
 
 // ONE SPELLING OF ZERO (SKEL-fixa): a re-import that computed -0.0 where the committed file states 0.0 (an inverse
 // bind matrix's off-diagonal) rewrote the file at the first editor start with no change in it. The sign of a real
-// zero is dropped wherever it stands - inline, in a wrapped array, as an object member, in exponent form - and an integer zero stays an integer.
+// zero is dropped wherever it stands - inline, in a wrapped array, as an object member, in exponent form - and an
+// integer zero stays an integer.
 TEST( CanonicalText, NegativeZeroIsSpelledAsZero )
 {
     const auto text = CanonicalJsonText( R"({"a": -0.0, "b": [-0.0, 0.0, -1.5], "c": 0, "d": -0.0e0})" );
     ASSERT_TRUE( text ) << text.GetError();
-    EXPECT_EQ( text.GetValue(), "{\n    \"a\": 0.0,\n    \"b\": [0.0, 0.0, -1.5],\n    \"c\": 0,\n    \"d\": 0.0\n}\n" );
+    EXPECT_EQ( text.GetValue(),
+               "{\n    \"a\": 0.0,\n    \"b\": [0.0, 0.0, -1.5],\n    \"c\": 0,\n    \"d\": 0.0\n}\n" );
     EXPECT_TRUE( IsCanonicalJsonText( "[0.0]\n" ) );
     EXPECT_FALSE( IsCanonicalJsonText( "[-0.0]\n" ) );
 }

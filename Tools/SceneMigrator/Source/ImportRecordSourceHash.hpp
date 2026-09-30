@@ -16,5 +16,6 @@ namespace Desert::Migration
     // `SourceHash` set, a new SkinnedMesh record when the source has none yet. nullopt = nothing to state (the
     // record already states a hash - equal or not, a stated hash is the import's own word and is left as it is).
     // @p source is the raw mesh source beside a `.skmesh` (Common::Content::MeshSourceBeside).
-    Common::ResultStr<std::optional<std::string>> ImportRecordWithSourceHash( const std::filesystem::path& source );
+    Common::ResultStr<std::optional<std::string>>
+    ImportRecordWithSourceHash( const std::filesystem::path& source );
 } // namespace Desert::Migration

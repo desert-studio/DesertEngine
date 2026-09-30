@@ -1261,9 +1261,9 @@ namespace Desert::Migration
                 ++( layout == Layout::Failed ? failed : relaid );
         }
 
-        // THE SKINNED IMPORTS' SOURCE HASH (SKEL-fixa, ImportRecordSourceHash.hpp): a `.skmesh` with its raw source
-        // beside it is that source's import; its record states the source's hash, or the editor re-imports it at
-        // its first start and rewrites committed files.
+        // THE SKINNED IMPORTS' SOURCE HASH (SKEL-fixa, ImportRecordSourceHash.hpp): a `.skmesh` with its raw
+        // source beside it is that source's import; its record states the source's hash, or the editor re-imports
+        // it at its first start and rewrites committed files.
         int recordsStated = 0;
         for ( const auto& path : meshes )
         {
@@ -1302,14 +1302,17 @@ namespace Desert::Migration
             << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << meshesRaised
             << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
             << " landscape tile(s), " << recordsStated
-            << ( check ? " import record(s) would state their source hash, " : " import record(s) stated their source hash, " )
+            << ( check ? " import record(s) would state their source hash, "
+                       : " import record(s) stated their source hash, " )
             << failed << " failed\n";
 
         failedOut = failed;
         if ( failed > 0 )
             return 1;
         return ( check && ( changed > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 ||
-                             meshesRaised > 0 || recordsStated > 0 ) ) ? 1 : 0;
+                            meshesRaised > 0 || recordsStated > 0 ) )
+                    ? 1
+                    : 0;
     }
 
     // ALL OR NOTHING. A write run used to raise file after file and let one refusal fail only itself: over
