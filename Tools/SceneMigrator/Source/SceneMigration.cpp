@@ -706,7 +706,8 @@ namespace Desert::Migration
         };
     } // namespace
 
-    namespace
+    // Named, not anonymous: rfl reflects these by aggregate conversion, which needs types with linkage.
+    namespace SkeletonLegacy
     {
         // Where SKEL 1-2 said an imported rig came from; SKEL 3 dropped it (read here, never written).
         struct SkeletonImportInfoV2
@@ -727,7 +728,7 @@ namespace Desert::Migration
 
         // The rig as ANY generation this tool raises states it (SKEL 1, 2 or the current one), with the
         // version it states; an unreadable body or a missing header is an error naming why.
-        Common::ResultStr<std::pair<SkeletonAssetDataV1V2, uint32_t>> ReadAnySkeleton( const std::string& text )
+        static Common::ResultStr<std::pair<SkeletonAssetDataV1V2, uint32_t>> ReadAnySkeleton( const std::string& text )
         {
             using Out  = std::pair<SkeletonAssetDataV1V2, uint32_t>;
             const auto read = Common::Json::Read<SkeletonAssetDataV1V2>( text );
@@ -740,7 +741,8 @@ namespace Desert::Migration
                 return Common::MakeFormattedError<Out>( "the header states no SKEL version" );
             return Common::MakeSuccess( Out{ read.GetValue(), stated->second } );
         }
-    } // namespace
+    } // namespace SkeletonLegacy
+    using SkeletonLegacy::ReadAnySkeleton;
 
     Common::ResultStr<std::string> MigrateSkeletonToV3( const std::string& text )
     {
