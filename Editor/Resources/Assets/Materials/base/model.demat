@@ -62,21 +62,6 @@
             "Path": ""
         },
         {
-            "Name": "u_MetallicTexture",
-            "Guid": "",
-            "Path": ""
-        },
-        {
-            "Name": "u_RoughnessTexture",
-            "Guid": "",
-            "Path": ""
-        },
-        {
-            "Name": "u_AOTexture",
-            "Guid": "",
-            "Path": ""
-        },
-        {
             "Name": "u_EmissiveTexture",
             "Guid": "",
             "Path": ""

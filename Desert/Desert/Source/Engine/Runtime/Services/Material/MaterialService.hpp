@@ -5,11 +5,13 @@
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Assets/MaterialAsset.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AssetRootPin.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/Runtime/Services/Material/MaterialIdentity.hpp>
 
 #include <array>
+#include <memory>
 #include <span>
 #include <vector>
 #include <unordered_set>
@@ -81,6 +83,14 @@ namespace Desert::Runtime
         /// cells under). Refused with the registry's reason when none or several declare it, or when no asset
         /// manager is bound yet.
         [[nodiscard]] Common::ResultStr<std::string> DefaultSurfaceTemplate() const;
+
+        /// THE DEFAULT SURFACE TEMPLATE IS IN THE ROOT SET for the life of the engine (UE: the engine's default
+        /// material is AddToRoot'ed at load and never garbage-collected). No scene names it — a slotless mesh
+        /// has no material to name it through — so without this pin the first eviction sweep released it, and
+        /// every later DefaultSurfaceTemplate() was refused ("no loaded shader declares 'Default Surface'"): the
+        /// animation editor's preview drew no character. Called by CompileEngineShaders once the template is
+        /// found; a second call (a recompile) moves the pin. Dropped by Clear().
+        void PinDefaultSurfaceTemplate( const Common::AssetHandle& handle );
 
         /// The (path x pass) shader of the default surface template (MeshShaderFor on DefaultSurfaceTemplate),
         /// for a draw that has no material of its own: a slotless mesh, the renderer's pipeline layouts, the
@@ -349,6 +359,8 @@ namespace Desert::Runtime
         /// Live metadata reads started by Get(); a handle here answers Pending (nullptr).
         mutable std::unordered_map<Assets::AssetHandle, Assets::LoadRequest> m_Requests;
         std::weak_ptr<Assets::AssetManager>                                  m_Assets;
+        /// The engine's hold on the Default Surface template (PinDefaultSurfaceTemplate).
+        std::unique_ptr<Assets::AssetRootPin> m_DefaultSurfacePin;
 
         /// THE ONE LOOKUP every `m_MaterialAssets.find` went through: the held shell, or one discovered
         /// from the registry row now, or `end()`.
