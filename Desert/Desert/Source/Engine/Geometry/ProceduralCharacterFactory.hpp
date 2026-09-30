@@ -2,9 +2,8 @@
 
 #include <Engine/Assets/Common.hpp> // AssetHandle
 
-#include <Common/Content/AssetEnvelope.hpp> // AssetGuid
-
 #include <cstdint>
+#include <filesystem>
 
 namespace Desert::Animation
 {
@@ -21,17 +20,19 @@ namespace Desert::Geometry
     //
     // The mesh is generated + GPU-registered ONCE and cached process-wide (handle reused). Use it as a
     // SkinnedMeshComponent.MeshHandle; add an AnimationComponent and the AnimationECSSystem auto-plays any
-    // clip whose skeleton reference is GetHumanoidSkeletonGuid() (ClipPlaysOnMesh, SkeletonReference.hpp).
+    // clip whose skeleton reference is Humanoid.skeleton's GUID (HumanoidSkeletonFile; ClipPlaysOnMesh).
     class ProceduralCharacterFactory
     {
     public:
         // Cooked-equivalent handle for the humanoid skinned mesh (built + registered on first call).
         static Assets::AssetHandle GetHumanoidMesh();
 
-        // THE IDENTITY of the built-in humanoid skeleton: engine content with no .skeleton file, so its GUID is a
-        // compiled-in constant (minted once, never regenerated), as a cooked skeleton's is its header GUID. The
-        // procedural clips reference it; ProceduralCharacterAnimations::RegisterClips states it for the mesh.
-        static Common::Content::AssetGuid GetHumanoidSkeletonGuid();
+        // WHERE THE BUILT-IN HUMANOID'S SKELETON ASSET IS: engine content (Resources/Assets/Meshes/Skinned/
+        // Humanoid.skeleton), whose header GUID IS the rig's identity, as every skeleton's is (contract
+        // Engine/Animation/SkeletonReference.hpp). The file's bones are GetHumanoidSkeleton()'s (pinned by
+        // the AnimationLibraryOnDemand suite); ProceduralCharacterAnimations::RegisterClips reads the GUID
+        // from the content registry's row of this file, never from a constant.
+        static std::filesystem::path HumanoidSkeletonFile();
 
         // The humanoid skeleton (built on first use). Used by the procedural animation generator to read each
         // bone's bind-local translation + index by name. Owned by the factory (process lifetime).

@@ -4,6 +4,7 @@
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Animation/BoneInfo.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/Units.hpp>
 
 #include <glm/glm.hpp>
@@ -292,10 +293,9 @@ namespace Desert::Geometry
         return s_Handle;
     }
 
-    Common::Content::AssetGuid ProceduralCharacterFactory::GetHumanoidSkeletonGuid()
+    std::filesystem::path ProceduralCharacterFactory::HumanoidSkeletonFile()
     {
-        // Minted once for the built-in humanoid (SKEL-use2); a constant, never derived from the bones.
-        return Common::Content::AssetGuid{ 0x9d3c5e0a41b84f27ULL, 0xb6e1a7c2d4f09e53ULL };
+        return Common::Constants::Path::RESOURCE_PATH / "Assets/Meshes/Skinned/Humanoid.skeleton";
     }
 
     const Animation::Skeleton* ProceduralCharacterFactory::GetHumanoidSkeleton()

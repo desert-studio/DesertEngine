@@ -32,6 +32,10 @@ namespace Desert::Animation
         // empty; the population point now owns both kinds of clip so neither host can have one without the
         // other. Returns how many were registered, because a count nobody can read is a count the caller
         // has to guess — and the whole refusal below it is about telling an empty half from a full one.
+        //
+        // The clips and the mesh are bound to the skeleton asset ProceduralCharacterFactory::HumanoidSkeletonFile
+        // names, by the GUID its registry row states (so the registry must be gathered first); no row = 0 clips
+        // and an error naming the file.
         [[nodiscard]] static size_t RegisterClips( Assets::AssetManager& assets, AnimationLibrary& library );
     };
 } // namespace Desert::Animation
