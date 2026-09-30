@@ -1,6 +1,5 @@
 #include "AnimationLibrary.hpp"
 
-#include <Engine/Animation/ProceduralCharacterAnimations.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>
@@ -208,14 +207,7 @@ namespace Desert::Animation
             if ( const auto asset =
                       m_AssetManager->ProbeByHandle<Assets::SkinnedMeshAsset>( Common::UUID( mesh ) ) )
                 return IdentifyMesh( *asset );
-        if ( const auto it = m_ProceduralMeshes.find( mesh ); it != m_ProceduralMeshes.end() )
-            return it->second;
         return MeshSkeletonIdentity{ SkeletonRefOf( {} ), {} };
-    }
-
-    void AnimationLibrary::RegisterMeshSkeleton( const Assets::AssetHandle& mesh, MeshSkeletonIdentity identity )
-    {
-        m_ProceduralMeshes[mesh] = std::move( identity );
     }
 
     std::vector<Assets::Asset<Assets::AnimationAsset>>
@@ -255,12 +247,11 @@ namespace Desert::Animation
     void AnimationLibrary::Clear()
     {
         m_Clips.clear();
-        m_ProceduralMeshes.clear();
         m_Unread.clear();
         m_Requests.clear();
     }
 
-    Common::ResultStr<LibraryPopulation> PopulateLibrary( Assets::AssetManager& assets, AnimationLibrary& library,
+    Common::ResultStr<LibraryPopulation> PopulateLibrary( Assets::AssetManager& /*assets*/, AnimationLibrary& library,
                                                           const size_t clipFilesDiscovered )
     {
         // CLEARED FIRST because this is also the re-index path: `Assets::IndexAnimationClips` from ("Rebuild
@@ -273,11 +264,8 @@ namespace Desert::Animation
 
         counts.FromFiles = library.IndexRegistryRows();
 
-        counts.Procedural = ProceduralCharacterAnimations::RegisterClips( assets, library );
-
-        LOG_INFO( "[AnimationLibrary] {} clip(s) registered: {} from {} `.anim` file(s) on disk, {} built-in "
-                  "procedural.",
-                  counts.FromFiles + counts.Procedural, counts.FromFiles, clipFilesDiscovered, counts.Procedural );
+        LOG_INFO( "[AnimationLibrary] {} clip(s) registered from {} `.anim` file(s) on disk.", counts.FromFiles,
+                  clipFilesDiscovered );
 
         // THE CASE THAT SHIPPED, said out loud. An empty library is the correct state for a project with no
         // clips and a broken one for a project with clips on disk, and only the scan's own count can tell
@@ -288,9 +276,8 @@ namespace Desert::Animation
             return Common::MakeFormattedError<LibraryPopulation>(
                  "the asset scan found {} `.anim` file(s) under the cooked mesh root and NOT ONE of them "
                  "reached the animation library. Every skinned character whose clip comes from a file will "
-                 "stand in its bind pose. {} built-in procedural clip(s) are registered, so a library that "
-                 "answers at all is not evidence the files arrived.",
-                 clipFilesDiscovered, counts.Procedural );
+                 "stand in its bind pose.",
+                 clipFilesDiscovered );
         }
 
         // Fewer than were found is a real loss too — a file that failed to parse never became an asset —

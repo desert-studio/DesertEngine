@@ -6,7 +6,6 @@
 
 #include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Animation/BoneInfo.hpp>
-#include <Engine/Animation/ProceduralCharacterAnimations.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
@@ -74,30 +73,6 @@ namespace
         Path::ProjectRootState m_Saved;
     };
 } // namespace
-
-// LINK SEAM, not a behaviour: AnimationLibrary.cpp also holds PopulateLibrary, which reaches the procedural
-// humanoid clips and through them the GPU mesh factory. No test here calls PopulateLibrary, and this
-// suite must not link the renderer to prove that the library indexes rows.
-size_t Desert::Animation::ProceduralCharacterAnimations::RegisterClips( Assets::AssetManager&, AnimationLibrary& )
-{
-    ADD_FAILURE() << "PopulateLibrary was reached from AnimationLibraryOnDemand; it is out of this suite's scope";
-    return 0;
-}
-
-// A mesh with no SkinnedMeshAsset (the procedural humanoid) states its skeleton via RegisterMeshSkeleton;
-// IdentifyMeshHandle answers it, and Clear() drops it.
-TEST_F( AnimationLibraryOnDemand, ARegisteredMeshSkeletonIsIdentifiedUntilClear )
-{
-    Animation::AnimationLibrary           library( &m_Manager );
-    const Assets::AssetHandle             mesh{ 0x5EED };
-    const Animation::MeshSkeletonIdentity humanoid{ { Common::Content::AssetGuid{ 7, 9 }, "Humanoid" }, {} };
-    EXPECT_TRUE( library.IdentifyMeshHandle( mesh ).Skeleton.Guid.IsNull() );
-    library.RegisterMeshSkeleton( mesh, humanoid );
-    EXPECT_TRUE( library.IdentifyMeshHandle( mesh ).Skeleton.Guid == humanoid.Skeleton.Guid )
-         << "a registered procedural mesh's skeleton is not what the library identifies for its handle";
-    library.Clear();
-    EXPECT_TRUE( library.IdentifyMeshHandle( mesh ).Skeleton.Guid.IsNull() ) << "Clear() kept a mesh's skeleton";
-}
 
 TEST_F( AnimationLibraryOnDemand, IndexingTheRegistryRowsReadsAndCreatesNoClip )
 {

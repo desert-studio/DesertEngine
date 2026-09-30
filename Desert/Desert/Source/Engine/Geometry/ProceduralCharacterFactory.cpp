@@ -1,16 +1,20 @@
 #include "ProceduralCharacterFactory.hpp"
 #include "ProceduralCharacterSkeleton.hpp"
 
-#include <Engine/Geometry/SkinnedMesh.hpp>
+#include <Engine/Animation/ProceduralCharacterAnimations.hpp>
 #include <Engine/Animation/Skeleton.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Common/Core/Logger.hpp>
+#include <Engine/Assets/Serialization/AnimationClipWrite.hpp>
+#include <Engine/Assets/Serialization/MeshBinary.hpp>
+#include <Engine/Assets/Serialization/Skeleton.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Units.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 
 #include <glm/glm.hpp>
 
 #include <cmath>
-#include <memory>
+#include <format>
+#include <limits>
 #include <vector>
 
 namespace Desert::Geometry
@@ -23,7 +27,8 @@ namespace Desert::Geometry
 
         // A tapered cylinder (side surface) p0(radius r0) -> p1(radius r1), rigid-skinned to `bone`. Normals
         // point radially outward; triangles are wound CCW-outward (matches the mesh convention).
-        void AppendCylinder( std::vector<SkinnedVertex>& verts, std::vector<Index>& indices, const glm::vec3& p0,
+        void AppendCylinder( std::vector<Assets::Serialization::SkinnedVertexData>& verts,
+                             std::vector<Assets::Serialization::IndexData>& indices, const glm::vec3& p0,
                              const glm::vec3& p1, float r0, float r1, uint32_t bone, int radial = 12 )
         {
             glm::vec3   axis = p1 - p0;
@@ -47,12 +52,12 @@ namespace Desert::Geometry
                 {
                     const float     a   = static_cast<float>( s ) / radial * 2.0f * kPi;
                     const glm::vec3 dir = std::cos( a ) * u + std::sin( a ) * w;
-                    SkinnedVertex   v{};
-                    v.StaticVertex.Position  = c + r * dir;
-                    v.StaticVertex.Normal    = glm::normalize( dir );
-                    v.StaticVertex.Tangent   = axis;
-                    v.StaticVertex.Bitangent = glm::cross( v.StaticVertex.Normal, axis );
-                    v.StaticVertex.TexCoord  = { static_cast<float>( s ) / radial, static_cast<float>( ring ) };
+                    Assets::Serialization::SkinnedVertexData v{};
+                    v.Position  = c + r * dir;
+                    v.Normal    = glm::normalize( dir );
+                    v.Tangent   = axis;
+                    v.Bitangent = glm::cross( v.Normal, axis );
+                    v.TexCoord  = { static_cast<float>( s ) / radial, static_cast<float>( ring ) };
                     v.BoneIDs[0]             = bone;
                     v.BoneWeights[0]         = 1.0f;
                     verts.push_back( v );
@@ -69,7 +74,8 @@ namespace Desert::Geometry
         }
 
         // A UV sphere centered at `center`, rigid-skinned to `bone`. Outward normals + CCW-outward winding.
-        void AppendSphere( std::vector<SkinnedVertex>& verts, std::vector<Index>& indices,
+        void AppendSphere( std::vector<Assets::Serialization::SkinnedVertexData>& verts,
+                             std::vector<Assets::Serialization::IndexData>& indices,
                            const glm::vec3& center, float radius, uint32_t bone, int stacks = 10, int slices = 14 )
         {
             const uint32_t base   = static_cast<uint32_t>( verts.size() );
@@ -82,12 +88,12 @@ namespace Desert::Geometry
                     const float     phi = 2.0f * kPi * static_cast<float>( j ) / slices;
                     const glm::vec3 n( std::sin( theta ) * std::cos( phi ), std::cos( theta ),
                                        std::sin( theta ) * std::sin( phi ) );
-                    SkinnedVertex v{};
-                    v.StaticVertex.Position  = center + radius * n;
-                    v.StaticVertex.Normal    = n;
-                    v.StaticVertex.Tangent   = glm::vec3( -std::sin( phi ), 0.0f, std::cos( phi ) );
-                    v.StaticVertex.Bitangent = glm::cross( n, v.StaticVertex.Tangent );
-                    v.StaticVertex.TexCoord  = { static_cast<float>( j ) / slices,
+                    Assets::Serialization::SkinnedVertexData v{};
+                    v.Position  = center + radius * n;
+                    v.Normal    = n;
+                    v.Tangent   = glm::vec3( -std::sin( phi ), 0.0f, std::cos( phi ) );
+                    v.Bitangent = glm::cross( n, v.Tangent );
+                    v.TexCoord  = { static_cast<float>( j ) / slices,
                                                  static_cast<float>( i ) / stacks };
                     v.BoneIDs[0]             = bone;
                     v.BoneWeights[0]         = 1.0f;
@@ -104,105 +110,135 @@ namespace Desert::Geometry
                     indices.push_back( { a, d, c } ); // outward
                 }
         }
-
-        // Owns the humanoid skeleton for the process lifetime (SkinnedMesh only holds a const Skeleton*).
-        std::unique_ptr<Animation::Skeleton> s_Skeleton;
-        // NOT AN OPTIONAL, AND IT NEVER MEANT ONE. `RegisterProcedural` returns a handle, not a maybe, so
-        // after BuildOnce() there is no state in which this is absent — the optional was doing duty as the
-        // "already built" flag and every reader paid for it with an unguarded dereference.
-        Assets::AssetHandle                  s_Handle{ static_cast<uint64_t>( 0 ) };
-        bool                                 s_Built = false;
-
-        void BuildOnce()
-        {
-            if ( s_Built )
-            {
-                return;
-            }
-
-            // Whatever happens below, this runs once: a rig that does not read is reported once, by name.
-            s_Built = true;
-            s_Skeleton = LoadHumanoidSkeleton();
-            if ( !s_Skeleton )
-                return;
-
-            // The body is laid over the rig's COMPONENT-SPACE BIND: the file's LocalBindTransform chain, the
-            // same one its OffsetMatrix inverts. Positions are in world units (cm), as the file is.
-            const auto& bones = s_Skeleton->GetBones();
-            std::vector<glm::mat4> bind;
-            s_Skeleton->ResolveComponentSpace( [&]( uint32_t i ) { return bones[i].LocalBindTransform; }, bind );
-
-            // Every bone the body names must be in the rig; one that is not is refused by name, and the
-            // humanoid then has no mesh rather than a limb skinned to a wrong bone.
-            bool                  complete = true;
-            const auto            BoneOf   = [&]( const char* name ) -> uint32_t
-            {
-                if ( const auto index = s_Skeleton->FindBoneIndex( name ) )
-                    return *index;
-                LOG_ERROR( "[Geometry] the built-in humanoid's skeleton '{}' has no bone '{}'; the procedural "
-                           "humanoid has no mesh.",
-                           HumanoidSkeletonFile().generic_string(), name );
-                complete = false;
-                return 0;
-            };
-            const auto PositionOf = [&]( uint32_t bone ) { return glm::vec3( bind[bone][3] ); };
-
-            std::vector<SkinnedVertex> verts;
-            std::vector<Index>         indices;
-            constexpr float            M = Common::Units::UnitsPerMetre; // radii are authored in metres
-            for ( const HumanoidSegment& seg : HumanoidSegments() )
-            {
-                const uint32_t a = BoneOf( seg.BoneA ), b = BoneOf( seg.BoneB ), skin = BoneOf( seg.SkinBone );
-                if ( complete )
-                    AppendCylinder( verts, indices, PositionOf( a ), PositionOf( b ), seg.RadiusA * M,
-                                    seg.RadiusB * M, skin );
-            }
-            for ( const HumanoidSphere& sph : HumanoidSpheres() )
-            {
-                const uint32_t bone = BoneOf( sph.Bone );
-                if ( complete )
-                    AppendSphere( verts, indices, PositionOf( bone ), sph.Radius * M, bone );
-            }
-            // Feet: a short capsule from each ankle forward (+Z), skinned to the foot bone.
-            for ( const char* footName : HumanoidFeet() )
-            {
-                const uint32_t foot = BoneOf( footName );
-                if ( complete )
-                    AppendCylinder( verts, indices, PositionOf( foot ),
-                                    PositionOf( foot ) + glm::vec3( 0.0f, -0.02f, 0.17f ) * M, 0.055f * M,
-                                    0.045f * M, foot );
-            }
-            if ( !complete )
-            {
-                s_Skeleton.reset();
-                return;
-            }
-
-            // Single submesh covering the whole body.
-            Submesh sub{};
-            sub.Name        = "Humanoid";
-            sub.VertexOffset = 0;
-            sub.VertexCount  = static_cast<uint32_t>( verts.size() );
-            sub.IndexOffset  = 0;
-            sub.IndexCount   = static_cast<uint32_t>( indices.size() * 3 );
-            sub.Transform    = glm::mat4( 1.0f );
-            sub.BoundingBox  = { glm::vec3( -30.0f, 0.0f, -20.0f ), glm::vec3( 30.0f, 190.0f, 20.0f ) };
-
-            auto mesh = std::make_shared<SkinnedMesh>( verts, indices, std::vector<Submesh>{ sub },
-                                                       s_Skeleton.get(), std::vector<MeshVertexStreams>{} );
-            s_Handle = Runtime::ResourceRegistry::GetMeshService()->RegisterProcedural( mesh );
-        }
     } // namespace
 
-    Assets::AssetHandle ProceduralCharacterFactory::GetHumanoidMesh()
+    std::filesystem::path HumanoidMeshFile()
     {
-        BuildOnce();
-        return s_Handle;
+        return HumanoidSkeletonFile().parent_path() / "Humanoid.skmesh";
     }
 
-    const Animation::Skeleton* ProceduralCharacterFactory::GetHumanoidSkeleton()
+    std::filesystem::path HumanoidClipFile( std::string_view clipName )
     {
-        BuildOnce();
-        return s_Skeleton.get();
+        return HumanoidSkeletonFile().parent_path() / std::format( "Humanoid_{}.anim", clipName );
+    }
+
+    Common::ResultStr<Assets::Serialization::MeshAssetData>
+    ProceduralCharacterFactory::BuildHumanoidMesh( const Animation::Skeleton&        skeleton,
+                                                   const Common::Content::AssetGuid& skeletonGuid )
+    {
+        using Result = Assets::Serialization::MeshAssetData;
+        if ( skeletonGuid.IsNull() )
+            return Common::MakeError<Result>( "the humanoid mesh states no skeleton: the skeleton GUID is null" );
+
+        // The body is laid over the rig's COMPONENT-SPACE BIND: the file's LocalBindTransform chain, the same
+        // one its OffsetMatrix inverts. Positions are in world units (cm), as the file is.
+        const auto&            bones = skeleton.GetBones();
+        std::vector<glm::mat4> bind;
+        skeleton.ResolveComponentSpace( [&]( uint32_t i ) { return bones[i].LocalBindTransform; }, bind );
+
+        // Every bone the body names must be in the rig; one that is not is refused by name, and no mesh is
+        // written rather than a limb skinned to a wrong bone.
+        std::string missing;
+        const auto  BoneOf = [&]( const char* name ) -> uint32_t
+        {
+            if ( const auto index = skeleton.FindBoneIndex( name ) )
+                return *index;
+            missing = name;
+            return 0;
+        };
+        const auto PositionOf = [&]( uint32_t bone ) { return glm::vec3( bind[bone][3] ); };
+
+        Result data;
+        data.IsSkinned = true;
+        data.Guid      = kHumanoidMeshGuid;
+        data.Skeleton  = skeletonGuid;
+        auto& verts    = data.SkinnedVertices;
+        auto& indices  = data.Indices;
+
+        constexpr float M = Common::Units::UnitsPerMetre; // radii are authored in metres
+        for ( const HumanoidSegment& seg : HumanoidSegments() )
+        {
+            const uint32_t a = BoneOf( seg.BoneA ), b = BoneOf( seg.BoneB ), skin = BoneOf( seg.SkinBone );
+            AppendCylinder( verts, indices, PositionOf( a ), PositionOf( b ), seg.RadiusA * M, seg.RadiusB * M,
+                            skin );
+        }
+        for ( const HumanoidSphere& sph : HumanoidSpheres() )
+        {
+            const uint32_t bone = BoneOf( sph.Bone );
+            AppendSphere( verts, indices, PositionOf( bone ), sph.Radius * M, bone );
+        }
+        // Feet: a short capsule from each ankle forward (+Z), skinned to the foot bone.
+        for ( const char* footName : HumanoidFeet() )
+        {
+            const uint32_t foot = BoneOf( footName );
+            AppendCylinder( verts, indices, PositionOf( foot ),
+                            PositionOf( foot ) + glm::vec3( 0.0f, -0.02f, 0.17f ) * M, 0.055f * M, 0.045f * M,
+                            foot );
+        }
+        if ( !missing.empty() )
+            return Common::MakeFormattedError<Result>( "the humanoid's skeleton '{}' has no bone '{}' the body names",
+                                                       HumanoidSkeletonFile().generic_string(), missing );
+
+        // One submesh covering the whole body, bounded by its own vertices.
+        Assets::Serialization::SubmeshData sub{};
+        sub.Name         = "Humanoid";
+        sub.VertexOffset = 0;
+        sub.VertexCount  = static_cast<uint32_t>( verts.size() );
+        sub.IndexOffset  = 0;
+        sub.IndexCount   = static_cast<uint32_t>( indices.size() * 3 );
+        sub.Transform    = glm::mat4( 1.0f );
+        glm::vec3 lo( std::numeric_limits<float>::max() ), hi( std::numeric_limits<float>::lowest() );
+        for ( const auto& v : verts )
+        {
+            lo = glm::min( lo, v.Position );
+            hi = glm::max( hi, v.Position );
+        }
+        sub.BoundingBox = { lo, hi };
+        data.Submeshes.push_back( std::move( sub ) );
+        return Common::MakeSuccess( std::move( data ) );
+    }
+
+    Common::ResultStr<std::vector<std::filesystem::path>> ProceduralCharacterFactory::WriteEngineAssets()
+    {
+        using Result = std::vector<std::filesystem::path>;
+
+        // The rig and its identity come from the skeleton FILE: its bones, and the GUID its header states.
+        const std::filesystem::path skeletonFile = HumanoidSkeletonFile();
+        auto                        read         = Assets::Serialization::ReadSkeletonFile( skeletonFile );
+        if ( !read )
+            return Common::MakeFormattedError<Result>( "the humanoid's skeleton does not read: {}", read.GetError() );
+        auto                       rigData = read.ExtractValue();
+        Common::Content::AssetGuid skeletonGuid;
+        if ( rigData.Header )
+            if ( const auto stated = Common::Content::AssetGuidFromText( rigData.Header->Guid ); stated )
+                skeletonGuid = stated.GetValue();
+        if ( skeletonGuid.IsNull() )
+            return Common::MakeFormattedError<Result>( "the humanoid's skeleton '{}' states no GUID in its header",
+                                                       skeletonFile.generic_string() );
+        const Animation::Skeleton skeleton( std::move( rigData.Bones ) );
+
+        Result written;
+
+        auto mesh = BuildHumanoidMesh( skeleton, skeletonGuid );
+        if ( !mesh )
+            return Common::MakeError<Result>( mesh.GetError() );
+        const std::string bytes = Assets::Serialization::EncodeMeshBinary( mesh.GetValue() );
+        if ( const auto ok = Common::Utils::FileSystem::WriteContentToFileAtomic( HumanoidMeshFile(), bytes ); !ok )
+            return Common::MakeFormattedError<Result>( "'{}' was not written: {}", HumanoidMeshFile().generic_string(),
+                                                       ok.GetError() );
+        written.push_back( HumanoidMeshFile() );
+
+        for ( const HumanoidClipAsset& clipAsset : kHumanoidClips )
+        {
+            auto clip = Animation::ProceduralCharacterAnimations::Build( skeleton, clipAsset.Name );
+            if ( !clip )
+                return Common::MakeError<Result>( clip.GetError() );
+            clip.GetValue().Skeleton = skeletonGuid;
+            const std::filesystem::path file = HumanoidClipFile( clipAsset.Name );
+            if ( const auto ok = Assets::Serialization::SaveClipToFile( file, clip.GetValue(), clipAsset.Guid ); !ok )
+                return Common::MakeError<Result>( ok.GetError() );
+            written.push_back( file );
+        }
+        return Common::MakeSuccess( std::move( written ) );
     }
 } // namespace Desert::Geometry
