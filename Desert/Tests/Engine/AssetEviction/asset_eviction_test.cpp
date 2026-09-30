@@ -896,7 +896,7 @@ namespace
          ResolverRow{ "Desert/Desert/Source/Engine/Assets/AssetBase.hpp",
                       "nothing. The base's empty body, which is what an asset that names no other asset "
                       "inherits." },
-         ResolverRow{ "Desert/Desert/Source/Engine/Assets/Mesh/SkinnedMeshAsset.hpp",
+         ResolverRow{ "Desert/Desert/Source/Engine/Assets/Mesh/SkinnedMeshAsset.cpp",
                       "a rig, by GUID — the .skmesh header's SkeletonGuid, folded to the handle the "
                       "rig adopted from its own header (HandleForGuid). Identity, not payload: it "
                       "outlives Unload by construction, and the resolver loads the rig's bones back "
@@ -906,17 +906,12 @@ namespace
                       "a noise volume, by PATH. A path is identity: eviction releases payloads and is "
                       "forbidden to touch identity, so this resolver cannot lose its target." },
          ResolverRow{ "Desert/Desert/Source/Engine/Assets/RetargetAsset.cpp",
-                      "a SOURCE RIG, by PATH, on the cloud type's terms one row up and NOT on the skinned "
-                      "mesh's two rows up — which is the interesting half, because a signature was the "
-                      "first answer here and the mesh had already built the machinery for it. It is wrong "
-                      "for this file twice over. Survival is the smaller reason: a path is identity and "
-                      "outlives Unload by construction, where a signature has to be deliberately kept. The "
-                      "larger one is that a signature cannot IDENTIFY the thing being asked for — "
-                      "Skeleton::ComputeSignature hashes the sorted name<parentName pairs and nothing "
-                      "else, so two exports of one character at different proportions share it, and those "
-                      "are exactly the pair a retarget exists to bridge. A signature-keyed lookup could "
-                      "therefore bind the TARGET's own rig as the source and the retarget would silently "
-                      "become the identity." },
+                      "a SOURCE RIG, by GUID - the .skeleton's header GUID, created from its registry row "
+                      "(CreateFromRegistryGuid), as the skinned mesh two rows up. Identity, not payload: it "
+                      "outlives Unload by construction. Never a signature: Skeleton::ComputeSignature hashes "
+                      "the sorted name<parentName pairs and nothing else, so two exports of one character at "
+                      "different proportions share it, and those are exactly the pair a retarget exists to "
+                      "bridge - a signature-keyed lookup could bind the TARGET's own rig as the source." },
          ResolverRow{ "Desert/Desert/Source/Engine/Assets/Mesh/SurfaceMaterialAsset.cpp",
                       "a shader, by the NAME the material's own data states — nothing is looked up in the "
                       "manager, so no target can be released under it. The name is read from the material's "

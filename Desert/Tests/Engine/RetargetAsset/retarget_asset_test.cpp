@@ -1272,7 +1272,7 @@ TEST( RetargetAssetTest, EveryLinkFromTheFileToTheSkinningMatricesHasACaller )
            "AttachRetarget( built.ExtractValue() )",
            "without this the retargeter is built and never joins the pipeline" },
          { "Desert/Desert/Source/Engine/ECS/System/AnimationECSSystem.hpp",
-           "FindForSkeleton( clipRig, anim.CurrentClip )",
+           "FindForMesh( clipRig, anim.CurrentClip )",
            "the clip is looked up against the rig it is AUTHORED on; asking the target rig refuses exactly "
            "the clips a retarget exists to play" },
          { "Desert/Desert/Source/Engine/Animation/Animator.cpp", "m_Retarget->Run( m_Skeleton, sourcePose, pose )",

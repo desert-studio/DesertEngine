@@ -11,6 +11,8 @@
 #include <Engine/Assets/Serialization/Mesh.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 
+#include "../../TestSupport/scratch_dir.hpp"
+
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -33,7 +35,8 @@ namespace
     protected:
         void SetUp() override
         {
-            const std::filesystem::path corpus = "Editor/Resources/Assets/Meshes";
+            const std::filesystem::path corpus =
+                 Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Assets/Meshes";
             m_Gltf                             = ReadBytes( corpus / "TwoJointProbe.gltf" );
             m_Mesh                             = ReadBytes( corpus / "TwoJointProbe.skmesh" );
             ASSERT_FALSE( m_Gltf.empty() ) << "run from the tree root";

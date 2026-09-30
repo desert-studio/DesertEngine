@@ -134,12 +134,11 @@ TEST( AnimationClipFormat, AssetFieldCensus )
 
 TEST( AnimationClipFormat, SkeletonFieldCensus )
 {
-    EXPECT_EQ( FieldNames<Ser::SkeletonAssetData>(),
-               ( std::vector<std::string>{ "Bones", "CompatibleSkeletons", "Header", "Import", "PreviewMesh",
-                                           "Signature" } ) )
+    EXPECT_EQ(
+         FieldNames<Ser::SkeletonAssetData>(),
+         ( std::vector<std::string>{ "Bones", "CompatibleSkeletons", "Header", "PreviewMesh", "Signature" } ) )
          << "SKEL 2: the preview mesh and the one-way compatible list are the skeleton's; the signature stays as "
-            "a "
-            "payload hash, never an identity";
+            "a payload hash, never an identity. SKEL 3: no Import - freshness is the import record's SourceHash";
     // BoneInfo is written to .skeleton verbatim; it carried the same redundant index.
     EXPECT_EQ( FieldNames<Desert::Animation::BoneInfo>(),
                ( std::vector<std::string>{ "LocalBindTransform", "Name", "OffsetMatrix", "ParentBoneID" } ) );

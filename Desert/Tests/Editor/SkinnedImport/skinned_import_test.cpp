@@ -34,6 +34,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include "../../TestSupport/scratch_dir.hpp"
+
 #include <gtest/gtest.h>
 
 #include <array>
@@ -630,7 +632,7 @@ TEST_F( SkinnedImport, ASkeletonChosenOnTheMeshIsKeptByAReimport )
 // delete SourceHash from Editor/Resources/Assets/Meshes/TwoJointProbe.gltf.deimport => red here.
 TEST( SkinnedImportCorpus, TheCommittedTwoJointProbeIsCurrentAndItsImportWritesNothing )
 {
-    const std::filesystem::path        corpus = "Editor/Resources/Assets/Meshes";
+    const std::filesystem::path corpus = Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Assets/Meshes";
     const std::vector<std::string>     files  = { "TwoJointProbe.gltf", "TwoJointProbe.gltf.deimport",
                                                   "TwoJointProbe.skmesh", "TwoJointProbe.skeleton",
                                                   "TwoJointProbe_ArmSwing.anim" };

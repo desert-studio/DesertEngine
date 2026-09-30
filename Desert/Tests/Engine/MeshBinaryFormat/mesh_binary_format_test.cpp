@@ -478,8 +478,10 @@ TEST( MeshBinaryFormat, TheHeaderEntryPointStatesTheSubmeshMaterialsAsDependenci
     empty.MaterialGuid        = {}; // no material assigned: no edge
     mesh.Submeshes.push_back( empty );
     mesh.Submeshes.push_back( repeat );
+    // SKEL-TREE: after the materials, the skeleton the header states (UE USkeletalMesh -> USkeleton hard
+    // reference), so the registry keeps the rig a mesh plays on reachable from the mesh.
     const std::vector<Common::Content::AssetGuid> expected = { mesh.Submeshes[0].MaterialGuid,
-                                                               mesh.Submeshes[1].MaterialGuid };
+                                                               mesh.Submeshes[1].MaterialGuid, mesh.Skeleton };
     for ( const bool skinned : { false, true } )
     {
         mesh.IsSkinned                  = skinned;
