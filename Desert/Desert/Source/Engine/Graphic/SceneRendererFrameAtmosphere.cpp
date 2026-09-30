@@ -40,15 +40,26 @@ namespace Desert::Graphic
 {
     void SceneRenderer::AddFrameParticlesSimulate( RDG::Builder& graph, const UpdateInfo& sceneRenderInfo )
     {
-        // Particle simulation compute (outside any render pass) BEFORE the graph records the billboard draw,
-        // so the freshly-integrated particle buffer is ready + visible to the vertex stage.
-        // The graph executes before OnUpdate returns, so the frame's UpdateInfo outlives this pass.
-        AddLegacy( graph, "Particles: SimulateInFrame", {}, {},
-                   [this, &sceneRenderInfo]()
-                   {
-                       UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )
-                            ->SimulateInFrame( sceneRenderInfo.Timestep.GetSeconds() );
-                   } );
+        // Particle simulation: one compute dispatch per emitter, outside any render pass, BEFORE the billboard
+        // draw reads the integrated particle buffer in its vertex stage. A Compute node, NeverCull because it
+        // declares no graph resource: what it writes are the emitters' storage buffers
+        // (ShaderResources::StorageBuffer), and the renderer can import an engine Image2D into the graph
+        // (Renderer::ImportImage) but has no import for an engine buffer. So the graph cannot place the
+        // compute-write -> vertex-read barrier on them, and DispatchComputeCull keeps it (ParticleRenderer.cpp,
+        // SimulateInFrame). The graph executes before OnUpdate returns, so the frame's UpdateInfo outlives this
+        // pass.
+        auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
+        if ( !particles )
+            return;
+        const float seconds = static_cast<float>( sceneRenderInfo.Timestep.GetSeconds() );
+        graph.AddPass(
+             "Particles: Simulate", RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
+             []( RDG::PassBuilder& ) {},
+             [particles, seconds]( RDG::PassContext& ) -> Common::BoolResultStr
+             {
+                 particles->SimulateInFrame( seconds );
+                 return BOOLSUCCESS;
+             } );
     }
 
     void SceneRenderer::AddFrameCloudShadowMap( RDG::Builder& graph )

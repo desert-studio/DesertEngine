@@ -305,7 +305,9 @@ namespace Desert::Graphic::System
             const uint32_t groups =
                  ( static_cast<uint32_t>( fe.Gpu->MaxParticles ) + kParticleLocalSize - 1 ) / kParticleLocalSize;
             // DispatchComputeCull (not InFrame): its barrier makes the writes visible to the VERTEX stage that
-            // the billboard shader reads the particle buffer from.
+            // the billboard shader reads the particle buffer from. It stays here, not in the frame graph, because
+            // the graph node that runs this ("Particles: Simulate") cannot declare the buffer: the renderer has
+            // no import of an engine StorageBuffer into the graph (Renderer::ImportImage takes an Image2D only).
             renderer.DispatchComputeCull( m_SimPipeline.get(), groups, 1, 1 );
         }
     }

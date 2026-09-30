@@ -1301,7 +1301,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
 
     const std::vector<std::string> legacyOrder = {
          "ClearMainFramebuffer",
-         "Particles: SimulateInFrame",
+         "Particles: Simulate",
          "CloudShadowMap",
          "phases[!RenderPhase::IsDeferredOverlay(phase)]",
          "Deferred: GBuffer",
@@ -1685,4 +1685,40 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
         EXPECT_EQ( body.find( "EndRenderPass(" ), std::string::npos ) << function;
         EXPECT_EQ( body.find( "TransitionLayout(" ), std::string::npos ) << function;
     }
+}
+
+// THE PARTICLE SIMULATION IS A COMPUTE NODE (RDG-LEG1-L3): SceneRendererFrameAtmosphere.cpp adds it through
+// graph.AddPass as Compute | NeverCull, not through a legacy wrapper. It declares no graph resource because the
+// particle state lives in engine storage buffers the renderer cannot import into the graph; NeverCull is what
+// keeps such a node, and a graph with only it runs it once with no barrier planned.
+TEST( RenderGraphCompile, ParticleSimulationIsAComputeNodeTheGraphKeeps )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    std::ifstream file( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameAtmosphere.cpp" );
+    ASSERT_TRUE( file );
+    std::string text( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
+    text.erase(
+         std::remove_if( text.begin(), text.end(), []( unsigned char c ) { return std::isspace( c ) != 0; } ),
+         text.end() );
+    const size_t begin = text.find( "voidSceneRenderer::AddFrameParticlesSimulate(" );
+    ASSERT_NE( begin, std::string::npos );
+    const std::string body = text.substr( begin, text.find( "voidSceneRenderer::", begin + 1 ) - begin );
+    EXPECT_EQ( body.find( "AddLegacy(" ), std::string::npos );
+    EXPECT_NE(
+         body.find( "graph.AddPass(\"Particles:Simulate\",RDG::PassFlags::Compute|RDG::PassFlags::NeverCull" ),
+         std::string::npos );
+
+    Builder graph( "particles" );
+    int     runs = 0;
+    graph.AddPass(
+         "Particles: Simulate", PassFlags::Compute | PassFlags::NeverCull, []( PassBuilder& ) {},
+         [&runs]( PassContext& )
+         {
+             ++runs;
+             return Common::MakeSuccess( true );
+         } );
+    RecordingBackend backend;
+    ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
+    EXPECT_EQ( runs, 1 );
 }
