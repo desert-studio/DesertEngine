@@ -9,8 +9,6 @@
 
 #include <glm/ext/vector_float2.hpp>
 
-#include <ImGui/imgui.h>
-
 #include <Common/Core/Events/EventTree.hpp>
 #include <Common/Core/ResultStr.hpp>
 
@@ -117,20 +115,9 @@ namespace Desert::Editor
         {
             return m_EventNode.Id();
         }
-        [[nodiscard]] bool HoldsKeyboardFocus() const
-        {
-            return m_InteractionFrame == ::ImGui::GetFrameCount() && m_KeyboardFocus;
-        }
-        [[nodiscard]] bool IsUnderPointer() const
-        {
-            return m_InteractionFrame == ::ImGui::GetFrameCount() && m_UnderPointer;
-        }
-        void TrackWindowInteraction()
-        {
-            m_InteractionFrame = ::ImGui::GetFrameCount();
-            m_KeyboardFocus    = ::ImGui::IsWindowFocused( ImGuiFocusedFlags_RootAndChildWindows );
-            m_UnderPointer     = ::ImGui::IsWindowHovered( ImGuiHoveredFlags_RootAndChildWindows );
-        }
+        [[nodiscard]] bool HoldsKeyboardFocus() const;
+        [[nodiscard]] bool IsUnderPointer() const;
+        void               TrackWindowInteraction();
 
     protected:
         const std::string m_PanelName;

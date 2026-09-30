@@ -817,7 +817,7 @@ TEST( EventRouting, ADeferredPointerEventReachesTheNodeHoveredAtTheFrameBoundary
 {
     PanelOverBackground f;
     f.panelProbe->ClaimsClick = true;
-    auto                other = f.tree.Emplace<Probe>( f.tree.Root(), "other", f.log );
+    auto other                = f.tree.Emplace<Probe>( f.tree.Root(), "other", f.log );
     f.tree.SetHovered( other.Id );
 
     f.tree.Defer( ALeftClick() );

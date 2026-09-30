@@ -463,18 +463,18 @@ namespace Common
             return std::get<EventIndex<E>>( slot.Table->Preview )( slot.Object, event );
         }
 
-        std::vector<Slot>                     m_Slots;
-        std::vector<uint32_t>                 m_Free;
-        std::vector<Doomed>                   m_Graveyard;
-        std::vector<std::vector<EventNodeId>> m_PathBuffers;
-        std::vector<uint32_t>                 m_Stack;
+        std::vector<Slot>                              m_Slots;
+        std::vector<uint32_t>                          m_Free;
+        std::vector<Doomed>                            m_Graveyard;
+        std::vector<std::vector<EventNodeId>>          m_PathBuffers;
+        std::vector<uint32_t>                          m_Stack;
         std::vector<std::function<void( EventTree& )>> m_Deferred;
-        std::size_t                           m_LiveCount     = 0;
-        std::size_t                           m_DispatchDepth = 0;
-        uint32_t                              m_VisitStamp    = 0;
-        EventNodeId                           m_Focus{};
-        EventNodeId                           m_Hovered{};
-        EventNodeId                           m_Capture{};
+        std::size_t                                    m_LiveCount     = 0;
+        std::size_t                                    m_DispatchDepth = 0;
+        uint32_t                                       m_VisitStamp    = 0;
+        EventNodeId                                    m_Focus{};
+        EventNodeId                                    m_Hovered{};
+        EventNodeId                                    m_Capture{};
     };
     class EventNodeLink
     {
