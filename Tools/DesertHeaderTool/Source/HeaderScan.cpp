@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cctype>
 #include <format>
+#include <functional>
+#include <iterator>
 #include <optional>
 #include <set>
 #include <string_view>
@@ -64,9 +66,9 @@ namespace Desert::HeaderTool
                 if ( c == '"' && IsRawStringPrefix( out, i ) )
                 {
                     const size_t      open = out.find( '(', i );
-                    const std::string closing =
-                         ")" + ( open == std::string::npos ? std::string() : out.substr( i + 1, open - i - 1 ) ) +
-                         "\"";
+                    const std::string delimiter =
+                         open == std::string::npos ? std::string() : out.substr( i + 1, open - i - 1 );
+                    const std::string closing = std::format( "){}\"", delimiter );
                     const size_t close = open == std::string::npos ? std::string::npos : out.find( closing, open );
                     const size_t stop  = close == std::string::npos ? out.size() : close + closing.size();
                     for ( size_t k = i; k < stop; ++k )
@@ -344,7 +346,7 @@ namespace Desert::HeaderTool
             {
                 if ( frame.FrameKind == Frame::Kind::Other || frame.Name.empty() )
                     continue;
-                qualified += frame.Name + "::";
+                std::format_to( std::back_inserter( qualified ), "{}::", frame.Name );
             }
             return qualified + name;
         }
@@ -489,22 +491,38 @@ namespace Desert::HeaderTool
             }
         }
 
-        bool JoinsTheTree( const std::vector<ClassInfo>& classes, const ClassInfo& info,
-                           std::set<std::string>& visited )
+        bool JoinsTheTree( const std::vector<ClassInfo>& classes, const ClassInfo& start )
         {
-            if ( info.SubsystemOwner || info.JoinsEvents )
-                return true;
-            for ( const std::string& base : info.Bases )
+            std::set<std::string>                                visited;
+            std::vector<std::reference_wrapper<const ClassInfo>> pending{ std::cref( start ) };
+            while ( !pending.empty() )
             {
-                if ( !visited.insert( base ).second )
-                    continue;
-                for ( const ClassInfo& candidate : classes )
+                const ClassInfo& info = pending.back().get();
+                pending.pop_back();
+                if ( info.SubsystemOwner || info.JoinsEvents )
+                    return true;
+                for ( const std::string& base : info.Bases )
                 {
-                    if ( candidate.Name == base && JoinsTheTree( classes, candidate, visited ) )
-                        return true;
+                    if ( !visited.insert( base ).second )
+                        continue;
+                    for ( const ClassInfo& candidate : classes )
+                    {
+                        if ( candidate.Name == base )
+                            pending.push_back( std::cref( candidate ) );
+                    }
                 }
             }
             return false;
+        }
+
+        std::string BubbleHandlerName( const RoutedEventName& event )
+        {
+            return std::format( "On{}", event.HandlerSuffix );
+        }
+
+        std::string PreviewHandlerName( const RoutedEventName& event )
+        {
+            return std::format( "OnPreview{}", event.HandlerSuffix );
         }
 
         const RoutedEventName* FindEvent( const std::vector<RoutedEventName>& events,
@@ -555,7 +573,7 @@ namespace Desert::HeaderTool
             if ( c == '/' && i + 1 < source.size() && source[i + 1] == '*' )
             {
                 i += 2;
-                while ( i + 1 < source.size() && !( source[i] == '*' && source[i + 1] == '/' ) )
+                while ( i + 1 < source.size() && ( source[i] != '*' || source[i + 1] != '/' ) )
                 {
                     if ( source[i] == '\n' )
                         out += '\n';
@@ -597,8 +615,8 @@ namespace Desert::HeaderTool
                 const RoutedEventName* event = FindEvent( model.Events, handler.EventClass );
                 if ( event == nullptr )
                     continue;
-                const std::string bubble  = "On" + event->HandlerSuffix;
-                const std::string preview = "OnPreview" + event->HandlerSuffix;
+                const std::string bubble  = BubbleHandlerName( *event );
+                const std::string preview = PreviewHandlerName( *event );
                 if ( handler.Name != bubble && handler.Name != preview )
                 {
                     model.Errors.push_back(
@@ -619,8 +637,7 @@ namespace Desert::HeaderTool
                 handlesEvents = true;
             }
 
-            std::set<std::string> visited;
-            if ( handlesEvents && !JoinsTheTree( classes, info, visited ) && !attached.contains( info.Name ) )
+            if ( handlesEvents && !JoinsTheTree( classes, info ) && !attached.contains( info.Name ) )
             {
                 model.Errors.push_back(
                      { info.Path, info.Line,

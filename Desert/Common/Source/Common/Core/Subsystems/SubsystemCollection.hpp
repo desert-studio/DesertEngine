@@ -52,13 +52,12 @@ namespace Common
             static_assert(
                  SubsystemOf<Owner, T>,
                  "this owner is not a node of an event tree: its subsystems cannot handle routed events" );
-            std::unique_ptr<T> created = Construct<T>();
-            T&                 object  = *created;
-            EventNodeLink      node;
+            std::unique_ptr<HolderOf<T>> created = Construct<T>();
+            T&                           object  = created->Value;
+            EventNodeLink                node;
             if constexpr ( ReceivesEvents<T> )
                 node = EventNodeLink( *m_Events, m_Events->Attach<T>( m_Parent, object ) );
-            m_Entries.push_back( Entry{ &EventDetail::TypeTag<T>, ErasedObject( created.release(), &DestroyAs<T> ),
-                                        std::move( node ) } );
+            m_Entries.push_back( Entry{ std::move( created ), std::move( node ) } );
             return object;
         }
 
@@ -67,8 +66,8 @@ namespace Common
         {
             for ( const Entry& entry : m_Entries )
             {
-                if ( entry.Type == &EventDetail::TypeTag<T> )
-                    return static_cast<T*>( entry.Object.get() );
+                if ( auto* holder = dynamic_cast<HolderOf<T>*>( entry.Object.get() ) )
+                    return &holder->Value;
             }
             return nullptr;
         }
@@ -78,7 +77,7 @@ namespace Common
         {
             for ( const Entry& entry : m_Entries )
             {
-                if ( entry.Type == &EventDetail::TypeTag<T> )
+                if ( dynamic_cast<const HolderOf<T>*>( entry.Object.get() ) != nullptr )
                     return entry.Node.Id();
             }
             return {};
@@ -95,28 +94,43 @@ namespace Common
         }
 
     private:
-        using ErasedObject = std::unique_ptr<void, void ( * )( void* )>;
-
-        struct Entry
+        struct Holder
         {
-            const void*   Type = nullptr;
-            ErasedObject  Object;
-            EventNodeLink Node;
+            Holder()                           = default;
+            virtual ~Holder()                  = default;
+            Holder( const Holder& )            = delete;
+            Holder& operator=( const Holder& ) = delete;
+            Holder( Holder&& )                 = delete;
+            Holder& operator=( Holder&& )      = delete;
         };
 
         template <typename T>
-        static void DestroyAs( void* object )
+        struct HolderOf final : Holder
         {
-            delete static_cast<T*>( object );
-        }
+            HolderOf() : Value()
+            {
+            }
+
+            explicit HolderOf( Owner& owner ) : Value( owner )
+            {
+            }
+
+            T Value;
+        };
+
+        struct Entry
+        {
+            std::unique_ptr<Holder> Object;
+            EventNodeLink           Node;
+        };
 
         template <typename T>
-        std::unique_ptr<T> Construct()
+        std::unique_ptr<HolderOf<T>> Construct()
         {
             if constexpr ( std::constructible_from<T, Owner&> )
-                return std::make_unique<T>( *m_Owner );
+                return std::make_unique<HolderOf<T>>( *m_Owner );
             else
-                return std::make_unique<T>();
+                return std::make_unique<HolderOf<T>>();
         }
 
         Owner*             m_Owner  = nullptr;

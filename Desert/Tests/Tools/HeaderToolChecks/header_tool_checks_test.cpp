@@ -255,7 +255,7 @@ public:
 
 TEST( HeaderToolChecks, ContextFilesAreReadButNotDiagnosed )
 {
-    std::vector<ScannedFile> files{
+    const std::vector<ScannedFile> files{
          { "Common/Events.hpp", kEvents, false, "Common/Events.hpp" },
          { "Other/Stray.hpp", "class Stray { public: bool OnKeyPresed( KeyPressedEvent& e ); };", false,
            "Other/Stray.hpp" },

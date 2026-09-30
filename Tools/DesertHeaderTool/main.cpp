@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <Common/Json/Document.hpp>
 #include <Common/Json/Template.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 #include <ToolMain.hpp>
 
 #include "Source/HeaderScan.hpp"
@@ -847,14 +848,15 @@ namespace
         return files;
     }
 
-    bool WriteIfChanged( const fs::path& outputFile, const std::string& content )
+    Common::BoolResultStr WriteIfChanged( const fs::path& outputFile, const std::string& content )
     {
         if ( fs::exists( outputFile ) && ReadFile( outputFile ) == content )
-            return false;
+            return Common::MakeSuccess( false );
         fs::create_directories( outputFile.parent_path() );
-        std::ofstream out( outputFile, std::ios::binary );
-        out << content;
-        return true;
+        Common::BoolResultStr saved = Common::Utils::FileSystem::WriteContentToFileAtomic( outputFile, content );
+        if ( !saved.IsSuccess() )
+            return saved;
+        return Common::MakeSuccess( true );
     }
 
     struct ReflectRequest
@@ -908,9 +910,15 @@ namespace
             std::cerr << "[DesertHeaderTool] " << rendered.GetError() << "\n";
             return 1;
         }
-        const bool written = WriteIfChanged( request.Output, rendered.ExtractValue() );
-        std::cout << "[DesertHeaderTool] " << ( written ? "generated " : "up to date " ) << request.Output.string()
-                  << " (" << types.size() << " reflected types, " << headers.size() << " headers scanned)\n";
+        const Common::BoolResultStr written = WriteIfChanged( request.Output, rendered.ExtractValue() );
+        if ( !written.IsSuccess() )
+        {
+            std::cerr << "[DesertHeaderTool] " << written.GetError() << "\n";
+            return 1;
+        }
+        std::cout << "[DesertHeaderTool] " << ( written.GetValue() ? "generated " : "up to date " )
+                  << request.Output.string() << " (" << types.size() << " reflected types, " << headers.size()
+                  << " headers scanned)\n";
         return 0;
     }
 } // namespace
@@ -992,9 +1000,14 @@ static int RunTool( int argc, char** argv )
             std::cerr << "[DesertHeaderTool] " << rendered.GetError() << "\n";
             return 1;
         }
-        const bool written = WriteIfChanged( request.Output, rendered.ExtractValue() );
-        std::cout << "[DesertHeaderTool] " << ( written ? "generated " : "up to date " ) << request.Output.string()
-                  << " (" << owned.size() << " " << request.Owner << " subsystems)\n";
+        const Common::BoolResultStr written = WriteIfChanged( request.Output, rendered.ExtractValue() );
+        if ( !written.IsSuccess() )
+        {
+            std::cerr << "[DesertHeaderTool] " << written.GetError() << "\n";
+            return 1;
+        }
+        std::cout << "[DesertHeaderTool] " << ( written.GetValue() ? "generated " : "up to date " )
+                  << request.Output.string() << " (" << owned.size() << " " << request.Owner << " subsystems)\n";
     }
 
     return reflect ? Reflect( *templateDir, *reflect ) : 0;

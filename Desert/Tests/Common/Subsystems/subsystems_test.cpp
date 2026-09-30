@@ -22,7 +22,7 @@ namespace
 TEST( Subsystems, TheOwnersAnnotatedSubsystemsAreCreatedWithTheCollection )
 {
     OwnerInTree                      host;
-    SubsystemCollection<SampleOwner> subsystems( host.owner, host.tree, host.node );
+    const SubsystemCollection<SampleOwner> subsystems( host.owner, host.tree, host.node );
     EXPECT_EQ( subsystems.Count(), 2u );
     EXPECT_NE( subsystems.Get<InputJournalSubsystem>(), nullptr );
     EXPECT_NE( subsystems.Get<ClockSubsystem>(), nullptr );
@@ -31,14 +31,14 @@ TEST( Subsystems, TheOwnersAnnotatedSubsystemsAreCreatedWithTheCollection )
 TEST( Subsystems, AnotherOwnersSubsystemIsNotCreated )
 {
     OwnerInTree                      host;
-    SubsystemCollection<SampleOwner> subsystems( host.owner, host.tree, host.node );
+    const SubsystemCollection<SampleOwner> subsystems( host.owner, host.tree, host.node );
     EXPECT_EQ( subsystems.Get<ForeignOwnerSubsystem>(), nullptr );
 }
 
 TEST( Subsystems, ASubsystemIsConstructedWithItsOwner )
 {
     OwnerInTree                      host;
-    SubsystemCollection<SampleOwner> subsystems( host.owner, host.tree, host.node );
+    const SubsystemCollection<SampleOwner> subsystems( host.owner, host.tree, host.node );
     ASSERT_NE( subsystems.Get<InputJournalSubsystem>(), nullptr );
     EXPECT_EQ( &subsystems.Get<InputJournalSubsystem>()->Owner(), &host.owner );
     EXPECT_EQ( &subsystems.GetOwner(), &host.owner );
@@ -47,7 +47,7 @@ TEST( Subsystems, ASubsystemIsConstructedWithItsOwner )
 TEST( Subsystems, ASubsystemWithHandlersIsANodeUnderItsOwner )
 {
     OwnerInTree                      host;
-    SubsystemCollection<SampleOwner> subsystems( host.owner, host.tree, host.node );
+    const SubsystemCollection<SampleOwner> subsystems( host.owner, host.tree, host.node );
     const EventNodeId                node = subsystems.NodeOf<InputJournalSubsystem>();
     ASSERT_TRUE( node.IsSet() );
     EXPECT_TRUE( host.tree.Contains( node ) );
@@ -57,14 +57,14 @@ TEST( Subsystems, ASubsystemWithHandlersIsANodeUnderItsOwner )
 TEST( Subsystems, ASubsystemWithoutHandlersIsNotANode )
 {
     OwnerInTree                      host;
-    SubsystemCollection<SampleOwner> subsystems( host.owner, host.tree, host.node );
+    const SubsystemCollection<SampleOwner> subsystems( host.owner, host.tree, host.node );
     EXPECT_FALSE( subsystems.NodeOf<ClockSubsystem>().IsSet() );
 }
 
 TEST( Subsystems, ABroadcastReachesASubsystemWithoutRegistration )
 {
     OwnerInTree                      host;
-    SubsystemCollection<SampleOwner> subsystems( host.owner, host.tree, host.node );
+    const SubsystemCollection<SampleOwner> subsystems( host.owner, host.tree, host.node );
     EventWindowResize                resize( 800, 600 );
     host.tree.Route( resize );
     EXPECT_EQ( host.owner.At( host.owner.Recorded() - 1 ), "window resized" );
@@ -73,7 +73,7 @@ TEST( Subsystems, ABroadcastReachesASubsystemWithoutRegistration )
 TEST( Subsystems, AFocusedSubsystemHandlesAKey )
 {
     OwnerInTree                      host;
-    SubsystemCollection<SampleOwner> subsystems( host.owner, host.tree, host.node );
+    const SubsystemCollection<SampleOwner> subsystems( host.owner, host.tree, host.node );
     host.tree.SetFocus( subsystems.NodeOf<InputJournalSubsystem>() );
     KeyPressedEvent key( static_cast<KeyCode>( 65 ), 0 );
     EXPECT_TRUE( host.tree.Route( key ).Handled );
@@ -84,7 +84,7 @@ TEST( Subsystems, SubsystemsAreDestroyedWithTheCollectionInReverseOrder )
 {
     OwnerInTree host;
     {
-        SubsystemCollection<SampleOwner> subsystems( host.owner, host.tree, host.node );
+        const SubsystemCollection<SampleOwner> subsystems( host.owner, host.tree, host.node );
     }
     ASSERT_EQ( host.owner.Recorded(), 4u );
     EXPECT_EQ( host.owner.At( 0 ), "clock created" );
@@ -98,7 +98,7 @@ TEST( Subsystems, ADestroyedSubsystemLeavesTheTree )
     OwnerInTree host;
     EventNodeId node;
     {
-        SubsystemCollection<SampleOwner> subsystems( host.owner, host.tree, host.node );
+        const SubsystemCollection<SampleOwner> subsystems( host.owner, host.tree, host.node );
         node = subsystems.NodeOf<InputJournalSubsystem>();
     }
     EXPECT_FALSE( host.tree.Contains( node ) );
@@ -117,7 +117,7 @@ TEST( Subsystems, AnOwnerOutsideTheTreeCreatesItsSubsystemsWithoutATree )
 {
     SampleOwner                      journal;
     SampleWorld                      world( journal );
-    SubsystemCollection<SampleWorld> subsystems( world );
+    const SubsystemCollection<SampleWorld> subsystems( world );
     EXPECT_EQ( subsystems.Count(), 1u );
     EXPECT_NE( subsystems.Get<WeatherSubsystem>(), nullptr );
     EXPECT_FALSE( subsystems.NodeOf<WeatherSubsystem>().IsSet() );
@@ -127,7 +127,7 @@ TEST( Subsystems, AWorldSubsystemLivesAsLongAsItsWorld )
 {
     SampleOwner journal;
     {
-        SampleWorld world( journal );
+        const SampleWorld world( journal );
         EXPECT_TRUE( world.Subsystems.IsRunning() );
         EXPECT_NE( world.Subsystems.Get<WeatherSubsystem>(), nullptr );
         EXPECT_EQ( journal.Recorded(), 1u );

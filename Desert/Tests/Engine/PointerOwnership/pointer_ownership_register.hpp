@@ -1913,9 +1913,15 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Common/Source/Common/Core/Events/EventTree.hpp",
           "Slot", "Object", Guard::OwningRaw,
           "EVT-2: the node's object, type-erased; Emplace/Adopt set Slot::Destroy = DestroyAs<T> and the tree deletes it in Kill -> DestroyAll (Remove, ~EventTree, FlushGraveyard after a dispatch) or hands it back by Take<T>; Attach leaves Destroy null and the owner removes the node first through the EventNodeLink it holds (Layer/IPanel m_EventNode) or, for Application, by owning the tree" },
-        { "Desert/Common/Source/Common/Core/Events/EventTree.hpp",
-          "Doomed", "Object", Guard::OwningRaw,
-          "EVT-2: an owned object moved out of a dead Slot by Kill, held only in the local list of Remove/~EventTree or in m_Graveyard during a dispatch, and deleted by DestroyAll through Doomed::Destroy" },
+        { "Desert/Common/Source/Common/Core/Subsystems/SubsystemCollection.hpp",
+          "SubsystemCollection", "m_Owner", Guard::HostOutlivesUs,
+          "EVT-3: the owner whose member the collection is (Application::m_EngineSubsystems, EditorLayer's subsystems, Scene through WorldSubsystems); the collection is non-copyable and non-movable, so it cannot leave the object it points back to" },
+        { "Desert/Common/Source/Common/Core/Subsystems/SubsystemCollection.hpp",
+          "SubsystemCollection", "m_Events", Guard::HostOutlivesUs,
+          "EVT-3: the tree the owner's node lives in, null for owners that do not join a tree (Scene); Application declares m_Events before m_EngineSubsystems and before the layer stack that holds EditorLayer, so the tree outlives every collection and the EventNodeLink of each subsystem is released while it is alive" },
+        { "Desert/Common/Source/Common/Core/Subsystems/WorldSubsystems.hpp",
+          "WorldSubsystems", "m_World", Guard::HostOutlivesUs,
+          "EVT-3b: the Scene whose member m_Subsystems this is, constructed with *this; non-copyable and non-movable, so it dies with the Scene it points back to" },
 
         };
         return rows;
