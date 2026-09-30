@@ -247,9 +247,10 @@ namespace Desert::Editor
     {
         AnimGraphEditTransaction::Scope transaction( m_GraphEdit, GraphOwner() );
         ECS::AnimationComponent* anim = ResolveComponent();
-        if ( anim == nullptr || !anim->Graph || G::OutputMachine( *anim->Graph ) == nullptr )
+        G::StateMachine* machine = anim != nullptr && anim->Graph ? ResolveMachine( *anim->Graph ) : nullptr;
+        if ( machine == nullptr )
         {
-            m_Status        = "no state machine at the graph's Output Pose to add a state to";
+            m_Status        = "no state machine open to add a state to";
             m_StatusIsError = true;
             return;
         }
@@ -259,16 +260,16 @@ namespace Desert::Editor
         // added, and two states sharing a name is not cosmetic: `Entry`, `Transition::To` and
         // `Evaluator::FindState` all resolve by string and all take the FIRST match, so the second one is
         // unreachable and plays the first one's clip with nothing said.
-        ns.Name = Graph::MakeUniqueStateName(
-             *anim->Graph, "State_" + std::to_string( G::OutputMachine( *anim->Graph )->States.size() ), -1 );
+        ns.Name = Graph::MakeUniqueStateName( machine->States, "State_" + std::to_string( machine->States.size() ),
+                                              -1 );
         // AND NOT (0, 0), which is where every new state used to land: the second one covered the first
         // exactly, and a node under another node cannot be clicked, renamed, given a clip or deleted. The
         // rule is in `AnimGraphCanvasPlan` because that unit has no ImGui in it and can therefore be
         // measured; `AnimGraphValidation` compiles it and asserts the separation.
-        const Graph::StatePosition where = Graph::NextStatePosition( *anim->Graph );
+        const Graph::StatePosition where = Graph::NextStatePosition( machine->States );
         ns.X                             = where.X;
         ns.Y                             = where.Y;
-        G::OutputMachine( *anim->Graph )->States.push_back( ns );
+        machine->States.push_back( ns );
         MarkEdited();
     }
 
@@ -404,10 +405,10 @@ namespace Desert::Editor
                                 "Pick or create one in Details > Animation > AnimGraph." );
             return;
         }
-        if ( m_EditingMachine && G::OutputMachine( *anim->Graph ) == nullptr )
+        if ( m_EditingMachine && ResolveMachine( *anim->Graph ) == nullptr )
         {
             if ( ImGui::Button( ICON_MDI_ARROW_LEFT "  AnimGraph" ) )
-                m_EditingMachine = false;
+                ShowPoseGraph( std::nullopt );
             // The loader refuses a graph that does not plan, so this is a graph whose Output Pose is a
             // node of another kind: this panel edits the state machine at the output, and there is none.
             ImGui::TextWrapped( "%s", std::format( "Anim graph '{}' has no state machine wired into Output Pose; "
@@ -452,6 +453,21 @@ namespace Desert::Editor
         ImGui::SameLine();
         if ( ImGui::RadioButton( "State Machine", m_EditingMachine ) )
             m_EditingMachine = true;
+        // Which graph the tabs are inside: a layer function graph, and which machine node is open.
+        if ( m_LayerGraph )
+        {
+            ImGui::SameLine();
+            ImGui::TextDisabled( "%s",
+                                 std::format( "Layer {}.{}", m_LayerGraph->first, m_LayerGraph->second ).c_str() );
+            ImGui::SameLine();
+            if ( ImGui::SmallButton( ICON_MDI_ARROW_LEFT " Host AnimGraph" ) )
+                ShowPoseGraph( std::nullopt );
+        }
+        if ( m_EditingMachine && !m_MachineNode.empty() )
+        {
+            ImGui::SameLine();
+            ImGui::TextDisabled( "%s", std::format( "Machine '{}'", m_MachineNode ).c_str() );
+        }
         if ( m_EditingMachine )
         {
             ImGui::SameLine();
@@ -616,6 +632,7 @@ namespace Desert::Editor
         {
             // A finding about a state is revealed on the state machine's canvas; one about the pose graph
             // (no state) on the AnimGraph's.
+            ShowPoseGraph( std::nullopt ); // findings are about the host graph and its Output Pose machine
             m_EditingMachine = !warning.State.empty();
             RevealWarning( *now->Graph, warning );
         }
@@ -654,12 +671,12 @@ namespace Desert::Editor
     void AnimGraphPanel::DrawCanvas( ECS::AnimationComponent& anim, float width, float height )
     {
         auto&            graph   = *anim.Graph;
-        G::StateMachine& machine = *G::OutputMachine( graph ); // OnUIRender refused a graph without one
+        G::StateMachine& machine = *ResolveMachine( graph ); // OnUIRender refused a graph without one
         bool  dirty = false;
 
         // EVERY ID ON THIS CANVAS, AND WHAT IT NAMES — decided before a single ImGui call, by a unit with
         // no ImGui in it. `NodeId( i ) = i + 1` used to live here.
-        m_Canvas = Graph::PlanAnimGraph( graph, m_Ids );
+        m_Canvas = Graph::PlanStateMachine( machine.States, m_Ids );
 
         // The size the canvas is actually drawn at, which is also what `DeferredFrameAll` waits to see
         // stop changing. Height 0 means "the rest of the window" to the node editor, so it is resolved
@@ -670,7 +687,8 @@ namespace Desert::Editor
         ed::Begin( "##animGraph", canvasSize );
 
         int activeIndex = -1;
-        if ( anim.GraphEvaluator && anim.GraphEvaluator->CurrentState() )
+        // The live evaluator runs the Output Pose's machine: another machine's state of the same name is not it.
+        if ( &machine == G::OutputMachine( graph ) && anim.GraphEvaluator && anim.GraphEvaluator->CurrentState() )
         {
             const std::string& activeName = anim.GraphEvaluator->CurrentState()->Name;
             for ( int i = 0; i < static_cast<int>( machine.States.size() ); ++i )
@@ -829,7 +847,7 @@ namespace Desert::Editor
                                         float height )
     {
         auto&            graph   = *anim.Graph;
-        G::StateMachine& machine = *G::OutputMachine( graph ); // OnUIRender refused a graph without one
+        G::StateMachine& machine = *ResolveMachine( graph ); // OnUIRender refused a graph without one
         auto* eval  = anim.GraphEvaluator.get();
         bool  dirty = false;
 
@@ -952,7 +970,7 @@ namespace Desert::Editor
                     // A RENAME THAT COLLIDES IS A STATE THAT DISAPPEARS: every reference in this graph
                     // resolves by name and takes the first match. Renaming to an occupied name is
                     // therefore answered with a free one rather than accepted silently.
-                    s.Name = Graph::MakeUniqueStateName( graph, s.Name, si );
+                    s.Name = Graph::MakeUniqueStateName( machine.States, s.Name, si );
                     if ( machine.Entry == oldName )
                         machine.Entry = s.Name;
                     for ( auto& st : machine.States )

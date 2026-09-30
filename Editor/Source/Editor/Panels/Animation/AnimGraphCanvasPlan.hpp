@@ -168,6 +168,8 @@ namespace Desert::Editor::Graph
     /// as the user has dragged things around. This asks which grid cell is free, which is true whatever
     /// the user did with the mouse.
     [[nodiscard]] StatePosition NextStatePosition( const Animation::Graph::AnimGraph& graph );
+    /// The same rule over one machine's states (any machine node's, a layer graph's included).
+    [[nodiscard]] StatePosition NextStatePosition( const std::vector<Animation::Graph::State>& states );
 
     /// The grid `NextStatePosition` places on. Named here because the test asserts separation in terms
     /// of them, and a test that spelled its own numbers would pass while the panel drifted.

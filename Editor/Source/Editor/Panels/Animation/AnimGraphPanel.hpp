@@ -221,6 +221,22 @@ namespace Desert::Editor
         void RemovePoseNode( const std::string& name );
         /// Reports a refused edit on the status line. Returns whether the edit went through.
         bool Report( const Common::BoolResultStr& result );
+        /// The pose graph the canvas shows: the host's nodes and Output Pose, or a layer graph's. A layer
+        /// that no longer exists (renamed, undone) falls back to the host.
+        struct PoseGraphTarget
+        {
+            std::vector<Animation::Graph::PoseNode>* Nodes  = nullptr;
+            std::string*                             Output = nullptr;
+            Animation::Graph::GraphScope             Scope  = Animation::Graph::GraphScope::Host;
+        };
+        [[nodiscard]] PoseGraphTarget ResolvePoseTarget( Animation::Graph::AnimGraph& graph );
+        /// The machine the state canvas edits (m_MachineNode in the shown pose graph, else the host's Output
+        /// Pose machine), or nullptr.
+        [[nodiscard]] Animation::Graph::StateMachine* ResolveMachine( Animation::Graph::AnimGraph& graph );
+        /// Show the host's AnimGraph (empty) or a layer graph; the canvas ids and selection start over.
+        void ShowPoseGraph( std::optional<std::pair<std::string, std::string>> layer );
+        /// Open the state machine node `node` of the shown pose graph on the state canvas.
+        void OpenMachine( const std::string& node );
         void AppendPoseActions( ECS::AnimationComponent& anim, std::vector<DocumentAction>& actions );
         void DrawPoseCanvas( ECS::AnimationComponent& anim, float width, float height );
         void DrawPoseSidePanel( ECS::AnimationComponent& anim, const std::vector<std::string>& clipNames,
@@ -272,6 +288,13 @@ namespace Desert::Editor
         /// Which canvas is shown: the AnimGraph (pose graph, UE's default tab) or the Output Pose's state
         /// machine (double-click its node, as in UE).
         bool        m_EditingMachine = false;
+        /// WHICH GRAPH THE POSE CANVAS SHOWS (UE: the AnimGraph tab or a layer function graph): empty = the
+        /// graph's own AnimGraph (GraphScope::Host), else (interface, layer) of a layer graph it implements
+        /// (GraphScope::Layer — where Linked Input Pose may be added).
+        std::optional<std::pair<std::string, std::string>> m_LayerGraph;
+        /// WHICH MACHINE THE STATE CANVAS EDITS: a state machine node of the shown pose graph, by name
+        /// (double-click it, as in UE); empty = the machine at the host's Output Pose.
+        std::string m_MachineNode;
         std::string m_SelectedPoseNode;
         bool        m_PoseSelectPending = false; // a document action picked the node
         glm::vec2   m_PoseMenuAt{};              // where the context menu was opened

@@ -317,7 +317,11 @@ namespace Desert::Editor::Graph
 
     StatePosition NextStatePosition( const G::AnimGraph& graph )
     {
-        const std::vector<G::State>& states = StatesOf( graph );
+        return NextStatePosition( StatesOf( graph ) );
+    }
+
+    StatePosition NextStatePosition( const std::vector<G::State>& states )
+    {
         // Half a step in each axis. A cell is "taken" when an existing state sits closer to its centre
         // than that, which is the same thing as saying the two nodes would visually collide.
         const auto occupied = [&]( const StatePosition& cell )
