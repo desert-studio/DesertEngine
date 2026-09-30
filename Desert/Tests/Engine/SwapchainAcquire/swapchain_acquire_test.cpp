@@ -152,18 +152,18 @@ namespace
         bool                         HasArea = true;
         bool                         Fails   = false;
 
-        Desert::Common::ResultStr<bool> operator()( const SwapchainExtent extent )
+        Common::ResultStr<bool> operator()( const SwapchainExtent extent )
         {
             if ( Fails )
-                return Desert::Common::MakeError<bool>( "refused" );
+                return Common::MakeError<bool>( "refused" );
             if ( !HasArea )
-                return Desert::Common::MakeSuccess( false );
+                return Common::MakeSuccess( false );
             Served.push_back( extent );
-            return Desert::Common::MakeSuccess( true );
+            return Common::MakeSuccess( true );
         }
     };
 
-    Desert::Common::ResultStr<bool> Boundary( SwapchainRebuildRequest& request, BoundaryRebuilds& rebuilds )
+    Common::ResultStr<bool> Boundary( SwapchainRebuildRequest& request, BoundaryRebuilds& rebuilds )
     {
         return RebuildAtFrameBoundary( request,
                                        [&]( const SwapchainExtent extent ) { return rebuilds( extent ); } );
