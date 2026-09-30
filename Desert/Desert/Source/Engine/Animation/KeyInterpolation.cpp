@@ -70,7 +70,9 @@ namespace Desert::Animation
             case KeyInterp::Constant:
                 // HOLD, and hold the whole way: the value steps at the later key, not half way to it. A
                 // stepped channel whose step lands in the middle of the segment is a rounding, not a hold.
-                return startValue;
+                // AT the later key (t == 1, a sample exactly on its tick) the step has happened: a sample on
+                // a key reads that key, whichever side's bracket the sampler put the tick in.
+                return t < 1.0F ? startValue : endValue;
 
             case KeyInterp::Linear:
                 return std::lerp( startValue, endValue, t );

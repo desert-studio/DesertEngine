@@ -291,7 +291,8 @@ namespace Desert::Animation::Timeline
         // CONSTANT OR SLERP — RotationKeyFrame's two shapes; `Cubic` is refused by Validate until squad.
         if ( keys[bracket.Next].Interp == KeyInterp::Constant )
         {
-            return prev;
+            // Held until the later key, and that key's own tick reads it (as `EvaluateSegment` does).
+            return bracket.Factor < 1.0F ? prev : QuatAt( channel, bracket.Next );
         }
         return glm::slerp( prev, QuatAt( channel, bracket.Next ), bracket.Factor );
     }
