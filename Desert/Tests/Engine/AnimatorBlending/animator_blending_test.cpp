@@ -19,6 +19,7 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
+#include "../ClipFixture.hpp"
 #include "../PoseGraphFixture.hpp"
 
 #include <gtest/gtest.h>
@@ -29,10 +30,8 @@
 
 using Common::Timestep;
 using Desert::Animation::AnimationClip;
-using Desert::Animation::AnimationNotify;
 using Desert::Animation::Animator;
 using Desert::Animation::BoneInfo;
-using Desert::Animation::BoneTrack;
 using Desert::Animation::FrameNumber;
 using Desert::Animation::FrameTime;
 using Desert::Animation::NearestTick;
@@ -108,19 +107,9 @@ namespace
                               const glm::quat& rotation = glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ),
                               float            duration = 2.0F )
     {
-        AnimationClip clip;
-        // A5: the clip states a length in TICKS on the project grid. `Duration` + `TicksPerSecond = 1`
-        // used to say "one second" by setting the rate so a tick WAS a second.
-        clip.AnimationName = name;
-        clip.DurationTicks = NearestTick( SecondsToFrameTime( duration, PROJECT_TICK_RATE ) );
-
-        BoneTrack track;
-        track.BoneName = bone;
-        track.PositionKeys.push_back( { FrameNumber{ 0 }, position } );
-        track.RotationKeys.push_back( { FrameNumber{ 0 }, rotation } );
-        track.ScaleKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 1.0F ) } );
-        clip.Tracks.push_back( std::move( track ) );
-        return clip;
+        // The clip's data is its Timeline::Sequence: a Bone binding with one Transform track (ClipFixture).
+        return ClipFixture::StaticBoneClip( name, NearestTick( SecondsToFrameTime( duration, PROJECT_TICK_RATE ) ),
+                                            bone, position, rotation );
     }
 
     /// Component-space position of a bone, recovered from the skinning matrices the way every consumer
@@ -449,7 +438,7 @@ TEST( AnimatorBlending, ATrackNameTheRigDoesNotHaveLeavesThatBoneAtBind )
 
 TEST( AnimatorBlending, TheTrackCacheIsRebuiltWhenTheClipsStorageMoves )
 {
-    // The clip keeps its address while its Tracks vector is freed and reallocated — which is exactly what
+    // The clip keeps its address while its Sequence's track list is freed and reallocated — which is exactly what
     // asset eviction plus reload does, and what segfaulted inside lower_bound when the cache was keyed on
     // the address alone.
     const Skeleton skeleton = MakeRig();
@@ -469,12 +458,15 @@ TEST( AnimatorBlending, TheTrackCacheIsRebuiltWhenTheClipsStorageMoves )
     // is a fact about the binding rather than about the heap.
     // Exactly what an evicted-then-reloaded asset does to the clip it owns: the AnimationClip keeps its
     // address, its track list is freed and rebuilt, and `AnimationAsset` stamps the new generation.
-    clip.Tracks.clear();
-    clip.Tracks.shrink_to_fit();
+    clip.Sequence.Bindings.clear();
+    clip.Sequence.Bindings.shrink_to_fit();
+    clip.Sequence.Tracks.clear();
+    clip.Sequence.Tracks.shrink_to_fit();
 
     AnimationClip reloaded = StaticClip( "Live", "arm", glm::vec3( 250.0F, 0.0F, 0.0F ) );
-    clip.Tracks            = std::move( reloaded.Tracks );
-    ++clip.TrackRevision;
+    clip.Sequence.Bindings = std::move( reloaded.Sequence.Bindings );
+    clip.Sequence.Tracks   = std::move( reloaded.Sequence.Tracks );
+    ++clip.Sequence.Revision;
 
     animator.Update( Timestep( 0.0F ) );
     EXPECT_NEAR( glm::length( BonePosition( animator, 2 ) - BonePosition( animator, 1 ) ), 250.0F, 1e-3F )
@@ -492,8 +484,7 @@ TEST( AnimatorBlending, ANotifyFiresExactlyOncePerPassOverItsTime )
 
     AnimationClip clip = StaticClip( "Walk", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ),
                                      /*duration=*/1.0F );
-    clip.Notifies.push_back(
-         AnimationNotify{ "Footstep", NearestTick( SecondsToFrameTime( 0.5, PROJECT_TICK_RATE ) ) } );
+    ClipFixture::AddNotify( clip, "Footstep", NearestTick( SecondsToFrameTime( 0.5, PROJECT_TICK_RATE ) ) );
 
     animator.Play( clip, /*loop=*/false );
 
@@ -513,14 +504,12 @@ TEST( AnimatorBlending, ALoopingClipFiresItsNotifyOncePerLap )
 
     AnimationClip clip = StaticClip( "Run", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ),
                                      /*duration=*/1.0F );
-    clip.Notifies.push_back(
-         AnimationNotify{ "MidStep", NearestTick( SecondsToFrameTime( 0.5, PROJECT_TICK_RATE ) ) } );
+    ClipFixture::AddNotify( clip, "MidStep", NearestTick( SecondsToFrameTime( 0.5, PROJECT_TICK_RATE ) ) );
     // A MARKER INSIDE THE WRAP STEP, and without it this test proved nothing. With 0.1 s steps over a 1 s
     // clip, the frame that wraps covers (0.9, 1.0] u [0, 0.0] — a marker at 0.5 is nowhere near it, so
     // deleting the whole wrap-around branch left the suite green. A marker at 0.95 is reachable ONLY
     // through `n.Time > prev` on the wrapping frame, which is the half that was untested.
-    clip.Notifies.push_back(
-         AnimationNotify{ "LateStep", NearestTick( SecondsToFrameTime( 0.95, PROJECT_TICK_RATE ) ) } );
+    ClipFixture::AddNotify( clip, "LateStep", NearestTick( SecondsToFrameTime( 0.95, PROJECT_TICK_RATE ) ) );
 
     animator.Play( clip, /*loop=*/true );
 
@@ -549,8 +538,7 @@ TEST( AnimatorBlending, ScrubbingDoesNotFireNotifies )
 
     AnimationClip clip = StaticClip( "Walk", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ),
                                      /*duration=*/1.0F );
-    clip.Notifies.push_back(
-         AnimationNotify{ "Footstep", NearestTick( SecondsToFrameTime( 0.5, PROJECT_TICK_RATE ) ) } );
+    ClipFixture::AddNotify( clip, "Footstep", NearestTick( SecondsToFrameTime( 0.5, PROJECT_TICK_RATE ) ) );
 
     animator.Play( clip, false );
     animator.SetTime( 0.9F ); // the Sequencer dragging the playhead past the marker
@@ -574,11 +562,11 @@ namespace
         return NearestTick( SecondsToFrameTime( seconds, PROJECT_TICK_RATE ) );
     }
 
-    AnimationNotify State( const char* name, double from, double to )
+    /// A notify state over [from, to) seconds: an Event key with a duration on the clip's Event track.
+    void AddState( AnimationClip& clip, const char* name, double from, double to )
     {
-        AnimationNotify notify{ name, At( from ), 0, Animation::FrameNumber{ 0 } };
-        notify.DurationTicks = Animation::FrameNumber{ At( to ).Value - At( from ).Value };
-        return notify;
+        ClipFixture::AddNotify( clip, name, At( from ),
+                                Animation::FrameNumber{ At( to ).Value - At( from ).Value } );
     }
 
     int Count( const std::vector<Animation::NotifyEvent>& events, const char* name,
@@ -597,7 +585,7 @@ TEST( AnimatorBlending, ANotifyStateBeginsAndEndsOnceOnAForwardPass )
     Animator       animator( skeleton );
     AnimationClip  clip =
          StaticClip( "Swing", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
-    clip.Notifies.push_back( State( "Trail", 0.25, 0.65 ) );
+    AddState( clip, "Trail", 0.25, 0.65 );
     animator.Play( clip, /*loop=*/false );
 
     std::vector<Animation::NotifyEvent> events;
@@ -624,8 +612,8 @@ TEST( AnimatorBlending, ANotifyStateBeginsAndEndsOncePerLapOfALoop )
     AnimationClip  clip =
          StaticClip( "Run", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
     // One state from the clip's first tick, one up to its last: the two halves a loop wrap touches.
-    clip.Notifies.push_back( State( "Early", 0.0, 0.2 ) );
-    clip.Notifies.push_back( State( "Late", 0.8, 1.0 ) );
+    AddState( clip, "Early", 0.0, 0.2 );
+    AddState( clip, "Late", 0.8, 1.0 );
     animator.Play( clip, /*loop=*/true );
 
     std::vector<Animation::NotifyEvent> events;
@@ -647,8 +635,8 @@ TEST( AnimatorBlending, AScrubBackwardsEndsAStateAndFiresNoInstantNotify )
     Animator       animator( skeleton );
     AnimationClip  clip =
          StaticClip( "Swing", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
-    clip.Notifies.push_back( State( "Trail", 0.3, 0.6 ) );
-    clip.Notifies.push_back( AnimationNotify{ "Hit", At( 0.45 ), 0, Animation::FrameNumber{ 0 } } );
+    AddState( clip, "Trail", 0.3, 0.6 );
+    ClipFixture::AddNotify( clip, "Hit", At( 0.45 ) );
     animator.Play( clip, /*loop=*/false );
 
     animator.SetTime( 0.5F );
@@ -669,7 +657,7 @@ TEST( AnimatorBlending, AStateShorterThanTheFrameStillBeginsAndEnds )
     Animator       animator( skeleton );
     AnimationClip  clip =
          StaticClip( "Swing", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
-    clip.Notifies.push_back( State( "Blip", 0.33, 0.36 ) );
+    AddState( clip, "Blip", 0.33, 0.36 );
     animator.Play( clip, /*loop=*/false );
 
     std::vector<Animation::NotifyEvent> events;
@@ -688,7 +676,7 @@ TEST( AnimatorBlending, PlayingAnotherClipEndsTheActiveStates )
     Animator       animator( skeleton );
     AnimationClip  clip =
          StaticClip( "Swing", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
-    clip.Notifies.push_back( State( "Trail", 0.0, 0.9 ) );
+    AddState( clip, "Trail", 0.0, 0.9 );
     const AnimationClip other = StaticClip( "Idle", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
     animator.Play( clip, false );
     animator.Update( Timestep( 0.1F ) );
@@ -705,23 +693,23 @@ TEST( AnimatorBlending, ACurveIsSampledBetweenKeysByTheLaterKeysInterpolation )
     AnimationClip  clip =
          StaticClip( "Blink", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
 
-    const auto curve = []( const char* name, Animation::KeyInterp interp )
+    const auto curve = [&clip]( const char* name, Animation::KeyInterp interp )
     {
-        Animation::AnimationCurve out{ name, {} };
-        Animation::ScalarKey      first;
+        std::vector<Animation::ScalarKey> keys;
+        Animation::ScalarKey              first;
         first.Tick  = At( 0.0 );
         first.Value = 0.0F;
         Animation::ScalarKey last;
         last.Tick   = At( 1.0 );
         last.Value  = 10.0F;
         last.Interp = interp;
-        out.Keys    = { first, last };
-        Animation::AutoSetTangents( out.Keys, PROJECT_TICK_RATE ); // end keys are flat
-        return out;
+        keys        = { first, last };
+        Animation::AutoSetTangents( keys, PROJECT_TICK_RATE ); // end keys are flat
+        ClipFixture::AddCurve( clip, name, std::move( keys ) );
     };
-    clip.Curves.push_back( curve( "Linear", Animation::KeyInterp::Linear ) );
-    clip.Curves.push_back( curve( "Constant", Animation::KeyInterp::Constant ) );
-    clip.Curves.push_back( curve( "Cubic", Animation::KeyInterp::Cubic ) );
+    curve( "Linear", Animation::KeyInterp::Linear );
+    curve( "Constant", Animation::KeyInterp::Constant );
+    curve( "Cubic", Animation::KeyInterp::Cubic );
     animator.Play( clip, false );
     animator.SetTime( 0.25F );
 

@@ -9,6 +9,8 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include "../ClipFixture.hpp"
+
 #include <gtest/gtest.h>
 
 #include <cmath>
@@ -16,7 +18,6 @@
 using Desert::Animation::AnimationClip;
 using Desert::Animation::Animator;
 using Desert::Animation::BoneInfo;
-using Desert::Animation::BoneTrack;
 using Desert::Animation::FrameNumber;
 using Desert::Animation::FrameTime;
 using Desert::Animation::PROJECT_TICK_RATE;
@@ -54,21 +55,10 @@ namespace
         return ::testing::AssertionSuccess();
     }
 
+    /// One second on the project grid, "child" held at @p pos: a Bone binding with one Transform track.
     AnimationClip ChildPosClip( const glm::vec3& pos )
     {
-        AnimationClip clip;
-        // A5: the clip states a length in TICKS on the project grid. `Duration` + `TicksPerSecond = 1`
-        // used to say "one second" by setting the rate so a tick WAS a second.
-        clip.AnimationName = "test";
-        clip.DurationTicks = FrameNumber{ PROJECT_TICK_RATE.Numerator };
-
-        BoneTrack track;
-        track.BoneName = "child";
-        track.PositionKeys.push_back( { FrameNumber{ 0 }, pos } );
-        track.RotationKeys.push_back( { FrameNumber{ 0 }, glm::quat( 1.0f, 0.0f, 0.0f, 0.0f ) } );
-        track.ScaleKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 1.0f ) } );
-        clip.Tracks.push_back( track );
-        return clip;
+        return ClipFixture::StaticBoneClip( "test", FrameNumber{ PROJECT_TICK_RATE.Numerator }, "child", pos );
     }
 } // namespace
 
@@ -165,11 +155,11 @@ TEST( AnimatorPose, SamplingAClipIntoTheBufferResetsBonesTheClipDoesNotAnimate )
 
 // ── A SECTION REACHES THE SKINNING MATRICES, NOT ONLY THE CLIP (A28) ───────────────────────────────
 //
-// THE POSITIVE CONTROL THE `ClipSections` SUITE CANNOT PROVIDE. That suite asserts the section maths and
-// that `AnimationClip::SampleTrack` applies it; neither says whether PLAYBACK goes through `SampleTrack`
-// at all. A `SampleLocalTransform` still calling `track.Sample` directly would leave every assertion
-// over there green while no section in the project changed a single pixel — which is exactly the shape
-// of "both named suites stayed green while the graph received nothing".
+// THE POSITIVE CONTROL THE `ClipSections` SUITE CANNOT PROVIDE. That suite asserts the section maths
+// (`Timeline::WeightAt`); it does not say whether PLAYBACK folds a bone track's section weight. A pose sampler
+// reading the Transform channel past the section would leave every assertion over there green while no section in
+// the project changed a single pixel — which is exactly the shape of "both named suites stayed green while the
+// graph received nothing".
 //
 // `GetPose().Matrices` is what the renderer uploads (Scene.cpp and MeshECSSystem.hpp are its only two
 // consumers), so asserting here is asserting about the frame.
@@ -183,18 +173,13 @@ TEST( AnimatorPose, AZeroWeightSectionReachesThePoseThePlaybackProduces )
     anim.SetTime( 0.0f );
     const glm::mat4 unsectioned = anim.GetPose().Matrices[1];
 
-    // The same clip, muted by a section. Nothing else about it changes.
-    AnimationClip                  muted = ChildPosClip( glm::vec3( 0.0f, 5.0f, 0.0f ) );
-    Desert::Animation::ClipSection off;
+    // The same clip, its bone track's section muted by a zero Weight. Nothing else about it changes.
+    AnimationClip muted = ClipFixture::Clip( "test", FrameNumber{ PROJECT_TICK_RATE.Numerator } );
+    Desert::Animation::Timeline::Section& off =
+         ClipFixture::AddStaticBone( muted, "child", glm::vec3( 0.0f, 5.0f, 0.0f ) );
     off.Name  = "muted";
-    off.Start = FrameNumber{ 0 };
-    off.End   = muted.DurationTicks;
     off.Blend = Desert::Animation::SectionBlendType::Absolute;
-    Desert::Animation::ScalarKey zero;
-    zero.Tick  = FrameNumber{ 0 };
-    zero.Value = 0.0f;
-    off.Weight.push_back( zero );
-    muted.Sections.push_back( off );
+    off.Weight.push_back( ClipFixture::Key( FrameNumber{ 0 }, 0.0f ) );
 
     Animator silent( skel );
     silent.Play( muted );
@@ -203,7 +188,7 @@ TEST( AnimatorPose, AZeroWeightSectionReachesThePoseThePlaybackProduces )
 
     EXPECT_FALSE( MatNear( unsectioned, sectioned ) )
          << "a zero-weight section changed nothing in the matrices the renderer uploads, so playback is "
-            "not going through AnimationClip::SampleTrack";
+            "not folding the bone track's section weight (Timeline::WeightAt)";
 
     // AND IT IS THE REST POSE IT FELL BACK TO, not an arbitrary difference. A clip that broke for any
     // other reason would also satisfy the assertion above.
@@ -212,13 +197,14 @@ TEST( AnimatorPose, AZeroWeightSectionReachesThePoseThePlaybackProduces )
 
     // NEGATIVE CONTROL: a FULL-weight Absolute section must leave the same matrices the unsectioned clip
     // produced, because that is what every migrated file in the repository now carries.
-    AnimationClip                  full = ChildPosClip( glm::vec3( 0.0f, 5.0f, 0.0f ) );
-    Desert::Animation::ClipSection whole;
+    // Keyed at 1 rather than left empty (empty already IS the clip above): the keyed-weight path at full
+    // weight must be the identity too.
+    AnimationClip full = ClipFixture::Clip( "test", FrameNumber{ PROJECT_TICK_RATE.Numerator } );
+    Desert::Animation::Timeline::Section& whole =
+         ClipFixture::AddStaticBone( full, "child", glm::vec3( 0.0f, 5.0f, 0.0f ) );
     whole.Name  = "whole";
-    whole.Start = FrameNumber{ 0 };
-    whole.End   = full.DurationTicks;
     whole.Blend = Desert::Animation::SectionBlendType::Absolute;
-    full.Sections.push_back( whole );
+    whole.Weight.push_back( ClipFixture::Key( FrameNumber{ 0 }, 1.0f ) );
 
     Animator unchanged( skel );
     unchanged.Play( full );
