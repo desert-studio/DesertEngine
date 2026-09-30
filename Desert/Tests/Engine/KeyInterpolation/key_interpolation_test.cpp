@@ -104,6 +104,8 @@ TEST( KeyInterpolation, ConstantHoldsTheWholeSegmentAndStepsAtTheLaterKey )
     EXPECT_FLOAT_EQ( EvaluateSegment( 10.0F, 0.0F, 20.0F, 0.0F, KeyInterp::Constant, 1.0, 0.0F ), 10.0F );
     EXPECT_FLOAT_EQ( EvaluateSegment( 10.0F, 0.0F, 20.0F, 0.0F, KeyInterp::Constant, 1.0, 0.49F ), 10.0F );
     EXPECT_FLOAT_EQ( EvaluateSegment( 10.0F, 0.0F, 20.0F, 0.0F, KeyInterp::Constant, 1.0, 0.99F ), 10.0F );
+    // ...and ON the later key the step has happened: a sample exactly on a key's tick reads that key.
+    EXPECT_FLOAT_EQ( EvaluateSegment( 10.0F, 0.0F, 20.0F, 0.0F, KeyInterp::Constant, 1.0, 1.0F ), 20.0F );
 }
 
 TEST( KeyInterpolation, LinearIsTheStraightLineThisEngineUsedToHaveEverywhere )
