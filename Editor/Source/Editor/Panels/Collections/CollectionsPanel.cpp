@@ -5,6 +5,7 @@
 #endif
 #include <rflcpp/rfl.hpp>
 #include <Editor/Core/DragPayloads.hpp>
+#include <Editor/Import/TextureDnD.hpp>
 #include <Common/Json/Json.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
@@ -13,6 +14,7 @@
 
 #include <Editor/Core/AssetReferences.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
+#include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
 #include <Editor/Import/CookPaths.hpp>
@@ -157,7 +159,7 @@ namespace Desert::Editor
             {
                 if ( !path || path->empty() )
                     return Common::UUID::Null();
-                return importer.ImportAndRegisterTexture( mgr, *path );
+                return TextureDnD::ImportAndRegister( importer, mgr, *path );
             };
 
             // Dereferenced through a local empty list rather than `*manifest.Materials`: the early
@@ -656,9 +658,7 @@ namespace Desert::Editor
         // capture keep showing the old shape, and — because ThumbnailService used to ask the same
         // impoverished question — never get a new one (Editor/Widgets/ThumbnailFreshness.hpp).
         if ( m_UIHelper && m_Thumbs &&
-             ThumbnailFreshness::Judge(
-                  ThumbnailFreshness::Observe( pngPath, ThumbnailFreshness::MeshFreshnessSource( cookedStr ) ) ) ==
-                  ThumbnailFreshness::Verdict::Show )
+             ThumbnailService::JudgeMeshPicture( cookedStr ) == ThumbnailFreshness::Verdict::Show )
         {
             if ( auto image = m_Thumbs->Get( pngPath ) )
             {

@@ -94,5 +94,9 @@
             "Weight": []
         }
     ],
-    "Curves": []
+    "Curves": [],
+    "Import": {
+        "Source": "TwoJointProbe.gltf",
+        "SourceHash": 2080282809576534268
+    }
 }

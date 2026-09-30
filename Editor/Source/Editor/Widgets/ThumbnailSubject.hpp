@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Assets/ThumbnailInfo.hpp>
+
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -14,6 +16,7 @@ namespace Desert::Assets
 {
     class AssetManager;
     class SurfaceMaterialAsset;
+    class AnimationAsset;
 }
 
 namespace Desert::Editor::ThumbnailSubject
@@ -66,9 +69,11 @@ namespace Desert::Editor::ThumbnailSubject
         /// by that mesh's own bounds. Surface domain only: the mesh path is what draws it.
         Mesh,
 
-        /// The SKY this material authors, seen from the ground — Volume domain. A cloud material describes
+        /// The SKY this material authors, seen from the ground. Volume domain: a cloud material describes
         /// a medium, not a surface: its weather cells are kilometres across and its profile is base and
-        /// top in kilometres, none of which means anything on a one-metre ball.
+        /// top in kilometres, none of which means anything on a one-metre ball. Skybox domain: the HDR
+        /// skybox bound to its cube slot IS the sky (UE draws a sky material's thumbnail as the sky, not
+        /// as an icon) — the capture binds it as the scene's skybox (DomeSkyboxOf).
         SkyDome
     };
 
@@ -96,6 +101,11 @@ namespace Desert::Editor::ThumbnailSubject
             return Preview::Sphere;
         if ( ::Desert::Core::Formats::DrawnByVolumePath( domain ) )
             return Preview::SkyDome;
+        // The cubemap domain has no draw-path predicate — no renderable slot takes it — and its picture is
+        // not drawn by the material at all: it is the HDR skybox the material binds, which the scene's
+        // skybox draws. DomeSkyboxOf refuses the material when there is no such skybox.
+        if ( domain == ::Desert::Core::Formats::ShaderDomain::Skybox )
+            return Preview::SkyDome;
         return std::nullopt;
     }
 
@@ -115,6 +125,19 @@ namespace Desert::Editor::ThumbnailSubject
         return how;
     }
 
+    /**
+     * @brief The HDR skybox a SkyDome capture binds as the scene's sky, for a SKYBOX-domain material; nullopt
+     *        for any other domain (a Volume material's dome is its cloud layer). Refuses, naming the reason,
+     *        when the shader declares no TextureCube property or nothing is bound to the first one — the
+     *        same three states the Material Editor's pane tells apart (PreviewUnavailableReason).
+     *
+     * By HANDLE, through MaterialService (template by ShaderHandleOf, slot by ResolveOverrides — the chain
+     * walk, so an instance reads its parent's cube). One rule for the route (ResolveLoadedMaterial refuses)
+     * and the capture (AssetThumbnailRenderer binds). The material must be registered.
+     */
+    [[nodiscard]] Common::ResultStr<std::optional<Common::AssetHandle>>
+    DomeSkyboxOf( const Common::AssetHandle& material );
+
     /// A material ready to be captured.
     struct Material
     {
@@ -124,6 +147,10 @@ namespace Desert::Editor::ThumbnailSubject
 
         /// How == Mesh only: the preview mesh, registered and drawable (ResolveMesh). Zero otherwise.
         Common::AssetHandle PreviewMesh{ static_cast<uint64_t>( 0 ) };
+
+        /// THE MATERIAL'S OWN THUMBNAIL INFO (MaterialData::ThumbnailOrDefault): the primitive a Sphere route
+        /// is drawn on and the orbit every mesh-path route is seen from. The renderer reads them only here.
+        Assets::ThumbnailInfo Thumbnail;
     };
 
     /**
@@ -158,6 +185,11 @@ namespace Desert::Editor::ThumbnailSubject
         /// is resolved from the SOURCE, because a sidecar `.demat` is what an artist leaves beside the
         /// `.fbx` — a different question from which file gets photographed.
         Common::AssetHandle Material{ static_cast<uint64_t>( 0 ) };
+
+        /// THE POSE (THM-FIXB): an `.anim` subject's clip, read, whose middle frame the preview mesh stands in;
+        /// null for the bind pose (a `.skmesh`, a `.skeleton`) and for every static mesh. Carried with the
+        /// request, so the clip stays resident until the capture has been taken.
+        std::shared_ptr<Assets::AnimationAsset> Clip;
 
         /// The cooked mesh is being read on a worker: nothing to capture YET, ask again on a later pass.
         /// Handle and CookedPath are set; Material is not. Not a refusal — a caller that blacklists refusals

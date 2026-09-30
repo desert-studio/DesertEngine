@@ -44,7 +44,7 @@ namespace Desert::Graphic
         return "unknown";
     }
 
-    // The process-wide list of materials whose pipelines were asked for when they LOADED (MaterialFactory).
+    // The process-wide list of materials whose pipelines were asked for when they LOADED (MaterialService).
     // Append-only: every renderer reads it from its own cursor, so a material loaded before a preview
     // viewport existed is still precached by that viewport, and nobody has to know how many renderers live.
     class MaterialPipelineRequests

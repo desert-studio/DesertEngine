@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -86,7 +87,7 @@ namespace Desert::Graphic
     // `.demat` into exactly one of them. The consequences were all one defect wearing different clothes:
     //
     //   1. an imported character with its own materials did not draw AT ALL — MeshRenderer looked for a
-    //      slot whose parent was the skinned PBR class, and MaterialFactory could not build one from an
+    //      slot whose parent was the skinned PBR class, and MaterialService could not build one from an
     //      asset under any circumstances (it answered the static class even for a `.demat` naming the
     //      skinned shader);
     //   2. a skinned mesh cast NO SHADOW — the cascade pass walked the static queue by name;
@@ -145,7 +146,8 @@ namespace Desert::Graphic
     // A PASS, not a shading model — the distinction matters and `Glass` is where it is easiest to blur.
     // Glass is drawn in a blended pass over the composite; which objects go there is decided by the BLEND MODE
     // of the template their material draws with (ShaderProgramMeta::Blend, `BlendMode Translucent`), exactly as
-    // UE routes a Translucent material into the translucency pass. Nothing about the shading model is encoded here.
+    // UE routes a Translucent material into the translucency pass. Nothing about the shading model is encoded
+    // here.
     enum class MeshPass : uint8_t
     {
         Forward     = 0, // lit colour, the forward path and the over-composite draws
@@ -191,6 +193,17 @@ namespace Desert::Graphic
     // from the material (or, for the renderer's own draws, from the template declaring `Default Surface`,
     // found by that role — MaterialService::DefaultSurfaceTemplate), never from a literal here.
     std::optional<std::string> MeshShaderFor( std::string_view templateName, MeshVertexPath path, MeshPass pass );
+
+    // THE ONE RULE of which (path x pass) cells a material on the template @p templateName HAS, and the shader
+    // that draws each. A template with a Surface block registers every cell of the table ("<Template>/<Cell>"),
+    // and the cell is MeshShaderFor. A template with no Surface block registers no cells: it is drawn by its own
+    // default program on the generic path, which is its (Static x Forward) and nothing else — so every other cell
+    // is a hole the caller must refuse. @p isRegistered answers whether a program of that name is registered
+    // (ShaderService at run time); MaterialService builds by this and answers CellOf by it, so "can this draw
+    // here" and "what draws here" cannot disagree. Empty = no cell.
+    std::optional<std::string> TemplateCellShader( std::string_view templateName, MeshVertexPath path,
+                                                   MeshPass                                       pass,
+                                                   const std::function<bool( std::string_view )>& isRegistered );
 
     // The inverse of MeshShaderFor: which vertex path a compiled cell shader ("<Template>/<Cell>", any
     // template) belongs to, or nothing for a shader that is no cell of the table (a template without a

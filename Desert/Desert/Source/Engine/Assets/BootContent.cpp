@@ -164,6 +164,9 @@ namespace Desert::Assets
                  std::format( "the engine's 'Default Surface' template '{}' did not build (the "
                               "reason is logged above as '[BootContent] engine shader ...')",
                               program ? program->GetName() : std::string( "<unregistered>" ) ) );
+        // And it stays: in the root set for the engine's life, or the first eviction sweep releases it (no scene
+        // names it) and every later slotless mesh is dropped (MaterialService::PinDefaultSurfaceTemplate).
+        Runtime::ResourceRegistry::GetMaterialService()->PinDefaultSurfaceTemplate( defaultSurface.GetValue() );
         return BOOLSUCCESS;
     }
 

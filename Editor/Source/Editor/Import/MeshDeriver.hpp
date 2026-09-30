@@ -18,5 +18,10 @@ namespace Desert::Editor
     // entry shared by two assets with the same source cannot name either of them. Refused, naming the reason: a
     // skinned asset (the skeleton's form is AF4f's decision), a triangle whose material ID has no slot, and
     // everything ToMeshAssetData refuses (a UV layer past 1; the colour layer and UV 1 are written as streams).
+    // Bakes each submesh's LOD triangle sets (meshopt, UE's LOD reduction) into SubmeshData.LODs, static or
+    // skinned alike - a LOD only selects a subset of the index buffer, the skin weights ride on the kept
+    // vertices. Submeshes that already carry LODs (folded from authored source models) are kept.
+    void BakeMeshLODs( Assets::Serialization::MeshAssetData& data );
+
     Common::ResultStr<std::string> BuildMeshPlatformData( const Assets::MeshSourceAsset& asset );
 } // namespace Desert::Editor

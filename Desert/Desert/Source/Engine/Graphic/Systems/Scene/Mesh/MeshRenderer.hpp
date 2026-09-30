@@ -439,8 +439,8 @@ namespace Desert::Graphic::System
         // (ShadowCasterCellFor), on a per-cascade copy of that material (MaterialService::GetViewVariant) —
         // its mask texture and clip threshold with it. The cascade material of the draw, or null when the
         // caster takes the shared program (opaque, or no batched-path material).
-        DataDrivenMaterial* MaskedCasterMaterial( const DataDrivenMaterial* material, MeshVertexPath path,
-                                                  uint32_t cascade ) const;
+        static DataDrivenMaterial* MaskedCasterMaterial( const DataDrivenMaterial* material, MeshVertexPath path,
+                                                         uint32_t cascade );
         // The pipeline of one masked caster cell: the shared caster's state for @p path with the cell's shader,
         // built on first use and kept per cell shader. Null (logged once per shader) when it cannot.
         GraphicsPipeline* MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path );
@@ -512,7 +512,7 @@ namespace Desert::Graphic::System
         // mesh whose slot did not resolve.
         //
         // IT USED TO RECORD EVERY BATCH, AND THAT WAS THE DEFECT. A material built here has never been
-        // through MaterialFactory, so every 2D sampler it declares holds the shader schema's 1x1 white.
+        // through MaterialService, so every 2D sampler it declares holds the shader schema's 1x1 white.
         // Recording an asset-backed group with it deleted that surface's whole texture channel while
         // leaving its colours, tiling-independent, intact — see InstancedRecorder.hpp for the numbers and
         // for why rebinding this one material per batch cannot be the fix. A batch now finds its own

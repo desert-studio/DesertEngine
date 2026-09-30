@@ -287,6 +287,8 @@ namespace Desert::Graphic::API::Vulkan
 
         m_VertexInputInfo = VkPipelineVertexInputStateCreateInfo{
              .sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+             .pNext                           = nullptr,
+             .flags                           = 0,
              .vertexBindingDescriptionCount   = static_cast<uint32_t>( m_VertexInput.Bindings.size() ),
              .pVertexBindingDescriptions      = m_VertexInput.Bindings.data(),
              .vertexAttributeDescriptionCount = static_cast<uint32_t>( m_VertexInput.Attributes.size() ),

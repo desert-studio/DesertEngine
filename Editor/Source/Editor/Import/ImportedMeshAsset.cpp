@@ -1,21 +1,29 @@
 #include "ImportedMeshAsset.hpp"
+#include "SourceToEngine.hpp"
 
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 
 #include "CookPaths.hpp"
 #include "MaterialAdoption.hpp"
+#include "NodeMeshSplit.hpp"
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Geometry/EditMeshBridge.hpp>
+#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <array>
+#include <mutex>
+#include <unordered_map>
 
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
 #include <cstring>
+#include <format>
 #include <map>
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace Desert::Editor
@@ -210,8 +218,44 @@ namespace Desert::Editor
         return present;
     }
 
+    namespace
+    {
+        // A SPLIT IMPORT'S "UP TO DATE" (THM1j): every node mesh the record names is on disk, states the
+        // source's current bytes, and every material it slots has its .demat. There is no combined envelope to
+        // ask: a split import writes none. A deleted node mesh re-imports the source, as a deleted .demat does.
+        bool SplitImportIsCurrent( const std::filesystem::path& source, const std::vector<std::string>& nodes )
+        {
+            const auto hash = Assets::HashMeshSourceFile( source );
+            if ( !hash )
+                return false;
+            for ( const std::string& node : nodes )
+            {
+                const std::filesystem::path path  = NodeMeshAssetPath( source, node );
+                const auto                  asset = Assets::LoadMeshSourceAsset( path );
+                if ( !asset )
+                {
+                    LOG_WARN( "[Import] '{}': node mesh '{}' does not load ({}), so the source is imported again",
+                              source.generic_string(), path.generic_string(), asset.GetError() );
+                    return false;
+                }
+                if ( asset.GetValue().Import.SourceHash != hash.GetValue() )
+                    return false;
+                for ( const auto& slot : asset.GetValue().Source.MaterialSlots )
+                {
+                    std::error_code ec;
+                    if ( !std::filesystem::exists( MaterialAdoption::MaterialAssetPath( source, slot.Name ), ec ) )
+                        return false;
+                }
+            }
+            return true;
+        }
+    } // namespace
+
     bool ImportedMeshAssetIsCurrent( const std::filesystem::path& source )
     {
+        if ( const auto record = Assets::Serialization::ReadImportRecord( source ); record )
+            if ( const auto& stated = record.GetValue(); stated && stated->Nodes )
+                return SplitImportIsCurrent( source, *stated->Nodes );
         return ImportedMeshAssetIsFresh( source ) && ImportedMaterialsPresent( source );
     }
 
@@ -219,6 +263,114 @@ namespace Desert::Editor
     {
         std::error_code ec;
         return std::filesystem::exists( cooked, ec ) || ImportedMeshAssetIsFresh( source );
+    }
+
+    Common::ResultStr<std::optional<std::filesystem::path>>
+    MeshThumbnailHome( const std::filesystem::path& meshFile )
+    {
+        using Home = std::optional<std::filesystem::path>;
+        std::error_code ec;
+        if ( std::filesystem::is_regular_file( Common::Content::ImportRecordPathFor( meshFile ), ec ) )
+            return Common::MakeSuccess( Home{ meshFile } );
+
+        // A node mesh: `<source stem>_<node>.stmesh` beside its source. Only the records whose source stem
+        // prefixes this name can have written it; the record's own `Nodes` decides. Remembered: the browser asks
+        // per visible tile per frame, and the answer changes only when that record goes away.
+        static std::mutex                                             mutex;
+        static std::unordered_map<std::string, std::filesystem::path> found;
+        const std::string                                             key = meshFile.generic_string();
+        {
+            const std::lock_guard lock( mutex );
+            if ( const auto it = found.find( key ); it != found.end() )
+            {
+                if ( std::filesystem::is_regular_file( Common::Content::ImportRecordPathFor( it->second ), ec ) )
+                    return Common::MakeSuccess( Home{ it->second } );
+                found.erase( it );
+            }
+        }
+        const std::string stem = meshFile.stem().string();
+        for ( const auto& entry : std::filesystem::directory_iterator( meshFile.parent_path(), ec ) )
+        {
+            if ( !Common::Content::IsImportRecord( entry.path() ) )
+                continue;
+            const std::filesystem::path source = entry.path().parent_path() / entry.path().stem();
+            const std::string           prefix = std::format( "{}_", source.stem().string() );
+            if ( stem.size() <= prefix.size() || stem.compare( 0, prefix.size(), prefix ) != 0 )
+                continue;
+            const auto record = Ser::ReadImportRecord( source );
+            if ( !record )
+                return Common::MakeError<Home>( record.GetError() );
+            const auto& stated = record.GetValue();
+            if ( !stated || !stated->Nodes )
+                continue;
+            for ( const std::string& node : *stated->Nodes )
+                if ( NodeMeshAssetPath( source, node ).filename() == meshFile.filename() )
+                {
+                    const std::lock_guard lock( mutex );
+                    found[key] = source;
+                    return Common::MakeSuccess( Home{ source } );
+                }
+        }
+        return Common::MakeSuccess( Home{} );
+    }
+
+    Common::ResultStr<Assets::ThumbnailOrbit> MeshThumbnailOrbit( const std::filesystem::path& meshFile )
+    {
+        const auto home = MeshThumbnailHome( meshFile );
+        if ( !home )
+            return Common::MakeError<Assets::ThumbnailOrbit>( home.GetError() );
+        const auto& source = home.GetValue();
+        if ( !source )
+            return Common::MakeSuccess( Assets::ThumbnailOrbit{} );
+        return Ser::ReadImportRecordThumbnail( *source, meshFile.filename().string() );
+    }
+
+    Common::BoolResultStr SetMeshThumbnailOrbit( const std::filesystem::path&  meshFile,
+                                                 const Assets::ThumbnailOrbit& orbit )
+    {
+        const auto home = MeshThumbnailHome( meshFile );
+        if ( !home )
+            return Common::MakeError<bool>( home.GetError() );
+        const auto& source = home.GetValue();
+        if ( !source )
+            return Common::MakeFormattedError<bool>(
+                 "'{}' was written by no import, so there is no import record to state its thumbnail orbit",
+                 meshFile.string() );
+        return Ser::SetImportRecordThumbnail( *source, meshFile.filename().string(), orbit );
+    }
+
+    std::optional<uint64_t> MeshThumbnailFreshness( const std::filesystem::path& cooked )
+    {
+        const std::filesystem::path   meshFile = ThumbnailFreshness::MeshFreshnessSource( cooked );
+        const std::optional<uint64_t> bytes    = ThumbnailFreshness::ContentHash( meshFile );
+        if ( !bytes )
+            return std::nullopt;
+        const auto home = MeshThumbnailHome( meshFile );
+        if ( !home )
+            return std::nullopt;
+        const auto& source = home.GetValue();
+        if ( !source )
+            return bytes; // no record, no orbit but the default
+        const std::string name   = meshFile.filename().string();
+        const auto        record = Common::Content::ImportRecordPathFor( *source );
+        // The orbit's hash, memoised on the record's (size, modtime); 0 stands for "the record states the
+        // default".
+        const std::optional<uint64_t> info = ThumbnailFreshness::Detail::MemoisedAs(
+             record, std::format( "{}#thumbnail#{}", record.generic_string(), name ),
+             [&]( const std::filesystem::path& ) -> std::optional<uint64_t>
+             {
+                 const auto orbit = Ser::ReadImportRecordThumbnail( *source, name );
+                 if ( !orbit )
+                     return std::nullopt;
+                 if ( orbit.GetValue() == Assets::ThumbnailOrbit{} )
+                     return uint64_t{ 0 };
+                 const std::array<float, 3> fields{ orbit.GetValue().Pitch, orbit.GetValue().Yaw,
+                                                    orbit.GetValue().Zoom };
+                 return Common::Utils::PakContentHash( fields.data(), sizeof( fields ) );
+             } );
+        if ( !info )
+            return std::nullopt;
+        return ThumbnailFreshness::WithInfo( bytes, *info == 0 ? std::nullopt : info );
     }
 
     Common::ResultStr<MeshAssetWrite> WriteImportedMeshAsset( const Ser::MeshAssetData&                 imported,
@@ -240,12 +392,24 @@ namespace Desert::Editor
         if ( !bounds )
             return Common::MakeFormattedError<MeshAssetWrite>( "'{}': the import has no submesh, so no box",
                                                                source.string() );
-        const auto identity = Assets::Serialization::EnsureImportRecord( source, *bounds );
+        // The options are the record's (THM1l): WriteStaticMeshImport wrote the ones this import runs with.
+        const auto settings = Assets::Serialization::ReadImportRecordSettings( source );
+        if ( !settings )
+            return Common::MakeError<MeshAssetWrite>( settings.GetError() );
+        const auto identity = Assets::Serialization::EnsureImportRecord(
+             source, Common::Content::ContentKind::StaticMesh,
+             SourceToEngineBounds( *bounds, settings.GetValue().Mesh ), settings.GetValue() );
         if ( !identity )
             return Common::MakeError<MeshAssetWrite>( identity.GetError() );
 
-        if ( Common::DDC::Get( Assets::kMeshSourceDeriver, key ).has_value() )
-            return Common::MakeSuccess( MeshAssetWrite::Unchanged ); // this exact content is already cached
+        // This exact content is already cached - unless it was imported with other options (a re-import from
+        // the Details' Import Settings keeps the bytes and changes the scale, the axis or the LOD policy).
+        if ( const auto cached = Common::DDC::Get( Assets::kMeshSourceDeriver, key ) )
+        {
+            const auto decoded = Assets::DecodeMeshSourceAsset( std::as_bytes( std::span{ *cached } ) );
+            if ( decoded && decoded.GetValue().Import.Settings == settings.GetValue().Mesh )
+                return Common::MakeSuccess( MeshAssetWrite::Unchanged );
+        }
 
         // THE ENVELOPE STATES THE RECORD'S GUID (FIX8). Its DDC key is the source's bytes, so an edit of the
         // source makes a new envelope - under the same identity, because the record is not rewritten. (AF4h
@@ -256,6 +420,7 @@ namespace Desert::Editor
         asset.Name              = source.stem().string();
         asset.Import.SourceFile = Common::AssetHandle::StableKeyForPath( source );
         asset.Import.SourceHash = hash.GetValue();
+        asset.Import.Settings   = settings.GetValue().Mesh;
         auto sourceData         = MeshSourceFromImport( imported, named, source.string() );
         if ( !sourceData )
             return Common::MakeError<MeshAssetWrite>( sourceData.GetError() );

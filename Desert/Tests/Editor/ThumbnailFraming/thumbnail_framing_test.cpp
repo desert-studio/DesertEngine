@@ -31,6 +31,8 @@
 #include <gtest/gtest.h>
 
 #include <Editor/Widgets/ThumbnailFraming.hpp>
+#include <Editor/Widgets/ThumbnailSlots.hpp>
+#include <Engine/Geometry/PosedBounds.hpp>
 
 #include <Common/Core/Units.hpp>
 
@@ -62,6 +64,9 @@ namespace
     // by this very constant, so the number the framing must be TOLD and the number the geometry actually
     // IS are the same symbol and cannot drift apart.
     constexpr float kPrimitiveExtent = Common::Units::UnitsPerMetre;
+
+    // The default orbit every asset has when it states none (Assets::ThumbnailInfo): straight on.
+    constexpr Desert::Assets::ThumbnailOrbit kStraightOn{};
 
     struct TestCamera
     {
@@ -186,7 +191,8 @@ TEST( ThumbnailFraming, SubjectIsInsideTheFrustumForEveryCamera )
     for ( const TestCamera& cam : CameraFamily() )
     {
         SCOPED_TRACE( cam.Name );
-        const auto placement = TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, glm::vec3( 0.0f ) );
+        const auto placement =
+             TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, glm::vec3( 0.0f ), kStraightOn );
 
         const glm::vec3 worldCenter = placement.Translation; // center == 0
         EXPECT_LT( AngleOffViewAxis( cam, worldCenter ), HalfFovDegrees( cam ) );
@@ -206,7 +212,8 @@ TEST( ThumbnailFraming, WholeSubjectFitsTheFrameForEveryCamera )
     for ( const TestCamera& cam : CameraFamily() )
     {
         SCOPED_TRACE( cam.Name );
-        const auto placement = TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, glm::vec3( 0.0f ) );
+        const auto placement =
+             TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, glm::vec3( 0.0f ), kStraightOn );
 
         const glm::mat4 invView = glm::inverse( cam.View );
         const glm::vec3 right   = glm::normalize( glm::vec3( invView[0] ) );
@@ -236,7 +243,8 @@ TEST( ThumbnailFraming, SubjectLandsAtFrameCentreForEveryCamera )
         SCOPED_TRACE( cam.Name );
         for ( const glm::vec3& center : { glm::vec3( 0.0f ), glm::vec3( 37.0f, -12.0f, 400.0f ) } )
         {
-            const auto placement = TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, center );
+            const auto placement =
+                 TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, center, kStraightOn );
 
             // The subject's own centre after placement (uniform scale + translation applied to `center`).
             const glm::vec3 worldCenter = placement.Scale * center + placement.Translation;
@@ -257,7 +265,8 @@ TEST( ThumbnailFraming, SubjectFillsTheFrameForEveryCamera )
     for ( const TestCamera& cam : CameraFamily() )
     {
         SCOPED_TRACE( cam.Name );
-        const auto placement = TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, glm::vec3( 0.0f ) );
+        const auto placement =
+             TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, glm::vec3( 0.0f ), kStraightOn );
 
         const glm::mat4 invView = glm::inverse( cam.View );
         const glm::vec3 right   = glm::normalize( glm::vec3( invView[0] ) );
@@ -281,7 +290,7 @@ TEST( ThumbnailFraming, DegenerateExtentStaysFinite )
 {
     const TestCamera cam = MigratedEditorCamera();
 
-    const auto placement = TF::PlaceInView( cam.View, cam.Projection, 0.0f, glm::vec3( 0.0f ) );
+    const auto placement = TF::PlaceInView( cam.View, cam.Projection, 0.0f, glm::vec3( 0.0f ), kStraightOn );
 
     EXPECT_FLOAT_EQ( placement.Scale, 1.0f );
     EXPECT_TRUE( std::isfinite( placement.Translation.x ) );
@@ -293,8 +302,143 @@ TEST( ThumbnailFraming, DegenerateExtentStaysFinite )
     EXPECT_NEAR( ndc.y, 0.0f, 0.02f );
 }
 
+// THM1n-8: no stand-in frame. Nothing to measure -> not a frame (the capture is refused), never a 1-unit subject.
+TEST( ThumbnailFraming, EmptyBoundsAreNotAFrame )
+{
+    EXPECT_FALSE( TF::MeasureSubmeshes( std::vector<StubSubmesh>{} ).Valid );
+    EXPECT_FALSE( TF::FrameOfBox( glm::vec3( 1e9f ), glm::vec3( -1e9f ) ).Valid );
+    EXPECT_FALSE( TF::FrameOfBox( glm::vec3( 5.0f ), glm::vec3( 5.0f ) ).Valid ); // a point has no extent
+}
+
+namespace
+{
+    struct StubVertexPosition
+    {
+        glm::vec3 Position{ 0.0f };
+    };
+    struct StubSkinnedVertex
+    {
+        StubVertexPosition      StaticVertex;
+        std::array<uint32_t, 4> BoneIDs{ 0, 0, 0, 0 };
+        std::array<float, 4>    BoneWeights{ 1.0f, 0.0f, 0.0f, 0.0f };
+    };
+} // namespace
+
+// THM1n-8: a skinned mesh is framed as DRAWN. Raw vertices span 0..80 on Y, the bind scales by 100: the frame
+// is 8000 units, not the 80 the raw (submesh-box) space claims -- which put the camera inside the mesh.
+TEST( ThumbnailFraming, SkinnedMeshIsFramedByItsPosedVertices )
+{
+    std::vector<StubSkinnedVertex> verts( 2 );
+    verts[1].StaticVertex.Position = glm::vec3( 0.0f, 80.0f, 0.0f );
+    const std::vector<glm::mat4> skin{ glm::scale( glm::mat4( 1.0f ), glm::vec3( 100.0f ) ) };
+
+    const auto box   = Desert::Geometry::MeasurePosedVertices( verts, skin );
+    const auto frame = TF::FrameOfBox( box.Min, box.Max );
+    ASSERT_TRUE( frame.Valid );
+    EXPECT_FLOAT_EQ( frame.Extent, 8000.0f );
+    EXPECT_FLOAT_EQ( frame.Center.y, 4000.0f );
+
+    EXPECT_FALSE( Desert::Geometry::MeasurePosedVertices( std::vector<StubSkinnedVertex>{}, skin ).Valid() );
+}
+
+// THM1l: THE ORBIT IS THE ASSET'S (UE USceneThumbnailInfo), and the framing rule is where it takes effect.
+// The default orbit must be the picture every thumbnail had before the info existed: no turn at all.
+TEST( ThumbnailFraming, DefaultOrbitLeavesTheSubjectUnturned )
+{
+    for ( const TestCamera& cam : CameraFamily() )
+    {
+        SCOPED_TRACE( cam.Name );
+        const auto placement =
+             TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, glm::vec3( 0.0f ), kStraightOn );
+        EXPECT_NEAR( std::abs( placement.Rotation.w ), 1.0f, 1e-6f );
+    }
+}
+
+// The RELATION that makes the orbit a camera orbit: the side of the subject that faces the camera. Straight on
+// it is the subject's local -forward; orbited by Yaw 180 the camera sees the OTHER side (+forward), and by Yaw
+// 90 a side at right angles. A renderer that dropped the yaw would face the camera with -forward every time.
+TEST( ThumbnailFraming, OrbitYawShowsTheSubjectFromAnotherSide )
+{
+    for ( const TestCamera& cam : CameraFamily() )
+    {
+        SCOPED_TRACE( cam.Name );
+        const glm::mat4 invView = glm::inverse( cam.View );
+        const glm::vec3 forward = -glm::normalize( glm::vec3( invView[2] ) );
+        auto            facing  = [&]( float yaw, float pitch )
+        {
+            const auto placement = TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, glm::vec3( 0.0f ),
+                                                    Desert::Assets::ThumbnailOrbit{ pitch, yaw, 0.0f } );
+            // The subject-local direction that ends up pointing at the camera.
+            return glm::inverse( placement.Rotation ) * -forward;
+        };
+        EXPECT_NEAR( glm::dot( facing( 0.0f, 0.0f ), -forward ), 1.0f, 1e-4f );
+        EXPECT_NEAR( glm::dot( facing( 180.0f, 0.0f ), forward ), 1.0f, 1e-4f );
+        EXPECT_NEAR( glm::dot( facing( 90.0f, 0.0f ), forward ), 0.0f, 1e-4f );
+        // Pitch: seen from above, the subject's top (camera up) turns toward the camera.
+        const glm::vec3 up = glm::normalize( glm::vec3( invView[1] ) );
+        EXPECT_GT( glm::dot( facing( 0.0f, 45.0f ), up ), 0.5f );
+    }
+}
+
+// Orbiting turns the subject about ITS OWN centre: an off-origin centre still lands at the frame centre.
+TEST( ThumbnailFraming, OrbitedSubjectStaysAtFrameCentre )
+{
+    const Desert::Assets::ThumbnailOrbit orbit{ 30.0f, 120.0f, 0.0f };
+    for ( const TestCamera& cam : CameraFamily() )
+    {
+        SCOPED_TRACE( cam.Name );
+        const glm::vec3 center( 37.0f, -12.0f, 400.0f );
+        const auto      placement   = TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, center, orbit );
+        const glm::vec3 worldCenter = placement.Rotation * ( placement.Scale * center ) + placement.Translation;
+        const glm::vec2 ndc         = ProjectToNdc( cam, worldCenter );
+        EXPECT_NEAR( ndc.x, 0.0f, 0.02f );
+        EXPECT_NEAR( ndc.y, 0.0f, 0.02f );
+    }
+}
+
+// Zoom backs the camera off as a fraction of the fitted distance: Zoom 1 = twice as far = half the size.
+TEST( ThumbnailFraming, OrbitZoomScalesTheFit )
+{
+    const TestCamera cam = MigratedEditorCamera();
+    const auto fit = TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, glm::vec3( 0.0f ), kStraightOn );
+    const auto away = TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, glm::vec3( 0.0f ),
+                                       Desert::Assets::ThumbnailOrbit{ 0.0f, 0.0f, 1.0f } );
+    EXPECT_NEAR( away.Scale, fit.Scale * 0.5f, fit.Scale * 1e-4f );
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// THM1n-14: an UNASSIGNED slot (reference 0) is drawn with the engine's default material, as the scene draws
+// it — never a refusal; only a reference no registered material answers to refuses the picture, by index.
+TEST( ThumbnailSlots, AnUnassignedSlotIsTheEngineDefaultNotARefusal )
+{
+    bool       asked = false;
+    const auto slot  = Desert::Editor::ThumbnailSlots::SlotMaterial( Common::UUID( static_cast<uint64_t>( 0 ) ), 0,
+                                                                     [&]( const Common::UUID& )
+                                                                     {
+                                                                        asked = true;
+                                                                        return Common::AssetHandle();
+                                                                    } );
+    ASSERT_TRUE( slot.IsSuccess() );
+    EXPECT_TRUE( slot.GetValue().IsNull() ); // staged null -> MeshECSSystem's default material
+    EXPECT_FALSE( asked );                   // nothing to resolve
+}
+
+TEST( ThumbnailSlots, ABrokenReferenceRefusesByIndexAndAResolvedOneIsStaged )
+{
+    const auto broken = Desert::Editor::ThumbnailSlots::SlotMaterial(
+         Common::UUID( static_cast<uint64_t>( 77 ) ), 3,
+         []( const Common::UUID& ) { return Common::AssetHandle( static_cast<uint64_t>( 0 ) ); } );
+    ASSERT_FALSE( broken.IsSuccess() );
+    EXPECT_NE( broken.GetError().find( "slot 3" ), std::string::npos );
+
+    const auto resolved = Desert::Editor::ThumbnailSlots::SlotMaterial(
+         Common::UUID( static_cast<uint64_t>( 77 ) ), 0,
+         []( const Common::UUID& ) { return Common::AssetHandle( static_cast<uint64_t>( 99 ) ); } );
+    ASSERT_TRUE( resolved.IsSuccess() );
+    EXPECT_EQ( static_cast<uint64_t>( resolved.GetValue() ), 99u );
 }

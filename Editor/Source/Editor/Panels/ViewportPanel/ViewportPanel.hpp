@@ -2,10 +2,12 @@
 
 #include <functional>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 #include <Engine/Desert.hpp>
 
+#include "Editor/Core/ActorDropPlacement.hpp"
 #include "Editor/Core/SceneViewIdentity.hpp"
 #include "Editor/Core/Selection/AuthoringContext.hpp"
 #include "Editor/Core/ViewportModes.hpp"
@@ -192,7 +194,7 @@ namespace Desert::Editor
         // The palette's door to DropMeshAsset (below): the drop lands in the ACTIVE viewport, which is the
         // view the control channel's camera commands address. Refuses when no viewport is live.
         static Common::BoolResultStr DropMeshIntoActiveViewport( const std::string&       path,
-                                                                 std::optional<glm::vec3> at );
+                                                                 const ActorDrop::Target& target );
 
     private:
         // THE VIEWPORT THE USER IS WORKING IN: the most recently FOCUSED one, else the first live one.
@@ -208,11 +210,12 @@ namespace Desert::Editor
 
         // THE MESH DROP, the one body behind both doors: the viewport's drag-drop target and the palette's
         // `Assets / Drop into the viewport: <file>` (which is how the control channel drops a mesh without a
-        // mouse). A new entity is created NOW with a pending StaticMeshComponent at @p at (the origin when
-        // nullopt), selected and recorded for undo; the source is cooked on the async mesh loader and the
-        // mesh is assigned by UpdateAsyncLoads on a later frame. Refuses when this view has no scene or no
-        // asset manager — nothing to drop into.
-        Common::BoolResultStr DropMeshAsset( const std::string& path, std::optional<glm::vec3> at );
+        // mouse). A new entity is created NOW with a pending StaticMeshComponent at @p target's point,
+        // selected and recorded for undo; the source is cooked on the async mesh loader and the mesh is
+        // assigned by UpdateAsyncLoads on a later frame, which then rests the mesh's bounds on the surface
+        // the target names (ActorDrop::PlacedOrigin, UE's FActorPositioning). Refuses when this view has no scene
+        // or no asset manager — nothing to drop into.
+        Common::BoolResultStr DropMeshAsset( const std::string& path, const ActorDrop::Target& target );
 
         // Aim THIS viewport's camera. Refuses with a reason when the view has no editor camera — a
         // closed view, or Play mode, where the camera is the scene's and not the user's to orbit.
@@ -245,6 +248,10 @@ namespace Desert::Editor
         // What the cursor is over — a mesh's box or the landscape's surface (Scene::Raycast) — or nullopt.
         // The drop targets place what they spawn there, as UE drops an actor onto the surface under it.
         [[nodiscard]] std::optional<::Desert::Core::RaycastHit> SurfaceAtCursor() const;
+
+        // The mesh drop's target under the cursor: the surface it rests on, or the background point
+        // ActorDrop::kBackgroundDropDistance along the cursor ray when the ray meets nothing.
+        [[nodiscard]] ActorDrop::Target DropTargetAtCursor() const;
 
         // Godot-style toolbar row ABOVE the image: mode, transform tools, snap, contextual
         // skeleton toggle, camera gear (right). Replaces the old floating in-viewport overlay.
@@ -377,6 +384,9 @@ namespace Desert::Editor
         Tools::GizmoController                m_Gizmo;       // object + bone transform gizmos (extracted)
         Tools::PickingController              m_Picking;     // ray-pick + select (extracted)
         std::unique_ptr<AsyncMeshLoader>      m_AsyncLoader; // background cook of dropped meshes (no hitch)
+        // The drop target of each pending entity (keyed by its UUID, the loader's UserData): the cook's
+        // arrival needs it to rest the mesh's bounds on the surface the drop named.
+        std::unordered_map<uint64_t, ActorDrop::Target> m_PendingDrops;
 
         // Drain finished async cooks (main thread): register + assign the mesh to its pending entity. Called
         // once per frame from OnUIRender. Also draws the loading progress bar while cooks are in flight.

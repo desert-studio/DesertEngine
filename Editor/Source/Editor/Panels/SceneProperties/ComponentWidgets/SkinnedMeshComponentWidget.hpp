@@ -2,14 +2,20 @@
 
 #include "IComponentWidget.hpp"
 
-#include <Editor/Core/Selection/AuthoringContext.hpp>
+#include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
+
+#include <memory>
+#include <string>
+#include <unordered_set>
 
 namespace Desert::Editor
 {
     class SkinnedMeshComponentWidget final : public IComponentWidget
     {
     public:
-        SkinnedMeshComponentWidget( const std::weak_ptr<Assets::AssetManager>& assetManager );
+        /// @p ui is the host panel's (ComponentEditContext::UIHelper): the preview's texture id lives as long as
+        /// it.
+        SkinnedMeshComponentWidget( const std::weak_ptr<Assets::AssetManager>& assetManager, UI::UIHelper* ui );
 
         bool CanRemove() const override
         {
@@ -19,12 +25,13 @@ namespace Desert::Editor
         void Render( ECS::Entity& entity, ::Desert::Core::Scene* scene = nullptr ) override;
 
     private:
-        const std::weak_ptr<Assets::AssetManager> m_AssetManager;
+        // The Skeletal Mesh row's preview box: the .skmesh photographed in its bind pose (UE: the slot shows the
+        // USkeletalMesh's thumbnail), asked through ThumbnailService::RequestPose like the Content Browser's
+        // tile, so the two share one picture. The glyph box until the picture lands; a refusal is logged once.
+        void DrawMeshThumbnail( Assets::AssetManager& manager, const std::string& meshPath, float size,
+                                bool filled );
 
-        // THIS PANEL'S OWN COPY OF WHAT IT AUTHORS. The state lives in the surface that owns it and is
-        // PUBLISHED while that surface is the one being used — which is the whole of what replaced the four
-        // process-wide statics in SkeletonEditMode. Kept here rather than read back out of the host so that
-        // the tree still has an entity to name when nothing is published at all.
-        Core::AuthoringContext m_Authoring;
+        const std::weak_ptr<Assets::AssetManager> m_AssetManager;
+        UI::UIHelper*                             m_UI = nullptr; // the host's; the pictures are SlotPictures()
     };
 } // namespace Desert::Editor

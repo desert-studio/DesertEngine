@@ -1236,7 +1236,7 @@ namespace Desert::Graphic::System
             else if ( schema && !schema->Params.empty() )
             {
                 // A NAME THE SHADER DOES NOT DECLARE IS DROPPED, AND UNTIL NOW SILENTLY. The surface path
-                // has warned about this since it was written (MaterialFactory::ApplyShaderAsset); the
+                // has warned about this since it was written (MaterialService's ApplySurfaceAsset); the
                 // cloud path never did, because BuildCloudMaterialValues skips an unknown key by design —
                 // a `.demat` may be a shader revision ahead of this binary. That is right for a VALUE and
                 // wrong for an ASSET reference: a dropped number falls back to a default that still looks

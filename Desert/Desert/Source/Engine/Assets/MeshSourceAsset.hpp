@@ -75,6 +75,20 @@ namespace Desert::Assets
         bool             operator==( const MeshImportSettings& ) const = default;
     };
 
+    // THE OPTIONS A USER SETS PER IMPORTED FILE (UE: UFbxImportUI + UFbxStaticMeshImportData, the FBX Import
+    // Options window). Their one home is the source's import record (`<source>.deimport`, ImportRecordData::
+    // Settings): the Import Options window writes them on the first import, the Details' Import Settings on a
+    // re-import, and every re-import reads them there. `Mesh` is copied into each static mesh the import writes
+    // (MeshImportInfo::Settings), because the deriver builds from the mesh alone.
+    struct SourceImportSettings
+    {
+        // UE bCombineMeshes, OFF by default: every mesh-bearing node of the file becomes its own static mesh
+        // (NodeMeshSplit); on, the whole file is the one combined mesh.
+        bool               CombineMeshes = false;
+        MeshImportSettings Mesh;
+        bool               operator==( const SourceImportSettings& ) const = default;
+    };
+
     struct MeshImportInfo
     {
         MeshSourceProvenance Provenance = MeshSourceProvenance::Imported;

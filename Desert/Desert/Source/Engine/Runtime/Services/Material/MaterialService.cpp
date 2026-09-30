@@ -148,6 +148,26 @@ namespace Desert::Runtime
         }
     }
 
+    // The material's cells are its template's, by the one rule (Graphic::TemplateCellShader) asked of the
+    // registered shaders. CreateSurfaceMaterial builds by it and MaterialService::CellOf answers by it, so "can
+    // this draw here" and "what draws here" cannot disagree.
+    // @p asset is a BASE material (an instance's cells are its base's); the error names material, template, cell.
+    static Common::ResultStr<std::string> CellShaderOf( const Assets::MaterialAsset& asset,
+                                                        Graphic::MeshVertexPath path, Graphic::MeshPass pass )
+    {
+        const std::string templateName = asset.GetShaderName();
+        auto              cell         = Graphic::TemplateCellShader(
+             templateName, path, pass, []( std::string_view name )
+             { return ResourceRegistry::GetShaderService()->GetByName( std::string( name ) ) != nullptr; } );
+        if ( !cell )
+            return Common::MakeError<std::string>( std::format(
+                 "Material '{}' uses the template '{}', which has no ({} x {}) cell — a shader without a Surface "
+                 "block carries no skinning, instancing or G-buffer stage.",
+                 asset.GetMetadata().Filepath.generic_string(), templateName, Graphic::MeshVertexPathName( path ),
+                 Graphic::MeshPassName( pass ) ) );
+        return Common::MakeSuccess( std::move( *cell ) );
+    }
+
     std::shared_ptr<Graphic::DataDrivenMaterial> CreateSurfaceMaterial( const Assets::MaterialAsset* asset,
                                                                         Graphic::MeshVertexPath      path,
                                                                         Graphic::MeshPass            pass )
@@ -175,27 +195,16 @@ namespace Desert::Runtime
         // THERE IS DELIBERATELY NO DOMAIN CHECK HERE: this function does not know its consumer. A Terrain
         // material is legitimately built by the terrain, the Material Editor and the File Explorer; the
         // refusal lives in MeshRenderer::DrawGenericMeshes, which asks Core::Formats::DrawnByMeshPath().
-        const std::string templateName = asset->GetShaderName();
-        auto              cell         = Graphic::MeshShaderFor( templateName, path, pass );
-        // A template with no Surface block registers no cells: it is drawn by its own default program on the
-        // generic path, which is its (Static x Forward) and nothing else.
-        // (The glass program is no template's cell and is asked for as it is.)
-        if ( cell && Graphic::MeshCellPath( *cell ) && !ResourceRegistry::GetShaderService()->GetByName( *cell ) )
-            cell = ( path == Graphic::MeshVertexPath::Static && pass == Graphic::MeshPass::Forward )
-                        ? std::optional<std::string>( templateName )
-                        : std::nullopt;
+        const auto cell = CellShaderOf( *asset, path, pass );
         if ( !cell )
         {
-            LOG_WARN( "[Materials] Material '{}' uses the template '{}', which has no ({} x {}) cell — a shader "
-                      "without a Surface block carries no skinning, instancing or G-buffer stage. The mesh asking "
-                      "for it falls back to the default surface material; assign a material whose template has "
-                      "that cell, or give '{}' a Surface block.",
-                      asset->GetMetadata().Filepath.generic_string(), templateName,
-                      Graphic::MeshVertexPathName( path ), Graphic::MeshPassName( pass ), templateName );
+            LOG_WARN( "[Materials] {} The mesh asking for it falls back to the default surface material; assign a "
+                      "material whose template has that cell, or give the template a Surface block.",
+                      cell.GetError() );
             return nullptr;
         }
 
-        const std::string& shaderName = *cell;
+        const std::string& shaderName = cell.GetValue();
         auto               material   = std::make_shared<Graphic::DataDrivenMaterial>( shaderName );
         // ON LOAD, not at the first draw (AL1-12, UE's PSO precache): every renderer starts this shader's
         // pipeline compile on a worker from its next frame, so it has usually landed before the mesh is seen.
@@ -273,8 +282,8 @@ namespace Desert::Runtime
         if ( !assets )
             return Common::MakeError<std::string>(
                  std::string( "no asset manager is bound, so no template declares 'Default Surface' yet" ) );
-        const auto handle = Assets::FindDefaultSurfaceTemplate( *assets, Project::ProjectContext::DefaultSurfaceTemplate(),
-                                                                Project::ProjectContext::FilePath() );
+        const auto handle = Assets::FindDefaultSurfaceTemplate(
+             *assets, Project::ProjectContext::DefaultSurfaceTemplate(), Project::ProjectContext::FilePath() );
         if ( !handle )
             return Common::MakeError<std::string>( handle.GetError() );
         const auto shader = assets->FindByHandle<Assets::ShaderAsset>( handle.GetValue() );
@@ -286,7 +295,7 @@ namespace Desert::Runtime
     Common::ResultStr<std::string> MaterialService::DefaultSurfaceShader( Graphic::MeshVertexPath path,
                                                                           Graphic::MeshPass       pass ) const
     {
-        const auto templateName = DefaultSurfaceTemplate();
+        auto templateName = DefaultSurfaceTemplate();
         if ( !templateName )
             return templateName;
         auto shader = Graphic::MeshShaderFor( templateName.GetValue(), path, pass );
@@ -295,6 +304,13 @@ namespace Desert::Runtime
                  "the default surface template '{}' has no ({} x {}) cell — no mesh shader exists for that pair",
                  templateName.GetValue(), Graphic::MeshVertexPathName( path ), Graphic::MeshPassName( pass ) ) );
         return Common::MakeSuccess( std::move( *shader ) );
+    }
+
+    void MaterialService::PinDefaultSurfaceTemplate( const Common::AssetHandle& handle )
+    {
+        m_DefaultSurfacePin = std::make_unique<Assets::AssetRootPin>(
+             handle,
+             "the engine's Default Surface template: every slotless mesh and every new material draws with it" );
     }
 
     void MaterialService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
@@ -522,7 +538,7 @@ namespace Desert::Runtime
         // The sibling first: it resolves the asset (instance chain, unread shell, cell refusal) once, and a
         // view variant exists only where the plain one does.
         const auto* sibling = GetVariant( built, path, pass );
-        if ( !sibling )
+        if ( sibling == nullptr )
             return nullptr;
         const auto owner = m_BuiltToAsset.find( sibling );
         if ( owner == m_BuiltToAsset.end() )
@@ -532,7 +548,7 @@ namespace Desert::Runtime
         auto&        views = m_ViewMaterials[owner->second];
         for ( const auto& v : views )
             if ( v.Slot == slot && v.View == view )
-                return static_cast<Graphic::DataDrivenMaterial*>( v.Material.get() );
+                return v.Material.get();
 
         const auto ait = m_MaterialAssets.find( owner->second );
         if ( ait == m_MaterialAssets.end() )
@@ -676,31 +692,49 @@ namespace Desert::Runtime
         return true;
     }
 
-    MaterialService::MaterialTemplate MaterialService::ShaderHandleOf( const Assets::AssetHandle& handle ) const
+    const Assets::SurfaceMaterialAsset* MaterialService::BaseOf( const Assets::AssetHandle& handle ) const
     {
-        // Same chain walk as ResolveOverrides — an instance names no program of its own, so the answer is
-        // always the base's. Depth-capped for the same cycle reason.
+        // An instance names no program of its own, so every question about its template is the base's.
         Assets::AssetHandle current = handle;
         for ( int depth = 0; depth < 8; ++depth )
         {
             auto it = FindOrDiscover( current );
             if ( it == m_MaterialAssets.end() )
-                return MaterialTemplate{};
+                return nullptr;
             (void)EnsureLoaded( it->second );
-            auto* surf = dynamic_cast<Assets::SurfaceMaterialAsset*>( it->second.get() );
+            const auto* surf = dynamic_cast<const Assets::SurfaceMaterialAsset*>( it->second.get() );
             if ( !surf )
-                return MaterialTemplate{};
+                return nullptr;
             const auto parentId = surf->Data().InstanceParentId();
             if ( !parentId.has_value() )
-            {
-                return MaterialTemplate{ surf->GetShaderHandle(), surf->GetShaderName() };
-            }
+                return surf;
             const auto parent = GetAssetHandleByExternal( *parentId );
             if ( parent.IsNull() || parent == current )
-                return MaterialTemplate{ surf->GetShaderHandle(), surf->GetShaderName() };
+                return surf;
             current = parent;
         }
-        return MaterialTemplate{};
+        return nullptr;
+    }
+
+    MaterialService::MaterialTemplate MaterialService::ShaderHandleOf( const Assets::AssetHandle& handle ) const
+    {
+        const auto* base = BaseOf( handle );
+        if ( base == nullptr )
+            return MaterialTemplate{};
+        return MaterialTemplate{ base->GetShaderHandle(), base->GetShaderName() };
+    }
+
+    Common::BoolResultStr MaterialService::CellOf( const Assets::AssetHandle& handle, Graphic::MeshVertexPath path,
+                                                   Graphic::MeshPass pass ) const
+    {
+        const auto* base = BaseOf( handle );
+        if ( base == nullptr )
+            return Common::MakeFormattedError( "material {} (or a parent in its instance chain) is not registered "
+                                               "or not readable, so it has no cell to draw with",
+                                               static_cast<uint64_t>( handle ) );
+        if ( const auto cell = CellShaderOf( *base, path, pass ); !cell )
+            return Common::MakeFormattedError( "{}", cell.GetError() );
+        return BOOLSUCCESS;
     }
 
     void MaterialService::Clear()
@@ -715,6 +749,7 @@ namespace Desert::Runtime
         m_ReportedMissing.clear();
         m_ExternalToInternal.clear();
         m_Graveyard.Clear();
+        m_DefaultSurfacePin.reset();
     }
 
     void MaterialService::Invalidate( const Assets::AssetHandle& handle )

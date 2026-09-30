@@ -895,7 +895,23 @@ namespace Desert::Editor
                                      m_Preview->ResetView();
                              } } );
         PreviewEnvironment::AppendActions( actions );
+        // The Thumbnail section's Primitive combo, reachable without the mouse (same function).
+        if ( m_WorkingCopy )
+            for ( const Assets::ThumbnailPrimitive primitive : Assets::kThumbnailPrimitives )
+                actions.push_back( { std::format( "Material Thumbnail: primitive {}",
+                                                  Assets::ThumbnailPrimitiveName( primitive ) ),
+                                     [this, primitive]() { SetThumbnailPrimitive( primitive ); } } );
         return actions;
+    }
+
+    void MaterialEditorPanel::SetThumbnailPrimitive( Assets::ThumbnailPrimitive primitive )
+    {
+        if ( !m_WorkingCopy )
+            return;
+        auto&                 data = m_WorkingCopy->Data();
+        Assets::ThumbnailInfo info = data.ThumbnailOrDefault();
+        info.Primitive             = primitive;
+        data.SetThumbnail( info );
     }
 
     void MaterialEditorPanel::DrawToolbar( Assets::SurfaceMaterialAsset* working, bool isInstance )
@@ -2199,13 +2215,37 @@ namespace Desert::Editor
             }
         }
 
-        // THE THUMBNAIL'S MESH, SAVED WITH THE MATERIAL (UE ThumbnailInfo): MaterialData::PreviewMesh. Unlike the
-        // pane's mesh above (this session's view only), this one is authored — the browser, Details and every
-        // later session photograph the material on it. An import states it for the materials it writes.
-        if ( m_WorkingCopy && ImGui::CollapsingHeader( "Thumbnail Mesh", ImGuiTreeNodeFlags_DefaultOpen ) )
+        // UE's material "Thumbnail" category: Primitive Type, Preview Mesh and the orbit, all in
+        // MaterialData::Thumbnail (SetThumbnail: the default info is written as no key). Saved with the material;
+        // the saved .demat's bytes re-shoot the picture (ThumbnailFreshness).
+        if ( m_WorkingCopy && ImGui::CollapsingHeader( "Thumbnail", ImGuiTreeNodeFlags_DefaultOpen ) )
         {
-            auto&             data  = m_WorkingCopy->Data();
-            const std::string label = data.PreviewMesh ? data.PreviewMesh->Path : std::string( "<sphere>" );
+            auto& data = m_WorkingCopy->Data();
+            {
+                Assets::ThumbnailInfo info    = data.ThumbnailOrDefault();
+                bool                  changed = false;
+                if ( ImGui::BeginCombo( "Primitive##thumbnail_primitive",
+                                        std::string( Assets::ThumbnailPrimitiveName( info.Primitive ) ).c_str() ) )
+                {
+                    for ( const Assets::ThumbnailPrimitive primitive : Assets::kThumbnailPrimitives )
+                        if ( ImGui::Selectable( std::string( Assets::ThumbnailPrimitiveName( primitive ) ).c_str(),
+                                                primitive == info.Primitive ) )
+                        {
+                            SetThumbnailPrimitive( primitive );
+                            info.Primitive = primitive;
+                        }
+                    ImGui::EndCombo();
+                }
+                changed |= ImGui::DragFloat( "Pitch##thumbnail_pitch", &info.Orbit.Pitch, 0.5f, -89.0f, 89.0f );
+                changed |= ImGui::DragFloat( "Yaw##thumbnail_yaw", &info.Orbit.Yaw, 0.5f, -180.0f, 180.0f );
+                changed |= ImGui::DragFloat( "Zoom##thumbnail_zoom", &info.Orbit.Zoom, 0.01f, -0.9f, 4.0f );
+                if ( changed && Assets::IsValidThumbnailOrbit( info.Orbit ) )
+                    data.SetThumbnail( info );
+            }
+            const Assets::ThumbnailInfo shown = data.ThumbnailOrDefault();
+            const std::string           label =
+                 shown.PreviewMesh ? shown.PreviewMesh->Path
+                                             : std::format( "<{}>", Assets::ThumbnailPrimitiveName( shown.Primitive ) );
             ImGui::Button( std::format( "{}##thumbnail_mesh", label ).c_str(), ImVec2( -FLT_MIN, 0.0f ) );
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip( "Drop an imported static mesh: the material's thumbnail is taken on it." );
@@ -2219,7 +2259,11 @@ namespace Desert::Editor
                     {
                         const std::string path( static_cast<const char*>( pl->Data ) );
                         if ( auto ref = PreviewMeshRefFor( path ) )
-                            data.PreviewMesh = ref.GetValue();
+                        {
+                            Assets::ThumbnailInfo info = data.ThumbnailOrDefault();
+                            info.PreviewMesh           = ref.GetValue();
+                            data.SetThumbnail( info );
+                        }
                         else
                             LOG_WARN( "[MaterialEditor] '{}' cannot be the thumbnail mesh: {}", path,
                                       ref.GetError() );
@@ -2228,9 +2272,13 @@ namespace Desert::Editor
                 }
                 ImGui::EndDragDropTarget();
             }
-            ImGui::BeginDisabled( !data.PreviewMesh.has_value() );
-            if ( ImGui::Button( "Back to the sphere##thumbnail_mesh_clear" ) )
-                data.PreviewMesh.reset();
+            ImGui::BeginDisabled( !data.ThumbnailOrDefault().PreviewMesh.has_value() );
+            if ( ImGui::Button( "Back to the primitive##thumbnail_mesh_clear" ) )
+            {
+                Assets::ThumbnailInfo info = data.ThumbnailOrDefault();
+                info.PreviewMesh.reset();
+                data.SetThumbnail( info );
+            }
             ImGui::EndDisabled();
         }
     }

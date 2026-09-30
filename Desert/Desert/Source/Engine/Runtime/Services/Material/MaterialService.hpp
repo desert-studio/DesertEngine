@@ -5,11 +5,13 @@
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Assets/MaterialAsset.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AssetRootPin.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/Runtime/Services/Material/MaterialIdentity.hpp>
 
 #include <array>
+#include <memory>
 #include <span>
 #include <vector>
 #include <unordered_set>
@@ -22,6 +24,11 @@ namespace Desert::Assets
 namespace Desert::Graphic
 {
     class DataDrivenMaterial;
+}
+
+namespace Desert::Assets
+{
+    class SurfaceMaterialAsset;
 }
 
 namespace Desert::Runtime
@@ -76,6 +83,14 @@ namespace Desert::Runtime
         /// cells under). Refused with the registry's reason when none or several declare it, or when no asset
         /// manager is bound yet.
         [[nodiscard]] Common::ResultStr<std::string> DefaultSurfaceTemplate() const;
+
+        /// THE DEFAULT SURFACE TEMPLATE IS IN THE ROOT SET for the life of the engine (UE: the engine's default
+        /// material is AddToRoot'ed at load and never garbage-collected). No scene names it — a slotless mesh
+        /// has no material to name it through — so without this pin the first eviction sweep released it, and
+        /// every later DefaultSurfaceTemplate() was refused ("no loaded shader declares 'Default Surface'"): the
+        /// animation editor's preview drew no character. Called by CompileEngineShaders once the template is
+        /// found; a second call (a recompile) moves the pin. Dropped by Clear().
+        void PinDefaultSurfaceTemplate( const Common::AssetHandle& handle );
 
         /// The (path x pass) shader of the default surface template (MeshShaderFor on DefaultSurfaceTemplate),
         /// for a draw that has no material of its own: a slotless mesh, the renderer's pipeline layouts, the
@@ -209,6 +224,13 @@ namespace Desert::Runtime
         };
         [[nodiscard]] MaterialTemplate ShaderHandleOf( const Assets::AssetHandle& handle ) const;
 
+        // Whether the material at @p handle HAS a (path x pass) cell, asked of its base through the same chain
+        // walk (CellShaderOf in the .cpp is the rule — the one CreateSurfaceMaterial builds by). For a caller that
+        // must refuse BEFORE it stages a draw instead of photographing the default material the scene substitutes
+        // (the skinned thumbnail).
+        [[nodiscard]] Common::BoolResultStr CellOf( const Assets::AssetHandle& handle,
+                                                    Graphic::MeshVertexPath path, Graphic::MeshPass pass ) const;
+
         // For editor live-edit of a material-instance asset: entities rebuild their cached
         // runtime instances on the next tick (same mechanism as Invalidate, no graveyard needed —
         // no runtime Material dies here).
@@ -324,9 +346,9 @@ namespace Desert::Runtime
         // GetViewVariant's materials: per asset, one per (cell slot x view), built on first ask.
         struct ViewVariant
         {
-            size_t                             Slot = 0;
-            uint32_t                           View = 0;
-            std::shared_ptr<Graphic::Material> Material;
+            size_t                                       Slot = 0;
+            uint32_t                                     View = 0;
+            std::shared_ptr<Graphic::DataDrivenMaterial> Material;
         };
         mutable std::unordered_map<Assets::AssetHandle, std::vector<ViewVariant>> m_ViewMaterials;
         // Mutable: discovery on a miss fills these from const lookups (Get, ShaderHandleOf, ...), which is a
@@ -338,11 +360,15 @@ namespace Desert::Runtime
         /// Live metadata reads started by Get(); a handle here answers Pending (nullptr).
         mutable std::unordered_map<Assets::AssetHandle, Assets::LoadRequest> m_Requests;
         std::weak_ptr<Assets::AssetManager>                                  m_Assets;
+        /// The engine's hold on the Default Surface template (PinDefaultSurfaceTemplate).
+        std::unique_ptr<Assets::AssetRootPin> m_DefaultSurfacePin;
 
         /// THE ONE LOOKUP every `m_MaterialAssets.find` went through: the held shell, or one discovered
         /// from the registry row now, or `end()`.
         std::unordered_map<Assets::AssetHandle, std::shared_ptr<Assets::MaterialAsset>>::iterator
         FindOrDiscover( const Assets::AssetHandle& handle ) const;
+        // The instance chain walked to its base (depth-capped against cycles); null when a link is missing.
+        const Assets::SurfaceMaterialAsset* BaseOf( const Assets::AssetHandle& handle ) const;
         /// True when @p asset is read; otherwise starts its read once (AsyncAssetLoader) and answers false.
         bool RequestIfUnread( const std::shared_ptr<Assets::MaterialAsset>& asset ) const;
 

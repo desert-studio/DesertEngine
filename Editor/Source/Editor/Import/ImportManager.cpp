@@ -16,6 +16,11 @@
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include "ImportedMeshAsset.hpp"
+#include "MeshDeriver.hpp"
+#include "NodeMeshSplit.hpp"
+#include "SourceToEngine.hpp"
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 
 #include <Common/Core/Constants.hpp>
@@ -24,10 +29,10 @@
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Common/Core/JobSystem.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <format>
 #include <fstream>
@@ -45,6 +50,19 @@ namespace Desert::Editor
         const auto result = Editor::CookPaths::SkinnedAsset( sourcePath, suffix );
         std::filesystem::create_directories( result.parent_path() );
         return result;
+    }
+
+    Common::ResultStr<Assets::AssetHandle> LoadedHandleOf( const std::filesystem::path& written )
+    {
+        const auto kind = Assets::ContentRegistry::KindForFile( written );
+        if ( !kind )
+            return Common::MakeFormattedError<Assets::AssetHandle>( "'{}' is no content kind the registry keeps",
+                                                                    written.generic_string() );
+        const auto row = Assets::ContentRegistry::RowAtPath( *kind, written );
+        if ( !row )
+            return Common::MakeFormattedError<Assets::AssetHandle>(
+                 "'{}' was written and has no content-registry row", written.generic_string() );
+        return Common::MakeSuccess( row->Handle );
     }
 
     ImportManager::ImportManager()
@@ -107,6 +125,41 @@ namespace Desert::Editor
                Assets::IsEditedImportedMesh( CookPaths::MeshAsset( path ) ) || SkinnedImportIsFresh( path ) ) )
             return CookVerdict::UpToDate;
 
+        // The options the source was imported with last (its record), UE's defaults on a first import.
+        const auto settings = Assets::Serialization::ReadImportRecordSettings( path );
+        if ( !settings )
+        {
+            LOG_ERROR( "[Import] '{}' was not imported: {}", path.string(), settings.GetError() );
+            return CookVerdict::Failed;
+        }
+        return ImportParsed( path, settings.GetValue() ).Verdict;
+    }
+
+    ImportOutcome ImportManager::ImportWithSettings( const std::filesystem::path&        path,
+                                                     const Assets::SourceImportSettings& settings )
+    {
+        auto ext = path.extension().string();
+        std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
+        if ( !m_Importers.contains( ext ) )
+            return { CookVerdict::NotCookable, {}, {}, {} };
+        return ImportParsed( path, settings );
+    }
+
+    Common::ResultStr<ImportContentKind> ImportManager::ProbeContent( const std::filesystem::path& path )
+    {
+        auto ext = path.extension().string();
+        std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
+        if ( !m_Importers.contains( ext ) )
+            return Common::MakeFormattedError<ImportContentKind>( "'{}': no importer takes '{}' files",
+                                                                  path.string(), ext );
+        return m_Importers[ext]->Probe( path );
+    }
+
+    ImportOutcome ImportManager::ImportParsed( const std::filesystem::path&        path,
+                                               const Assets::SourceImportSettings& settings )
+    {
+        auto ext = path.extension().string();
+        std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
         auto result = m_Importers[ext]->Import( path, *this );
         // The cook's verdict stops HERE, at a log line naming the file and the reason. It has nowhere
         // further to go and that is deliberate rather than overlooked: this function is void because
@@ -114,13 +167,14 @@ namespace Desert::Editor
         // JobSystem workers) and drag-and-drop. Widening it into a result would oblige every one of
         // those to grow an answer nobody is waiting for. What Д31-D asked for is that a cooked file
         // that was never written stops being INDISTINGUISHABLE from one that was; it now is.
-        if ( const auto cooked = CreateAssetsFromImport( result, path ); !cooked )
+        ImportOutcome outcome{ CookVerdict::Cooked, {}, {}, {} };
+        if ( const auto cooked = CreateAssetsFromImport( result, path, settings, outcome ); !cooked )
         {
             LOG_ERROR( "[Import] '{}' was parsed but its cooked output is incomplete: {}", path.string(),
                        cooked.GetError() );
-            return CookVerdict::Failed;
+            outcome.Verdict = CookVerdict::Failed;
         }
-        return CookVerdict::Cooked;
+        return outcome;
     }
 
     std::vector<std::filesystem::path> ImportManager::MeshSources( const std::filesystem::path& root )
@@ -190,9 +244,12 @@ namespace Desert::Editor
     // make one unwritable material hide a mesh that could have been cooked. Only the first reason
     // travels up — the caller acts on "this cook is incomplete", not on the list — and every reason
     // names its own file, so the one that arrives is enough to find the cause.
-    Common::BoolResultStr ImportManager::CreateAssetsFromImport( const ImportResult&          result,
-                                                                 const std::filesystem::path& sourcePath )
+    Common::BoolResultStr ImportManager::CreateAssetsFromImport( const ImportResult&                 result,
+                                                                 const std::filesystem::path&        sourcePath,
+                                                                 const Assets::SourceImportSettings& settings,
+                                                                 ImportOutcome&                      written )
     {
+        std::vector<std::filesystem::path>& writtenMeshes = written.WrittenMeshes;
         std::string firstFailure;
         const auto  record = [&firstFailure]( const Common::BoolResultStr& outcome )
         {
@@ -207,8 +264,70 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "'{}' material adoption refused: {}", sourcePath.string(),
                                                      adopted.GetError() );
 
+        // IMPORT OPTIONS REACH EVERY MESH OF THE FILE (UE FBX Import Options): a static mesh carries them in its
+        // source and the deriver applies them; a skinned mesh, its skeleton and its clips are written in render
+        // form, so Uniform Scale / Up Axis are baked into all three here (SourceToEngine.hpp) and LOD Generate
+        // simplifies the skinned sections as the deriver does the static ones. A file with no static mesh
+        // (skinned, or skeleton + clips only) is the case: the static path never sees the skeleton.
+        const bool staticMesh = resolved.Mesh && !resolved.Mesh->IsSkinned;
+        // THE RECORD FOR EVERY KIND (RecordImport): the static writer records the import itself; a skinned file,
+        // or one with a skeleton and clips only, is recorded here (the box the options give it). A
+        // parse that produced nothing (a failed .blend conversion) is no import and leaves no record.
+        if ( !staticMesh )
+        {
+            // What the file imports as: a skinned mesh, else the skeleton, else clips only.
+            Common::Content::ContentKind kind = Common::Content::ContentKind::Animation;
+            if ( resolved.Mesh )
+                kind = Common::Content::ContentKind::SkinnedMesh;
+            else if ( resolved.Skeleton )
+                kind = Common::Content::ContentKind::Skeleton;
+            if ( resolved.Mesh || resolved.Skeleton || !resolved.Animations.empty() )
+                record( RecordImport( sourcePath, kind, resolved.Mesh ? &resolved.Mesh.value() : nullptr,
+                                      settings ) );
+            // The file's unit was logged at the parse ("geometry scaled by <cm per unit>"); the record's options
+            // are the second factor, baked here, and say so - a reimport at Scale 10 read "scaled by 100" alone.
+            LOG_INFO( "[Import] '{}': Uniform Scale {} and Up Axis {} (import options) baked into the mesh, the "
+                      "rig and "
+                      "{} clip(s)",
+                      sourcePath.generic_string(), settings.Mesh.UniformScale,
+                      settings.Mesh.UpAxis == Assets::MeshSourceUpAxis::Z   ? "Z"
+                      : settings.Mesh.UpAxis == Assets::MeshSourceUpAxis::Y ? "Y"
+                                                                            : "from the file",
+                      resolved.Animations.size() );
+            ApplySourceToEngine( settings.Mesh, resolved.Mesh ? &resolved.Mesh.value() : nullptr,
+                                 resolved.Skeleton ? &resolved.Skeleton.value() : nullptr, resolved.Animations );
+        }
+        // THE RIG AND ITS CLIPS ENTER THE REGISTRY BEFORE THE MESH THAT NAMES THEM (UE creates the USkeleton
+        // before the USkeletalMesh). Each write is registered the moment it exists (CookedJsonWrite.hpp), and a
+        // skinned mesh is resolved through the Skeleton row its signature names (MeshService::Arrived): with the
+        // mesh written first, a draw or thumbnail between the two writes failed the mesh for the session - live on
+        // Fox.glb, "no Skeleton row of the content registry states it".
+        if ( resolved.Skeleton )
+        {
+            const auto serialized = SerializeSkeletonAsset( resolved.Skeleton.value(), sourcePath );
+            if ( serialized )
+                written.WrittenSkeletons.push_back( SkinnedAssetPath( sourcePath, ".skeleton" ) );
+            record( serialized );
+        }
+
+        for ( const auto& anim : resolved.Animations )
+        {
+            const auto serialized = SerializeAnimationAsset( anim, sourcePath );
+            if ( serialized )
+                written.WrittenClips.push_back(
+                     SkinnedAssetPath( sourcePath, std::format( "_{}.anim", anim.Name ) ) );
+            record( serialized );
+        }
+
         if ( resolved.Mesh && resolved.Mesh->IsSkinned )
-            record( SerializeMeshAsset( resolved.Mesh.value(), sourcePath ) );
+        {
+            if ( settings.Mesh.LodPolicy == Assets::MeshLodPolicy::Generate )
+                BakeMeshLODs( resolved.Mesh.value() );
+            const auto serialized = SerializeMeshAsset( resolved.Mesh.value(), sourcePath );
+            if ( serialized )
+                writtenMeshes.push_back( SkinnedAssetPath( sourcePath, ".skmesh" ) );
+            record( serialized );
+        }
         else if ( resolved.Mesh )
         {
             // The static mesh is a source asset beside its file (ImportedMeshAsset.hpp); its slots are named
@@ -217,31 +336,29 @@ namespace Desert::Editor
             named.reserve( resolved.Materials.size() );
             for ( const auto& material : resolved.Materials )
                 named.push_back( { material.Name, material.Guid } );
-            if ( const auto written = WriteImportedMeshAsset( resolved.Mesh.value(), named, sourcePath );
-                 !written )
+            // COMBINE MESHES OFF (UE's default): every mesh-bearing node becomes its own static mesh and NO
+            // combined one is written (NodeMeshSplit.hpp WriteStaticMeshImport); a single-node source, or Combine
+            // Meshes on, is the one combined mesh.
+            auto written = WriteStaticMeshImport( resolved.Mesh.value(), resolved.SubmeshNodes, named, sourcePath,
+                                                  settings );
+            if ( !written )
                 record( Common::MakeError<bool>( written.GetError() ) );
-        }
-
-        // THE MATERIALS AFTER THE MESH: a static mesh's import record (its GUID) exists only once the mesh is
-        // written, and each material names that mesh as its PreviewMesh - the tuft a grass atlas was authored
-        // for, which its thumbnail then draws (ThumbnailSubject::Preview::Mesh). A skinned mesh is not drawn
-        // by the mesh path, so its materials name none and keep the sphere.
-        std::optional<Assets::AssetGuidRef> previewMesh;
-        if ( resolved.Mesh && !resolved.Mesh->IsSkinned )
-        {
-            if ( auto ref = PreviewMeshRefFor( sourcePath ) )
-                previewMesh = ref.GetValue();
             else
-                record( Common::MakeError<bool>( ref.GetError() ) );
+            {
+                for ( const auto& [node, path] : written.GetValue() )
+                {
+                    Assets::ContentRegistry::NoteFile( path );
+                    writtenMeshes.push_back( path );
+                }
+            }
         }
+
+        // NO PREVIEW MESH FROM THE IMPORT (owner, THM1j): an imported material's thumbnail is the ball, as in UE,
+        // masked materials included (the mesh path's alpha discard cuts the ball). PreviewMesh stays the manual
+        // "Thumbnail Mesh" setting of the Material Editor; the pack's tufts are shown by the node meshes' own
+        // thumbnails.
         for ( const auto& material : resolved.Materials )
-            record( SerializeMaterialAsset( material, sourcePath, previewMesh ) );
-
-        if ( resolved.Skeleton )
-            record( SerializeSkeletonAsset( resolved.Skeleton.value(), sourcePath ) );
-
-        for ( const auto& anim : resolved.Animations )
-            record( SerializeAnimationAsset( anim, sourcePath ) );
+            record( SerializeMaterialAsset( material, sourcePath ) );
 
         if ( !firstFailure.empty() )
             return Common::MakeError<bool>( firstFailure );
@@ -297,7 +414,7 @@ namespace Desert::Editor
         if ( !hash )
             return Common::MakeError<bool>( hash.GetError() );
         stamped.Import =
-             Assets::Serialization::SkeletonImportInfo{ sourcePath.filename().generic_string(), hash.GetValue() };
+             Assets::Serialization::ImportSourceInfo{ sourcePath.filename().generic_string(), hash.GetValue() };
         return WriteCookedJson( stamped, cookedPath );
     }
 
@@ -311,6 +428,14 @@ namespace Desert::Editor
         auto stamped   = data;
         stamped.Header = Assets::HeaderKeepingFileGuid( cookedPath, Common::Content::ContentKind::Animation,
                                                         Assets::Serialization::AnimationTextSubsystems() );
+        // THE CLIP NAMES ITS SOURCE (THM-FIXJ; UE: UAnimSequence::AssetImportData), as the rig does: Reimport of
+        // the clip re-imports this file (ImportOptions::ImportSourceOfAsset), which rewrites every asset made
+        // from it. The clip's file name cannot say it - `<stem>_<clip>.anim` has no inverse.
+        const auto hash = Assets::HashMeshSourceFile( sourcePath );
+        if ( !hash )
+            return Common::MakeError<bool>( hash.GetError() );
+        stamped.Import =
+             Assets::Serialization::ImportSourceInfo{ sourcePath.filename().generic_string(), hash.GetValue() };
         return WriteCookedJson( stamped, cookedPath );
     }
 
@@ -334,7 +459,7 @@ namespace Desert::Editor
     {
         const std::filesystem::path resources =
              std::filesystem::path( Common::Constants::Path::SHADERDIR_PATH ).parent_path().parent_path();
-        auto templates = std::make_shared<std::vector<ImportTemplate>>();
+        std::vector<ImportTemplate> templates;
         for ( const auto& [handle, shader] : manager.FindAllByType<Assets::ShaderAsset>() )
         {
             if ( !shader->IsReadyForUse() )
@@ -349,18 +474,22 @@ namespace Desert::Editor
                 LOG_ERROR( "[Import] {}", read.GetError() );
             }
             else if ( read.GetValue().Manifest.DeclaresImport )
-                templates->push_back( read.ExtractValue() );
+                templates.push_back( read.ExtractValue() );
         }
-        const std::size_t      count = templates->size();
+        return PublishImportTemplates( std::move( templates ) );
+    }
+
+    std::size_t ImportManager::PublishImportTemplates( std::vector<ImportTemplate> templates )
+    {
+        auto published = std::make_shared<const std::vector<ImportTemplate>>( std::move( templates ) );
+        const std::size_t      count = published->size();
         const std::scoped_lock lock( s_TemplatesMutex );
-        s_Templates = std::move( templates );
+        s_Templates = std::move( published );
         return count;
     }
 
-    Common::BoolResultStr
-    ImportManager::SerializeMaterialAsset( const ImportedMaterial&                    material,
-                                           const std::filesystem::path&               sourcePath,
-                                           const std::optional<Assets::AssetGuidRef>& previewMesh )
+    Common::BoolResultStr ImportManager::SerializeMaterialAsset( const ImportedMaterial&      material,
+                                                                 const std::filesystem::path& sourcePath )
     {
         // Imported materials are EDITABLE CONTENT, not cooked intermediates -> write them into the content
         // tree at Resources/Assets/Materials/<meshRelativeId>/<materialName>.demat (browsable + editable in
@@ -400,12 +529,7 @@ namespace Desert::Editor
                       "imported",
                       material.Name, sourcePath.generic_string(), chosen.ShaderName, key );
 
-        Assets::MaterialData data;
-        data.Shader = Assets::AssetGuidRef{ chosen.Guid, chosen.Locator };
-        if ( fill.TwoSided )
-            data.TwoSided = true;
-        for ( const ImportedParam& param : fill.Params )
-            data.Params.push_back( { param.Name, param.Value } );
+        Assets::MaterialData data = ImportedMaterialDocument( chosen, fill );
         for ( const ImportedTextureSlot& slot : fill.Textures )
         {
             std::filesystem::path image = slot.Parts.front().Source;
@@ -431,9 +555,8 @@ namespace Desert::Editor
             data.Textures.push_back( { slot.Slot, Common::Content::AssetGuidToText( key.GetValue().Guid ),
                                        Common::AssetHandle::StableKeyForPath( asset ), slot.Sampler } );
         }
-        data.PreviewMesh = previewMesh;
-        data.Header      = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material, material.Guid,
-                                                            Assets::MaterialTextSubsystems() );
+        data.Header     = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material, material.Guid,
+                                                           Assets::MaterialTextSubsystems() );
         const auto text = Assets::WriteMaterialJson( data );
         if ( !text )
             return Common::MakeFormattedError<bool>( "material '{}' refused: {}", path.string(), text.GetError() );
@@ -467,14 +590,14 @@ namespace Desert::Editor
         return imported;
     }
 
-    Assets::AssetHandle ImportManager::ImportAndRegisterTexture( Assets::AssetManager&         mgr,
-                                                                 const std::filesystem::path& source )
+    std::shared_ptr<Assets::TextureAsset> ImportManager::ImportTextureAsset( Assets::AssetManager&        mgr,
+                                                                             const std::filesystem::path& source )
     {
         // Import + derive the texture (the importer logs a failure and returns the null handle), then create
         // the TextureAsset on its `.detex` -- the asset IS the file the runtime reads (header + DDC key).
         if ( static_cast<uint64_t>( m_TextureImporter->Import( source ) ) == 0 )
         {
-            return Common::UUID::Null();
+            return nullptr;
         }
 
         const auto cookedMeta = TextureImporter::AssetPathFor( source );
@@ -482,13 +605,10 @@ namespace Desert::Editor
         auto asset = mgr.CreateAsset<Assets::TextureAsset>( cookedMeta.string() );
         if ( !asset )
         {
-            LOG_ERROR( "ImportAndRegisterTexture: failed to create TextureAsset from {}",
-                       cookedMeta.string() );
-            return Common::UUID::Null();
+            LOG_ERROR( "ImportTextureAsset: failed to create TextureAsset from {}", cookedMeta.string() );
+            return nullptr;
         }
-
-        Runtime::ResourceRegistry::GetTextureService()->Register( asset );
-        return asset->GetMetadata().Handle;
+        return asset;
     }
 
 } // namespace Desert::Editor

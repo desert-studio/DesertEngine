@@ -268,6 +268,39 @@ TEST( EngineShaderByGuid, RenamingTheShaderDoesNotChangeResolution )
     }
 }
 
+// THE ROLE IS NOT READ FROM A SHELL (THM1n-10). The PBR surface template registered UNREAD (the boot scan's
+// loadAfterCreate=false) or EVICTED (ShaderAsset::Unload clears the Role) answered an empty role, the material
+// took 'StaticMeshPBR' for a custom DSL shader, the material build refused its (Skinned x Forward) cell, and the
+// skinned thumbnail drew the sky. Resolving loads the template as the dependency the header says it is.
+TEST( EngineShaderByGuid, ThePBRSurfaceRoleIsReadFromAnUnreadOrEvictedShader )
+{
+    const ScratchDir dir;
+    const fs::path   material = WriteMaterial(
+         dir.Root,
+         std::format( "    \"Shader\": {{\n        \"Guid\": \"{}\",\n        \"Path\": \"mock\"\n    }},\n",
+                        kMockGuidA ),
+         "0badc0de0badc0de0badc0de0badc0d3", std::format( "\"{}\"", kMockGuidA ) );
+    for ( const bool unread : { false, true } )
+    {
+        Desert::Assets::AssetManager manager;
+        const auto                   shader = manager.CreateAsset<Desert::Assets::ShaderAsset>(
+             WriteMockShader( dir.Root, "MockPBR", kMockGuidA, "    Role PBRSurface\n" ),
+             /*loadAfterCreate=*/!unread );
+        ASSERT_TRUE( shader );
+        if ( unread )
+            ASSERT_FALSE( shader->IsReadyForUse() ) << "the shell under test was read at registration";
+        else
+            ASSERT_TRUE( shader->Unload() );
+        Desert::Assets::SurfaceMaterialAsset asset( material );
+        ASSERT_TRUE( asset.LoadFromFile() );
+        asset.ResolveDependencies( manager );
+        EXPECT_EQ( asset.GetShaderName(), "MockPBR" );
+        EXPECT_FALSE( asset.UsesCustomShader() )
+             << ( unread ? "an unread" : "an evicted" )
+             << " PBRSurface template was taken for a custom shader: its role was read from an empty manifest";
+    }
+}
+
 // Exactly one `Default Surface` and one shader per role: none or several is a refusal naming every path.
 TEST( EngineShaderByGuid, DefaultAndRolesAreDeclaredExactlyOnce )
 {

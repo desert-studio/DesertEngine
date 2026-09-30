@@ -14,9 +14,7 @@
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Widgets/Controls/Controls.hpp>
 #include <ImGui/imgui.h>
-#include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
-#include <Editor/Widgets/PreviewEnvironmentUI.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
@@ -25,17 +23,12 @@
 #include <system_error>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/EngineContext.hpp>
-#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 
 namespace Desert::Editor
 {
     namespace ImGui = ::ImGui;
-
-    // The preview is a THUMBNAIL: one fixed offscreen size, big enough that the 64px box in the 3D Model
-    // row is not blurry, small enough that it costs nothing.
-    static constexpr uint32_t kPreviewRenderSize = 256;
 
     namespace
     {
@@ -84,252 +77,6 @@ namespace Desert::Editor
             return ICON_MDI_CUBE_OUTLINE;
         }
     } // namespace
-
-    namespace
-    {
-        /// The preview body a primitive component is shown as.
-        ///
-        /// A named function and not a chain of ternaries at the call site: the mapping is one row per
-        /// primitive kind, so a new kind lands as a new row rather than as another level of nesting. Not
-        /// a lambda either — a parameter-less multi-line lambda is formatted differently by clang-format
-        /// 18 and 22 (the gate runs 18), and it is the shape bugprone-exception-escape fires on here.
-        PreviewViewport::Shape PreviewShapeFor( Geometry::PrimitiveType primitive )
-        {
-            switch ( primitive )
-            {
-                case Geometry::PrimitiveType::Plane:
-                    return PreviewViewport::Shape::Plane;
-                case Geometry::PrimitiveType::Sphere:
-                    return PreviewViewport::Shape::Sphere;
-                default:
-                    return PreviewViewport::Shape::Cube;
-            }
-        }
-
-        // Identity of what the preview shows: entity + mesh/primitive + material slots. A change re-points
-        // (and re-frames) the preview; editing a material's own values does NOT change the key, because
-        // the preview renders the live material instance and updates on its own.
-        uint64_t PreviewKeyOf( const ECS::Entity& entity, uint64_t entityId )
-        {
-            // THE HDR SKY IS PREVIEWABLE TOO, and it is not a mesh. A SkyboxComponent carries an asset
-            // whose radiance cube the cubemap pass can wrap on a ball — the same picture the Material
-            // Editor shows for a Skybox-domain material. It is asked FIRST because a sky entity has no
-            // StaticMeshComponent at all and would otherwise return 0 here, which is the state that holds
-            // no renderer and draws no pane.
-            // ELSE, not an early return out of the function: what follows this block is the frame's
-            // Update(), and returning here would cost the pane its render on the very frame it was
-            // pointed — the one frame a person is watching for it to appear.
-            if ( entity.HasComponent<ECS::SkyboxComponent>() )
-            {
-                const auto& sky = entity.GetComponent<ECS::SkyboxComponent>();
-                if ( static_cast<uint64_t>( sky.SkyboxHandle ) == 0 )
-                    return 0;
-                // The HANDLE only. The rotation, tint and intensity deliberately do NOT enter the key:
-                // they change the cubes in place (MaterialSkybox::EnsureBaked) and the pane re-resolves
-                // the cube every frame, so re-pointing and re-framing the preview on every slider tick
-                // would rebuild the view for no picture change at all.
-                return ( entityId | 1ull ) * 1099511628211ull ^ static_cast<uint64_t>( sky.SkyboxHandle );
-            }
-
-            if ( !entity.HasComponent<ECS::StaticMeshComponent>() )
-                return 0;
-
-            const auto& smc     = entity.GetComponent<ECS::StaticMeshComponent>();
-            const bool  hasMesh = static_cast<uint64_t>( smc.MeshHandle ) != 0;
-            if ( !hasMesh && !smc.Primitive )
-                return 0;
-
-            uint64_t   key = entityId | 1ull; // never 0 (0 means "nothing to preview")
-            const auto mix = [&key]( uint64_t v )
-            {
-                key = key * 1099511628211ull ^ v; // FNV-style; only equality matters here
-            };
-            mix( static_cast<uint64_t>( smc.MeshHandle ) );
-            mix( smc.Primitive ? static_cast<uint64_t>( *smc.Primitive ) + 1 : 0 );
-            for ( const auto& slot : smc.MaterialSlots )
-                mix( static_cast<uint64_t>( slot ) );
-            return key ? key : 1ull;
-        }
-    } // namespace
-
-    bool ScenePropertiesPanel::EnsurePreview()
-    {
-        if ( m_Preview )
-            return true;
-
-        // NOT WHEN THE DEVICE CANNOT HOLD IT. A live preview owns a full SceneRenderer, and this panel is the
-        // easiest way in the editor to build one: it appears the moment anything with a mesh is CLICKED.
-        //
-        // Through the shared byte rule (Engine/Core/ViewBudget.hpp), not a comparison written out here:
-        // ThumbnailService asks the same question as Background work. This one is a UserSurface — somebody
-        // clicked an entity and is looking at the row — so it may take the last byte.
-        //
-        // Checked every frame, not once: a view closing frees its memory, and the next frame builds the
-        // preview after all.
-        if ( const auto may = Graphic::MayCreateView(
-                  Engine::ViewBudget::Demand::UserSurface, "Details preview", Graphic::kPreviewViewProfile,
-                  Graphic::ViewExtent{ kPreviewRenderSize, kPreviewRenderSize } );
-             !may )
-        {
-            // Once per stretch of scarcity, not once per frame: a line every frame would bury the log.
-            if ( !m_PreviewBudgetRefused )
-            {
-                m_PreviewBudgetRefused = true;
-                LOG_WARN( "[Details] the 3D Model row is showing its cached thumbnail instead of a live "
-                          "preview: {}. Close a scene view or a material window to get the live one back.",
-                          may.GetError() );
-            }
-            return false;
-        }
-        m_PreviewBudgetRefused = false;
-        m_Preview            = std::make_unique<PreviewViewport>();
-        return true;
-    }
-
-    void ScenePropertiesPanel::ReleasePreview()
-    {
-        if ( !m_Preview )
-            return;
-
-        // ~PreviewViewport idles the device and releases the scene before the renderer, which is what
-        // returns the renderer slot. The UIHelper goes too: its descriptor sets reference images that
-        // belonged to the framebuffers just destroyed.
-        m_Preview.reset();
-        m_ThumbnailUI.reset();
-        m_PreviewKey    = 0;
-        m_PreviewActive = false;
-    }
-
-    void ScenePropertiesPanel::OnPreUpdate()
-    {
-        // Everything GPU-side for the preview happens HERE: recording a scene render from inside
-        // OnUIRender() destroys descriptor pools whose sets are bound to the frame's command buffer.
-        //
-        // OnPreUpdate runs for EVERY panel, including hidden ones, while OnUIRender does not — which is
-        // exactly what makes this the right place to give the slot back. A closed Details panel that only
-        // stopped rendering would still hold one of the six for the rest of the session.
-        if ( !m_SowPanel || !m_Scene )
-        {
-            ReleasePreview();
-            return;
-        }
-
-        const auto selectedOpt = Core::SelectionManager::GetSelected();
-        if ( !selectedOpt )
-        {
-            ReleasePreview();
-            return;
-        }
-
-        const auto& entityOpt = m_Scene->FindEntityByID( *selectedOpt );
-        if ( !entityOpt )
-        {
-            ReleasePreview();
-            return;
-        }
-
-        const auto&    entity = entityOpt->get();
-        const uint64_t key    = PreviewKeyOf( entity, static_cast<uint64_t>( *selectedOpt ) );
-        // Nothing previewable on this entity: hold no renderer for it. Selecting a light and leaving it
-        // selected is the common case, and it used to keep a whole SceneRenderer alive showing nothing.
-        if ( key == 0 )
-        {
-            ReleasePreview();
-            return;
-        }
-
-        // THE ANSWER IS CHECKED, and this line is the whole reason the refusal had to be made reachable
-        // before it was believed. EnsurePreview used to be infallible, so every line below it dereferenced
-        // m_Preview without a thought — correctly, because there was no state in which it was null here.
-        // Teaching it to decline quietly re-created that state and left both dereferences standing: the
-        // SetMesh below, and the Update() at the end of this function, which fires whenever a component
-        // drew the row on the PREVIOUS frame (so the flag outlives the renderer by exactly one frame).
-        // Measured, not reasoned: five material documents open plus a click on a mesh killed the editor on
-        // the frame after the refusal was logged.
-        //
-        // Returning without touching m_PreviewKey is deliberate. The key records what the preview is
-        // POINTING AT, and a preview that does not exist points at nothing; writing the key here would
-        // make the next frame — the one where a slot has come free — believe it was already framed, and
-        // the row would show an empty pane until the selection changed.
-        if ( !EnsurePreview() )
-            return;
-
-        if ( key != m_PreviewKey )
-        {
-            m_PreviewKey = key;
-
-            if ( entity.HasComponent<ECS::SkyboxComponent>() )
-            {
-                // RESOLVED EVERY FRAME, never held: the cube through the asset handle (a reload replaces
-                // it and unregisters the old one), and the LOOK through the entity, because the sliders
-                // beside this ball edit the component and the cube no longer carries them — they are
-                // applied where it is sampled, here as everywhere else.
-                const Assets::AssetHandle handle   = entity.GetComponent<ECS::SkyboxComponent>().SkyboxHandle;
-                const auto                entityId = *selectedOpt;
-                m_Preview->SetCubemapMaterial(
-                     [this, handle, entityId]() -> Graphic::SampledCube
-                     {
-                         const auto material = Runtime::ResourceRegistry::GetSkyboxService()->Get( handle );
-                         if ( !material )
-                             return {};
-                         const auto& environment = material->GetEnvironment();
-                         if ( !environment.RadianceMap.IsValid() )
-                             return {};
-
-                         Graphic::SampledCube source;
-                         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names
-                         // this exact type
-                         // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
-                         source.Cube = static_cast<Graphic::ImageCube*>(
-                              Runtime::ResourceRegistry::GetImageService()->Resolve( environment.RadianceMap ) );
-                         // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
-                         if ( m_Scene )
-                             if ( const auto owner = m_Scene->FindEntityByID( entityId );
-                                  owner && owner->get().HasComponent<ECS::SkyboxComponent>() )
-                                 source.Look = ECS::SkyLookOf( owner->get().GetComponent<ECS::SkyboxComponent>() );
-                         return source;
-                     } );
-            }
-            else
-            {
-                const auto& smc = entity.GetComponent<ECS::StaticMeshComponent>();
-                if ( static_cast<uint64_t>( smc.MeshHandle ) != 0 )
-                {
-                    m_Preview->SetMesh( smc.MeshHandle, smc.MaterialSlots );
-                }
-                else if ( smc.Primitive.has_value() )
-                {
-                    // A primitive: preview the shape itself with its own material, not a stand-in
-                    // sphere.
-                    //
-                    // ASKED HERE and not inferred from `key`. It is true that PreviewKeyOf() returns 0
-                    // when a component has neither a mesh nor a primitive, so reaching this branch with
-                    // an absent Primitive is unreachable TODAY — through a relation held in another
-                    // function, with nothing at either end stating it. That is the middle-link shape:
-                    // both ends read correctly and the property lives in neither.
-                    const PreviewViewport::Shape shape = PreviewShapeFor( *smc.Primitive );
-                    m_Preview->SetMaterial( smc.MaterialSlots.empty()
-                                                 ? Assets::AssetHandle( static_cast<uint64_t>( 0 ) )
-                                                 : smc.MaterialSlots.front(),
-                                            shape );
-                }
-            }
-        }
-
-        // Only pay for the render while a component actually DREW the thumbnail last UI frame. The flag is
-        // consumed here and must be re-affirmed every frame, so a collapsed component, a hidden dock tab or
-        // a closed panel all stop the GPU work by simply not drawing it.
-        //
-        // This gates the RENDER, not the slot: a collapsed component is one click from being reopened, so
-        // it keeps its viewport (and its slot) exactly as the material window does. What gives the slot
-        // back is having nothing to show at all, handled above.
-        if ( m_PreviewActive )
-        {
-            PreviewEnvironment::ApplyTo( *m_Preview, m_AssetManager.get() );
-            m_Preview->Update( kPreviewRenderSize, kPreviewRenderSize );
-        }
-        m_PreviewActive = false;
-    }
 
     void ScenePropertiesPanel::DrawSearchBox()
     {
@@ -649,20 +396,7 @@ namespace Desert::Editor
             m_ThumbnailUI = std::make_unique<UI::UIHelper>();
             m_ThumbnailUI->Init();
         }
-        // Selection happens in ANOTHER panel's OnUIRender, which can run after this frame's OnPreUpdate
-        // already decided there was nothing to preview. Constructing the viewport here costs nothing and
-        // claims no slot — PreviewViewport builds its scene and renderer lazily, on the first Update() —
-        // so a freshly selected mesh shows the live preview on the same frame instead of falling back to
-        // the PNG thumbnail for one frame and jumping the row's layout. Keyed off the SAME function
-        // OnPreUpdate uses, so the two can never disagree about what is previewable.
-        //
-        // The answer is DISCARDED here, and only here: what follows hands `m_Preview.get()` to the
-        // component pass, and a null there is already a supported value — the 3D Model row falls back to
-        // the thumbnail it asked the service for. OnPreUpdate is the caller that must not ignore it,
-        // because everything after its call dereferences the pointer.
-        if ( PreviewKeyOf( selectedEntity, static_cast<uint64_t>( *selectedOpt ) ) != 0 )
-            (void)EnsurePreview();
-        m_ComponentEditor->SetPreview( m_Preview.get(), m_ThumbnailUI.get(), &m_PreviewActive );
+        m_ComponentEditor->SetThumbnailUI( m_ThumbnailUI.get() );
         DetailsNavigation& navigation = GetDetailsNavigation();
         navigation.BeginFrame(
              selectedEntity.HasComponent<ECS::UUIDComponent>()

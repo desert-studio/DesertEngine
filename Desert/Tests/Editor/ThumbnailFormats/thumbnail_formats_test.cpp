@@ -7,11 +7,12 @@
 // looking at it. Nothing was broken. Nothing said anything either — which is the "empty successful
 // answer" §1.4 of the contract forbids, wearing an icon instead of a return value.
 //
-// SO THE QUESTION IS ASKED OF EVERY FORMAT, AND THE LIST OF FORMATS IS DERIVED FROM THE TREE. A census
-// whose subject list is typed here would go green the day the four cloud rows were added and say nothing
-// ever again; the SEVENTH format, added next year by somebody who has never read ThumbnailFormats.hpp,
-// is the one this has to catch. `s_FileTypes` in FileExplorerPanel.cpp is the browser's own answer to
-// "which extensions do I show", so that literal is what this suite reads.
+// SO THE QUESTION IS ASKED OF EVERY FORMAT, ALONG ONE CHAIN (THM1n-3, UE's UThumbnailManager: one
+// registration per asset class). extension -> FileType (FileType.hpp, kFileExtensions — the map the
+// browser itself types files with) -> Producer (ThumbnailProducers.hpp). And the subject list is not typed
+// here: every engine asset format is read out of Common's ContentKinds, so the format added next year by
+// somebody who has never read this file is a red census, not a quiet grey glyph (`.detex` was exactly that
+// until THM1n-3 — an imported texture drew a grey square).
 //
 // AND A ROW IS NOT TAKEN ON TRUST. Every `Producer::Painted` row is PAINTED HERE, against the shipped
 // asset library, and the result is asserted to be a picture rather than a flat square — because a
@@ -19,14 +20,16 @@
 // meeting, and it is invisible to any test that only checks the return value.
 //
 // WHAT WOULD MAKE THIS RED, and each is a real mistake:
-//   * a format added to the browser with nobody deciding whether it has a picture;
-//   * a `Producer::None` row whose reason is a deferral ("not yet", "TODO") rather than an argument —
-//     that is a TODO wearing a table row, which §1.1 forbids outright;
-//   * a painted producer that stops producing, or starts producing a uniform square;
-//   * a row pointing at an extension the browser no longer shows.
+//   * an engine asset format the browser does not type, and that the register below does not name;
+//   * a kind the browser types with no producer row;
+//   * a second extension map in the panel, answering the question the chain answers;
+//   * a painted producer that stops producing, or starts producing a uniform square.
+
+#include <Common/Content/ContentKinds.hpp>
 
 #include <Editor/Widgets/CloudThumbnail.hpp>
 #include <Editor/Widgets/ThumbnailFormats.hpp>
+#include <Editor/Widgets/ThumbnailProducers.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailSubject.hpp>
 
@@ -36,9 +39,8 @@
 #include <array>
 #include <cctype>
 #include <filesystem>
+#include <format>
 #include <fstream>
-#include <map>
-#include <regex>
 #include <set>
 #include <sstream>
 #include <string>
@@ -48,8 +50,15 @@ namespace
 {
     namespace fs = std::filesystem;
     namespace TF = Desert::Editor::ThumbnailFormats;
+    namespace TP = Desert::Editor::ThumbnailProducers;
+    using Desert::Editor::FileType;
+    using Desert::Editor::FileTypeOf;
+    using Desert::Editor::kFileExtensions;
 
     constexpr const char* kBrowserTable = "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp";
+    // The Details panel's Skybox row, which asks ThumbnailService for the skybox picture.
+    constexpr const char* kSkyboxDetailsRow =
+         "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkyboxComponent.cpp";
 
     std::string RepoRoot()
     {
@@ -74,42 +83,6 @@ namespace
         return ss.str();
     }
 
-    /**
-     * @brief The extensions the Content Browser types, read out of its own `s_FileTypes` initialiser.
-     *
-     * THE LITERALS ARE THE DATA HERE, which is why this does NOT go through the shared
-     * StripCommentsAndLiterals reader that the other censuses use. That reader blanks string literals so
-     * a file cannot certify a setting by mentioning it in a log line — sound everywhere else and exactly
-     * wrong here, because the thing being read IS a table of string literals. The initialiser is bounded
-     * first, so a `{ "x", FileType::Y }` pair written in a comment somewhere else in the file cannot get
-     * in.
-     */
-    std::set<std::string> BrowserExtensions( const std::string& root )
-    {
-        const std::string code = ReadFile( root + kBrowserTable );
-        if ( code.empty() )
-            return {};
-
-        const std::size_t begin = code.find( "s_FileTypes = {" );
-        if ( begin == std::string::npos )
-            return {};
-        const std::size_t end = code.find( "};", begin );
-        if ( end == std::string::npos )
-            return {};
-
-        const std::string table = code.substr( begin, end - begin );
-
-        std::set<std::string> out;
-        // A CUSTOM RAW-STRING DELIMITER, because the pattern itself contains `)"` — a capture group
-        // closing just before a quote — and the default `R"( ... )"` would end the literal there.
-        const std::regex pattern( R"re(\{\s*"([A-Za-z0-9_]+)"\s*,\s*FileType::)re" );
-        for ( auto it = std::sregex_iterator( table.begin(), table.end(), pattern ); it != std::sregex_iterator();
-              ++it )
-            out.insert( ( *it )[1].str() );
-        return out;
-    }
-
-    /// Every file under the shipped asset tree with this extension.
     std::vector<fs::path> ShippedAssets( const std::string& root, const std::string& extension )
     {
         std::vector<fs::path> out;
@@ -137,255 +110,125 @@ namespace
 } // namespace
 
 // ---------------------------------------------------------------------------------------------------
-// 0. The table itself is well formed.
-//
-// The failure this guards is the one a census dies of quietly: a duplicate row, so `Find` answers with
-// whichever came first and the second row is dead text nobody can see is dead.
+// 0. The extension map is well formed: one row per extension, spelled the way ExtensionOf answers.
 // ---------------------------------------------------------------------------------------------------
-TEST( ThumbnailFormats, EveryRowIsWellFormedAndUnique )
+TEST( ThumbnailFormats, EveryExtensionIsWellFormedAndUnique )
 {
-    ASSERT_GE( TF::kFormatCount, 30u ) << "the census has shrunk far below the formats known to exist";
-
     std::set<std::string_view> seen;
-    for ( const TF::Format& format : TF::kFormats )
+    for ( const auto& row : kFileExtensions )
     {
-        EXPECT_FALSE( format.Extension.empty() ) << "a row has no extension";
-        EXPECT_EQ( format.Extension.find( '.' ), std::string_view::npos )
-             << "row '" << format.Extension
-             << "' spells its extension with a dot. The browser's own table is keyed without one, and two "
-                "spellings of an extension are two sets that cannot be compared.";
-        EXPECT_EQ( Lowered( format.Extension ), std::string( format.Extension ) )
-             << "row '" << format.Extension << "' is not lower case; ExtensionOf lowers what it is given";
-        EXPECT_FALSE( format.What.empty() )
-             << "row '" << format.Extension
-             << "' says nothing about what its picture is. Every row is a statement somebody has to be "
-                "able to disagree with.";
-        EXPECT_TRUE( seen.insert( format.Extension ).second )
-             << "'" << format.Extension
-             << "' appears twice — Find() answers with the first and the "
-                "second row is text nobody can tell is dead";
+        EXPECT_FALSE( row.Extension.empty() );
+        EXPECT_EQ( Lowered( row.Extension ), row.Extension ) << "'" << row.Extension << "' is not lower case";
+        EXPECT_EQ( row.Extension.find( '.' ), std::string_view::npos ) << "'" << row.Extension << "' has a dot";
+        EXPECT_NE( row.Type, FileType::Unknown ) << "'." << row.Extension << "' is mapped to Unknown";
+        EXPECT_TRUE( seen.insert( row.Extension ).second )
+             << "'." << row.Extension << "' appears twice — FileTypeOf answers with the first";
     }
 }
 
 // ---------------------------------------------------------------------------------------------------
-// 1. A REFUSAL IS AN ARGUMENT, NOT A DEFERRAL.
+// 1. THE CHAIN REACHES A PRODUCER FOR EVERY EXTENSION THE BROWSER TYPES.
 //
-// `Producer::None` means "a picture would be the wrong answer for this format". It must never mean "not
-// built yet" — that is a TODO in a table row, and the contract's §1.1 does not care what shape a TODO
-// arrives in. The wording check is coarse on purpose: it cannot judge an argument, but it can catch the
-// four words somebody reaches for when they have not made one.
+// Asked through ProducerOfPath, the one entry point a path is asked by, and held against the kind's own row
+// so the chain cannot answer differently from its last link.
 // ---------------------------------------------------------------------------------------------------
-TEST( ThumbnailFormats, EveryRefusalCarriesAReasonRatherThanADeferral )
+TEST( ThumbnailFormats, EveryExtensionTheBrowserTypesReachesAProducer )
 {
-    int refusals = 0;
-    for ( const TF::Format& format : TF::kFormats )
+    for ( const auto& row : kFileExtensions )
     {
-        if ( format.By != TF::Producer::None )
+        const std::string path = std::format( "Assets/Some/File.{}", row.Extension );
+        EXPECT_EQ( FileTypeOf( TF::ExtensionOf( path ) ), row.Type ) << path;
+        const std::optional<TP::Producer> chained = TP::ProducerOfPath( path );
+        ASSERT_TRUE( chained.has_value() )
+             << "'." << row.Extension
+             << "' is typed by the browser, but its kind has no row in ThumbnailProducers::kTable — nobody "
+                "decided what its picture is. Add the row: a producer, or TypeIcon with the reason.";
+        EXPECT_EQ( chained, TP::ProducerOf( row.Type ) ) << path;
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// 2. EVERY ENGINE ASSET FORMAT IS TYPED BY THE BROWSER.
+//
+// The subject list is Common's ContentKinds, the engine's own list of asset formats. There is no excuse
+// register any more (THM1n-4 typed the last ten kinds): an engine format the browser draws as Unknown is red.
+// ---------------------------------------------------------------------------------------------------
+TEST( ThumbnailFormats, EveryEngineAssetFormatIsTypedByTheBrowser )
+{
+    for ( const auto& spec : Common::Content::ContentKinds() )
+    {
+        if ( spec.Extension.empty() )
+            continue; // stated only inside another file (Redirector): there is no file to show
+        ASSERT_EQ( spec.Extension.front(), '.' ) << spec.Name;
+        const FileType type = FileTypeOf( spec.Extension.substr( 1 ) );
+        EXPECT_NE( type, FileType::Unknown )
+             << "the engine asset kind " << spec.Name << " ('" << spec.Extension
+             << "') is in no row of FileType.hpp's kFileExtensions, so the browser draws it as Unknown with "
+                "a grey glyph. Type it there (and give its kind a ThumbnailProducers row).";
+        EXPECT_TRUE( TP::ProducerOfPath( std::format( "Assets/x{}", spec.Extension ) ).has_value() )
+             << spec.Name << ": typed, but its kind has no producer row";
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------
+// 2b. EVERY CONTENT KIND HAS A PRODUCER (THM-FIXB, owner 09-29 "all assets on the splash"). Each kind of
+// the content registry either makes a picture, is an icon by decision (TypeIcon, with its reason), or is
+// named in the NotYetProduced register — which the splash then says aloud (ThumbnailWarmup::UnproducedKinds).
+// The skeletal kinds are pinned by name: the live check found .anim and .skeleton without pictures.
+// ---------------------------------------------------------------------------------------------------
+TEST( ThumbnailFormats, EveryContentKindHasAProducerOrANamedDebt )
+{
+    for ( const auto& spec : Common::Content::ContentKinds() )
+    {
+        if ( spec.Extension.empty() )
             continue;
-        ++refusals;
-
-        std::string why = Lowered( format.What );
-
-        // A ROW MAY CITE ANOTHER ROW'S ARGUMENT INSTEAD OF REPEATING IT — five shader stages share one
-        // reason, and five copies of it would be five places to edit and four to forget. What the
-        // citation may NOT be is a dangling pointer, so it is FOLLOWED: the row it names must exist, must
-        // itself be a refusal (a refusal cannot rest on a row that HAS a picture), and must carry the
-        // argument. That turns "same as .shader" from a shorter answer into an asserted relation.
-        if ( const std::size_t cite = why.find( "same as ." ); cite != std::string::npos )
-        {
-            std::string target;
-            for ( std::size_t i = cite + 9; i < why.size() && std::isalnum( static_cast<unsigned char>( why[i] ) );
-                  ++i )
-                target += why[i];
-
-            const TF::Format* cited = TF::Find( target );
-            ASSERT_NE( cited, nullptr )
-                 << "'" << format.Extension << "' cites '." << target << "' for its reason and no such row exists";
-            EXPECT_EQ( cited->By, TF::Producer::None )
-                 << "'" << format.Extension << "' is refused a picture because '." << target << "' is — and '."
-                 << target
-                 << "' HAS a producer. A citation that points at a row with a picture is an argument that "
-                    "says the opposite of what it is being used for.";
-            why = Lowered( cited->What );
-        }
-
-        EXPECT_GT( why.size(), 40u )
-             << "'" << format.Extension
-             << "' is refused a picture in a few words. The reason is what a future reader has to argue "
-                "against before adding one, so it has to BE an argument.";
-
-        for ( const char* deferral :
-              { "todo", "not yet", "not built", "for now", "later", "unimplemented", "fixme", "hack" } )
-        {
-            EXPECT_EQ( why.find( deferral ), std::string::npos )
-                 << "'" << format.Extension << "' is refused a picture because of '" << deferral
-                 << "'. That is a deferral, not a reason — a TODO wearing a table row (contract §1.1). "
-                    "Either build the producer or state why a picture would be the WRONG answer for this "
-                    "format.";
-        }
+        const auto producer = TP::ProducerOfPath( std::format( "Assets/x{}", spec.Extension ) );
+        ASSERT_TRUE( producer.has_value() ) << spec.Name;
+        if ( producer != TP::Producer::NotYetProduced )
+            continue;
+        const FileType type = FileTypeOf( spec.Extension.substr( 1 ) );
+        EXPECT_NE( std::find( TP::kNotYetProduced.begin(), TP::kNotYetProduced.end(), type ),
+                   TP::kNotYetProduced.end() )
+             << spec.Name << " has no producer and is not in the NotYetProduced register";
     }
-    EXPECT_GT( refusals, 0 ) << "no format is refused a picture at all, which would be a surprise: a .lua "
-                                "and a .wav have no useful 64-pixel square between them";
+    for ( const char* extension : { "skmesh", "skeleton", "anim" } )
+        EXPECT_EQ( TP::ProducerOfPath( std::string( "Assets/Fox/Fox." ) + extension ), TP::Producer::RenderedPose )
+             << extension;
+    for ( const char* extension : { "demat", "detex", "stmesh" } )
+        EXPECT_NE( TP::ProducerOfPath( std::string( "Assets/Fox/Fox." ) + extension ),
+                   TP::Producer::NotYetProduced )
+             << extension;
 }
 
 // ---------------------------------------------------------------------------------------------------
-// 2. THE CENSUS AND THE BROWSER AGREE, IN BOTH DIRECTIONS.
-//
-// This is what makes it a census. Without it the tests above are statements about a list somebody once
-// wrote, and the format added next year is invisible to all of them.
+// 3. THE BROWSER HAS NO SECOND MAP. The panel types a file through FileTypeOf and draws through
+// ThumbnailProducers; a private extension table there would be the third answer this task removed.
 // ---------------------------------------------------------------------------------------------------
-TEST( ThumbnailFormats, EveryExtensionTheBrowserShowsHasARowAndEveryRowIsShown )
-{
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
-
-    const std::set<std::string> browser = BrowserExtensions( root );
-    ASSERT_FALSE( browser.empty() ) << "the browser's s_FileTypes table could not be read from " << kBrowserTable
-                                    << " — the parse is broken, not the tree";
-    ASSERT_GE( browser.size(), 30u ) << "only " << browser.size()
-                                     << " extensions were parsed out of the browser's table; the "
-                                        "initialiser's shape must have changed under this regex";
-
-    for ( const std::string& extension : browser )
-    {
-        EXPECT_NE( TF::Find( extension ), nullptr )
-             << "the Content Browser shows '." << extension
-             << "' and Editor/Widgets/ThumbnailFormats.hpp has no row for it.\n"
-                "  Add one, and the row IS the decision: name the producer (Decoded if the file is "
-                "already a picture, RenderedMaterial/RenderedMesh if it needs the offscreen renderer, "
-                "Painted if its bytes can be turned into a picture on the CPU, Authored if only a person "
-                "can frame it) — or Producer::None with a written argument for why a picture would be the "
-                "wrong answer.\n"
-                "  What must NOT happen is what happened to the four cloud formats: a new format arriving "
-                "with nobody asking the question, and four different assets drawing one grey glyph for a "
-                "year with nothing anywhere saying why.";
-    }
-
-    for ( const TF::Format& format : TF::kFormats )
-    {
-        EXPECT_TRUE( browser.count( std::string( format.Extension ) ) != 0 )
-             << "'." << format.Extension
-             << "' has a row in the census and the Content Browser does not show it any more. Remove the "
-                "row deliberately rather than leaving it to pass on nothing.";
-    }
-}
-
-// ---------------------------------------------------------------------------------------------------
-// 2b. THE ROW NAMES A PRODUCER; THE PANEL MUST ACTUALLY ROUTE THE FILE TO IT.
-//
-// THIS IS THE HALF THAT WAS MISSING, AND IT WAS MISSING WHILE THE HEADER SAID "THE ROW IS A CLAIM AND
-// THE CLAIM IS CHECKED". What was checked was the extension SET; what the row mostly says — who makes
-// the picture — was checked by nobody. Measured on 2026-09-23: `.hdr` had carried
-// `Producer::Decoded` since the census was written, and the browser routed only `FileType::Texture` to
-// `DrawTextureThumbnail`. An `.hdr` is `FileType::Cubemap`, so it reached no draw function at all and
-// showed its type icon — a row asserting a producer the tree did not honour, which is the shape this
-// project has now closed a dozen instances of.
-//
-// The mapping is derived, never typed: extension -> FileType out of the browser's own `s_FileTypes`,
-// FileType -> draw function out of the browser's own routing lines. Both come from one file, so a
-// renamed function or a re-routed type moves the test with the code instead of leaving it behind.
-// ---------------------------------------------------------------------------------------------------
-TEST( ThumbnailFormats, EveryRowsProducerIsTheDrawFunctionTheBrowserActuallyCalls )
+TEST( ThumbnailFormats, TheBrowserTypesAndDrawsThroughTheOneChain )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-
     const std::string panel = ReadFile( root + kBrowserTable );
-    ASSERT_FALSE( panel.empty() ) << kBrowserTable << " could not be read";
-
-    // Which draw function each producer is: the one line of this test that is a decision rather than a
-    // derivation. `Authored` and `None` route to nothing on purpose — a level's picture is captured by a
-    // person and a `.lua` has none — so they are not checked for a call.
-    struct Route
-    {
-        TF::Producer By;
-        const char*  Function;
-    };
-    const Route routes[] = {
-         { TF::Producer::Decoded, "DrawTextureThumbnail" },
-         { TF::Producer::RenderedMaterial, "DrawRenderedMaterialThumbnail" },
-         { TF::Producer::RenderedMesh, "DrawRenderedMeshThumbnail" },
-         { TF::Producer::Painted, "DrawPaintedThumbnail" },
-    };
-
-    // extension -> FileType, from the browser's own table.
-    std::map<std::string, std::string> typeOf;
-    {
-        const std::size_t begin = panel.find( "s_FileTypes = {" );
-        ASSERT_NE( begin, std::string::npos );
-        const std::size_t end = panel.find( "};", begin );
-        ASSERT_NE( end, std::string::npos );
-        const std::string table = panel.substr( begin, end - begin );
-
-        const std::regex pattern( R"re(\{\s*"([A-Za-z0-9_]+)"\s*,\s*FileType::([A-Za-z0-9_]+))re" );
-        for ( auto it = std::sregex_iterator( table.begin(), table.end(), pattern ); it != std::sregex_iterator();
-              ++it )
-            typeOf[( *it )[1].str()] = ( *it )[2].str();
-    }
-    ASSERT_GE( typeOf.size(), 30u );
-
-    // FileType -> the draw functions the panel guards on it. Read out of the routing lines rather than
-    // listed here, so the two grid layouts (tile and detail row) are both covered by construction.
-    std::map<std::string, std::set<std::string>> drawnBy;
-    {
-        // A LOOKAHEAD, not a consuming match, and the difference is a defect this test found in itself:
-        // `( A || B ) && DrawX(` is one routing line naming TWO types, and a consuming pattern swallows
-        // the second type on its way to the function name — so B silently reads as "routed nowhere".
-        // Zero-width means the iterator resumes just after each type name and sees every one of them.
-        const std::regex pattern(
-             R"re(entry->Type == FileType::([A-Za-z0-9_]+)(?=[^;]{0,200}?(Draw[A-Za-z]*Thumbnail)\())re" );
-        for ( auto it = std::sregex_iterator( panel.begin(), panel.end(), pattern ); it != std::sregex_iterator();
-              ++it )
-            drawnBy[( *it )[1].str()].insert( ( *it )[2].str() );
-    }
-    ASSERT_FALSE( drawnBy.empty() ) << "no `entry->Type == FileType::X ... DrawYThumbnail(` routing was "
-                                       "parsed; the panel's shape changed under this regex";
-
-    for ( const TF::Format& format : TF::kFormats )
-    {
-        const char* wanted = nullptr;
-        for ( const Route& route : routes )
-        {
-            if ( route.By == format.By )
-                wanted = route.Function;
-        }
-        if ( wanted == nullptr )
-            continue; // Authored and None have no automatic draw, by decision
-
-        const auto type = typeOf.find( std::string( format.Extension ) );
-        ASSERT_NE( type, typeOf.end() ) << '.' << format.Extension << " has no FileType in the browser";
-
-        const auto drawn = drawnBy.find( type->second );
-        ASSERT_NE( drawn, drawnBy.end() )
-             << '.' << format.Extension << " is FileType::" << type->second
-             << ", which the Content Browser routes to NO draw function — so the row's promise of \""
-             << format.What << "\" reaches no pixel and the file shows its type icon.";
-
-        EXPECT_TRUE( drawn->second.count( wanted ) != 0 )
-             << '.' << format.Extension << " is FileType::" << type->second << ", whose row promises " << wanted
-             << ", but the browser routes that type to " << *drawn->second.begin() << " instead.";
-    }
+    ASSERT_FALSE( panel.empty() ) << kBrowserTable;
+    EXPECT_EQ( panel.find( "std::unordered_map<std::string, FileType>" ), std::string::npos )
+         << "FileExplorerPanel.cpp has its own extension map again; kFileExtensions is the one map";
+    EXPECT_NE( panel.find( "FileTypeOf(" ), std::string::npos ) << "the panel no longer types through FileTypeOf";
+    EXPECT_NE( panel.find( "ThumbnailProducers::ProducerOf" ), std::string::npos )
+         << "the panel no longer dispatches its thumbnails through ThumbnailProducers";
 }
 
 // ---------------------------------------------------------------------------------------------------
-// 3. THE FOUR CLOUD FORMATS, BY NAME.
-//
-// Pinned separately from the derived check above because they are the owner's requirement rather than a
-// property of the mechanism: "владелец не может выбрать облака картинкой". A generic census would stay
-// green if all four rows became Producer::None with well-argued reasons — which is a legal state of the
-// mechanism and a broken state of the feature.
+// 3b. THE FOUR CLOUD FORMATS, BY NAME — the owner's requirement rather than a property of the mechanism
+// ("владелец не может выбрать облака картинкой"); a generic census would stay green if their kind became
+// TypeIcon.
 // ---------------------------------------------------------------------------------------------------
 TEST( ThumbnailFormats, EveryCloudFormatHasAPicture )
 {
     for ( const char* extension : { "dclayout", "dcnv", "dcmv", "decloudtype" } )
     {
-        const TF::Format* format = TF::Find( extension );
-        ASSERT_NE( format, nullptr ) << "'." << extension << "' has no row at all";
-        EXPECT_EQ( format->By, TF::Producer::Painted )
-             << "'." << extension
-             << "' no longer has a picture. This is the requirement M11 exists for: the owner picks a "
-                "cloud by looking at it, and before this task all four formats drew one identical grey "
-                "document glyph.";
+        const std::string path = std::string( "Clouds/X." ) + extension;
+        EXPECT_EQ( TP::ProducerOfPath( path ), TP::Producer::Painted )
+             << "'." << extension << "' no longer has a picture: the owner picks a cloud by looking at it.";
     }
 }
 
@@ -403,12 +246,12 @@ TEST( ThumbnailFormats, EveryPaintedFormatPaintsTheShippedLibraryAndNotAFlatSqua
     ASSERT_FALSE( root.empty() );
 
     int painted = 0;
-    for ( const TF::Format& format : TF::kFormats )
+    for ( const auto& row : kFileExtensions )
     {
-        if ( format.By != TF::Producer::Painted )
+        if ( TP::ProducerOf( row.Type ) != TP::Producer::Painted )
             continue;
 
-        const std::string           extension = std::string( format.Extension );
+        const std::string           extension = std::string( row.Extension );
         const std::vector<fs::path> assets    = ShippedAssets( root, extension );
         ASSERT_FALSE( assets.empty() )
              << "no '." << extension
@@ -467,7 +310,7 @@ TEST( ThumbnailFormats, EveryPaintedFormatPaintsTheShippedLibraryAndNotAFlatSqua
         EXPECT_GT( paintedThisFormat, 0 )
              << "not one shipped '." << extension
              << "' could be painted. A producer that refuses its own format's entire library is a "
-                "Producer::None row wearing a Painted label.";
+                "TypeIcon row wearing a Painted label.";
     }
 
     EXPECT_GE( painted, 15 ) << "only " << painted
@@ -552,7 +395,10 @@ TEST( ThumbnailMaterialDomains, APictureExistsForExactlyTheDomainsADrawPathCanEx
 
     for ( const F::ShaderDomain domain : kAllDomains )
     {
-        const bool drawable = F::DrawnByMeshPath( domain ) || F::DrawnByVolumePath( domain );
+        // The cubemap domain has no draw-path predicate (no renderable slot takes it); its picture is the HDR
+        // it binds, drawn as the thumbnail scene's skybox — a producer named here so removing it is an edit.
+        const bool drawable =
+             F::DrawnByMeshPath( domain ) || F::DrawnByVolumePath( domain ) || domain == F::ShaderDomain::Skybox;
         EXPECT_EQ( TS::PreviewForDomain( domain ).has_value(), drawable )
              << "domain " << F::ShaderDomainName( domain )
              << ": the thumbnail router and the draw paths disagree about whether this can be drawn at "
@@ -572,6 +418,11 @@ TEST( ThumbnailMaterialDomains, EachDrawableDomainGetsThePictureItsOwnPathProduc
 
     // The volume path: the sky the material authors.
     EXPECT_EQ( TS::PreviewForDomain( F::kVolumePathDomain ), TS::Preview::SkyDome );
+
+    // The cubemap domain: the sky its bound HDR draws, from the same ground camera as a cloud material
+    // (THM1n-11; M_CubemapCheck was an icon with a refusal before). UE draws a sky material as the sky.
+    EXPECT_EQ( TS::PreviewForDomain( F::ShaderDomain::Skybox ), TS::Preview::SkyDome );
+    EXPECT_EQ( TS::PreviewForMaterial( F::ShaderDomain::Skybox, true ), TS::Preview::SkyDome );
 
     // The terrain path has its own renderer and no thumbnail producer. Named here rather than left to the
     // loop above so that adding one is a deliberate edit of this line.
@@ -638,4 +489,30 @@ TEST( ThumbnailSubject, APreviewMeshRoutesASurfaceMaterialToTheMeshAndNothingEls
     EXPECT_EQ( TS::PreviewForMaterial( F::kMeshPathDomain, true ), TS::Preview::Mesh );
     EXPECT_EQ( TS::PreviewForMaterial( F::kMeshPathDomain, false ), TS::Preview::Sphere );
     EXPECT_EQ( TS::PreviewForMaterial( F::kVolumePathDomain, true ), TS::Preview::SkyDome );
+}
+
+// ---------------------------------------------------------------------------------------------------
+// 3c. A SKYBOX IS ITS OWN KIND WITH A RENDERED PICTURE (THM-FIXG). It shares `.detex` with a texture and is
+// typed by its root; its producer is RenderedSky, and both showers — the browser tile and the Details Skybox
+// row — ask the ONE request (ThumbnailService::RequestSkybox), so they show one picture under one key.
+// ---------------------------------------------------------------------------------------------------
+TEST( ThumbnailFormats, ASkyboxIsItsOwnKindWithARenderedPicture )
+{
+    EXPECT_EQ( Desert::Editor::FileTypeOfContent( "detex", Common::Content::ContentKind::Skybox ),
+               FileType::Skybox );
+    EXPECT_EQ( Desert::Editor::FileTypeOfContent( "detex", Common::Content::ContentKind::Texture ),
+               FileType::Texture );
+    EXPECT_EQ( TP::ProducerOf( FileType::Skybox ), TP::Producer::RenderedSky );
+
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const std::string panel = ReadFile( root + kBrowserTable );
+    EXPECT_NE( panel.find( "case Producer::RenderedSky:" ), std::string::npos )
+         << "the browser no longer draws a skybox tile through its producer";
+    EXPECT_NE( panel.find( "RequestSkybox(" ), std::string::npos )
+         << "the browser tile no longer asks the service";
+    const std::string details = ReadFile( std::format( "{}{}", root, kSkyboxDetailsRow ) );
+    ASSERT_FALSE( details.empty() );
+    EXPECT_NE( details.find( "RequestSkybox(" ), std::string::npos )
+         << "the Details Skybox row no longer asks ThumbnailService for the skybox picture";
 }

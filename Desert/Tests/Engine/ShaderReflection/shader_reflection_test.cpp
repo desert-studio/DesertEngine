@@ -566,13 +566,14 @@ void main() { gl_Position = vec4(a_Position, 1.0) + a_Unfed; }
     const auto  refused     = ShaderReflection::VertexInputRefusal( ShaderReflection::BuildVertexInput(
          layout,
          ShaderReflection::ReflectVertexInputLocations( Compile( kReadsUnfed, shaderc_glsl_vertex_shader ) ) ) );
-    ASSERT_TRUE( refused.has_value() );
+    if ( !refused.has_value() )
+        FAIL() << "a shader reading an attribute the layout does not stream was not refused";
     EXPECT_NE( refused->find( "location 15" ), std::string::npos ) << *refused;
 
     const auto clean = ShaderReflection::VertexInputRefusal(
          ShaderReflection::BuildVertexInput( layout, ShaderReflection::ReflectVertexInputLocations( Compile(
                                                           kStreamsVertex, shaderc_glsl_vertex_shader ) ) ) );
-    EXPECT_FALSE( clean.has_value() ) << *clean;
+    EXPECT_FALSE( clean.has_value() ) << clean.value_or( std::string() );
 }
 
 int main( int argc, char** argv )

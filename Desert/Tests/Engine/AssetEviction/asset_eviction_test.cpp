@@ -59,6 +59,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <memory>
 #include <set>
 #include <string>
@@ -193,7 +194,9 @@ namespace
     // Real files, for the reason the probe `.demat` above is a real file: the edge under test is the one
     // the LOADER produces. A one-bone rig and a one-triangle mesh, because the relation has nothing to do
     // with either of their sizes.
-    std::string WriteProbeRig( const std::filesystem::path& path )
+    // `withChild` writes the same rig with one more bone under the root — what a reimport of a source that
+    // gained a bone rewrites the file to.
+    std::string WriteProbeRig( const std::filesystem::path& path, const bool withChild = false )
     {
         Desert::Animation::BoneInfo root;
         root.Name               = "Root";
@@ -202,7 +205,14 @@ namespace
         root.ParentBoneID       = std::nullopt;
 
         Desert::Assets::Serialization::SkeletonAssetData data;
-        data.Bones     = { root };
+        data.Bones = { root };
+        if ( withChild )
+        {
+            Desert::Animation::BoneInfo child = root;
+            child.Name                        = "Child";
+            child.ParentBoneID                = 0U;
+            data.Bones.push_back( child );
+        }
         data.Signature = Desert::Animation::Skeleton::ComputeSignature( data.Bones );
 
         std::ofstream out( path, std::ios::binary | std::ios::trunc );
@@ -360,6 +370,56 @@ TEST( AssetEviction, AnOpenEditorsPinnedSubjectSurvivesTheSweepAndIsReleasedOnce
     RecordingSink sink;
     (void)AssetEviction::Run( manager, roots, sink );
     EXPECT_FALSE( edited->IsReadyForUse() );
+}
+
+// THE DEFAULT SURFACE TEMPLATE IS A ROOT FOR THE ENGINE'S LIFE (THM-FIXA, 09-30). No scene names it, so the
+// first sweep with no roots released StandardSurface.shader; FindDefaultSurfaceTemplate then found no loaded
+// template and every slotless mesh was dropped ("mesh system did not initialise", no Fox in the preview).
+// Two halves: the pin the engine holds keeps the template through a sweep whose only roots are pins (a
+// probe stands in for the shader, which cannot load without the shader compiler here), and the boot path
+// really takes that pin on the handle it found — the wiring the first half cannot see.
+TEST( AssetEviction, TheDefaultSurfaceTemplateSurvivesASweepWithNoRootsBecauseTheEngineHoldsItsPin )
+{
+    AssetManager manager;
+    const auto   surface = Register( manager, "probe/StandardSurface.deprefab", true );
+    const auto   other   = Register( manager, "probe/unnamed.deprefab", true );
+    {
+        // What MaterialService::PinDefaultSurfaceTemplate holds (a unique_ptr<AssetRootPin>) until Clear().
+        const AssetRootPin pin( surface->GetMetadata().Handle, "the engine's Default Surface template" );
+        AssetRootSet       roots;
+        AssetRootPin::MarkAll( roots ); // the sweep's only roots: no scene, no open editor
+        RecordingSink sink;
+        (void)AssetEviction::Run( manager, roots, sink );
+        EXPECT_TRUE( surface->IsReadyForUse() ) << "a rootless sweep released the Default Surface template";
+        EXPECT_FALSE( other->IsReadyForUse() )
+             << "control: the sweep released nothing, so the half above is vacuous";
+    }
+
+    const auto readSource = []( const char* relative )
+    {
+        for ( std::filesystem::path dir = std::filesystem::current_path(); !dir.empty(); dir = dir.parent_path() )
+        {
+            std::ifstream in( dir / relative, std::ios::binary );
+            if ( in )
+                return std::string( std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() );
+            if ( dir == dir.parent_path() )
+                break;
+        }
+        return std::string();
+    };
+    const std::string boot = Desert::Tests::ConsumerText::StripComments(
+         readSource( "Desert/Desert/Source/Engine/Assets/BootContent.cpp" ) );
+    ASSERT_FALSE( boot.empty() ) << "BootContent.cpp not found above the working directory";
+    const auto found = boot.find( "FindDefaultSurfaceTemplate(" );
+    ASSERT_NE( found, std::string::npos ) << "the boot no longer looks the Default Surface template up";
+    EXPECT_NE( boot.find( "PinDefaultSurfaceTemplate( defaultSurface.GetValue() )", found ), std::string::npos )
+         << "the boot finds the Default Surface template but no longer pins it: the first eviction sweep "
+            "releases it and every slotless mesh is dropped";
+
+    const std::string service = Desert::Tests::ConsumerText::StripComments(
+         readSource( "Desert/Desert/Source/Engine/Runtime/Services/Material/MaterialService.cpp" ) );
+    EXPECT_NE( service.find( "m_DefaultSurfacePin = std::make_unique<Assets::AssetRootPin>(" ), std::string::npos )
+         << "MaterialService no longer holds the Default Surface template as an AssetRootPin";
 }
 
 TEST( AssetEviction, EveryMeshStillBuiltAfterTheSweepIsNamedWithWhy )
@@ -922,6 +982,39 @@ namespace
 // Each test below is the same shape as the two that were already here: a REAL file on disk, parsed by
 // the class's own loader, so that an edge which stopped being READ fails as surely as one that stopped
 // being walked.
+
+// A REIMPORT RE-READS A LOADED RIG AT THE SAME ADDRESS (THM1l-b9). SkinnedMesh holds `const Skeleton*` and
+// Animator `const Skeleton&` to the asset's object; the reimport path used to `Unload()` + `Load()`, which freed
+// it under both. `Load()` on a loaded rig now rewrites the object in place, and the new signature is what tells
+// the Animator to rebuild (Animation::EnsureAnimatorFor, tested in AnimatorPose).
+TEST( AssetEviction, AReloadedRigKeepsItsAddressAndTakesTheNewBones )
+{
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "desert_asset_eviction_reload";
+    std::filesystem::create_directories( dir );
+    const std::filesystem::path file = dir / "probe.skeleton";
+
+    AssetManager manager;
+    auto         skeleton = manager.CreateAsset<SkeletonAsset>( Common::Filepath( WriteProbeRig( file ) ) );
+    ASSERT_TRUE( skeleton );
+    const Desert::Animation::Skeleton* const before    = skeleton->GetSkeleton();
+    const std::uint64_t                      signature = skeleton->GetSignature();
+    ASSERT_NE( before, nullptr ) << "the probe rig did not load; the reload cannot be tested";
+    ASSERT_EQ( before->GetBones().size(), 1U );
+
+    WriteProbeRig( file, /*withChild=*/true );
+    ASSERT_TRUE( skeleton->Load().IsSuccess() );
+
+    EXPECT_EQ( skeleton->GetSkeleton(), before )
+         << "the reload replaced the Skeleton object: every SkinnedMesh and Animator pointing at it now reads "
+            "freed memory";
+    EXPECT_NE( skeleton->GetSignature(), signature ) << "the bones changed and the signature did not, so no "
+                                                        "Animator can notice it was built on the old rig";
+    EXPECT_EQ( skeleton->GetSignature(), before->GetSignature() );
+    ASSERT_EQ( before->GetBones().size(), 2U ) << "the object kept its address but not the new bones";
+    EXPECT_EQ( before->GetBones()[1].Name, "Child" );
+
+    std::filesystem::remove_all( dir );
+}
 
 TEST( AssetEviction, AMeshsMaterialSurvivesBecauseASubmeshNamesIt )
 {
