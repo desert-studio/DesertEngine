@@ -347,7 +347,7 @@ namespace Desert::Runtime
         {
             size_t                             Slot = 0;
             uint32_t                           View = 0;
-            std::shared_ptr<Graphic::Material> Material;
+            std::shared_ptr<Graphic::DataDrivenMaterial> Material;
         };
         mutable std::unordered_map<Assets::AssetHandle, std::vector<ViewVariant>> m_ViewMaterials;
         // Mutable: discovery on a miss fills these from const lookups (Get, ShaderHandleOf, ...), which is a

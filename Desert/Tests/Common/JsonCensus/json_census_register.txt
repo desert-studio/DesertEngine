@@ -12,3 +12,4 @@ Desert/Tests/Engine/WorldPartition/world_partition_test.cpp | JS1d: test fixture
 Editor/Source/EditorLayer.cpp | JS1d: editor/tools protocols move to the facade
 Desert/Tests/Tools/SceneSettingsHomes/scene_settings_homes_test.cpp | KEEP: drives SceneMigrator's SET1 step on Migration::SceneSerialized, whose Settings block is an rfl::Generic of a schema that no longer has a struct (the migrator allowance; its path lacks "Migrat")
 Desert/Tests/Engine/EngineShaderByGuid/engine_shader_by_guid_test.cpp | JS1d: its fixtures write the on-disk bytes the refusals are proven on (a material stating no Shader, a shader header by hand) — no struct can write a document the reader must refuse
+Desert/Tests/Engine/MaterialAsset/material_data_test.cpp | KEEP: its fixtures are HAND-WRITTEN .demat bytes (a Thumbnail block naming only some members, a PreviewMesh outside the header) - the reader is proven on what a person types, which the writer by construction never emits

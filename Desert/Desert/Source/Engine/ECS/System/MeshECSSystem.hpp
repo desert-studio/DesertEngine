@@ -580,10 +580,10 @@ namespace Desert::ECS
          static void
          AdoptMeshMaterialSlots( std::vector<Assets::AssetHandle>& slots, const Assets::AssetHandle& meshHandle )
     {
-        if ( !slots.empty() || !meshHandle )
+        if ( !slots.empty() || meshHandle.IsNull() )
             return;
         auto* meshAsset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( meshHandle );
-        if ( !meshAsset )
+        if ( meshAsset == nullptr )
             return;
         const auto&                      defaultHandles = meshAsset->GetMaterialHandles();
         std::vector<Assets::AssetHandle> resolved;
@@ -599,7 +599,6 @@ namespace Desert::ECS
             slots = std::move( resolved );
     }
 
-    private:
         // The fallback for a mesh with no material slot at all — the DEFAULT SURFACE template's cell per vertex
         // path (found by that role, MaterialService::DefaultSurfaceShader), built like every other surface
         // material (a DataDrivenMaterial of that cell). Two objects and not one because a material owns the

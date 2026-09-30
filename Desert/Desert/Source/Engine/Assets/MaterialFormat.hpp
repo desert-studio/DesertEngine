@@ -210,7 +210,7 @@ namespace Desert::Assets
     {
         std::ifstream in( file, std::ios::binary );
         if ( !in )
-            return Common::MakeError<bool>( "[Material] '" + file.generic_string() + "' cannot be opened" );
+            return Common::MakeFormattedError<bool>( "[Material] '{}' cannot be opened", file.generic_string() );
         const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
         auto              parsed = ParseMaterialJson( file.generic_string(), text );
         if ( !parsed )

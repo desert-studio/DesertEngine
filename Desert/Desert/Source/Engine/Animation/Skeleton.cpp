@@ -3,15 +3,16 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <array>
+#include <bit>
 #include <string>
 
 namespace Desert::Animation
 {
-    Skeleton::Skeleton( std::vector<BoneInfo>&& bones ) : m_Bones( std::move( bones ) )
+    Skeleton::Skeleton( std::vector<BoneInfo>&& bones )
+         : m_Bones( std::move( bones ) ), m_Signature( ComputeSignature( m_Bones ) ),
+           m_ContentSignature( ComputeContentSignature( m_Bones ) )
     {
-        m_Signature        = ComputeSignature( m_Bones );
-        m_ContentSignature = ComputeContentSignature( m_Bones );
-
         m_NameToIndex.reserve( m_Bones.size() );
         for ( uint32_t i = 0; i < m_Bones.size(); ++i )
         {
@@ -217,9 +218,8 @@ namespace Desert::Animation
         uint64_t   hash = ComputeSignature( bones );
         const auto fold = [&hash]( const glm::mat4& m )
         {
-            const auto* bytes = reinterpret_cast<const unsigned char*>( &m );
-            for ( std::size_t i = 0; i < sizeof( glm::mat4 ); ++i )
-                hash = ( hash ^ bytes[i] ) * 1099511628211ULL;
+            for ( const unsigned char byte : std::bit_cast<std::array<unsigned char, sizeof( glm::mat4 )>>( m ) )
+                hash = ( hash ^ byte ) * 1099511628211ULL;
         };
         for ( const auto& bone : bones )
         {

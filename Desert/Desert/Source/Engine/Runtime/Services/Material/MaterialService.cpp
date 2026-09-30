@@ -295,7 +295,7 @@ namespace Desert::Runtime
     Common::ResultStr<std::string> MaterialService::DefaultSurfaceShader( Graphic::MeshVertexPath path,
                                                                           Graphic::MeshPass       pass ) const
     {
-        const auto templateName = DefaultSurfaceTemplate();
+        auto templateName = DefaultSurfaceTemplate();
         if ( !templateName )
             return templateName;
         auto shader = Graphic::MeshShaderFor( templateName.GetValue(), path, pass );
@@ -538,7 +538,7 @@ namespace Desert::Runtime
         // The sibling first: it resolves the asset (instance chain, unread shell, cell refusal) once, and a
         // view variant exists only where the plain one does.
         const auto* sibling = GetVariant( built, path, pass );
-        if ( !sibling )
+        if ( sibling == nullptr )
             return nullptr;
         const auto owner = m_BuiltToAsset.find( sibling );
         if ( owner == m_BuiltToAsset.end() )
@@ -548,7 +548,7 @@ namespace Desert::Runtime
         auto&        views = m_ViewMaterials[owner->second];
         for ( const auto& v : views )
             if ( v.Slot == slot && v.View == view )
-                return static_cast<Graphic::DataDrivenMaterial*>( v.Material.get() );
+                return v.Material.get();
 
         const auto ait = m_MaterialAssets.find( owner->second );
         if ( ait == m_MaterialAssets.end() )

@@ -185,7 +185,7 @@ namespace Desert::Runtime
         // (AssetRegistry OnAssetAdded), pulled from the registry's write journal: a Skeleton row stating the
         // awaited signature, or a rewrite of the mesh's own row (a re-cook may name another rig), written
         // since the failure re-arms the entry. True when it did.
-        bool RearmOnRigWritten( const Assets::AssetHandle& handle, Entry& entry ) const;
+        static bool RearmOnRigWritten( const Assets::AssetHandle& handle, Entry& entry );
         // Requests what is missing and answers whether the mesh (and its rig, resolved) is ready to build.
         bool Arrived( const Assets::AssetHandle& handle, Entry& entry ) const;
         void RequestRead( const Assets::AssetHandle& owner, const std::shared_ptr<Assets::AssetBase>& asset,

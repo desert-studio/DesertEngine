@@ -463,10 +463,14 @@ namespace Common::Content
                             continue;
                         // Only a static file's record stands for a mesh: a skinned source's (or a skeleton's
                         // and clips') states its own kind and names no static mesh (ImportRecord.hpp).
-                        const auto stated =
-                             ReadAssetHeaderIfStated( candidate, AssetHeaderReadContext{ {}, true } );
-                        if ( stated && stated.GetValue() && stated.GetValue()->Kind != ContentKind::StaticMesh )
-                            continue;
+                        if ( const auto stated =
+                                  ReadAssetHeaderIfStated( candidate, AssetHeaderReadContext{ {}, true } );
+                             stated )
+                        {
+                            const auto& header = stated.GetValue();
+                            if ( header.has_value() && header->Kind != ContentKind::StaticMesh )
+                                continue;
+                        }
                         if ( const std::string key = AssetHandle::StableKeyForPath( asset ); !key.empty() )
                             visit( candidate, kind, key );
                         continue;
