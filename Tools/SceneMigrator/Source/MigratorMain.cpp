@@ -977,7 +977,38 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            // ANIM v4 -> v5 (ANIM-I8a): generation 3 is lifted to the TMLN body, proved, and rewritten.
+            // ANIM v5 -> v6 (ANIM-I8b-6): every key's mode moves to the segment leaving it, proved per tick.
+            if ( const auto stated = ReadStatedVersion( path, source, "ANIM" );
+                 stated && stated.GetValue() == Desert::Assets::Serialization::kAnimationLastArrivingInterpVersion )
+            {
+                const auto shifted = Desert::Migration::MigrateClipInterpShift( source );
+                if ( !shifted )
+                {
+                    err << "FAIL   " << path.string() << " — " << shifted.GetError() << "\n";
+                    ++failed;
+                    continue;
+                }
+                const auto&       o    = shifted.GetValue();
+                const std::string what = std::format(
+                     "ANIM v5 -> v{} (key modes shape the segment leaving the key): {} key lists, {} samples "
+                     "proved bit for bit",
+                     Desert::Assets::kAnimationSchemaVersion, o.KeyLists, o.SamplesProved );
+                if ( check )
+                {
+                    out << "stale  " << path.string() << " — would shift " << what << "\n";
+                    ++relaid;
+                    continue;
+                }
+                if ( !WriteText( path, o.Text, err ) )
+                {
+                    ++failed;
+                    continue;
+                }
+                out << "shifted " << path.string() << " — " << what << "\n";
+                ++relaid;
+                continue;
+            }
+            // ANIM v4 -> v6 (ANIM-I8a, I8b-6): generation 3 is lifted to the TMLN body, proved, and rewritten.
             if ( const auto stated = ReadStatedVersion( path, source, "ANIM" );
                  stated && stated.GetValue() == Desert::Assets::Serialization::kAnimationLastChannelsVersion )
             {

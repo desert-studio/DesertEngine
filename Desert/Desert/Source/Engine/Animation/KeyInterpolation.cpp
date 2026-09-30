@@ -198,7 +198,7 @@ namespace Desert::Animation
         const auto secant = static_cast<float>(
              ( static_cast<double>( after->Value ) - static_cast<double>( before->Value ) ) / span );
 
-        switch ( after->Interp )
+        switch ( before->Interp ) // the segment's mode is its earlier key's (UE's rule)
         {
             case KeyInterp::Constant:
                 // A hold has no slope. Seeding a key here with anything else would tilt a segment the

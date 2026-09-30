@@ -1,4 +1,5 @@
 #include "ClipGeneration3.hpp"
+#include "ClipInterpShift.hpp"
 
 #include <Engine/Animation/Timeline/Binding.hpp>
 
@@ -264,6 +265,10 @@ namespace Desert::Animation::Timeline
             track.Sections.push_back( std::move( section ) );
             sequence.Tracks.push_back( std::move( track ) );
         }
+
+        // Generation 3 stated each key's mode for the segment ARRIVING at it; the sequence follows UE's rule
+        // (the segment LEAVING it) — the same shift ANIM v5 -> v6 applies (ClipInterpShift.hpp).
+        Migration::ShiftInterpToLeavingKey( sequence );
 
         if ( const Common::BoolResultStr valid = Validate( sequence ); !valid.IsSuccess() )
         {

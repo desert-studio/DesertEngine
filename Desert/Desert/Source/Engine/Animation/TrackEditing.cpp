@@ -63,6 +63,20 @@ namespace Desert::Animation
             component.Keys.insert( it, key );
         }
 
+        /// The mode of the segment a key inserted at @p tick SPLITS — its earlier key's (UE's rule: a key's
+        /// mode shapes the segment leaving it). The inserted key takes it, so both halves keep the shape the
+        /// segment had. Outside the keyed range the channel holds a constant, and @p outside is the mode.
+        KeyInterp SplitSegmentInterp( const std::vector<ScalarKey>& keys, FrameNumber tick, KeyInterp outside )
+        {
+            const auto after = std::lower_bound( keys.begin(), keys.end(), tick,
+                                                 []( const ScalarKey& k, FrameNumber at ) { return k.Tick < at; } );
+            if ( after == keys.begin() || after == keys.end() )
+            {
+                return outside;
+            }
+            return ( after - 1 )->Interp;
+        }
+
         /// Upsert: an existing key keeps its shape and takes the value; a new key gets @p interp / Auto.
         void Upsert( FloatChannel& component, FrameNumber tick, float value, KeyInterp interp )
         {
@@ -259,8 +273,9 @@ namespace Desert::Animation
         if ( part == TrackChannel::Rotation )
         {
             // Sampled as a whole (slerp) and written to all four components on one tick — the rotation
-            // invariant (identical tick lists, identical interp). Linear: a rotation carries no tangents.
-            const glm::quat q = Timeline::Evaluate( channel.Rotation, at, tickRate );
+            // invariant (identical tick lists, identical interp); the mode is the split segment's.
+            const glm::quat q      = Timeline::Evaluate( channel.Rotation, at, tickRate );
+            const KeyInterp interp = SplitSegmentInterp( channel.Rotation.X.Keys, tick, KeyInterp::Linear );
             const std::array<std::pair<Timeline::FloatChannel*, float>, 4> parts{ {
                  { &channel.Rotation.X, q.x },
                  { &channel.Rotation.Y, q.y },
@@ -272,7 +287,7 @@ namespace Desert::Animation
                 ScalarKey key;
                 key.Tick   = tick;
                 key.Value  = value;
-                key.Interp = KeyInterp::Linear;
+                key.Interp = interp;
                 InsertSorted( *component, key );
             }
             return true;
@@ -285,7 +300,7 @@ namespace Desert::Animation
             ScalarKey key;
             key.Tick          = tick;
             key.Value         = Timeline::Evaluate( *component, at, tickRate );
-            key.Interp        = KeyInterp::Cubic;
+            key.Interp        = SplitSegmentInterp( component->Keys, tick, KeyInterp::Cubic );
             key.Mode          = TangentMode::User;
             const float slope = SlopeAt( component->Keys, tick, tickRate );
             key.ArriveTangent = slope;

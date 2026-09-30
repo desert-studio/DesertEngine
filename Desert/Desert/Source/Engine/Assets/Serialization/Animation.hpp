@@ -96,6 +96,8 @@ namespace Desert::Assets::Serialization
     /// DefaultIfMissing: clips cooked before a field existed (e.g. Notifies) still load with it empty.
     /// The last ANIM version whose body was per-bone `Channels` (generation 3); v5 is the TMLN body.
     inline constexpr uint32_t kAnimationLastChannelsVersion = 4;
+    /// The last ANIM version whose key modes shaped the segment ARRIVING at the key (v6: leaving it, UE).
+    inline constexpr uint32_t kAnimationLastArrivingInterpVersion = 5;
 
     /// A file stating ANIM v4 is generation 3: refused BY NAME before the strict parse would call it a
     /// missing `Sequence` member, with the one way forward.
@@ -116,6 +118,11 @@ namespace Desert::Assets::Serialization
                 return Common::MakeError<bool>( std::format(
                      "clip states ANIM v{}: generation 3 (per-bone Channels), not the TMLN body of ANIM v{}; "
                      "run Tools/SceneMigrator on it",
+                     *stated, kAnimationSchemaVersion ) );
+            if ( stated && *stated == kAnimationLastArrivingInterpVersion )
+                return Common::MakeError<bool>( std::format(
+                     "clip states ANIM v{}: its key modes shape the segment ARRIVING at a key, not the one "
+                     "leaving it (ANIM v{}, UE's rule); run Tools/SceneMigrator on it",
                      *stated, kAnimationSchemaVersion ) );
         }
         return Common::MakeSuccess( true );
