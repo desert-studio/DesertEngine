@@ -1493,6 +1493,7 @@ TEST( RenderGraphVulkan, ASampleCountChangeOpensTheNextRenderPassAtTheNewCount )
 
     VulkanRdgPool                 pool( gpu.Rdg, 1 );
     VulkanRdgBackend              backend( gpu.Rdg, pool );
+    FrameObjects                  frameObjects( gpu, 1 );
     std::vector<RdgRenderPassKey> opened;
     for ( const uint32_t samples : { 1u, 4u, 1u } )
     {
@@ -1545,8 +1546,7 @@ TEST( RenderGraphVulkan, ASampleCountChangeOpensTheNextRenderPassAtTheNewCount )
             VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
             begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
             vkBeginCommandBuffer( cmd, &begin );
-            pool.BeginFrame( 0 );
-            backend.SetCommandBuffer( cmd );
+            ASSERT_TRUE( BeginFrameSlot( frameObjects, backend, pool, 0 ) );
 
             RDG::Builder                               graph( "aa-sample-count-change" );
             const std::array<RDG::ExternalTexture*, 1> colours  = { &colour };
@@ -1576,7 +1576,7 @@ TEST( RenderGraphVulkan, ASampleCountChangeOpensTheNextRenderPassAtTheNewCount )
             VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
             submit.commandBufferCount = 1;
             submit.pCommandBuffers    = &cmd;
-            vkQueueSubmit( gpu.Queue, 1, &submit, VK_NULL_HANDLE );
+            SubmitFrame( gpu, backend, submit, VK_NULL_HANDLE );
             vkQueueWaitIdle( gpu.Queue );
             vkFreeCommandBuffers( device, gpu.CommandPool, 1, &cmd );
             vkDeviceWaitIdle( device );
