@@ -35,6 +35,8 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <cstdint>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -55,10 +57,18 @@ using Desert::Animation::Timeline::AddSection;
 using Desert::Animation::Timeline::BindBones;
 using Desert::Animation::Timeline::BoneBindingTable;
 using Desert::Animation::Timeline::Channel;
+using Desert::Animation::Timeline::ClearSectionWeight;
 using Desert::Animation::Timeline::EvaluatePose;
+using Desert::Animation::Timeline::MoveSection;
+using Desert::Animation::Timeline::RemoveSection;
+using Desert::Animation::Timeline::RemoveSectionWeightKey;
 using Desert::Animation::Timeline::Section;
 using Desert::Animation::Timeline::SectionBlendType;
+using Desert::Animation::Timeline::SetSectionRange;
+using Desert::Animation::Timeline::SetSectionRow;
+using Desert::Animation::Timeline::SetSectionWeightKey;
 using Desert::Animation::Timeline::Track;
+using Desert::Animation::Timeline::TrackKind;
 using Desert::Animation::Timeline::TransformChannel;
 using Desert::Animation::Timeline::WeightAt;
 
@@ -399,6 +409,182 @@ TEST( ClipSections, TheHIGHERRowWinsAnOverlapAndChangingTheRowChangesTheWinner )
     std::swap( track.Sections[0].Row, track.Sections[1].Row );
     ExpectExactlyEqual( Played( clip, "arm", At( 10 ), Rest() ), Curve( clip, "arm", At( 10 ) ),
                         "raising the curve's section past the held one is what makes it win" );
+}
+
+// ── Section edits (ANIM-I10a): the engine's one set, used by every host's Sequencer ─────────────────────
+
+TEST( ClipSections, MovingASectionCARRIESItsKeysSoItsLengthAndItsCurveAreKept )
+{
+    AnimationClip clip  = MovingClip( "arm" );
+    Track&        track = TrackOf( clip, "arm" );
+    ASSERT_TRUE( SetSectionWeightKey( track, 0, FrameNumber{ 0 }, 0.25F ).IsSuccess() );
+    ASSERT_TRUE( SetSectionWeightKey( track, 0, FrameNumber{ kDuration }, 1.0F ).IsSuccess() );
+    const BoneTransform before = Played( clip, "arm", At( 10 ), Rest() );
+
+    ASSERT_TRUE( MoveSection( track, 0, 500 ).IsSuccess() );
+    const Section& moved = track.Sections[0];
+    EXPECT_EQ( moved.Start.Value, 500 );
+    EXPECT_EQ( moved.End.Value, kDuration + 500 ) << "a move keeps the length";
+    EXPECT_EQ( ChannelOf( moved ).Translation.X.Keys.front().Tick.Value, 500 ) << "the keys went with it";
+    EXPECT_EQ( ChannelOf( moved ).Rotation.W.Keys.back().Tick.Value, kDuration + 500 );
+    EXPECT_EQ( moved.Weight.front().Tick.Value, 500 ) << "and so did the weight keys";
+
+    // Every key moved by the same amount, so the sample 10 ticks into the section is the SAME arithmetic.
+    ExpectExactlyEqual( Played( clip, "arm", At( 510 ), Rest() ), before, "the curve moved, not reshaped" );
+    ExpectExactlyEqual( Played( clip, "arm", At( 10 ), Rest() ), Rest(),
+                        "the tick the section left shows the pose underneath" );
+}
+
+TEST( ClipSections, AMoveThatLeavesTheFrameRangeIsRefusedWHOLEAndNotClamped )
+{
+    AnimationClip clip    = MovingClip( "arm" );
+    Track&        track   = TrackOf( clip, "arm" );
+    const auto    refused = MoveSection( track, 0, std::numeric_limits<int32_t>::max() );
+    EXPECT_FALSE( refused.IsSuccess() );
+    EXPECT_EQ( track.Sections[0].Start.Value, 0 );
+    EXPECT_EQ( track.Sections[0].End.Value, kDuration ) << "the length survived a refused move";
+    EXPECT_EQ( ChannelOf( track.Sections[0] ).Translation.X.Keys.front().Tick.Value, 0 )
+         << "no key moved half-way: the check runs before anything is written";
+
+    EXPECT_FALSE( MoveSection( track, 3, 10 ).IsSuccess() ) << "an index that is not there";
+    // NOT refused: a section before tick 0 or past the playback range is legal content (UE, `Validate`).
+    EXPECT_TRUE( MoveSection( track, 0, -100 ).IsSuccess() );
+    EXPECT_EQ( track.Sections[0].Start.Value, -100 );
+}
+
+TEST( ClipSections, ARangeEditLeavesTheKeysAndRefusesAnEndBeforeItsStart )
+{
+    AnimationClip clip  = MovingClip( "arm" );
+    Track&        track = TrackOf( clip, "arm" );
+
+    ASSERT_TRUE( SetSectionRange( track, 0, FrameNumber{ 100 }, FrameNumber{ 900 } ).IsSuccess() );
+    EXPECT_EQ( track.Sections[0].Start.Value, 100 );
+    EXPECT_EQ( track.Sections[0].End.Value, 900 );
+    EXPECT_EQ( ChannelOf( track.Sections[0] ).Translation.X.Keys.front().Tick.Value, 0 )
+         << "a range edit is UE's SetRange: the keys outside still shape the curve entering it";
+    ExpectExactlyEqual( Played( clip, "arm", At( 500 ), Rest() ), Curve( clip, "arm", At( 500 ) ),
+                        "inside the new range the curve plays as keyed" );
+
+    EXPECT_FALSE( SetSectionRange( track, 0, FrameNumber{ 900 }, FrameNumber{ 100 } ).IsSuccess() );
+    EXPECT_EQ( track.Sections[0].End.Value, 900 );
+    EXPECT_FALSE( SetSectionRange( track, 7, FrameNumber{ 0 }, FrameNumber{ 10 } ).IsSuccess() );
+
+    // start == end is ONE TICK and legal: the end is inclusive, so a range cannot be empty.
+    EXPECT_TRUE( SetSectionRange( track, 0, FrameNumber{ 500 }, FrameNumber{ 500 } ).IsSuccess() );
+}
+
+TEST( ClipSections, SettingTheRowIsWhatChangesTheWinnerAndARowAboveTheFirstIsRefused )
+{
+    AnimationClip       clip = MovingClip( "arm" );
+    const BoneTransform held =
+         TransformOf( glm::vec3( -7.0F, 3.0F, 1.0F ), glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), glm::vec3( 1.0F ) );
+    const AnimationClip donor = StaticClip( "arm", held );
+    Track&              track = TrackOf( clip, "arm" );
+    Section&            over  = AddSection( track, FrameNumber{ 0 }, FrameNumber{ kDuration } );
+    over.Content              = donor.Sequence.Tracks.front().Sections.front().Content;
+    ASSERT_EQ( track.Sections[1].Row, 1 );
+    ExpectExactlyEqual( Played( clip, "arm", At( 10 ), Rest() ), held, "the higher row wins" );
+
+    ASSERT_TRUE( SetSectionRow( track, 0, 2 ).IsSuccess() );
+    ExpectExactlyEqual( Played( clip, "arm", At( 10 ), Rest() ), Curve( clip, "arm", At( 10 ) ),
+                        "raising the curve's section above the held one is what makes it win" );
+
+    EXPECT_FALSE( SetSectionRow( track, 0, -1 ).IsSuccess() );
+    EXPECT_EQ( track.Sections[0].Row, 2 );
+    EXPECT_FALSE( SetSectionRow( track, 5, 0 ).IsSuccess() );
+}
+
+TEST( ClipSections, CameraCutsRefuseEveryEditThatWouldOverlapTwoOnOneRow )
+{
+    Track track;
+    track.Kind = TrackKind::CameraCut;
+    (void)AddSection( track, FrameNumber{ 0 }, FrameNumber{ 100 } );
+    (void)AddSection( track, FrameNumber{ 200 }, FrameNumber{ 300 } );
+    ASSERT_EQ( track.Sections[1].Row, 0 );
+
+    EXPECT_FALSE( MoveSection( track, 1, -150 ).IsSuccess() ) << "at every tick one camera speaks";
+    EXPECT_EQ( track.Sections[1].Start.Value, 200 );
+    EXPECT_FALSE( SetSectionRange( track, 1, FrameNumber{ 50 }, FrameNumber{ 300 } ).IsSuccess() );
+    EXPECT_TRUE( SetSectionRange( track, 1, FrameNumber{ 101 }, FrameNumber{ 300 } ).IsSuccess() )
+         << "touching is not overlapping: the ranges are inclusive, 100 and 101 are two ticks";
+
+    ASSERT_TRUE( SetSectionRow( track, 1, 1 ).IsSuccess() );
+    EXPECT_TRUE( MoveSection( track, 1, -101 ).IsSuccess() ) << "on its own row the cut may lie anywhere";
+    EXPECT_FALSE( SetSectionRow( track, 1, 0 ).IsSuccess() ) << "and cannot come back onto an occupied row";
+
+    EXPECT_FALSE( SetSectionWeightKey( track, 0, FrameNumber{ 0 }, 0.5F ).IsSuccess() )
+         << "a cut is full weight by definition";
+    EXPECT_TRUE( track.Sections[0].Weight.empty() );
+}
+
+TEST( ClipSections, AWeightKeyIsUpsertedInTickOrderKeepsItsSHAPEAndIsNotClamped )
+{
+    AnimationClip clip    = MovingClip( "arm" );
+    Track&        track   = TrackOf( clip, "arm" );
+    Section&      section = track.Sections[0];
+
+    ASSERT_TRUE( SetSectionWeightKey( track, 0, FrameNumber{ 2000 }, 0.25F ).IsSuccess() );
+    ASSERT_TRUE( SetSectionWeightKey( track, 0, FrameNumber{ 0 }, 1.0F ).IsSuccess() );
+    ASSERT_EQ( section.Weight.size(), 2U );
+    EXPECT_EQ( section.Weight[0].Tick.Value, 0 ) << "the channel stays sorted, as every sampler assumes";
+    EXPECT_EQ( section.Weight[1].Tick.Value, 2000 );
+    EXPECT_EQ( section.Weight[1].Interp, KeyInterp::Linear ) << "a new weight key is a ramp";
+
+    section.Weight[1].Interp       = KeyInterp::Cubic;
+    section.Weight[1].Mode         = Desert::Animation::TangentMode::User;
+    section.Weight[1].LeaveTangent = 7.0F;
+    ASSERT_TRUE( SetSectionWeightKey( track, 0, FrameNumber{ 2000 }, 0.5F ).IsSuccess() );
+    EXPECT_EQ( section.Weight.size(), 2U ) << "an upsert, not an insert";
+    EXPECT_FLOAT_EQ( section.Weight[1].Value, 0.5F );
+    EXPECT_EQ( section.Weight[1].Interp, KeyInterp::Cubic );
+    EXPECT_FLOAT_EQ( section.Weight[1].LeaveTangent, 7.0F );
+
+    // Not clamped: WeightAt does not clamp (Section.hpp) and neither does UE's weight channel, so an
+    // editor-keyed 1.5 is the same value a file-authored 1.5 is.
+    ASSERT_TRUE( SetSectionWeightKey( track, 0, FrameNumber{ 2000 }, 1.5F ).IsSuccess() );
+    EXPECT_FLOAT_EQ( section.Weight[1].Value, 1.5F );
+    EXPECT_FLOAT_EQ( WeightAt( section, At( 2000 ), PROJECT_TICK_RATE ), 1.5F );
+
+    EXPECT_FALSE( SetSectionWeightKey( track, 0, FrameNumber{ 2000 }, std::numeric_limits<float>::quiet_NaN() )
+                       .IsSuccess() )
+         << "not a number that was too big — a value that is not one";
+    EXPECT_FALSE( SetSectionWeightKey( track, 0, FrameNumber{ 2000 }, std::numeric_limits<float>::infinity() )
+                       .IsSuccess() );
+    EXPECT_FLOAT_EQ( section.Weight[1].Value, 1.5F );
+    EXPECT_FALSE( SetSectionWeightKey( track, 9, FrameNumber{ 0 }, 0.5F ).IsSuccess() );
+}
+
+TEST( ClipSections, RemovingEveryWeightKeyIsFullWeightAndNotSilence )
+{
+    AnimationClip clip    = MovingClip( "arm" );
+    Track&        track   = TrackOf( clip, "arm" );
+    Section&      section = track.Sections[0];
+    ASSERT_TRUE( SetSectionWeightKey( track, 0, FrameNumber{ 0 }, 0.0F ).IsSuccess() );
+    ASSERT_FLOAT_EQ( WeightAt( section, At( 0 ), PROJECT_TICK_RATE ), 0.0F );
+
+    EXPECT_FALSE( RemoveSectionWeightKey( track, 0, 4 ).IsSuccess() );
+    ASSERT_TRUE( RemoveSectionWeightKey( track, 0, 0 ).IsSuccess() );
+    EXPECT_FLOAT_EQ( WeightAt( section, At( 0 ), PROJECT_TICK_RATE ), 1.0F )
+         << "an empty channel is FULL weight; reading it as 0 would mute the whole corpus";
+
+    ASSERT_TRUE( SetSectionWeightKey( track, 0, FrameNumber{ 0 }, 0.0F ).IsSuccess() );
+    ASSERT_TRUE( ClearSectionWeight( track, 0 ).IsSuccess() );
+    EXPECT_TRUE( section.Weight.empty() );
+    EXPECT_FLOAT_EQ( WeightAt( section, At( 0 ), PROJECT_TICK_RATE ), 1.0F );
+    EXPECT_FALSE( ClearSectionWeight( track, 1 ).IsSuccess() );
+}
+
+TEST( ClipSections, RemovingASectionShowsThePoseUnderneathAndAMissingIndexIsRefused )
+{
+    AnimationClip clip  = MovingClip( "arm" );
+    Track&        track = TrackOf( clip, "arm" );
+    EXPECT_FALSE( RemoveSection( track, 7 ).IsSuccess() );
+    ASSERT_EQ( track.Sections.size(), 1U );
+
+    ASSERT_TRUE( RemoveSection( track, 0 ).IsSuccess() );
+    EXPECT_TRUE( track.Sections.empty() );
+    ExpectExactlyEqual( Played( clip, "arm", At( 10 ), Rest() ), Rest(),
+                        "a track with no section contributes nothing: the pose under it plays" );
 }
 
 int main( int argc, char** argv )
