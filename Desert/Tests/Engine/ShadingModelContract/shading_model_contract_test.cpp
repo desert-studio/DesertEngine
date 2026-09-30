@@ -39,7 +39,7 @@ namespace
     std::string ReadFile( const std::filesystem::path& path )
     {
         const std::ifstream in( path, std::ios::binary );
-        std::ostringstream out;
+        std::ostringstream  out;
         out << in.rdbuf();
         return out.str();
     }
@@ -236,8 +236,8 @@ TEST( ShadingModelRegistryRules, IndexIsStableUnderFileOrder )
 {
     std::vector<SM::ShadingModelManifest> forward = WithEngineModels( { Manifest( 7, "A" ), Manifest( 9, "B" ) } );
     const std::vector<SM::ShadingModelManifest> reversed( forward.rbegin(), forward.rend() );
-    const auto                            one = SM::ShadingModelRegistry::Build( forward, kFields );
-    const auto                            two = SM::ShadingModelRegistry::Build( reversed, kFields );
+    const auto                                  one = SM::ShadingModelRegistry::Build( forward, kFields );
+    const auto                                  two = SM::ShadingModelRegistry::Build( reversed, kFields );
     ASSERT_TRUE( one.IsSuccess() && two.IsSuccess() );
     EXPECT_EQ( one.GetValue().IndexLayoutKey(), two.GetValue().IndexLayoutKey() );
 }

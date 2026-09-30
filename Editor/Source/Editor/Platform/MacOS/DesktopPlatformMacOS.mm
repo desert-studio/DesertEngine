@@ -42,7 +42,7 @@ namespace Desert::Editor
             if ( initialFolder != nullptr && initialFolder[0] != '\0' )
             {
                 NSString* const start = [NSString stringWithUTF8String:initialFolder];
-                panel.directoryURL = [NSURL fileURLWithPath:start isDirectory:YES];
+                panel.directoryURL    = [NSURL fileURLWithPath:start isDirectory:YES];
             }
 
             if ( [panel runModal] == NSModalResponseOK )

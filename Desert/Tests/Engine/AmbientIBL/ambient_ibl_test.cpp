@@ -290,8 +290,8 @@ TEST( AmbientIBL, BothRenderPathsReachTheirAmbientThroughTheOneSharedComposition
     const std::filesystem::path lit =
          root / "Editor" / "Resources" / "Shaders" / "ShadingModels" / "DefaultLit.shadingmodel";
     ASSERT_TRUE( std::filesystem::exists( lit ) ) << lit.string();
-    std::ifstream      litIn( lit, std::ios::binary );
-    std::ostringstream litBuffer;
+    const std::ifstream litIn( lit, std::ios::binary );
+    std::ostringstream  litBuffer;
     litBuffer << litIn.rdbuf();
     EXPECT_NE( litBuffer.str().find( "ComposeAmbient(" ), std::string::npos )
          << "ShadingModels/DefaultLit.shadingmodel does not assemble its ambient through the shared composition";

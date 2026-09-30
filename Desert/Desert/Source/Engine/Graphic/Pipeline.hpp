@@ -99,8 +99,8 @@ namespace Desert::Graphic
         // Each backend calls this at the top of its build, so the recorded version is the one the build read.
         void RecordShaderCodeGeneration()
         {
-            const auto& shader       = GetShader();
-            m_BuiltAgainstGeneration = shader ? shader->GetCodeGeneration() : 0;
+            const auto& shader         = GetShader();
+            m_BuiltAgainstGeneration   = shader ? shader->GetCodeGeneration() : 0;
             auto&                 live = detail::LivePipelines();
             const std::lock_guard lock( live.Mutex );
             live.All.insert( this );

@@ -2313,10 +2313,10 @@ TEST( PackagedContent, ThePackagedGameReadsItsShadingModelsFromThePakAndWritesNo
     const fs::path         repo = fs::absolute( RepoRoot() );
     ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
     const Desert::TestSupport::ScratchDir scratch( "desert-pkg-shading-models" );
-    const fs::path                  staging       = scratch.Path() / "staging";
-    const fs::path                  pkg           = scratch.Path() / "pkg";
-    const fs::path                  shaders       = repo / "Editor" / "Resources" / "Shaders";
-    const fs::path                  stagedShaders = staging / "Resources" / "Shaders";
+    const fs::path                        staging       = scratch.Path() / "staging";
+    const fs::path                        pkg           = scratch.Path() / "pkg";
+    const fs::path                        shaders       = repo / "Editor" / "Resources" / "Shaders";
+    const fs::path                        stagedShaders = staging / "Resources" / "Shaders";
 
     std::vector<std::string> keys;
     const auto               stage = [&]( const fs::path& rel )

@@ -130,17 +130,15 @@ TEST( MaterialImportContract, TheShippedTemplatesChooseByTheirOwnContracts )
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
-    // Parsing a template resolves its `ShadingModel` through the shading-model registry of the shader root the
-    // engine compiles from (SHADERDIR_PATH, relative to the working directory, as the editor runs from Editor/).
-    // The runner starts a suite in its own scratch directory, so the process moves to the checkout's Editor/.
-    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
-    if ( root.empty() )
+    // Parsing a surface template resolves its `ShadingModel` through the shading models of the engine's shader
+    // root, which the engine finds against the working directory; the runner starts the suite in its scratch
+    // directory, so the process works from the engine resources, as the editor does.
+    const Desert::TestSupport::EngineResourcesWorkingDirectory engineResources;
+    if ( !engineResources.Error().empty() )
     {
-        std::fprintf( stderr, "MaterialImportContract: no checkout above %s\n",
-                      std::filesystem::current_path().string().c_str() );
+        std::fprintf( stderr, "MaterialImportContract: %s\n", engineResources.Error().c_str() );
         return 1;
     }
-    std::filesystem::current_path( root / "Editor" );
     return RUN_ALL_TESTS();
 }
 
