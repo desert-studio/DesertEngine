@@ -247,45 +247,39 @@ namespace Common::Content
                                                  "other key is the rest of that prefab, not damage" )
     } // namespace StatedMembers
 
-    namespace
+    // NAMED, not anonymous: reflect-cpp reads the clip-skeleton structs below through a member-count probe that
+    // clang refuses for a type of internal linkage ("used but not defined in this translation unit").
+    namespace ContentScanDetail
     {
         // The string a JSON document states under its top-level `member`, or empty. The document is parsed as a
         // generic tree and nothing is built from it — the asset stays unloaded; the files carrying a name are
         // small documents (themes, rigs, retargets, graphs, cloud types).
-        // A skeleton's `Signature` member, which its cook writes from the bones (SkeletonAsset checks the
-        // loaded bones against it). Only that member is read; 0 when the document states none or is unreadable.
-        struct StatedRig
+        // A clip's `Skeleton` reference (AssetGuidRef: Guid + Path, SkeletonReference.hpp): the skeleton it plays
+        // on. The Asset Browser lists a skeleton's clips from this tag, nothing loaded. Only the GUID is kept;
+        // null when the document states none or is unreadable (the clip's own load refuses such a file by name).
+        struct StatedClipSkeletonRef
         {
-            uint64_t Signature = 0;
+            std::string Guid;
+            std::string Path;
         };
-        DESERT_JSON_LENIENT( StatedRig, "reads the one Signature member of a whole skeleton document; every other "
-                                        "key is the rest of that skeleton, and a document stating none reads 0" )
-        uint64_t StatedRigSignature( const std::filesystem::path& file )
+        struct StatedClipSkeleton
+        {
+            std::optional<StatedClipSkeletonRef> Skeleton;
+        };
+        DESERT_JSON_LENIENT( StatedClipSkeleton,
+                             "reads the one Skeleton member of a whole clip document; the "
+                             "channels, notifies and curves are the rest of that clip, not damage" )
+        AssetGuid StatedClipSkeletonGuid( const std::filesystem::path& file )
         {
             const auto text =
                  Utils::FileSystem::ReadFileContentPrefix( file, Utils::FileSystem::GetFileSize( file ) );
             if ( !text )
-                return 0;
-            const auto document = Json::Read<StatedRig>( text.GetValue() );
-            return document ? document.GetValue().Signature : 0;
-        }
-
-        // A clip's `SkeletonSignature` member: the rig its channels were baked against (AnimationAsset checks the
-        // skeleton it plays on against it). The Asset Browser lists a rig's clips from this tag, nothing loaded.
-        struct StatedClipRig
-        {
-            uint64_t SkeletonSignature = 0;
-        };
-        DESERT_JSON_LENIENT( StatedClipRig, "reads the one SkeletonSignature member of a whole clip document; the "
-                                            "channels, notifies and curves are the rest of that clip, not damage" )
-        uint64_t StatedClipRigSignature( const std::filesystem::path& file )
-        {
-            const auto text =
-                 Utils::FileSystem::ReadFileContentPrefix( file, Utils::FileSystem::GetFileSize( file ) );
-            if ( !text )
-                return 0;
-            const auto document = Json::Read<StatedClipRig>( text.GetValue() );
-            return document ? document.GetValue().SkeletonSignature : 0;
+                return {};
+            const auto document = Json::Read<StatedClipSkeleton>( text.GetValue() );
+            if ( !document || !document.GetValue().Skeleton )
+                return {};
+            const auto guid = AssetGuidFromText( document.GetValue().Skeleton->Guid );
+            return guid ? guid.GetValue() : AssetGuid{};
         }
 
         // An import record's `Nodes` member (THM1j): present when the last import split the source into node meshes
@@ -339,7 +333,8 @@ namespace Common::Content
             const auto name = value.value().to_string();
             return name ? name.value() : std::string();
         }
-    } // namespace
+    } // namespace ContentScanDetail
+    using namespace ContentScanDetail;
 
     namespace
     {
@@ -382,17 +377,14 @@ namespace Common::Content
                     MeshBinaryFileHeader header{};
                     std::memcpy( &header, head.GetValue().data(), sizeof( header ) );
                     described.Skinned = ( header.Flags & kMeshFlagIsSkinned ) != 0;
-                    if ( ( header.Flags & kMeshFlagHasSkeletonSignature ) != 0 )
-                        described.RigSignature = header.SkeletonSignature;
+                    std::memcpy( &described.Skeleton, &header.SkeletonGuid, sizeof( AssetGuid ) );
                 }
             }
         }
         if ( const std::string_view member = KindSpec( kind ).DisplayNameMember; !member.empty() )
             described.DisplayName = StatedDisplayName( file, member );
-        if ( kind == ContentKind::Skeleton )
-            described.RigSignature = StatedRigSignature( file );
         if ( kind == ContentKind::Animation )
-            described.RigSignature = StatedClipRigSignature( file );
+            described.Skeleton = StatedClipSkeletonGuid( file );
         if ( kind == ContentKind::Shader )
             described.Role = StatedShaderRole( file );
         // RECORD ONLY: the versions are the loading build's to judge, not this walk's (see the context).
@@ -402,6 +394,9 @@ namespace Common::Content
             described.HeaderError = stated.GetError();
         else
             described.Header = stated.GetValue();
+        // A skeleton's tag is its own identity: the GUID every mesh and clip references it by.
+        if ( kind == ContentKind::Skeleton && described.Header )
+            described.Skeleton = described.Header->Guid;
         // A PREFAB'S BOX IS STATED BESIDE ITS HEADER, and read with it: a member that is there and unreadable
         // keeps the file out exactly as an unreadable header does.
         // AN IMPORT RECORD STATES ITS MESH'S BOX in the same `Bounds` member (DIMP 2): the registry knows an
@@ -583,7 +578,7 @@ namespace Common::Content
             entry.Bounds = file.HeaderBounds->Bounds;
         entry.DisplayName  = file.DisplayName;
         entry.Skinned      = file.Skinned;
-        entry.RigSignature = file.RigSignature;
+        entry.Skeleton     = file.Skeleton;
         entry.Role         = file.Role;
         return MakeSuccess( std::move( entry ) );
     }

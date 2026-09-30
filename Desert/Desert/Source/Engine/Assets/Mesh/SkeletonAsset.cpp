@@ -2,6 +2,8 @@
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 
+#include <Common/Content/TextAssetHeader.hpp>
+
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/VFS.hpp>
 
@@ -58,7 +60,51 @@ namespace Desert::Assets
         // what a cook WROTE, and this is what the rig in memory IS. A mesh is matched against the second.
         m_Signature = m_Skeleton->GetSignature();
 
+        // The references (SKEL 2) resolve by GUID; the stored path is only for the reader. A GUID that does not
+        // parse is a broken file, refused by name rather than read as "no reference".
+        Common::Content::AssetGuid preview;
+        if ( data.PreviewMesh )
+        {
+            auto guid = Common::Content::AssetGuidFromText( data.PreviewMesh->Guid );
+            if ( !guid )
+                return Common::MakeFormattedError<bool>( "'{}': PreviewMesh '{}': {}", file.string(),
+                                                         data.PreviewMesh->Path, guid.GetError() );
+            preview = guid.GetValue();
+        }
+        std::vector<Common::Content::AssetGuid> compatible;
+        compatible.reserve( data.CompatibleSkeletons.size() );
+        for ( const AssetGuidRef& ref : data.CompatibleSkeletons )
+        {
+            auto guid = Common::Content::AssetGuidFromText( ref.Guid );
+            if ( !guid )
+                return Common::MakeFormattedError<bool>( "'{}': CompatibleSkeletons '{}': {}", file.string(),
+                                                         ref.Path, guid.GetError() );
+            compatible.push_back( guid.GetValue() );
+        }
+        m_PreviewMesh         = preview;
+        m_CompatibleSkeletons = std::move( compatible );
+
         return BOOLSUCCESS;
+    }
+
+    Common::Content::AssetGuid SkeletonAsset::GetPreviewMesh() const
+    {
+        return m_PreviewMesh;
+    }
+
+    std::span<const Common::Content::AssetGuid> SkeletonAsset::GetCompatibleSkeletons() const
+    {
+        return m_CompatibleSkeletons;
+    }
+
+    void SkeletonAsset::SetPreviewMesh( Common::Content::AssetGuid mesh )
+    {
+        m_PreviewMesh = mesh;
+    }
+
+    void SkeletonAsset::SetCompatibleSkeletons( std::vector<Common::Content::AssetGuid> skeletons )
+    {
+        m_CompatibleSkeletons = std::move( skeletons );
     }
 
     Common::BoolResultStr SkeletonAsset::Unload()

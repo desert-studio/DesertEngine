@@ -114,7 +114,11 @@ namespace Desert::Assets::Serialization
         // `Header` stays empty here, so the writer leaves it out and `Version` is the first member.
         struct GenerationThreeAnimation
         {
-            int                              Version = kAnimationLastVersionMember;
+            int Version = kAnimationLastVersionMember;
+            // Generation 3 named its rig by this bone hash; ANIM 5 replaced it with the `Skeleton` GUID, which
+            // Tools/SceneMigrator's 4 -> 5 step derives from it (MigrateSkeletonReference). Frozen here so
+            // the v3 text keeps the one statement that step needs.
+            uint64_t                         SkeletonSignature = 0;
             rfl::Flatten<AnimationAssetData> Rest;
         };
     } // namespace Legacy
@@ -294,7 +298,6 @@ namespace Desert::Assets::Serialization
         out.TickRate          = { TICKS.Numerator, TICKS.Denominator };
         out.DisplayRate       = { displayRate, 1 };
         out.DurationTicks     = toTick( legacy.Duration, legacy.DurationTicks );
-        out.SkeletonSignature = legacy.SkeletonSignature;
 
         out.Channels.reserve( legacy.Channels.size() );
         for ( const auto& channel : legacy.Channels )
@@ -340,7 +343,8 @@ namespace Desert::Assets::Serialization
         report.SectionsWritten = static_cast<int>( out.Sections.size() );
 
         Legacy::GenerationThreeAnimation frozen;
-        frozen.Rest = std::move( out );
+        frozen.SkeletonSignature = legacy.SkeletonSignature;
+        frozen.Rest              = std::move( out );
         return Common::MakeSuccess( rfl::json::write( frozen ) );
     }
 } // namespace Desert::Assets::Serialization

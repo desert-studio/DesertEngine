@@ -3,9 +3,9 @@
         "Kind": "Animation",
         "Guid": "fa1cf740b592cc5c9a28c8ebc30a85bd",
         "Versions": {
-            "ANIM": 4
+            "ANIM": 5
         },
-        "Dependencies": []
+        "Dependencies": ["acf475090f8a76b0eac6ee0c3e5d32fd"]
     },
     "Name": "SkinProbe_Tilt",
     "TickRate": {
@@ -17,7 +17,10 @@
         "Denominator": 1
     },
     "DurationTicks": 48000,
-    "SkeletonSignature": 4699069763035776985,
+    "Skeleton": {
+        "Guid": "acf475090f8a76b0eac6ee0c3e5d32fd",
+        "Path": "Meshes/Skinned/SkinProbe.skeleton"
+    },
     "Channels": [
         {
             "BoneName": "Root",

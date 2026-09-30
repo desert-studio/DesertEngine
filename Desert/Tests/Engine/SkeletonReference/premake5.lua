@@ -11,9 +11,7 @@ project(test_name)
     files {
         test_files,
         -- Units under test (pure CPU: the playback rule, the assignment check, migration's signature lookup).
-        -- SKEL-TREE step 0: SkeletonReference.cpp does not exist yet — the implementation step adds
-        --   "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/SkeletonReference.cpp",
-        -- here; until then this suite compiles and fails to link, by design.
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/SkeletonReference.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",

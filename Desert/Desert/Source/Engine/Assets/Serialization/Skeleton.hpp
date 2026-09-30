@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Assets/TextAssetHeaderCheck.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
@@ -38,6 +39,12 @@ namespace Desert::Assets::Serialization
         uint64_t                                 Signature = 0;
         std::vector<Desert::Animation::BoneInfo> Bones;
         std::optional<SkeletonImportInfo>        Import;
+        /// SKEL 2 (SKEL-TREE, contract Engine/Animation/SkeletonReference.hpp): the skinned mesh the Skeleton
+        /// Editor previews this rig on (UE USkeleton::PreviewSkeletalMesh); null = bones only.
+        std::optional<AssetGuidRef> PreviewMesh;
+        /// SKEL 2: skeletons whose clips play on meshes of THIS one (UE USkeleton::CompatibleSkeletons) - one
+        /// direction, not transitive. Every file states the list, empty when there is none.
+        std::vector<AssetGuidRef> CompatibleSkeletons;
     };
 
     [[nodiscard]] inline std::span<const Common::Content::SubsystemVersion> SkeletonTextSubsystems()

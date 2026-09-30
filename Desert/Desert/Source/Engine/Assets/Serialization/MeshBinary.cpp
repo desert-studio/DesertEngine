@@ -163,7 +163,6 @@ namespace Desert::Assets::Serialization
         }
 
         constexpr uint32_t kFlagIsSkinned            = Common::Content::kMeshFlagIsSkinned;
-        constexpr uint32_t kFlagHasSkeletonSignature = Common::Content::kMeshFlagHasSkeletonSignature;
 
         /// The element size version 1 declares for each section, indexed by id. A reader that finds a
         /// different number in the file stops there: see the header's note on type width.
@@ -386,9 +385,8 @@ namespace Desert::Assets::Serialization
         header.Version      = kMeshBinaryVersion;
         header.FileSize     = at;
         header.SectionCount = kSectionCount;
-        header.Flags        = ( data.IsSkinned ? kFlagIsSkinned : 0u ) |
-                       ( data.SkeletonSignature.has_value() ? kFlagHasSkeletonSignature : 0u );
-        header.SkeletonSignature = data.SkeletonSignature.value_or( 0 );
+        header.Flags        = data.IsSkinned ? kFlagIsSkinned : 0u;
+        header.SkeletonGuid = data.Skeleton;
         // The box goes into the header so the content scan learns it from 64 bytes, without the body.
         Common::Content::StateMeshBounds( header, MeshDataBounds( data ) );
 
@@ -436,12 +434,15 @@ namespace Desert::Assets::Serialization
                  who, header.ByteOrder, kByteOrderTag );
         }
 
-        if ( header.Version < 1 || header.Version > kMeshBinaryVersion )
+        // ONE GENERATION IS READ. Versions 1-4 named the rig by a bone hash (SKEL-TREE replaced it with the
+        // skeleton's GUID); Tools/SceneMigrator raises them, this reader refuses them by name.
+        if ( header.Version != kMeshBinaryVersion )
         {
             return Common::MakeFormattedError<MeshAssetData>(
-                 "'{}' is cooked-mesh format version {}, this build reads version {}. Re-cook it "
-                 "(Assets > Rebuild Cooked Assets).",
-                 who, header.Version, kMeshBinaryVersion );
+                 "'{}' is cooked-mesh format version {}, this build reads only version {}{}.", who,
+                 header.Version, kMeshBinaryVersion,
+                 header.Version < kMeshBinaryVersion ? " - raise it with Tools/SceneMigrator (scripts/Dev/migrate.sh)"
+                                                     : " - it was written by a later build" );
         }
 
         // THE TRUNCATION CHECK, AND THE REASON `FileSize` IS IN THE HEADER AT ALL. A file that stops
@@ -461,7 +462,7 @@ namespace Desert::Assets::Serialization
                  "'{}' declares {} sections, version {} has exactly {}.", who, header.SectionCount, header.Version,
                  sectionCount );
         }
-        const std::size_t prefixSize = Common::Content::MeshHeaderSize( header.Version );
+        const std::size_t prefixSize = Common::Content::kMeshBinaryPrefixV3;
         if ( bytes.size() < prefixSize + sizeof( SectionRow ) * sectionCount )
         {
             return Common::MakeFormattedError<MeshAssetData>(
@@ -547,8 +548,7 @@ namespace Desert::Assets::Serialization
         data.IsSkinned = ( header.Flags & kFlagIsSkinned ) != 0;
         if ( const auto guid = Common::Content::ReadMeshHeaderGuid( bytes ) )
             data.Guid = *guid;
-        if ( ( header.Flags & kFlagHasSkeletonSignature ) != 0 )
-            data.SkeletonSignature = header.SkeletonSignature;
+        data.Skeleton = header.SkeletonGuid;
 
         data.StaticVertices.resize( N( SecStaticVertices ) );
         std::memcpy( data.StaticVertices.data(), At( SecStaticVertices ),

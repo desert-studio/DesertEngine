@@ -1,4 +1,5 @@
 #include "AnimationClipWrite.hpp"
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Common/Content/CanonicalText.hpp>
 
@@ -17,7 +18,11 @@ namespace Desert::Assets::Serialization
         data.TickRate          = FrameRateData{ clip.TickRate.Numerator, clip.TickRate.Denominator };
         data.DisplayRate       = FrameRateData{ clip.DisplayRate.Numerator, clip.DisplayRate.Denominator };
         data.DurationTicks     = clip.DurationTicks.Value;
-        data.SkeletonSignature = clip.SkeletonSignature;
+        // The GUID resolves; the path is the registry's key for it, for the reader (AssetGuidRef).
+        if ( !clip.Skeleton.IsNull() )
+            data.Skeleton = AssetGuidRef{
+                 Common::Content::AssetGuidToText( clip.Skeleton ),
+                 ContentRegistry::KeyForHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( clip.Skeleton ) ) ) };
 
         data.Channels.reserve( clip.Tracks.size() );
         for ( const auto& track : clip.Tracks )

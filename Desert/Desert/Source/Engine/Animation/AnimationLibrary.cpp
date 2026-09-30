@@ -4,6 +4,9 @@
 #include <Engine/Animation/Skeleton.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/Mesh/SkeletonAsset.hpp>
+
+#include <Common/Content/TextAssetHeader.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -151,20 +154,16 @@ namespace Desert::Animation
         }
 
         ClipRigIdentity identity;
-        identity.Handle            = animation->GetMetadata().Handle;
-        identity.ClipName          = animation->GetClip().AnimationName;
-        identity.SkeletonSignature = animation->GetSkeletonSignature();
-        for ( const auto& track : animation->GetClip().Tracks )
-            if ( !track.BoneName.empty() )
-                identity.AnimatedBones.push_back( track.BoneName );
+        identity.Handle   = animation->GetMetadata().Handle;
+        identity.ClipName = animation->GetClip().AnimationName;
+        identity.Skeleton = SkeletonRefOf( animation->GetSkeleton() );
 
-        // A clip with neither a rig signature nor one named bone can never match anything — ClipDrivesRig
-        // has nothing to test it on. Registering it silently is how a clip becomes invisible with no way to
-        // tell that from "the project has no clips".
-        if ( identity.SkeletonSignature == 0 && identity.AnimatedBones.empty() )
+        // A clip that references no skeleton plays nowhere (ClipPlaysOnMesh refuses it). Registering it
+        // silently is how a clip becomes invisible with no way to tell that from "the project has no clips".
+        if ( identity.Skeleton.Guid.IsNull() )
         {
-            LOG_ERROR( "[AnimationLibrary] clip '{}' ({}) claims no rig and animates no named bone, so no "
-                       "skeleton can ever match it. It is registered and will never be offered.",
+            LOG_ERROR( "[AnimationLibrary] clip '{}' ({}) references no skeleton, so it plays on no mesh. It is "
+                       "registered and will never be offered.",
                        identity.ClipName, animation->GetMetadata().Filepath.string() );
         }
 
@@ -178,14 +177,47 @@ namespace Desert::Animation
                        m_Clips.end() );
     }
 
+    SkeletonAssetRef AnimationLibrary::SkeletonRefOf( const Common::Content::AssetGuid& skeleton )
+    {
+        SkeletonAssetRef ref;
+        ref.Guid = skeleton;
+        if ( skeleton.IsNull() )
+            ref.Name = "(none)";
+        else if ( const auto row = Assets::ContentRegistry::RigRow( skeleton ) )
+            ref.Name = row->Key;
+        else
+            ref.Name = Common::Content::AssetGuidToText( skeleton );
+        return ref;
+    }
+
+    MeshSkeletonIdentity AnimationLibrary::IdentifyMesh( const Assets::SkinnedMeshAsset& mesh )
+    {
+        MeshSkeletonIdentity identity;
+        identity.Skeleton = SkeletonRefOf( mesh.GetSkeleton() );
+        if ( const auto& skeleton = mesh.GetSkeletonDependency().Cached )
+        {
+            const auto compatible = skeleton->GetCompatibleSkeletons();
+            identity.Compatible.assign( compatible.begin(), compatible.end() );
+        }
+        return identity;
+    }
+
+    MeshSkeletonIdentity AnimationLibrary::IdentifyMeshHandle( const Assets::AssetHandle& mesh ) const
+    {
+        if ( m_AssetManager != nullptr )
+            if ( const auto asset =
+                      m_AssetManager->ProbeByHandle<Assets::SkinnedMeshAsset>( Common::UUID( mesh ) ) )
+                return IdentifyMesh( *asset );
+        return MeshSkeletonIdentity{ SkeletonRefOf( {} ), {} };
+    }
+
     std::vector<Assets::Asset<Assets::AnimationAsset>>
-    AnimationLibrary::GetForSkeleton( const Skeleton& skeleton ) const
+    AnimationLibrary::GetForMesh( const MeshSkeletonIdentity& mesh ) const
     {
         RequestUnread( {} );
-        const RigIdentity rig = IdentifyRig( skeleton );
 
         std::vector<Assets::Asset<Assets::AnimationAsset>> result;
-        for ( const size_t i : SelectClipsForRig( m_Clips, rig ) )
+        for ( const size_t i : SelectClipsForMesh( m_Clips, mesh ) )
         {
             if ( auto asset = Resolve( m_Clips[i].Handle ) )
                 result.push_back( asset );
@@ -194,12 +226,11 @@ namespace Desert::Animation
     }
 
     Common::ResultStr<Assets::Asset<Assets::AnimationAsset>>
-    AnimationLibrary::FindForSkeleton( const Skeleton& skeleton, const std::string& clipName ) const
+    AnimationLibrary::FindForMesh( const MeshSkeletonIdentity& mesh, const std::string& clipName ) const
     {
         RequestUnread( clipName );
-        const RigIdentity rig = IdentifyRig( skeleton );
 
-        const auto index = FindClipForRig( m_Clips, rig, clipName );
+        const auto index = FindClipForMesh( m_Clips, mesh, clipName );
         if ( !index )
             return Common::MakeError<Assets::Asset<Assets::AnimationAsset>>( index.GetError() );
 
@@ -209,7 +240,7 @@ namespace Desert::Animation
             // Resolve already logged the reason; this turns it into a refusal the caller must handle rather
             // than a null it can drop on the floor.
             return Common::MakeFormattedError<Assets::Asset<Assets::AnimationAsset>>(
-                 "clip '{}' drives this rig but its asset could not be resolved or reloaded.", clipName );
+                 "clip '{}' plays on this mesh but its asset could not be resolved or reloaded.", clipName );
         }
         return Common::MakeSuccess( std::move( asset ) );
     }

@@ -366,8 +366,8 @@ namespace Desert::Editor
             return;
         }
         const Animation::Skeleton& skeleton = static_cast<SkinnedMesh*>( mesh )->GetSkeleton();
-        const auto                 clips    = m_Library ? m_Library->GetForSkeleton( skeleton )
-                                                        : std::vector<Assets::Asset<Assets::AnimationAsset>>{};
+        const auto clips = m_Library ? m_Library->GetForMesh( m_Library->IdentifyMeshHandle( smc.MeshHandle ) )
+                                     : std::vector<Assets::Asset<Assets::AnimationAsset>>{};
 
         // Names for the clip combos + the index of the currently-selected clip.
         std::vector<const char*> clipNames;

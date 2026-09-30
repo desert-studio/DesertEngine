@@ -3,7 +3,7 @@
         "Kind": "Skeleton",
         "Guid": "e287e4cefcdec52a99588849bcf0a0a0",
         "Versions": {
-            "SKEL": 1
+            "SKEL": 2
         },
         "Dependencies": []
     },
@@ -36,5 +36,6 @@
     "Import": {
         "Source": "TwoJointProbe.gltf",
         "SourceHash": 2080282809576534268
-    }
+    },
+    "CompatibleSkeletons": []
 }

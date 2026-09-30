@@ -9,6 +9,7 @@
 #include <Common/Content/AssetEnvelope.hpp>
 
 #include <span>
+#include <vector>
 
 namespace Desert::Assets
 {
@@ -73,6 +74,10 @@ namespace Desert::Assets
         /// direction, not transitive. The third argument of Animation::ClipPlaysOnMesh.
         [[nodiscard]] std::span<const Common::Content::AssetGuid> GetCompatibleSkeletons() const;
 
+        /// Authoring (Skeleton Editor Details). In memory only; Serialization::SaveSkeletonAsset writes the file.
+        void SetPreviewMesh( Common::Content::AssetGuid mesh );
+        void SetCompatibleSkeletons( std::vector<Common::Content::AssetGuid> skeletons );
+
         static AssetTypeID GetTypeID()
         {
             return AssetTypeID::Skeleton;
@@ -83,6 +88,10 @@ namespace Desert::Assets
 
         // The payload's identity, kept across `Unload`. See GetSignature.
         uint64_t m_Signature = 0U;
+
+        // References, not payload: kept across `Unload` like the signature (the .skeleton states them).
+        Common::Content::AssetGuid              m_PreviewMesh;
+        std::vector<Common::Content::AssetGuid> m_CompatibleSkeletons;
     };
 
 } // namespace Desert::Assets

@@ -113,10 +113,11 @@ namespace Common::Utils
         // The <tags> column. DisplayName empty = the file states none, and a list shows the file's stem.
         std::string DisplayName;
         bool        Skinned = false;
-        // The Rig tag: a Skeleton row's own signature, or the signature a SkinnedMesh row's header names.
-        // It is the soft reference between the two (UE: a USkeletalMesh names its USkeleton), so a mesh
-        // finds its rig's row without reading every skeleton. 0 = the file states none.
-        uint64_t RigSignature = 0;
+        // The Rig tag: a Skeleton row's own GUID, or the skeleton GUID a SkinnedMesh / Animation row names
+        // (SkeletonReference.hpp). The soft reference between them (UE: USkeletalMesh / UAnimSequence name
+        // their USkeleton), so a mesh or clip finds its skeleton's row without reading every skeleton.
+        // Null = the file states none.
+        Content::AssetGuid Skeleton;
         // The Role tag: the template role a Shader row's manifest declares (`Role <Name>`, see
         // Content::ReadShaderManifest); empty = the shader declares none. Only Shader rows carry it.
         std::string Role;

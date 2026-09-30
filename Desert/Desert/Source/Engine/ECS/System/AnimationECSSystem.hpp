@@ -16,6 +16,8 @@
 #include <Engine/Animation/Retarget/RetargetSource.hpp>
 #include <Engine/Animation/Rig/ControlRigStage.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/Mesh/SkeletonAsset.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
@@ -118,14 +120,13 @@ namespace Desert::ECS
                 // below. Attaching after the update would put the rig one frame behind the pose it operates on.
                 SyncControlRig( registry, entity, anim, *anim.Animator, skeleton );
 
-                // THE RIG A CLIP IS LOOKED UP AGAINST, which a retarget changes and which every clip
-                // lookup below has to use. `ClipDrivesRig` binds on the clip's bone NAMES, so asking the
-                // TARGET rig about a foreign clip refuses exactly the clips a retarget exists to play —
-                // the middle-link defect, introduced by the change that makes retargeting reachable.
-                // SyncRetarget above has already attached or detached, so this is settled for the frame.
-                const Animation::Skeleton& clipRig = anim.Animator->GetRetarget() != nullptr
-                                                          ? anim.Animator->GetRetarget()->GetSourceSkeleton()
-                                                          : skeleton;
+                // THE SKELETON A CLIP IS LOOKED UP AGAINST (ClipPlaysOnMesh), which a retarget changes and
+                // which every clip lookup below has to use: with a retarget attached the clip plays on the
+                // retarget's SOURCE skeleton, so asking the mesh's own skeleton would refuse exactly the clips
+                // a retarget exists to play (the middle-link defect). SyncRetarget above has already attached
+                // or detached, so this is settled for the frame.
+                const Animation::MeshSkeletonIdentity clipRig =
+                     ClipSkeletonOf( registry, entity, skinnedMesh, anim.Animator->GetRetarget() != nullptr );
 
                 // BEFORE the graph path, because it is what puts a graph there: the entity names a
                 // `.danimgraph` and this is where that handle becomes the object below.
@@ -178,7 +179,7 @@ namespace Desert::ECS
                         const auto res = anim.GraphEvaluator->Update( norm );
                         if ( res.Current )
                         {
-                            const auto found = m_AnimationLibrary->FindForSkeleton( clipRig, res.Current->Clip );
+                            const auto found = m_AnimationLibrary->FindForMesh( clipRig, res.Current->Clip );
                             if ( found )
                             {
                                 const auto& clip = found.GetValue()->GetClip();
@@ -210,7 +211,7 @@ namespace Desert::ECS
                     // SAME RULE AS THE PICKER that wrote this name into the component. It used to be an
                     // exact-signature scan here against a tolerant one in the Details panel, so a clip an
                     // artist had just chosen could fail to play with nothing said.
-                    const auto found = m_AnimationLibrary->FindForSkeleton( clipRig, anim.CurrentClip );
+                    const auto found = m_AnimationLibrary->FindForMesh( clipRig, anim.CurrentClip );
                     if ( found )
                     {
                         const auto& clip    = found.GetValue()->GetClip();
@@ -232,7 +233,7 @@ namespace Desert::ECS
 
                 else
                 {
-                    const auto animations = m_AnimationLibrary->GetForSkeleton( clipRig );
+                    const auto animations = m_AnimationLibrary->GetForMesh( clipRig );
 
                     if ( !animations.empty() )
                     {
@@ -750,6 +751,49 @@ namespace Desert::ECS
          * loader (AL1-6) - none of them is created at boot any more. Null with @p pending set while the
          * read is in flight: the caller waits quietly; null without it is a real miss the caller reports.
          */
+        /**
+         * The skeleton side of ClipPlaysOnMesh for one entity: the retarget's SOURCE skeleton reference
+         * (RetargetAssetData::SourceSkeleton) when @p retargeted, otherwise the mesh asset's skeleton and its
+         * CompatibleSkeletons (AnimationLibrary::IdentifyMesh). An editor-built runtime rig has no asset and so
+         * references no skeleton: the rule refuses every clip on it, by name.
+         */
+        Animation::MeshSkeletonIdentity ClipSkeletonOf( entt::registry& registry, entt::entity entity,
+                                                        const ECS::SkinnedMeshComponent& component,
+                                                        const bool                       retargeted ) const
+        {
+            Animation::MeshSkeletonIdentity identity;
+            identity.Skeleton.Name = "(none)";
+            if ( m_AssetManager == nullptr )
+                return identity;
+            if ( retargeted )
+            {
+                const Assets::AssetHandle wanted = registry.get<ECS::RetargetComponent>( entity ).Data.Retarget;
+                const auto                retarget =
+                     m_AssetManager->ProbeByHandle<Assets::RetargetAsset>( Common::UUID( wanted ) );
+                if ( !retarget )
+                    return identity;
+                const auto& source = retarget->GetData().SourceSkeleton;
+                if ( const auto guid = Common::Content::AssetGuidFromText( source.Guid ) )
+                {
+                    identity = Animation::MeshSkeletonIdentity{
+                         Animation::AnimationLibrary::SkeletonRefOf( guid.GetValue() ), {} };
+                    if ( const auto sourceAsset = m_AssetManager->ProbeByHandle<Assets::SkeletonAsset>(
+                              Common::UUID( Common::Content::HandleForGuid( guid.GetValue() ) ) ) )
+                    {
+                        const auto compatible = sourceAsset->GetCompatibleSkeletons();
+                        identity.Compatible.assign( compatible.begin(), compatible.end() );
+                    }
+                }
+                return identity;
+            }
+            if ( component.RuntimeMesh )
+                return identity;
+            if ( const auto mesh = m_AssetManager->ProbeByHandle<Assets::SkinnedMeshAsset>(
+                      Common::UUID( component.MeshHandle ) ) )
+                return Animation::AnimationLibrary::IdentifyMesh( *mesh );
+            return identity;
+        }
+
         template <typename AssetType>
         Assets::Asset<AssetType> Demand( const Assets::AssetHandle&         wanted,
                                          const Common::Content::ContentKind kind, bool& pending ) const
