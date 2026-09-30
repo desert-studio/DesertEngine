@@ -57,10 +57,10 @@ namespace Desert::Editor
         if ( m_LayerGraph )
         {
             if ( G::AnimLayerGraph* layer = FindLayerGraph( graph, m_LayerGraph->first, m_LayerGraph->second ) )
-                return { &layer->Nodes, &layer->OutputPose, G::GraphScope::Layer };
+                return { layer->Nodes, layer->OutputPose, G::GraphScope::Layer };
             ShowPoseGraph( std::nullopt ); // the layer is gone (renamed, undone): back to the AnimGraph
         }
-        return { &graph.Nodes, &graph.OutputPose, G::GraphScope::Host };
+        return { graph.Nodes, graph.OutputPose, G::GraphScope::Host };
     }
 
     G::StateMachine* AnimGraphPanel::ResolveMachine( G::AnimGraph& graph )
@@ -68,7 +68,7 @@ namespace Desert::Editor
         const PoseGraphTarget target = ResolvePoseTarget( graph );
         if ( !m_MachineNode.empty() )
         {
-            for ( G::PoseNode& node : *target.Nodes )
+            for ( G::PoseNode& node : target.Nodes )
                 if ( node.Name == m_MachineNode && node.Machine )
                     return &*node.Machine;
             m_MachineNode.clear(); // renamed or deleted: fall back to the Output Pose's machine
@@ -114,11 +114,11 @@ namespace Desert::Editor
         G::AnimGraph&                  graph  = *anim->Graph;
         const PoseGraphTarget          target = ResolvePoseTarget( graph );
         const std::vector<std::string> clips  = ResolveClipNames( *anim );
-        const std::pair<float, float>  cell   = Graph::NextPoseNodePosition( *target.Nodes );
+        const std::pair<float, float>  cell   = Graph::NextPoseNodePosition( target.Nodes );
         const glm::vec2                at     = where.value_or( glm::vec2( cell.first, cell.second ) );
         // The shown graph's scope decides: a Linked Input Pose is added on a layer graph's canvas only, and the
         // unit refuses it on the AnimGraph with the reason.
-        const auto added = Graph::AddPoseNode( graph, *target.Nodes, kind, target.Scope, at.x, at.y,
+        const auto added = Graph::AddPoseNode( graph, target.Nodes, kind, target.Scope, at.x, at.y,
                                                clips.empty() ? std::string() : clips.front() );
         if ( !added.IsSuccess() )
         {
@@ -138,8 +138,8 @@ namespace Desert::Editor
         if ( anim == nullptr || !anim->Graph )
             return;
         const PoseGraphTarget target = ResolvePoseTarget( *anim->Graph );
-        if ( to.empty() ? Report( Graph::ConnectOutput( *target.Nodes, *target.Output, from ) )
-                        : Report( Graph::ConnectPose( *target.Nodes, from, to, pin ) ) )
+        if ( to.empty() ? Report( Graph::ConnectOutput( target.Nodes, target.Output, from ) )
+                        : Report( Graph::ConnectPose( target.Nodes, from, to, pin ) ) )
             MarkEdited();
     }
 
@@ -150,7 +150,7 @@ namespace Desert::Editor
         if ( anim == nullptr || !anim->Graph )
             return;
         const PoseGraphTarget target = ResolvePoseTarget( *anim->Graph );
-        if ( Report( Graph::RemovePoseNode( *target.Nodes, *target.Output, name ) ) )
+        if ( Report( Graph::RemovePoseNode( target.Nodes, target.Output, name ) ) )
         {
             if ( m_SelectedPoseNode == name )
                 m_SelectedPoseNode.clear();
@@ -178,7 +178,7 @@ namespace Desert::Editor
             actions.push_back( { std::format( "Add {}", Graph::PoseNodeTitle( kind ) ),
                                  [this, kind] { AddPoseNode( kind, std::nullopt ); } } );
 
-        const std::vector<G::PoseNode>& nodes = *target.Nodes;
+        const std::vector<G::PoseNode>& nodes = target.Nodes;
         for ( const G::PoseNode& node : nodes )
         {
             // INIT-CAPTURED, not copied from a const local: a const member makes the closure's move a copy that
@@ -192,7 +192,7 @@ namespace Desert::Editor
                                  } } );
             actions.push_back( { std::format( "Delete Node '{}'", name ),
                                  [this, name = node.Name] { RemovePoseNode( name ); } } );
-            if ( *target.Output != name )
+            if ( target.Output != name )
                 actions.push_back( { std::format( "Wire '{}' Into Output Pose", name ),
                                      [this, name = node.Name] { WirePose( name, std::string(), 0 ); } } );
             // Only the wires the unit would accept: an unwired pin of another node, no loop closed.
@@ -200,15 +200,13 @@ namespace Desert::Editor
             {
                 for ( int pin = 0; pin < static_cast<int>( into.PoseInputs.size() ); ++pin )
                 {
-                    if ( !into.PoseInputs[static_cast<size_t>( pin )].empty() )
-                        continue;
-                    std::vector<G::PoseNode> trial = nodes;
-                    if ( !Graph::ConnectPose( trial, name, into.Name, pin ).IsSuccess() )
-                        continue;
-                    actions.push_back( { std::format( "Wire '{}' Into '{}' {}", name, into.Name,
-                                                      Graph::PosePinLabel( into, pin ) ),
-                                         [this, name = node.Name, to = into.Name, pin]
-                                         { WirePose( name, to, pin ); } } );
+                    // A QUESTION, not a refused edit: the refusal is the answer "not offered", nothing is lost.
+                    if ( into.PoseInputs[static_cast<size_t>( pin )].empty() &&
+                         Graph::CanConnectPose( nodes, name, into.Name, pin ).IsSuccess() )
+                        actions.push_back( { std::format( "Wire '{}' Into '{}' {}", name, into.Name,
+                                                          Graph::PosePinLabel( into, pin ) ),
+                                             [this, name = node.Name, to = into.Name, pin]
+                                             { WirePose( name, to, pin ); } } );
                 }
             }
         }
@@ -218,8 +216,8 @@ namespace Desert::Editor
     {
         G::AnimGraph&             graph      = *anim.Graph;
         const PoseGraphTarget     target     = ResolvePoseTarget( graph );
-        std::vector<G::PoseNode>& nodes      = *target.Nodes;
-        std::string&              poseOutput = *target.Output;
+        std::vector<G::PoseNode>& nodes      = target.Nodes;
+        std::string&              poseOutput = target.Output;
         bool                      dirty      = false;
 
         m_PoseCanvas = Graph::PlanPoseCanvas( nodes, poseOutput, m_PoseIds );
@@ -465,8 +463,8 @@ namespace Desert::Editor
     {
         G::AnimGraph&             graph      = *anim.Graph;
         const PoseGraphTarget     target     = ResolvePoseTarget( graph );
-        std::vector<G::PoseNode>& nodes      = *target.Nodes;
-        std::string&              poseOutput = *target.Output;
+        std::vector<G::PoseNode>& nodes      = target.Nodes;
+        std::string&              poseOutput = target.Output;
         bool                      dirty      = false;
 
         ImGui::BeginChild( "##poseSide", ImVec2( 290.0f, height ), true );

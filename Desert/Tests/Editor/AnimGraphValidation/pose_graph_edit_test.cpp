@@ -16,6 +16,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <tuple>
 
 namespace G  = Desert::Animation::Graph;
 namespace EG = Desert::Editor::Graph;
@@ -133,6 +134,34 @@ TEST( PoseGraphEdit, AWireThatClosesALoopIsRefusedAndNamesTheLoop )
     EXPECT_FALSE( EG::ConnectPose( graph.Nodes, a, b, 7 ).IsSuccess() ) << "a pin the node does not have";
 }
 
+TEST( PoseGraphEdit, TheQuestionAnswersAsTheEditRefusesAndWritesNothing )
+{
+    // THE RELATION, not either function: the Wire actions are CanConnectPose's answers and the drop is
+    // ConnectPose's, so the two must refuse the same wires with the same words -- and the question must
+    // leave the graph as it found it.
+    G::AnimGraph      graph = G::MakeStateMachineGraph( "Fox" );
+    const std::string a     = Add( graph, G::PoseNodeKind::ApplyAdditive );
+    const std::string b     = Add( graph, G::PoseNodeKind::LayeredBlendPerBone );
+    ASSERT_TRUE( EG::ConnectPose( graph.Nodes, a, b, 0 ).IsSuccess() );
+    auto saved = G::Deserialize( G::Serialize( graph ) );
+    ASSERT_TRUE( saved.IsSuccess() ) << saved.GetError();
+    graph = saved.ExtractValue();
+
+    const std::string before = G::Serialize( graph );
+    for ( const auto& [from, to, pin] : { std::tuple{ b, a, 0 }, std::tuple{ a, a, 1 }, std::tuple{ a, b, 7 },
+                                          std::tuple{ std::string( "nobody" ), a, 0 }, std::tuple{ b, a, 1 } } )
+    {
+        SCOPED_TRACE( std::format( "{} -> {} pin {}", from, to, pin ) );
+        const auto asked = EG::CanConnectPose( graph.Nodes, from, to, pin );
+        EXPECT_EQ( G::Serialize( graph ), before ) << "asking wrote into the graph";
+        std::vector<G::PoseNode> trial = graph.Nodes;
+        const auto               done  = EG::ConnectPose( trial, from, to, pin );
+        ASSERT_EQ( asked.IsSuccess(), done.IsSuccess() );
+        if ( !asked.IsSuccess() )
+            EXPECT_EQ( asked.GetError(), done.GetError() );
+    }
+}
+
 TEST( PoseGraphEdit, DeletingANodeTakesItsWiresAndTheOutputWithIt )
 {
     G::AnimGraph      graph  = G::MakeStateMachineGraph( "Fox" );
@@ -192,7 +221,10 @@ TEST( PoseGraphEdit, ThePanelEditsThePoseGraphThroughTheUnit )
 {
     const std::string source = ReadSource( "Editor/Source/Editor/Panels/Animation/AnimGraphPanelPoseGraph.cpp" );
     ASSERT_FALSE( source.empty() );
-    EXPECT_NE( source.find( "Graph::AddPoseNode( graph, *target.Nodes, kind, target.Scope" ), std::string::npos );
+    EXPECT_NE( source.find( "Graph::AddPoseNode( graph, target.Nodes, kind, target.Scope" ), std::string::npos );
+    EXPECT_NE( source.find( "Graph::CanConnectPose( nodes, name, into.Name, pin ).IsSuccess()" ),
+               std::string::npos )
+         << "the Wire actions are not the unit's own answer to \"would this wire be accepted\"";
     EXPECT_NE( source.find( "Graph::ConnectPose( trial, from" ), std::string::npos )
          << "the canvas drag does not ask the unit before it wires";
     EXPECT_NE( source.find( "ed::ShowBackgroundContextMenu()" ), std::string::npos );

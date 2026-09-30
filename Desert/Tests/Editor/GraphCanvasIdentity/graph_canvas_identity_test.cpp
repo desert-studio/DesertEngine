@@ -51,6 +51,7 @@
 #include <algorithm>
 #include <cfloat>
 #include <cstdio>
+#include <format>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -610,19 +611,36 @@ TEST( GraphCanvasIdentity, BothGraphDocumentsOfferFrameAllWithoutAMouse )
     // empty rectangle for its whole life once `imgui-node-editor`'s lazy first-frame init had refused its
     // canvas. And it has to be a DOCUMENT ACTION, not only a button: synthetic input is closed on this
     // machine, so a button is a control no script and no test can press.
-    for ( const char* relative : { "Editor/Source/Editor/Panels/Animation/AnimGraphPanel.cpp",
-                                   "Editor/Source/Editor/Panels/NodeGraph/NodeGraphPanel.cpp" } )
+    //
+    // THE CANVAS THE ACTION FRAMES IS THE ONE ON SCREEN. The anim graph has two canvases (the pose graph and
+    // the state machine, each its own editor context), so its actions name `ShownCanvas()` -- and that
+    // accessor is pinned to choose between exactly those two, so an action framing a hidden canvas (which
+    // does nothing the user can see) is red as well.
+    struct Document
     {
-        SCOPED_TRACE( relative );
-        const std::string source = PanelSource( relative );
-        ASSERT_FALSE( source.empty() ) << relative;
-        EXPECT_NE( source.find( R"({ "Frame All", [this] { Graph::FrameAll( m_Context ); } },)" ),
+        const char* Relative;
+        const char* Canvas;
+    };
+    for ( const Document& doc :
+          { Document{ "Editor/Source/Editor/Panels/Animation/AnimGraphPanel.cpp", "ShownCanvas()" },
+            Document{ "Editor/Source/Editor/Panels/NodeGraph/NodeGraphPanel.cpp", "m_Context" } } )
+    {
+        SCOPED_TRACE( doc.Relative );
+        const std::string source = PanelSource( doc.Relative );
+        ASSERT_FALSE( source.empty() ) << doc.Relative;
+        EXPECT_NE( source.find(
+                        std::format( R"({{ "Frame All", [this] {{ Graph::FrameAll( {} ); }} }},)", doc.Canvas ) ),
                    std::string::npos )
              << "no Frame All among this document's actions";
-        EXPECT_NE( source.find( R"({ "Frame Selection", [this] { Graph::FrameSelection( m_Context ); } },)" ),
+        EXPECT_NE( source.find( std::format(
+                        R"({{ "Frame Selection", [this] {{ Graph::FrameSelection( {} ); }} }},)", doc.Canvas ) ),
                    std::string::npos )
              << "no Frame Selection among this document's actions";
     }
+    const std::string header = PanelSource( "Editor/Source/Editor/Panels/Animation/AnimGraphPanel.hpp" );
+    ASSERT_FALSE( header.empty() );
+    EXPECT_NE( header.find( "return m_EditingMachine ? m_Context : m_PoseContext;" ), std::string::npos )
+         << "AnimGraphPanel::ShownCanvas no longer answers with the canvas the panel is drawing";
 }
 
 TEST( GraphCanvasIdentity, NeitherCanvasIsWrappedInAChildWindow )

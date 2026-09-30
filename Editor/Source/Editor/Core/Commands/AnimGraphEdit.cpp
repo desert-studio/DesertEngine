@@ -95,7 +95,7 @@ namespace Desert::Editor
              std::make_unique<AnimGraphEditCommand>( m_Owner, std::move( *before ), *graph ) );
         // The graph as it stands is the settled state now, and the push is this window's own history move.
         m_Baseline      = *graph;
-        m_BaselineOwner = m_Owner.Identity;
+        m_BaselineOwner = m_Owner.Asset;
         m_HistorySeen   = CommandHistory::Get().Revision();
         return Common::MakeSuccess( 1u );
     }
@@ -109,7 +109,7 @@ namespace Desert::Editor
     void AnimGraphEditTransaction::Rebase( const G::AnimGraph& graph, uint32_t revision )
     {
         m_Baseline         = graph;
-        m_BaselineOwner    = m_Owner.Identity;
+        m_BaselineOwner    = m_Owner.Asset;
         m_BaselineRevision = revision;
         m_HistorySeen      = CommandHistory::Get().Revision();
     }
@@ -145,7 +145,7 @@ namespace Desert::Editor
         }
 
         m_Owner = owner;
-        if ( !m_Baseline || m_BaselineOwner != owner.Identity || history != m_HistorySeen )
+        if ( !m_Baseline || m_BaselineOwner != owner.Asset || history != m_HistorySeen )
         {
             // First sight of this owner, or the history moved the graph itself: not an edit of this window's.
             Rebase( *graph, revision );
