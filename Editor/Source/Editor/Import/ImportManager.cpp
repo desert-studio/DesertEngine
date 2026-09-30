@@ -141,7 +141,7 @@ namespace Desert::Editor
         auto ext = path.extension().string();
         std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
         if ( !m_Importers.contains( ext ) )
-            return { CookVerdict::NotCookable, {} };
+            return { CookVerdict::NotCookable, {}, {}, {} };
         return ImportParsed( path, settings );
     }
 
@@ -167,7 +167,7 @@ namespace Desert::Editor
         // JobSystem workers) and drag-and-drop. Widening it into a result would oblige every one of
         // those to grow an answer nobody is waiting for. What Д31-D asked for is that a cooked file
         // that was never written stops being INDISTINGUISHABLE from one that was; it now is.
-        ImportOutcome outcome{ CookVerdict::Cooked, {} };
+        ImportOutcome outcome{ CookVerdict::Cooked, {}, {}, {} };
         if ( const auto cooked = CreateAssetsFromImport( result, path, settings, outcome ); !cooked )
         {
             LOG_ERROR( "[Import] '{}' was parsed but its cooked output is incomplete: {}", path.string(),
@@ -276,10 +276,11 @@ namespace Desert::Editor
         if ( !staticMesh )
         {
             // What the file imports as: a skinned mesh, else the skeleton, else clips only.
-            const Common::Content::ContentKind kind = resolved.Mesh ? Common::Content::ContentKind::SkinnedMesh
-                                                      : resolved.Skeleton
-                                                           ? Common::Content::ContentKind::Skeleton
-                                                           : Common::Content::ContentKind::Animation;
+            Common::Content::ContentKind kind = Common::Content::ContentKind::Animation;
+            if ( resolved.Mesh )
+                kind = Common::Content::ContentKind::SkinnedMesh;
+            else if ( resolved.Skeleton )
+                kind = Common::Content::ContentKind::Skeleton;
             if ( resolved.Mesh || resolved.Skeleton || !resolved.Animations.empty() )
                 record( RecordImport( sourcePath, kind, resolved.Mesh ? &resolved.Mesh.value() : nullptr,
                                       settings ) );
@@ -313,7 +314,8 @@ namespace Desert::Editor
         {
             const auto serialized = SerializeAnimationAsset( anim, sourcePath );
             if ( serialized )
-                written.WrittenClips.push_back( SkinnedAssetPath( sourcePath, "_" + anim.Name + ".anim" ) );
+                written.WrittenClips.push_back(
+                     SkinnedAssetPath( sourcePath, std::format( "_{}.anim", anim.Name ) ) );
             record( serialized );
         }
 

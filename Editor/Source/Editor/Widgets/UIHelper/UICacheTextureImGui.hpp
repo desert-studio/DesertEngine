@@ -2,6 +2,8 @@
 
 #include <Engine/Graphic/Image.hpp>
 
+#include <ImGui/imgui.h>
+
 #include <memory>
 
 namespace Desert::Editor::UI
@@ -29,6 +31,6 @@ namespace Desert::Editor::UI
     class UICacheTextureImGui
     {
     public:
-        const void* AddTextureCache( const std::shared_ptr<Graphic::Image2D>& image );
+        ImTextureID AddTextureCache( const std::shared_ptr<Graphic::Image2D>& image );
     };
 } // namespace Desert::Editor::UI

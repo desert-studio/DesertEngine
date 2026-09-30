@@ -304,6 +304,10 @@ namespace Desert::Editor
         // browser tile, the splash and every kind ask for one picture of one file.
         static Request MeshRequestOf( Kind kind, const Assets::AssetHandle& mesh, const std::string& cookedPath,
                                       const Assets::AssetHandle& material );
+        // THE ONE REQUEST SHAPE of a material capture (queued, warmed, previewed): its preview primitive or mesh
+        // and its whole thumbnail info, keyed under @p identity and written to @p png.
+        static Request MaterialRequestOf( const ThumbnailSubject::Material& material, std::string identity,
+                                          std::string source, std::string png );
         // THE ORBIT FROM THE MESH'S PACKAGE (its import record) into @p req, read only when a capture is owed;
         // an unreadable record is said and the asset marked failed (false).
         bool ReadMeshOrbit( Request& req );

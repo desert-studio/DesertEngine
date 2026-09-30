@@ -15,6 +15,7 @@
 #include <format>
 #include <iterator>
 #include <limits>
+#include <span>
 #include <utility>
 
 namespace Desert::Editor
@@ -80,23 +81,23 @@ namespace Desert::Editor
             Ser::SubmeshData sub = from;
             sub.VertexOffset     = static_cast<uint32_t>( mesh.StaticVertices.size() );
             sub.IndexOffset      = static_cast<uint32_t>( mesh.Indices.size() * 3 );
-            mesh.StaticVertices.insert( mesh.StaticVertices.end(),
-                                        combined.StaticVertices.begin() + from.VertexOffset,
-                                        combined.StaticVertices.begin() + from.VertexOffset + from.VertexCount );
+            // The submesh's range of one of the combined mesh's arrays, appended to the node's.
+            const auto append = []( auto& into, const auto& all, std::size_t first, std::size_t count )
+            {
+                const auto range = std::span( all ).subspan( first, count );
+                into.insert( into.end(), range.begin(), range.end() );
+            };
+            append( mesh.StaticVertices, combined.StaticVertices, from.VertexOffset, from.VertexCount );
             if ( hasColors )
-                mesh.Colors.insert( mesh.Colors.end(), combined.Colors.begin() + from.VertexOffset,
-                                    combined.Colors.begin() + from.VertexOffset + from.VertexCount );
+                append( mesh.Colors, combined.Colors, from.VertexOffset, from.VertexCount );
             if ( hasUV1 )
-                mesh.UV1.insert( mesh.UV1.end(), combined.UV1.begin() + from.VertexOffset,
-                                 combined.UV1.begin() + from.VertexOffset + from.VertexCount );
+                append( mesh.UV1, combined.UV1, from.VertexOffset, from.VertexCount );
             const std::size_t firstFace = from.IndexOffset / 3;
             const std::size_t faces     = from.IndexCount / 3;
             // Indices are submesh-local (the importer's convention), so they are copied unchanged.
-            mesh.Indices.insert( mesh.Indices.end(), combined.Indices.begin() + firstFace,
-                                 combined.Indices.begin() + firstFace + faces );
+            append( mesh.Indices, combined.Indices, firstFace, faces );
             if ( groupsPerFace )
-                mesh.PolyGroups.insert( mesh.PolyGroups.end(), combined.PolyGroups.begin() + firstFace,
-                                        combined.PolyGroups.begin() + firstFace + faces );
+                append( mesh.PolyGroups, combined.PolyGroups, firstFace, faces );
             mesh.Submeshes.push_back( std::move( sub ) );
         }
 
@@ -191,7 +192,7 @@ namespace Desert::Editor
                                         const Assets::SourceImportSettings& settings )
     {
         std::optional<Common::Math::AABB> box;
-        if ( imported )
+        if ( imported != nullptr )
             if ( const auto sourceBox = Ser::MeshDataBounds( *imported ) )
                 box = SourceToEngineBounds( *sourceBox, settings.Mesh );
         if ( auto identity = Ser::EnsureImportRecord( source, kind, box, settings ); !identity )

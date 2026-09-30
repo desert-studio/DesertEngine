@@ -348,9 +348,9 @@ namespace Desert::Editor
             auto sky = ThumbnailSubject::DomeSkyboxOf( materialHandle );
             if ( !sky )
                 return Common::MakeFormattedError( "'{}' was not queued: {}", outPng, sky.GetError() );
-            if ( sky.GetValue() )
+            if ( const auto& dome = sky.GetValue(); dome )
             {
-                m_PendingSky = Assets::AssetHandle( *sky.GetValue() );
+                m_PendingSky = Assets::AssetHandle( *dome );
                 (void)Runtime::RequireSkybox( *m_PendingSky );
             }
         }
@@ -469,7 +469,7 @@ namespace Desert::Editor
         // resulting file as a finished picture. Asked here rather than in Tick() because this is the last
         // moment the caller is still on the stack and can be told; five frames later there is only a PNG.
         auto* mesh = Runtime::ResourceRegistry::GetMeshService()->Get( meshHandle );
-        if ( !mesh )
+        if ( mesh == nullptr )
         {
             return Common::MakeFormattedError(
                  "mesh {} is not built in the MeshService, so a capture would photograph an empty scene "
@@ -501,7 +501,7 @@ namespace Desert::Editor
             auto slots = MeshOwnSlots( meshHandle );
             if ( !slots )
                 return Common::MakeFormattedError( "'{}' was not queued: {}", outPng, slots.GetError() );
-            m_PendingSlots = std::move( slots.GetValue() );
+            m_PendingSlots = slots.GetValue();
         }
 
         m_PendingHandle   = meshHandle;

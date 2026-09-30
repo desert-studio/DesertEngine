@@ -350,7 +350,7 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
 
     std::vector<uint32_t> ReflectVertexInputLocations( const std::vector<uint32_t>& spirv )
     {
-        spirv_cross::Compiler              compiler( spirv );
+        const spirv_cross::Compiler        compiler( spirv );
         const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
 
         std::vector<uint32_t> locations;

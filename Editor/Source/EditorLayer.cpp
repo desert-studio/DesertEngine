@@ -9906,7 +9906,7 @@ namespace Desert::Editor
             auto& smc          = e.AddComponent<ECS::StaticMeshComponent>();
             smc.Primitive      = Geometry::PrimitiveType::Cube;
             const auto* demo   = Editor::MaterialAssetUtils::FindDemoMaterial( matName );
-            if ( !demo )
+            if ( demo == nullptr )
             {
                 LOG_ERROR( "[Cornell] '{}' is not in the demo material table; '{}' gets no material.", matName,
                            name );

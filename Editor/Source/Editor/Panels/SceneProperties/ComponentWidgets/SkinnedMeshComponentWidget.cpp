@@ -36,7 +36,7 @@ namespace Desert::Editor
 
         // The framed preview box beside an asset slot: the asset's rendered thumbnail when @p picture is
         // given (DrawMeshThumbnail), its GLYPH until then — and the type bar underneath when the slot is filled.
-        void DrawAssetBox( float size, const char* icon, bool filled, ImU32 tint, const void* picture = nullptr )
+        void DrawAssetBox( float size, const char* icon, bool filled, ImU32 tint, ImTextureID picture = nullptr )
         {
             const ImVec2 at = ImGui::GetCursorScreenPos();
             ImGui::Dummy( ImVec2( size, size ) );
@@ -44,13 +44,13 @@ namespace Desert::Editor
             const ImVec2 br( at.x + size, at.y + size );
             ImDrawList*  dl = ImGui::GetWindowDrawList();
             dl->AddRectFilled( at, br, IM_COL32( 15, 15, 15, 255 ), 2.0f );
-            if ( picture )
-                dl->AddImageRounded( reinterpret_cast<ImTextureID>( const_cast<void*>( picture ) ),
-                                     ImVec2( at.x + 1.0f, at.y + 1.0f ), ImVec2( br.x - 1.0f, br.y - 1.0f ),
-                                     ImVec2( 0, 0 ), ImVec2( 1, 1 ), IM_COL32_WHITE, 2.0f );
+            if ( picture != nullptr )
+                dl->AddImageRounded( picture, ImVec2( at.x + 1.0f, at.y + 1.0f ),
+                                     ImVec2( br.x - 1.0f, br.y - 1.0f ), ImVec2( 0, 0 ), ImVec2( 1, 1 ),
+                                     IM_COL32_WHITE, 2.0f );
             dl->AddRect( at, br, ImGui::GetColorU32( ImGuiCol_Border ), 2.0f );
 
-            if ( !picture )
+            if ( picture == nullptr )
             {
                 const ImVec2 ts = ImGui::CalcTextSize( icon );
                 dl->AddText( ImVec2( at.x + ( size - ts.x ) * 0.5f, at.y + ( size - ts.y ) * 0.5f ),
@@ -113,7 +113,7 @@ namespace Desert::Editor
                     ThumbnailService::Get().RequestPose( subject.GetValue() );
             }
         }
-        const void* picture = thumb && m_UI ? m_UI->GetTextureID( thumb ) : nullptr;
+        const ImTextureID picture = thumb && m_UI != nullptr ? m_UI->GetTextureID( thumb ) : nullptr;
         DrawAssetBox( size, ICON_MDI_HUMAN, filled, kSkeletalMeshTint, picture );
     }
 

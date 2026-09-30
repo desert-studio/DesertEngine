@@ -283,7 +283,7 @@ namespace Desert::Editor::ImportOptions
         for ( std::size_t i = 0; i < count && !w.Queue.empty(); ++i )
         {
             // Popped before its continuations run: a continuation may queue again (a drop of another new file).
-            QueuedSource entry = std::move( w.Queue.front() );
+            const QueuedSource entry = std::move( w.Queue.front() );
             w.Queue.pop_front();
             if ( ImportOne( entry.Source, w.Shown ) )
                 for ( const auto& then : entry.OnImported )
@@ -410,7 +410,10 @@ namespace Desert::Editor::ImportOptions
             auto last = LoadLastUsed();
             if ( !last )
                 LOG_ERROR( "[Import] {}; the window starts from the defaults", last.GetError() );
-            w.Shown = last && last.GetValue() ? *last.GetValue() : Assets::SourceImportSettings{};
+            w.Shown = Assets::SourceImportSettings{};
+            if ( last )
+                if ( const auto& saved = last.GetValue(); saved )
+                    w.Shown = *saved;
             ImGui::OpenPopup( kWindowTitle );
             w.Open = true;
         }

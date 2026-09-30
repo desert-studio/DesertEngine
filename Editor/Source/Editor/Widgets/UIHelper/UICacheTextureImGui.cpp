@@ -12,7 +12,7 @@
 
 namespace Desert::Editor::UI
 {
-    const void* UICacheTextureImGui::AddTextureCache( const std::shared_ptr<Graphic::Image2D>& image )
+    ImTextureID UICacheTextureImGui::AddTextureCache( const std::shared_ptr<Graphic::Image2D>& image )
     {
         if ( !image )
             return nullptr;
