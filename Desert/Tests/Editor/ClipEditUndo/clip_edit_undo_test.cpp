@@ -349,9 +349,15 @@ namespace
             }
             switch ( part )
             {
-                case DA::TrackChannel::Position: keys += transform->Translation.X.Keys.size(); break;
-                case DA::TrackChannel::Rotation: keys += transform->Rotation.X.Keys.size(); break;
-                case DA::TrackChannel::Scale: keys += transform->Scale.X.Keys.size(); break;
+                case DA::TrackChannel::Position:
+                    keys += transform->Translation.X.Keys.size();
+                    break;
+                case DA::TrackChannel::Rotation:
+                    keys += transform->Rotation.X.Keys.size();
+                    break;
+                case DA::TrackChannel::Scale:
+                    keys += transform->Scale.X.Keys.size();
+                    break;
             }
         }
         return keys;
@@ -588,10 +594,12 @@ TEST_F( ClipEditUndo, KeyingTwoTicksThenScrubbingPutsTheControlBetweenThemAndEac
     EXPECT_EQ( PartKeysOf( m_Clip, "hand_ctrl", DA::TrackChannel::Position ), 2U ) << "playback must key nothing";
 
     ASSERT_TRUE( CommandHistory::Get().Undo() );
-    EXPECT_EQ( PartKeysOf( m_Clip, "hand_ctrl", DA::TrackChannel::Position ), 1U ) << "undo removes the second key";
+    EXPECT_EQ( PartKeysOf( m_Clip, "hand_ctrl", DA::TrackChannel::Position ), 1U )
+         << "undo removes the second key";
     ASSERT_TRUE( CommandHistory::Get().Undo() );
     EXPECT_EQ( PartKeysOf( m_Clip, "hand_ctrl", DA::TrackChannel::Position ), 0U );
-    EXPECT_EQ( DA::FindBoneTrack( m_Clip.Sequence, "hand_ctrl" ), nullptr ) << "the track the key created goes too";
+    EXPECT_EQ( DA::FindBoneTrack( m_Clip.Sequence, "hand_ctrl" ), nullptr )
+         << "the track the key created goes too";
 
     const std::vector<uint32_t> none;
     EXPECT_FALSE(
@@ -610,7 +618,8 @@ TEST_F( ClipEditUndo, AutoKeyWritesExactlyOneKeyAndOneEntryPerControlGesture )
     uint32_t                       entries = 0;
     const auto                     step    = [&]( bool held )
     {
-        const auto stepped = autoKey.Step( m_Transaction, &m_Animator, m_Keyer, Target( &hierarchy ), control, held );
+        const auto stepped =
+             autoKey.Step( m_Transaction, &m_Animator, m_Keyer, Target( &hierarchy ), control, held );
         EXPECT_TRUE( stepped.IsSuccess() ) << ( stepped.IsSuccess() ? "" : stepped.GetError() );
         entries += stepped.IsSuccess() ? stepped.GetValue() : 0U;
     };
@@ -690,7 +699,8 @@ TEST_F( ClipEditUndo, AutoKeyKeysACommandEditWithoutTheGizmoAndOneUndoTakesBackP
 
     ASSERT_TRUE( CommandHistory::Get().Undo() );
     EXPECT_EQ( rotationKeys(), 0U ) << "undo removes the key";
-    EXPECT_TRUE( SameStoredValue( hierarchy.Get( control ).Pose, before ) ) << "and the same undo puts the control back";
+    EXPECT_TRUE( SameStoredValue( hierarchy.Get( control ).Pose, before ) )
+         << "and the same undo puts the control back";
     ASSERT_TRUE( CommandHistory::Get().Redo() );
     EXPECT_EQ( rotationKeys(), 1U );
 
@@ -710,9 +720,9 @@ TEST_F( ClipEditUndo, AControlRowKeyMovesAndDeletesAllThreeChannelsTogetherAsOne
 {
     constexpr std::array<DA::TrackChannel, 3> kParts = { DA::TrackChannel::Position, DA::TrackChannel::Rotation,
                                                          DA::TrackChannel::Scale };
-    const DA::FrameNumber first{ 0 };
-    const DA::FrameNumber last{ kDisplayFrameTicks * 20 };
-    const DA::FrameNumber moved{ kDisplayFrameTicks * 5 };
+    const DA::FrameNumber                     first{ 0 };
+    const DA::FrameNumber                     last{ kDisplayFrameTicks * 20 };
+    const DA::FrameNumber                     moved{ kDisplayFrameTicks * 5 };
     ASSERT_TRUE( DA::SetBoneKey( m_Clip.Sequence, "hand_ctrl", first, AtX( 0.0F ) ).IsSuccess() );
     ASSERT_TRUE( DA::SetBoneKey( m_Clip.Sequence, "hand_ctrl", last, AtX( 20.0F ) ).IsSuccess() );
     const Timeline::Sequence before = m_Clip.Sequence;
