@@ -1,0 +1,113 @@
+#ifndef DESERT_SHADING_MODEL_CONTRACT_GLSLH
+#define DESERT_SHADING_MODEL_CONTRACT_GLSLH
+
+// THE CONTRACT BETWEEN A SHADING MODEL AND THE PASSES THAT LIGHT IT.
+//
+// A shading model is a file, ShadingModels/<Name>.shadingmodel (format: Engine/Core/ShaderCompiler/ShadingModels/
+// ShadingModelManifest.hpp). Its GLSL body defines exactly two functions with the signatures below; nothing else
+// of a model reaches a pass. Unlit and DefaultLit are such files too — no pass and no C++ names either of them.
+//
+//   vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P );
+//        The light ONE source reflects toward the eye (radiance, before exposure). Called once per source: the
+//        sun, every point light, every spot light. The model applies L.Shadow itself (a toon model may band it).
+//
+//   vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P );
+//        The environment's contribution: IBL, the indirect bounce, the ambient floor, all times A.Occlusion.
+//
+// Emission is NOT the model's: the pass adds SurfaceOutput.Emissive after both calls, for every model. So Unlit is
+// the model whose two functions return vec3( 0.0 ) — the texel is its emission, with no special case anywhere.
+//
+// Who includes what. The registry (ShadingModelRegistry) generates ShadingModels.generated.glslh, which includes
+// this file, then every model body, then the dispatch:
+//   vec3  DesertEvaluateShadingModel( int index, DesertLight L, DesertSurface S, DesertPayload P );
+//   vec3  DesertEvaluateShadingModelAmbient( int index, DesertAmbient A, DesertSurface S, DesertPayload P );
+//   float DesertPackShadingWord( int index, float sampledTextureCount, DesertPayload P );
+//   int   DesertShadingModelIndex( float shadingWord );
+//   float DesertSampledTextureCount( float shadingWord );
+//   DesertPayload DesertUnpackPayload( float shadingWord );
+//   DesertPayload DesertQuantizePayload( DesertPayload P );
+//   #define SHADING_MODEL_INDEX_<NAME> <index>   (one per model; SHADING_MODEL_INDEX_UNLIT is 0)
+// The deferred composite (Programs/Deferred/DeferredLighting.shader) AND the forward passes
+// (Mesh/Surface/Pass_Forward*.glslh) include the generated file and call the SAME two dispatchers — one formula
+// for opaque and translucent. The forward pass quantizes its payload with DesertQuantizePayload before the call,
+// so a translucent surface sees the same 8-bit payload an opaque one reads back from the G-buffer.
+//
+// Before a pass includes the generated file it provides the two environment lookups a model may call for
+// directions other than the precomputed ones in DesertAmbient (both passes already bind the cubes:
+// DeferredLighting.shader and Pass_Forward.glslh:44-45, through Common/SkyLook.glslh's rotation and gain):
+//   vec3 DesertAmbientIrradiance( vec3 worldDirection );
+//   vec3 DesertAmbientSpecular( vec3 worldDirection, float roughness );
+
+// ----------------------------------------------------------------------------------------------------------------
+// The payload: at most two floats per model, carried by the G-buffer WITHOUT a new target.
+//
+// The G-buffer today (Mesh/Surface/Pass_GBuffer.glslh:7-10, read at Programs/Deferred/DeferredLighting.shader:216-236):
+//   GBufferA        RGBA8    BaseColor.rgb, Metallic.a                       — full
+//   GBufferB        RGBA16F  world Normal.rgb, Roughness.a                   — full
+//   GBufferC        RGBA32F  WorldPosition.xyz, shading word .w              — xyz full
+//   GBufferEmissive RGBA16F  Emissive.rgb, AmbientOcclusion.a                — full
+// The one free space is the shading word, GBufferC.w (Mesh/Surface/ShadingModels.glslh:12-19): a 32-bit float
+// holds every integer below 2^24 exactly, and the word used only the id (4 bits) and the texture count above it.
+// The word becomes four bit fields, like UE's GBufferB.a (ShadingModelID | SelectiveOutputMask << 4) with the
+// payload in the place of UE's CustomData GBufferD (RGBA8 — the same 8-bit precision per float):
+//   bits  0.. 3  shading-model index (0..15; 0 = Unlit)
+//   bits  4.. 7  sampled-texture count (the Material Complexity proxy, clamped to 15)
+//   bits  8..15  payload 0, unorm8
+//   bits 16..23  payload 1, unorm8
+// Bits 24..31 are NOT free: above 2^24 a float no longer holds every integer.
+// ShadingModelManifest.hpp (kShadingWordFields) is the C++ half of this table; the ShadingModelContract suite
+// holds the two equal and the fields disjoint.
+#define DESERT_SHADING_WORD_INDEX_FIRST_BIT    0
+#define DESERT_SHADING_WORD_INDEX_BITS         4
+#define DESERT_SHADING_WORD_TEXTURES_FIRST_BIT 4
+#define DESERT_SHADING_WORD_TEXTURES_BITS      4
+#define DESERT_SHADING_WORD_PAYLOAD0_FIRST_BIT 8
+#define DESERT_SHADING_WORD_PAYLOAD1_FIRST_BIT 16
+#define DESERT_SHADING_WORD_PAYLOAD_BITS       8
+#define DESERT_SHADING_WORD_EXACT_BITS         24
+
+// A model's two payload floats, in [0, 1] (the pass clamps; 1/255 resolution). The manifest's `Payload` block
+// names them for the material author; the body reads them as CustomData0 / CustomData1, UE's pin names, which are
+// the SurfaceOutput fields the material writes. A model with no payload never reads P.
+struct DesertPayload
+{
+    float CustomData0;
+    float CustomData1;
+};
+
+// ----------------------------------------------------------------------------------------------------------------
+// The surface at the shaded point: what DefaultLit reads today in both paths (DeferredLighting.shader:220-224, 286-288;
+// Pass_Forward.glslh:96-106), in the form both can supply. The deferred path has only what the G-buffer carries,
+// so a field enters this struct only together with its G-buffer channel.
+struct DesertSurface
+{
+    vec3  WorldPosition;
+    vec3  N;         // unit world-space shading normal
+    vec3  V;         // unit vector from the surface toward the eye
+    vec3  BaseColor; // linear
+    float Metallic;
+    float Roughness; // already clamped to >= 0.04 by the pass (the GGX NDF divides by it)
+};
+
+// One light source as it arrives at the surface (DirectLighting.glslh:36-47 is the same split: everything specific
+// to the source is above the call, the BRDF below it).
+struct DesertLight
+{
+    vec3  L;        // unit vector from the surface toward the light
+    vec3  Radiance; // colour * intensity * distance falloff * cone — the source's own model, already applied
+    float Shadow;   // 1 = unoccluded. The sun: cascades (unless ReceiveSunShadows < 0.5) times the cloud layer
+                    // (DeferredLighting.shader:300, Pass_Forward.glslh:120-125); point and spot lights: 1.
+};
+
+// The environment at the surface, sampled once by the pass for the model's normal and roughness (the split-sum
+// inputs of Mesh/AmbientIBL.glslh:30-38, 79-97).
+struct DesertAmbient
+{
+    vec3  Irradiance;   // diffuse irradiance cube at S.N (sky look applied)
+    vec3  Prefiltered;  // GGX-prefiltered cube at reflect(-S.V, S.N), mip by S.Roughness (sky look applied)
+    vec2  SpecularBRDF; // split-sum LUT .rg at (max(dot(S.N, S.V), 0), S.Roughness)
+    vec3  Indirect;     // one-bounce INCIDENT light (the deferred GI gather); vec3( 0.0 ) in the forward passes
+    float Occlusion;    // the material's AmbientOcclusion times SSAO where the pass has it (DeferredLighting.shader:250)
+};
+
+#endif
