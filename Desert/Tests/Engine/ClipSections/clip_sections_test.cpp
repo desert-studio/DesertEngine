@@ -54,21 +54,21 @@ using Desert::Animation::ScalarKey;
 using Desert::Animation::SetBoneKey;
 using Desert::Animation::Skeleton;
 using Desert::Animation::Timeline::AddSection;
-using Desert::Animation::Timeline::ClearSectionWeight;
-using Desert::Animation::Timeline::MoveSection;
-using Desert::Animation::Timeline::RemoveSection;
-using Desert::Animation::Timeline::RemoveSectionWeightKey;
-using Desert::Animation::Timeline::SetSectionRange;
-using Desert::Animation::Timeline::SetSectionRow;
-using Desert::Animation::Timeline::SetSectionWeightKey;
-using Desert::Animation::Timeline::TrackKind;
 using Desert::Animation::Timeline::BindBones;
 using Desert::Animation::Timeline::BoneBindingTable;
 using Desert::Animation::Timeline::Channel;
+using Desert::Animation::Timeline::ClearSectionWeight;
 using Desert::Animation::Timeline::EvaluatePose;
+using Desert::Animation::Timeline::MoveSection;
+using Desert::Animation::Timeline::RemoveSection;
+using Desert::Animation::Timeline::RemoveSectionWeightKey;
 using Desert::Animation::Timeline::Section;
 using Desert::Animation::Timeline::SectionBlendType;
+using Desert::Animation::Timeline::SetSectionRange;
+using Desert::Animation::Timeline::SetSectionRow;
+using Desert::Animation::Timeline::SetSectionWeightKey;
 using Desert::Animation::Timeline::Track;
+using Desert::Animation::Timeline::TrackKind;
 using Desert::Animation::Timeline::TransformChannel;
 using Desert::Animation::Timeline::WeightAt;
 
@@ -437,8 +437,8 @@ TEST( ClipSections, MovingASectionCARRIESItsKeysSoItsLengthAndItsCurveAreKept )
 
 TEST( ClipSections, AMoveThatLeavesTheFrameRangeIsRefusedWHOLEAndNotClamped )
 {
-    AnimationClip clip  = MovingClip( "arm" );
-    Track&        track = TrackOf( clip, "arm" );
+    AnimationClip clip    = MovingClip( "arm" );
+    Track&        track   = TrackOf( clip, "arm" );
     const auto    refused = MoveSection( track, 0, std::numeric_limits<int32_t>::max() );
     EXPECT_FALSE( refused.IsSuccess() );
     EXPECT_EQ( track.Sections[0].Start.Value, 0 );
@@ -519,8 +519,8 @@ TEST( ClipSections, CameraCutsRefuseEveryEditThatWouldOverlapTwoOnOneRow )
 
 TEST( ClipSections, AWeightKeyIsUpsertedInTickOrderKeepsItsSHAPEAndIsNotClamped )
 {
-    AnimationClip clip  = MovingClip( "arm" );
-    Track&        track = TrackOf( clip, "arm" );
+    AnimationClip clip    = MovingClip( "arm" );
+    Track&        track   = TrackOf( clip, "arm" );
     Section&      section = track.Sections[0];
 
     ASSERT_TRUE( SetSectionWeightKey( track, 0, FrameNumber{ 2000 }, 0.25F ).IsSuccess() );
@@ -545,11 +545,11 @@ TEST( ClipSections, AWeightKeyIsUpsertedInTickOrderKeepsItsSHAPEAndIsNotClamped 
     EXPECT_FLOAT_EQ( section.Weight[1].Value, 1.5F );
     EXPECT_FLOAT_EQ( WeightAt( section, At( 2000 ), PROJECT_TICK_RATE ), 1.5F );
 
-    EXPECT_FALSE(
-         SetSectionWeightKey( track, 0, FrameNumber{ 2000 }, std::numeric_limits<float>::quiet_NaN() ).IsSuccess() )
+    EXPECT_FALSE( SetSectionWeightKey( track, 0, FrameNumber{ 2000 }, std::numeric_limits<float>::quiet_NaN() )
+                       .IsSuccess() )
          << "not a number that was too big — a value that is not one";
-    EXPECT_FALSE(
-         SetSectionWeightKey( track, 0, FrameNumber{ 2000 }, std::numeric_limits<float>::infinity() ).IsSuccess() );
+    EXPECT_FALSE( SetSectionWeightKey( track, 0, FrameNumber{ 2000 }, std::numeric_limits<float>::infinity() )
+                       .IsSuccess() );
     EXPECT_FLOAT_EQ( section.Weight[1].Value, 1.5F );
     EXPECT_FALSE( SetSectionWeightKey( track, 9, FrameNumber{ 0 }, 0.5F ).IsSuccess() );
 }

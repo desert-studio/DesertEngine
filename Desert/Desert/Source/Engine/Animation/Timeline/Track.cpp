@@ -139,8 +139,8 @@ namespace Desert::Animation::Timeline
                 if ( other != index && existing.Row == row && !( end < existing.Start ) &&
                      !( existing.End < start ) )
                 {
-                    return Common::MakeFormattedError<bool>(
-                         "[{}, {}] overlaps Camera Cut section {} on row {}", start.Value, end.Value, other, row );
+                    return Common::MakeFormattedError<bool>( "[{}, {}] overlaps Camera Cut section {} on row {}",
+                                                             start.Value, end.Value, other, row );
                 }
             }
             return Common::MakeSuccess( true );
@@ -246,7 +246,7 @@ namespace Desert::Animation::Timeline
                             [&fits, deltaTicks]( const FrameNumber& tick )
                             {
                                 const int64_t moved = static_cast<int64_t>( tick.Value ) + deltaTicks;
-                                fits = fits && moved >= std::numeric_limits<int32_t>::min() &&
+                                fits                = fits && moved >= std::numeric_limits<int32_t>::min() &&
                                        moved <= std::numeric_limits<int32_t>::max();
                             } );
         if ( !fits )
@@ -332,9 +332,9 @@ namespace Desert::Animation::Timeline
         }
 
         std::vector<ScalarKey>& weight = track.Sections[index].Weight;
-        const auto              at = std::lower_bound( weight.begin(), weight.end(), tick,
-                                                       []( const ScalarKey& key, const FrameNumber want )
-                                                       { return key.Tick < want; } );
+        const auto              at =
+             std::lower_bound( weight.begin(), weight.end(), tick,
+                               []( const ScalarKey& key, const FrameNumber want ) { return key.Tick < want; } );
         if ( at != weight.end() && !( tick < at->Tick ) )
         {
             // An existing key keeps its shape: changing a value is not permission to discard the slope
