@@ -37,6 +37,7 @@
 #include <Engine/Graphic/Clouds/CloudSkyOcclusionPayload.hpp>
 #include <Engine/Graphic/SkyPayload.hpp>
 #include <Engine/Graphic/Systems/Scene/Particles/ParticleGpuLayout.hpp>
+#include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 
 #include <Common/Core/Constants.hpp>
 
@@ -2742,18 +2743,20 @@ TEST( ShaderMapProducerFingerprint, LineEndingsWhitespaceAndCommentsDoNotCount )
     EXPECT_NE( ProducerCodeOnly( unixText ), ProducerCodeOnly( "int a = 2; // one\nint b;\n" ) );
 }
 
-TEST_F( ShaderRootFixture, TheShadingModelIdsAreOneTableInCppAndGlsl )
+TEST_F( ShaderRootFixture, TheGeneratedShadingModelIndicesAreTheRegistrys )
 {
-    // THE RELATION: the id a G-buffer writer stores (GBufferC.w, low four bits) and the id the deferred
-    // composite branches on are the SAME table — SurfaceShadingModel's values on the C++ side, the
-    // SHADING_MODEL_ID_<GlslName> defines of Mesh/Surface/ShadingModels.glslh on the shader side. A row that
-    // differs lights an Unlit surface or blacks out a lit one, and nothing else would notice.
-    namespace PP      = Desert::Core::Preprocess;
-    const auto header = std::filesystem::path( "Resources/Shaders" ) / PP::kShadingModelsInclude;
+    // THE RELATION: the index a G-buffer writer packs and the index the dispatch switches on are the SAME number —
+    // the registry's (Unlit 0, the rest by Guid), written by the registry into SHADING_MODEL_INDEX_<NAME> of the
+    // generated include every lighting pass compiles. A define that differed would light a surface with another
+    // model's formula, and nothing else would notice.
+    namespace SM       = Desert::Core::ShadingModels;
+    const auto& models = SM::ShaderRootShadingModels();
+    ASSERT_TRUE( models.IsSuccess() ) << models.GetError();
+    const auto header = std::filesystem::path( "Resources/Shaders" ) / SM::kGeneratedInclude;
     const auto text   = ReadFile( header );
-    ASSERT_FALSE( text.empty() ) << header.string();
+    EXPECT_EQ( text, models.GetValue().GeneratedGlsl ) << header.string() << " is not the loaded set's text";
 
-    std::map<std::string, int> defined; // every SHADING_MODEL_ID_* the header defines, by name
+    std::map<std::string, int> defined; // every SHADING_MODEL_INDEX_* the header defines, by name
     std::istringstream         lines( text );
     for ( std::string line; std::getline( lines, line ); )
     {
@@ -2762,38 +2765,16 @@ TEST_F( ShaderRootFixture, TheShadingModelIdsAreOneTableInCppAndGlsl )
         std::string        name;
         int                value = -1;
         if ( words >> directive >> name >> value && directive == "#define" &&
-             name.starts_with( "SHADING_MODEL_ID_" ) )
+             name.starts_with( "SHADING_MODEL_INDEX_" ) )
             defined[name] = value;
     }
-
-    ASSERT_EQ( defined.size(), PP::kSurfaceShadingModels.size() )
-         << header.string() << " defines " << defined.size() << " shading-model ids, the C++ table has "
-         << PP::kSurfaceShadingModels.size() << " rows";
-    std::set<int> ids;
-    for ( const PP::SurfaceShadingModelRow& row : PP::kSurfaceShadingModels )
+    const auto entries = models.GetValue().Registry.Entries();
+    ASSERT_EQ( defined.size(), entries.size() ) << header.string();
+    for ( const SM::ShadingModelEntry& e : entries )
     {
-        const std::string name = std::format( "SHADING_MODEL_ID_{}", row.GlslName );
-        const int         id   = static_cast<int>( row.Model );
+        const std::string name = SM::ShadingModelIndexDefine( e.Manifest.Name );
         ASSERT_TRUE( defined.contains( name ) ) << header.string() << " does not define " << name;
-        EXPECT_EQ( defined[name], id ) << name << " in " << header.string() << " is not the C++ id";
-        EXPECT_LT( id, 16 ) << "the G-buffer carries four bits of shading-model id";
-        EXPECT_TRUE( ids.insert( id ).second ) << "two shading models share id " << id;
+        EXPECT_EQ( defined[name], e.Index ) << name;
     }
-    // UE's numbering, which the "a writer that forgets the id reads as Unlit" argument rests on.
-    EXPECT_EQ( static_cast<int>( PP::SurfaceShadingModel::Unlit ), 0 );
-
-    // And each writer stores its own model's id, the reader branches on Unlit: the table is USED at both ends.
-    const std::pair<const char*, const char*> users[] = {
-         { "Resources/Shaders/Mesh/Surface/Pass_GBuffer.glslh", "SHADING_MODEL_ID_DEFAULT_LIT" },
-         { "Resources/Shaders/Mesh/Surface/Pass_GBuffer_Unlit.glslh", "SHADING_MODEL_ID_UNLIT" },
-         { "Resources/Shaders/Programs/Terrain/TerrainGBuffer.shader", "SHADING_MODEL_ID_DEFAULT_LIT" },
-         { "Resources/Shaders/Programs/Deferred/DeferredLighting.shader", "SHADING_MODEL_ID_UNLIT" },
-    };
-    for ( const auto& [file, id] : users )
-    {
-        const auto source = ReadFile( file );
-        EXPECT_NE( source.find( std::format( "<{}>", PP::kShadingModelsInclude ) ), std::string::npos )
-             << file << " does not include the shading-model table";
-        EXPECT_NE( source.find( id ), std::string::npos ) << file << " does not name " << id;
-    }
+    EXPECT_EQ( defined["SHADING_MODEL_INDEX_UNLIT"], 0 ) << "a writer that forgets the index must read as Unlit";
 }

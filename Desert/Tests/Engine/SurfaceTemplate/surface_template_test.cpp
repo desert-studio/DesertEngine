@@ -107,8 +107,16 @@ TEST_F( SurfaceTemplateFixture, TheSurfaceBlockExpandsIntoTheNineNamedCells )
 
         const auto& fragment = cell->Stages.at( Desert::Core::Formats::ShaderStage::Fragment );
         const auto  pass     = name.substr( name.find( '.' ) + 1 );
-        EXPECT_NE( fragment.find( PP::SurfacePassInclude( pass, result.Surface.Shading, result.Surface.Blend ) ), std::string::npos )
+        EXPECT_NE( fragment.find( PP::SurfacePassInclude( pass, result.Surface.Blend ) ), std::string::npos )
              << name;
+        // A template without `ShadingModel` is DefaultLit, and both stages of every cell say so to the pass
+        // headers.
+        EXPECT_EQ( static_cast<std::uint64_t>( result.Surface.ShadingModel ),
+                   Desert::Core::ShadingModels::kDefaultLitGuid );
+        for ( const auto& [stage, text] : cell->Stages )
+            EXPECT_NE( text.find( "#define DESERT_SHADING_MODEL_INDEX SHADING_MODEL_INDEX_DEFAULT_LIT\n" ),
+                       std::string::npos )
+                 << name << ": a cell stage does not name its shading model";
         EXPECT_NE( fragment.find( "EvaluateSurface" ), std::string::npos ) << name;
         EXPECT_NE( fragment.find( "#define DESERT_SURFACE_MASKED" ), std::string::npos ) << name;
         const auto& vertex = cell->Stages.at( Desert::Core::Formats::ShaderStage::Vertex );
@@ -202,6 +210,8 @@ TEST_F( SurfaceTemplateFixture, EditingAnyCellHeaderMovesTheKeyOfEveryCell )
                            std::filesystem::copy_options::recursive );
     std::filesystem::copy( s_EditorDir / "Resources/Shaders/Mesh", shaders / "Mesh",
                            std::filesystem::copy_options::recursive );
+    std::filesystem::copy( s_EditorDir / "Resources/Shaders/ShadingModels", shaders / "ShadingModels",
+                           std::filesystem::copy_options::recursive );
 
     const auto previous = std::filesystem::current_path();
     std::filesystem::current_path( root );
@@ -216,9 +226,9 @@ TEST_F( SurfaceTemplateFixture, EditingAnyCellHeaderMovesTheKeyOfEveryCell )
     };
 
     const auto headers = PP::SurfaceTemplateIncludes();
-    // Types + one vertex header per path + one pass header per (pass x shading model), the depth pass shared by
-    // both models (SurfacePassInclude).
-    EXPECT_EQ( headers.size(), 1u + PP::kSurfaceVertexPaths.size() + 2u * PP::kSurfaceCellPasses.size() - 1u );
+    // Types + one vertex header per path + one pass header per pass (every shading model is lit by the same
+    // headers) + the translucency pass header.
+    EXPECT_EQ( headers.size(), 1u + PP::kSurfaceVertexPaths.size() + PP::kSurfaceCellPasses.size() + 1u );
     for ( const auto& header : headers )
     {
         ASSERT_TRUE( std::filesystem::exists( shaders / header ) ) << header;

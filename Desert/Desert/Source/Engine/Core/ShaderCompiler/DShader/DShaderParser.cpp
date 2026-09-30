@@ -1,6 +1,7 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
 #include <Common/Content/ShaderAssetHeader.hpp>
+#include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 
 #include <algorithm>
 #include <array>
@@ -894,6 +895,61 @@ namespace Desert::Core::Preprocess
             uint32_t    StartLine = 1;
         };
 
+        // The fields a surface function ASSIGNS: every `.<Field>` (then any swizzle or index) followed by an
+        // assignment operator. What a shading model's Inputs are checked against (MissingInput) — a model that
+        // reads a field the surface never writes would shade from DefaultSurfaceOutput's placeholder.
+        std::vector<std::string> SurfaceWrittenFields( const std::string_view surface )
+        {
+            const auto isIdent = []( const char ch )
+            { return std::isalnum( static_cast<unsigned char>( ch ) ) || ch == '_'; };
+            const auto skipSpace = [&]( std::size_t at )
+            {
+                while ( at < surface.size() && std::isspace( static_cast<unsigned char>( surface[at] ) ) )
+                    ++at;
+                return at;
+            };
+            std::vector<std::string> fields;
+            for ( std::size_t dot = surface.find( '.' ); dot != std::string_view::npos;
+                  dot             = surface.find( '.', dot + 1 ) )
+            {
+                std::size_t end = skipSpace( dot + 1 );
+                if ( end >= surface.size() ||
+                     !( std::isalpha( static_cast<unsigned char>( surface[end] ) ) || surface[end] == '_' ) )
+                    continue;
+                const std::size_t nameStart = end;
+                while ( end < surface.size() && isIdent( surface[end] ) )
+                    ++end;
+                const std::string_view name = surface.substr( nameStart, end - nameStart );
+                // `.Normal.xy = ...`, `.BaseColor[0] = ...`: a write to part of the field writes the field.
+                for ( std::size_t next = skipSpace( end ); next < surface.size(); next = skipSpace( end ) )
+                {
+                    if ( surface[next] == '.' )
+                    {
+                        end = skipSpace( next + 1 );
+                        while ( end < surface.size() && isIdent( surface[end] ) )
+                            ++end;
+                    }
+                    else if ( surface[next] == '[' )
+                    {
+                        const std::size_t close = surface.find( ']', next );
+                        end                     = close == std::string_view::npos ? surface.size() : close + 1;
+                    }
+                    else
+                    {
+                        end = next;
+                        break;
+                    }
+                }
+                const std::string_view rest    = surface.substr( std::min( end, surface.size() ) );
+                const bool             assigns = ( rest.starts_with( "=" ) && !rest.starts_with( "==" ) ) ||
+                                     rest.starts_with( "+=" ) || rest.starts_with( "-=" ) ||
+                                     rest.starts_with( "*=" ) || rest.starts_with( "/=" );
+                if ( assigns && std::ranges::find( fields, name ) == fields.end() )
+                    fields.emplace_back( name );
+            }
+            return fields;
+        }
+
         // Auto-generated resource declarations from the Properties block (opt-in via Binding /
         // TextureBinding). Injected into the fragment stage (and compute, for kernel shaders) —
         // material parameters belong to shading, and a single-stage declaration keeps the
@@ -1321,11 +1377,12 @@ namespace Desert::Core::Preprocess
         std::string AssembleSurfaceCellStage( ShaderStage stage, std::string_view path, std::string_view pass,
                                               const RawBlock& surface, const RawBlock& include,
                                               const std::string& autoDecls, const SurfaceBlendMode blend,
-                                              const SurfaceShadingModel shading )
+                                              const std::string_view shadingModelDefine )
         {
             const bool        masked  = blend == SurfaceBlendMode::Masked;
-            const std::string defines = std::format( "#define DESERT_SURFACE_PASS_{} 1\n{}", pass,
-                                                     masked ? "#define DESERT_SURFACE_MASKED 1\n" : "" );
+            const std::string defines = std::format( "#define DESERT_SURFACE_PASS_{} 1\n{}#define {} {}\n", pass,
+                                                     masked ? "#define DESERT_SURFACE_MASKED 1\n" : "",
+                                                     kSurfaceShadingModelDefine, shadingModelDefine );
             RawBlock          code;
             code.StartLine = 1;
             if ( stage == ShaderStage::Vertex )
@@ -1336,14 +1393,14 @@ namespace Desert::Core::Preprocess
                 // Reflection keeps a declared binding whether or not it is read, so an opaque depth cell must
                 // not declare the surface's bindings at all: the pass header alone, no material declarations.
                 code.Content = std::format( "{}#include <{}>\n#include <{}>\n", defines, kSurfaceTypesInclude,
-                                            SurfacePassInclude( pass, shading, blend ) );
+                                            SurfacePassInclude( pass, blend ) );
                 return AssembleStage( stage, code, include, std::string() );
             }
             else
                 code.Content =
                      std::format( "{}#include <{}>\n#line {}\n{}\n#include <{}>\n", defines, kSurfaceTypesInclude,
                                   surface.StartLine > 0 ? surface.StartLine - 1 : 0, surface.Content,
-                                  SurfacePassInclude( pass, shading, blend ) );
+                                  SurfacePassInclude( pass, blend ) );
             return AssembleStage( stage, code, include, autoDecls );
         }
 
@@ -1414,18 +1471,13 @@ namespace Desert::Core::Preprocess
         return blend != SurfaceBlendMode::Translucent || pass == "Forward";
     }
 
-    std::string SurfacePassInclude( const std::string_view pass, const SurfaceShadingModel model,
-                                    const SurfaceBlendMode blend )
+    std::string SurfacePassInclude( const std::string_view pass, const SurfaceBlendMode blend )
     {
-        // The blend mode picks the pass before the shading model does: a translucent surface is shaded and
-        // composited over the scene by the translucency pass header (UE's translucency base pass).
+        // A translucent surface is shaded and composited over the scene by the translucency pass header (UE's
+        // translucency base pass). The shading model picks no header: every model is lit by the same pass, which
+        // dispatches on DESERT_SHADING_MODEL_INDEX.
         if ( blend == SurfaceBlendMode::Translucent && pass == "Forward" )
             return std::string( kSurfaceTranslucentPassInclude );
-        // The shading model picks the pass header, so an Unlit cell does not even NAME the lighting texts (the
-        // include collector is textual: an #ifdef inside one header would still pull them into the key and the
-        // layout). Depth is shading-independent: one header for both models.
-        if ( model == SurfaceShadingModel::Unlit && pass != kSurfaceDepthPass )
-            return std::format( "Mesh/Surface/Pass_{}_Unlit.glslh", pass );
         return std::format( "Mesh/Surface/Pass_{}.glslh", pass );
     }
 
@@ -1434,11 +1486,8 @@ namespace Desert::Core::Preprocess
         std::vector<std::string> includes{ std::string( kSurfaceTypesInclude ) };
         for ( const std::string_view path : kSurfaceVertexPaths )
             includes.push_back( SurfaceVertexInclude( path ) );
-        for ( const SurfaceShadingModelRow& row : kSurfaceShadingModels )
-            for ( const std::string_view pass : kSurfaceCellPasses )
-                if ( std::string header = SurfacePassInclude( pass, row.Model, SurfaceBlendMode::Opaque );
-                     std::find( includes.begin(), includes.end(), header ) == includes.end() )
-                    includes.push_back( std::move( header ) );
+        for ( const std::string_view pass : kSurfaceCellPasses )
+            includes.push_back( SurfacePassInclude( pass, SurfaceBlendMode::Opaque ) );
         includes.emplace_back( kSurfaceTranslucentPassInclude );
         return includes;
     }
@@ -1493,6 +1542,8 @@ namespace Desert::Core::Preprocess
         std::optional<RawBlock> surfaceBlock;
         uint32_t                surfaceLine        = 0;
         uint32_t                surfaceSettingLine = 0;
+        std::string             shadingModelName; // `ShadingModel <Name>`; empty = DefaultLit
+        uint32_t                shadingModelLine = 0;
 
         // Reads one stage block into the given pass. Returns false + err on problems.
         const auto readStageBlock = [&]( Cursor& cur, PendingPass& pass, ShaderStage stage,
@@ -1679,14 +1730,13 @@ namespace Desert::Core::Preprocess
             }
             else if ( lower == "shadingmodel" )
             {
-                const std::string v = Lower( ReadIdent( c ) );
-                if ( v == "defaultlit" )
-                    result.Surface.Shading = SurfaceShadingModel::DefaultLit;
-                else if ( v == "unlit" )
-                    result.Surface.Shading = SurfaceShadingModel::Unlit;
-                else
+                // The file stem of ShadingModels/<Name>.shadingmodel, as written; resolved once the Surface
+                // block is known (a directive is legal only beside one).
+                shadingModelName = ReadIdent( c );
+                shadingModelLine = line;
+                if ( shadingModelName.empty() )
                 {
-                    err = { line, std::format( "unknown ShadingModel '{}' (DefaultLit | Unlit)", v ) };
+                    err = { line, "ShadingModel needs the model's name (a ShadingModels/<Name>.shadingmodel)" };
                     return fail();
                 }
                 surfaceSettingLine = surfaceSettingLine != 0 ? surfaceSettingLine : line;
@@ -1819,14 +1869,40 @@ namespace Desert::Core::Preprocess
         if ( surfaceBlock )
         {
             const bool masked = result.Surface.Blend == SurfaceBlendMode::Masked;
-            // The translucency pass lights the surface itself (Pass_Forward_Translucent): it has no unlit form.
-            if ( result.Surface.Blend == SurfaceBlendMode::Translucent &&
-                 result.Surface.Shading != SurfaceShadingModel::DefaultLit )
+            // THE MODEL, from the one loaded set (ShaderRootShadingModels): by name when the template names one,
+            // DefaultLit when it does not. No fallback: an unknown name or a set that failed to load refuses.
+            const auto& models = ShadingModels::ShaderRootShadingModels();
+            if ( !models.IsSuccess() )
             {
-                err = { surfaceSettingLine, "BlendMode Translucent is lit by the translucency pass and needs "
-                                            "ShadingModel DefaultLit" };
+                err = { shadingModelLine != 0 ? shadingModelLine : surfaceBlock->StartLine,
+                        std::format( "the shading models did not load: {}", models.GetError() ) };
                 return fail();
             }
+            const ShadingModels::ShadingModelRegistry& registry = models.GetValue().Registry;
+            const ShadingModels::ShadingModelEntry*    model =
+                 shadingModelName.empty() ? registry.FindByGuid( Common::UUID( ShadingModels::kDefaultLitGuid ) )
+                                             : registry.FindByName( shadingModelName );
+            if ( model == nullptr )
+            {
+                std::string known;
+                for ( const ShadingModels::ShadingModelEntry& e : registry.Entries() )
+                    known.append( known.empty() ? "" : " | " ).append( e.Manifest.Name );
+                err = { shadingModelLine,
+                        std::format( "unknown ShadingModel '{}' ({})", shadingModelName, known ) };
+                return fail();
+            }
+            const std::vector<std::string> written = SurfaceWrittenFields( surfaceBlock->Content );
+            if ( const auto missing = ShadingModels::ShadingModelRegistry::MissingInput( *model, written ) )
+            {
+                err = { shadingModelLine != 0 ? shadingModelLine : surfaceBlock->StartLine,
+                        std::format( "ShadingModel {} reads SurfaceOutput.{}, which the surface function never "
+                                     "assigns ({})",
+                                     model->Manifest.Name, *missing,
+                                     model->Manifest.SourcePath.generic_string() ) };
+                return fail();
+            }
+            result.Surface.ShadingModel          = model->Manifest.Guid;
+            const std::string shadingModelDefine = ShadingModels::ShadingModelIndexDefine( model->Manifest.Name );
             result.Meta.Blend = result.Surface.Blend;
             if ( masked )
             {
@@ -1858,10 +1934,9 @@ namespace Desert::Core::Preprocess
                     cell.Name  = SurfaceCellName( path, pass );
                     cell.State = cellState;
                     for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
-                        cell.Stages.emplace( stage, AssembleSurfaceCellStage( stage, path, pass, *surfaceBlock,
-                                                                              includeBlock, autoDecls,
-                                                                              result.Surface.Blend,
-                                                                              result.Surface.Shading ) );
+                        cell.Stages.emplace( stage, AssembleSurfaceCellStage(
+                                                         stage, path, pass, *surfaceBlock, includeBlock, autoDecls,
+                                                         result.Surface.Blend, shadingModelDefine ) );
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );
