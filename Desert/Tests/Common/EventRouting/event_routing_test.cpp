@@ -695,9 +695,9 @@ namespace
 
     struct ApplicationShape
     {
-        EventTree           tree;
-        WindowWithSwapchain window;
         Log                 log;
+        WindowWithSwapchain window;
+        EventTree           tree;
         EventNodeId         windowNode = tree.Attach( tree.Root(), window );
         EventNodeId         layerNode  = tree.Emplace<Probe>( windowNode, "layer", log ).Id;
         EventNodeId         panelNode  = tree.Emplace<Probe>( layerNode, "panel", log ).Id;
