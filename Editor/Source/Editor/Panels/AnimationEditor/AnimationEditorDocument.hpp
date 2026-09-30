@@ -160,7 +160,7 @@ namespace Desert::Editor
 
         // The clip asset, found and loaded on first use (a palette entry can run before the first draw).
         [[nodiscard]] Assets::AnimationAsset* ClipAsset();
-        bool EditNotifies( std::vector<Animation::AnimationNotify> edited, std::string label );
+        bool EditNotifies( std::vector<Animation::Timeline::EventKey> edited );
         bool AddNotify( std::string name, double seconds, int32_t track, int32_t durationTicks = 0 );
 
         Assets::AssetManager*            m_Assets  = nullptr;
@@ -237,7 +237,7 @@ namespace Desert::Editor
 
         // POSING (UE Persona's bone gizmo and "+ Key"). While m_Posed the preview shows the animator's
         // authoring pose instead of the clip's; it is dropped, unkeyed, when the frame changes or play starts.
-        PoseEditTransaction m_PoseEdit;
+        SequenceEditTransaction m_PoseEdit;
         bool                m_Posed        = false;
         int32_t             m_PosedFrame   = 0;
         bool                m_GizmoRotate  = true; // E rotate / W translate, as the level viewport

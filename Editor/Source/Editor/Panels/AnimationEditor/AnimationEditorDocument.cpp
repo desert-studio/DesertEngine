@@ -141,9 +141,11 @@ namespace Desert::Editor
         if ( !m_ClipAsset || !m_OnDisk )
             return false;
         auto& clip    = m_ClipAsset->GetClipForAuthoring();
-        clip.Notifies = m_OnDisk->Notifies;
-        clip.Curves   = m_OnDisk->Curves;
-        clip.Tracks   = m_OnDisk->Tracks;
+        // The whole sequence is what the editor authors (notifies, curves, bone keys, sections). A replaced
+        // sequence is a new one to the Animator's binding cache, which is keyed by Revision (Sequence.hpp).
+        const uint32_t revision = clip.Sequence.Revision;
+        clip.Sequence           = m_OnDisk->Sequence;
+        clip.Sequence.Revision  = revision + 1;
         CommandHistory::Get().DropFor( &clip );
         return true;
     }
@@ -306,7 +308,7 @@ namespace Desert::Editor
             m_ClipName                  = animClip.AnimationName.empty() ? name : animClip.AnimationName;
             m_Transport.DurationSeconds = animClip.DurationSeconds();
             m_Transport.DisplayRate =
-                 animClip.DisplayRate.IsValid() ? animClip.DisplayRate : Animation::DEFAULT_DISPLAY_RATE;
+                 animClip.Sequence.DisplayRate.IsValid() ? animClip.Sequence.DisplayRate : Animation::DEFAULT_DISPLAY_RATE;
         }
 
         m_Preview  = std::make_unique<PreviewViewport>();
@@ -400,7 +402,7 @@ namespace Desert::Editor
                                  {
                                      if ( auto* asset = ClipAsset() )
                                          m_AddedNotifyRows =
-                                              NotifyTrackCount( asset->GetClip().Notifies, m_AddedNotifyRows ) + 1;
+                                              NotifyTrackCount( ClipNotifies( asset->GetClip() ), m_AddedNotifyRows ) + 1;
                                  } } );
             for ( const int percent : kPercents )
                 actions.push_back( { std::format( "Add Notify at {}%", percent ), [this, percent]()
@@ -409,9 +411,9 @@ namespace Desert::Editor
                                          if ( asset == nullptr )
                                              return;
                                          const auto& clip = asset->GetClip();
-                                         (void)AddNotify( std::format( "Notify {}", clip.Notifies.size() + 1 ),
+                                         (void)AddNotify( std::format( "Notify {}", ClipNotifies( clip ).size() + 1 ),
                                                           clip.DurationSeconds() * percent / 100.0,
-                                                          NotifyTrackCount( clip.Notifies, m_AddedNotifyRows ) -
+                                                          NotifyTrackCount( ClipNotifies( clip ), m_AddedNotifyRows ) -
                                                                1 );
                                      } } );
             // The palette's (and DesertCtl's) way to the same edits the timeline's right-click menus make.
@@ -423,10 +425,10 @@ namespace Desert::Editor
                                          if ( asset == nullptr )
                                              return;
                                          const auto& clip = asset->GetClip();
-                                         (void)AddNotify( std::format( "State {}", clip.Notifies.size() + 1 ),
+                                         (void)AddNotify( std::format( "State {}", ClipNotifies( clip ).size() + 1 ),
                                                           clip.DurationSeconds() * percent / 100.0,
-                                                          NotifyTrackCount( clip.Notifies, m_AddedNotifyRows ) - 1,
-                                                          std::max( clip.DurationTicks.Value / 4, 1 ) );
+                                                          NotifyTrackCount( ClipNotifies( clip ), m_AddedNotifyRows ) - 1,
+                                                          std::max( clip.DurationTicks().Value / 4, 1 ) );
                                      } } );
                 // A key on the clip's first curve ("Curve 1" when it has none), valued by the percent.
                 actions.push_back( { std::format( "Add Curve Key at {}%", percent ), [this, percent]()
@@ -435,9 +437,10 @@ namespace Desert::Editor
                                          if ( asset == nullptr )
                                              return;
                                          const auto&       clip = asset->GetClip();
-                                         const std::string name = clip.Curves.empty() ? std::string( "Curve 1" )
-                                                                                      : clip.Curves.front().Name;
-                                         (void)EditCurveKey( name, clip.DurationTicks.Value * percent / 100,
+                                         const auto        curves = ClipCurves( clip );
+                                         const std::string name   = curves.empty() ? std::string( "Curve 1" )
+                                                                                   : curves.front()->Property;
+                                         (void)EditCurveKey( name, clip.DurationTicks().Value * percent / 100,
                                                              static_cast<float>( percent ) / 100.0f );
                                      } } );
             }
@@ -497,14 +500,14 @@ namespace Desert::Editor
         if ( ClipAsset() != nullptr )
         {
             const auto& clip = m_ClipAsset->GetClip();
-            m_Flash.resize( clip.Notifies.size(), 0.0f );
+            m_Flash.resize( ClipNotifies( clip ).size(), 0.0f );
             for ( float& flash : m_Flash )
                 flash = std::max( flash - dt, 0.0f );
             if ( wasPlaying )
             {
                 const bool looped = m_Transport.Time < before;
                 for ( const size_t i :
-                      CrossedNotifies( clip.Notifies, clip.TickRate, before, m_Transport.Time, looped ) )
+                      CrossedNotifies( clip, before, m_Transport.Time, looped ) )
                     m_Flash[i] = kNotifyFlashSeconds;
             }
         }
@@ -554,14 +557,14 @@ namespace Desert::Editor
         return m_ClipAsset.get();
     }
 
-    bool AnimationEditorDocument::EditNotifies( std::vector<Animation::AnimationNotify> edited, std::string label )
+    bool AnimationEditorDocument::EditNotifies( std::vector<Animation::Timeline::EventKey> edited )
     {
         if ( ClipAsset() == nullptr )
             return false;
         // No change hook: the dirty state is derived (GetDiskState compares with the file's notifies), so an
         // undo that outlives this window has nothing of the window to call.
-        return ApplyNotifyEdit( m_ClipAsset->GetClipForAuthoring(), std::move( edited ), std::move( label ),
-                                CommandHistory::Get(), {} );
+        // The undo record is the SequenceEditCommand every clip edit records, labelled by the clip.
+        return ApplyNotifyEdit( m_ClipAsset->GetClipForAuthoring(), std::move( edited ), {} );
     }
 
     bool AnimationEditorDocument::AddNotify( std::string name, const double seconds, const int32_t track,
@@ -570,11 +573,14 @@ namespace Desert::Editor
         if ( ClipAsset() == nullptr || name.empty() )
             return false;
         const auto& clip   = m_ClipAsset->GetClip();
-        auto        edited = clip.Notifies;
-        edited.push_back( { std::move( name ),
-                            SnapNotifyTick( seconds, clip.TickRate, m_Transport.DisplayRate, clip.DurationTicks ),
-                            std::max( track, 0 ), Animation::FrameNumber{ std::max( durationTicks, 0 ) } } );
-        return EditNotifies( std::move( edited ), durationTicks > 0 ? "Add Notify State" : "Add Notify" );
+        auto        edited = ClipNotifies( clip );
+        Animation::Timeline::EventKey added;
+        added.Tick     = SnapNotifyTick( seconds, clip.Sequence.TickRate, m_Transport.DisplayRate, clip.DurationTicks() );
+        added.Duration = Animation::FrameNumber{ std::max( durationTicks, 0 ) };
+        added.Name     = std::move( name );
+        added.Row      = std::max( track, 0 );
+        edited.push_back( std::move( added ) );
+        return EditNotifies( std::move( edited ) );
     }
 
     bool AnimationEditorDocument::EditCurveKey( const std::string& name, const int32_t tick, const float value )
@@ -582,7 +588,7 @@ namespace Desert::Editor
         if ( ClipAsset() == nullptr )
             return false;
         return SetCurveKey( m_ClipAsset->GetClipForAuthoring(), name, Animation::FrameNumber{ tick }, value,
-                            Animation::KeyInterp::Cubic, CommandHistory::Get(), {} );
+                            Animation::KeyInterp::Cubic, {} );
     }
 
     ISubjectDocument::DiskState AnimationEditorDocument::GetDiskState() const
@@ -983,7 +989,7 @@ namespace Desert::Editor
 
     Animation::FrameNumber AnimationEditorDocument::KeyTick() const
     {
-        const double rate = m_ClipAsset ? m_ClipAsset->GetClip().TickRate.AsDouble() : 0.0;
+        const double rate = m_ClipAsset ? m_ClipAsset->GetClip().Sequence.TickRate.AsDouble() : 0.0;
         return Animation::FrameNumber{ static_cast<int32_t>( std::llround( m_Transport.Time * rate ) ) };
     }
 
@@ -1025,7 +1031,7 @@ namespace Desert::Editor
             return false;
         if ( undoable )
         {
-            if ( const auto begun = m_PoseEdit.Begin( animator, &asset->GetClipForAuthoring() );
+            if ( const auto begun = m_PoseEdit.Begin( OwnerOf( &asset->GetClipForAuthoring() ), animator );
                  !begun.IsSuccess() )
             {
                 LOG_ERROR( "Animation Editor: pose edit refused: {}", begun.GetError() );
@@ -1155,9 +1161,21 @@ namespace Desert::Editor
         // Only what an AnimationClip holds: UE's Rate Scale, compression and additive settings have no field
         // here, so they are not shown.
         const auto& clip = asset->GetClip();
-        size_t      keys = 0;
-        for ( const auto& track : clip.Tracks )
-            keys += track.PositionKeys.size() + track.RotationKeys.size() + track.ScaleKeys.size();
+        // Keys per part (position, rotation, scale) of every Transform section — a rotation key is one key,
+        // not its four components; sections across every track.
+        size_t keys = 0, boneTracks = 0, sections = 0;
+        for ( const auto& track : clip.Sequence.Tracks )
+        {
+            sections += track.Sections.size();
+            if ( track.Kind != Animation::Timeline::TrackKind::Transform )
+                continue;
+            ++boneTracks;
+            for ( const auto& section : track.Sections )
+                if ( const auto* channel = std::get_if<Animation::Timeline::Channel>( &section.Content ) )
+                    if ( const auto* transform = std::get_if<Animation::Timeline::TransformChannel>( channel ) )
+                        keys += transform->Translation.X.Keys.size() + transform->Rotation.X.Keys.size() +
+                                transform->Scale.X.Keys.size();
+        }
         if ( !Utils::ImGuiUtilities::BeginFactTable( "##clipdetails" ) )
             return;
         const auto row = &Utils::ImGuiUtilities::FactRow;
@@ -1171,13 +1189,13 @@ namespace Desert::Editor
         row( "Length", std::format( "{:.3f} s", clip.DurationSeconds() ) );
         row( "Frames", std::format( "{}", m_Transport.LastFrame() + 1 ) );
         row( "Display Rate",
-             std::format( "{}/{} fps", clip.DisplayRate.Numerator, clip.DisplayRate.Denominator ) );
-        row( "Tick Rate", std::format( "{}/{} ({} ticks)", clip.TickRate.Numerator, clip.TickRate.Denominator,
-                                       clip.DurationTicks.Value ) );
-        row( "Bone Tracks", std::format( "{}", clip.Tracks.size() ) );
+             std::format( "{}/{} fps", clip.Sequence.DisplayRate.Numerator, clip.Sequence.DisplayRate.Denominator ) );
+        row( "Tick Rate", std::format( "{}/{} ({} ticks)", clip.Sequence.TickRate.Numerator, clip.Sequence.TickRate.Denominator,
+                                       clip.DurationTicks().Value ) );
+        row( "Bone Tracks", std::format( "{}", boneTracks ) );
         row( "Keys", std::format( "{}", keys ) );
-        row( "Notifies", std::format( "{}", clip.Notifies.size() ) );
-        row( "Sections", std::format( "{}", clip.Sections.size() ) );
+        row( "Notifies", std::format( "{}", ClipNotifies( clip ).size() ) );
+        row( "Sections", std::format( "{}", sections ) );
         Utils::ImGuiUtilities::EndFactTable();
     }
 
@@ -1242,9 +1260,9 @@ namespace Desert::Editor
     float AnimationEditorDocument::TimelineHeight() const
     {
         // Ruler, "Notifies" header, the tracks, "Curves (0)" header.
-        const int32_t rows   = m_ClipAsset ? NotifyTrackCount( m_ClipAsset->GetClip().Notifies, m_AddedNotifyRows )
+        const int32_t rows   = m_ClipAsset ? NotifyTrackCount( ClipNotifies( m_ClipAsset->GetClip() ), m_AddedNotifyRows )
                                            : std::max( m_AddedNotifyRows, 1 );
-        const size_t  curves = m_ClipAsset ? m_ClipAsset->GetClip().Curves.size() : 0;
+        const size_t  curves = m_ClipAsset ? ClipCurves( m_ClipAsset->GetClip() ).size() : 0;
         return ImGui::GetFrameHeight() * static_cast<float>( 3 + rows + static_cast<int32_t>( curves ) ) +
                ImGui::GetStyle().WindowPadding.y * 2.0f;
     }
@@ -1267,22 +1285,22 @@ namespace Desert::Editor
         const float               laneW  = std::max( ImGui::GetContentRegionAvail().x - kTrackLabelWidth, 1.0f );
         const float               laneX1 = laneX0 + laneW;
         const auto axis = Sequencer::TimeAxis( laneX0, laneW, static_cast<float>( m_Transport.DurationSeconds ) );
-        const int32_t rows         = NotifyTrackCount( clip.Notifies, m_AddedNotifyRows );
+        const int32_t rows         = NotifyTrackCount( ClipNotifies( clip ), m_AddedNotifyRows );
         const float   rulerTop     = at.y;
         const float   rulerBottom  = rulerTop + rowH;
         const float   rowsTop      = rulerBottom + rowH; // under the "Notifies" header
         const float   curvesTop    = rowsTop + rowH * static_cast<float>( rows );
         const float   curveRowsTop = curvesTop + rowH; // under the "Curves (N)" header
-        const float   panelBottom  = curveRowsTop + rowH * static_cast<float>( clip.Curves.size() );
+        const float   panelBottom  = curveRowsTop + rowH * static_cast<float>( ClipCurves( clip ).size() );
         const ImVec2  mouse        = ImGui::GetIO().MousePos;
         const auto    rowOfY       = [&]( const float y )
         { return std::clamp( static_cast<int32_t>( std::floor( ( y - rowsTop ) / rowH ) ), 0, rows - 1 ); };
         const auto snapped = [&]( const float x ) {
-            return SnapNotifyTick( axis.XToTime( x ), clip.TickRate, m_Transport.DisplayRate, clip.DurationTicks );
+            return SnapNotifyTick( axis.XToTime( x ), clip.Sequence.TickRate, m_Transport.DisplayRate, clip.DurationTicks() );
         };
         const auto tickX = [&]( const Animation::FrameNumber tick ) {
             return axis.TimeToX(
-                 Animation::FrameTimeToSeconds( Animation::FrameTime{ tick, 0.0F }, clip.TickRate ) );
+                 Animation::FrameTimeToSeconds( Animation::FrameTime{ tick, 0.0F }, clip.Sequence.TickRate ) );
         };
         const auto text = [&]( const float x, const float rowTop, const char* label, const ImU32 colour )
         { dl->AddText( ImVec2( x, rowTop + ( rowH - ImGui::GetTextLineHeight() ) * 0.5f ), colour, label ); };
@@ -1299,12 +1317,12 @@ namespace Desert::Editor
         }
         dl->AddRectFilled( ImVec2( at.x, curvesTop ), ImVec2( laneX1, panelBottom ), IM_COL32( 48, 48, 48, 255 ) );
         dl->AddLine( ImVec2( laneX0, rulerTop ), ImVec2( laneX0, panelBottom ), IM_COL32( 20, 20, 20, 255 ) );
-        Sequencer::DrawFrameGrid( dl, axis, rulerTop, rulerBottom, clip.DurationTicks, clip.TickRate,
+        Sequencer::DrawFrameGrid( dl, axis, rulerTop, rulerBottom, clip.DurationTicks(), clip.Sequence.TickRate,
                                   m_Transport.DisplayRate, true, IM_COL32( 120, 120, 120, 255 ) );
-        Sequencer::DrawFrameGrid( dl, axis, rowsTop, curvesTop, clip.DurationTicks, clip.TickRate,
+        Sequencer::DrawFrameGrid( dl, axis, rowsTop, curvesTop, clip.DurationTicks(), clip.Sequence.TickRate,
                                   m_Transport.DisplayRate, false, IM_COL32( 55, 55, 55, 255 ) );
         text( at.x + 6.0f, rulerBottom, "Notifies", IM_COL32( 230, 230, 230, 255 ) );
-        text( at.x + 6.0f, curvesTop, std::format( "Curves ({})", clip.Curves.size() ).c_str(),
+        text( at.x + 6.0f, curvesTop, std::format( "Curves ({})", ClipCurves( clip ).size() ).c_str(),
               IM_COL32( 230, 230, 230, 255 ) );
 
         ImGui::SetCursorScreenPos( ImVec2( laneX0 - 64.0f, rulerBottom + 1.0f ) );
@@ -1321,17 +1339,17 @@ namespace Desert::Editor
         }
 
         // Notifies: a diamond on its tick, on its track; drag moves (one edit on release), right-click edits.
-        m_Flash.resize( clip.Notifies.size(), 0.0f );
+        m_Flash.resize( ClipNotifies( clip ).size(), 0.0f );
         bool overNotify = false;
-        for ( size_t i = 0; i < clip.Notifies.size(); ++i )
+        for ( size_t i = 0; i < ClipNotifies( clip ).size(); ++i )
         {
-            const auto&  notify = clip.Notifies[i];
+            const auto&  notify = ClipNotifies( clip )[i];
             const ImVec2 centre( tickX( notify.Tick ),
-                                 rowsTop + rowH * ( static_cast<float>( notify.Track ) + 0.5f ) );
+                                 rowsTop + rowH * ( static_cast<float>( notify.Row ) + 0.5f ) );
             // A Notify State (UE: AN_FootPlant's bar) is a span: its body moves it, its two edges resize it.
-            const bool  state = notify.IsState();
+            const bool  state = ( notify.Duration.Value > 0 );
             const float endX =
-                 state ? tickX( Animation::FrameNumber{ notify.Tick.Value + notify.DurationTicks.Value } )
+                 state ? tickX( Animation::FrameNumber{ notify.Tick.Value + notify.Duration.Value } )
                        : centre.x;
             const float barTop = centre.y - rowH * 0.5f + 2.0f;
             const float barBot = centre.y + rowH * 0.5f - 2.0f;
@@ -1354,11 +1372,11 @@ namespace Desert::Editor
                 m_DragNotify = static_cast<int32_t>( i );
             if ( ImGui::IsItemDeactivated() && dragging )
             {
-                auto edited     = clip.Notifies;
+                auto edited     = ClipNotifies( clip );
                 edited[i].Tick  = snapped( mouse.x );
-                edited[i].Track = rowOfY( mouse.y );
+                edited[i].Row = rowOfY( mouse.y );
                 m_DragNotify    = -1;
-                (void)EditNotifies( std::move( edited ), "Move Notify" );
+                (void)EditNotifies( std::move( edited ) );
                 break; // the list was replaced (and re-sorted); draw it next frame
             }
             if ( ImGui::IsItemClicked( ImGuiMouseButton_Right ) )
@@ -1390,15 +1408,15 @@ namespace Desert::Editor
                          m_DragEdge == edge )
                     {
                         const auto landed =
-                             DragNotifyStateEdge( notify, edge, snapped( mouse.x ), clip.DurationTicks );
+                             DragNotifyStateEdge( notify, edge, snapped( mouse.x ), clip.DurationTicks() );
                         m_DragState = -1;
                         if ( edge == NotifyStateEdge::End )
-                            (void)SetNotifyDuration( clip, i, landed.DurationTicks, CommandHistory::Get(), {} );
+                            (void)SetNotifyDuration( clip, i, landed.Duration, {} );
                         else
                         {
-                            auto edited = clip.Notifies;
+                            auto edited = ClipNotifies( clip );
                             edited[i]   = landed;
-                            (void)EditNotifies( std::move( edited ), "Resize Notify State" );
+                            (void)EditNotifies( std::move( edited ) );
                         }
                         resized = true;
                         break;
@@ -1425,10 +1443,10 @@ namespace Desert::Editor
                 if ( m_DragState == static_cast<int32_t>( i ) ) // the ghost: the span on release
                 {
                     const auto landed =
-                         DragNotifyStateEdge( notify, m_DragEdge, snapped( mouse.x ), clip.DurationTicks );
+                         DragNotifyStateEdge( notify, m_DragEdge, snapped( mouse.x ), clip.DurationTicks() );
                     dl->AddRect(
                          ImVec2( tickX( landed.Tick ), barTop ),
-                         ImVec2( tickX( Animation::FrameNumber{ landed.Tick.Value + landed.DurationTicks.Value } ),
+                         ImVec2( tickX( Animation::FrameNumber{ landed.Tick.Value + landed.Duration.Value } ),
                                  barBot ),
                          IM_COL32( 255, 200, 90, 255 ), 3.0f, 0, 2.0f );
                 }
@@ -1462,17 +1480,19 @@ namespace Desert::Editor
         // along time (one edit on release); right-click a key to set its value or delete it, an empty lane to
         // key it there, the header to add a curve.
         bool overKey = false;
-        for ( size_t c = 0; c < clip.Curves.size(); ++c )
+        const auto curveTracks = ClipCurves( clip );
+        for ( size_t c = 0; c < curveTracks.size(); ++c )
         {
-            const auto& curve  = clip.Curves[c];
+            const auto& curve  = *curveTracks[c];
+            const auto& keys   = CurveKeys( curve );
             const float rowTop = curveRowsTop + rowH * static_cast<float>( c );
             dl->AddRectFilled( ImVec2( at.x, rowTop ), ImVec2( laneX1, rowTop + rowH ),
                                c % 2 == 0 ? IM_COL32( 30, 30, 30, 255 ) : IM_COL32( 34, 34, 34, 255 ) );
-            text( at.x + 18.0f, rowTop, curve.Name.c_str(), IM_COL32( 190, 190, 190, 255 ) );
-            if ( curve.Keys.empty() )
+            text( at.x + 18.0f, rowTop, curve.Property.c_str(), IM_COL32( 190, 190, 190, 255 ) );
+            if ( keys.empty() )
                 continue;
             const auto [lowIt, highIt] =
-                 std::ranges::minmax_element( curve.Keys, {}, &Animation::ScalarKey::Value );
+                 std::ranges::minmax_element( keys, {}, &Animation::ScalarKey::Value );
             float low  = lowIt->Value;
             float high = highIt->Value;
             if ( high - low < 1e-6f )
@@ -1487,15 +1507,15 @@ namespace Desert::Editor
             for ( int k = 0; k <= kSamples; ++k )
             {
                 const double seconds = m_Transport.DurationSeconds * k / kSamples;
-                const auto   at2     = Animation::SecondsToFrameTime( seconds, clip.TickRate );
+                const auto   at2     = Animation::SecondsToFrameTime( seconds, clip.Sequence.TickRate );
                 line[static_cast<size_t>( k )] =
-                     ImVec2( axis.TimeToX( seconds ), valueY( curve.Evaluate( at2, clip.TickRate ) ) );
+                     ImVec2( axis.TimeToX( seconds ), valueY( CurveValueAt( curve, at2, clip.Sequence.TickRate ) ) );
             }
             dl->AddPolyline( line.data(), static_cast<int>( line.size() ), IM_COL32( 230, 120, 90, 255 ),
                              ImDrawFlags_None, 1.5f );
-            for ( size_t k = 0; k < curve.Keys.size(); ++k )
+            for ( size_t k = 0; k < keys.size(); ++k )
             {
-                const auto&  key = curve.Keys[k];
+                const auto&  key = keys[k];
                 const ImVec2 centre( tickX( key.Tick ), valueY( key.Value ) );
                 ImGui::SetCursorScreenPos( ImVec2( centre.x - kDiamondRadius, centre.y - kDiamondRadius ) );
                 ImGui::PushID( static_cast<int>( 100000 + c * 1000 + k ) );
@@ -1513,20 +1533,12 @@ namespace Desert::Editor
                 {
                     m_DragCurve  = -1;
                     m_DragKey    = -1;
-                    auto  edited = clip.Curves;
-                    auto& keys   = edited[c].Keys;
-                    auto  moved  = keys[k];
-                    keys.erase( keys.begin() + static_cast<std::ptrdiff_t>( k ) );
-                    moved.Tick = snapped( mouse.x );
-                    std::erase_if( keys,
-                                   [&]( const Animation::ScalarKey& other ) { return other.Tick == moved.Tick; } );
-                    keys.push_back( moved );
-                    (void)ApplyCurveEdit( clip, std::move( edited ), "Move Curve Key", CommandHistory::Get(), {} );
+                    (void)MoveCurveKey( clip, curve.Property, key.Tick, snapped( mouse.x ), {} );
                     break;
                 }
                 if ( ImGui::IsItemClicked( ImGuiMouseButton_Right ) )
                 {
-                    m_PopupCurve    = curve.Name;
+                    m_PopupCurve    = curve.Property;
                     m_PopupKeyTick  = key.Tick.Value;
                     m_PopupKeyValue = key.Value;
                     ImGui::OpenPopup( kCurveKeyPopup );
@@ -1543,20 +1555,20 @@ namespace Desert::Editor
         {
             if ( mouse.y >= curvesTop && mouse.y < curveRowsTop )
             {
-                CopyName( m_NameBuffer, std::format( "Curve {}", clip.Curves.size() + 1 ) );
+                CopyName( m_NameBuffer, std::format( "Curve {}", curveTracks.size() + 1 ) );
                 ImGui::OpenPopup( kAddCurvePopup );
             }
             else if ( mouse.y >= curveRowsTop && mouse.y < panelBottom )
             {
                 const auto  c     = static_cast<size_t>( ( mouse.y - curveRowsTop ) / rowH );
-                const auto& curve = clip.Curves[std::min( c, clip.Curves.size() - 1 )];
-                m_PopupCurve      = curve.Name;
+                const auto& curve = *curveTracks[std::min( c, curveTracks.size() - 1 )];
+                m_PopupCurve      = curve.Property;
                 m_PopupKeyTick    = snapped( mouse.x ).Value;
                 m_PopupKeyValue =
-                     curve.Keys.empty()
+                     CurveKeys( curve ).empty()
                           ? 0.0f
-                          : curve.Evaluate( Animation::FrameTime{ Animation::FrameNumber{ m_PopupKeyTick }, 0.0F },
-                                            clip.TickRate );
+                          : CurveValueAt( curve, Animation::FrameTime{ Animation::FrameNumber{ m_PopupKeyTick }, 0.0F },
+                                          clip.Sequence.TickRate );
                 ImGui::OpenPopup( kAddCurveKeyPopup );
             }
         }
@@ -1585,7 +1597,7 @@ namespace Desert::Editor
             if ( ImGui::MenuItem( "Add Notify State" ) && ClipAsset() != nullptr )
             {
                 (void)AddNotify( m_NameBuffer.data(), m_PopupSeconds, m_PopupTrack,
-                                 std::max( m_ClipAsset->GetClip().DurationTicks.Value / 4, 1 ) );
+                                 std::max( m_ClipAsset->GetClip().DurationTicks().Value / 4, 1 ) );
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
@@ -1593,7 +1605,7 @@ namespace Desert::Editor
         if ( ImGui::BeginPopup( kEditNotifyPopup ) )
         {
             const auto index = static_cast<size_t>( m_PopupNotify );
-            if ( m_PopupNotify < 0 || index >= clip.Notifies.size() )
+            if ( m_PopupNotify < 0 || index >= ClipNotifies( clip ).size() )
                 ImGui::CloseCurrentPopup();
             else
             {
@@ -1602,16 +1614,16 @@ namespace Desert::Editor
                                                      ImGuiInputTextFlags_EnterReturnsTrue );
                 if ( ( ImGui::MenuItem( "Rename" ) || enter ) && m_NameBuffer[0] != '\0' )
                 {
-                    auto edited        = clip.Notifies;
+                    auto edited        = ClipNotifies( clip );
                     edited[index].Name = m_NameBuffer.data();
-                    (void)EditNotifies( std::move( edited ), "Rename Notify" );
+                    (void)EditNotifies( std::move( edited ) );
                     ImGui::CloseCurrentPopup();
                 }
                 if ( ImGui::MenuItem( "Delete" ) )
                 {
-                    auto edited = clip.Notifies;
+                    auto edited = ClipNotifies( clip );
                     edited.erase( edited.begin() + static_cast<std::ptrdiff_t>( index ) );
-                    (void)EditNotifies( std::move( edited ), "Delete Notify" );
+                    (void)EditNotifies( std::move( edited ) );
                     ImGui::CloseCurrentPopup();
                 }
             }
@@ -1631,7 +1643,7 @@ namespace Desert::Editor
             {
                 (void)EditCurveKey(
                      m_NameBuffer.data(),
-                     SnapNotifyTick( m_Transport.Time, clip.TickRate, m_Transport.DisplayRate, clip.DurationTicks )
+                     SnapNotifyTick( m_Transport.Time, clip.Sequence.TickRate, m_Transport.DisplayRate, clip.DurationTicks() )
                           .Value,
                      0.0f );
                 ImGui::CloseCurrentPopup();
@@ -1662,8 +1674,7 @@ namespace Desert::Editor
             }
             if ( ImGui::MenuItem( "Delete Key" ) )
             {
-                (void)RemoveCurveKey( clip, m_PopupCurve, Animation::FrameNumber{ m_PopupKeyTick },
-                                      CommandHistory::Get(), {} );
+                (void)RemoveCurveKey( clip, m_PopupCurve, Animation::FrameNumber{ m_PopupKeyTick }, {} );
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
