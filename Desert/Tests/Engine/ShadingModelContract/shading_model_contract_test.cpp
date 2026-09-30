@@ -317,8 +317,9 @@ TEST( ShadingModelManifestRules, NameIsTheFileStemAndBodyFollowsInputs )
 }
 
 // THE PASS NORMALIZES, NO MODEL DOES: both passes make their DesertSurface through the contract's one constructor
-// (which normalizes N and V), never field by field, and no shipped model re-normalizes S.N — a model that did would
-// hide a pass that stopped, and Toon's bands followed the polygons exactly when a pass handed it a short normal.
+// (which normalizes N and V), never field by field, and no shipped model re-normalizes S.N — a model that did
+// would hide a pass that stopped, and Toon's bands followed the polygons exactly when a pass handed it a short
+// normal.
 TEST( ShadingModelSurface, EveryPassMakesTheSurfaceThroughTheOneConstructor )
 {
     const std::string contract = ReadFile( ShaderRoot() / "ShadingModels" / "ShadingModelContract.glslh" );

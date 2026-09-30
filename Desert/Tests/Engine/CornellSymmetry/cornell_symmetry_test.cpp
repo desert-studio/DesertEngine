@@ -311,12 +311,12 @@ namespace
                                   const glm::vec3& normal, const Material& material )
     {
         PointLight source{};
-        source.color     = payload.Color;
-        source.intensity = payload.Intensity;
-        source.position  = payload.Position;
-        source.radius    = payload.Radius;
-        source.minRadius = payload.MinRadius;
-        source.falloff   = payload.Falloff;
+        source.color            = payload.Color;
+        source.intensity        = payload.Intensity;
+        source.position         = payload.Position;
+        source.radius           = payload.Radius;
+        source.minRadius        = payload.MinRadius;
+        source.falloff          = payload.Falloff;
         const DesertLight light = DesertPointLightAt( source, surface );
 
         const glm::vec3 view = glm::normalize( kCameraPosition - surface );

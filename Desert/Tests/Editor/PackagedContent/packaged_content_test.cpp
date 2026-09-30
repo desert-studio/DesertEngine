@@ -2300,30 +2300,31 @@ TEST( PackagedContent, NoWindowInitMovesTheWorkingDirectoryIntoTheBundleResource
 }
 
 // THE PACKAGED GAME READS ITS SHADING MODELS FROM THE PAK AND WRITES NOTHING. The runtime reaches the set through
-// CompileEngineShaders -> BuildShaderMap -> ShaderRootShadingModels(); a scan that only looked at loose directories
-// found nothing in a package and failed every surface template. The fixture is the cook's own order: the set is
-// loaded once over a loose copy of the real models (which writes kGeneratedInclude, as the cook does), that tree is
-// packed, and the pak is mounted in an EMPTY package directory — a fresh root, so the per-root cache cannot answer
-// from the loose load. Mutation: put the std::filesystem::is_directory check back in ShadingModelRegistry::Scan and
-// the scan fails here.
+// CompileEngineShaders -> BuildShaderMap -> ShaderRootShadingModels(); a scan that only looked at loose
+// directories found nothing in a package and failed every surface template. The fixture is the cook's own order:
+// the set is loaded once over a loose copy of the real models (which writes kGeneratedInclude, as the cook does),
+// that tree is packed, and the pak is mounted in an EMPTY package directory — a fresh root, so the per-root cache
+// cannot answer from the loose load. Mutation: put the std::filesystem::is_directory check back in
+// ShadingModelRegistry::Scan and the scan fails here.
 TEST( PackagedContent, ThePackagedGameReadsItsShadingModelsFromThePakAndWritesNothing )
 {
-    EnvironmentGuard           guard;
-    const fs::path             repo = fs::absolute( RepoRoot() );
+    EnvironmentGuard guard;
+    const fs::path   repo = fs::absolute( RepoRoot() );
     ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
     Desert::TestSupport::ScratchDir scratch( "desert-pkg-shading-models" );
-    const fs::path             staging = scratch.Path() / "staging";
-    const fs::path             pkg     = scratch.Path() / "pkg";
-    const fs::path             shaders = repo / "Editor" / "Resources" / "Shaders";
-    const fs::path             stagedShaders = staging / "Resources" / "Shaders";
+    const fs::path                  staging       = scratch.Path() / "staging";
+    const fs::path                  pkg           = scratch.Path() / "pkg";
+    const fs::path                  shaders       = repo / "Editor" / "Resources" / "Shaders";
+    const fs::path                  stagedShaders = staging / "Resources" / "Shaders";
 
     std::vector<std::string> keys;
-    const auto stage = [&]( const fs::path& rel )
+    const auto               stage = [&]( const fs::path& rel )
     {
         fs::create_directories( ( stagedShaders / rel ).parent_path() );
         fs::copy_file( shaders / rel, stagedShaders / rel );
     };
-    for ( const auto& entry : fs::directory_iterator( shaders / Desert::Core::ShadingModels::kShadingModelDirectory ) )
+    for ( const auto& entry :
+          fs::directory_iterator( shaders / Desert::Core::ShadingModels::kShadingModelDirectory ) )
         if ( entry.path().extension() == Desert::Core::ShadingModels::kShadingModelExtension )
             stage( fs::path( Desert::Core::ShadingModels::kShadingModelDirectory ) / entry.path().filename() );
     stage( fs::path( "Mesh" ) / "Surface" / "SurfaceTypes.glslh" );
