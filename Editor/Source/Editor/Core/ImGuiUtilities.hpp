@@ -118,5 +118,17 @@ namespace Desert::Editor::Utils
         // Opens a two-column row and writes the label; the caller then submits ONE value widget.
         static void BeginPropertyRow( const char* label, const char* tooltip = nullptr, float height = 0.0f );
         static void EndPropertyRow();
+
+        // --- Fact tables ---------------------------------------------------------------------------
+        // A READ-ONLY label/value table (UE's Asset Details "Mesh", "Skeleton", "Animation" categories): the
+        // label column breaks at PropertyLabelWidth like every property row, the value column takes the rest.
+        // The columns are declared, not measured, and nothing is saved to imgui.ini — an undeclared stretch
+        // table weighs its columns by what the first frame held and keeps that in the ini, which is how the
+        // Asset Details tables came to be one character wide. Returns false when the table is clipped away
+        // (then neither FactRow nor EndFactTable is called).
+        static bool BeginFactTable( const char* id );
+        // One row; the value's full text is the tooltip, since a narrow panel clips it.
+        static void FactRow( const char* label, const std::string& value );
+        static void EndFactTable();
     };
 } // namespace Desert::Editor::Utils
