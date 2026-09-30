@@ -100,11 +100,11 @@ namespace Desert::Editor::ThumbnailWarmup
 
     /// EVERY PICTURE OF THE PROJECT (THM1n-13): each row of the content registry, of every kind, whose file
     /// type has a picture producer — sorted by path, each once. Each row is typed by the kind the registry
-    /// FILED it under (FileTypeOfRow), not re-derived from its path: a skybox row is a sky picture. @p filesOf = ContentRegistry::FilesOfKind in
-    /// the editor, a table in a test. The registry and not a walk of the disk: it is the one census of what
-    /// is content, and it is complete before the splash asks (ContentRegistry::Gather). A redirector is a
-    /// forwarding stub at a moved asset's old path, spelled with the asset's own extension — the asset has
-    /// its row and its picture under its new path, so the stub is not asked for one.
+    /// FILED it under (FileTypeOfRow), not re-derived from its path: a skybox row is a sky picture. @p filesOf =
+    /// ContentRegistry::FilesOfKind in the editor, a table in a test. The registry and not a walk of the disk: it
+    /// is the one census of what is content, and it is complete before the splash asks (ContentRegistry::Gather).
+    /// A redirector is a forwarding stub at a moved asset's old path, spelled with the asset's own extension — the
+    /// asset has its row and its picture under its new path, so the stub is not asked for one.
     [[nodiscard]] inline std::vector<WarmItem> ProjectWarmList(
          const std::function<std::vector<std::filesystem::path>( Common::Content::ContentKind )>& filesOf )
     {

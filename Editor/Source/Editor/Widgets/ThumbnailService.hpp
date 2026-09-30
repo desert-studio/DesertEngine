@@ -180,8 +180,9 @@ namespace Desert::Editor
         void WarmMesh( const ThumbnailSubject::Mesh& mesh );
         /// The same for a skinned mesh's pose (ThumbnailPose::ResolveSkinnedMesh's answer).
         void WarmPose( const ThumbnailSubject::Mesh& mesh );
-        /// The same for a skybox (THM-FIXH): RequestSkybox's request — key the `.detex` path, freshness its content
-        /// hash — at the front, so the splash photographs every skybox of the project as it does every material.
+        /// The same for a skybox (THM-FIXH): RequestSkybox's request — key the `.detex` path, freshness its
+        /// content hash — at the front, so the splash photographs every skybox of the project as it does every
+        /// material.
         void WarmSkybox( const Assets::AssetHandle& skybox, const std::string& assetPath );
         /// THM1n-13: a painted picture of the project warmed on the splash — RequestPainted, counted in
         /// SceneWarmPending until it lands, and painted before the hand-over (TickCapture(SceneWarmOnly) runs the
