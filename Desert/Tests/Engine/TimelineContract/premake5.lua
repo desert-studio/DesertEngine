@@ -19,6 +19,7 @@ project(test_name)
         "timeline_lift_test.cpp",
         "timeline_layered_test.cpp",
         "timeline_keying_test.cpp",
+        "timeline_ui_lift_test.cpp",
         "TimelineFixtures.hpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Channel.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Player.cpp",
@@ -30,6 +31,7 @@ project(test_name)
         -- generation 3 and its lift moved to the migrator (ANIM-I8a): the lift test builds the tool's own copy
         "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipLift.cpp",
         "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipGeneration3.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/UILift.cpp", -- the v40 -> v41 UI lift, the migrator's too (ANIM-I9)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Pose.cpp",

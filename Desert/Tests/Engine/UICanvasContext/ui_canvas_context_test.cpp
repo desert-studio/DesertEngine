@@ -21,6 +21,8 @@
 // This is also the first test coverage Engine/UI has ever had. scripts/CI/UnreachedSources.sh listed all
 // three of its translation units among the 275 that no suite compiles.
 
+#include <Engine/Animation/Timeline/Hosts.hpp>
+#include "UILift.hpp" // Tools/SceneMigrator: the clip below is built through the v40 -> v41 scene lift
 #include <Engine/UI/UICanvasContext.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
@@ -429,11 +431,14 @@ TEST( UICanvasContext, ScreenNavigationBelongsToTheViewThatDidIt )
 // fixes: every clip would run at twice its authored speed whenever the UI Editor panel is open.
 TEST( UICanvasContext, OnlyTheDrivingViewAdvancesTheScenesAnimationPlayhead )
 {
+    namespace TL = Desert::Animation::Timeline;
+    namespace AN = Desert::Animation;
     Fixture f;
-    auto&   clip  = f.Registry.emplace<ECS::UIAnimComponent>( f.Button ).Data;
-    clip.Playing  = true;
-    clip.Duration = 100.0f; // long enough that nothing wraps
-    clip.Loop     = false;
+    auto&   clip       = f.Registry.emplace<ECS::UIAnimComponent>( f.Button ).Data;
+    clip.AutoPlay      = true;
+    clip.Loop          = TL::LoopMode::Once;
+    clip.Sequence.End  = AN::FrameNumber{ 100 * AN::PROJECT_TICK_RATE.Numerator }; // long enough that nothing ends
+    const auto seconds = [&clip] { return AN::FrameTimeToSeconds( clip.Playback->Current(), clip.Sequence.TickRate ); };
 
     UIViewContext viewport;
     UIViewContext preview;
@@ -441,15 +446,49 @@ TEST( UICanvasContext, OnlyTheDrivingViewAdvancesTheScenesAnimationPlayhead )
 
     Frame( viewport, f, At( 900.0f, 900.0f, /*down=*/false ) );
     Frame( preview, f, nullptr );
-    clip.Time = 5.0f;
+    ASSERT_TRUE( clip.Playback.has_value() ) << "the first frame did not give the clip its player";
+    (void)clip.Playback->JumpTo( AN::SecondsToFrameTime( 5.0, clip.Sequence.TickRate ) );
 
     RewindClock( preview, 0.05f );
     Frame( preview, f, nullptr );
-    EXPECT_FLOAT_EQ( clip.Time, 5.0f ) << "the authoring preview advanced a playhead it does not own";
+    EXPECT_NEAR( seconds(), 5.0, 1e-4 ) << "the authoring preview advanced a playhead it does not own";
 
     RewindClock( viewport, 0.05f );
     Frame( viewport, f, At( 900.0f, 900.0f, /*down=*/false ) );
-    EXPECT_NEAR( clip.Time, 5.05f, 5e-3f ) << "the driving view did not advance the playhead";
+    EXPECT_NEAR( seconds(), 5.05, 5e-3 ) << "the driving view did not advance the playhead";
+}
+
+// A UI clip is a Timeline sequence whose Widget bindings name elements by UUID: a clip on the CANVAS may move
+// the BUTTON, and both views see it — the driving one by stepping the clip, the preview by evaluating it.
+TEST( UICanvasContext, AClipMovesTheElementItsBindingNamesInEveryView )
+{
+    namespace TL = Desert::Animation::Timeline;
+    namespace AN = Desert::Animation;
+    Fixture    f;
+    const auto buttonUuid = f.Registry.emplace_or_replace<ECS::UUIDComponent>( f.Button ).UUID.ToString();
+
+    TL::UIAnimationV40 v40;
+    v40.Duration = 1.0F;
+    v40.Tracks.push_back( { /*Offset*/ 0,
+                            { { 0.0F, glm::vec4( 0.0F ), static_cast<int>( ECS::UIEasing::Linear ) },
+                              { 1.0F, glm::vec4( 100.0F, 0.0F, 0.0F, 0.0F ),
+                                static_cast<int>( ECS::UIEasing::Linear ) } } } );
+    auto lifted = TL::LiftUIAnimation( v40, buttonUuid, AN::PROJECT_TICK_RATE, AN::DEFAULT_DISPLAY_RATE );
+    ASSERT_TRUE( lifted ) << lifted.GetError();
+    auto& clip    = f.Registry.emplace<ECS::UIAnimComponent>( f.Canvas ).Data;
+    clip.Sequence = lifted.GetValue().Lifted;
+
+    UIViewContext viewport;
+    UIViewContext preview;
+    preview.DrivesSceneAnimation = false;
+    Frame( viewport, f, At( 900.0f, 900.0f, /*down=*/false ) );
+    (void)clip.Playback->JumpTo( AN::SecondsToFrameTime( 0.5, clip.Sequence.TickRate ) );
+    Frame( preview, f, nullptr );
+
+    ASSERT_EQ( preview.AnimClips.Samples.count( f.Button ), 1U ) << "the clip's binding did not reach the button";
+    EXPECT_NEAR( preview.AnimClips.Samples.at( f.Button ).Offset.x, 50.0F, 1e-2F )
+         << "the preview did not evaluate the shared playhead";
+    EXPECT_EQ( preview.AnimClips.Samples.count( f.Canvas ), 0U ) << "the clip moved its owner, not its binding";
 }
 
 // --- (7) A view pointed at another scene forgets the first one -------------------------------------------

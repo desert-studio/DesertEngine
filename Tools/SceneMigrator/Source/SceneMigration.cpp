@@ -13,6 +13,8 @@
 
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/Animation/Timeline/Hosts.hpp>
+#include "UILift.hpp"
 #include <Engine/Geometry/EditMeshConversion.hpp>
 #include <Engine/Geometry/EditMeshSerialization.hpp>
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
@@ -383,6 +385,61 @@ namespace Desert::Migration
                                report.OverridesDropped += dropped ? 1 : 0;
                                return dropped;
                            } );
+        }
+        return report;
+    }
+
+    UIAnimationsReport MigrateUIAnimationsV40ToV41( std::vector<Assets::EntityData>& entities )
+    {
+        namespace TL = Animation::Timeline;
+        UIAnimationsReport report;
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? entity.id->ToString() : std::string( "<record without id>" );
+            EditBlock( entity.Components, "UIAnim",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto v40 =
+                                rfl::json::read<TL::UIAnimationV40, rfl::DefaultIfMissing>( rfl::json::write( block ) );
+                           if ( !v40 )
+                           {
+                               report.Refused.push_back( "entity " + who + ": its UIAnim block is not a v40 clip: " +
+                                                         v40.error().what() );
+                               return false;
+                           }
+                           auto lifted = TL::LiftUIAnimation( v40.value(), who, Animation::PROJECT_TICK_RATE,
+                                                              Animation::DEFAULT_DISPLAY_RATE );
+                           if ( !lifted )
+                           {
+                               report.Refused.push_back( "entity " + who + ": " + lifted.GetError() );
+                               return false;
+                           }
+                           const std::vector<uint8_t> bytes = TL::WriteSequence( lifted.GetValue().Lifted );
+                           const auto sequence = rfl::json::read<rfl::Generic>(
+                                std::string( reinterpret_cast<const char*>( bytes.data() ), bytes.size() ) );
+                           if ( !sequence )
+                           {
+                               report.Refused.push_back( "entity " + who + ": the TMLN writer's text does not read: " +
+                                                         sequence.error().what() );
+                               return false;
+                           }
+                           ++report.Clips;
+                           report.RoundedKeys += lifted.GetValue().Report.RoundedKeys;
+                           rfl::Generic::Object next;
+                           next["Sequence"] = sequence.value();
+                           next["Loop"] = rfl::Generic( static_cast<int64_t>( v40.value().Loop ? TL::LoopMode::Loop
+                                                                                               : TL::LoopMode::Once ) );
+                           next["AutoPlay"] = rfl::Generic( v40.value().Playing );
+                           block            = std::move( next );
+                           return true;
+                       } );
+            if ( !entity.PrefabOverrides )
+                continue;
+            for ( const auto& override_ : *entity.PrefabOverrides )
+                if ( override_.Components.get( "UIAnim" ).has_value() )
+                    report.Refused.push_back( "entity " + who +
+                                              ": a prefab override restates UIAnim, which has no v40 whole to lift "
+                                              "- move the clip onto the prefab's own record" );
         }
         return report;
     }
@@ -1006,6 +1063,21 @@ namespace Desert::Migration
             {
                 report.PlayerViewFlagRaised = true;
                 report.PlayerViewFlag       = MigratePlayerViewFlagV39ToV40( entities );
+            }
+
+            // UI animation is a Timeline sequence (ANIM-I9): the v40 key model is lifted once, here.
+            if ( statedSceneVersion < kSceneVersionUIAnimationSequences )
+            {
+                report.UIAnimationsRaised = true;
+                report.UIAnimations       = MigrateUIAnimationsV40ToV41( entities );
+                if ( !report.UIAnimations.Refused.empty() )
+                {
+                    std::string lines;
+                    for ( const auto& line : report.UIAnimations.Refused )
+                        lines += ( lines.empty() ? "" : "; " ) + line;
+                    report.Refused = "'" + name + "': " + lines + ". Nothing was written.";
+                    return;
+                }
             }
         }
 

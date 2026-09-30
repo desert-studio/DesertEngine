@@ -26,8 +26,10 @@
  * ── UI animation (UIAnimData on a widget) ─────────────────────────────────────────────────────────────
  *
  * END STATE: `UIAnimData` holds a `Timeline::Sequence` (Host = UIAnimation) + a `LoopMode` + autoplay;
- * `UIAnimTrack`/`UIAnimKey`/`UIEasing` are deleted. The Sequencer's UI mode and its skeletal mode become
- * one editor over one type (the two key models were PRESCAN's duplicate (2)).
+ * `UIAnimTrack`/`UIAnimKey` are deleted (`UIEasing` stays: UITween and UIScreenStack still author it, and
+ * `PresetOf` is its one table into `EasingPreset`). The Sequencer's UI mode and its skeletal mode become
+ * one editor over one type (the two key models were PRESCAN's duplicate (2)). Scene v41 lifts the v40
+ * block (`UIAnimationV40`, the lift's input and nothing else's) in the migrator, once.
  *
  *   UIAnimTrack{Offset|Size}    → Track{Widget binding, "Offset"|"Size", Vector} (Z unkeyed)
  *   UIAnimTrack{Opacity}        → Track{..., "Opacity", Float}
@@ -49,12 +51,14 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <glm/glm.hpp>
+
 #include <cstdint>
 #include <string_view>
+#include <vector>
 
 namespace Desert::ECS
 {
-    struct UIAnimData;
     enum class UIEasing;
 } // namespace Desert::ECS
 
@@ -63,30 +67,9 @@ namespace Desert::Animation::Timeline
     inline constexpr std::string_view kLevelSequenceExtension = ".dseq";
     inline constexpr std::string_view kLevelSequenceKind      = "LevelSequence";
 
-    // `LiftClip` (generation 3 → sequence) lives in Tools/SceneMigrator (ClipGeneration3.hpp): the engine
-    // reads no generation 3, so the lift is the migrator's alone (ANIM-I8a).
+    // The two lifts — `LiftClip` (generation 3 → sequence, ClipGeneration3.hpp) and `LiftUIAnimation` (scene
+    // v40 UIAnim → sequence, UILift.hpp) — live in Tools/SceneMigrator: the engine reads neither old form.
 
-    struct UILiftReport
-    {
-        uint32_t RoundedKeys        = 0; ///< keys whose float time was not on the tick grid
-        float    MaxRoundingSeconds = 0.0F;
-        float    MaxEasingDeviation = 0.0F; ///< from Elastic/Bounce bakes (Channel.hpp, EasingResult)
-    };
-
-    struct UILiftResult
-    {
-        Sequence     Lifted;
-        UILiftReport Report;
-    };
-
-    /**
-     * @brief A widget's UIAnimData → its sequence. @p widgetLocator is the owning element's entity UUID.
-     * Refuses a track with unsorted keys and an unknown property by name.
-     */
-    [[nodiscard]] Common::ResultStr<UILiftResult> LiftUIAnimation( const ECS::UIAnimData& legacy,
-                                                                   std::string_view       widgetLocator,
-                                                                   FrameRate tickRate, FrameRate displayRate );
-
-    /// The migration's one table: `UIEasing` → `EasingPreset`, value for value.
+    /// `UIEasing`'s one table into `EasingPreset`, value for value (UITween, UIScreenStack and the UI lift).
     [[nodiscard]] EasingPreset PresetOf( ECS::UIEasing easing );
 } // namespace Desert::Animation::Timeline

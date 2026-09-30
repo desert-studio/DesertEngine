@@ -120,26 +120,15 @@ namespace Desert::Assets
         std::optional<std::vector<MaterialTextureSer>> Textures;
     };
 
-    // UIAnimComponent mirror — the authored clip. The playhead is runtime-only and deliberately absent,
-    // so scrubbing in the Sequencer can never dirty a saved scene. Enums travel as ints, matching how the
-    // reflected path stores them.
-    struct UIAnimKeySer
-    {
-        float     Time   = 0.0f;
-        glm::vec4 Value  = glm::vec4( 0.0f );
-        int       Easing = 5;
-    };
-    struct UIAnimTrackSer
-    {
-        int                       Property = 0;
-        std::vector<UIAnimKeySer> Keys;
-    };
+    // UIAnimComponent mirror — the authored clip. `Sequence` is the TMLN text block (Timeline/Sequence.hpp,
+    // ONE writer and ONE reader for every host) carried as JSON, so the scene diff of an edited key is one line.
+    // `Loop` is Timeline::LoopMode as its integer. The playhead is runtime-only and deliberately absent, so
+    // scrubbing in the Sequencer can never dirty a saved scene.
     struct UIAnimComponentSer
     {
-        std::vector<UIAnimTrackSer> Tracks;
-        float                       Duration = 1.0f;
-        bool                        Loop     = false;
-        bool                        Playing  = true;
+        Common::Json::Value Sequence;
+        int                 Loop     = 0;
+        bool                AutoPlay = true;
     };
 
     // TextComponent mirror — only the authored fields (the glyph mesh is transient, rebuilt at runtime).

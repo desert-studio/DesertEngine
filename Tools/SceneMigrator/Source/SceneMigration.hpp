@@ -161,7 +161,15 @@ namespace Desert::Migration
     //       prefabs alike.
     inline constexpr int kSceneVersionPlayerViewFlag = 40;
 
-    static_assert( kSceneVersionPlayerViewFlag == kSceneVersion,
+    //  41 - UI ANIMATION IS A TIMELINE SEQUENCE (ANIM-I9). The UIAnim block's own key model (Tracks of
+    //       {Property, Keys{Time, Value, Easing}}, Duration, Loop, Playing) becomes {Sequence: the TMLN block
+    //       hosted as UIAnimation, Loop: LoopMode, AutoPlay} (MigrateUIAnimationsV40ToV41, through
+    //       Timeline::LiftUIAnimation — key times rounded onto the tick grid and REPORTED, easings baked into
+    //       keys). The one widget binding names the owning record's UUID. A UIAnim in a prefab override is
+    //       refused by name: an override that restates a clip has no v40 whole to lift. Scenes and prefabs alike.
+    inline constexpr int kSceneVersionUIAnimationSequences = 41;
+
+    static_assert( kSceneVersionUIAnimationSequences == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -247,6 +255,18 @@ namespace Desert::Migration
     // Renames Camera.IsMainCamera -> AutoActivateForPlayer on every record of @p entities under the rule
     // kSceneVersionPlayerViewFlag states, and drops the key from prefab overrides. PURE.
     PlayerViewFlagReport MigratePlayerViewFlagV39ToV40( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateUIAnimationsV40ToV41 did to one file.
+    struct UIAnimationsReport
+    {
+        std::size_t              Clips       = 0; // UIAnim blocks lifted
+        std::size_t              RoundedKeys = 0; // keys whose time was not on the tick grid (UILiftReport)
+        std::vector<std::string> Refused;         // one line per clip that could not be lifted; nothing written
+    };
+
+    // Lifts every record's v40 UIAnim block into the v41 {Sequence, Loop, AutoPlay} form under the rule
+    // kSceneVersionUIAnimationSequences states; refuses a UIAnim in a prefab override. PURE.
+    UIAnimationsReport MigrateUIAnimationsV40ToV41( std::vector<Assets::EntityData>& entities );
 
     // What MigrateInstanceTransformsV36ToV37 did to one scene.
     struct InstanceTransformsReport
@@ -357,11 +377,15 @@ namespace Desert::Migration
         bool                 PlayerViewFlagRaised = false; // below kSceneVersionPlayerViewFlag
         PlayerViewFlagReport PlayerViewFlag;
 
+        bool               UIAnimationsRaised = false; // below kSceneVersionUIAnimationSequences
+        UIAnimationsReport UIAnimations;
+
         bool Changed() const
         {
             return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised ||
                    ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised ||
-                   LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised;
+                   LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised ||
+                   UIAnimationsRaised;
         }
     };
 
