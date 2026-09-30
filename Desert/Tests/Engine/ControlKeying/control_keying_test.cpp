@@ -16,7 +16,12 @@
 
 #include <Engine/Animation/Rig/ControlKeyer.hpp>
 #include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Animation/Timeline/Evaluator.hpp>
+#include <Engine/Animation/Timeline/Section.hpp>
+#include <Engine/Animation/Timeline/Track.hpp>
 #include <Engine/Animation/TrackEditing.hpp>
+
+#include "../ClipFixture.hpp"
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtc/matrix_transform.hpp>
@@ -24,12 +29,14 @@
 
 #include <gtest/gtest.h>
 
+#include <climits>
 #include <cmath>
+#include <cstdint>
 #include <utility>
+#include <variant>
 
 using Desert::Animation::AnimationClip;
 using Desert::Animation::BoneInfo;
-using Desert::Animation::BoneTrack;
 using Desert::Animation::BoneTransform;
 using Desert::Animation::ComponentPose;
 using Desert::Animation::ControlElement;
@@ -45,6 +52,10 @@ using Desert::Animation::KeyInterp;
 using Desert::Animation::LocalPose;
 using Desert::Animation::Skeleton;
 using Desert::Animation::TangentMode;
+using Desert::Animation::Timeline::RotationChannel;
+using Desert::Animation::Timeline::Track;
+using Desert::Animation::Timeline::TransformChannel;
+using Desert::Animation::Timeline::VectorChannel;
 
 namespace
 {
@@ -92,22 +103,86 @@ namespace
 
     AnimationClip MakeClip( int durationTicks )
     {
-        AnimationClip clip;
-        clip.AnimationName = "take";
-        clip.DurationTicks = FrameNumber{ durationTicks };
-        return clip;
+        return ClipFixture::Clip( "take", FrameNumber{ durationTicks } );
     }
 
-    const BoneTrack* FindTrack( const AnimationClip& clip, const char* name )
+    /// A control's (or bone's) keys live in the clip's Sequence: the Transform track of the Bone binding whose
+    /// locator is its name — found the way the engine finds it.
+    const Track* FindTrack( const AnimationClip& clip, const char* name )
     {
-        for ( const BoneTrack& track : clip.Tracks )
+        return Desert::Animation::FindBoneTrack( clip.Sequence, name );
+    }
+
+    /// The keys a track holds: the Transform channel of its ONE section (the keyer creates one and keys into
+    /// it). A missing track or another shape is a failure, reported here, and reads as an empty channel.
+    const TransformChannel& KeysOf( const Track* track )
+    {
+        static const TransformChannel none;
+        if ( track == nullptr || track->Sections.size() != 1U )
         {
-            if ( track.BoneName == name )
-            {
-                return &track;
-            }
+            ADD_FAILURE() << "expected a track with one section";
+            return none;
         }
-        return nullptr;
+        const auto* channel = std::get_if<Desert::Animation::Timeline::Channel>( &track->Sections[0].Content );
+        const auto* keys    = channel == nullptr ? nullptr : std::get_if<TransformChannel>( channel );
+        if ( keys == nullptr )
+        {
+            ADD_FAILURE() << "the section holds no Transform channel";
+            return none;
+        }
+        return *keys;
+    }
+
+    /// The key count of a vector part, and only when its three components agree: a keyer that keyed one
+    /// component and not the others must not pass a count.
+    size_t KeyCount( const VectorChannel& part )
+    {
+        const size_t n = part.X.Keys.size();
+        return part.Y.Keys.size() == n && part.Z.Keys.size() == n ? n : SIZE_MAX;
+    }
+
+    size_t KeyCount( const RotationChannel& part )
+    {
+        const size_t n = part.X.Keys.size();
+        return part.Y.Keys.size() == n && part.Z.Keys.size() == n && part.W.Keys.size() == n ? n : SIZE_MAX;
+    }
+
+    /// Key @p i's tick, when the components agree on it (INT32_MIN otherwise, which no test expects).
+    int KeyTick( const VectorChannel& part, size_t i )
+    {
+        const int tick = part.X.Keys[i].Tick.Value;
+        return part.Y.Keys[i].Tick.Value == tick && part.Z.Keys[i].Tick.Value == tick ? tick : INT32_MIN;
+    }
+
+    int KeyTick( const RotationChannel& part, size_t i )
+    {
+        const int tick = part.X.Keys[i].Tick.Value;
+        return part.Y.Keys[i].Tick.Value == tick && part.Z.Keys[i].Tick.Value == tick &&
+                             part.W.Keys[i].Tick.Value == tick
+                    ? tick
+                    : INT32_MIN;
+    }
+
+    glm::vec3 KeyValue( const VectorChannel& part, size_t i )
+    {
+        return glm::vec3( part.X.Keys[i].Value, part.Y.Keys[i].Value, part.Z.Keys[i].Value );
+    }
+
+    glm::quat KeyValue( const RotationChannel& part, size_t i )
+    {
+        return glm::quat( part.W.Keys[i].Value, part.X.Keys[i].Value, part.Y.Keys[i].Value, part.Z.Keys[i].Value );
+    }
+
+    /// What playback reads from the track at @p tick — the evaluator's fold, not a key read.
+    BoneTransform Sampled( const AnimationClip& clip, const Track& track, int tick )
+    {
+        Desert::Animation::Timeline::EvaluatedValue value;
+        const bool covered = Desert::Animation::Timeline::EvaluateTrack(
+             track, FrameTime{ FrameNumber{ tick }, 0.0F }, clip.Sequence.TickRate, value );
+        EXPECT_TRUE( covered ) << "no section covers tick " << tick;
+        const auto* pose = std::get_if<BoneTransform>( &value );
+        EXPECT_NE( pose, nullptr ) << "a bone track did not evaluate to a transform";
+        return covered && pose != nullptr ? *pose : BoneTransform{};
     }
 
     /// The whole rig this suite keys against, kept in one object so a test reads as the scenario it is.
@@ -165,20 +240,20 @@ TEST( ControlKeying, KeyHoldsTheControlsLocalPoseOnTheRequestedTick )
     ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
     EXPECT_EQ( written.GetValue(), 1U );
 
-    const BoneTrack* track = FindTrack( fix.Clip, "hand_ctrl" );
+    const Track* track = FindTrack( fix.Clip, "hand_ctrl" );
     ASSERT_NE( track, nullptr ) << "a control's keys live in a track named after the control";
-    ASSERT_EQ( track->PositionKeys.size(), 1U );
-    ASSERT_EQ( track->RotationKeys.size(), 1U );
-    ASSERT_EQ( track->ScaleKeys.size(), 1U );
+    ASSERT_EQ( KeyCount( KeysOf( track ).Translation ), 1U );
+    ASSERT_EQ( KeyCount( KeysOf( track ).Rotation ), 1U );
+    ASSERT_EQ( KeyCount( KeysOf( track ).Scale ), 1U );
 
-    EXPECT_EQ( track->PositionKeys[0].Tick.Value, 96 );
-    EXPECT_EQ( track->RotationKeys[0].Tick.Value, 96 );
-    EXPECT_EQ( track->ScaleKeys[0].Tick.Value, 96 );
+    EXPECT_EQ( KeyTick( KeysOf( track ).Translation, 0 ), 96 );
+    EXPECT_EQ( KeyTick( KeysOf( track ).Rotation, 0 ), 96 );
+    EXPECT_EQ( KeyTick( KeysOf( track ).Scale, 0 ), 96 );
 
     // BIT-EXACT, not near: nothing between the control and the key is allowed to be arithmetic.
-    EXPECT_EQ( track->PositionKeys[0].Position, pose.Translation );
-    EXPECT_EQ( track->ScaleKeys[0].Scale, pose.Scale );
-    EXPECT_EQ( track->RotationKeys[0].Rotation, pose.Rotation );
+    EXPECT_EQ( KeyValue( KeysOf( track ).Translation, 0 ), pose.Translation );
+    EXPECT_EQ( KeyValue( KeysOf( track ).Scale, 0 ), pose.Scale );
+    EXPECT_EQ( KeyValue( KeysOf( track ).Rotation, 0 ), pose.Rotation );
 }
 
 TEST( ControlKeying, TheKeyIsWhereTheControlIs )
@@ -196,9 +271,9 @@ TEST( ControlKeying, TheKeyIsWhereTheControlIs )
     // 1), the offset is the rigger's, and the keyed value is the third factor. Recomposing them from the
     // KEY has to give the transform the hierarchy reports — which is the claim "the key is where the
     // control is", written down as multiplication.
-    const BoneTrack* track = FindTrack( fix.Clip, "hand_ctrl" );
+    const Track* track = FindTrack( fix.Clip, "hand_ctrl" );
     ASSERT_NE( track, nullptr );
-    const BoneTransform sampled = track->Sample( FrameTime{ FrameNumber{ 96 }, 0.0F }, fix.Clip.TickRate );
+    const BoneTransform sampled = Sampled( fix.Clip, *track, 96 );
 
     const glm::mat4 chest      = fix.Pose.Get( 1 );
     const glm::mat4 recomposed = chest * fix.Rig.Get( fix.Hand ).Offset.ToMatrix() * sampled.ToMatrix();
@@ -256,16 +331,16 @@ TEST( ControlKeying, AnInteractionSpanningEightTicksLeavesOneKey )
     Fixture fix;
     DriveDrag( fix, true );
 
-    const BoneTrack* track = FindTrack( fix.Clip, "hand_ctrl" );
+    const Track* track = FindTrack( fix.Clip, "hand_ctrl" );
     ASSERT_NE( track, nullptr );
-    EXPECT_EQ( track->PositionKeys.size(), 1U );
-    EXPECT_EQ( track->RotationKeys.size(), 1U );
-    EXPECT_EQ( track->ScaleKeys.size(), 1U );
+    EXPECT_EQ( KeyCount( KeysOf( track ).Translation ), 1U );
+    EXPECT_EQ( KeyCount( KeysOf( track ).Rotation ), 1U );
+    EXPECT_EQ( KeyCount( KeysOf( track ).Scale ), 1U );
 
     // AT THE TICK THE INTERACTION ENDED, holding the value it ended AT — not the first intermediate the
     // pointer passed through, which is what a keyer remembering the value at `Write` would have stored.
-    EXPECT_EQ( track->PositionKeys[0].Tick.Value, kDragFrames - 1 );
-    EXPECT_FLOAT_EQ( track->PositionKeys[0].Position.x, static_cast<float>( kDragFrames - 1 ) );
+    EXPECT_EQ( KeyTick( KeysOf( track ).Translation, 0 ), kDragFrames - 1 );
+    EXPECT_FLOAT_EQ( KeyValue( KeysOf( track ).Translation, 0 ).x, static_cast<float>( kDragFrames - 1 ) );
 }
 
 TEST( ControlKeying, WithoutTheDeferralTheSameDragLeavesEightKeys )
@@ -275,14 +350,14 @@ TEST( ControlKeying, WithoutTheDeferralTheSameDragLeavesEightKeys )
     Fixture fix;
     DriveDrag( fix, false );
 
-    const BoneTrack* track = FindTrack( fix.Clip, "hand_ctrl" );
+    const Track* track = FindTrack( fix.Clip, "hand_ctrl" );
     ASSERT_NE( track, nullptr );
-    EXPECT_EQ( track->PositionKeys.size(), static_cast<size_t>( kDragFrames ) );
-    EXPECT_EQ( track->RotationKeys.size(), static_cast<size_t>( kDragFrames ) );
-    EXPECT_EQ( track->ScaleKeys.size(), static_cast<size_t>( kDragFrames ) );
+    EXPECT_EQ( KeyCount( KeysOf( track ).Translation ), static_cast<size_t>( kDragFrames ) );
+    EXPECT_EQ( KeyCount( KeysOf( track ).Rotation ), static_cast<size_t>( kDragFrames ) );
+    EXPECT_EQ( KeyCount( KeysOf( track ).Scale ), static_cast<size_t>( kDragFrames ) );
     for ( int frame = 0; frame < kDragFrames; ++frame )
     {
-        EXPECT_EQ( track->PositionKeys[static_cast<size_t>( frame )].Tick.Value, frame );
+        EXPECT_EQ( KeyTick( KeysOf( track ).Translation, static_cast<size_t>( frame ) ), frame );
     }
 }
 
@@ -298,7 +373,7 @@ TEST( ControlKeying, TheClipIsUntouchedUntilTheInteractionEnds )
                       .IsSuccess() );
 
     EXPECT_EQ( fix.Keyer.Pending(), 1U );
-    EXPECT_TRUE( fix.Clip.Tracks.empty() ) << "a deferred key must not even create the track";
+    EXPECT_TRUE( fix.Clip.Sequence.Tracks.empty() ) << "a deferred key must not even create the track";
 
     // The POSE, however, is written immediately — the control is on screen under the animator's pointer,
     // and a manipulator whose control only moved on mouse-up would be unusable.
@@ -319,7 +394,7 @@ TEST( ControlKeying, ACancelledInteractionKeysNothing )
 
     EXPECT_FALSE( fix.Keyer.Interacting() );
     EXPECT_EQ( fix.Keyer.Pending(), 0U );
-    EXPECT_TRUE( fix.Clip.Tracks.empty() );
+    EXPECT_TRUE( fix.Clip.Sequence.Tracks.empty() );
     EXPECT_FALSE( fix.Keyer.EndInteraction( fix.At( 4 ) ).IsSuccess() )
          << "a cancelled interaction is closed, not waiting";
 }
@@ -341,10 +416,10 @@ TEST( ControlKeying, RepeatedInteractionsOnOneTickUpsertRatherThanAccumulate )
         ASSERT_TRUE( fix.Keyer.EndInteraction( fix.At( 12 ) ).IsSuccess() );
     }
 
-    const BoneTrack* track = FindTrack( fix.Clip, "hand_ctrl" );
+    const Track* track = FindTrack( fix.Clip, "hand_ctrl" );
     ASSERT_NE( track, nullptr );
-    ASSERT_EQ( track->PositionKeys.size(), 1U );
-    EXPECT_FLOAT_EQ( track->PositionKeys[0].Position.x, 3.0F );
+    ASSERT_EQ( KeyCount( KeysOf( track ).Translation ), 1U );
+    EXPECT_FLOAT_EQ( KeyValue( KeysOf( track ).Translation, 0 ).x, 3.0F );
 }
 
 // ── REPORT 01 §823: PLAYBACK DOES NOT FEED THE KEYER, AND THE POSITIVE CONTROL ──────────────────────
@@ -356,11 +431,12 @@ namespace
     std::vector<std::pair<int, glm::vec3>> PositionKeysOf( const AnimationClip& clip )
     {
         std::vector<std::pair<int, glm::vec3>> out;
-        for ( const BoneTrack& track : clip.Tracks )
+        for ( const Track& track : clip.Sequence.Tracks )
         {
-            for ( const auto& key : track.PositionKeys )
+            const VectorChannel& position = KeysOf( &track ).Translation;
+            for ( size_t i = 0; i < KeyCount( position ); ++i )
             {
-                out.emplace_back( key.Tick.Value, key.Position );
+                out.emplace_back( KeyTick( position, i ), KeyValue( position, i ) );
             }
         }
         return out;
@@ -421,13 +497,13 @@ TEST( ControlKeying, TheSamePoseWrittenAsAuthoredDoesKey )
          TransformOf( glm::vec3( 6.0F, 7.0F, 8.0F ), glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), glm::vec3( 1.0F ) );
 
     ASSERT_TRUE( fix.Keyer.Write( fix.At( 30 ), fix.Hand, pose, ControlWriteSource::Playback ).IsSuccess() );
-    EXPECT_TRUE( fix.Clip.Tracks.empty() ) << "the flag is what stops this";
+    EXPECT_TRUE( fix.Clip.Sequence.Tracks.empty() ) << "the flag is what stops this";
 
     const auto written = fix.Keyer.Write( fix.At( 30 ), fix.Hand, pose, ControlWriteSource::Authored );
     ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
     EXPECT_EQ( written.GetValue(), 1U );
     ASSERT_NE( FindTrack( fix.Clip, "hand_ctrl" ), nullptr );
-    EXPECT_EQ( FindTrack( fix.Clip, "hand_ctrl" )->PositionKeys.size(), 1U );
+    EXPECT_EQ( KeyCount( KeysOf( FindTrack( fix.Clip, "hand_ctrl" ) ).Translation ), 1U );
 }
 
 TEST( ControlKeying, PlaybackDuringAnInteractionDoesNotBecomePending )
@@ -448,7 +524,7 @@ TEST( ControlKeying, PlaybackDuringAnInteractionDoesNotBecomePending )
     const auto ended = fix.Keyer.EndInteraction( fix.At( 10 ) );
     ASSERT_TRUE( ended.IsSuccess() ) << ended.GetError();
     EXPECT_EQ( ended.GetValue(), 0U );
-    EXPECT_TRUE( fix.Clip.Tracks.empty() );
+    EXPECT_TRUE( fix.Clip.Sequence.Tracks.empty() );
 }
 
 TEST( ControlKeying, PlaybackLeavesAnUnkeyedControlWhereItIs )
@@ -491,16 +567,19 @@ TEST( ControlKeying, ANonUniformScaleKeysIntoTheScaleChannelAndReadsBack )
                               ControlWriteSource::Authored )
                       .IsSuccess() );
 
-    const BoneTrack* track = FindTrack( fix.Clip, "hand_ctrl" );
+    const Track* track = FindTrack( fix.Clip, "hand_ctrl" );
     ASSERT_NE( track, nullptr );
-    ASSERT_EQ( track->ScaleKeys.size(), 1U );
+    ASSERT_EQ( KeyCount( KeysOf( track ).Scale ), 1U );
     // THREE FLOATS, not one. A uniform-only scale control would make two thirds of this channel
     // unauthorable while the clip was perfectly able to hold it.
-    EXPECT_EQ( track->ScaleKeys[0].Scale, scale );
-    EXPECT_EQ( track->ScaleKeys[0].Interp, KeyInterp::Cubic );
-    EXPECT_EQ( track->ScaleKeys[0].Mode, TangentMode::Auto );
+    EXPECT_EQ( KeyValue( KeysOf( track ).Scale, 0 ), scale );
+    for ( const auto* component : { &KeysOf( track ).Scale.X, &KeysOf( track ).Scale.Y, &KeysOf( track ).Scale.Z } )
+    {
+        EXPECT_EQ( component->Keys[0].Interp, KeyInterp::Cubic );
+        EXPECT_EQ( component->Keys[0].Mode, TangentMode::Auto );
+    }
 
-    const BoneTransform sampled = track->Sample( FrameTime{ FrameNumber{ 60 }, 0.0F }, fix.Clip.TickRate );
+    const BoneTransform sampled = Sampled( fix.Clip, *track, 60 );
     EXPECT_NEAR( sampled.Scale.x, 2.0F, 1e-5F );
     EXPECT_NEAR( sampled.Scale.y, 0.5F, 1e-5F );
     EXPECT_NEAR( sampled.Scale.z, 3.0F, 1e-5F );
@@ -558,19 +637,21 @@ TEST( ControlKeying, RekeyingAnExistingKeyKeepsItsAuthoredShape )
 
     // The animator breaks the tangent and holds the pose — work the next nudge must not throw away, for
     // the same reason `AutoSetTangents` leaves a `User` key alone.
-    BoneTrack* track = nullptr;
-    for ( BoneTrack& candidate : fix.Clip.Tracks )
+    // (The shape is per component in the Sequence; the X component is the one broken here.)
     {
-        if ( candidate.BoneName == "hand_ctrl" )
-        {
-            track = &candidate;
-        }
+        Track* edited = Desert::Animation::FindBoneTrack( fix.Clip.Sequence, "hand_ctrl" );
+        ASSERT_NE( edited, nullptr );
+        ASSERT_EQ( edited->Sections.size(), 1U );
+        auto* keys = std::get_if<TransformChannel>(
+             std::get_if<Desert::Animation::Timeline::Channel>( &edited->Sections[0].Content ) );
+        ASSERT_NE( keys, nullptr );
+        ASSERT_EQ( KeyCount( keys->Translation ), 1U );
+        auto& broken         = keys->Translation.X.Keys[0];
+        broken.Interp        = KeyInterp::Constant;
+        broken.Mode          = TangentMode::User;
+        broken.ArriveTangent = 9.0F;
+        broken.LeaveTangent  = -9.0F;
     }
-    ASSERT_NE( track, nullptr );
-    track->PositionKeys[0].Interp        = KeyInterp::Constant;
-    track->PositionKeys[0].Mode          = TangentMode::User;
-    track->PositionKeys[0].ArriveTangent = glm::vec3( 9.0F, 0.0F, 0.0F );
-    track->PositionKeys[0].LeaveTangent  = glm::vec3( -9.0F, 0.0F, 0.0F );
 
     ASSERT_TRUE( fix.Keyer
                       .Write( fix.At( 20 ), fix.Hand,
@@ -579,12 +660,15 @@ TEST( ControlKeying, RekeyingAnExistingKeyKeepsItsAuthoredShape )
                               ControlWriteSource::Authored )
                       .IsSuccess() );
 
-    ASSERT_EQ( track->PositionKeys.size(), 1U );
-    EXPECT_FLOAT_EQ( track->PositionKeys[0].Position.x, 5.0F ) << "the value is what a re-key changes";
-    EXPECT_EQ( track->PositionKeys[0].Interp, KeyInterp::Constant );
-    EXPECT_EQ( track->PositionKeys[0].Mode, TangentMode::User );
-    EXPECT_FLOAT_EQ( track->PositionKeys[0].ArriveTangent.x, 9.0F );
-    EXPECT_FLOAT_EQ( track->PositionKeys[0].LeaveTangent.x, -9.0F );
+    const Track* track = FindTrack( fix.Clip, "hand_ctrl" );
+    ASSERT_NE( track, nullptr );
+    ASSERT_EQ( KeyCount( KeysOf( track ).Translation ), 1U );
+    EXPECT_FLOAT_EQ( KeyValue( KeysOf( track ).Translation, 0 ).x, 5.0F ) << "the value is what a re-key changes";
+    const auto& kept = KeysOf( track ).Translation.X.Keys[0];
+    EXPECT_EQ( kept.Interp, KeyInterp::Constant );
+    EXPECT_EQ( kept.Mode, TangentMode::User );
+    EXPECT_FLOAT_EQ( kept.ArriveTangent, 9.0F );
+    EXPECT_FLOAT_EQ( kept.LeaveTangent, -9.0F );
 }
 
 TEST( ControlKeying, AKeyInsertedBeforeExistingOnesStaysSorted )
@@ -602,14 +686,14 @@ TEST( ControlKeying, AKeyInsertedBeforeExistingOnesStaysSorted )
                           .IsSuccess() );
     }
 
-    const BoneTrack* track = FindTrack( fix.Clip, "hand_ctrl" );
+    const Track* track = FindTrack( fix.Clip, "hand_ctrl" );
     ASSERT_NE( track, nullptr );
-    ASSERT_EQ( track->PositionKeys.size(), 4U );
-    EXPECT_EQ( track->PositionKeys[0].Tick.Value, 10 );
-    EXPECT_EQ( track->PositionKeys[1].Tick.Value, 40 );
-    EXPECT_EQ( track->PositionKeys[2].Tick.Value, 70 );
-    EXPECT_EQ( track->PositionKeys[3].Tick.Value, 100 );
-    EXPECT_FLOAT_EQ( track->PositionKeys[2].Position.x, 70.0F ) << "sorted by tick, values travelling with";
+    ASSERT_EQ( KeyCount( KeysOf( track ).Translation ), 4U );
+    EXPECT_EQ( KeyTick( KeysOf( track ).Translation, 0 ), 10 );
+    EXPECT_EQ( KeyTick( KeysOf( track ).Translation, 1 ), 40 );
+    EXPECT_EQ( KeyTick( KeysOf( track ).Translation, 2 ), 70 );
+    EXPECT_EQ( KeyTick( KeysOf( track ).Translation, 3 ), 100 );
+    EXPECT_FLOAT_EQ( KeyValue( KeysOf( track ).Translation, 2 ).x, 70.0F ) << "sorted by tick, values travelling with";
 }
 
 // ── REFUSALS ────────────────────────────────────────────────────────────────────────────────────────
@@ -639,7 +723,7 @@ TEST( ControlKeying, AControlNamedLikeABoneIsRefused )
                       TransformOf( glm::vec3( 1.0F ), glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ), glm::vec3( 1.0F ) ),
                       ControlWriteSource::Authored );
     EXPECT_FALSE( written.IsSuccess() ) << "a track name is the only binding key: these keys would drive the bone";
-    EXPECT_TRUE( clip.Tracks.empty() );
+    EXPECT_TRUE( clip.Sequence.Tracks.empty() );
     // AND THE POSE IS NOT STORED EITHER: animation under a control that can never be keyed is work the
     // animator loses without being told.
     EXPECT_EQ( rig.Get( added.GetValue() ).Pose.Translation, glm::vec3( 0.0F ) );
@@ -725,8 +809,8 @@ namespace
 
     size_t PositionKeyCount( const AnimationClip& clip, const char* track )
     {
-        const BoneTrack* found = FindTrack( clip, track );
-        return found == nullptr ? 0U : found->PositionKeys.size();
+        const Track* found = FindTrack( clip, track );
+        return found == nullptr ? 0U : KeyCount( KeysOf( found ).Translation );
     }
 } // namespace
 
@@ -762,16 +846,16 @@ TEST( ControlKeying, TheSameDragInsideAnInteractionLeavesOneKey )
 
     EXPECT_EQ( keyed, 1U ) << "one key per subject, whatever the drag and the playhead did";
 
-    const BoneTrack* track = FindTrack( fix.Clip, "chest" );
+    const Track* track = FindTrack( fix.Clip, "chest" );
     ASSERT_NE( track, nullptr ) << "a bone's keys live in a track named after the bone";
-    EXPECT_EQ( track->PositionKeys.size(), 1U );
-    EXPECT_EQ( track->RotationKeys.size(), 1U );
-    EXPECT_EQ( track->ScaleKeys.size(), 1U );
-    EXPECT_EQ( track->PositionKeys[0].Tick.Value, kRecordFrames - 1 ) << "at the tick the drag ended on";
+    EXPECT_EQ( KeyCount( KeysOf( track ).Translation ), 1U );
+    EXPECT_EQ( KeyCount( KeysOf( track ).Rotation ), 1U );
+    EXPECT_EQ( KeyCount( KeysOf( track ).Scale ), 1U );
+    EXPECT_EQ( KeyTick( KeysOf( track ).Translation, 0 ), kRecordFrames - 1 ) << "at the tick the drag ended on";
 
     // RESOLVED AT THE COMMIT, NOT REMEMBERED AT THE WRITE: the value is the one the drag ENDED at, and a
     // keyer that stored the pose handed to the first `WriteBone` would put frame 0 here.
-    EXPECT_EQ( track->PositionKeys[0].Position.z, static_cast<float>( kRecordFrames - 1 ) );
+    EXPECT_EQ( KeyValue( KeysOf( track ).Translation, 0 ).z, static_cast<float>( kRecordFrames - 1 ) );
 }
 
 TEST( ControlKeying, ABoneAndAControlShareOneInteraction )
@@ -889,7 +973,7 @@ TEST( ControlKeying, AutoKeyShipsOffAndADragUnderItChangesNothingOnDisk )
          << "UE ships auto-key off; a default of 'convenient' is a clip an animator did not agree to";
 
     EXPECT_EQ( ObserveDrag( fix ), 0U );
-    EXPECT_EQ( fix.Clip.Tracks.size(), 0U ) << "not even an empty track: nothing was recording";
+    EXPECT_EQ( fix.Clip.Sequence.Tracks.size(), 0U ) << "not even an empty track: nothing was recording";
 }
 
 TEST( ControlKeying, TheSameDragWithAutoKeyOnLeavesExactlyOneKey )
@@ -901,11 +985,11 @@ TEST( ControlKeying, TheSameDragWithAutoKeyOnLeavesExactlyOneKey )
 
     EXPECT_EQ( ObserveDrag( fix ), 1U ) << "sixty held frames across sixty ticks, one key";
 
-    const BoneTrack* track = FindTrack( fix.Clip, "chest" );
+    const Track* track = FindTrack( fix.Clip, "chest" );
     ASSERT_NE( track, nullptr );
-    ASSERT_EQ( track->PositionKeys.size(), 1U );
-    EXPECT_EQ( track->PositionKeys[0].Tick.Value, kRecordFrames - 1 ) << "at the tick the pointer let go";
-    EXPECT_EQ( track->PositionKeys[0].Position.z, static_cast<float>( kRecordFrames - 1 ) );
+    ASSERT_EQ( KeyCount( KeysOf( track ).Translation ), 1U );
+    EXPECT_EQ( KeyTick( KeysOf( track ).Translation, 0 ), kRecordFrames - 1 ) << "at the tick the pointer let go";
+    EXPECT_EQ( KeyValue( KeysOf( track ).Translation, 0 ).z, static_cast<float>( kRecordFrames - 1 ) );
 }
 
 TEST( ControlKeying, SwitchingAutoKeyOffMidDragCommitsNothingWhenThePointerIsReleased )
@@ -924,7 +1008,7 @@ TEST( ControlKeying, SwitchingAutoKeyOffMidDragCommitsNothingWhenThePointerIsRel
     ASSERT_TRUE( released.IsSuccess() ) << released.GetError();
     EXPECT_EQ( released.GetValue(), 0U );
     EXPECT_FALSE( fix.Keyer.Interacting() ) << "the abandoned interaction is closed, not left open";
-    EXPECT_EQ( fix.Clip.Tracks.size(), 0U );
+    EXPECT_EQ( fix.Clip.Sequence.Tracks.size(), 0U );
 }
 
 TEST( ControlKeying, AnExplicitKeyIsNotSilencedByAutoKeyBeingOff )
@@ -947,7 +1031,7 @@ TEST( ControlKeying, AutoKeyLeavesASubjectWithNoTrackAloneAndKeysOneThatHasOne )
     fix.Keyer.SetModes( With( AutoChangeMode::AutoKey ) );
 
     EXPECT_EQ( ObserveDrag( fix ), 0U ) << "'key what is already animated' does not start animating it";
-    EXPECT_EQ( fix.Clip.Tracks.size(), 0U ) << "and does not leave an empty track behind either";
+    EXPECT_EQ( fix.Clip.Sequence.Tracks.size(), 0U ) << "and does not leave an empty track behind either";
 
     // POSITIVE CONTROL: give the bone a track by hand, then drag again.
     fix.Authoring[1].Translation = glm::vec3( 0.0F, 100.0F, 0.0F );
@@ -962,9 +1046,9 @@ TEST( ControlKeying, AutoTrackCreatesTheTrackAndWritesNoKey )
     fix.Keyer.SetModes( With( AutoChangeMode::AutoTrack ) );
 
     EXPECT_EQ( ObserveDrag( fix ), 0U );
-    const BoneTrack* track = FindTrack( fix.Clip, "chest" );
+    const Track* track = FindTrack( fix.Clip, "chest" );
     ASSERT_NE( track, nullptr ) << "the track is what this mode DOES do";
-    EXPECT_FALSE( track->HasKeys() ) << "and the key is what it withholds";
+    EXPECT_FALSE( Desert::Animation::HasKeys( *track ) ) << "and the key is what it withholds";
 }
 
 TEST( ControlKeying, KeyGroupChangedSkipsASubjectTheCurveAlreadyAgreesWith )

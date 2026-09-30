@@ -21,11 +21,24 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
+        -- The clip IS a Timeline::Sequence: the keyer writes a bone Transform track, the suite reads it back
+        -- through the evaluator playback uses.
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Channel.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Binding.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Track.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Sequence.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/SequenceFormat.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Evaluator.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Player.cpp",
     }
 
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+    }
+
+    externalincludedirs {
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- SequenceFormat.cpp: the TMLN block IS rfl structs
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -39,6 +52,13 @@ project(test_name)
     for _, define in ipairs(deps.TestSpecific.Defines) do
         defines { define }
     end
+
+    -- SequenceFormat.cpp writes through Common's JSON and canonical text; Common's JobSystem needs Optick and
+    -- its file dialog is Objective-C (the same link TimelineContract states).
+    links { "Common", "Optick" }
+    filter "system:macosx"
+        links { "Cocoa.framework", "Foundation.framework" }
+    filter {}
 
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do
