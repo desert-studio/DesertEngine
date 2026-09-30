@@ -143,17 +143,8 @@ namespace Desert::Editor
                     break;
                 }
                 case Archetype::Character:
-                {
-                    // Code-generated rounded humanoid mannequin (no import). Renders in bind/A-pose; pick
-                    // Idle/Walk/Run/Jump in Details ▸ Animation, or parent it to a Character Controller so
-                    // LocomotionSystem drives it from movement.
-                    auto e = scene.CreateNewEntity( "Character" );
-                    e.AddComponent<ECS::SkinnedMeshComponent>().MeshHandle =
-                         Geometry::ProceduralCharacterFactory::GetHumanoidMesh();
-                    e.AddComponent<ECS::AnimationComponent>();
-                    Track( e );
+                    (void)SceneHierarchyPanel::SpawnProceduralHumanoid( scene );
                     break;
-                }
                 case Archetype::Camera:
                 {
                     // Spawn at the editor viewpoint (UE "Create Camera Here") instead of the origin, so the
@@ -183,6 +174,18 @@ namespace Desert::Editor
         // Primitive path: the shared mesh comes from PrimitiveMeshFactory, i.e. from ShapeGenerators.
         auto e = scene.CreateNewEntity( Geometry::PrimitiveTypeName( type ) );
         e.AddComponent<ECS::StaticMeshComponent>().Primitive = type;
+        Track( e );
+        return e.GetComponent<ECS::UUIDComponent>().UUID;
+    }
+
+    Common::UUID SceneHierarchyPanel::SpawnProceduralHumanoid( Desert::Core::Scene& scene )
+    {
+        // The engine's mannequin (UE's /Engine character): an ordinary entity REFERENCING engine content -
+        // Humanoid.skmesh by its GUID, and the default locomotion clip by name (the clip plays on the mesh by the
+        // skeleton GUID both state). A Play snapshot, a save and a load carry it like any imported character.
+        auto e                                                 = scene.CreateNewEntity( "Character" );
+        e.AddComponent<ECS::SkinnedMeshComponent>().MeshHandle = Geometry::HumanoidMeshHandle();
+        e.AddComponent<ECS::AnimationComponent>().CurrentClip  = std::string( Geometry::kHumanoidDefaultClip );
         Track( e );
         return e.GetComponent<ECS::UUIDComponent>().UUID;
     }

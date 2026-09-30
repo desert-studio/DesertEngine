@@ -15,6 +15,7 @@
 //     overwritten. A registry that quietly loses a line is a game that quietly ships without a texture.
 
 #include <Common/Content/ContentScan.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Core/Constants.hpp>
@@ -201,17 +202,19 @@ TEST( CookedAssetRegistry, AMalformedFileIsARefusalAndNotAnEmptyProject )
                                                                            "was accepted as a registry";
     EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 4\n" ) ) << "the form before the Rig tag was read";
     EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 5\n" ) ) << "the form before the Role tag was read";
-    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 7\n" ) ) << "a future version was read as "
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 6\n" ) ) << "the form whose Rig tag was a bone hash "
+                                                                         "was read";
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 8\n" ) ) << "a future version was read as "
                                                                          "though it were this one";
-    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 6\n512 Material - -\n" ) )
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 7\n512 Material - -\n" ) )
          << "a row missing its key column was accepted";
-    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 6\nbig Material - - - - - assets:M.demat\n" ) )
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 7\nbig Material - - - - - assets:M.demat\n" ) )
          << "a size that is not a number was accepted";
-    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 6\n5 Material - zz - - - assets:M.demat\n" ) )
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 7\n5 Material - zz - - - assets:M.demat\n" ) )
          << "an identity that is neither '-' nor a 16-digit hex handle was accepted";
 
     // And the header alone, with no rows, IS a valid registry — an empty project is a real state.
-    const auto empty = AssetRegistry::Parse( "DesertAssetRegistry 6\n" );
+    const auto empty = AssetRegistry::Parse( "DesertAssetRegistry 7\n" );
     ASSERT_TRUE( empty ) << empty.GetError();
     EXPECT_TRUE( empty.GetValue().Empty() );
 }
@@ -257,7 +260,7 @@ TEST( CookedAssetRegistry, BoundsSurviveARoundTripBitForBit )
     EXPECT_FALSE( none->Bounds.has_value() ) << "a row with no extent came back with one";
 
     EXPECT_EQ( parsed.GetValue().Serialize(), text ) << "a second write of what was read is a different file";
-    EXPECT_EQ( text.rfind( "DesertAssetRegistry 6\n", 0 ), 0u );
+    EXPECT_EQ( text.rfind( "DesertAssetRegistry 7\n", 0 ), 0u );
 }
 
 // AN OLDER FORM IS REFUSED, NOT READ WITH ITS MISSING COLUMNS EMPTY. Versions 1-3 predate the tags column;
@@ -283,7 +286,7 @@ TEST( CookedAssetRegistry, AMalformedBoundsColumnIsRefused )
     const std::string one  = "3f800000";
     const std::string nan  = "7fc00000";
     const auto        row  = []( const std::string& bounds )
-    { return std::format( "DesertAssetRegistry 6\n9 StaticMesh - - - {} - assets:Meshes/M.stmesh\n", bounds ); };
+    { return std::format( "DesertAssetRegistry 7\n9 StaticMesh - - - {} - assets:Meshes/M.stmesh\n", bounds ); };
 
     ASSERT_TRUE(
          AssetRegistry::Parse( row( zero + "," + zero + "," + zero + "," + one + "," + one + "," + one ) ) );
@@ -596,32 +599,33 @@ TEST( CookedAssetRegistry, TheTagsColumnSurvivesARoundTripWithEveryAwkwardByte )
     EXPECT_EQ( read.Serialize(), text ) << "a second write of what was read is a different file";
 }
 
-// AL1-5: the Rig tag is the soft reference from a skinned mesh to its skeleton. Both rows carry the full
-// 64-bit signature through a write and a read, and a value that is not a whole non-zero number is refused.
+// AL1-5 / SKEL-TREE: the Rig tag is the soft reference from a skinned mesh to its skeleton, the skeleton's
+// header GUID. Both rows carry it through a write and a read, and a value that is not a non-null GUID is refused.
 TEST( CookedAssetRegistry, TheRigTagCarriesTheFullSignatureOnBothRowsAndRefusesAMalformedOne )
 {
-    constexpr uint64_t kSignature = 0xF00DCAFE12345678ull;
-    AssetRegistry      written;
-    AssetRegistryEntry mesh = Row( "assets:Meshes/Hero.skmesh", "SkinnedMesh", 20 );
-    mesh.Skinned            = true;
-    mesh.RigSignature       = kSignature;
-    AssetRegistryEntry rig  = Row( "assets:Meshes/Hero.skeleton", "Skeleton", 21 );
-    rig.RigSignature        = kSignature;
+    const Common::Content::AssetGuid kSkeleton{ 0xF00DCAFE12345678ull, 0x0123456789ABCDEFull };
+    AssetRegistry                    written;
+    AssetRegistryEntry               mesh = Row( "assets:Meshes/Hero.skmesh", "SkinnedMesh", 20 );
+    mesh.Skinned                          = true;
+    mesh.Skeleton                         = kSkeleton;
+    AssetRegistryEntry rig                = Row( "assets:Meshes/Hero.skeleton", "Skeleton", 21 );
+    rig.Skeleton                          = kSkeleton;
     ASSERT_TRUE( written.Insert( mesh ) );
     ASSERT_TRUE( written.Insert( rig ) );
 
     const std::string text = written.Serialize();
-    EXPECT_NE( text.find( " Skinned,Rig=" + std::to_string( kSignature ) + " assets:Meshes/Hero.skmesh" ),
+    EXPECT_NE( text.find( std::format( " Skinned,Rig={} assets:Meshes/Hero.skmesh",
+                                       Common::Content::AssetGuidToText( kSkeleton ) ) ),
                std::string::npos )
          << text;
     const auto parsed = AssetRegistry::Parse( text );
     ASSERT_TRUE( parsed ) << parsed.GetError();
-    EXPECT_EQ( parsed.GetValue().FindByKey( "assets:Meshes/Hero.skmesh" )->RigSignature, kSignature );
-    EXPECT_EQ( parsed.GetValue().FindByKey( "assets:Meshes/Hero.skeleton" )->RigSignature, kSignature );
+    EXPECT_EQ( parsed.GetValue().FindByKey( "assets:Meshes/Hero.skmesh" )->Skeleton, kSkeleton );
+    EXPECT_EQ( parsed.GetValue().FindByKey( "assets:Meshes/Hero.skeleton" )->Skeleton, kSkeleton );
     EXPECT_EQ( parsed.GetValue().Serialize(), text );
 
-    for ( const char* bad : { "Rig=", "Rig=0", "Rig=12x", "Rig=-4" } )
-        EXPECT_FALSE( AssetRegistry::Parse( std::string( "DesertAssetRegistry 6\n9 Skeleton - - - - " ) + bad +
+    for ( const char* bad : { "Rig=", "Rig=00000000000000000000000000000000", "Rig=12x", "Rig=-4" } )
+        EXPECT_FALSE( AssetRegistry::Parse( std::string( "DesertAssetRegistry 7\n9 Skeleton - - - - " ) + bad +
                                             " assets:Meshes/R.skeleton\n" ) )
              << bad;
 }
@@ -644,14 +648,14 @@ TEST( CookedAssetRegistry, TheRoleTagCarriesAShadersManifestRoleThroughAWriteAnd
     EXPECT_EQ( parsed.GetValue().FindByKey( "engine:Shaders/Programs/PBR/StandardSurface.shader" )->Role,
                "PBRSurface" );
     EXPECT_EQ( parsed.GetValue().Serialize(), text );
-    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 6\n9 Shader - - - - Role= engine:S.shader\n" ) )
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 7\n9 Shader - - - - Role= engine:S.shader\n" ) )
          << "an empty role is `-`, never `Role=`";
 }
 
 TEST( CookedAssetRegistry, AMalformedTagsColumnIsRefused )
 {
     const auto row = []( const std::string& tags )
-    { return std::format( "DesertAssetRegistry 6\n9 UITheme - - - - {} assets:UI/Themes/T.detheme\n", tags ); };
+    { return std::format( "DesertAssetRegistry 7\n9 UITheme - - - - {} assets:UI/Themes/T.detheme\n", tags ); };
     ASSERT_TRUE( AssetRegistry::Parse( row( "Name=T" ) ) );
     EXPECT_FALSE( AssetRegistry::Parse( row( "Colour=Red" ) ) ) << "an unknown tag was skipped, not refused";
     EXPECT_FALSE( AssetRegistry::Parse( row( "Name=" ) ) ) << "an empty name is `-`, never `Name=`";
@@ -672,12 +676,12 @@ TEST( CookedAssetRegistry, AnOlderRegistryCacheIsRefusedSoTheGatherRebuildsIt )
 
 TEST( CookedAssetRegistry, AMalformedHeaderColumnIsRefused )
 {
-    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 6\n5 Material zz - - - - assets:M.demat\n" ) );
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 7\n5 Material zz - - - - assets:M.demat\n" ) );
     EXPECT_FALSE( AssetRegistry::Parse(
-         "DesertAssetRegistry 6\n5 Material 00000000000000000000000000000000; - - - - assets:M.demat\n" ) )
+         "DesertAssetRegistry 7\n5 Material 00000000000000000000000000000000; - - - - assets:M.demat\n" ) )
          << "a null GUID is no identity";
     EXPECT_FALSE( AssetRegistry::Parse(
-         "DesertAssetRegistry 6\n5 Material b7de7b6da944bded0382e39126712944;MATL - - - - assets:M.demat\n" ) );
+         "DesertAssetRegistry 7\n5 Material b7de7b6da944bded0382e39126712944;MATL - - - - assets:M.demat\n" ) );
 }
 
 TEST( CookedAssetRegistry, ARowWhoseGuidIsNotTheFilesHeaderIsReported )
@@ -772,8 +776,9 @@ TEST( CookedAssetRegistry, AVersionFiveCacheIsRefusedBecauseItsPrefabRowsHaveNoB
     EXPECT_FALSE( old ) << "a version-5 registry cache was read";
 }
 
-// ANV1d2: A CLIP'S ROW CARRIES THE RIG ITS FILE STATES (SkeletonSignature), read beside the header and never by
-// loading the clip - the Animation Editor's Asset Browser lists a rig's clips from the registry alone.
+// ANV1d2: A CLIP'S ROW CARRIES THE SKELETON ITS FILE NAMES (the `Skeleton` GUID reference), read beside the header
+// and never by loading the clip - the Animation Editor's Asset Browser lists a rig's clips from the registry
+// alone.
 TEST( CookedAssetRegistry, AClipRowCarriesTheRigItsFileStates )
 {
     namespace fs = std::filesystem;
@@ -781,17 +786,19 @@ TEST( CookedAssetRegistry, AClipRowCarriesTheRigItsFileStates )
          Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe_Wave.anim";
     ASSERT_TRUE( fs::exists( corpus ) ) << corpus.string();
     const auto described = Common::Content::DescribeContentFile( corpus, Common::Content::ContentKind::Animation );
-    EXPECT_EQ( described.RigSignature, 13952148091082370875ULL ) << "the clip's stated SkeletonSignature";
+    const auto kWitnessSkeleton = Common::Content::AssetGuidFromText( "14df187f6fede36fad0b96f4420f4c5b" );
+    ASSERT_TRUE( kWitnessSkeleton );
+    EXPECT_EQ( described.Skeleton, kWitnessSkeleton.GetValue() ) << "the clip's Skeleton reference (TwoBoneProbe)";
     const auto row = Common::Content::RegistryRowFor( "assets:Meshes/Skinned/TwoBoneProbe_Wave.anim", described );
     ASSERT_TRUE( row ) << row.GetError();
-    EXPECT_EQ( row.GetValue().RigSignature, 13952148091082370875ULL ) << "the tag reaches the registry row";
+    EXPECT_EQ( row.GetValue().Skeleton, kWitnessSkeleton.GetValue() ) << "the tag reaches the registry row";
 
     const fs::path dir = fs::temp_directory_path() / "anv1d2_clip_rig";
     fs::create_directories( dir );
     const fs::path file = dir / "NoRig.anim";
     std::ofstream( file ) << R"({ "Name": "NoRig", "Channels": [] })";
-    EXPECT_EQ( Common::Content::DescribeContentFile( file, Common::Content::ContentKind::Animation ).RigSignature,
-               0u )
+    EXPECT_TRUE(
+         Common::Content::DescribeContentFile( file, Common::Content::ContentKind::Animation ).Skeleton.IsNull() )
          << "a clip stating no rig lists under none";
     fs::remove_all( dir );
 }

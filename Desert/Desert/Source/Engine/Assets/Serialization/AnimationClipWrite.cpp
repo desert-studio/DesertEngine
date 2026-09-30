@@ -1,4 +1,5 @@
 #include "AnimationClipWrite.hpp"
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Common/Content/CanonicalText.hpp>
 
@@ -17,7 +18,9 @@ namespace Desert::Assets::Serialization
         data.TickRate          = FrameRateData{ clip.TickRate.Numerator, clip.TickRate.Denominator };
         data.DisplayRate       = FrameRateData{ clip.DisplayRate.Numerator, clip.DisplayRate.Denominator };
         data.DurationTicks     = clip.DurationTicks.Value;
-        data.SkeletonSignature = clip.SkeletonSignature;
+        // The GUID resolves; the path is the registry's key for it, for the reader (AssetGuidRef).
+        if ( !clip.Skeleton.IsNull() )
+            data.Skeleton = ContentRegistry::ReferenceTo( clip.Skeleton );
 
         data.Channels.reserve( clip.Tracks.size() );
         for ( const auto& track : clip.Tracks )
@@ -118,9 +121,21 @@ namespace Desert::Assets::Serialization
         // A SAVE KEEPS THE CLIP'S IDENTITY: the GUID the file being replaced states, minted only for a new
         // file (ANIM 4, T7e). Sequencer tracks and anim graphs name the clip, and a fresh GUID would orphan
         // them. The header is stamped here, at the writer, so the version it states is this build's.
+        Common::Content::AssetGuid identity = ReadTextHeaderGuid( path );
+        if ( identity.IsNull() )
+            identity = Common::Content::AssetGuid::Generate();
+        return SaveClipToFile( path, clip, identity );
+    }
+
+    Common::BoolResultStr SaveClipToFile( const std::filesystem::path& path, const Animation::AnimationClip& clip,
+                                          const Common::Content::AssetGuid& identity )
+    {
+        if ( identity.IsNull() )
+            return Common::MakeFormattedError<bool>( "clip '{}' was not saved to '{}': no identity was stated",
+                                                     clip.AnimationName, path.string() );
         AnimationAssetData data = BuildAssetDataFromClip( clip );
-        data.Header =
-             HeaderKeepingFileGuid( path, Common::Content::ContentKind::Animation, AnimationTextSubsystems() );
+        data.Header       = Common::Content::MakeTextHeader( Common::Content::ContentKind::Animation, identity,
+                                                             AnimationTextSubsystems() );
         const auto import = ImportOfFileBeingReplaced( path );
         if ( !import )
             return Common::MakeError<bool>( import.GetError() );

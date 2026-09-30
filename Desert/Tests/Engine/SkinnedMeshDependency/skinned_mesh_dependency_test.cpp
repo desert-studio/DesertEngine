@@ -8,18 +8,21 @@
 // What was broken. AssetPreloader registers every mesh as an UNPARSED SHELL, because a cooked mesh is tens
 // of megabytes of JSON and the editor must not read all of them to reach its first frame. CreateAsset
 // resolves dependencies immediately, which for a shell means resolving against a SkinnedMeshAsset whose
-// skeleton signature is still 0 — the signature is a field inside the .skmesh. Nothing asked a second time
+// skeleton reference is still unknown — it is a field inside the .skmesh (the signature then; since SKEL-TREE
+// the header's SkeletonGuid, null until the parse). Nothing asked a second time
 // except the editor's drag-and-drop, so every skinned mesh loaded FROM A SCENE had a null skeleton,
 // MeshFactory refused to build it, and the frame contained an invisible character plus one
 // "MeshFactory: Skeleton dependency invalid" per frame forever. MeshService::Get even carried a comment
 // about not caching the failed build so the mesh "can never recover once the dependency is in place" —
 // the recovery was designed and the "once" never arrived.
 //
-// Why the zero test is here too. SkeletonAsset::GetSignature() returns 0 for a rig whose own file has not
-// been read, and an unparsed mesh shell also reports 0. An equality match between those two binds a mesh to
-// an arbitrary skeleton and calls it resolved, which is strictly worse than the unresolved state because
-// nothing downstream can tell the difference. The guard belongs in the same suite as the relation it
-// protects.
+// Why the null test is here too. An unparsed mesh shell names no skeleton yet (a null GUID); a resolver that
+// matched "unknown" against anything would bind a mesh to an arbitrary skeleton and call it resolved, which
+// is strictly worse than the unresolved state because nothing downstream can tell the difference.
+//
+// SKEL-TREE (contract Engine/Animation/SkeletonReference.hpp): the mesh names its rig BY THE .skeleton's GUID
+// (UE USkeletalMesh::Skeleton), and ResolveDependencies binds HandleForGuid of it. The bone hash is a payload
+// hash and never an identity: a rig with the SAME bones under another GUID is another skeleton.
 //
 // Why the identity constants are pinned. The repository ships a hand-authored probe rig + mesh
 // (Editor/Cooked/Meshes/SkinProbe.*) and a scene that places it, because before that there was NOT ONE
@@ -44,11 +47,14 @@
 #include <Engine/Assets/Serialization/Mesh.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 
+#include <Common/Content/TextAssetHeader.hpp>
+
 #include <rflcpp/rfl.hpp>
 #include <rflcpp/rfl/json.hpp>
 
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
 
 using Desert::Assets::AssetManager;
@@ -63,6 +69,12 @@ namespace
     // to do with bone count, and a probe nobody can read by eye is a probe nobody checks.
     constexpr const char*   kProbeBoneName  = "Root";
     constexpr std::uint64_t kProbeSignature = 4699069763035776985ull;
+
+    // THE RIG'S IDENTITY: the header GUID of the shipped SkinProbe.skeleton, which SkinProbe.skmesh names in
+    // its header (v5 SkeletonGuid). The scratch rig is written with the same GUID, so every test binds by the
+    // identity the shipped files use.
+    constexpr const char* kProbeSkeletonPath = "Editor/Resources/Assets/Meshes/Skinned/SkinProbe.skeleton";
+    constexpr Common::Content::AssetGuid kProbeSkeletonGuid{ 0xacf475090f8a76b0ull, 0xeac6ee0c3e5d32fdull };
 
     // The identity the shipped scene stores for the shipped probe mesh: MESH_SkinnedProbe.desce names it by
     // MeshGuid, and the mesh states the same GUID in its header (AF8b: authored, committed under the assets
@@ -88,7 +100,8 @@ namespace
         return {};
     }
 
-    Desert::Assets::Serialization::SkeletonAssetData ProbeSkeletonData()
+    Desert::Assets::Serialization::SkeletonAssetData
+    ProbeSkeletonData( const Common::Content::AssetGuid& guid = kProbeSkeletonGuid )
     {
         Desert::Animation::BoneInfo root;
         root.Name               = kProbeBoneName;
@@ -97,18 +110,20 @@ namespace
         root.ParentBoneID       = std::nullopt;
 
         Desert::Assets::Serialization::SkeletonAssetData data;
+        data.Header    = Common::Content::MakeTextHeader( Common::Content::ContentKind::Skeleton, guid,
+                                                          Desert::Assets::Serialization::SkeletonTextSubsystems() );
         data.Bones     = { root };
         data.Signature = Desert::Animation::Skeleton::ComputeSignature( data.Bones );
         return data;
     }
 
     // A single triangle bound entirely to bone 0. The geometry is irrelevant to the relation; what matters
-    // is that the file carries a SkeletonSignature, because that field is the dependency.
-    Desert::Assets::Serialization::MeshAssetData ProbeMeshData( std::uint64_t signature )
+    // is that the file names its skeleton by GUID, because that field is the dependency.
+    Desert::Assets::Serialization::MeshAssetData ProbeMeshData( const Common::Content::AssetGuid& skeleton )
     {
         Desert::Assets::Serialization::MeshAssetData data;
-        data.IsSkinned         = true;
-        data.SkeletonSignature = signature;
+        data.IsSkinned = true;
+        data.Skeleton  = skeleton;
 
         for ( int i = 0; i < 3; ++i )
         {
@@ -168,19 +183,20 @@ namespace
         ProbeFiles( const ProbeFiles& )            = delete;
         ProbeFiles& operator=( const ProbeFiles& ) = delete;
 
-        std::string WriteSkeleton( const char* stem = "SkinProbe" ) const
+        std::string WriteSkeleton( const char*                       stem = "SkinProbe",
+                                   const Common::Content::AssetGuid& guid = kProbeSkeletonGuid ) const
         {
             const auto path = m_Dir / ( std::string( stem ) + ".skeleton" );
-            WriteText( path, Desert::Assets::Serialization::WriteSkeletonJson( ProbeSkeletonData() ) );
+            WriteText( path, Desert::Assets::Serialization::WriteSkeletonJson( ProbeSkeletonData( guid ) ) );
             return path.generic_string();
         }
 
-        std::string WriteMesh( std::uint64_t signature, const char* stem = "SkinProbe" ) const
+        std::string WriteMesh( const Common::Content::AssetGuid& skeleton, const char* stem = "SkinProbe" ) const
         {
             const auto path = m_Dir / ( std::string( stem ) + ".skmesh" );
             // The mesh is a binary container; the skeleton beside it is still JSON, and that asymmetry
             // is the point of the two lines rather than an oversight — only the MESH form moved.
-            WriteText( path, Desert::Assets::Serialization::EncodeMeshBinary( ProbeMeshData( signature ) ) );
+            WriteText( path, Desert::Assets::Serialization::EncodeMeshBinary( ProbeMeshData( skeleton ) ) );
             return path.generic_string();
         }
 
@@ -191,17 +207,19 @@ namespace
 
 // THE RELATION ITSELF. A dependency that only becomes nameable after the file is parsed must be bound once
 // the file is parsed — through the deferred route, which is the one the whole project actually uses.
-TEST( SkinnedMeshDependency, AShellBindsItsSkeletonOnceTheDeferredLoadRevealsTheSignature )
+TEST( SkinnedMeshDependency, AShellBindsItsSkeletonOnceTheDeferredLoadRevealsTheReference )
 {
     const ProbeFiles files( "deferred" );
     AssetManager     manager;
 
     const auto skeletonPath = files.WriteSkeleton();
-    const auto meshPath     = files.WriteMesh( kProbeSignature );
+    const auto meshPath     = files.WriteMesh( kProbeSkeletonGuid );
 
     auto skeleton = manager.CreateAsset<SkeletonAsset>( skeletonPath );
     ASSERT_TRUE( skeleton );
-    ASSERT_EQ( skeleton->GetSignature(), kProbeSignature );
+    ASSERT_EQ( skeleton->GetMetadata().Handle, Common::AssetHandle( static_cast<uint64_t>(
+                                                    Common::Content::HandleForGuid( kProbeSkeletonGuid ) ) ) )
+         << "the rig's handle is not HandleForGuid of its header GUID, so no reference by GUID can find it";
 
     // Exactly what AssetPreloader does: register the mesh WITHOUT parsing it.
     auto mesh = manager.CreateAsset<SkinnedMeshAsset>( meshPath, /*loadAfterCreate=*/false );
@@ -210,12 +228,12 @@ TEST( SkinnedMeshDependency, AShellBindsItsSkeletonOnceTheDeferredLoadRevealsThe
     // Before the parse the mesh cannot know which rig it wants, so it must be bound to none. This half of
     // the assertion is what makes the other half mean something: an implementation that bound every mesh to
     // the first skeleton it saw would pass the "after" check alone.
-    EXPECT_EQ( mesh->GetSkeletonSignature(), 0ull );
+    EXPECT_TRUE( mesh->GetSkeleton().IsNull() );
     EXPECT_FALSE( mesh->GetSkeletonDependency().IsValid() );
 
     ASSERT_TRUE( mesh->EnsureLoaded( manager ).IsSuccess() );
 
-    EXPECT_EQ( mesh->GetSkeletonSignature(), kProbeSignature );
+    EXPECT_EQ( mesh->GetSkeleton(), kProbeSkeletonGuid );
     ASSERT_TRUE( mesh->GetSkeletonDependency().IsValid() );
     EXPECT_EQ( mesh->GetSkeletonDependency().Get(), skeleton.get() );
 }
@@ -232,8 +250,8 @@ TEST( SkinnedMeshDependency, TheEagerAndDeferredRoutesReachTheSameBinding )
     ASSERT_TRUE( skeleton );
 
     // Two copies of one mesh at two paths, so the manager keeps them as two records.
-    const auto eagerPath    = files.WriteMesh( kProbeSignature, "Eager" );
-    const auto deferredPath = files.WriteMesh( kProbeSignature, "Deferred" );
+    const auto eagerPath    = files.WriteMesh( kProbeSkeletonGuid, "Eager" );
+    const auto deferredPath = files.WriteMesh( kProbeSkeletonGuid, "Deferred" );
 
     auto eager = manager.CreateAsset<SkinnedMeshAsset>( eagerPath, /*loadAfterCreate=*/true );
     ASSERT_TRUE( eager );
@@ -243,31 +261,57 @@ TEST( SkinnedMeshDependency, TheEagerAndDeferredRoutesReachTheSameBinding )
     ASSERT_TRUE( deferred->EnsureLoaded( manager ).IsSuccess() );
 
     EXPECT_EQ( eager->IsReadyForUse(), deferred->IsReadyForUse() );
-    EXPECT_EQ( eager->GetSkeletonSignature(), deferred->GetSkeletonSignature() );
+    EXPECT_EQ( eager->GetSkeleton(), deferred->GetSkeleton() );
     EXPECT_EQ( eager->GetSkeletonDependency().IsValid(), deferred->GetSkeletonDependency().IsValid() );
     EXPECT_EQ( eager->GetSkeletonDependency().Get(), deferred->GetSkeletonDependency().Get() );
     EXPECT_EQ( eager->GetSkeletonDependency().Get(), skeleton.get() );
 }
 
-// A SIGNATURE OF ZERO IS "NOT KNOWN YET", NEVER "MATCHES ANYTHING". Both sides of the comparison report 0
-// before their file is read, so an equality match binds an arbitrary rig and reports success.
-TEST( SkinnedMeshDependency, AnUnknownSignatureNeverMatchesAnUnreadSkeleton )
+// A NULL REFERENCE IS "NOT KNOWN YET", NEVER "MATCHES ANYTHING". An unparsed shell names no skeleton; with a
+// rig registered, resolving it must bind nothing rather than the one rig in sight.
+TEST( SkinnedMeshDependency, AnUnparsedShellBindsNoRigEvenWithOneRegistered )
 {
     const ProbeFiles files( "zero" );
     AssetManager     manager;
+    ASSERT_TRUE( manager.CreateAsset<SkeletonAsset>( files.WriteSkeleton() ) );
 
-    // A skeleton record that exists but has not been read: its signature is 0, exactly like an unparsed
-    // mesh shell's.
-    const SkeletonAsset unreadSkeleton{ Common::Filepath( files.WriteSkeleton() ) };
-    ASSERT_EQ( unreadSkeleton.GetSignature(), 0ull );
-
-    auto shell = manager.CreateAsset<SkinnedMeshAsset>( files.WriteMesh( kProbeSignature ),
+    auto shell = manager.CreateAsset<SkinnedMeshAsset>( files.WriteMesh( kProbeSkeletonGuid ),
                                                         /*loadAfterCreate=*/false );
     ASSERT_TRUE( shell );
-    ASSERT_EQ( shell->GetSkeletonSignature(), 0ull );
+    ASSERT_TRUE( shell->GetSkeleton().IsNull() );
 
     shell->ResolveDependencies( manager );
     EXPECT_FALSE( shell->GetSkeletonDependency().IsValid() );
+}
+
+// THE BONES ARE NOT THE IDENTITY (SKEL-TREE). A rig with EXACTLY the probe's bones (the same signature) under
+// another GUID is another skeleton: a mesh naming the probe rig must not bind to it, and a mesh naming it
+// binds to it. Under the signature rule both meshes bound to whichever rig was found first.
+TEST( SkinnedMeshDependency, ARigWithTheSameBonesUnderAnotherGuidIsAnotherSkeleton )
+{
+    const ProbeFiles                 files( "twin" );
+    AssetManager                     manager;
+    const Common::Content::AssetGuid twinGuid{ 0x7717717717717717ull, 0x0000000000000001ull };
+
+    auto twin = manager.CreateAsset<SkeletonAsset>( files.WriteSkeleton( "Twin", twinGuid ) );
+    ASSERT_TRUE( twin );
+    ASSERT_TRUE( twin->EnsureLoaded( manager ).IsSuccess() );
+    ASSERT_EQ( twin->GetSignature(), kProbeSignature ) << "the twin must share the probe's bones exactly";
+
+    // Only the twin is registered. The mesh naming the probe rig binds nothing.
+    auto probeMesh = manager.CreateAsset<SkinnedMeshAsset>( files.WriteMesh( kProbeSkeletonGuid, "NamesProbe" ),
+                                                            /*loadAfterCreate=*/false );
+    ASSERT_TRUE( probeMesh );
+    ASSERT_TRUE( probeMesh->EnsureLoaded( manager ).IsSuccess() );
+    EXPECT_FALSE( probeMesh->GetSkeletonDependency().IsValid() )
+         << "a mesh bound to a skeleton it does not name, because the bones matched";
+
+    auto twinMesh = manager.CreateAsset<SkinnedMeshAsset>( files.WriteMesh( twinGuid, "NamesTwin" ),
+                                                           /*loadAfterCreate=*/false );
+    ASSERT_TRUE( twinMesh );
+    ASSERT_TRUE( twinMesh->EnsureLoaded( manager ).IsSuccess() );
+    ASSERT_TRUE( twinMesh->GetSkeletonDependency().IsValid() );
+    EXPECT_EQ( twinMesh->GetSkeletonDependency().Get(), twin.get() );
 }
 
 // RE-RESOLVING IS NOT ADDITIVE. The second call must state the whole answer, including "no rig", or a
@@ -279,7 +323,7 @@ TEST( SkinnedMeshDependency, ResolvingAgainstAManagerWithoutTheRigDropsTheBindin
     AssetManager withRig;
     ASSERT_TRUE( withRig.CreateAsset<SkeletonAsset>( files.WriteSkeleton() ) );
 
-    auto mesh = withRig.CreateAsset<SkinnedMeshAsset>( files.WriteMesh( kProbeSignature ),
+    auto mesh = withRig.CreateAsset<SkinnedMeshAsset>( files.WriteMesh( kProbeSkeletonGuid ),
                                                        /*loadAfterCreate=*/false );
     ASSERT_TRUE( mesh );
     ASSERT_TRUE( mesh->EnsureLoaded( withRig ).IsSuccess() );
@@ -300,7 +344,7 @@ TEST( SkinnedMeshDependency, TheDeferredLoadIsNotRepeatedOnEveryAsk )
 
     ASSERT_TRUE( manager.CreateAsset<SkeletonAsset>( files.WriteSkeleton() ) );
 
-    const auto meshPath = files.WriteMesh( kProbeSignature );
+    const auto meshPath = files.WriteMesh( kProbeSkeletonGuid );
     auto       mesh     = manager.CreateAsset<SkinnedMeshAsset>( meshPath, /*loadAfterCreate=*/false );
     ASSERT_TRUE( mesh );
     EXPECT_FALSE( mesh->IsReadyForUse() );
@@ -343,7 +387,7 @@ TEST( SkinnedMeshDependency, AMeshBindsItsRigWhetherOrNotTheRigsPayloadIsResiden
     auto skeleton = manager.CreateAsset<SkeletonAsset>( files.WriteSkeleton() );
     ASSERT_TRUE( skeleton );
 
-    auto mesh = manager.CreateAsset<SkinnedMeshAsset>( files.WriteMesh( kProbeSignature ),
+    auto mesh = manager.CreateAsset<SkinnedMeshAsset>( files.WriteMesh( kProbeSkeletonGuid ),
                                                        /*loadAfterCreate=*/false );
     ASSERT_TRUE( mesh );
     ASSERT_TRUE( mesh->EnsureLoaded( manager ).IsSuccess() );
@@ -363,7 +407,7 @@ TEST( SkinnedMeshDependency, AMeshBindsItsRigWhetherOrNotTheRigsPayloadIsResiden
     ASSERT_TRUE( mesh->EnsureLoaded( manager ).IsSuccess() );
 
     EXPECT_TRUE( mesh->GetSkeletonDependency().IsValid() )
-         << "the mesh could not find a rig that is registered, unchanged and named by the very signature "
+         << "the mesh could not find a rig that is registered, unchanged and named by the very GUID "
             "it carries — only its bones were not resident. This is the defect: after one scene change "
             "every skinned mesh in the project is unbuildable for the rest of the session.";
 
@@ -387,7 +431,7 @@ TEST( SkinnedMeshDependency, TheShippedProbeKeepsTheIdentityTheSceneWasSavedWith
     const std::filesystem::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "run from inside the checkout";
     std::ifstream in( root / kProbeMeshPath, std::ios::binary );
-    std::string   prefix( Common::Content::kMeshBinaryPrefixV3, '\0' );
+    std::string   prefix( Common::Content::kMeshBinaryPrefixSize, '\0' );
     in.read( prefix.data(), static_cast<std::streamsize>( prefix.size() ) );
     prefix.resize( static_cast<std::size_t>( in.gcount() ) );
 
@@ -398,6 +442,25 @@ TEST( SkinnedMeshDependency, TheShippedProbeKeepsTheIdentityTheSceneWasSavedWith
                                      "MeshGuid and would resolve to no mesh at all.";
     EXPECT_FALSE( Common::Content::HandleForGuid( expected ) == Common::AssetHandle::Null() )
          << "the probe mesh's GUID folds to the null handle, so the scene's reference would name nothing";
+
+    // THE RELATION: the skeleton the shipped mesh names IS the shipped skeleton's header GUID.
+    const auto meshRig = Common::Content::ReadMeshHeaderSkeleton( prefix );
+    if ( !meshRig.has_value() )
+        FAIL() << kProbeMeshPath << " is not a version 5 mesh";
+    EXPECT_EQ( *meshRig, kProbeSkeletonGuid ) << kProbeMeshPath << " names another skeleton";
+
+    const std::ifstream rigIn( root / kProbeSkeletonPath, std::ios::binary );
+    std::stringstream   rigText;
+    rigText << rigIn.rdbuf();
+    const auto rig = Desert::Assets::Serialization::ReadSkeletonJson( rigText.str() );
+    ASSERT_TRUE( rig ) << rig.GetError();
+    const auto& rigHeader = rig.GetValue().Header;
+    if ( !rigHeader.has_value() )
+        FAIL() << kProbeSkeletonPath << " states no header";
+    const auto rigGuid = Common::Content::AssetGuidFromText( rigHeader->Guid );
+    ASSERT_TRUE( rigGuid ) << rigGuid.GetError();
+    EXPECT_EQ( rigGuid.GetValue(), kProbeSkeletonGuid )
+         << kProbeSkeletonPath << "'s GUID changed; SkinProbe.skmesh names the old one and binds no rig";
 }
 
 int main( int argc, char** argv )

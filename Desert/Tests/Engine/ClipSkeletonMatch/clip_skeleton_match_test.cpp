@@ -1,17 +1,14 @@
 // THE PICKER AND THE RUNTIME MUST AGREE, and this suite asserts the AGREEMENT rather than either side.
 //
-// The defect: the editor's clip pickers matched a clip to a rig TOLERANTLY (bone names), the runtime matched
-// EXACTLY (skeleton signature). Each side was individually defensible, so a unit test of either passed. For
-// Mixamo content the two answers differ by construction — a rig exported WITH a skin carries leaf/end bones
-// the animation-only export never mentions, so the signatures differ while the names still line up — and an
-// AnimGraph state pointing at a clip the picker had just offered resolved to nothing, silently.
-//
-// Both sides now go through ClipSkeletonMatch. The load-bearing test here is AgreesWithRuntimeResolution:
-// every clip SelectClipsForRig offers must be findable by name through FindClipForRig.
+// The defect this suite was born for: the editor's clip pickers matched a clip to a rig TOLERANTLY (bone
+// names), the runtime EXACTLY (a bone hash), and an AnimGraph state pointing at a clip the picker had just
+// offered resolved to nothing, silently. Since SKEL-TREE the skeleton is an asset: a clip and a mesh name it
+// by its header GUID, and both sides ask ClipPlaysOnMesh (SkeletonReference.hpp) through ClipSkeletonMatch.
+// The load-bearing test is AgreesWithRuntimeResolution: every clip SelectClipsForMesh offers must be
+// findable by name through FindClipForMesh, and nothing it withheld may resolve.
 
 #include <Engine/Animation/ClipSkeletonMatch.hpp>
-#include <Engine/Animation/BoneInfo.hpp>
-#include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Animation/SkeletonReference.hpp>
 
 #include <gtest/gtest.h>
 
@@ -19,179 +16,133 @@
 #include <string>
 #include <vector>
 
-using Desert::Animation::BoneInfo;
-using Desert::Animation::ClipDrivesRig;
+using Common::Content::AssetGuid;
 using Desert::Animation::ClipRigIdentity;
-using Desert::Animation::FindClipForRig;
-using Desert::Animation::IdentifyRig;
-using Desert::Animation::RigIdentity;
-using Desert::Animation::SelectClipsForRig;
-using Desert::Animation::Skeleton;
+using Desert::Animation::FindClipForMesh;
+using Desert::Animation::MeshSkeletonIdentity;
+using Desert::Animation::SelectClipsForMesh;
+using Desert::Animation::SkeletonAssetRef;
 
 namespace
 {
-    // A Mixamo-shaped chain. `withEndBones` reproduces the difference between the two exports of ONE rig:
-    // the skinned character carries the "_end" leaf bones, the animation-only file does not.
-    Skeleton MixamoRig( bool withEndBones )
-    {
-        const std::vector<std::string> core = { "mixamorig:Hips", "mixamorig:Spine", "mixamorig:Spine1",
-                                                "mixamorig:Neck", "mixamorig:Head" };
-        const std::vector<std::string> ends = { "mixamorig:HeadTop_End", "mixamorig:LeftToe_End",
-                                                "mixamorig:RightToe_End" };
+    // Three skeleton assets. Fixed GUIDs, so a failure message is reproducible.
+    const SkeletonAssetRef kMannequin{ AssetGuid{ 0x1111, 0x0001 }, "Mannequin" };
+    const SkeletonAssetRef kMannequinLegacy{ AssetGuid{ 0x1111, 0x0002 }, "MannequinLegacy" };
+    const SkeletonAssetRef kFox{ AssetGuid{ 0x2222, 0x0001 }, "Fox" };
 
-        std::vector<BoneInfo> bones;
-        for ( size_t i = 0; i < core.size(); ++i )
-        {
-            BoneInfo b;
-            b.Name = core[i];
-            if ( i > 0 )
-                b.ParentBoneID = static_cast<uint32_t>( i - 1 );
-            bones.push_back( std::move( b ) );
-        }
-        if ( withEndBones )
-        {
-            for ( const auto& name : ends )
-            {
-                BoneInfo b;
-                b.Name         = name;
-                b.ParentBoneID = static_cast<uint32_t>( core.size() - 1 );
-                bones.push_back( std::move( b ) );
-            }
-        }
-        return Skeleton( std::move( bones ) );
-    }
-
-    ClipRigIdentity Clip( const char* name, uint64_t signature, std::vector<std::string> bones )
+    ClipRigIdentity Clip( const std::string& name, const SkeletonAssetRef& skeleton )
     {
         ClipRigIdentity c;
-        c.ClipName          = name;
-        c.SkeletonSignature = signature;
-        c.AnimatedBones     = std::move( bones );
+        c.ClipName = name;
+        c.Skeleton = skeleton;
         return c;
     }
 
-    // The library as it looks after importing one Mixamo character and three Mixamo animations, plus one
-    // clip from an entirely unrelated rig that must NOT be offered.
-    std::vector<ClipRigIdentity> MixamoLibrary( uint64_t animExportSignature )
+    // Walk, Run on the mannequin; LegacyIdle on a skeleton the mannequin declares compatible; Survey on the fox;
+    // Orphan names no skeleton at all.
+    std::vector<ClipRigIdentity> Library()
     {
-        const std::vector<std::string> animated = { "mixamorig:Hips", "mixamorig:Spine", "mixamorig:Spine1",
-                                                    "mixamorig:Neck", "mixamorig:Head" };
-        return { Clip( "Idle", animExportSignature, animated ), Clip( "Walk", animExportSignature, animated ),
-                 Clip( "Run", animExportSignature, animated ),
-                 Clip( "RobotArmSwing", 0x5151515151515151ULL, { "Base", "Segment1", "Segment2", "Gripper" } ) };
+        return { Clip( "Walk", kMannequin ), Clip( "LegacyIdle", kMannequinLegacy ), Clip( "Survey", kFox ),
+                 Clip( "Run", kMannequin ), Clip( "Orphan", SkeletonAssetRef{} ) };
+    }
+
+    MeshSkeletonIdentity MannequinMesh()
+    {
+        return { kMannequin, { kMannequinLegacy.Guid } };
     }
 } // namespace
 
-// The premise of the whole defect. If this ever stops holding, the fixture below stops testing anything, so
-// it is asserted rather than assumed.
-TEST( ClipSkeletonMatch, TheTwoMixamoExportsHaveDifferentSignatures )
+TEST( ClipSkeletonMatch, TheSameSkeletonPlays )
 {
-    const Skeleton character = MixamoRig( true );
-    const Skeleton animOnly  = MixamoRig( false );
-
-    EXPECT_NE( character.GetSignature(), animOnly.GetSignature() )
-         << "the fixture no longer reproduces the exact-vs-tolerant disagreement";
-    EXPECT_EQ( character.GetBones().size(), 8u );
-    EXPECT_EQ( animOnly.GetBones().size(), 5u );
+    EXPECT_TRUE( ClipPlaysOnMesh( kMannequin, kMannequin, {} ).IsSuccess() );
 }
 
-TEST( ClipSkeletonMatch, ExactSignatureAloneMissesTheMixamoClip )
+// A foreign skeleton is refused, and the refusal names BOTH skeletons: the only two facts anyone needs to fix it.
+TEST( ClipSkeletonMatch, AForeignSkeletonIsRefusedNamingBoth )
 {
-    const Skeleton    character = MixamoRig( true );
-    const RigIdentity rig       = IdentifyRig( character );
-    const auto        clips     = MixamoLibrary( MixamoRig( false ).GetSignature() );
-
-    // What the OLD runtime did: signature equality only. This is the defect, pinned so the fix cannot be
-    // quietly reverted into "it was always fine".
-    for ( const auto& clip : clips )
-        EXPECT_NE( clip.SkeletonSignature, rig.Signature );
-
-    // What the one rule does instead.
-    EXPECT_TRUE( ClipDrivesRig( clips[0], rig ) );
+    const auto refused = ClipPlaysOnMesh( kFox, kMannequin, {} );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "Fox" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "Mannequin" ), std::string::npos ) << refused.GetError();
 }
 
-TEST( ClipSkeletonMatch, UnrelatedRigIsStillRejected )
+// CompatibleSkeletons is ONE-WAY (UE USkeleton::CompatibleSkeletons): the mesh's skeleton listing the clip's
+// lets that clip play; the reverse pairing does not follow from it.
+TEST( ClipSkeletonMatch, CompatibleSkeletonsIsOneWay )
 {
-    const RigIdentity rig   = IdentifyRig( MixamoRig( true ) );
-    const auto        clips = MixamoLibrary( MixamoRig( false ).GetSignature() );
-
-    EXPECT_FALSE( ClipDrivesRig( clips[3], rig ) ) << "tolerance must not become 'everything matches'";
-
-    const auto found = FindClipForRig( clips, rig, "RobotArmSwing" );
-    EXPECT_FALSE( found );
-    EXPECT_NE( found.GetError().find( "RobotArmSwing" ), std::string::npos );
+    const std::vector<AssetGuid> mannequinCompatible{ kMannequinLegacy.Guid };
+    EXPECT_TRUE( ClipPlaysOnMesh( kMannequinLegacy, kMannequin, mannequinCompatible ).IsSuccess() );
+    EXPECT_FALSE( ClipPlaysOnMesh( kMannequin, kMannequinLegacy, {} ).IsSuccess() )
+         << "the legacy skeleton lists nothing, so the mannequin's clips must not play on it.";
+    EXPECT_FALSE( ClipPlaysOnMesh( kFox, kMannequin, mannequinCompatible ).IsSuccess() );
 }
 
-// THE RELATION. Not "the picker is right" and not "the runtime is right" — that they answer the same way.
+// A null GUID is "no skeleton named", never an identity two things can share.
+TEST( ClipSkeletonMatch, ANullReferenceIsNotAnIdentity )
+{
+    EXPECT_FALSE( ClipPlaysOnMesh( SkeletonAssetRef{}, SkeletonAssetRef{}, {} ).IsSuccess() );
+    EXPECT_FALSE( ClipPlaysOnMesh( SkeletonAssetRef{}, kMannequin, {} ).IsSuccess() );
+    EXPECT_FALSE( ClipPlaysOnMesh( kMannequin, SkeletonAssetRef{}, {} ).IsSuccess() );
+}
+
+// Bone names decide nothing at play time: two skeletons with the same name but different GUIDs are different.
+TEST( ClipSkeletonMatch, TheNameIsNotTheIdentity )
+{
+    const SkeletonAssetRef impostor{ AssetGuid{ 0x9999, 0x0001 }, kMannequin.Name };
+    EXPECT_FALSE( ClipPlaysOnMesh( impostor, kMannequin, {} ).IsSuccess() );
+}
+
+TEST( ClipSkeletonMatch, ThePickerOffersExactlyTheClipsThatPlay )
+{
+    EXPECT_EQ( SelectClipsForMesh( Library(), MannequinMesh() ), ( std::vector<size_t>{ 0, 1, 3 } ) );
+}
+
+// THE RELATION. Not "the picker is right" and not "the runtime is right" -- that they answer the same way.
 TEST( ClipSkeletonMatch, AgreesWithRuntimeResolution )
 {
-    const RigIdentity rig   = IdentifyRig( MixamoRig( true ) );
-    const auto        clips = MixamoLibrary( MixamoRig( false ).GetSignature() );
-
-    const auto offered = SelectClipsForRig( clips, rig );
-    ASSERT_FALSE( offered.empty() ) << "a picker that offers nothing cannot disagree with anything";
-
-    for ( const size_t i : offered )
+    const auto clips = Library();
+    for ( const MeshSkeletonIdentity& mesh : { MannequinMesh(), MeshSkeletonIdentity{ kFox, {} } } )
     {
-        const auto found = FindClipForRig( clips, rig, clips[i].ClipName );
-        EXPECT_TRUE( found ) << "the picker offers '" << clips[i].ClipName
-                             << "' and the runtime cannot resolve it: " << found.GetError();
-        if ( found )
+        const auto offered = SelectClipsForMesh( clips, mesh );
+        ASSERT_FALSE( offered.empty() );
+        for ( const size_t i : offered )
+        {
+            const auto found = FindClipForMesh( clips, mesh, clips[i].ClipName );
+            ASSERT_TRUE( found.IsSuccess() ) << "the picker offered '" << clips[i].ClipName
+                                             << "' but the runtime cannot resolve it: " << found.GetError();
             EXPECT_EQ( found.GetValue(), i );
+        }
     }
 }
 
 // The mirror direction: nothing the picker withheld may resolve behind its back.
 TEST( ClipSkeletonMatch, NothingResolvesThatWasNotOffered )
 {
-    const RigIdentity rig     = IdentifyRig( MixamoRig( true ) );
-    const auto        clips   = MixamoLibrary( MixamoRig( false ).GetSignature() );
-    const auto        offered = SelectClipsForRig( clips, rig );
-
+    const auto clips   = Library();
+    const auto mesh    = MannequinMesh();
+    const auto offered = SelectClipsForMesh( clips, mesh );
     for ( size_t i = 0; i < clips.size(); ++i )
     {
-        const bool wasOffered = std::find( offered.begin(), offered.end(), i ) != offered.end();
-        const bool resolves   = FindClipForRig( clips, rig, clips[i].ClipName ).IsSuccess();
-        EXPECT_EQ( wasOffered, resolves ) << "clip '" << clips[i].ClipName << "'";
+        if ( std::find( offered.begin(), offered.end(), i ) != offered.end() )
+            continue;
+        EXPECT_FALSE( FindClipForMesh( clips, mesh, clips[i].ClipName ).IsSuccess() )
+             << "'" << clips[i].ClipName << "' was withheld by the picker but resolves at runtime.";
     }
 }
 
-TEST( ClipSkeletonMatch, RefusalNamesTheClipAndTheAlternatives )
+// Two failures, two fixes: a refused clip carries the rule's reason (both skeletons), an unknown one says so.
+TEST( ClipSkeletonMatch, RefusalNamesTheClipAndBothSkeletons )
 {
-    const RigIdentity rig   = IdentifyRig( MixamoRig( true ) );
-    const auto        clips = MixamoLibrary( MixamoRig( false ).GetSignature() );
+    const auto clips   = Library();
+    const auto refused = FindClipForMesh( clips, MannequinMesh(), "Survey" );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "Survey" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "Fox" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "Mannequin" ), std::string::npos ) << refused.GetError();
 
-    const auto missing = FindClipForRig( clips, rig, "Sprint" );
-    ASSERT_FALSE( missing );
-    EXPECT_NE( missing.GetError().find( "Sprint" ), std::string::npos );
-    EXPECT_NE( missing.GetError().find( "Idle" ), std::string::npos )
-         << "an artist needs to see what the rig DOES have, or the message is just 'no'";
-
-    const auto unnamed = FindClipForRig( clips, rig, "" );
-    EXPECT_FALSE( unnamed ) << "an empty state clip name is a refusal, not a silent no-op";
-}
-
-// A clip that claims this exact rig is matched even before its tracks are known — the case the signature
-// clause exists for, and the reason it was not simply deleted with the old exact-only lookup.
-TEST( ClipSkeletonMatch, SignatureStillMatchesAClipWithNoNamedBones )
-{
-    const Skeleton    character = MixamoRig( true );
-    const RigIdentity rig       = IdentifyRig( character );
-
-    const std::vector<ClipRigIdentity> clips = { Clip( "NewClip", character.GetSignature(), {} ) };
-    EXPECT_TRUE( ClipDrivesRig( clips[0], rig ) );
-    EXPECT_TRUE( FindClipForRig( clips, rig, "NewClip" ) );
-}
-
-// 0 means "no rig claimed" and must never be treated as an identity two things can share.
-TEST( ClipSkeletonMatch, UnclaimedSignatureIsNotAnIdentity )
-{
-    RigIdentity rig;
-    rig.Signature = 0;
-
-    const std::vector<ClipRigIdentity> clips = { Clip( "Orphan", 0, {} ) };
-    EXPECT_FALSE( ClipDrivesRig( clips[0], rig ) );
-    EXPECT_TRUE( SelectClipsForRig( clips, rig ).empty() );
+    const auto unknown = FindClipForMesh( clips, MannequinMesh(), "Swim" );
+    ASSERT_FALSE( unknown.IsSuccess() );
+    EXPECT_NE( unknown.GetError().find( "no clip named 'Swim'" ), std::string::npos ) << unknown.GetError();
 }
 
 int main( int argc, char** argv )

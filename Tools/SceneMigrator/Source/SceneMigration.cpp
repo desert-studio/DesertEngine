@@ -10,6 +10,10 @@
 // The graph model and its JSON round trip, for the v20 -> v21 step: the blob it moves out of the entity
 // IS this type serialized, so reading it with anything else would be a second statement of the format.
 #include <Engine/Animation/Graph/AnimGraph.hpp>
+#include <Engine/Assets/Serialization/Animation.hpp>
+#include <Engine/Assets/MeshSourceAsset.hpp>
+#include <Engine/Assets/Serialization/MeshBinary.hpp>
+#include <Engine/Assets/Serialization/Skeleton.hpp>
 
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -51,8 +55,10 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cctype>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <optional>
 #include <string>
@@ -120,7 +126,7 @@ namespace Desert::Migration
         {
             {
                 std::ifstream in( file, std::ios::binary );
-                std::string   prefix( Common::Content::kMeshBinaryPrefixV3, '\0' );
+                std::string   prefix( Common::Content::kMeshBinaryPrefixSize, '\0' );
                 in.read( prefix.data(), static_cast<std::streamsize>( prefix.size() ) );
                 prefix.resize( static_cast<std::size_t>( in.gcount() ) );
                 const auto guid = Common::Content::ReadMeshHeaderGuid( prefix );
@@ -702,6 +708,360 @@ namespace Desert::Migration
             Assets::Serialization::FoliageFloatInterval               GroundSlopeAngle{ 0.0f, 90.0f };
         };
     } // namespace
+
+    // Named, not anonymous: rfl reflects these by aggregate conversion, which needs types with linkage.
+    namespace SkeletonLegacy
+    {
+        // Where SKEL 1-2 said an imported rig came from; SKEL 3 dropped it (read here, never written).
+        struct SkeletonImportInfoV2
+        {
+            std::string Source;
+            uint64_t    SourceHash = 0;
+        };
+        // SKEL 1 and 2 as they were written: SKEL 1 lacks PreviewMesh / CompatibleSkeletons, both carry Import.
+        struct SkeletonAssetDataV1V2
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            uint64_t                                                  Signature = 0;
+            std::vector<Desert::Animation::BoneInfo>                  Bones;
+            std::optional<SkeletonImportInfoV2>                       Import;
+            std::optional<Assets::AssetGuidRef>                       PreviewMesh;
+            std::optional<std::vector<Assets::AssetGuidRef>>          CompatibleSkeletons;
+        };
+
+        // The rig as ANY generation this tool raises states it (SKEL 1, 2 or the current one), with the
+        // version it states; an unreadable body or a missing header is an error naming why.
+        // The header is handed out on its own, as a value: the reader is what proves it is there.
+        struct AnySkeleton
+        {
+            SkeletonAssetDataV1V2                      Data;
+            Common::Content::TextAssetHeaderSerialized Header;
+            uint32_t                                   Version = 0;
+        };
+        static Common::ResultStr<AnySkeleton> ReadAnySkeleton( const std::string& text )
+        {
+            const auto read = Common::Json::Read<SkeletonAssetDataV1V2>( text );
+            if ( !read )
+                return Common::MakeFormattedError<AnySkeleton>( "the skeleton body does not read: {}",
+                                                                read.GetError() );
+            const auto& header = read.GetValue().Header;
+            if ( !header.has_value() )
+                return Common::MakeFormattedError<AnySkeleton>( "the file states no header" );
+            const auto stated = header->Versions.find( "SKEL" );
+            if ( stated == header->Versions.end() )
+                return Common::MakeFormattedError<AnySkeleton>( "the header states no SKEL version" );
+            return Common::MakeSuccess( AnySkeleton{ read.GetValue(), *header, stated->second } );
+        }
+    } // namespace SkeletonLegacy
+    using SkeletonLegacy::ReadAnySkeleton;
+
+    Common::ResultStr<std::string> MigrateSkeletonToV3( const std::string& text )
+    {
+        const auto any = ReadAnySkeleton( text );
+        if ( !any )
+            return Common::MakeError<std::string>( any.GetError() );
+        const auto& [old, header, version] = any.GetValue();
+        if ( version != 1u && version != 2u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states SKEL {}, and this step raises SKEL 1 and 2 only", version );
+
+        Assets::Serialization::SkeletonAssetData   data;
+        Common::Content::TextAssetHeaderSerialized stamped = header;
+        stamped.Versions["SKEL"]                           = Assets::kSkeletonSchemaVersion;
+        data.Header                                        = std::move( stamped );
+        data.Signature                                     = old.Signature;
+        data.Bones                                         = old.Bones;
+        data.PreviewMesh                                   = old.PreviewMesh;
+        data.CompatibleSkeletons = old.CompatibleSkeletons.value_or( std::vector<Assets::AssetGuidRef>{} );
+        std::string written      = Common::Json::Write( data );
+        // What the step writes, the engine's reader must read.
+        if ( auto back = Assets::Serialization::ReadSkeletonJson( written ); !back )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as SKEL {}: {}",
+                                                            Assets::kSkeletonSchemaVersion, back.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    Common::ResultStr<Animation::SkeletonCandidate> ReadSkeletonCandidate( const std::filesystem::path& path,
+                                                                           const std::string&           text )
+    {
+        // Any generation this tool raises: the candidates are gathered BEFORE the rigs themselves are raised.
+        const auto read = ReadAnySkeleton( text );
+        if ( !read )
+            return Common::MakeFormattedError<Animation::SkeletonCandidate>(
+                 "'{}' is not a skeleton candidate: {}", path.string(), read.GetError() );
+        const auto& data = read.GetValue().Data;
+        const auto  guid = Common::Content::AssetGuidFromText( read.GetValue().Header.Guid );
+        if ( !guid )
+            return Common::MakeFormattedError<Animation::SkeletonCandidate>( "'{}' header GUID: {}", path.string(),
+                                                                             guid.GetError() );
+        std::filesystem::path stated = path.filename();
+        for ( auto dir = path.parent_path(); !dir.empty() && dir != dir.parent_path(); dir = dir.parent_path() )
+        {
+            if ( dir.filename() == "Assets" )
+            {
+                stated = path.lexically_relative( dir );
+                break;
+            }
+        }
+        return Common::MakeSuccess(
+             Animation::SkeletonCandidate{ guid.GetValue(), data.Signature, stated.generic_string() } );
+    }
+
+    namespace
+    {
+        // ANIM 4 as it stood: the live clip plus the bone hash ANIM 5 replaced.
+        struct AnimationAssetDataV4
+        {
+            uint64_t                                                SkeletonSignature = 0;
+            rfl::Flatten<Assets::Serialization::AnimationAssetData> Rest;
+        };
+    } // namespace
+
+    Common::ResultStr<std::string>
+    MigrateAnimationV4ToV5( const std::string_view path, const std::string& text,
+                            const std::span<const Animation::SkeletonCandidate> skeletons )
+    {
+        const auto v4 = Common::Json::Read<AnimationAssetDataV4>( text );
+        if ( !v4 )
+            return Common::MakeFormattedError<std::string>( "'{}': ANIM 4 body does not read: {}", path,
+                                                            v4.GetError() );
+        Assets::Serialization::AnimationAssetData data = v4.GetValue().Rest.get();
+        if ( !data.Header )
+            return Common::MakeFormattedError<std::string>( "'{}' states no header", path );
+        const auto stated = data.Header->Versions.find( "ANIM" );
+        if ( stated == data.Header->Versions.end() || stated->second != 4u )
+            return Common::MakeFormattedError<std::string>( "'{}': this step raises ANIM 4 only", path );
+
+        const auto guid = Animation::MigrateSkeletonReference( path, v4.GetValue().SkeletonSignature, skeletons );
+        if ( !guid )
+            return Common::MakeError<std::string>( guid.GetError() );
+        std::string rigPath;
+        for ( const auto& candidate : skeletons )
+            if ( candidate.Guid == guid.GetValue() )
+                rigPath = candidate.Path;
+        data.Skeleton = Assets::AssetGuidRef{ Common::Content::AssetGuidToText( guid.GetValue() ), rigPath };
+
+        const auto canonical =
+             Common::Content::CanonicalJsonTextOfWriterOutput( Assets::Serialization::WriteAnimationJson( data ) );
+        if ( !canonical )
+            return Common::MakeError<std::string>( canonical.GetError() );
+        // What the step writes, the engine's reader must read.
+        if ( auto back = Assets::Serialization::ReadAnimationJson( canonical.GetValue() ); !back )
+            return Common::MakeFormattedError<std::string>( "'{}': the raised file does not read as ANIM 5: {}",
+                                                            path, back.GetError() );
+        return Common::MakeSuccess( canonical.GetValue() );
+    }
+
+    Common::ResultStr<std::string>
+    MigrateMeshBinaryToV5( const std::string_view path, const std::string_view bytes,
+                           const std::span<const Animation::SkeletonCandidate> skeletons )
+    {
+        namespace C = Common::Content;
+        // The v3/v4 layout: a 64-byte header {Magic 8, ByteOrder 4, Version 4, FileSize 8, SectionCount 4,
+        // Flags 4, SkeletonSignature 8, BoundsMin 12, BoundsMax 12}, the mesh GUID at 64, the table at 80.
+        constexpr std::size_t kOldHeader       = 64;
+        constexpr std::size_t kOldPrefix       = kOldHeader + 16;
+        constexpr uint32_t    kOldSignatureBit = 1u << 1; // v1-v4 kMeshFlagHasSkeletonSignature
+        constexpr uint32_t    kRows            = 12;      // v4 and v5: through Colors (11) and UV1 (12)
+        struct Row
+        {
+            uint32_t Id;
+            uint32_t ElementSize;
+            uint64_t Offset;
+            uint64_t Count;
+        };
+        static_assert( sizeof( Row ) == C::kMeshBinarySectionRowSize );
+
+        if ( bytes.size() < kOldPrefix || std::memcmp( bytes.data(), C::kMeshBinaryMagic, 8 ) != 0 )
+            return Common::MakeFormattedError<std::string>( "'{}' is not a cooked mesh", path );
+        uint32_t version      = 0;
+        uint32_t sectionCount = 0;
+        uint32_t flags        = 0;
+        uint64_t fileSize     = 0;
+        uint64_t signature    = 0;
+        std::memcpy( &version, bytes.data() + 12, 4 );
+        std::memcpy( &fileSize, bytes.data() + 16, 8 );
+        std::memcpy( &sectionCount, bytes.data() + 24, 4 );
+        std::memcpy( &flags, bytes.data() + 28, 4 );
+        std::memcpy( &signature, bytes.data() + 32, 8 );
+        if ( version != 3u && version != 4u )
+            return Common::MakeFormattedError<std::string>( "'{}' is mesh version {}; this step raises 3 and 4",
+                                                            path, version );
+        const uint32_t oldRows = version == 3u ? 10u : kRows;
+        const uint64_t oldEnd  = kOldPrefix + sizeof( Row ) * oldRows;
+        if ( fileSize != bytes.size() || sectionCount != oldRows || bytes.size() < oldEnd )
+            return Common::MakeFormattedError<std::string>(
+                 "'{}' declares {} bytes and {} sections ({} present, v{} has {})", path, fileSize, sectionCount,
+                 bytes.size(), version, oldRows );
+
+        C::AssetGuid skeleton;
+        if ( ( flags & kOldSignatureBit ) != 0 )
+        {
+            const auto guid = Animation::MigrateSkeletonReference( path, signature, skeletons );
+            if ( !guid )
+                return Common::MakeError<std::string>( guid.GetError() );
+            skeleton = guid.GetValue();
+        }
+
+        const uint64_t          delta = C::kMeshBinaryPrefixSize + sizeof( Row ) * kRows - oldEnd;
+        C::MeshBinaryFileHeader header{};
+        std::memcpy( header.Magic, bytes.data(), 8 );
+        std::memcpy( &header.ByteOrder, bytes.data() + 8, 4 );
+        header.Version      = C::kMeshBinaryVersion;
+        header.FileSize     = fileSize + delta;
+        header.SectionCount = kRows;
+        header.Flags        = flags & ~kOldSignatureBit;
+        header.SkeletonGuid = skeleton;
+        std::memcpy( header.BoundsMin, bytes.data() + 40, 12 );
+        std::memcpy( header.BoundsMax, bytes.data() + 52, 12 );
+
+        std::string raised;
+        raised.reserve( static_cast<std::size_t>( header.FileSize ) );
+        const auto headerBytes = std::bit_cast<std::array<char, sizeof( header )>>( header );
+        raised.append( headerBytes.data(), headerBytes.size() );
+        raised.append( bytes.data() + kOldHeader, 16 ); // the mesh GUID
+        for ( uint32_t i = 0; i < kRows; ++i )
+        {
+            Row row{};
+            if ( i < oldRows )
+            {
+                std::memcpy( &row, bytes.data() + kOldPrefix + sizeof( Row ) * i, sizeof( Row ) );
+                row.Offset += delta;
+            }
+            else // v3 had no Colors / UV1: empty sections at the end of the file
+                row = Row{ i + 1, i + 1 == 11 ? 4u : 8u, header.FileSize, 0 };
+            const auto rowBytes = std::bit_cast<std::array<char, sizeof( row )>>( row );
+            raised.append( rowBytes.data(), rowBytes.size() );
+        }
+        raised.append( bytes.data() + oldEnd, bytes.size() - oldEnd );
+
+        // THE ENGINE JUDGES THE RESULT, and its writer states it: a raise that shifted one byte wrong is refused
+        // here by the same reader the editor uses, not discovered as a torn mesh later.
+        auto decoded = Assets::Serialization::DecodeMeshBinary( raised, path );
+        if ( !decoded )
+            return Common::MakeFormattedError<std::string>( "'{}': the raised v{} does not read: {}", path,
+                                                            C::kMeshBinaryVersion, decoded.GetError() );
+        return Common::MakeSuccess( Assets::Serialization::EncodeMeshBinary( decoded.GetValue() ) );
+    }
+
+    Common::ResultStr<std::string>
+    MigrateMeshSourceToV3( const std::string_view path, const std::string_view bytes,
+                           const std::span<const Animation::SkeletonCandidate> skeletons )
+    {
+        namespace C   = Common::Content;
+        auto envelope = C::ReadAssetEnvelope( std::as_bytes( std::span( bytes.data(), bytes.size() ) ),
+                                              Assets::MeshAssetHeaderReadContext() );
+        if ( !envelope )
+            return Common::MakeFormattedError<std::string>( "'{}': {}", path, envelope.GetError() );
+        C::AssetEnvelope e      = envelope.ExtractValue();
+        const auto       source = std::find_if( e.Sections.begin(), e.Sections.end(), []( const auto& section )
+                                                { return section.Tag == C::EnvelopeSection::Source; } );
+        if ( source == e.Sections.end() )
+            return Common::MakeFormattedError<std::string>( "'{}' has no SRCE section", path );
+
+        // THE SRCE 2 LAYOUT (MeshSourceAsset.cpp Reader/EncodeSource at version 2), walked without decoding:
+        // U32 version; models {Floats, Ints x3, 3 optional overlays, UV overlays}; slots {String, U64, U64};
+        // U8 skinned; skin {U64 signature, bone names, influences}. Little-endian, counts are U32.
+        const std::vector<std::byte>& old = source->Bytes;
+        std::size_t                   at  = 0;
+        bool                          ok  = true;
+        const auto                    u32 = [&]() -> uint32_t
+        {
+            if ( !ok || old.size() - at < 4 )
+            {
+                ok = false;
+                return 0;
+            }
+            uint32_t v = 0;
+            std::memcpy( &v, old.data() + at, 4 );
+            at += 4;
+            return v;
+        };
+        const auto skip = [&]( const uint64_t n )
+        {
+            if ( !ok || old.size() - at < n )
+                ok = false;
+            else
+                at += static_cast<std::size_t>( n );
+        };
+        const auto array   = [&]() { skip( uint64_t{ 4 } * u32() ); }; // Floats / Ints
+        const auto overlay = [&]()
+        {
+            array();
+            array();
+        };
+        const uint32_t version = u32();
+        if ( !ok || version != 2u )
+            return Common::MakeFormattedError<std::string>(
+                 "'{}' states mesh Source version {}; this step raises 2", path, version );
+        const uint32_t models = u32();
+        for ( uint32_t m = 0; ok && m < models; ++m )
+        {
+            for ( int i = 0; i < 4; ++i )
+                array();
+            for ( int i = 0; ok && i < 3; ++i )
+            {
+                skip( 1 );
+                if ( ok && std::to_integer<uint8_t>( old[at - 1] ) == 1 )
+                    overlay();
+            }
+            const uint32_t uvs = u32();
+            for ( uint32_t i = 0; ok && i < uvs; ++i )
+                overlay();
+        }
+        const uint32_t slots = u32();
+        for ( uint32_t i = 0; ok && i < slots; ++i )
+        {
+            skip( u32() );
+            skip( 16 );
+        }
+        skip( 1 );
+        if ( !ok )
+            return Common::MakeFormattedError<std::string>( "'{}': its SRCE 2 section is truncated", path );
+        const bool skinned = std::to_integer<uint8_t>( old[at - 1] ) == 1;
+
+        std::vector<std::byte> raised( old.begin(), old.begin() + static_cast<std::ptrdiff_t>( at ) );
+        const uint32_t         three = 3u;
+        std::memcpy( raised.data(), &three, 4 );
+        if ( skinned )
+        {
+            uint64_t signature = 0;
+            if ( old.size() - at < 8 )
+                return Common::MakeFormattedError<std::string>( "'{}': its SRCE 2 skin is truncated", path );
+            std::memcpy( &signature, old.data() + at, 8 );
+            at += 8;
+            const auto guid = Animation::MigrateSkeletonReference( path, signature, skeletons );
+            if ( !guid )
+                return Common::MakeError<std::string>( guid.GetError() );
+            const C::AssetGuid skeleton = guid.GetValue();
+            for ( const uint64_t half : { skeleton.Hi, skeleton.Lo } )
+                for ( int i = 0; i < 8; ++i )
+                    raised.push_back( static_cast<std::byte>( ( half >> ( 8 * i ) ) & 0xFFu ) );
+            if ( std::find( e.Asset.Dependencies.begin(), e.Asset.Dependencies.end(), skeleton ) ==
+                 e.Asset.Dependencies.end() )
+                e.Asset.Dependencies.push_back( skeleton );
+        }
+        raised.insert( raised.end(), old.begin() + static_cast<std::ptrdiff_t>( at ), old.end() );
+        source->Bytes = std::move( raised );
+
+        const auto written = C::WriteAssetEnvelope( e );
+        if ( !written )
+            return Common::MakeFormattedError<std::string>( "'{}': {}", path, written.GetError() );
+        // THE ENGINE JUDGES THE RESULT: the raised file must read as the asset the editor opens, and its writer
+        // states it (canonical bytes).
+        auto decoded = Assets::DecodeMeshSourceAsset( written.GetValue() );
+        if ( !decoded )
+            return Common::MakeFormattedError<std::string>( "'{}': the raised SRCE 3 does not read: {}", path,
+                                                            decoded.GetError() );
+        const auto encoded = Assets::EncodeMeshSourceAsset( decoded.GetValue() );
+        if ( !encoded )
+            return Common::MakeFormattedError<std::string>( "'{}': {}", path, encoded.GetError() );
+        const auto& canonical = encoded.GetValue();
+        std::string text( canonical.size(), '\0' );
+        std::ranges::transform( canonical, text.begin(),
+                                []( const std::byte b ) { return static_cast<char>( b ); } );
+        return Common::MakeSuccess( std::move( text ) );
+    }
 
     Common::ResultStr<std::string> MigrateFoliageTypeV1ToV2( const std::string& text )
     {

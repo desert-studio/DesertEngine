@@ -1684,8 +1684,8 @@ namespace Desert::Editor
                           : ::Desert::Runtime::ResourceRegistry::GetMeshService()->Get( smc.MeshHandle );
                 if ( mesh && mesh->IsSkinned() )
                 {
-                    const auto& skeleton = static_cast<::Desert::SkinnedMesh*>( mesh )->GetSkeleton();
-                    for ( const auto& asset : ctx.AnimationLibrary->GetForSkeleton( skeleton ) )
+                    for ( const auto& asset : ctx.AnimationLibrary->GetForMesh(
+                               ctx.AnimationLibrary->IdentifyMeshHandle( smc.MeshHandle ) ) )
                         if ( asset )
                             clipNames.push_back( asset->GetClip().AnimationName );
                 }

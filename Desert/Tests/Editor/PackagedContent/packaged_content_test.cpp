@@ -1544,15 +1544,16 @@ namespace
     {
         namespace P                                  = Common::Constants::Path;
         static const std::vector<DeclaredRoot> roots = {
-             // --- engine resources: never remapped, and only these three travel ---
+             // --- engine resources: never remapped, and only these four travel ---
              { "RESOURCE_PATH", &P::RESOURCE_PATH, RootVerdict::NotContent,
-               "the engine tree's ROOT, and it is not shipped wholesale - only the three named subtrees "
+               "the engine tree's ROOT, and it is not shipped wholesale - only the four named subtrees "
                "below it are. Anything new placed under it is invisible to the packager until it becomes "
                "a tree of its own here AND in PackagedContentTrees(); Resources/Scripts/ was exactly that "
                "and shipped in nothing for as long as it existed." },
              { "SHADERDIR_PATH", &P::SHADERDIR_PATH, RootVerdict::Packaged, "" },
              { "FONTS_PATH", &P::FONTS_PATH, RootVerdict::Packaged, "" },
              { "ICONS_PATH", &P::ICONS_PATH, RootVerdict::Packaged, "" },
+             { "ENGINE_CONTENT_PATH", &P::ENGINE_CONTENT_PATH, RootVerdict::Packaged, "" },
 
              // --- project content: every row is derived from the assets or cooked root, and both of
              //     those are packed trees, so the whole census travels by construction ---

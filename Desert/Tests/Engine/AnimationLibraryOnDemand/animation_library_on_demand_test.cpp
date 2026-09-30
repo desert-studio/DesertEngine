@@ -6,12 +6,12 @@
 
 #include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Animation/BoneInfo.hpp>
-#include <Engine/Animation/ProceduralCharacterAnimations.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
+#include <Engine/Geometry/ProceduralCharacterFactory.hpp>
 
 #include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Core/Constants.hpp>
@@ -49,6 +49,11 @@ namespace
             Assets::AsyncAssetLoader::Get().ResetForTest();
             const fs::path root = RepoRoot();
             ASSERT_FALSE( root.empty() );
+            // The engine's content mount (ENGINE_CONTENT_PATH) resolves against the host's working directory,
+            // as SHADERDIR_PATH does: stand where the editor stands, or the built-in humanoid's clips are
+            // outside the registry this suite gathers.
+            m_Cwd = fs::current_path();
+            fs::current_path( root / "Editor" );
             Path::SetProjectRoot( root / "Editor", "Resources/Assets" );
             Assets::ContentRegistry::ResetForTest();
             std::vector<std::string> refused;
@@ -61,6 +66,8 @@ namespace
             Path::SetProjectRoot( m_Saved.ProjectDir, m_Saved.AssetsRoot );
             Assets::ContentRegistry::ResetForTest();
             Common::AssetPathIndex::Clear();
+            if ( !m_Cwd.empty() )
+                fs::current_path( m_Cwd );
         }
 
         std::size_t ClipAssets() const
@@ -72,17 +79,9 @@ namespace
 
     private:
         Path::ProjectRootState m_Saved;
+        fs::path               m_Cwd;
     };
 } // namespace
-
-// LINK SEAM, not a behaviour: AnimationLibrary.cpp also holds PopulateLibrary, which reaches the procedural
-// humanoid clips and through them the GPU mesh factory. No test here calls PopulateLibrary, and this
-// suite must not link the renderer to prove that the library indexes rows.
-size_t Desert::Animation::ProceduralCharacterAnimations::RegisterClips( Assets::AssetManager&, AnimationLibrary& )
-{
-    ADD_FAILURE() << "PopulateLibrary was reached from AnimationLibraryOnDemand; it is out of this suite's scope";
-    return 0;
-}
 
 TEST_F( AnimationLibraryOnDemand, IndexingTheRegistryRowsReadsAndCreatesNoClip )
 {
@@ -103,8 +102,8 @@ TEST_F( AnimationLibraryOnDemand, ALookupRequestsOnlyTheNamedClipAndItBecomesPla
     Animation::AnimationLibrary library( &m_Manager );
     ASSERT_GT( library.IndexRegistryRows(), 1U );
 
-    const Animation::Skeleton none( std::vector<Animation::BoneInfo>{} );
-    const auto                first = library.FindForSkeleton( none, kClip );
+    const Animation::MeshSkeletonIdentity none{};
+    const auto                            first = library.FindForMesh( none, kClip );
     EXPECT_FALSE( first ) << "a clip nobody has read was answered synchronously";
     ASSERT_EQ( ClipAssets(), 1U ) << "the lookup created other clips than the one it named";
 
@@ -117,6 +116,38 @@ TEST_F( AnimationLibraryOnDemand, ALookupRequestsOnlyTheNamedClipAndItBecomesPla
     EXPECT_TRUE( asset->IsReadyForUse() );
     EXPECT_EQ( asset->GetClip().AnimationName, kClip );
     EXPECT_FALSE( library.HasPending( kClip ) ) << "a read clip is still reported as pending";
+}
+
+// SKEL-hum: a spawned humanoid names its clip by kHumanoidDefaultClip and its body by kHumanoidMeshGuid; both
+// must resolve from the COMMITTED engine content, exactly as a scene load resolves them. The clip must also
+// READ: the first generation wrote index-aligned unnamed filler tracks and the reader refused the whole clip,
+// so the character stood in its bind pose with nothing in the suite noticing.
+TEST_F( AnimationLibraryOnDemand, TheSpawnedHumanoidsDefaultClipIsACommittedEngineClipThatReads )
+{
+    Animation::AnimationLibrary library( &m_Manager );
+    ASSERT_GT( library.IndexRegistryRows(), 0U );
+    const std::string clipName( Geometry::kHumanoidDefaultClip );
+    ASSERT_TRUE( library.HasPending( clipName ) )
+         << "no committed .anim states the humanoid's default clip '" << clipName << "'";
+
+    const Animation::MeshSkeletonIdentity none{};
+    EXPECT_FALSE( library.FindForMesh( none, clipName ) );
+    const auto assets = m_Manager.FindAllByType<Assets::AnimationAsset>();
+    ASSERT_EQ( assets.size(), 1U );
+    const auto asset = assets.begin()->second;
+    ASSERT_TRUE( asset );
+    EXPECT_TRUE( Assets::AsyncAssetLoader::Get().FlushOne( asset->GetMetadata().Handle ) );
+    ASSERT_TRUE( asset->IsReadyForUse() ) << "the humanoid's '" << clipName << "' clip does not read";
+    EXPECT_EQ( asset->GetClip().AnimationName, clipName );
+    EXPECT_FALSE( asset->GetClip().Skeleton.IsNull() ) << "the clip states no skeleton, so it plays on no mesh";
+    EXPECT_FALSE( asset->GetClip().Tracks.empty() );
+    for ( const auto& track : asset->GetClip().Tracks )
+        EXPECT_FALSE( track.BoneName.empty() ) << "a track names no bone";
+
+    // (HumanoidMeshFile lives in the generator's .cpp, which this suite does not link; the path is spelled.)
+    EXPECT_TRUE( fs::is_regular_file( Path::CurrentProjectRoot().ProjectDir /
+                                      "Resources/Engine/Meshes/Skinned/Humanoid.skmesh" ) )
+         << "the humanoid's body Humanoid.skmesh is not committed";
 }
 
 // THM1l-b11: UE's OnAssetAdded reaching the index. On real rigs (Fox, CesiumMan) the import wrote Fox_Walk.anim
@@ -138,9 +169,11 @@ TEST_F( AnimationLibraryOnDemand, AClipAnImportWritesAfterPopulationIsOffered )
     std::vector<std::string> refused;
     ASSERT_TRUE( Assets::ContentRegistry::Gather( &refused ) );
 
+    // The engine's content (the built-in humanoid's clips) is mounted in every project, as UE's is, so population
+    // finds rows; the empty project itself holds no clip.
     Animation::AnimationLibrary library( &m_Manager );
-    ASSERT_EQ( library.IndexRegistryRows(), 0U ) << "the empty project already has clips";
-    EXPECT_FALSE( library.HasPending( kClip ) );
+    static_cast<void>( library.IndexRegistryRows() );
+    EXPECT_FALSE( library.HasPending( kClip ) ) << "the empty project already has the clip";
 
     // The import writes the clip.
     const fs::path written = clipDir / "Imported_Tilt.anim";
@@ -148,26 +181,22 @@ TEST_F( AnimationLibraryOnDemand, AClipAnImportWritesAfterPopulationIsOffered )
     Assets::ContentRegistry::NoteFile( written );
 
     EXPECT_TRUE( library.HasPending( kClip ) ) << "the clip the import wrote never reached the library";
-    const Animation::Skeleton none( std::vector<Animation::BoneInfo>{} );
-    EXPECT_FALSE( library.FindForSkeleton( none, kClip ) );
+    const Animation::MeshSkeletonIdentity none{};
+    EXPECT_FALSE( library.FindForMesh( none, kClip ) ) << "a mesh naming no skeleton was offered a clip";
     ASSERT_EQ( ClipAssets(), 1U );
     const auto asset = m_Manager.FindAllByType<Assets::AnimationAsset>().begin()->second;
     ASSERT_TRUE( Assets::AsyncAssetLoader::Get().FlushOne( asset->GetMetadata().Handle ) );
 
-    std::vector<Animation::BoneInfo> bones;
-    for ( const auto& track : asset->GetClip().Tracks )
-        if ( !track.BoneName.empty() )
-            bones.push_back( Animation::BoneInfo{ .Name = track.BoneName, .ParentBoneID = std::nullopt } );
-    ASSERT_FALSE( bones.empty() );
-    const Animation::Skeleton rig( std::move( bones ) );
-    EXPECT_EQ( library.GetForSkeleton( rig ).size(), 1U )
-         << "the rig the imported clip animates is offered nothing";
-    EXPECT_TRUE( library.FindForSkeleton( rig, kClip ) );
+    // A mesh on the skeleton the imported clip names (by GUID) is offered it.
+    ASSERT_FALSE( asset->GetSkeleton().IsNull() ) << "the imported clip names no skeleton";
+    const Animation::MeshSkeletonIdentity rig{ { asset->GetSkeleton(), "the imported clip's skeleton" }, {} };
+    EXPECT_EQ( library.GetForMesh( rig ).size(), 1U ) << "the skeleton the imported clip names is offered nothing";
+    EXPECT_TRUE( library.FindForMesh( rig, kClip ) );
 
     // The import rewrites it (a reimport): still one clip, re-registered from the asset read in place.
     fs::copy_file( source, written, fs::copy_options::overwrite_existing );
     Assets::ContentRegistry::NoteFile( written );
-    EXPECT_EQ( library.GetForSkeleton( rig ).size(), 1U ) << "a rewritten clip is offered twice or not at all";
+    EXPECT_EQ( library.GetForMesh( rig ).size(), 1U ) << "a rewritten clip is offered twice or not at all";
     EXPECT_FALSE( library.HasPending( kClip ) );
 
     fs::remove_all( project );

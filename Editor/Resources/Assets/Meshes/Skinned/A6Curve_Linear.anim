@@ -3,9 +3,9 @@
         "Kind": "Animation",
         "Guid": "9f1f5562746c64eacbd3442582a08f04",
         "Versions": {
-            "ANIM": 4
+            "ANIM": 5
         },
-        "Dependencies": []
+        "Dependencies": ["e2d99946999e4f5e83d40477c2056500"]
     },
     "Name": "A6Curve_Linear",
     "TickRate": {
@@ -17,7 +17,10 @@
         "Denominator": 1
     },
     "DurationTicks": 48000,
-    "SkeletonSignature": 9748021389765177955,
+    "Skeleton": {
+        "Guid": "e2d99946999e4f5e83d40477c2056500",
+        "Path": "Meshes/Skinned/IKProbe.skeleton"
+    },
     "Channels": [
         {
             "BoneName": "IK_Shoulder",

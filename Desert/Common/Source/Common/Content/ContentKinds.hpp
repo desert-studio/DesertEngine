@@ -6,6 +6,8 @@
 #include <cstddef>
 #include <filesystem>
 #include <string_view>
+#include <system_error>
+#include <vector>
 
 namespace Common::Content
 {
@@ -172,5 +174,36 @@ namespace Common::Content
     inline std::string_view KindName( ContentKind kind )
     {
         return KindSpec( kind ).Name;
+    }
+
+    // THE ROOTS A KIND IS FOUND UNDER — the one home of that list (UE mounts /Engine beside /Game in every
+    // project). A kind rooted in the project's assets tree is walked there AND at the same place under the
+    // engine's content mount (Constants::Path::ENGINE_CONTENT_PATH), so engine assets a project never copied
+    // — the built-in humanoid's skeleton — are in every project's registry, the sandbox's included. The mount
+    // is its own tree, never the sandbox's assets root, so the two roots are always distinct. A kind rooted
+    // elsewhere (the engine's shaders, already engine-shared) has its one root.
+    inline std::vector<std::filesystem::path> ScanRootsOf( const ContentKindSpec& spec )
+    {
+        namespace fs = std::filesystem;
+        std::vector<fs::path> roots;
+        if ( spec.StatedOnly() )
+            return roots;
+        roots.push_back( *spec.Root );
+
+        // Trailing separators leave an empty last component that lexically_relative would carry along.
+        const auto Trimmed = []( const fs::path& p )
+        {
+            const fs::path normal = p.lexically_normal();
+            return normal.has_filename() ? normal : normal.parent_path();
+        };
+        const fs::path assets = Trimmed( Constants::Path::ASSETS_PATH );
+        const fs::path rel    = Trimmed( *spec.Root ).lexically_relative( assets );
+        if ( rel.empty() || *rel.begin() == ".." )
+            return roots;
+
+        const fs::path engine = Trimmed( rel == "." ? fs::path( Constants::Path::ENGINE_CONTENT_PATH )
+                                                    : Constants::Path::ENGINE_CONTENT_PATH / rel );
+        roots.push_back( engine / "" );
+        return roots;
     }
 } // namespace Common::Content
