@@ -1,13 +1,14 @@
 // EVERY LANDSCAPE PALETTE ENTRY IS NAMED HERE.
 //
-// The Landscape group of the command palette (EditorLayer::BuildPaletteCommands) is how an agent with no cursor
+// The Landscape group of the command palette (AppendLandscapeCommands) is how an agent with no cursor
 // drives the Landscape mode: Sculpt / Paint / Manage, the New Landscape form, heightmap import/export, the Paint
 // target layers, the Edit Layers stack and every tool control. Each `{ "Landscape", <label>, ... }` entry of
-// Editor/Source/EditorLayer.cpp is a row of the register below — its label expression, how many entries are
-// built from that expression, and what it reaches. A new entry with no row, a row whose entry is gone, and a
-// changed count are each red here, so the palette cannot grow a command nobody has accounted for.
+// Editor/Source/Editor/Panels/Landscape/LandscapeCommands.cpp is a row of the register below — its label
+// expression, how many entries are built from that expression, and what it reaches. A new entry with no row, a row
+// whose entry is gone, and a changed count are each red here, so the palette cannot grow a command nobody has
+// accounted for.
 //
-// EditorLayer.cpp is compiled by no suite, so it is READ AS TEXT.
+// LandscapeCommands.cpp is compiled by no suite, so it is READ AS TEXT.
 
 #include <gtest/gtest.h>
 
@@ -58,7 +59,7 @@ namespace
     };
     // clang-format on
 
-    constexpr const char* kLayer = "Editor/Source/EditorLayer.cpp";
+    constexpr const char* kLayer = "Editor/Source/Editor/Panels/Landscape/LandscapeCommands.cpp";
 
     std::string RepoRoot()
     {
@@ -163,7 +164,7 @@ TEST( LandscapePaletteCensus, EveryPaletteEntryHasARow )
         const auto row = registered.find( label );
         if ( row == registered.end() )
         {
-            ADD_FAILURE() << "EditorLayer.cpp builds the Landscape palette entry '" << label
+            ADD_FAILURE() << "LandscapeCommands.cpp builds the Landscape palette entry '" << label
                           << "' and the census has no row for it. Add a row naming what it reaches.";
             continue;
         }
@@ -178,7 +179,7 @@ TEST( LandscapePaletteCensus, EveryRowStillHasItsEntry )
     for ( const PaletteRow& row : kRegister )
         EXPECT_TRUE( labels.count( row.Label ) )
              << "the census names the Landscape palette entry '" << row.Label
-             << "' and EditorLayer.cpp no longer builds it; remove the row with the entry";
+             << "' and LandscapeCommands.cpp no longer builds it; remove the row with the entry";
 }
 
 int main( int argc, char** argv )

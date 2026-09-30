@@ -2,10 +2,10 @@
 // two files it writes — and a census that every control of the Foliage panel is reachable without a mouse.
 //
 // The census follows ModelingPaletteCensus: each widget of Editor/Source/Editor/Panels/Foliage/FoliagePanel.cpp
-// is a row of the register below, either reached through a palette entry in EditorLayer::BuildPaletteCommands
-// (every token must appear in EditorLayer.cpp) or exempt with the reason. The panel and EditorLayer are compiled
-// by no suite, so both are READ AS TEXT. A widget added without a row, a row whose widget is gone, and a palette
-// entry removed from EditorLayer.cpp are each red here.
+// is a row of the register below, either reached through a palette entry in AppendFoliageCommands
+// (every token must appear in FoliageCommands.cpp) or exempt with the reason. The panel and the provider are
+// compiled by no suite, so both are READ AS TEXT. A widget added without a row, a row whose widget is gone, and a
+// palette entry removed from FoliageCommands.cpp are each red here.
 
 #include <Editor/Panels/Collections/CollectionFoliageTypes.hpp>
 #include <Editor/Panels/Foliage/FoliagePalette.hpp>
@@ -218,7 +218,7 @@ namespace
         const char*              Kind;
         const char*              Label; // the first argument, whitespace collapsed
         Reach                    How;
-        std::vector<std::string> Tokens; // Palette: substrings of EditorLayer.cpp; Exempt: the reason
+        std::vector<std::string> Tokens; // Palette: substrings of FoliageCommands.cpp; Exempt: the reason
     };
 
     // clang-format off
@@ -347,7 +347,7 @@ namespace
     }
 
     constexpr const char* kPanel = "Editor/Source/Editor/Panels/Foliage/FoliagePanel.cpp";
-    constexpr const char* kLayer = "Editor/Source/EditorLayer.cpp";
+    constexpr const char* kLayer = "Editor/Source/Editor/Panels/Foliage/FoliageCommands.cpp";
 } // namespace
 
 TEST( FoliagePaletteCensus, TheSourcesAreFound )
@@ -368,7 +368,7 @@ TEST( FoliagePaletteCensus, EveryPanelWidgetHasARow )
         EXPECT_TRUE( registered.count( widget ) )
              << "the Foliage panel draws " << widget
              << " and the register says nothing about how to reach it without a mouse: add a palette entry in "
-                "EditorLayer::BuildPaletteCommands and a row here, or a row exempting it with the reason";
+                "AppendFoliageCommands and a row here, or a row exempting it with the reason";
 }
 
 TEST( FoliagePaletteCensus, EveryRowStillHasItsWidget )
@@ -389,7 +389,7 @@ TEST( FoliagePaletteCensus, EveryPaletteRowIsInTheRegistry )
         for ( const auto& token : row.Tokens )
             EXPECT_NE( layer.find( token ), std::string::npos )
                  << row.Kind << "( " << row.Label << " ) is reached through the palette entry built from '"
-                 << token << "', which EditorLayer.cpp no longer holds";
+                 << token << "', which FoliageCommands.cpp no longer holds";
     }
 }
 

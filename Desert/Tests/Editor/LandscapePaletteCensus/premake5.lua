@@ -1,4 +1,4 @@
--- "Every Landscape palette entry EditorLayer::BuildPaletteCommands builds is named in the census register."
+-- "Every Landscape palette entry AppendLandscapeCommands builds is named in the census register."
 --
 local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 

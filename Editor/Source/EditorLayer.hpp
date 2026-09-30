@@ -15,6 +15,7 @@
 #include "Editor/Widgets/UIHelper/ImGuiUI.hpp"
 #include "Editor/Panels/IPanel.hpp"
 #include "Editor/Core/CommandPalette.hpp"
+#include "Editor/Core/Commands/CommandRegistry.hpp"
 #include "Editor/Core/PlayWorldCommands.hpp"
 #include "Editor/Core/Control/ControlPipeline.hpp"
 #include "Editor/Core/Control/ControlProtocol.hpp"
@@ -142,21 +143,12 @@ namespace Desert::Editor
         // Opens/closes panels whose context appeared or vanished (see IPanel::IsContextual).
         void UpdateContextualPanels();
 
-        // THE DICTIONARY, AND THE ONLY ONE. Every command this editor can be asked to perform without a
-        // mouse: the tool panels, the open documents, the entities in the open scene, the menu bar, the
-        // openable assets, the focused document's preview viewpoints, and the plain actions.
-        //
-        // Extracted from DrawCommandPalette so that the CONTROL CHANNEL runs these same entries and calls
-        // these same closures. That is the whole design of the channel in one function: everything a
-        // person can reach with Ctrl+P, an agent can reach by naming a group and a label, by construction
-        // rather than by anybody maintaining a second list. See Editor/Core/Control/ControlDispatch.hpp.
-        //
-        // Built on demand — when the palette opens, or when a request arrives — never per frame. THAT
-        // SENTENCE USED TO BE FALSE: DrawCommandPalette rebuilt it on every frame the overlay was up, and
-        // the dictionary walks the scene's entities, the levels on disk and every openable file under the
-        // content root. See DrawCommandPalette for what makes rebuilding on OPEN correct rather than a
-        // snapshot going stale.
+        // The palette's and the control channel's list, built from m_Commands (see CommandRegistry.hpp).
         [[nodiscard]] std::vector<PaletteCommand> BuildPaletteCommands();
+        // The editor's own palette entries, registered as two providers around the subject-owned ones (Landscape,
+        // Modeling, Humanoid) until EDL-2b gives each group its own provider.
+        void AppendShellHeadCommands( std::vector<PaletteCommand>& commands );
+        void AppendShellCommands( std::vector<PaletteCommand>& commands );
         // "Assets | Assign Skeleton…": the selected .skmesh / .anim onto a registered .skeleton
         // (CheckSkeletonAssignment first; a clip is saved after). Named, not a lambda, so the palette entry binds
         // it.
@@ -737,6 +729,8 @@ namespace Desert::Editor
         PanelMaximize m_PanelMaximize;
 
         CommandPalette m_CommandPalette;
+        // Every palette provider, in palette order; registered in OnAttach.
+        CommandRegistry m_Commands;
 
         // THE MENU HELD OPEN, by name, for as long as the channel says so. Empty = nothing held.
         //
