@@ -202,3 +202,9 @@ TEST( SkeletonReference, MigrateZeroSignatureRefused )
     ASSERT_FALSE( r );
     EXPECT_TRUE( Mentions( r.GetError(), "Anims/Idle.anim" ) ) << r.GetError();
 }
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}
