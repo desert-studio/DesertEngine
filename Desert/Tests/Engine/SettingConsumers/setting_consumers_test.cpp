@@ -135,7 +135,7 @@ namespace
          // The medium group funnels through MakeSkySettings into the sky payload's medium block, where
          // the SkyTransmittanceLut / SkyMultiScatterLut compute passes read it — a fingerprint change
          // re-dispatches both, so each of these fields moves real GPU texels today.
-         { "Model", kSkySettings }, // gates the LUT dispatch (SkyboxRenderer::ExecuteAtmosphereLuts)
+         { "Model", kSkySettings }, // gates the LUT dispatch (SkyboxRenderer::DeclareAtmosphereLutNodes)
          { "AtmosphereHeight", kSkySettings },
          { "MultiScatteringFactor", kSkySettings },
          { "GroundAlbedo", kSkySettings },

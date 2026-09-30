@@ -444,13 +444,16 @@ namespace Desert::Graphic
         /// branch and the answer to "does this surface receive a cloud shadow" was "only if a deferred
         /// pass drew it".
         ///
-        /// Valid after ExecuteCloudShadowMap() has run for this frame — which is before the render graph
-        /// records, so every pass in the frame may ask. Returns the default (disabled, no map) whenever
-        /// the layer is absent, off, not casting or at zero strength.
+        /// Valid after the cloud shadow node was declared for this frame (AddFrameCloudShadowMap) — which is
+        /// before the render graph records, so every pass in the frame may ask. Returns the default (disabled, no
+        /// map) whenever the layer is absent, off, not casting or at zero strength.
         CloudShadowInput GetCloudShadowInput() const;
         // The shadow images a lit pass samples: every valid cascade of the directional shadow, and the cloud
         // layer's shadow map. A system whose materials receive shadows calls this from its pass's Declare.
         void DeclareShadowReads( RenderPassDeclaration& declared ) const;
+        // The atmosphere LUTs a consumer of GetAtmosphere() samples (aerial perspective, distant sky light,
+        // transmittance), each declared with @p access.
+        void DeclareAtmosphereReads( RenderPassDeclaration& declared, RDG::Access access ) const;
 
     private:
         // Everything this view keeps per frame in flight, keyed by the shared resource it copies; its name is
@@ -517,19 +520,16 @@ namespace Desert::Graphic
         // is a graph pass in Transparency at RenderPassOrder::AtmosphericFog, BELOW the particles, so
         // they composite over the fogged scene. When Sky Phase 3 lands, this pass composes fog OVER the
         // aerial perspective (UE's order).
-        void ExecuteAtmosphericFog();
 
         // The cloud march and its noise bake. Issued immediately after the atmospheric fog: both are
         // in-frame compute and must be outside an open render pass, and by that point the scene depth is
         // final and this frame's atmosphere LUTs have been filled. The composite itself is a graph pass in
         // Transparency at RenderPassOrder::FarField, ABOVE the fog and BELOW the particles.
-        void ExecuteVolumetricClouds();
         // The cloud layer's shadow on the WORLD, which is a different pass at a different point in the
         // frame from the march above and belongs to a different consumer. Issued BEFORE the render graph
         // records, because the deferred lighting pass reads it and runs immediately after the graph. It
         // depends on nothing the frame produces — no scene depth, no G-buffer, no atmosphere LUT — so
         // nothing forces it later, and its consumer forces it earlier.
-        void ExecuteCloudShadowMap();
 
         // Frame assembly: one graph pass each, moved out of OnUpdate (SceneRendererFrame*.cpp).
         void AddFrameGBuffer( RDG::Builder& graph, LegacyFrameTextures& textures,
@@ -572,10 +572,10 @@ namespace Desert::Graphic
                           const std::vector<RDG::TextureRef>& copyReads, const glm::mat4& viewProj,
                           const glm::vec4& cameraPos, const std::shared_ptr<LegacyFrameValues>& values );
         void AddFrameParticlesSimulate( RDG::Builder& graph, const UpdateInfo& sceneRenderInfo );
-        void AddFrameCloudShadowMap( RDG::Builder& graph );
-        void AddFrameSkyAtmosphereLuts( RDG::Builder& graph );
-        void AddFrameAtmosphericFog( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor );
-        void AddFrameVolumetricClouds( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor );
+        void AddFrameCloudShadowMap( RDG::Builder& graph, LegacyFrameTextures& textures );
+        void AddFrameSkyAtmosphereLuts( RDG::Builder& graph, LegacyFrameTextures& textures );
+        void AddFrameAtmosphericFog( RDG::Builder& graph, LegacyFrameTextures& textures );
+        void AddFrameVolumetricClouds( RDG::Builder& graph, LegacyFrameTextures& textures );
         void AddFrameJumpFlood( RDG::Builder& graph, LegacyFrameTextures& textures );
         void AddFrameAutoExposure( RDG::Builder& graph, LegacyFrameTextures& textures,
                                    const std::vector<RDG::TextureRef>& sceneColor );

@@ -135,7 +135,9 @@ namespace Desert::Graphic::System
         /**
          * @brief Stages S0 and S1. Must be called outside any render pass, after the scene depth is final.
          */
-        void ExecuteInFrame();
+        std::vector<ComputeNodeDeclaration> DeclareFrameNodes();
+        // The cloud volumes a dispatch samples (modelling, authored atlas), declared SampledCompute.
+        void DeclareVolumeReads( RenderPassDeclaration& declared ) const;
 
         /**
          * @brief Stage SM — the cloud shadow map. Must be called outside any render pass, and EARLY:
@@ -147,7 +149,7 @@ namespace Desert::Graphic::System
          * Costs exactly nothing when the layer is absent, disabled, not casting or at zero strength: the
          * image is not even allocated until all four are true.
          */
-        void ExecuteShadowMapInFrame();
+        std::vector<ComputeNodeDeclaration> DeclareShadowMapNodes();
 
         /// True when a shadow map was produced for THIS frame and may be sampled. False makes every
         /// consumer fall back to "no cloud shadow" rather than to a map from a frame the sun has since

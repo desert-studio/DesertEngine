@@ -230,6 +230,12 @@ namespace Desert::Graphic::System
 
     void SkyboxRenderer::DispatchCachedAtmosphereLuts( bool inFrame )
     {
+        DispatchTransmittanceLut( inFrame );
+        DispatchMultiScatterLut( inFrame );
+    }
+
+    void SkyboxRenderer::DispatchTransmittanceLut( bool inFrame )
+    {
         auto& renderer = Renderer::GetInstance();
 
         // Transmittance strictly first: the multi-scattering march samples it per step.
@@ -237,11 +243,9 @@ namespace Desert::Graphic::System
         m_TransmittanceLutPipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
         if ( inFrame )
         {
-            renderer.ComputeImageBeginWrite( m_TransmittanceLut.get() );
             renderer.DispatchComputeInFrame( m_TransmittanceLutPipeline.get(),
                                              LutGroupCount( kTransmittanceLutWidth ),
                                              LutGroupCount( kTransmittanceLutHeight ), 1 );
-            renderer.ComputeImageEndWrite( m_TransmittanceLut.get() );
         }
         else
         {
@@ -251,6 +255,11 @@ namespace Desert::Graphic::System
             m_TransmittanceLutPipeline->Dispatch( LutGroupCount( kTransmittanceLutWidth ),
                                                   LutGroupCount( kTransmittanceLutHeight ), 1 );
         }
+    }
+
+    void SkyboxRenderer::DispatchMultiScatterLut( bool inFrame )
+    {
+        auto& renderer = Renderer::GetInstance();
 
         m_MultiScatterLutPipeline->SetOutput( kSkyMultiScatterLutOutputBinding, m_MultiScatterLut.get(), 0 );
         m_MultiScatterLutPipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
@@ -258,11 +267,9 @@ namespace Desert::Graphic::System
         m_MultiScatterLutPipeline->SetInput( kSkyTransmittanceLutBinding, m_TransmittanceLut.get() );
         if ( inFrame )
         {
-            renderer.ComputeImageBeginWrite( m_MultiScatterLut.get() );
             renderer.DispatchComputeInFrame( m_MultiScatterLutPipeline.get(),
                                              LutGroupCount( kMultiScatterLutSize ),
                                              LutGroupCount( kMultiScatterLutSize ), 1 );
-            renderer.ComputeImageEndWrite( m_MultiScatterLut.get() );
         }
         else
         {
@@ -312,7 +319,6 @@ namespace Desert::Graphic::System
 
         const SkyViewLutPush push{ .CameraPosWorld = glm::vec4( m_ActiveCamera->GetPosition(), 0.0f ) };
 
-        renderer.ComputeImageBeginWrite( m_SkyViewLut.get() );
         m_SkyViewLutPipeline->SetOutput( kSkyViewLutOutputBinding, m_SkyViewLut.get(), 0 );
         m_SkyViewLutPipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
         m_SkyViewLutPipeline->SetInput( kSkyTransmittanceLutBinding, m_TransmittanceLut.get() );
@@ -320,7 +326,6 @@ namespace Desert::Graphic::System
         m_SkyViewLutPipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
         renderer.DispatchComputeInFrame( m_SkyViewLutPipeline.get(), LutGroupCount( kSkyViewLutWidth ),
                                          LutGroupCount( kSkyViewLutHeight ), 1 );
-        renderer.ComputeImageEndWrite( m_SkyViewLut.get() );
     }
 
     bool SkyboxRenderer::EnsureAerialPerspectiveResources()
@@ -369,7 +374,6 @@ namespace Desert::Graphic::System
         push.VolumeParams =
              glm::vec4( m_Sky.AerialPerspectiveDistanceKm, m_Sky.AerialPerspectiveStartDepthKm, 0.0f, 0.0f );
 
-        renderer.ComputeImageBeginWrite( m_AerialPerspectiveLut.get() );
         m_AerialPerspectivePipeline->SetOutput( kSkyAerialPerspectiveOutputBinding, m_AerialPerspectiveLut.get(),
                                                 0 );
         m_AerialPerspectivePipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
@@ -382,7 +386,6 @@ namespace Desert::Graphic::System
         renderer.DispatchComputeInFrame( m_AerialPerspectivePipeline.get(),
                                          LutGroupCount( kAerialPerspectiveWidth ),
                                          LutGroupCount( kAerialPerspectiveHeight ), 1 );
-        renderer.ComputeImageEndWrite( m_AerialPerspectiveLut.get() );
     }
 
     bool SkyboxRenderer::EnsureDistantLightResources()
@@ -428,7 +431,6 @@ namespace Desert::Graphic::System
     {
         auto& renderer = Renderer::GetInstance();
 
-        renderer.ComputeImageBeginWrite( m_DistantLight.get() );
         m_DistantLightPipeline->SetOutput( kSkyDistantLightOutputBinding, m_DistantLight.get(), 0 );
         m_DistantLightPipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
         m_DistantLightPipeline->SetInput( kSkyTransmittanceLutBinding, m_TransmittanceLut.get() );
@@ -437,29 +439,47 @@ namespace Desert::Graphic::System
         // ONE WORKGROUP, and it must stay one: the 64 directions are reduced in groupshared memory,
         // which no second group can see. The shader's LocalSize is 64 for the same reason.
         renderer.DispatchComputeInFrame( m_DistantLightPipeline.get(), 1, 1, 1 );
-        renderer.ComputeImageEndWrite( m_DistantLight.get() );
     }
 
-    void SkyboxRenderer::ExecuteAtmosphereLuts()
+    std::vector<ComputeNodeDeclaration> SkyboxRenderer::DeclareAtmosphereLutNodes()
     {
-        // The gradient model never reaches past this line: no allocation, no dispatch, no fingerprint —
-        // an existing scene pays literally nothing for the physical atmosphere's machinery.
+        // One Compute node per dispatch, each declaring the LUT it writes (StorageWrite) and the LUTs it samples
+        // (SampledCompute): the graph orders transmittance -> multi-scattering -> sky-view / aerial perspective /
+        // distant light and places every barrier. What runs is decided here, while the frame graph is built.
+        std::vector<ComputeNodeDeclaration> nodes;
         if ( !m_UseProceduralSky || m_Sky.Model != ECS::SkyModel::PhysicalAtmosphere )
-            return;
-
-        // A missing shader was already reported by Initialize with the path it expected.
+            return nodes;
         if ( !m_TransmittanceLutPipeline || !m_MultiScatterLutPipeline || !m_SkyParams )
-            return;
-
+            return nodes;
         if ( !EnsureAtmosphereLutResources() )
-            return;
+            return nodes;
 
+        const auto sampledLuts = [this]( RenderPassDeclaration& declared )
+        {
+            declared.Read( m_TransmittanceLut, RDG::Access::SampledCompute, "Sky.TransmittanceLut" );
+            declared.Read( m_MultiScatterLut, RDG::Access::SampledCompute, "Sky.MultiScatterLut" );
+        };
+
+        // The cached pair only when the atmosphere's parameters changed.
         const AtmosphereLutFingerprint wanted = LutFingerprintOf( m_Sky );
         if ( !m_LutsValid || wanted != m_LutBaked )
         {
-            DESERT_PROFILE_PASS( "Sky: AtmosphereLuts" );
+            ComputeNodeDeclaration transmittance;
+            transmittance.Name = "Sky: TransmittanceLut";
+            transmittance.Access.Write( m_TransmittanceLut, RDG::Access::StorageWrite, "Sky.TransmittanceLut" );
+            transmittance.Record = [this]()
+            {
+                DESERT_PROFILE_PASS( "Sky: AtmosphereLuts" );
+                DispatchTransmittanceLut( /*inFrame=*/true );
+            };
+            nodes.push_back( std::move( transmittance ) );
 
-            DispatchCachedAtmosphereLuts( /*inFrame=*/true );
+            ComputeNodeDeclaration multiScatter;
+            multiScatter.Name = "Sky: MultiScatterLut";
+            multiScatter.Access.Read( m_TransmittanceLut, RDG::Access::SampledCompute, "Sky.TransmittanceLut" );
+            multiScatter.Access.Write( m_MultiScatterLut, RDG::Access::StorageWrite, "Sky.MultiScatterLut" );
+            multiScatter.Record = [this]() { DispatchMultiScatterLut( /*inFrame=*/true ); };
+            nodes.push_back( std::move( multiScatter ) );
 
             m_LutBaked  = wanted;
             m_LutsValid = true;
@@ -470,14 +490,6 @@ namespace Desert::Graphic::System
                       kMultiScatterLutSize );
         }
 
-        // THE TRANSMITTANCE LUT, published for consumers that do not bind the sky parameter buffer.
-        //
-        // Gated on m_LutsValid and not on the pipeline existing, on the same contract as the aerial
-        // perspective volume and the distant sky light below: a non-null handle IS the statement "this
-        // texture has been marched", and a consumer that sampled it before the first dispatch would shade
-        // its frame with uninitialised device memory. The two radii travel with it because the LUT's
-        // Bruneton mapping is a function of the shell and its reader has to reproduce that mapping — the
-        // same argument the aerial-perspective volume's two scalars are published under.
         if ( m_LutsValid )
         {
             m_Atmosphere.TransmittanceLut               = m_TransmittanceLut.get();
@@ -485,42 +497,66 @@ namespace Desert::Graphic::System
             m_Atmosphere.TransmittanceLutTopRadiusKm    = AtmosphereTopRadiusKm( m_Sky );
         }
 
-        // The Sky-View LUT, every frame: it depends on the camera's altitude and the sun, which the
-        // cached pair deliberately does not. The sky pass samples the previous frame's fill (this slot
-        // runs after the graph recorded the Sky pass) — invisible at 192x104 of slowly-varying sky.
         if ( m_SkyViewLutPipeline && m_ActiveCamera && EnsureSkyViewLutResources() )
         {
-            DESERT_PROFILE_PASS( "Sky: SkyViewLut" );
-            DispatchSkyViewLut();
+            ComputeNodeDeclaration skyView;
+            skyView.Name = "Sky: SkyViewLut";
+            sampledLuts( skyView.Access );
+            skyView.Access.Write( m_SkyViewLut, RDG::Access::StorageWrite, "Sky.SkyViewLut" );
+            skyView.Record = [this]()
+            {
+                DESERT_PROFILE_PASS( "Sky: SkyViewLut" );
+                DispatchSkyViewLut();
+            };
+            nodes.push_back( std::move( skyView ) );
         }
 
-        // The camera aerial-perspective volume, every frame and for the same reason — it is the camera's
-        // own frustum. Published on the AtmosphereEnv only once the fill has actually happened: the
-        // handle being non-null is the contract that says "there is aerial perspective this frame", and
-        // the atmospheric-fog pass (dispatched immediately after this slot) composes the identity when
-        // it is null rather than sampling a volume nobody wrote.
         if ( m_AerialPerspectivePipeline && m_ActiveCamera && EnsureAerialPerspectiveResources() )
         {
-            DESERT_PROFILE_PASS( "Sky: AerialPerspectiveLut" );
-            DispatchAerialPerspectiveLut();
+            // A volume (Image3D), imported through the one ImportImage path.
+            ComputeNodeDeclaration aerial;
+            aerial.Name = "Sky: AerialPerspectiveLut";
+            sampledLuts( aerial.Access );
+            aerial.Access.Write( m_AerialPerspectiveLut, RDG::Access::StorageWrite, "Sky.AerialPerspectiveLut" );
+            aerial.Record = [this]()
+            {
+                DESERT_PROFILE_PASS( "Sky: AerialPerspectiveLut" );
+                DispatchAerialPerspectiveLut();
+            };
+            nodes.push_back( std::move( aerial ) );
 
             m_Atmosphere.AerialPerspectiveVolume            = m_AerialPerspectiveLut.get();
             m_Atmosphere.AerialPerspectiveDepthKm           = m_Sky.AerialPerspectiveDistanceKm;
             m_Atmosphere.AerialPerspectiveViewDistanceScale = m_Sky.AerialPerspectiveViewDistanceScale;
         }
 
-        // The distant sky light, every frame: it is a function of the sun, which moves. Published on
-        // the AtmosphereEnv only once the fill has happened, on the same contract as the volume above —
-        // a non-null handle IS the statement "there is a physical average sky this frame", and the
-        // atmospheric-fog pass keeps its authored colour when it is null rather than sampling a texel
-        // nobody wrote.
         if ( m_DistantLightPipeline && EnsureDistantLightResources() )
         {
-            DESERT_PROFILE_PASS( "Sky: DistantSkyLight" );
-            DispatchDistantLight();
+            ComputeNodeDeclaration distant;
+            distant.Name = "Sky: DistantSkyLight";
+            sampledLuts( distant.Access );
+            distant.Access.Write( m_DistantLight, RDG::Access::StorageWrite, "Sky.DistantLight" );
+            distant.Record = [this]()
+            {
+                DESERT_PROFILE_PASS( "Sky: DistantSkyLight" );
+                DispatchDistantLight();
+            };
+            nodes.push_back( std::move( distant ) );
 
             m_Atmosphere.DistantSkyLight = m_DistantLight.get();
         }
+        return nodes;
+    }
+
+    void SkyboxRenderer::DeclareAtmosphereReads( RenderPassDeclaration& declared, const RDG::Access access ) const
+    {
+        // The engine images behind the raw pointers AtmosphereEnv hands its consumers.
+        if ( m_Atmosphere.TransmittanceLut )
+            declared.Read( m_TransmittanceLut, access, "Sky.TransmittanceLut" );
+        if ( m_Atmosphere.AerialPerspectiveVolume )
+            declared.Read( m_AerialPerspectiveLut, access, "Sky.AerialPerspectiveLut" );
+        if ( m_Atmosphere.DistantSkyLight )
+            declared.Read( m_DistantLight, access, "Sky.DistantLight" );
     }
 
     bool SkyboxRenderer::EnsureCachedLutsForBake()

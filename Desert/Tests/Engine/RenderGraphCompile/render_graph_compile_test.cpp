@@ -1270,6 +1270,8 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
             const size_t phases = text.find( "AddGraphPhasePasses(", at );
             const size_t frame  = text.find( "AddFrame", at );
             size_t       raster = text.find( "AddRaster(", at );
+            // A system's compute nodes (AddComputeNodes): the entry names the system call that declares them.
+            const size_t compute = text.find( "AddComputeNodes(", at );
             // A graph node: its name is the first string literal of the call (a std::format loop name keeps
             // its "{}", one entry per call site).
             size_t node = text.find( "graph.AddPass(", at );
@@ -1278,7 +1280,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
             // A call names its node first (a quote before the call's first ')'); the helper's definition does not.
             while ( raster != std::string::npos && text.find( '"', raster ) > text.find( ')', raster ) )
                 raster = text.find( "AddRaster(", raster + 1 );
-            const size_t first = std::min( { legacy, phases, frame, raster, node } );
+            const size_t first = std::min( { legacy, phases, frame, raster, node, compute } );
             if ( first == std::string::npos )
                 return;
             if ( first == frame )
@@ -1289,6 +1291,17 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
                 ASSERT_FALSE( called.empty() ) << "no definition of SceneRenderer::" << callee;
                 collect( called, called.find( '(' ) + 1 );
                 at = open + 1;
+            }
+            else if ( first == compute )
+            {
+                const size_t semi = text.find( ';', compute );
+                ASSERT_NE( semi, std::string::npos );
+                std::string            call   = squeeze( text.substr( compute, semi - compute ) );
+                const std::string_view prefix = "AddComputeNodes(graph,textures,";
+                ASSERT_EQ( call.rfind( prefix, 0 ), 0u ) << call;
+                added.push_back(
+                     std::format( "compute[{}]", call.substr( prefix.size(), call.size() - prefix.size() - 1 ) ) );
+                at = semi + 1;
             }
             else if ( first == legacy || first == raster || first == node )
             {
@@ -1313,7 +1326,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
     const std::vector<std::string> legacyOrder = {
          "ClearMainFramebuffer",
          "Particles: Simulate",
-         "CloudShadowMap",
+         "compute[clouds->DeclareShadowMapNodes()]",
          "phases[!RenderPhase::IsDeferredOverlay(phase)]",
          "Deferred: GBuffer",
          "TerrainGBuffer",
@@ -1330,9 +1343,9 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
          "Deferred: SSRResolve",
          "Deferred: SSRComposite",
          "Deferred: Glass",
-         "SkyAtmosphereLuts",
-         "AtmosphericFog",
-         "VolumetricClouds",
+         "compute[sky->DeclareAtmosphereLutNodes()]",
+         "compute[fog->DeclareFrameNodes()]",
+         "compute[clouds->DeclareFrameNodes()]",
          "phases[phase==RenderPhase::Transparency]",
          "Debug: Overdraw",
          "Debug: Overdraw Resolve",
@@ -2089,4 +2102,74 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
                        "voidVulkanRendererAPI::" );
     ASSERT_FALSE( cull.empty() );
     EXPECT_EQ( cull.find( "vkCmdPipelineBarrier" ), std::string::npos ) << "DispatchComputeCull still barriers";
+}
+
+// THE ATMOSPHERE PASSES ARE REAL GRAPH NODES WITH DECLARED ACCESS (RDG-LEG1-L5a). SceneRendererFrameAtmosphere.cpp
+// adds no legacy pass: the sky LUTs, the cloud shadow map, the atmospheric fog and the clouds are Compute nodes,
+// one per dispatch, each declaring what it writes (StorageWrite) and samples (SampledCompute), and none of their
+// bodies moves an image between layouts itself (no ComputeImageBegin*/End*, no TransitionLayout): the graph places
+// every barrier.
+TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const auto source = [&]( const char* relative )
+    { return SqueezedSource( root, std::format( "Desert/Desert/Source/Engine/Graphic/{}", relative ).c_str() ); };
+
+    const std::string frame = source( "SceneRendererFrameAtmosphere.cpp" );
+    EXPECT_EQ( frame.find( "AddLegacy(" ), std::string::npos ) << "an atmosphere pass is still a legacy wrapper";
+    for ( const char* needle : { "AddComputeNodes(graph,textures,clouds->DeclareShadowMapNodes())",
+                                 "AddComputeNodes(graph,textures,sky->DeclareAtmosphereLutNodes())",
+                                 "AddComputeNodes(graph,textures,fog->DeclareFrameNodes())",
+                                 "AddComputeNodes(graph,textures,clouds->DeclareFrameNodes())" } )
+        EXPECT_NE( frame.find( needle ), std::string::npos ) << needle;
+    EXPECT_NE( source( "SceneRendererFrame.hpp" ).find( "RDG::PassFlags::Compute|RDG::PassFlags::NeverCull" ),
+               std::string::npos );
+
+    struct Declares
+    {
+        const char*                        File;
+        const char*                        Function;
+        std::initializer_list<const char*> Needles;
+    };
+    const Declares declares[] = {
+         { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
+           "SkyboxRenderer::DeclareAtmosphereLutNodes(",
+           { "Write(m_TransmittanceLut,RDG::Access::StorageWrite",
+             "Write(m_MultiScatterLut,RDG::Access::StorageWrite", "Write(m_SkyViewLut,RDG::Access::StorageWrite",
+             "Write(m_AerialPerspectiveLut,RDG::Access::StorageWrite",
+             "Write(m_DistantLight,RDG::Access::StorageWrite",
+             "Read(m_TransmittanceLut,RDG::Access::SampledCompute" } },
+         { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
+           "VolumetricCloudRenderer::DeclareShadowMapNodes(",
+           { "DeclareVolumeReads(shadow.Access)", "Write(m_ShadowMapImage,RDG::Access::StorageWrite" } },
+         { "Systems/Scene/Fog/HeightFogRenderer.cpp",
+           "HeightFogRenderer::DeclareFrameNodes(",
+           { "Read(depth,RDG::Access::SampledCompute",
+             "DeclareAtmosphereReads(fog.Access,RDG::Access::SampledCompute)",
+             "Write(m_FogImage,RDG::Access::StorageWrite" } },
+         { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
+           "VolumetricCloudRenderer::DeclareFrameNodes(",
+           { "Write(m_SkyOcclusionVolume,RDG::Access::StorageWrite", "Read(depth,RDG::Access::SampledCompute",
+             "Write(m_TraceImage,RDG::Access::StorageWrite", "Read(m_TraceImage,RDG::Access::SampledCompute",
+             "Write(m_HistoryImage[writeIndex],RDG::Access::StorageWrite" } } };
+    for ( const Declares& d : declares )
+    {
+        const std::string body = SqueezedBody( source( d.File ), d.Function, "::Declare" );
+        ASSERT_FALSE( body.empty() ) << d.File << ": no " << d.Function;
+        for ( const char* needle : d.Needles )
+            EXPECT_NE( body.find( needle ), std::string::npos ) << d.Function << " does not declare " << needle;
+        for ( const char* manual : { "ComputeImageBegin", "ComputeImageEnd", "TransitionLayout(" } )
+            EXPECT_EQ( body.find( manual ), std::string::npos ) << d.Function << " still records " << manual;
+    }
+    // The LUT dispatch bodies and the fog file record no layout change of their own.
+    for ( const char* file :
+          { "Systems/Scene/Skybox/SkyboxRenderer.cpp", "Systems/Scene/Fog/HeightFogRenderer.cpp" } )
+        EXPECT_EQ( source( file ).find( "ComputeImage" ), std::string::npos ) << file;
+
+    // The composite reads the cloud shadow map (through DeclareShadowReads), so the graph brings it back to a
+    // sampled layout after the shadow node's storage write.
+    EXPECT_NE( source( "SceneRenderer.cpp" )
+                    .find( "ResolveDeclared(textures,shadows,\"Deferred:Composite\",shadowMaps)" ),
+               std::string::npos );
 }

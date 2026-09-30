@@ -71,7 +71,9 @@ namespace Desert::Graphic::System
         // (SceneRenderer runs this slot immediately before ExecuteAtmosphericFog), so the froxels a
         // pixel reads were marched for the camera that pixel was drawn with. The DISTANT SKY LIGHT is
         // refilled here for the third time on the same grounds — same frame, same consumer, no latency.
-        void ExecuteAtmosphereLuts();
+        std::vector<ComputeNodeDeclaration> DeclareAtmosphereLutNodes();
+        // The LUTs a consumer of GetAtmosphere() samples, declared with @p access (the fog and the clouds).
+        void DeclareAtmosphereReads( RenderPassDeclaration& declared, RDG::Access access ) const;
 
         const std::optional<Environment> GetEnvironment() const
         {
@@ -151,6 +153,8 @@ namespace Desert::Graphic::System
         // (ExecuteAtmosphereLuts' slot), false submits immediate dispatches — the bake path, which runs
         // OUTSIDE a frame and cannot wait for the in-frame slot that only comes later.
         void DispatchCachedAtmosphereLuts( bool inFrame );
+        void DispatchTransmittanceLut( bool inFrame );
+        void DispatchMultiScatterLut( bool inFrame );
         void DispatchSkyViewLut();
         void DispatchAerialPerspectiveLut();
         void DispatchDistantLight();

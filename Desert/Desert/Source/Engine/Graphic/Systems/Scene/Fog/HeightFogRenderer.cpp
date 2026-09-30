@@ -174,14 +174,13 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    void HeightFogRenderer::ExecuteInFrame()
+    std::vector<ComputeNodeDeclaration> HeightFogRenderer::DeclareFrameNodes()
     {
-        DESERT_PROFILE_PASS( "HeightFog: ExecuteInFrame" );
-
+        std::vector<ComputeNodeDeclaration> nodes;
         m_HasFrameResult = false;
 
         if ( !m_FogPipeline || !m_ApplyPipeline || !m_ParamsBuffer )
-            return;
+            return nodes;
 
         // What this dispatch has to evaluate. The two halves are independent: a scene can have fog and no
         // atmosphere, a physical atmosphere and no fog component, or both. The volume handle is null
@@ -195,18 +194,18 @@ namespace Desert::Graphic::System
         // The zero-cost contract, now stated over both halves: a scene with neither leaves here, before
         // any allocation, upload or dispatch, and the frame is what it was before this system existed.
         if ( !fogActive && !apActive )
-            return;
+            return nodes;
 
         const auto* camera = m_SceneRenderer->GetMainCamera();
         if ( !camera )
-            return;
+            return nodes;
 
         const auto target = m_TargetFramebuffer.lock();
         if ( !target || target->GetDepthAttachmentCount() == 0 )
-            return;
+            return nodes;
 
         if ( !EnsureResources( target->GetFramebufferWidth(), target->GetFramebufferHeight() ) )
-            return;
+            return nodes;
 
         // The atmosphere is a coupling, not a dependency: without one the fog keeps its authored colour
         // and drops the sun lobe and the sky ambient (PackFogParams says so per term). Fog on a
@@ -220,7 +219,7 @@ namespace Desert::Graphic::System
             // moment, which reads as fog sliding relative to the world rather than as a missing effect.
             LOG_ERROR( "[Fog] the fog pass does not run this frame, its parameters were not uploaded: {}",
                        uploaded.GetError() );
-            return;
+            return nodes;
         }
 
         FogPush push{};
@@ -230,45 +229,49 @@ namespace Desert::Graphic::System
              glm::vec4( atmosphere.AerialPerspectiveDepthKm, atmosphere.AerialPerspectiveViewDistanceScale,
                         apActive ? 1.0f : 0.0f, fogActive ? 1.0f : 0.0f );
 
-        auto& renderer = Renderer::GetInstance();
+        // One Compute node: it samples the scene depth, the aerial-perspective volume and the distant sky light,
+        // and writes the fog image the apply (HeightFogApply, a Transparency raster node) samples.
+        const std::shared_ptr<Image2D> depth = target->GetDepthAttachmentImage();
+        ComputeNodeDeclaration         fog;
+        fog.Name = "AtmosphericFog";
+        fog.Access.Read( depth, RDG::Access::SampledCompute, "SceneColor.Depth" );
+        m_SceneRenderer->DeclareAtmosphereReads( fog.Access, RDG::Access::SampledCompute );
+        fog.Access.Write( m_FogImage, RDG::Access::StorageWrite, "HeightFog.Fog" );
+        fog.Record = [this, push, apActive, atmosphere, depthImage = depth.get()]()
+        {
+            DESERT_PROFILE_PASS( "HeightFog: ExecuteInFrame" );
+            auto& renderer = Renderer::GetInstance();
 
-        Image2D* depthImage = target->GetDepthAttachmentImage().get();
+            m_FogPipeline->SetOutput( kFogOutputBinding, m_FogImage.get(), 0 );
+            m_FogPipeline->SetStorageBuffer( kFogParamsBinding, m_ParamsBuffer.get() );
+            m_FogPipeline->SetInput( kFogSceneDepthBinding, depthImage );
 
-        // Present the DEPTH attachment to a compute sampler and hand it back afterwards — its tracked
-        // layout is not legal for a combined image sampler, and SetInput binds the tracked layout
-        // verbatim.
-        renderer.ComputeImageBeginRead( depthImage );
-        renderer.ComputeImageBeginWrite( m_FogImage.get() );
-
-        m_FogPipeline->SetOutput( kFogOutputBinding, m_FogImage.get(), 0 );
-        m_FogPipeline->SetStorageBuffer( kFogParamsBinding, m_ParamsBuffer.get() );
-        m_FogPipeline->SetInput( kFogSceneDepthBinding, depthImage );
-
-        // ALWAYS bound, even when the shader will not read it: a `sampler3D` with no image is an invalid
-        // descriptor set, not an unused one, and ComputePipeline refuses to dispatch at all when a volume
-        // input has no view — so a fog-only scene would silently lose its fog. The engine's 1x1x1 volume
-        // fallback is what stands in; push.AerialPerspective.z is 0, so it is never sampled.
-        m_FogPipeline->SetInput(
-             kFogAerialPerspectiveBinding,
-             apActive ? atmosphere.AerialPerspectiveVolume
+            // ALWAYS bound, even when the shader will not read it: a `sampler3D` with no image is an invalid
+            // descriptor set, not an unused one, and ComputePipeline refuses to dispatch at all when a volume
+            // input has no view — so a fog-only scene would silently lose its fog. The engine's 1x1x1 volume
+            // fallback is what stands in; push.AerialPerspective.z is 0, so it is never sampled.
+            m_FogPipeline->SetInput(
+                 kFogAerialPerspectiveBinding,
+                 apActive
+                      ? atmosphere.AerialPerspectiveVolume
                       : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get() );
-        // The distant sky light, on exactly the same terms as the volume above — always bound, read only
-        // when the payload's Ambient.w says the texel is real (PackFogParams sets that from this same
-        // handle, so the two cannot disagree).
-        m_FogPipeline->SetInput(
-             kFogDistantSkyLightBinding,
-             atmosphere.DistantSkyLight
-                  ? atmosphere.DistantSkyLight
-                  : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ).get() );
-        m_FogPipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+            // The distant sky light, on exactly the same terms as the volume above — always bound, read only
+            // when the payload's Ambient.w says the texel is real (PackFogParams sets that from this same
+            // handle, so the two cannot disagree).
+            m_FogPipeline->SetInput(
+                 kFogDistantSkyLightBinding,
+                 atmosphere.DistantSkyLight
+                      ? atmosphere.DistantSkyLight
+                      : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ).get() );
+            m_FogPipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
 
-        renderer.DispatchComputeInFrame( m_FogPipeline.get(), GroupCount( m_FogWidth ), GroupCount( m_FogHeight ),
-                                         1 );
-
-        renderer.ComputeImageEndWrite( m_FogImage.get() );
-        renderer.ComputeImageEndRead( depthImage );
+            renderer.DispatchComputeInFrame( m_FogPipeline.get(), GroupCount( m_FogWidth ),
+                                             GroupCount( m_FogHeight ), 1 );
+        };
+        nodes.push_back( std::move( fog ) );
 
         m_HasFrameResult = true;
+        return nodes;
     }
 
     void HeightFogRenderer::RegisterPasses( RenderGraphBuilder& builder )

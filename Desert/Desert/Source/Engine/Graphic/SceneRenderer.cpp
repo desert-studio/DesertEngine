@@ -338,10 +338,10 @@ namespace Desert::Graphic
             LOG_WARN( "[SceneRenderer] Height fog system unavailable: {}", fogInit.GetError() );
 
         // Volumetric clouds: a march through a spherical shell, issued outside the graph
-        // (ExecuteVolumetricClouds) with one composite pass in the Transparency phase, self-ordered above
-        // the fog and below the particles by RenderPassOrder::FarField. Registered after the fog so that
-        // if the two ever end up on the same rung the registration order breaks the tie the same way the
-        // phase order already does. Non-fatal: a missing sky must never take a scene down.
+        // (VolumetricCloudRenderer::DeclareFrameNodes) with one composite pass in the Transparency phase,
+        // self-ordered above the fog and below the particles by RenderPassOrder::FarField. Registered after the
+        // fog so that if the two ever end up on the same rung the registration order breaks the tie the same way
+        // the phase order already does. Non-fatal: a missing sky must never take a scene down.
         RegisterSystem<System::VolumetricCloudRenderer>( "VolumetricCloudSystem", this, m_TargetFramebuffer,
                                                          m_RenderGraphBuilder );
         if ( const auto cloudInit =
@@ -797,7 +797,7 @@ namespace Desert::Graphic
 
         AddFrameParticlesSimulate( graph, sceneRenderInfo );
 
-        AddFrameCloudShadowMap( graph );
+        AddFrameCloudShadowMap( graph, textures );
 
         // The registered systems' passes (and the editor's external passes) outside the overlay phases.
         AddGraphPhasePasses(
@@ -868,9 +868,9 @@ namespace Desert::Graphic
             AddFrameGlass( graph, textures, copyReads, meshRenderer, values );
         }
 
-        AddFrameSkyAtmosphereLuts( graph );
-        AddFrameAtmosphericFog( graph, sceneColor() );
-        AddFrameVolumetricClouds( graph, sceneColor() );
+        AddFrameSkyAtmosphereLuts( graph, textures );
+        AddFrameAtmosphericFog( graph, textures );
+        AddFrameVolumetricClouds( graph, textures );
 
         // Particles (Transparency phase), debug lines and the UI canvas run AFTER the deferred lighting
         // composite so lit geometry does not paint over them, and as LOAD overlays so a CLEAR begin never
@@ -1493,11 +1493,6 @@ namespace Desert::Graphic
              ->SetFogSettings( present, data, fogHeightY );
     }
 
-    void SceneRenderer::ExecuteAtmosphericFog()
-    {
-        UNIQUE_GET_AS( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] )->ExecuteInFrame();
-    }
-
     void SceneRenderer::SetVolumetricClouds( bool present, const ECS::VolumetricCloudData& data,
                                              const glm::vec3&                      windOffset,
                                              const std::vector<HeroCloudInstance>& heroClouds )
@@ -1505,18 +1500,6 @@ namespace Desert::Graphic
         UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
              ->SetCloudSettings( present && m_ViewProfile.VolumetricClouds, data, windOffset, m_CloudQuality,
                                  heroClouds ); // a profile without clouds never allocates their targets
-    }
-
-    void SceneRenderer::ExecuteVolumetricClouds()
-    {
-        UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
-             ->ExecuteInFrame();
-    }
-
-    void SceneRenderer::ExecuteCloudShadowMap()
-    {
-        UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
-             ->ExecuteShadowMapInFrame();
     }
 
     CloudShadowInput SceneRenderer::GetCloudShadowInput() const
@@ -1545,6 +1528,14 @@ namespace Desert::Graphic
         cloudShadow.BorderFadeUv = view.BorderFadeUv;
         cloudShadow.Enabled      = true;
         return cloudShadow;
+    }
+
+    void SceneRenderer::DeclareAtmosphereReads( RenderPassDeclaration& declared, const RDG::Access access ) const
+    {
+        if ( const auto it = m_RenderSystems.find( "SkyboxSystem" ); it != m_RenderSystems.end() )
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            if ( const auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, it->second ) )
+                sky->DeclareAtmosphereReads( declared, access );
     }
 
     void SceneRenderer::DeclareShadowReads( RenderPassDeclaration& declared ) const

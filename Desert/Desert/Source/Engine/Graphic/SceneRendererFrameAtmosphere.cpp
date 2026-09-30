@@ -46,11 +46,11 @@ namespace Desert::Graphic
         // Renderer::ImportBuffer) and declares StorageWrite on them, so the graph places the barrier against the
         // previous graph's write of the persistent state. The simulation reads its buffers only through that
         // read-modify-write, so StorageWrite is every access it makes. The billboard draw that reads the result
-        // is in the Transparency bridge and declares nothing yet: L5 makes ParticlePass a node with
-        // Read(particles, StorageRead), and removes DispatchComputeCull's own compute -> vertex barrier then.
-        // NeverCull stays: the node also advances the particle clock on a frame with no emitter, a write the
-        // graph cannot see. The graph executes before OnUpdate returns, so the frame's UpdateInfo, and the
-        // imports held by the renderer's frame emitters, outlive this pass.
+        // (ParticlePass, a Transparency raster node) declares Read(particles, StorageRead), so the graph places
+        // the compute -> vertex barrier; DispatchComputeCull records none of its own. NeverCull stays: the node
+        // also advances the particle clock on a frame with no emitter, a write the graph cannot see. The graph
+        // executes before OnUpdate returns, so the frame's UpdateInfo, and the imports held by the renderer's
+        // frame emitters, outlive this pass.
         auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
         if ( !particles )
             return;
@@ -70,33 +70,38 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddFrameCloudShadowMap( RDG::Builder& graph )
+    void SceneRenderer::AddFrameCloudShadowMap( RDG::Builder& graph, LegacyFrameTextures& textures )
     {
-        // The cloud layer's shadow on the world. HERE, and not beside the cloud march at the other end of
-        // the frame, because its consumer is the DEFERRED LIGHTING pass. It reads no scene depth, no
-        // G-buffer and no atmosphere LUT, and it is an in-frame compute dispatch, so it must be outside any
-        // open render pass, which this point is.
-        AddLegacy( graph, "CloudShadowMap", {}, {}, [this]() { ExecuteCloudShadowMap(); } );
+        // The cloud layer's shadow on the world. HERE, and not beside the cloud march at the other end of the
+        // frame, because its readers are the lit passes (the deferred Composite, the forward meshes and terrain),
+        // which declare it through DeclareShadowReads. It reads no scene depth, no G-buffer and no atmosphere LUT.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] );
+        if ( clouds )
+            AddComputeNodes( graph, textures, clouds->DeclareShadowMapNodes() );
     }
 
-    void SceneRenderer::AddFrameSkyAtmosphereLuts( RDG::Builder& graph )
+    void SceneRenderer::AddFrameSkyAtmosphereLuts( RDG::Builder& graph, LegacyFrameTextures& textures )
     {
-        AddLegacy(
-             graph, "SkyAtmosphereLuts", {}, {},
-             [this]() {
-                 UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )->ExecuteAtmosphereLuts();
-             } );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
+        if ( sky )
+            AddComputeNodes( graph, textures, sky->DeclareAtmosphereLutNodes() );
     }
 
-    void SceneRenderer::AddFrameAtmosphericFog( RDG::Builder&                       graph,
-                                                const std::vector<RDG::TextureRef>& sceneColor )
+    void SceneRenderer::AddFrameAtmosphericFog( RDG::Builder& graph, LegacyFrameTextures& textures )
     {
-        AddLegacy( graph, "AtmosphericFog", {}, sceneColor, [this]() { ExecuteAtmosphericFog(); } );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* fog = UNIQUE_GET_AS( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] );
+        if ( fog )
+            AddComputeNodes( graph, textures, fog->DeclareFrameNodes() );
     }
 
-    void SceneRenderer::AddFrameVolumetricClouds( RDG::Builder&                       graph,
-                                                  const std::vector<RDG::TextureRef>& sceneColor )
+    void SceneRenderer::AddFrameVolumetricClouds( RDG::Builder& graph, LegacyFrameTextures& textures )
     {
-        AddLegacy( graph, "VolumetricClouds", {}, sceneColor, [this]() { ExecuteVolumetricClouds(); } );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] );
+        if ( clouds )
+            AddComputeNodes( graph, textures, clouds->DeclareFrameNodes() );
     }
 } // namespace Desert::Graphic

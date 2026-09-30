@@ -76,7 +76,7 @@ namespace Desert::Graphic::System
          * @brief Stage S1. Must be called outside any render pass, after the scene depth is final and
          *        after this frame's aerial-perspective volume has been filled.
          */
-        void ExecuteInFrame();
+        std::vector<ComputeNodeDeclaration> DeclareFrameNodes();
 
     private:
         bool CreatePipelines();
