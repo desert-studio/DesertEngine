@@ -207,8 +207,9 @@ TEST( AnimationClipCorpus, EveryClipInTheRepositoryIsATimelineClipThatValidates 
         const auto data = ReadAnimationJson( ReadFile( path ) );
         ASSERT_TRUE( data.IsSuccess() ) << path << ": " << data.GetError();
         ASSERT_TRUE( data.GetValue().Header.has_value() ) << path;
-        EXPECT_EQ( Common::Content::TextHeaderVersion( *data.GetValue().Header, Desert::Assets::kAnimationSchemaTag ),
-                   std::optional<uint32_t>( Desert::Assets::kAnimationSchemaVersion ) )
+        EXPECT_EQ(
+             Common::Content::TextHeaderVersion( *data.GetValue().Header, Desert::Assets::kAnimationSchemaTag ),
+             std::optional<uint32_t>( Desert::Assets::kAnimationSchemaVersion ) )
              << path;
         const auto clip = BuildClipFromAssetData( data.GetValue() );
         ASSERT_TRUE( clip.IsSuccess() ) << path << ": " << clip.GetError();
@@ -309,7 +310,7 @@ TEST( AnimationClipCorpus, Generation3IsRefusedByName )
     "Sections": [],
     "Curves": []
 })";
-    const auto read = Desert::Assets::Serialization::ReadAnimationJson( generation3 );
+    const auto        read        = Desert::Assets::Serialization::ReadAnimationJson( generation3 );
     ASSERT_FALSE( read.IsSuccess() );
     EXPECT_NE( read.GetError().find( "ANIM v4" ), std::string::npos ) << read.GetError();
     EXPECT_NE( read.GetError().find( "generation 3" ), std::string::npos ) << read.GetError();

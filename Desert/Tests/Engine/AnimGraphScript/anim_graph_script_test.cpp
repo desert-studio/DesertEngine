@@ -38,7 +38,7 @@ namespace
     // machine is a parameter write. That is the property the scene witness rests on too.
     AnimGraph ScriptedGraph()
     {
-        AnimGraph g = ::Desert::Animation::Graph::MakeStateMachineGraph();
+        AnimGraph g               = ::Desert::Animation::Graph::MakeStateMachineGraph();
         g.Name  = "Scripted";
         OutputMachine( g )->Entry = "Idle";
         g.Parameters.push_back( { "Go", static_cast<int>( ParamType::Bool ), 0.0F } );
@@ -110,7 +110,7 @@ TEST( AnimGraphScript, AParameterTheGraphDoesNotDeclareIsRefusedAndTheRefusalLis
 
 TEST( AnimGraphScript, AGraphWithNoParametersSaysSoRatherThanListingNothing )
 {
-    AnimGraph bare = ::Desert::Animation::Graph::MakeStateMachineGraph();
+    AnimGraph bare               = ::Desert::Animation::Graph::MakeStateMachineGraph();
     bare.Name  = "Bare";
     OutputMachine( bare )->Entry = "Only";
     State only;
@@ -168,7 +168,8 @@ TEST( AnimGraphScript, EveryDeclaredTypeHasAName )
 TEST( AnimGraphScript, AConditionOnAnUndeclaredParameterIsReportedOnceRatherThanReadingZeroForever )
 {
     AnimGraph broken                                        = ScriptedGraph();
-    OutputMachine( broken )->States[0].Transitions[0].Conditions[0].Parameter = "Gone"; // the typo, on the AUTHORING side
+    OutputMachine( broken )->States[0].Transitions[0].Conditions[0].Parameter =
+         "Gone"; // the typo, on the AUTHORING side
 
     Evaluator eval( broken );
     ASSERT_FALSE( eval.GetStructureError().empty() );

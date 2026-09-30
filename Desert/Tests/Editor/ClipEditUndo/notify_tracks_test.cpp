@@ -17,12 +17,12 @@
 
 using Desert::Animation::AnimationClip;
 using NotifyKey = Desert::Animation::Timeline::EventKey;
-using Desert::Editor::ClipCurves;
-using Desert::Editor::ClipNotifies;
-using Desert::Editor::CurveKeys;
 using Desert::Animation::FrameNumber;
 using Desert::Animation::FrameRate;
+using Desert::Editor::ClipCurves;
+using Desert::Editor::ClipNotifies;
 using Desert::Editor::CommandHistory;
+using Desert::Editor::CurveKeys;
 
 namespace
 {
@@ -61,7 +61,7 @@ TEST_F( NotifyTracks, AMoveIsOneUndoRecordAndUndoPutsTheListBack )
 
     auto edited        = ClipNotifies( clip );
     edited[0].Tick     = FrameNumber{ 32000 }; // "L" moves past "R"
-    edited[0].Row    = 2;
+    edited[0].Row      = 2;
     const bool applied = Desert::Editor::ApplyNotifyEdit( clip, edited, [&changes]() { ++changes; } );
     ASSERT_TRUE( applied );
     EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 1u );
@@ -115,11 +115,17 @@ TEST_F( NotifyTracks, ADraggedNotifyLandsOnTheDisplayGridInsideTheClip )
 {
     const AnimationClip clip = ThreeNotifies();
     // 0.51 s at 30 fps is between frames 15 (0.5 s) and 16; it lands on frame 15 = tick 12000.
-    EXPECT_EQ( Desert::Editor::SnapNotifyTick( 0.51, clip.Sequence.TickRate, clip.Sequence.DisplayRate, clip.DurationTicks() ).Value,
+    EXPECT_EQ( Desert::Editor::SnapNotifyTick( 0.51, clip.Sequence.TickRate, clip.Sequence.DisplayRate,
+                                               clip.DurationTicks() )
+                    .Value,
                12000 );
-    EXPECT_EQ( Desert::Editor::SnapNotifyTick( -0.3, clip.Sequence.TickRate, clip.Sequence.DisplayRate, clip.DurationTicks() ).Value,
+    EXPECT_EQ( Desert::Editor::SnapNotifyTick( -0.3, clip.Sequence.TickRate, clip.Sequence.DisplayRate,
+                                               clip.DurationTicks() )
+                    .Value,
                0 );
-    EXPECT_EQ( Desert::Editor::SnapNotifyTick( 9.0, clip.Sequence.TickRate, clip.Sequence.DisplayRate, clip.DurationTicks() ).Value,
+    EXPECT_EQ( Desert::Editor::SnapNotifyTick( 9.0, clip.Sequence.TickRate, clip.Sequence.DisplayRate,
+                                               clip.DurationTicks() )
+                    .Value,
                48000 );
 }
 
@@ -204,7 +210,7 @@ TEST_F( NotifyTracks, DraggingAStateEdgeMovesOnlyThatEdgeAndKeepsOneTick )
 {
     using Desert::Editor::DragNotifyStateEdge;
     using Desert::Editor::NotifyStateEdge;
-    const NotifyKey state{ FrameNumber{ 8000 }, FrameNumber{ 8000 }, "FootPlant", 0 }; // [8000, 16000)
+    const NotifyKey       state{ FrameNumber{ 8000 }, FrameNumber{ 8000 }, "FootPlant", 0 }; // [8000, 16000)
     const FrameNumber     duration{ 48000 };
 
     const auto endMoved = DragNotifyStateEdge( state, NotifyStateEdge::End, FrameNumber{ 20000 }, duration );

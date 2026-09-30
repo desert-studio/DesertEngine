@@ -64,9 +64,9 @@ namespace Desert::Animation::Timeline
         /// The way the step STARTS. A wrap or a PingPong turn is taken this way round — stated by the Player
         /// that moved, not guessed from the ends by the Evaluator.
         PlayDirection Direction = PlayDirection::Forward;
-        bool      Wrapped  = false; ///< crossed End→Start (or Start→End backwards) once
-        bool      Reversed = false; ///< PingPong turned around inside this step
-        bool      Finished = false; ///< Once mode reached the end in this step; the state is now Stopped
+        bool          Wrapped   = false; ///< crossed End→Start (or Start→End backwards) once
+        bool          Reversed  = false; ///< PingPong turned around inside this step
+        bool          Finished  = false; ///< Once mode reached the end in this step; the state is now Stopped
     };
 
     class Player
@@ -110,12 +110,14 @@ namespace Desert::Animation::Timeline
 
 namespace rfl::config
 {
-    template <typename T> struct enum_range;
+    template <typename T>
+    struct enum_range;
 
     /// LoopMode is persisted BY NAME (the scene is a text format a person reads). Its underlying type is
     /// uint8_t, and reflect-cpp's default scan range is `int` — which does not compile against a uint8_t
     /// enum — so its range is given in its own type.
-    template <> struct enum_range<Desert::Animation::Timeline::LoopMode>
+    template <>
+    struct enum_range<Desert::Animation::Timeline::LoopMode>
     {
         static constexpr uint8_t min = 0;
         static constexpr uint8_t max = static_cast<uint8_t>( Desert::Animation::Timeline::kLoopModes.size() - 1 );

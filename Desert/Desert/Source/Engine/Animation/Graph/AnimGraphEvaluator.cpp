@@ -51,7 +51,7 @@ namespace Desert::Animation::Graph
         EnterMachines();
         for ( size_t n = 0; n < m_Graph.Nodes.size(); ++n )
         {
-            const auto it      = running.find( m_Graph.Nodes[n].Name );
+            const auto  it      = running.find( m_Graph.Nodes[n].Name );
             const auto& machine = m_Graph.Nodes[n].Machine;
             if ( it == running.end() || !machine )
                 continue;

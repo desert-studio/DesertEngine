@@ -33,7 +33,7 @@ namespace Desert::ECS
         {
         }
 
-        void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer&,
+        void Update( entt::registry&         registry, Graphic::Render::RenderCommandBuffer&,
                      const Common::Timestep& ts ) override
         {
             if ( !m_Scene || !m_AssetManager || m_Scene->GetState() != Core::Scene::SceneState::Play )
@@ -56,7 +56,8 @@ namespace Desert::ECS
                 for ( const auto& name : result.FiredEvents )
                     LOG_INFO( "[LevelSequence] '{}': event '{}'", actor->Name, name );
 
-                if ( const auto target = LevelSequenceViewTarget( actor->State, result, m_Scene->GetViewTarget() ) )
+                if ( const auto target =
+                          LevelSequenceViewTarget( actor->State, result, m_Scene->GetViewTarget() ) )
                     m_Scene->SetViewTarget( *target );
             }
         }
@@ -98,8 +99,8 @@ namespace Desert::ECS
             return &actor;
         }
 
-        Core::Scene*                             m_Scene        = nullptr;
-        Assets::AssetManager*                    m_AssetManager = nullptr;
+        Core::Scene*                            m_Scene        = nullptr;
+        Assets::AssetManager*                   m_AssetManager = nullptr;
         std::unordered_map<entt::entity, Actor> m_Actors;
     };
 } // namespace Desert::ECS

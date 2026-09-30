@@ -44,10 +44,10 @@ namespace Desert::Animation
      */
     enum class PoseStage : uint8_t
     {
-        Source,       ///< the base clip, or the crossfade of the outgoing and incoming clips
-        Graph,        ///< the AnimGraph's pose graph, node by node; the Source stage's pose is its base source's
-        Controls,     ///< skeletal controls (IK and friends): sparse component-space overrides, blended locally
-        Rig,          ///< a control rig: the animator's controls, resolved and written onto the bones they drive
+        Source,   ///< the base clip, or the crossfade of the outgoing and incoming clips
+        Graph,    ///< the AnimGraph's pose graph, node by node; the Source stage's pose is its base source's
+        Controls, ///< skeletal controls (IK and friends): sparse component-space overrides, blended locally
+        Rig,      ///< a control rig: the animator's controls, resolved and written onto the bones they drive
     };
 
     [[nodiscard]] const char* ToString( PoseStage stage );
@@ -166,9 +166,9 @@ namespace Desert::Animation
         /// readout, the exit-time fraction. Derived, so it cannot disagree with the tick.
         [[nodiscard]] float GetCurrentTime() const
         {
-            return m_Current.Clip != nullptr
-                        ? static_cast<float>( FrameTimeToSeconds( m_Current.Time, m_Current.Clip->Sequence.TickRate ) )
-                        : 0.0F;
+            return m_Current.Clip != nullptr ? static_cast<float>( FrameTimeToSeconds(
+                                                    m_Current.Time, m_Current.Clip->Sequence.TickRate ) )
+                                             : 0.0F;
         }
 
         [[nodiscard]] FrameNumber GetDurationTicks() const
@@ -302,9 +302,9 @@ namespace Desert::Animation
         // Unlink takes the GUID. Each linked layer's sources (sequence players, its state machines' running
         // states) have their own clocks here, fed by SetLinkedLayerSource; its machines are run by the
         // per-link Evaluator GetLinkedLayerMachines hands out.
-        [[nodiscard]] Common::BoolResultStr          LinkLayers( uint64_t                   implementationId,
-                                                                 const Graph::AnimGraph& implementation );
-        void                                         UnlinkLayers( uint64_t implementationId );
+        [[nodiscard]] Common::BoolResultStr LinkLayers( uint64_t                implementationId,
+                                                        const Graph::AnimGraph& implementation );
+        void                                UnlinkLayers( uint64_t implementationId );
         /// Every link undone: each LinkedAnimLayer node passes its input again.
         void                                         ClearLinkedLayers();
         [[nodiscard]] const Graph::LinkedLayerTable& GetLinkedLayers() const

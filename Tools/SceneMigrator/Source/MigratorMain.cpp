@@ -1079,8 +1079,8 @@ namespace Desert::Migration
                 const std::string what = std::format(
                      "ANIM v{} -> v{} (TMLN, Skeleton GUID): {} bone tracks, {} curves, {} notifies, {} sections, "
                      "{} ticks proved bit for bit",
-                     stated.GetValue(), Desert::Assets::kAnimationSchemaVersion, o.BoneTracks, o.Curves, o.Notifies,
-                     o.Sections, o.TicksProved );
+                     stated.GetValue(), Desert::Assets::kAnimationSchemaVersion, o.BoneTracks, o.Curves,
+                     o.Notifies, o.Sections, o.TicksProved );
                 if ( check )
                 {
                     out << "stale  " << path.string() << " — would lift " << what << "\n";

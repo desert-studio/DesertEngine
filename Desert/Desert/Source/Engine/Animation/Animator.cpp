@@ -34,7 +34,8 @@ namespace Desert::Animation
         }
 
         /// The notify states (Event keys with a duration) spanning @p at, in track / key order.
-        void ActiveStatesAt( const Timeline::Sequence& sequence, const double at, std::vector<ActiveNotifyState>& out )
+        void ActiveStatesAt( const Timeline::Sequence& sequence, const double at,
+                             std::vector<ActiveNotifyState>& out )
         {
             out.clear();
             for ( const Timeline::Track& track : sequence.Tracks )
@@ -46,7 +47,8 @@ namespace Desert::Animation
                 for ( const Timeline::Section& section : track.Sections )
                 {
                     const auto* channel = std::get_if<Timeline::Channel>( &section.Content );
-                    const auto* events  = channel != nullptr ? std::get_if<Timeline::EventChannel>( channel ) : nullptr;
+                    const auto* events =
+                         channel != nullptr ? std::get_if<Timeline::EventChannel>( channel ) : nullptr;
                     if ( events == nullptr )
                     {
                         continue;
@@ -66,8 +68,9 @@ namespace Desert::Animation
 
         [[nodiscard]] bool Holds( const std::vector<ActiveNotifyState>& states, const Timeline::EventKey& key )
         {
-            return std::any_of( states.begin(), states.end(), [&key]( const ActiveNotifyState& state )
-                                { return state.Name == key.Name && state.Tick == key.Tick && state.Duration == key.Duration; } );
+            return std::any_of(
+                 states.begin(), states.end(), [&key]( const ActiveNotifyState& state )
+                 { return state.Name == key.Name && state.Tick == key.Tick && state.Duration == key.Duration; } );
         }
     } // namespace
 
@@ -232,8 +235,8 @@ namespace Desert::Animation
             {
                 Timeline::EvaluatedValue value;
                 if ( track.Kind == Timeline::TrackKind::Float && track.Property == curveName &&
-                     Timeline::EvaluateTrack( track, OnSequence( *playback.Clip, playback.Time ), sequence.TickRate,
-                                              value ) )
+                     Timeline::EvaluateTrack( track, OnSequence( *playback.Clip, playback.Time ),
+                                              sequence.TickRate, value ) )
                 {
                     return std::get<float>( value );
                 }
@@ -397,8 +400,8 @@ namespace Desert::Animation
 
     void Animator::EvaluateGraph( LocalPose& pose )
     {
-        PoseGraphState&    state = *m_PoseGraph;
-        const size_t       n     = m_Skeleton.GetBones().size();
+        PoseGraphState&         state = *m_PoseGraph;
+        const size_t            n     = m_Skeleton.GetBones().size();
         const Graph::AnimGraph& graph = state.Instance.Graph();
 
         Graph::PoseGraphSources sources;
@@ -416,8 +419,8 @@ namespace Desert::Animation
             {
                 Timeline::EvaluatedValue value;
                 if ( track.Kind == Timeline::TrackKind::Float &&
-                     Timeline::EvaluateTrack( track, OnSequence( *playback.Clip, playback.Time ), sequence.TickRate,
-                                              value ) )
+                     Timeline::EvaluateTrack( track, OnSequence( *playback.Clip, playback.Time ),
+                                              sequence.TickRate, value ) )
                     AddCurve( out, track.Property, std::get<float>( value ) );
             }
             // UNDER A RETARGET THE SOURCE IS RETARGETED WHOLE, BEFORE ANY NODE READS IT: the retarget equation
@@ -654,7 +657,8 @@ namespace Desert::Animation
         // REBUILT WHEN THE CLIP'S SEQUENCE HAS BEEN REPLACED, not only when the cache is empty — an unload +
         // reload leaves the clip at the same address holding a new track list. See ClipBinding.
         if ( binding.TracksData != sequence.Tracks.data() || binding.TrackCount != sequence.Tracks.size() ||
-             binding.Table.Revision != sequence.Revision || binding.Table.BoneOfTrack.size() != sequence.Tracks.size() )
+             binding.Table.Revision != sequence.Revision ||
+             binding.Table.BoneOfTrack.size() != sequence.Tracks.size() )
         {
             binding.Table      = Timeline::BindBones( sequence, rig.Rig );
             binding.TracksData = sequence.Tracks.data();
@@ -743,8 +747,9 @@ namespace Desert::Animation
             {
                 continue;
             }
-            const bool ended = std::any_of( m_Crossed.begin(), m_Crossed.end(), [&key]( const Timeline::FiredEvent& other )
-                                            { return other.Event.Key == &key && other.Event.Edge == Timeline::EventEdge::End; } );
+            const bool ended = std::any_of(
+                 m_Crossed.begin(), m_Crossed.end(), [&key]( const Timeline::FiredEvent& other )
+                 { return other.Event.Key == &key && other.Event.Edge == Timeline::EventEdge::End; } );
             if ( ended )
             {
                 event( key.Name, NotifyEventKind::Begin );
@@ -801,8 +806,9 @@ namespace Desert::Animation
                 if ( !source.IsValid() && m_LinkedActiveStates[slot][node].empty() )
                     continue;
                 StepNotifiesOf( source, source.StepFrom, source.StepWrapped, played, source.StepBackward,
-                                layer.Weight( node ) > Graph::kNotifyTriggerWeight, m_LinkedActiveStates[slot][node],
-                                static_cast<int>( node ), static_cast<int>( slot ) );
+                                layer.Weight( node ) > Graph::kNotifyTriggerWeight,
+                                m_LinkedActiveStates[slot][node], static_cast<int>( node ),
+                                static_cast<int>( slot ) );
             }
         }
     }
@@ -946,8 +952,10 @@ namespace Desert::Animation
 
     void Animator::SetPoseGraphSource( size_t node, const AnimationClip& clip, bool loop )
     {
-        if ( !m_PoseGraph || node >= m_PoseGraph->Sources.size() || static_cast<int>( node ) == m_PoseGraph->BaseSource ||
-             !Graph::IsSourceKind( static_cast<Graph::PoseNodeKind>( m_PoseGraph->Instance.Graph().Nodes[node].Kind ) ) )
+        if ( !m_PoseGraph || node >= m_PoseGraph->Sources.size() ||
+             static_cast<int>( node ) == m_PoseGraph->BaseSource ||
+             !Graph::IsSourceKind(
+                  static_cast<Graph::PoseNodeKind>( m_PoseGraph->Instance.Graph().Nodes[node].Kind ) ) )
             return;
         ClipPlayback& playback = m_PoseGraph->Sources[node];
         if ( playback.Clip != &clip )
@@ -972,7 +980,7 @@ namespace Desert::Animation
                  std::format( "cannot link the layers of '{}': the character has no pose graph to call them",
                               implementation.Name ) );
         if ( auto linked = m_LinkedLayers.Link( m_PoseGraph->Instance.Graph(), implementationId, implementation,
-                                                    m_Skeleton );
+                                                m_Skeleton );
              !linked )
             return linked;
         RebuildLinkedClocks();
@@ -1007,9 +1015,10 @@ namespace Desert::Animation
         if ( playback.Clip == nullptr )
             return 0.0F;
         const double duration = playback.Clip->DurationSeconds();
-        return duration > 1e-4 ? static_cast<float>( FrameTimeToSeconds( playback.Time, playback.Clip->Sequence.TickRate ) /
-                                                     duration )
-                               : 0.0F;
+        return duration > 1e-4
+                    ? static_cast<float>( FrameTimeToSeconds( playback.Time, playback.Clip->Sequence.TickRate ) /
+                                          duration )
+                    : 0.0F;
     }
 
     void Animator::RebuildLinkedClocks()
@@ -1018,7 +1027,8 @@ namespace Desert::Animation
         // and the states their clips held end under the slots they were reported from.
         for ( size_t slot = 0; slot < m_LinkedActiveStates.size(); ++slot )
             for ( size_t node = 0; node < m_LinkedActiveStates[slot].size(); ++node )
-                RetireStates( m_LinkedActiveStates[slot][node], static_cast<int>( node ), static_cast<int>( slot ) );
+                RetireStates( m_LinkedActiveStates[slot][node], static_cast<int>( node ),
+                              static_cast<int>( slot ) );
         m_LinkedActiveStates.assign( m_LinkedLayers.Layers().size(), {} );
         m_LinkedSources.assign( m_LinkedLayers.Layers().size(), {} );
         for ( size_t slot = 0; slot < m_LinkedSources.size(); ++slot )

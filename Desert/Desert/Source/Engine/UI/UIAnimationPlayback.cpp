@@ -21,7 +21,7 @@ namespace Desert::UI
         {
         public:
             UIHost( const std::unordered_map<std::string, entt::entity>& byUuid, UIClipFrame& frame )
-                : m_ByUuid( byUuid ), m_Frame( frame )
+                 : m_ByUuid( byUuid ), m_Frame( frame )
             {
             }
 
@@ -32,17 +32,18 @@ namespace Desert::UI
                 const auto it = m_ByUuid.find( binding.Locator );
                 if ( it == m_ByUuid.end() )
                     return std::nullopt;
-                return TL::ResolvedBinding{ static_cast<uint64_t>( static_cast<std::underlying_type_t<entt::entity>>( it->second ) ) };
+                return TL::ResolvedBinding{
+                     static_cast<uint64_t>( static_cast<std::underlying_type_t<entt::entity>>( it->second ) ) };
             }
 
             void Apply( const TL::ResolvedBinding& target, const std::string_view property,
                         const TL::EvaluatedValue& value ) override
             {
-                const auto    element = static_cast<entt::entity>(
+                const auto element = static_cast<entt::entity>(
                      static_cast<std::underlying_type_t<entt::entity>>( target.Handle ) );
-                UIClipSample& sample  = m_Frame.Samples[element];
-                const auto*   vec     = std::get_if<glm::vec3>( &value );
-                const auto*   scalar  = std::get_if<float>( &value );
+                UIClipSample& sample = m_Frame.Samples[element];
+                const auto*   vec    = std::get_if<glm::vec3>( &value );
+                const auto*   scalar = std::get_if<float>( &value );
                 if ( property == "Offset" && vec != nullptr )
                     sample.Offset += glm::vec2( *vec );
                 else if ( property == "Size" && vec != nullptr )
@@ -97,9 +98,8 @@ namespace Desert::UI
                     clip.Playback->Play();
             }
 
-            const TL::TimeStep step =
-                 advance ? clip.Playback->Advance( dtSeconds )
-                         : TL::TimeStep{ clip.Playback->Current(), clip.Playback->Current() };
+            const TL::TimeStep step = advance ? clip.Playback->Advance( dtSeconds )
+                                              : TL::TimeStep{ clip.Playback->Current(), clip.Playback->Current() };
 
             TL::Evaluator evaluator( clip.Sequence );
             evaluator.Evaluate( step, frame.Scratch );

@@ -298,7 +298,7 @@ TEST( PoseGraphInstance, ABlendOfBlendsEvaluatesEachNodeFromItsInputsPoses )
          G::Parameter{ .Name = "W", .Type = static_cast<int>( G::ParamType::Float ), .Default = 1.0F } );
     graph.Nodes = { Leaf( "L0" ), Leaf( "L1" ), Leaf( "L2" ),
                     Blend( "Inner", "L0", "L1", skeleton.GetBones()[0].Name ), // the whole body from L1
-                    Blend( "Outer", "Inner", "L2", "spine" ) };                 // the spine branch from L2
+                    Blend( "Outer", "Inner", "L2", "spine" ) };                // the spine branch from L2
     graph.Nodes[4].ParameterInputs.push_back( G::ParameterPin{ G::LayerWeightPin( 0 ), "W" } );
     graph.OutputPose = "Outer";
 
@@ -338,7 +338,7 @@ TEST( PoseGraphInstance, AnAdditiveOverALayeredBlendAndARefusedFilterBone )
          << "the root: L0 (outside the spine branch) plus the whole additive L2 (alpha unbound = 1)";
 
     graph.Nodes[3].LayeredBlend->Layers[0].Filters[0].BoneName = "no_such_bone";
-    const auto refused = instance.Bind( graph, skeleton );
+    const auto refused                                         = instance.Bind( graph, skeleton );
     ASSERT_FALSE( refused.IsSuccess() );
     EXPECT_NE( refused.GetError().find( "Upper" ), std::string::npos ) << refused.GetError();
     EXPECT_NE( refused.GetError().find( "no_such_bone" ), std::string::npos ) << refused.GetError();
@@ -471,9 +471,9 @@ TEST( LinkedAnimLayer, ALinkIsRefusedByNameAndLeavesTheTableAsItWas )
 
 TEST( LinkedAnimLayer, UnlinkMatchesTheGraphGuidNotItsName )
 {
-    const Skeleton      skeleton = FiveBones();
-    const uint32_t      spine    = skeleton.FindBoneIndex( "spine" ).value();
-    const G::AnimGraph  character = Character();
+    const Skeleton       skeleton  = FiveBones();
+    const uint32_t       spine     = skeleton.FindBoneIndex( "spine" ).value();
+    const G::AnimGraph   character = Character();
     G::PoseGraphInstance instance;
     ASSERT_TRUE( instance.Bind( character, skeleton ).IsSuccess() );
     const LocalPose     reference( skeleton.GetBones().size() );
@@ -492,9 +492,9 @@ TEST( LinkedAnimLayer, UnlinkMatchesTheGraphGuidNotItsName )
 
 TEST( LinkedAnimLayer, ALayerMayHoldAStateMachineAndCallANestedLayerButNotACycle )
 {
-    const Skeleton      skeleton = FiveBones();
-    const uint32_t      spine    = skeleton.FindBoneIndex( "spine" ).value();
-    G::AnimGraph        character = Character();
+    const Skeleton skeleton  = FiveBones();
+    const uint32_t spine     = skeleton.FindBoneIndex( "spine" ).value();
+    G::AnimGraph   character = Character();
     character.Layers->Interfaces.push_back( G::AnimLayerInterface{ "Hands", { "Grip" } } );
     G::PoseGraphInstance instance;
     ASSERT_TRUE( instance.Bind( character, skeleton ).IsSuccess() );
@@ -514,7 +514,7 @@ TEST( LinkedAnimLayer, ALayerMayHoldAStateMachineAndCallANestedLayerButNotACycle
     nested.LinkedLayer = G::LinkedAnimLayerNode{ "Hands", "Grip" };
     rifle.Layers->Implemented[0].Nodes.push_back( nested );
     rifle.Layers->Implemented[0].OutputPose = "Grip";
-    const auto planned = G::PlanPoseGraph( rifle );
+    const auto planned                      = G::PlanPoseGraph( rifle );
     ASSERT_TRUE( planned.IsSuccess() ) << planned.GetError();
 
     G::LinkedLayerTable table;
@@ -541,8 +541,8 @@ TEST( LinkedAnimLayer, ALayerMayHoldAStateMachineAndCallANestedLayerButNotACycle
     back.PoseInputs  = { "In" };
     back.LinkedLayer = G::LinkedAnimLayerNode{ "Weapon", "UpperBody" };
     gloves.Layers    = G::AnimGraphLayers{
-         { G::AnimLayerInterface{ "Weapon", { "UpperBody" } }, G::AnimLayerInterface{ "Hands", { "Grip" } } },
-         { G::AnimLayerGraph{ "Hands", "Grip", { in, back }, "Back" } } };
+            { G::AnimLayerInterface{ "Weapon", { "UpperBody" } }, G::AnimLayerInterface{ "Hands", { "Grip" } } },
+            { G::AnimLayerGraph{ "Hands", "Grip", { in, back }, "Back" } } };
     const auto cycle = table.Link( character, 302, gloves, skeleton );
     ASSERT_FALSE( cycle.IsSuccess() );
     EXPECT_NE( cycle.GetError().find( "Weapon.UpperBody -> Hands.Grip -> Weapon.UpperBody" ), std::string::npos )

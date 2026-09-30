@@ -68,8 +68,9 @@ namespace Desert::Animation
         /// segment had. Outside the keyed range the channel holds a constant, and @p outside is the mode.
         KeyInterp SplitSegmentInterp( const std::vector<ScalarKey>& keys, FrameNumber tick, KeyInterp outside )
         {
-            const auto after = std::lower_bound( keys.begin(), keys.end(), tick,
-                                                 []( const ScalarKey& k, FrameNumber at ) { return k.Tick < at; } );
+            const auto after =
+                 std::lower_bound( keys.begin(), keys.end(), tick,
+                                   []( const ScalarKey& k, FrameNumber at ) { return k.Tick < at; } );
             if ( after == keys.begin() || after == keys.end() )
             {
                 return outside;

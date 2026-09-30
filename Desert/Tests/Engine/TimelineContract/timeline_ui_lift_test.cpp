@@ -35,7 +35,8 @@ namespace
                 return std::nullopt;
             return TL::ResolvedBinding{ 1 };
         }
-        void Apply( const TL::ResolvedBinding&, std::string_view property, const TL::EvaluatedValue& value ) override
+        void Apply( const TL::ResolvedBinding&, std::string_view property,
+                    const TL::EvaluatedValue& value ) override
         {
             Values[std::string( property )] = value;
         }
@@ -77,9 +78,9 @@ namespace
 
 TEST( TimelineLiftUI, KeysOnTheTickGridLiftBitForBitAndReportNoRounding )
 {
-    const auto v40 = OneTrack( kOffset, { { 0.0F, glm::vec4( 0, 0, 0, 0 ), kLinear },
-                                          { 0.5F, glm::vec4( 40, -8, 0, 0 ), kLinear },
-                                          { 1.0F, glm::vec4( 100, 3, 0, 0 ), kLinear } } );
+    const auto v40    = OneTrack( kOffset, { { 0.0F, glm::vec4( 0, 0, 0, 0 ), kLinear },
+                                             { 0.5F, glm::vec4( 40, -8, 0, 0 ), kLinear },
+                                             { 1.0F, glm::vec4( 100, 3, 0, 0 ), kLinear } } );
     const auto lifted = Lift( v40 );
     ASSERT_TRUE( lifted.IsSuccess() ) << lifted.GetError();
     const TL::Sequence& sequence = lifted.GetValue().Lifted;
@@ -112,8 +113,8 @@ TEST( TimelineLiftUI, AKeyOffTheTickGridIsRoundedAndTheRoundingIsReported )
 TEST( TimelineLiftUI, TheEasingOfTheArrivingKeyShapesTheSegment )
 {
     // CubicInOut at a quarter of the way is 4 * 0.25^3 = 0.0625 — a straight line would say 0.25.
-    const auto lifted = Lift( OneTrack( kOffset, { { 0.0F, glm::vec4( 0 ), kLinear },
-                                                   { 1.0F, glm::vec4( 100, 0, 0, 0 ), kCubicInOut } } ) );
+    const auto lifted = Lift( OneTrack(
+         kOffset, { { 0.0F, glm::vec4( 0 ), kLinear }, { 1.0F, glm::vec4( 100, 0, 0, 0 ), kCubicInOut } } ) );
     ASSERT_TRUE( lifted.IsSuccess() ) << lifted.GetError();
     const RecordingHost host = EvaluateAt( lifted.GetValue().Lifted, 0.25 );
     ASSERT_EQ( host.Values.count( "Offset" ), 1U );
@@ -137,7 +138,7 @@ TEST( TimelineLiftUI, EveryRefusalIsNamed )
     EXPECT_FALSE( unsorted.IsSuccess() ) << "keys out of time order were lifted";
 
     // 1 and 2 hundred-thousandths of a second both round onto tick 0 at 24000 ticks/s.
-    const auto collide =
-         Lift( OneTrack( kOffset, { { 0.00001F, glm::vec4( 0 ), kLinear }, { 0.00002F, glm::vec4( 1 ), kLinear } } ) );
+    const auto collide = Lift(
+         OneTrack( kOffset, { { 0.00001F, glm::vec4( 0 ), kLinear }, { 0.00002F, glm::vec4( 1 ), kLinear } } ) );
     EXPECT_FALSE( collide.IsSuccess() ) << "two keys that round onto one tick were lifted";
 }

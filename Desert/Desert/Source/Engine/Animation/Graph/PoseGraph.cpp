@@ -410,10 +410,15 @@ namespace Desert::Animation::Graph
                     return j;
             return std::nullopt;
         };
-        enum class Mark : uint8_t { White, Grey, Black };
-        std::vector<Mark>   marks( layers.size(), Mark::White );
-        std::vector<size_t> path;
-        std::string         cycle;
+        enum class Mark : uint8_t
+        {
+            White,
+            Grey,
+            Black
+        };
+        std::vector<Mark>             marks( layers.size(), Mark::White );
+        std::vector<size_t>           path;
+        std::string                   cycle;
         std::function<bool( size_t )> visit = [&]( size_t i ) -> bool
         {
             marks[i] = Mark::Grey;

@@ -117,8 +117,8 @@ namespace Desert::Animation::Timeline
         // through FromTicks.
         const double    signedSeconds = seconds * m_Rate * m_Direction;
         const FrameTime moved         = AdvanceFrameTime( m_Current, signedSeconds, m_TickRate );
-        step.Direction = signedSeconds < 0.0 ? PlayDirection::Backward : PlayDirection::Forward;
-        double          t     = moved.AsTicks();
+        step.Direction                = signedSeconds < 0.0 ? PlayDirection::Backward : PlayDirection::Forward;
+        double t                      = moved.AsTicks();
 
         if ( t > end || t < start )
         {

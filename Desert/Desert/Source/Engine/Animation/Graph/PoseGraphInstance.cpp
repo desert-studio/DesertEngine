@@ -25,14 +25,14 @@ namespace Desert::Animation::Graph
         }
     } // namespace
 
-    Common::BoolResultStr ApplyAdditive( const GraphPose& base, const GraphPose& additive, const LocalPose& reference,
-                                         float alpha, GraphPose& out )
+    Common::BoolResultStr ApplyAdditive( const GraphPose& base, const GraphPose& additive,
+                                         const LocalPose& reference, float alpha, GraphPose& out )
     {
         const size_t n = base.Pose.Size();
         if ( additive.Pose.Size() != n || reference.Size() != n )
-            return Common::MakeError<bool>( std::format(
-                 "Apply Additive: the base has {} bones, the additive {} and the reference {}", n,
-                 additive.Pose.Size(), reference.Size() ) );
+            return Common::MakeError<bool>(
+                 std::format( "Apply Additive: the base has {} bones, the additive {} and the reference {}", n,
+                              additive.Pose.Size(), reference.Size() ) );
 
         out = base;
         if ( alpha <= 0.0F )
@@ -135,11 +135,11 @@ namespace Desert::Animation::Graph
         const size_t bones = skeleton.GetBones().size();
         for ( const int index : m_Plan )
         {
-            const auto       n     = static_cast<size_t>( index );
-            const PoseNode&  node  = m_Graph.Nodes[n];
-            GraphPose&       pose  = m_Poses[n];
-            const auto&      wired = m_Inputs[n];
-            const auto       kind  = static_cast<PoseNodeKind>( node.Kind );
+            const auto      n     = static_cast<size_t>( index );
+            const PoseNode& node  = m_Graph.Nodes[n];
+            GraphPose&      pose  = m_Poses[n];
+            const auto&     wired = m_Inputs[n];
+            const auto      kind  = static_cast<PoseNodeKind>( node.Kind );
             switch ( kind )
             {
                 case PoseNodeKind::StateMachine:
@@ -184,8 +184,9 @@ namespace Desert::Animation::Graph
                     m_WeightScratch.resize( layers );
                     for ( size_t layer = 0; layer < layers; ++layer )
                     {
-                        m_LayerScratch[layer]  = m_Poses[static_cast<size_t>( wired[layer + 1] )];
-                        m_WeightScratch[layer] = PinValue( node, LayerWeightPin( layer ), 1.0F, sources.Parameter );
+                        m_LayerScratch[layer] = m_Poses[static_cast<size_t>( wired[layer + 1] )];
+                        m_WeightScratch[layer] =
+                             PinValue( node, LayerWeightPin( layer ), 1.0F, sources.Parameter );
                     }
                     // DISCARDED DELIBERATELY: Bind sized the table against this skeleton and the plan fixed the
                     // layer count, so the node's size checks cannot fail; were one to, the base shows.
@@ -202,8 +203,8 @@ namespace Desert::Animation::Graph
                     const float      alpha = PinValue( node, kApplyAdditiveAlphaPin, 1.0F, sources.Parameter );
                     // No reference means no difference to take: the base shows, as with alpha 0.
                     if ( sources.AdditiveReference == nullptr ||
-                         !ApplyAdditive( base, m_Poses[static_cast<size_t>( wired[1] )], *sources.AdditiveReference,
-                                         alpha, pose ) )
+                         !ApplyAdditive( base, m_Poses[static_cast<size_t>( wired[1] )],
+                                         *sources.AdditiveReference, alpha, pose ) )
                         pose = base;
                     break;
                 }
@@ -233,7 +234,8 @@ namespace Desert::Animation::Graph
         // THIS CALL'S SHARE ALONE, carried in its own buffer and added at the end: a layer graph called from
         // two nodes is entered twice, and re-carrying the first call's weights would count them twice.
         m_WeightDelta.assign( m_Weights.size(), 0.0F );
-        const auto at = [this]( const int index ) -> float& { return m_WeightDelta[static_cast<size_t>( index )]; };
+        const auto at = [this]( const int index ) -> float&
+        { return m_WeightDelta[static_cast<size_t>( index )]; };
         at( m_Plan.back() ) = root;
 
         float input = 0.0F;
@@ -259,10 +261,11 @@ namespace Desert::Animation::Graph
                 {
                     const auto linked =
                          sources.Linked != nullptr
-                                    ? sources.Linked->Find( node.LinkedLayer->Interface, node.LinkedLayer->Layer )
-                                    : std::nullopt;
-                    at( wired[0] ) += linked ? sources.Linked->At( *linked ).Instance.AccumulateWeights( sources, weight )
-                                             : weight;
+                              ? sources.Linked->Find( node.LinkedLayer->Interface, node.LinkedLayer->Layer )
+                              : std::nullopt;
+                    at( wired[0] ) +=
+                         linked ? sources.Linked->At( *linked ).Instance.AccumulateWeights( sources, weight )
+                                : weight;
                     break;
                 }
 
@@ -271,16 +274,18 @@ namespace Desert::Animation::Graph
                     // at a fraction of it.
                     at( wired[0] ) += weight;
                     for ( size_t layer = 0; layer + 1 < wired.size(); ++layer )
-                        at( wired[layer + 1] ) +=
-                             weight *
-                             std::clamp( PinValue( node, LayerWeightPin( layer ), 1.0F, sources.Parameter ), 0.0F, 1.0F );
+                        at( wired[layer + 1] ) += weight * std::clamp( PinValue( node, LayerWeightPin( layer ),
+                                                                                 1.0F, sources.Parameter ),
+                                                                       0.0F, 1.0F );
                     break;
 
                 case PoseNodeKind::ApplyAdditive:
-                    // UE FAnimNode_ApplyAdditive::Update_AnyThread: Base at the node's weight, Additive at Alpha of it.
+                    // UE FAnimNode_ApplyAdditive::Update_AnyThread: Base at the node's weight, Additive at Alpha
+                    // of it.
                     at( wired[0] ) += weight;
                     at( wired[1] ) +=
-                         weight * std::clamp( PinValue( node, kApplyAdditiveAlphaPin, 1.0F, sources.Parameter ), 0.0F, 1.0F );
+                         weight * std::clamp( PinValue( node, kApplyAdditiveAlphaPin, 1.0F, sources.Parameter ),
+                                              0.0F, 1.0F );
                     break;
             }
         }
@@ -332,19 +337,18 @@ namespace Desert::Animation::Graph
                                 read.push_back( condition.Parameter );
             }
             for ( const std::string& parameter : read )
-                {
-                    const auto same = [&]( const Parameter& p ) { return p.Name == parameter; };
-                    const auto mineP =
-                         std::find_if( implementation.Parameters.begin(), implementation.Parameters.end(), same );
-                    const auto theirsP = std::find_if( host.Parameters.begin(), host.Parameters.end(), same );
-                    if ( theirsP == host.Parameters.end() || mineP == implementation.Parameters.end() ||
-                         theirsP->Type != mineP->Type )
-                        return Common::MakeError<bool>( std::format(
-                             "cannot link '{}' onto '{}': layer '{}.{}' reads parameter '{}', which '{}' does not "
-                             "declare as the same type",
-                             implementation.Name, host.Name, layer.Interface, layer.Layer, parameter,
-                             host.Name ) );
-                }
+            {
+                const auto same = [&]( const Parameter& p ) { return p.Name == parameter; };
+                const auto mineP =
+                     std::find_if( implementation.Parameters.begin(), implementation.Parameters.end(), same );
+                const auto theirsP = std::find_if( host.Parameters.begin(), host.Parameters.end(), same );
+                if ( theirsP == host.Parameters.end() || mineP == implementation.Parameters.end() ||
+                     theirsP->Type != mineP->Type )
+                    return Common::MakeError<bool>( std::format(
+                         "cannot link '{}' onto '{}': layer '{}.{}' reads parameter '{}', which '{}' does not "
+                         "declare as the same type",
+                         implementation.Name, host.Name, layer.Interface, layer.Layer, parameter, host.Name ) );
+            }
 
             Layer     entry{ implementationId, implementation.Name, layer.Interface, layer.Layer, {}, {} };
             AnimGraph layerGraph = LayerGraphAsGraph( implementation, layer );

@@ -23,7 +23,8 @@
 
 namespace Desert::Migration
 {
-    Common::BoolResultStr VerifyLift( const ClipGen3::AnimationClip& clip, const Animation::Timeline::Sequence& lift )
+    Common::BoolResultStr VerifyLift( const ClipGen3::AnimationClip&       clip,
+                                      const Animation::Timeline::Sequence& lift )
     {
         using namespace Desert::Animation::Timeline;
         using Animation::BoneTransform;
@@ -61,8 +62,8 @@ namespace Desert::Migration
                 }
                 if ( pose[b].Translation != expected.Translation || pose[b].Rotation != expected.Rotation ||
                      pose[b].Scale != expected.Scale )
-                    return Common::MakeFormattedError<bool>( "bone '{}' differs at tick {}", clip.Tracks[b].BoneName,
-                                                             tick );
+                    return Common::MakeFormattedError<bool>( "bone '{}' differs at tick {}",
+                                                             clip.Tracks[b].BoneName, tick );
             }
             evaluator.Evaluate( TimeStep{ at, at }, frame );
             for ( const EvaluatedTrack& value : frame.Values )
@@ -73,7 +74,7 @@ namespace Desert::Migration
                 const ClipGen3::AnimationCurve* curve = clip.FindCurve( track.Property );
                 if ( curve == nullptr )
                     return Common::MakeFormattedError<bool>( "curve '{}' has no source", track.Property );
-                const float got = std::get<float>( value.Value );
+                const float got      = std::get<float>( value.Value );
                 const float expected = curve->Evaluate( at, clip.TickRate );
                 if ( got != expected )
                     return Common::MakeFormattedError<bool>( "curve '{}' differs at tick {} ({} != {})",
@@ -88,29 +89,32 @@ namespace Desert::Migration
         // Generation 3 as ANIM 4 and 5 wrote it: ANIM 4 named its rig by the bone hash, ANIM 5 by `Skeleton`.
         struct GenerationThreeFile
         {
-            std::optional<uint64_t>                      SkeletonSignature;
+            std::optional<uint64_t>                    SkeletonSignature;
             rfl::Flatten<ClipGen3::AnimationAssetData> Rest;
         };
     } // namespace
 
-    Common::ResultStr<ClipMigrationOutcome> MigrateClipGeneration3( const std::string_view path, const std::string& text,
-                                                                    const std::span<const Animation::SkeletonCandidate> skeletons )
+    Common::ResultStr<ClipMigrationOutcome>
+    MigrateClipGeneration3( const std::string_view path, const std::string& text,
+                            const std::span<const Animation::SkeletonCandidate> skeletons )
     {
         auto parsed = Common::Json::Read<GenerationThreeFile>( text );
         if ( !parsed )
-            return Common::MakeFormattedError<ClipMigrationOutcome>( "not a generation-3 clip: {}", parsed.GetError() );
+            return Common::MakeFormattedError<ClipMigrationOutcome>( "not a generation-3 clip: {}",
+                                                                     parsed.GetError() );
         ClipGen3::AnimationAssetData source = parsed.GetValue().Rest.get();
         if ( !source.Header )
             return Common::MakeFormattedError<ClipMigrationOutcome>( "generation-3 clip states no header" );
         const auto stated = source.Header->Versions.find( "ANIM" );
         if ( stated == source.Header->Versions.end() ||
              stated->second > Assets::Serialization::kAnimationLastChannelsVersion || stated->second < 4u )
-            return Common::MakeFormattedError<ClipMigrationOutcome>( "'{}': this step lifts ANIM 4 and 5 only", path );
+            return Common::MakeFormattedError<ClipMigrationOutcome>( "'{}': this step lifts ANIM 4 and 5 only",
+                                                                     path );
         if ( stated->second == 4u )
         {
             // ANIM 4 -> 5 (SKEL-TREE): the bone hash becomes the GUID of the one .skeleton stating it.
-            const auto guid =
-                 Animation::MigrateSkeletonReference( path, parsed.GetValue().SkeletonSignature.value_or( 0 ), skeletons );
+            const auto guid = Animation::MigrateSkeletonReference(
+                 path, parsed.GetValue().SkeletonSignature.value_or( 0 ), skeletons );
             if ( !guid )
                 return Common::MakeError<ClipMigrationOutcome>( guid.GetError() );
             std::string rigPath;
@@ -121,7 +125,8 @@ namespace Desert::Migration
         }
         else if ( parsed.GetValue().SkeletonSignature )
             return Common::MakeFormattedError<ClipMigrationOutcome>(
-                 "'{}' states ANIM 5 and a bone-hash SkeletonSignature; ANIM 5 names its skeleton by GUID only", path );
+                 "'{}' states ANIM 5 and a bone-hash SkeletonSignature; ANIM 5 names its skeleton by GUID only",
+                 path );
 
         auto built = ClipGen3::BuildClip( source );
         if ( !built )
@@ -138,11 +143,11 @@ namespace Desert::Migration
         Animation::AnimationClip current;
         current.AnimationName = clip.AnimationName;
         current.Sequence      = lifted.ExtractValue();
-        auto data = Assets::Serialization::BuildAssetDataFromClip( current );
+        auto data             = Assets::Serialization::BuildAssetDataFromClip( current );
         if ( !data )
             return Common::MakeFormattedError<ClipMigrationOutcome>( "{}", data.GetError() );
         Assets::Serialization::AnimationAssetData out = data.ExtractValue();
-        out.Header = source.Header; // the GUID stays the clip's identity; the writer restamps the versions
+        out.Header   = source.Header; // the GUID stays the clip's identity; the writer restamps the versions
         out.Import   = source.Import;
         out.Skeleton = source.Skeleton; // SKEL-TREE: the GUID and its path, as generation 3 stated them
         auto canonical =

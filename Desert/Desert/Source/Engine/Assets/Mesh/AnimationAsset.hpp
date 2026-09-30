@@ -24,8 +24,8 @@ namespace Desert::Assets
         }
 
         // The clip for the Animation Editor's AUTHORING-ONLY edits (notifies: name, tick, track). Such an edit
-        // does not restructure the Sequence, so Sequence::Revision stays — an Animator's cached per-track state is still
-        // valid. An edit that changes tracks must go through SetInMemoryClip / a reload, which bump it.
+        // does not restructure the Sequence, so Sequence::Revision stays — an Animator's cached per-track state is
+        // still valid. An edit that changes tracks must go through SetInMemoryClip / a reload, which bump it.
         Animation::AnimationClip& GetClipForAuthoring()
         {
             return m_Clip;
@@ -78,10 +78,10 @@ namespace Desert::Assets
         /**
          * @brief THIS ASSET OWNS THE TRACK-LIST STAMP, because this asset is what replaces the list.
          *
-         * `AnimationClip::Sequence::Revision` needs exactly one writer across generations, and it has to be the object whose
-         * lifecycle does the replacing: `Load()` builds a new track list into the SAME `AnimationClip`
-         * (same address), and `Unload()` frees it. Everything downstream — `Animator::ClipBinding` above
-         * all — has no other way to tell one generation of the list from the next, because `Tracks.data()`
+         * `AnimationClip::Sequence::Revision` needs exactly one writer across generations, and it has to be the
+         * object whose lifecycle does the replacing: `Load()` builds a new track list into the SAME
+         * `AnimationClip` (same address), and `Unload()` frees it. Everything downstream — `Animator::ClipBinding`
+         * above all — has no other way to tell one generation of the list from the next, because `Tracks.data()`
          * and `Tracks.size()` are both free to come back identical when the allocator reuses the block.
          */
         uint32_t m_TrackRevision = 0;

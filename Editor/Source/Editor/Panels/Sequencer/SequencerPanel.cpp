@@ -2118,8 +2118,7 @@ namespace Desert::Editor
                                                                        6.0f );
                                                    return;
                                                }
-                                               const int count =
-                                                    static_cast<int>( clip->Sequence.Tracks.size() );
+                                               const int count = static_cast<int>( clip->Sequence.Tracks.size() );
                                                m_UITrack       = ( m_UITrack + 1 ) % count;
                                                m_UIKey         = -1;
                                            } } );
@@ -2217,21 +2216,20 @@ namespace Desert::Editor
              } } );
         // SECTIONS BELONG TO A TRACK (UE: UMovieSceneSection lives in its UMovieSceneTrack), so the palette
         // picks the track first; every section command below refuses in words until one is picked.
-        actions.push_back( DocumentAction{ "Select the next track", [this]
-                                           {
-                                               const auto target = ResolveSectionTarget();
-                                               if ( !target || target->Clip->Sequence.Tracks.empty() )
-                                               {
-                                                   ToastManager::Push( "this clip has no track", ToastLevel::Error,
-                                                                       6.0f );
-                                                   return;
-                                               }
-                                               const int count =
-                                                    static_cast<int>( target->Clip->Sequence.Tracks.size() );
-                                               m_SelTrack = ( m_SelTrack + 1 ) % count;
-                                               m_SelKey   = -1;
-                                               SelectSection( -1 );
-                                           } } );
+        actions.push_back(
+             DocumentAction{ "Select the next track", [this]
+                             {
+                                 const auto target = ResolveSectionTarget();
+                                 if ( !target || target->Clip->Sequence.Tracks.empty() )
+                                 {
+                                     ToastManager::Push( "this clip has no track", ToastLevel::Error, 6.0f );
+                                     return;
+                                 }
+                                 const int count = static_cast<int>( target->Clip->Sequence.Tracks.size() );
+                                 m_SelTrack      = ( m_SelTrack + 1 ) % count;
+                                 m_SelKey        = -1;
+                                 SelectSection( -1 );
+                             } } );
         actions.push_back( DocumentAction{ "Select the next section", [this]
                                            {
                                                const auto target = ResolveSectionTarget();
@@ -2242,16 +2240,17 @@ namespace Desert::Editor
                                                                        ToastLevel::Error, 6.0f );
                                                    return;
                                                }
-                                               const int count = static_cast<int>( target->Track->Sections.size() );
+                                               const int count =
+                                                    static_cast<int>( target->Track->Sections.size() );
                                                SelectSection( ( m_SelSection + 1 ) % count );
                                            } } );
-        actions.push_back( DocumentAction{
-             "Delete the selected section", [this]
-             {
-                 RunSectionEdit( "delete section", []( SectionTarget& target, size_t index )
-                                 { return TL::RemoveSection( *target.Track, index ); } );
-                 SelectSection( -1 );
-             } } );
+        actions.push_back( DocumentAction{ "Delete the selected section", [this]
+                                           {
+                                               RunSectionEdit(
+                                                    "delete section", []( SectionTarget& target, size_t index )
+                                                    { return TL::RemoveSection( *target.Track, index ); } );
+                                               SelectSection( -1 );
+                                           } } );
         actions.push_back( DocumentAction{ "Set the selected section's start to the playhead", [this]
                                            {
                                                RunSectionEdit( "section start",
@@ -2297,33 +2296,29 @@ namespace Desert::Editor
         // TWO FIXED VALUES AND NOT ONE PARAMETERISED ENTRY, because a palette entry carries no argument.
         // Nought and one are also the two an animator actually authors — a fade-out and a fade-in — and
         // anything between them is the slider in the inspector.
-        actions.push_back( DocumentAction{ "Fade the selected section to 0 at the playhead", [this]
-                                           {
-                                               RunSectionEdit( "section weight",
-                                                               []( SectionTarget& target, size_t index )
-                                                               {
-                                                                   return TL::SetSectionWeightKey(
-                                                                        *target.Track, index,
-                                                                        target.Animator->GetCurrentTick().Frame,
-                                                                        0.0f );
-                                                               } );
-                                           } } );
-        actions.push_back( DocumentAction{ "Fade the selected section to 1 at the playhead", [this]
-                                           {
-                                               RunSectionEdit( "section weight",
-                                                               []( SectionTarget& target, size_t index )
-                                                               {
-                                                                   return TL::SetSectionWeightKey(
-                                                                        *target.Track, index,
-                                                                        target.Animator->GetCurrentTick().Frame,
-                                                                        1.0f );
-                                                               } );
-                                           } } );
+        actions.push_back( DocumentAction{
+             "Fade the selected section to 0 at the playhead", [this]
+             {
+                 RunSectionEdit( "section weight",
+                                 []( SectionTarget& target, size_t index ) {
+                                     return TL::SetSectionWeightKey(
+                                          *target.Track, index, target.Animator->GetCurrentTick().Frame, 0.0f );
+                                 } );
+             } } );
+        actions.push_back( DocumentAction{
+             "Fade the selected section to 1 at the playhead", [this]
+             {
+                 RunSectionEdit( "section weight",
+                                 []( SectionTarget& target, size_t index ) {
+                                     return TL::SetSectionWeightKey(
+                                          *target.Track, index, target.Animator->GetCurrentTick().Frame, 1.0f );
+                                 } );
+             } } );
         actions.push_back( DocumentAction{ "Clear the selected section's fade", [this]
                                            {
-                                               RunSectionEdit( "clear fade",
-                                                               []( SectionTarget& target, size_t index )
-                                                               { return TL::ClearSectionWeight( *target.Track, index ); } );
+                                               RunSectionEdit(
+                                                    "clear fade", []( SectionTarget& target, size_t index )
+                                                    { return TL::ClearSectionWeight( *target.Track, index ); } );
                                            } } );
         actions.push_back(
              DocumentAction{ "Raise the selected section's priority", [this] { ReorderSelectedSection( 1 ); } } );
@@ -2515,10 +2510,9 @@ namespace Desert::Editor
         {
             const double seconds = static_cast<double>( duration ) * static_cast<double>( sample ) / kSamples;
             const Animation::FrameTime at    = Animation::SecondsToFrameTime( seconds, tickRate );
-            const Animation::BoneTransform pose  = TL::Evaluate( *shown, at, tickRate );
-            const glm::vec3                value = ( channel == Animation::TrackChannel::Position )
-                                                        ? pose.Translation
-                                                        : pose.Scale;
+            const Animation::BoneTransform pose = TL::Evaluate( *shown, at, tickRate );
+            const glm::vec3                value =
+                 ( channel == Animation::TrackChannel::Position ) ? pose.Translation : pose.Scale;
             const float                x     = vp.TimeToX( seconds );
 
             for ( int component = 0; component < 3; ++component )
@@ -2772,7 +2766,7 @@ namespace Desert::Editor
         bool MoveUIKey( TL::Track& track, Animation::FrameNumber from, Animation::FrameNumber to )
         {
             TL::Section* section = UISectionAt( track, from );
-            auto* channel = section != nullptr ? std::get_if<TL::Channel>( &section->Content ) : nullptr;
+            auto*        channel = section != nullptr ? std::get_if<TL::Channel>( &section->Content ) : nullptr;
             if ( channel == nullptr || from == to )
                 return false;
             const auto components = FloatsOf( *channel );
@@ -2785,7 +2779,8 @@ namespace Desert::Editor
                 for ( Animation::ScalarKey& key : component->Keys )
                     if ( key.Tick == from )
                         key.Tick = to;
-                std::ranges::sort( component->Keys, []( const Animation::ScalarKey& x, const Animation::ScalarKey& y )
+                std::ranges::sort( component->Keys,
+                                   []( const Animation::ScalarKey& x, const Animation::ScalarKey& y )
                                    { return x.Tick < y.Tick; } );
             }
             return true;
@@ -2842,11 +2837,16 @@ namespace Desert::Editor
         // THE PLAYBACK RANGE, in display frames (the sequence's End). Editing it drops the player so the next
         // frame re-creates it on the new range (UIAnimData's contract).
         const auto toFrame = [&]( Animation::FrameNumber tick )
-        { return static_cast<int>( std::lround( Animation::FrameTimeToSeconds( Animation::FrameTime{ tick, 0.0f }, tickRate ) *
-                                                sequence.DisplayRate.AsDouble() ) ); };
+        {
+            return static_cast<int>(
+                 std::lround( Animation::FrameTimeToSeconds( Animation::FrameTime{ tick, 0.0f }, tickRate ) *
+                              sequence.DisplayRate.AsDouble() ) );
+        };
         const auto toTick = [&]( int frame )
-        { return SecondsToSnappedTick( static_cast<float>( frame / sequence.DisplayRate.AsDouble() ), tickRate,
-                                       sequence.DisplayRate ); };
+        {
+            return SecondsToSnappedTick( static_cast<float>( frame / sequence.DisplayRate.AsDouble() ), tickRate,
+                                         sequence.DisplayRate );
+        };
         int endFrame = toFrame( sequence.End );
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 110.0f );
@@ -2856,9 +2856,10 @@ namespace Desert::Editor
             clip.Playback.reset();
         }
         BracketUIClipEditFromItem( clip );
-        const float duration = std::max(
-             0.05f, static_cast<float>( Animation::FrameTimeToSeconds( Animation::FrameTime{ sequence.End, 0.0f }, tickRate ) ) );
-        float now = static_cast<float>( Animation::FrameTimeToSeconds( Animation::FrameTime{ playTick, 0.0f }, tickRate ) );
+        const float duration = std::max( 0.05f, static_cast<float>( Animation::FrameTimeToSeconds(
+                                                     Animation::FrameTime{ sequence.End, 0.0f }, tickRate ) ) );
+        float       now      = static_cast<float>(
+             Animation::FrameTimeToSeconds( Animation::FrameTime{ playTick, 0.0f }, tickRate ) );
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 140.0f );
         if ( ImGui::SliderFloat( "Time", &now, 0.0f, duration, "%.2f s" ) && clip.Playback.has_value() )
@@ -2895,8 +2896,9 @@ namespace Desert::Editor
                     binding.Guid    = TL::BindingGuid::Generate();
                     binding.Kind    = TL::BindingKind::Widget;
                     binding.Locator = locator;
-                    binding.Label   = entity.HasComponent<ECS::TagComponent>() ? entity.GetComponent<ECS::TagComponent>().Tag
-                                                                                 : locator;
+                    binding.Label   = entity.HasComponent<ECS::TagComponent>()
+                                           ? entity.GetComponent<ECS::TagComponent>().Tag
+                                           : locator;
                     guid            = binding.Guid;
                     sequence.Bindings.push_back( std::move( binding ) );
                 }
@@ -2944,11 +2946,11 @@ namespace Desert::Editor
         int deleteTrack = -1;
         for ( int ti = 0; ti < static_cast<int>( sequence.Tracks.size() ); ++ti )
         {
-            TL::Track&        track = sequence.Tracks[static_cast<size_t>( ti )];
+            TL::Track&         track   = sequence.Tracks[static_cast<size_t>( ti )];
             const ImVec2      rp    = ImGui::GetCursorScreenPos();
             const float       laneY = rp.y;
             const TL::Binding* binding = TL::FindBinding( sequence, track.Binding );
-            const std::string label =
+            const std::string  label =
                  std::format( "{} {}", binding != nullptr ? binding->Label : std::string( "?" ), track.Property );
             dl->AddRectFilled( ImVec2( laneX0, laneY ), ImVec2( laneX0 + laneW, laneY + laneH - 3.0f ),
                                ( ti % 2 ) ? IM_COL32( 40, 40, 46, 255 ) : IM_COL32( 33, 33, 39, 255 ) );
@@ -2994,7 +2996,7 @@ namespace Desert::Editor
                     {
                         ++sequence.Revision;
                         const auto moved = UIKeyTicks( track );
-                        m_UIKey = static_cast<int>( std::ranges::find( moved, to ) - moved.begin() );
+                        m_UIKey          = static_cast<int>( std::ranges::find( moved, to ) - moved.begin() );
                         player.Pause();
                         (void)player.JumpTo( Animation::FrameTime{ to, 0.0f } ); // the pose follows the key
                     }
@@ -3027,13 +3029,12 @@ namespace Desert::Editor
         // --- selected key ----------------------------------------------------------------------------
         if ( m_UITrack >= 0 && m_UITrack < static_cast<int>( sequence.Tracks.size() ) )
         {
-            TL::Track& track = sequence.Tracks[static_cast<size_t>( m_UITrack )];
-            const auto ticks = UIKeyTicks( track );
-            TL::Section* section =
-                 m_UIKey >= 0 && m_UIKey < static_cast<int>( ticks.size() )
-                      ? UISectionAt( track, ticks[static_cast<size_t>( m_UIKey )] )
-                      : nullptr;
-            auto* channel = section != nullptr ? std::get_if<TL::Channel>( &section->Content ) : nullptr;
+            TL::Track&   track   = sequence.Tracks[static_cast<size_t>( m_UITrack )];
+            const auto   ticks   = UIKeyTicks( track );
+            TL::Section* section = m_UIKey >= 0 && m_UIKey < static_cast<int>( ticks.size() )
+                                        ? UISectionAt( track, ticks[static_cast<size_t>( m_UIKey )] )
+                                        : nullptr;
+            auto*        channel = section != nullptr ? std::get_if<TL::Channel>( &section->Content ) : nullptr;
             if ( channel != nullptr )
             {
                 const Animation::FrameNumber tick       = ticks[static_cast<size_t>( m_UIKey )];
@@ -3080,14 +3081,14 @@ namespace Desert::Editor
                     const ScopedSequenceEdit step( m_UIClipEdit, OwnerOf( &clip ) );
                     for ( TL::FloatChannel* component : components )
                     {
-                        const auto end = std::ranges::find_if( component->Keys, [&]( const Animation::ScalarKey& k )
-                                                               { return k.Tick == tick; } );
+                        const auto end = std::ranges::find_if(
+                             component->Keys, [&]( const Animation::ScalarKey& k ) { return k.Tick == tick; } );
                         const auto index = static_cast<size_t>( end - component->Keys.begin() );
                         if ( end == component->Keys.end() || index == 0 )
                             continue;
-                        const auto eased = TL::ApplyEasingPreset( component->Keys, index,
-                                                                  TL::PresetOf( static_cast<ECS::UIEasing>( ease ) ),
-                                                                  tickRate, sequence.DisplayRate );
+                        const auto eased = TL::ApplyEasingPreset(
+                             component->Keys, index, TL::PresetOf( static_cast<ECS::UIEasing>( ease ) ), tickRate,
+                             sequence.DisplayRate );
                         if ( !eased.IsSuccess() )
                             ToastManager::Push( "ease: " + eased.GetError(), ToastLevel::Error, 6.0f );
                     }
@@ -3098,7 +3099,8 @@ namespace Desert::Editor
                 {
                     const ScopedSequenceEdit step( m_UIClipEdit, OwnerOf( &clip ) );
                     for ( TL::FloatChannel* component : components )
-                        std::erase_if( component->Keys, [&]( const Animation::ScalarKey& k ) { return k.Tick == tick; } );
+                        std::erase_if( component->Keys,
+                                       [&]( const Animation::ScalarKey& k ) { return k.Tick == tick; } );
                     ++sequence.Revision;
                     m_UIKey = -1;
                 }
@@ -3126,7 +3128,7 @@ namespace Desert::Editor
         const Animation::FrameNumber tick =
              clip.Playback.has_value() ? clip.Playback->Current().Frame : sequence.Start;
         const ScopedSequenceEdit step( m_UIClipEdit, OwnerOf( &clip ) );
-        TL::Section* section = UISectionAt( track, tick );
+        TL::Section*             section = UISectionAt( track, tick );
         if ( section == nullptr )
         {
             section = &TL::AddSection( track, sequence.Start, sequence.End ); // the first free row, >= 0

@@ -403,57 +403,59 @@ namespace Desert::Migration
         for ( auto& entity : entities )
         {
             const std::string who = entity.id ? entity.id->ToString() : std::string( "<record without id>" );
-            EditBlock( entity.Components, "UIAnim",
-                       [&]( rfl::Generic::Object& block )
-                       {
-                           const auto v40 =
-                                rfl::json::read<TL::UIAnimationV40, rfl::DefaultIfMissing>( rfl::json::write( block ) );
-                           if ( !v40 )
-                           {
-                               report.Refused.push_back( "entity " + who + ": its UIAnim block is not a v40 clip: " +
-                                                         v40.error().what() );
-                               return false;
-                           }
-                           auto lifted = TL::LiftUIAnimation( v40.value(), who, Animation::PROJECT_TICK_RATE,
-                                                              Animation::DEFAULT_DISPLAY_RATE );
-                           if ( !lifted )
-                           {
-                               report.Refused.push_back( "entity " + who + ": " + lifted.GetError() );
-                               return false;
-                           }
-                           auto written = TL::WriteSequence( lifted.GetValue().Lifted );
-                           if ( !written )
-                           {
-                               report.Refused.push_back( "entity " + who +
-                                                         ": the TMLN writer refused: " + written.GetError() );
-                               return false;
-                           }
-                           const std::vector<uint8_t> bytes    = written.ExtractValue();
-                           const auto sequence = rfl::json::read<rfl::Generic>(
-                                std::string( reinterpret_cast<const char*>( bytes.data() ), bytes.size() ) );
-                           if ( !sequence )
-                           {
-                               report.Refused.push_back( "entity " + who + ": the TMLN writer's text does not read: " +
-                                                         sequence.error().what() );
-                               return false;
-                           }
-                           ++report.Clips;
-                           report.RoundedKeys += lifted.GetValue().Report.RoundedKeys;
-                           rfl::Generic::Object next;
-                           next["Sequence"] = sequence.value();
-                           next["Loop"] = rfl::Generic( static_cast<int64_t>( v40.value().Loop ? TL::LoopMode::Loop
-                                                                                               : TL::LoopMode::Once ) );
-                           next["AutoPlay"] = rfl::Generic( v40.value().Playing );
-                           block            = std::move( next );
-                           return true;
-                       } );
+            EditBlock(
+                 entity.Components, "UIAnim",
+                 [&]( rfl::Generic::Object& block )
+                 {
+                     const auto v40 =
+                          rfl::json::read<TL::UIAnimationV40, rfl::DefaultIfMissing>( rfl::json::write( block ) );
+                     if ( !v40 )
+                     {
+                         report.Refused.push_back( "entity " + who +
+                                                   ": its UIAnim block is not a v40 clip: " + v40.error().what() );
+                         return false;
+                     }
+                     auto lifted = TL::LiftUIAnimation( v40.value(), who, Animation::PROJECT_TICK_RATE,
+                                                        Animation::DEFAULT_DISPLAY_RATE );
+                     if ( !lifted )
+                     {
+                         report.Refused.push_back( "entity " + who + ": " + lifted.GetError() );
+                         return false;
+                     }
+                     auto written = TL::WriteSequence( lifted.GetValue().Lifted );
+                     if ( !written )
+                     {
+                         report.Refused.push_back( "entity " + who +
+                                                   ": the TMLN writer refused: " + written.GetError() );
+                         return false;
+                     }
+                     const std::vector<uint8_t> bytes    = written.ExtractValue();
+                     const auto                 sequence = rfl::json::read<rfl::Generic>(
+                          std::string( reinterpret_cast<const char*>( bytes.data() ), bytes.size() ) );
+                     if ( !sequence )
+                     {
+                         report.Refused.push_back( "entity " + who + ": the TMLN writer's text does not read: " +
+                                                   sequence.error().what() );
+                         return false;
+                     }
+                     ++report.Clips;
+                     report.RoundedKeys += lifted.GetValue().Report.RoundedKeys;
+                     rfl::Generic::Object next;
+                     next["Sequence"] = sequence.value();
+                     next["Loop"]     = rfl::Generic(
+                          static_cast<int64_t>( v40.value().Loop ? TL::LoopMode::Loop : TL::LoopMode::Once ) );
+                     next["AutoPlay"] = rfl::Generic( v40.value().Playing );
+                     block            = std::move( next );
+                     return true;
+                 } );
             if ( !entity.PrefabOverrides )
                 continue;
             for ( const auto& override_ : *entity.PrefabOverrides )
                 if ( override_.Components.get( "UIAnim" ).has_value() )
-                    report.Refused.push_back( "entity " + who +
-                                              ": a prefab override restates UIAnim, which has no v40 whole to lift "
-                                              "- move the clip onto the prefab's own record" );
+                    report.Refused.push_back(
+                         "entity " + who +
+                         ": a prefab override restates UIAnim, which has no v40 whole to lift "
+                         "- move the clip onto the prefab's own record" );
         }
         return report;
     }

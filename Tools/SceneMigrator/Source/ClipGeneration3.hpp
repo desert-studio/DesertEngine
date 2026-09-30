@@ -677,7 +677,6 @@ namespace Desert::Migration::ClipGen3
         {
             return FrameTimeToSeconds( FrameTime{ DurationTicks, 0.0F }, TickRate );
         }
-
     };
     // EVERY SCALAR IN THIS FILE CARRIES AN INITIALISER. These structs are what reflect-cpp writes into a
     // `.anim`, so a field left indeterminate is not a runtime accident that the next assignment repairs — it
@@ -871,9 +870,9 @@ namespace Desert::Migration::ClipGen3
         // THE CLIP'S SKELETON, BY GUID (ANIM 5, SKEL-TREE). ANIM 4 stated a bone hash `SkeletonSignature` instead,
         // which MigrateClipGeneration3 resolves (Animation::MigrateSkeletonReference); absent = no skeleton.
         std::optional<Assets::AssetGuidRef> Skeleton;
-        std::vector<ChannelData> Channels;
+        std::vector<ChannelData>            Channels;
         // New field — clips cooked before notifies existed load with rfl::DefaultIfMissing (empty list).
-        std::vector<NotifyData>  Notifies;
+        std::vector<NotifyData> Notifies;
 
         /**
          * @brief The clip's sections. GENERATION 3 WRITES AT LEAST ONE, ALWAYS.

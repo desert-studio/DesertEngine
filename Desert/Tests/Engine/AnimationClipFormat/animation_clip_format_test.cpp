@@ -81,10 +81,10 @@ namespace
     // notify and a notify state on the master Event track, and a named anim curve.
     Anim::AnimationClip SampleClip()
     {
-        Anim::AnimationClip clip  = ClipFixture::Clip( "Walk", Anim::FrameNumber{ 60000 } );
-        const auto skeleton       = Common::Content::AssetGuidFromText( "123456789abcdef00fedcba987654321" );
-        clip.Skeleton             = skeleton.GetValue();
-        clip.Sequence.DisplayRate = Anim::FrameRate{ 30, 1 };
+        Anim::AnimationClip clip     = ClipFixture::Clip( "Walk", Anim::FrameNumber{ 60000 } );
+        const auto          skeleton = Common::Content::AssetGuidFromText( "123456789abcdef00fedcba987654321" );
+        clip.Skeleton                = skeleton.GetValue();
+        clip.Sequence.DisplayRate    = Anim::FrameRate{ 30, 1 };
 
         Timeline::TransformChannel hips;
         hips.Translation.X.Keys = { ShapedKey( 0, 1.0F, Anim::KeyInterp::Constant ),
@@ -167,8 +167,8 @@ TEST( AnimationClipFormat, ASkeletonGuidThatDoesNotParseIsRefusedNamingThePath )
     auto data = Ser::BuildAssetDataFromClip( SampleClip() );
     ASSERT_TRUE( data ) << data.GetError();
     Ser::AnimationAssetData stated = data.ExtractValue();
-    stated.Skeleton                = Desert::Assets::AssetGuidRef{ "not-a-guid", "Meshes/Skinned/Broken.skeleton" };
-    const auto built               = Ser::BuildClipFromAssetData( stated );
+    stated.Skeleton  = Desert::Assets::AssetGuidRef{ "not-a-guid", "Meshes/Skinned/Broken.skeleton" };
+    const auto built = Ser::BuildClipFromAssetData( stated );
     ASSERT_FALSE( built );
     EXPECT_NE( built.GetError().find( "Meshes/Skinned/Broken.skeleton" ), std::string::npos ) << built.GetError();
 }
@@ -185,8 +185,9 @@ TEST( AnimationClipFormat, AClipStatingNoSkeletonBuildsWithANullReference )
 
 TEST( AnimationClipFormat, SkeletonFieldCensus )
 {
-    EXPECT_EQ( FieldNames<Ser::SkeletonAssetData>(),
-               ( std::vector<std::string>{ "Bones", "CompatibleSkeletons", "Header", "PreviewMesh", "Signature" } ) );
+    EXPECT_EQ(
+         FieldNames<Ser::SkeletonAssetData>(),
+         ( std::vector<std::string>{ "Bones", "CompatibleSkeletons", "Header", "PreviewMesh", "Signature" } ) );
     // BoneInfo is written to .skeleton verbatim; it carried a redundant BoneIndex once.
     EXPECT_EQ( FieldNames<Anim::BoneInfo>(),
                ( std::vector<std::string>{ "LocalBindTransform", "Name", "OffsetMatrix", "ParentBoneID" } ) );
@@ -233,7 +234,8 @@ TEST( AnimationClipFormat, AGenerationThreeClipIsRefusedByNameNotAsAMissingSeque
     EXPECT_NE( read.GetError().find( "SceneMigrator" ), std::string::npos ) << read.GetError();
 }
 
-// ANIM 4 (bone hash) is generation 3 as much as ANIM 5 (Skeleton GUID): both per-bone Channels, both refused by name.
+// ANIM 4 (bone hash) is generation 3 as much as ANIM 5 (Skeleton GUID): both per-bone Channels, both refused by
+// name.
 TEST( AnimationClipFormat, AnAnimV4ClipIsRefusedAsGenerationThreeToo )
 {
     const auto read = Ser::ReadAnimationJson( Common::Json::Write( HeadedAt( 4u ) ) );

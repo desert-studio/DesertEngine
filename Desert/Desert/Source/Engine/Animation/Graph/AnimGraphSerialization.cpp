@@ -24,7 +24,6 @@ struct rfl::Reflector<Desert::Animation::Graph::CurveBlendOption>
     }
 };
 
-
 // Common::Json round-trip for the AnimGraph (all plain structs), read STRICTLY: a field missing from a
 // .danimgraph is an error naming its path, never a default filled in behind the reader's back. A field added
 // later is either std::optional (its absence means something) or moved into the files by a migration. The

@@ -77,8 +77,8 @@ namespace Desert::Animation
      * all read. Rotation returns EMPTY: a quaternion's components are not curves an animator can read.
      * @param component 0, 1 or 2 (x, y, z); anything else returns empty.
      */
-    [[nodiscard]] std::vector<ScalarKey> LiftChannel( const Timeline::TransformChannel& channel,
-                                                      TrackChannel part, int component );
+    [[nodiscard]] std::vector<ScalarKey> LiftChannel( const Timeline::TransformChannel& channel, TrackChannel part,
+                                                      int component );
 
     /**
      * @brief Write edited scalars back into one component: value, interp, mode and both tangents per key.
@@ -128,7 +128,8 @@ namespace Desert::Animation
     // ── Sequence edits (the controller) ──────────────────────────────────────────────────────────────
 
     /// The Transform track of the Bone binding whose locator is @p bone, or null.
-    [[nodiscard]] const Timeline::Track* FindBoneTrack( const Timeline::Sequence& sequence, std::string_view bone );
+    [[nodiscard]] const Timeline::Track* FindBoneTrack( const Timeline::Sequence& sequence,
+                                                        std::string_view          bone );
     [[nodiscard]] Timeline::Track*       FindBoneTrack( Timeline::Sequence& sequence, std::string_view bone );
 
     /// The bone's Transform track, its binding and track created (no section) when missing — Revision++ then.

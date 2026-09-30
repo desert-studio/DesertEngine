@@ -93,7 +93,8 @@ TEST( TimelineLiftClip, SectionsLiftByWinnerOnEveryTick )
                          Gen3::PositionKeyFrame{ Tick( 40 ), glm::vec3( 3, 1, -2 ) } };
     arm.RotationKeys = { Gen3::RotationKeyFrame{ Tick( 0 ), glm::quat( 1, 0, 0, 0 ) },
                          Gen3::RotationKeyFrame{ Tick( 40 ), glm::angleAxis( 1.1F, glm::vec3( 0, 0, 1 ) ) } };
-    arm.ScaleKeys    = { Gen3::ScaleKeyFrame{ Tick( 0 ), glm::vec3( 1 ) }, Gen3::ScaleKeyFrame{ Tick( 40 ), glm::vec3( 2 ) } };
+    arm.ScaleKeys    = { Gen3::ScaleKeyFrame{ Tick( 0 ), glm::vec3( 1 ) },
+                         Gen3::ScaleKeyFrame{ Tick( 40 ), glm::vec3( 2 ) } };
     clip.Tracks.push_back( arm );
     Gen3::ClipSection half;
     half.Name   = "Half";
@@ -101,21 +102,21 @@ TEST( TimelineLiftClip, SectionsLiftByWinnerOnEveryTick )
     half.End    = Tick( 25 );
     half.Weight = { Key( 5, 0.25F ), Key( 25, 0.75F ) };
     Gen3::ClipSection add;
-    add.Name  = "Add";
-    add.Start = Tick( 20 );
-    add.End   = Tick( 30 );
-    add.Blend = SectionBlendType::Additive;
-    add.Weight = { Key( 20, 0.5F ) };
+    add.Name      = "Add";
+    add.Start     = Tick( 20 );
+    add.End       = Tick( 30 );
+    add.Blend     = SectionBlendType::Additive;
+    add.Weight    = { Key( 20, 0.5F ) };
     clip.Sections = { half, add };
 
     const auto lifted = LiftClip( clip );
     ASSERT_TRUE( lifted.IsSuccess() ) << lifted.GetError();
-    const Sequence& sequence = lifted.GetValue();
+    const Sequence&       sequence = lifted.GetValue();
     std::vector<BoneInfo> bones( 1 );
     bones[0].Name = "Arm";
     const Skeleton         skeleton( std::move( bones ) );
     const BoneBindingTable table = BindBones( sequence, skeleton );
-    BoneTransform reference;
+    BoneTransform          reference;
     reference.Translation = glm::vec3( 0.5F, -1, 2 );
     reference.Rotation    = glm::angleAxis( 0.3F, glm::vec3( 1, 0, 0 ) );
     for ( int32_t tick = 0; tick <= 40; ++tick )
@@ -139,8 +140,8 @@ TEST( TimelineLiftClip, AStaleBoneTableIsRefusedByName )
     clip.Tracks.push_back( a );
     auto lifted = LiftClip( clip );
     ASSERT_TRUE( lifted.IsSuccess() );
-    Sequence               sequence = lifted.ExtractValue();
-    std::vector<BoneInfo>  bones( 1 );
+    Sequence              sequence = lifted.ExtractValue();
+    std::vector<BoneInfo> bones( 1 );
     bones[0].Name = "Hand_L";
     const Skeleton         skeleton( std::move( bones ) );
     const BoneBindingTable table = BindBones( sequence, skeleton );
@@ -177,7 +178,7 @@ namespace
                                                                    { 20, KeyInterp::Linear },
                                                                    { 30, KeyInterp::Cubic },
                                                                    { 40, KeyInterp::Constant } } };
-        float value = 0.0F;
+        float                                              value = 0.0F;
         for ( const auto& [tick, interp] : keys )
         {
             Gen3::PositionKeyFrame key{ Tick( tick ), glm::vec3( value, 0, 0 ) };
@@ -204,10 +205,11 @@ namespace
 
 TEST( TimelineInterpRule, AConstantKeyHoldsItsOwnValueUntilTheNextKey )
 {
-    const FloatChannel channel{ { ModeKey( 0, 10.0F, KeyInterp::Constant ), ModeKey( 10, 20.0F, KeyInterp::Linear ),
+    const FloatChannel channel{ { ModeKey( 0, 10.0F, KeyInterp::Constant ),
+                                  ModeKey( 10, 20.0F, KeyInterp::Linear ),
                                   ModeKey( 20, 40.0F, KeyInterp::Linear ) },
                                 0.0F };
-    const FrameRate rate = Sequence{}.TickRate;
+    const FrameRate    rate = Sequence{}.TickRate;
     EXPECT_EQ( Evaluate( channel, At( 0 ), rate ), 10.0F );
     EXPECT_EQ( Evaluate( channel, At( 5 ), rate ), 10.0F ) << "key 0 is Constant: its value holds to key 1";
     EXPECT_EQ( Evaluate( channel, At( 9, 0.99F ), rate ), 10.0F );
@@ -222,9 +224,9 @@ TEST( TimelineInterpRule, TheLiftShiftsGenerationThreeModesOneKeyBackAndSamplesA
     const Gen3::AnimationClip clip   = MixedModeClip();
     auto                      lifted = LiftClip( clip );
     ASSERT_TRUE( lifted.IsSuccess() ) << lifted.GetError();
-    Sequence               sequence = lifted.ExtractValue();
-    const TransformChannel& channel = BoneChannel( sequence );
-    const auto&             x       = channel.Translation.X.Keys;
+    Sequence                sequence = lifted.ExtractValue();
+    const TransformChannel& channel  = BoneChannel( sequence );
+    const auto&             x        = channel.Translation.X.Keys;
     ASSERT_EQ( x.size(), 5U );
     EXPECT_EQ( x[0].Interp, KeyInterp::Constant ) << "the segment 0 -> 10 was stated on key 10";
     EXPECT_EQ( x[1].Interp, KeyInterp::Linear );

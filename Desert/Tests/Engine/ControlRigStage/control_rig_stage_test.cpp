@@ -389,8 +389,8 @@ TEST( ControlRigStageTest, TheRigRunsAfterTheLayerAndWinsOnABoneTheyShare )
     // and not about a layer that was never applied.
     Animator layerOnly( skeleton );
     layerOnly.Play( clip, false );
-    ASSERT_TRUE( PoseGraphFixture::Drive( layerOnly, PoseGraphFixture::FullBodyLayer( skeleton.GetBones()[0].Name ),
-                                          layer, 1.0F, false ) );
+    ASSERT_TRUE( PoseGraphFixture::Drive(
+         layerOnly, PoseGraphFixture::FullBodyLayer( skeleton.GetBones()[0].Name ), layer, 1.0F, false ) );
     layerOnly.SetTick( FrameTime{ FrameNumber{ 0 } } );
     const glm::mat4 handFromLayer = layerOnly.GetBoneModelMatrix( kHand );
 

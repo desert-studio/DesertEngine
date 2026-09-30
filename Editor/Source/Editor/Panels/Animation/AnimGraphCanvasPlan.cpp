@@ -291,16 +291,16 @@ namespace Desert::Editor::Graph
             if ( !node.Machine )
                 continue;
             for ( auto& state : node.Machine->States )
-            for ( auto& transition : state.Transitions )
-            {
-                for ( auto& condition : transition.Conditions )
+                for ( auto& transition : state.Transitions )
                 {
-                    if ( condition.Parameter == previous )
+                    for ( auto& condition : transition.Conditions )
                     {
-                        condition.Parameter = renamed;
+                        if ( condition.Parameter == previous )
+                        {
+                            condition.Parameter = renamed;
+                        }
                     }
                 }
-            }
         }
         return renamed;
     }

@@ -489,10 +489,10 @@ namespace Desert::ECS
         /// object and asset revision. TRANSIENT, plain numbers (not references; see BuiltGraphSource).
         struct AppliedLayerLink
         {
-            uint64_t                               Guid     = 0;
-            const Animation::Graph::AnimGraph*     Graph    = nullptr;
-            uint32_t                               Revision = 0;
-            bool operator==( const AppliedLayerLink& ) const = default;
+            uint64_t                           Guid                                        = 0;
+            const Animation::Graph::AnimGraph* Graph                                       = nullptr;
+            uint32_t                           Revision                                    = 0;
+            bool                               operator==( const AppliedLayerLink& ) const = default;
         };
         std::vector<AppliedLayerLink> AppliedLayerLinks;
 

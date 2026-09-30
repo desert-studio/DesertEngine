@@ -91,7 +91,7 @@ namespace
 
     entt::entity Spawn( entt::registry& registry, uint64_t uuid )
     {
-        const entt::entity entity = registry.create();
+        const entt::entity entity                           = registry.create();
         registry.emplace<ECS::UUIDComponent>( entity ).UUID = Common::UUID( uuid );
         registry.emplace<ECS::TransformComponent>( entity );
         return entity;
@@ -147,10 +147,10 @@ TEST( LevelSequenceAsset, RefusesAnotherHostAndTheNullGuid )
 
 TEST( LevelSequencePlayback, MovesTheBoundEntityByItsKeys )
 {
-    World                        world;
-    const T::Sequence            sequence = DoorAndCut( std::to_string( kDoorUuid ) );
+    World                             world;
+    const T::Sequence                 sequence = DoorAndCut( std::to_string( kDoorUuid ) );
     const ECS::LevelSequenceComponent component;
-    ECS::LevelSequencePlayback   playback( sequence );
+    ECS::LevelSequencePlayback        playback( sequence );
 
     for ( const auto [tick, x] : { std::pair{ 0, 0.0F }, std::pair{ 50, 50.0F }, std::pair{ 100, 100.0F } } )
     {

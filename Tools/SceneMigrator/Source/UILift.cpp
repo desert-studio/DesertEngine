@@ -83,8 +83,8 @@ namespace Desert::Animation::Timeline
 
         FrameNumber start;
         // The range end is not a key: its rounding is not the report's (a Duration off the grid moves no value).
-        FrameNumber end =
-             NearestTick( SecondsToFrameTime( static_cast<double>( std::max( legacy.Duration, 0.0F ) ), tickRate ) );
+        FrameNumber end = NearestTick(
+             SecondsToFrameTime( static_cast<double>( std::max( legacy.Duration, 0.0F ) ), tickRate ) );
         // The keys' ticks, per track, computed once (rounding is counted once per key).
         std::vector<std::vector<FrameNumber>> ticks( legacy.Tracks.size() );
         for ( size_t t = 0; t < legacy.Tracks.size(); ++t )

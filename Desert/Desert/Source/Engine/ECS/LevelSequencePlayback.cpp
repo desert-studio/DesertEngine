@@ -26,7 +26,8 @@ namespace Desert::ECS
         }
     } // namespace
 
-    LevelSequenceEntityHost::LevelSequenceEntityHost( entt::registry& registry, const LevelSequenceComponent& component )
+    LevelSequenceEntityHost::LevelSequenceEntityHost( entt::registry&               registry,
+                                                      const LevelSequenceComponent& component )
          : m_Registry( registry ), m_Component( component )
     {
     }
@@ -51,7 +52,8 @@ namespace Desert::ECS
         }
 
         for ( const auto entity : m_Registry.view<UUIDComponent>() )
-            if ( static_cast<uint64_t>( m_Registry.get<UUIDComponent>( entity ).UUID ) == static_cast<uint64_t>( wanted ) )
+            if ( static_cast<uint64_t>( m_Registry.get<UUIDComponent>( entity ).UUID ) ==
+                 static_cast<uint64_t>( wanted ) )
                 return T::ResolvedBinding{ static_cast<uint64_t>( static_cast<uint32_t>( entity ) ) };
         return std::nullopt;
     }
@@ -68,8 +70,8 @@ namespace Desert::ECS
 
         const auto refuse = [&]
         {
-            m_Refusals.push_back( std::format( "track '{}' ({}): no entity property of that name and kind", property,
-                                               KindName( value ) ) );
+            m_Refusals.push_back( std::format( "track '{}' ({}): no entity property of that name and kind",
+                                               property, KindName( value ) ) );
         };
 
         if ( property == "Visible" )
@@ -77,9 +79,9 @@ namespace Desert::ECS
             const bool* visible = std::get_if<bool>( &value );
             if ( visible == nullptr )
                 return refuse();
-            auto& component = m_Registry.has<VisibilityComponent>( entity )
-                                   ? m_Registry.get<VisibilityComponent>( entity )
-                                   : m_Registry.emplace<VisibilityComponent>( entity );
+            auto& component   = m_Registry.has<VisibilityComponent>( entity )
+                                     ? m_Registry.get<VisibilityComponent>( entity )
+                                     : m_Registry.emplace<VisibilityComponent>( entity );
             component.Visible = *visible;
             return;
         }
@@ -166,7 +168,8 @@ namespace Desert::ECS
         out.FiredEvents = host.FiredEvents();
         return out;
     }
-    std::vector<std::string> TakeNewLevelSequenceErrors( LevelSequenceActorState& state, const LevelSequenceStep& step )
+    std::vector<std::string> TakeNewLevelSequenceErrors( LevelSequenceActorState& state,
+                                                         const LevelSequenceStep& step )
     {
         std::vector<std::string> fresh;
         const auto               take = [&]( std::string message )
@@ -181,8 +184,8 @@ namespace Desert::ECS
         return fresh;
     }
 
-    std::optional<entt::entity> LevelSequenceViewTarget( LevelSequenceActorState& state, const LevelSequenceStep& step,
-                                                         entt::entity current )
+    std::optional<entt::entity> LevelSequenceViewTarget( LevelSequenceActorState& state,
+                                                         const LevelSequenceStep& step, entt::entity current )
     {
         if ( step.CameraCut )
         {

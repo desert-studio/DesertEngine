@@ -44,7 +44,8 @@ namespace Desert::Assets
 
     std::vector<Animation::RequiredBone> RequiredBonesOf( const AnimationAsset& clip )
     {
-        // A bone binding names only its bone; the parent is the skeleton's business (RequiredBone::Parent = nullopt).
+        // A bone binding names only its bone; the parent is the skeleton's business (RequiredBone::Parent =
+        // nullopt).
         std::vector<Animation::RequiredBone> required;
         std::unordered_set<std::string>      seen;
         for ( const auto& binding : clip.GetClip().Sequence.Bindings )

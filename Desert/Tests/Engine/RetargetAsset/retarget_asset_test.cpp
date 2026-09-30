@@ -1119,8 +1119,8 @@ TEST( RetargetAssetTest, ALayerIsRetargetedTooAndNotFoldedFromTheSourceRig )
     // assertion below is protecting against is measured rather than assumed.
     Animator naive( target );
     naive.Play( clip, false );
-    ASSERT_TRUE( PoseGraphFixture::Drive( naive, PoseGraphFixture::FullBodyLayer( target.GetBones()[0].Name ), clip,
-                                          1.0F, false ) );
+    ASSERT_TRUE( PoseGraphFixture::Drive( naive, PoseGraphFixture::FullBodyLayer( target.GetBones()[0].Name ),
+                                          clip, 1.0F, false ) );
     naive.SetTick( FrameTime{ FrameNumber{ kMovingTick } } );
     const float naiveError = WorstSegmentErrorPercent( target, naive.GetLocalPose() );
     ASSERT_GT( naiveError, 10.0F ) << "if an un-retargeted layer no longer breaks the limb lengths, this "

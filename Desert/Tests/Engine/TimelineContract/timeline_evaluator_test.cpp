@@ -137,11 +137,11 @@ TEST( TimelineEvaluator, AMutedTrackIsAbsentNotDefaulted )
 
 TEST( TimelineFormat, WriteReadRoundTripsAndATruncatedBlockIsRefused )
 {
-    const Sequence original          = OneFloatTrack( FloatChannel{ { Key( 0, 1.0F ), Key( 40, 3.0F ) }, 0.5F } );
-    const auto written = WriteSequence( original );
+    const Sequence original = OneFloatTrack( FloatChannel{ { Key( 0, 1.0F ), Key( 40, 3.0F ) }, 0.5F } );
+    const auto     written  = WriteSequence( original );
     ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
     const std::vector<uint8_t>& bytes = written.GetValue();
-    const auto                 read  = ReadSequence( bytes );
+    const auto                  read  = ReadSequence( bytes );
     ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
     const Sequence& back = read.GetValue();
     ASSERT_EQ( back.Tracks.size(), 1U );
@@ -156,7 +156,7 @@ TEST( TimelineFormat, WriteReadRoundTripsAndATruncatedBlockIsRefused )
     EXPECT_FALSE( ReadSequence( cut ).IsSuccess() );
 
     // The version is the header's, and an unknown one is refused by name.
-    std::string text( bytes.begin(), bytes.end() );
+    std::string  text( bytes.begin(), bytes.end() );
     const size_t stated = text.find( "\"TMLN\": 2" );
     ASSERT_NE( stated, std::string::npos ) << text;
     text.replace( stated, 9, "\"TMLN\": 3" );
@@ -172,4 +172,3 @@ TEST( TimelineFormat, WriteReadRoundTripsAndATruncatedBlockIsRefused )
     EXPECT_NE( older.GetError().find( "TMLN v1" ), std::string::npos ) << older.GetError();
     EXPECT_NE( older.GetError().find( "SceneMigrator" ), std::string::npos ) << older.GetError();
 }
-

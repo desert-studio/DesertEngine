@@ -90,8 +90,9 @@ namespace Desert::ECS
     };
 
     /// Evaluate @p step of @p playback's sequence and apply it to @p registry's entities.
-    [[nodiscard]] LevelSequenceStep StepLevelSequence( entt::registry& registry, const LevelSequenceComponent& component,
-                                                       LevelSequencePlayback&                 playback,
+    [[nodiscard]] LevelSequenceStep StepLevelSequence( entt::registry&                      registry,
+                                                       const LevelSequenceComponent&        component,
+                                                       LevelSequencePlayback&               playback,
                                                        const Animation::Timeline::TimeStep& step );
 
     /**
@@ -113,9 +114,8 @@ namespace Desert::ECS
 
     /// The view target after @p step, given the scene's @p current one: the cut's camera while a cut is in
     /// force; when the cut ends, the target that was current before it began. nullopt = leave it as it is.
-    [[nodiscard]] std::optional<entt::entity> LevelSequenceViewTarget( LevelSequenceActorState& state,
-                                                                       const LevelSequenceStep& step,
-                                                                       entt::entity             current );
+    [[nodiscard]] std::optional<entt::entity>
+    LevelSequenceViewTarget( LevelSequenceActorState& state, const LevelSequenceStep& step, entt::entity current );
 
     /// The bindings of @p sequence that @p component may still override, in the sequence's order (UE: the
     /// "+" of ALevelSequenceActor's Binding Overrides lists the object bindings): its Entity bindings with no

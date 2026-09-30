@@ -44,8 +44,8 @@ namespace PoseGraphFixture
     {
         G::AnimGraph graph;
         graph.Name = "OneLayer";
-        graph.Parameters.push_back( G::Parameter{ .Name = "LayerWeight", .Type = static_cast<int>( G::ParamType::Float ),
-                                                  .Default = 1.0F } );
+        graph.Parameters.push_back( G::Parameter{
+             .Name = "LayerWeight", .Type = static_cast<int>( G::ParamType::Float ), .Default = 1.0F } );
         graph.Nodes.push_back( BaseMachine() );
         graph.Nodes.push_back( Sequence( "Layer" ) );
         G::PoseNode blend;
@@ -81,10 +81,10 @@ namespace PoseGraphFixture
     }
 
     /// `graph` on `animator`, `clip` in its layer / additive node, the weight (or alpha) parameter at `weight`.
-    [[nodiscard]] inline Common::BoolResultStr Drive( Desert::Animation::Animator& animator,
-                                                              const G::AnimGraph&          graph,
-                                                              const Desert::Animation::AnimationClip& clip,
-                                                              float weight = 1.0F, bool loop = true )
+    [[nodiscard]] inline Common::BoolResultStr Drive( Desert::Animation::Animator&            animator,
+                                                      const G::AnimGraph&                     graph,
+                                                      const Desert::Animation::AnimationClip& clip,
+                                                      float weight = 1.0F, bool loop = true )
     {
         auto set = animator.SetPoseGraph( graph );
         if ( !set )

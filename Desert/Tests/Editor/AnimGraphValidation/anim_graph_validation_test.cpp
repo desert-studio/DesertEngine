@@ -68,7 +68,7 @@ namespace
     /// under test was trivial" cannot be confused.
     G::AnimGraph HealthyGraph()
     {
-        G::AnimGraph graph = ::Desert::Animation::Graph::MakeStateMachineGraph();
+        G::AnimGraph graph            = ::Desert::Animation::Graph::MakeStateMachineGraph();
         graph.Name  = "Locomotion";
         OutputMachine( graph )->Entry = "Idle";
         graph.Parameters.push_back( { "Speed", static_cast<int>( G::ParamType::Float ), 0.0f } );
@@ -196,7 +196,8 @@ TEST( AnimGraphValidation, W2_ALaterTransitionBehindALooserOneCanNeverFire )
     G::Transition toWalk;
     toWalk.To = "Walk";
     toWalk.Conditions.push_back( Cond( "Speed", G::CompareOp::Greater, 0.1f ) );
-    OutputMachine( graph )->States[0].Transitions.insert( OutputMachine( graph )->States[0].Transitions.begin(), toWalk );
+    OutputMachine( graph )->States[0].Transitions.insert( OutputMachine( graph )->States[0].Transitions.begin(),
+                                                          toWalk );
 
     const auto warnings = G::Validate( graph, Known() );
     ASSERT_EQ( CountOf( warnings, G::WarningKind::TransitionNeverFires ), 1u ) << Joined( warnings );
@@ -248,7 +249,8 @@ TEST( AnimGraphValidation, W2_AnUnconditionalTransitionKillsEverythingAfterIt )
 
     G::Transition always;
     always.To = "Walk";
-    OutputMachine( graph )->States[0].Transitions.insert( OutputMachine( graph )->States[0].Transitions.begin(), always );
+    OutputMachine( graph )->States[0].Transitions.insert( OutputMachine( graph )->States[0].Transitions.begin(),
+                                                          always );
 
     const auto warnings = G::Validate( graph, Known() );
     ASSERT_EQ( CountOf( warnings, G::WarningKind::TransitionNeverFires ), 1u ) << Joined( warnings );
@@ -267,7 +269,8 @@ TEST( AnimGraphValidation, W2_AnExitTimeGateThatOpensLaterShadowsNothing )
     gated.HasExitTime = true;
     gated.ExitTime    = 0.9f;
     gated.Conditions.push_back( Cond( "Speed", G::CompareOp::Greater, 0.1f ) );
-    OutputMachine( graph )->States[0].Transitions.insert( OutputMachine( graph )->States[0].Transitions.begin(), gated );
+    OutputMachine( graph )->States[0].Transitions.insert( OutputMachine( graph )->States[0].Transitions.begin(),
+                                                          gated );
 
     const auto warnings = G::Validate( graph, Known() );
     EXPECT_EQ( CountOf( warnings, G::WarningKind::TransitionNeverFires ), 0u ) << Joined( warnings );
@@ -276,7 +279,8 @@ TEST( AnimGraphValidation, W2_AnExitTimeGateThatOpensLaterShadowsNothing )
 TEST( AnimGraphValidation, W2_ATransitionWhoseOwnConditionsContradictIsNamed )
 {
     G::AnimGraph graph = HealthyGraph();
-    OutputMachine( graph )->States[0].Transitions[0].Conditions.push_back( Cond( "Speed", G::CompareOp::Less, 1.0f ) );
+    OutputMachine( graph )->States[0].Transitions[0].Conditions.push_back(
+         Cond( "Speed", G::CompareOp::Less, 1.0f ) );
 
     const auto warnings = G::Validate( graph, Known() );
     ASSERT_EQ( CountOf( warnings, G::WarningKind::TransitionNeverFires ), 1u ) << Joined( warnings );
@@ -292,7 +296,8 @@ TEST( AnimGraphValidation, W2_ATransitionToAMissingStateShadowsNothing )
 
     G::Transition dangling;
     dangling.To = "StateThatWasDeletedByHand";
-    OutputMachine( graph )->States[0].Transitions.insert( OutputMachine( graph )->States[0].Transitions.begin(), dangling );
+    OutputMachine( graph )->States[0].Transitions.insert( OutputMachine( graph )->States[0].Transitions.begin(),
+                                                          dangling );
 
     const auto warnings = G::Validate( graph, Known() );
     EXPECT_EQ( CountOf( warnings, G::WarningKind::TransitionNeverFires ), 0u ) << Joined( warnings );
@@ -416,9 +421,13 @@ TEST( AnimGraphValidation, NewStatesNeverLandOnTopOfEachOther )
     {
         for ( size_t b = a + 1; b < OutputMachine( graph )->States.size(); ++b )
         {
-            const bool apart = std::abs( OutputMachine( graph )->States[a].X - OutputMachine( graph )->States[b].X ) >= EG::kStateGridStepX ||
-                               std::abs( OutputMachine( graph )->States[a].Y - OutputMachine( graph )->States[b].Y ) >= EG::kStateGridStepY;
-            EXPECT_TRUE( apart ) << "states " << a << " and " << b << " overlap at (" << OutputMachine( graph )->States[a].X << ", "
+            const bool apart =
+                 std::abs( OutputMachine( graph )->States[a].X - OutputMachine( graph )->States[b].X ) >=
+                      EG::kStateGridStepX ||
+                 std::abs( OutputMachine( graph )->States[a].Y - OutputMachine( graph )->States[b].Y ) >=
+                      EG::kStateGridStepY;
+            EXPECT_TRUE( apart ) << "states " << a << " and " << b << " overlap at ("
+                                 << OutputMachine( graph )->States[a].X << ", "
                                  << OutputMachine( graph )->States[a].Y << ")";
         }
     }
@@ -668,7 +677,8 @@ TEST( AnimGraphValidation, W1PointsAtTheStatesOwnNode )
 TEST( AnimGraphValidation, W3PointsAtTheTransitionsOwnLink )
 {
     G::AnimGraph graph                           = HealthyGraph();
-    OutputMachine( graph )->States[0].Transitions[0].Conditions[0] = Cond( "Velocity", G::CompareOp::Greater, 3.0f );
+    OutputMachine( graph )->States[0].Transitions[0].Conditions[0] =
+         Cond( "Velocity", G::CompareOp::Greater, 3.0f );
 
     EG::ElementIdMap ids;
     const auto       canvas = EG::PlanAnimGraph( graph, ids );
@@ -738,7 +748,7 @@ TEST( AnimGraphValidation, EveryFindingOfABadlyBrokenGraphCanBeReached )
 {
     // THE PROPERTY THAT MATTERS FOR THE STRIP AS A WHOLE: no finding is a dead end. A single unreachable
     // line teaches its reader that clicking does nothing, which costs the whole control.
-    G::AnimGraph graph = ::Desert::Animation::Graph::MakeStateMachineGraph();
+    G::AnimGraph graph            = ::Desert::Animation::Graph::MakeStateMachineGraph();
     OutputMachine( graph )->Entry = "Idle";
     OutputMachine( graph )->States.push_back( Playing( "Idle", "Idle" ) );
     OutputMachine( graph )->States.push_back( Playing( "Run", "NoSuchClip" ) );
@@ -771,7 +781,7 @@ TEST( AnimGraphValidation, DeletingAStateDoesNotSendAWarningToItsNeighbour )
     // THE DEFECT CLASS THIS WHOLE UNIT EXISTS FOR, in the strip's own terms. Under `NodeId( i ) = i + 1`
     // every id after a deletion named the neighbour, so a warning about 'Aim' would have selected 'Run'
     // -- and the reader would have gone and edited the wrong state, which is worse than not being told.
-    G::AnimGraph graph = ::Desert::Animation::Graph::MakeStateMachineGraph();
+    G::AnimGraph graph            = ::Desert::Animation::Graph::MakeStateMachineGraph();
     OutputMachine( graph )->Entry = "Idle";
     OutputMachine( graph )->States.push_back( Playing( "Idle", "Idle" ) );
     OutputMachine( graph )->States.push_back( Playing( "Walk", "Idle" ) );
@@ -793,8 +803,8 @@ TEST( AnimGraphValidation, DeletingAStateDoesNotSendAWarningToItsNeighbour )
     const int selected = EG::StateOfNode( canvas, target.Node );
     ASSERT_GE( selected, 0 );
     EXPECT_EQ( OutputMachine( graph )->States[static_cast<size_t>( selected )].Name, "Aim" )
-         << "the warning about 'Aim' selects '" << OutputMachine( graph )->States[static_cast<size_t>( selected )].Name
-         << "' instead";
+         << "the warning about 'Aim' selects '"
+         << OutputMachine( graph )->States[static_cast<size_t>( selected )].Name << "' instead";
 }
 
 TEST( AnimGraphValidation, TheStripIsAControlAndNotJustText )

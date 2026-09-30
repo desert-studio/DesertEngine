@@ -439,10 +439,10 @@ namespace Desert::ECS
                 anim.Animator->SetPoseGraphParameter( parameter.Name, evaluator.GetFloat( parameter.Name ) );
             for ( size_t n = 0; n < graph.Nodes.size(); ++n )
             {
-                const AG::PoseNode* node    = &graph.Nodes[n];
-                std::string         clip    = node->Sequence ? node->Sequence->Clip : std::string();
-                std::string         owner   = node->Name;
-                bool                loop    = node->Sequence ? node->Sequence->Loop : true;
+                const AG::PoseNode* node  = &graph.Nodes[n];
+                std::string         clip  = node->Sequence ? node->Sequence->Clip : std::string();
+                std::string         owner = node->Name;
+                bool                loop  = node->Sequence ? node->Sequence->Loop : true;
                 if ( node->Machine )
                 {
                     const AG::State* current = evaluator.CurrentState( node->Name );
@@ -493,9 +493,9 @@ namespace Desert::ECS
                                 break;
                         }
                     }
-                    const AG::PoseNode* base     = AG::BaseSourceNode( layerGraph );
-                    const size_t        baseNode = base != nullptr ? static_cast<size_t>( base - layerGraph.Nodes.data() )
-                                                                   : layerGraph.Nodes.size();
+                    const AG::PoseNode* base = AG::BaseSourceNode( layerGraph );
+                    const size_t baseNode = base != nullptr ? static_cast<size_t>( base - layerGraph.Nodes.data() )
+                                                            : layerGraph.Nodes.size();
                     (void)machines->Update( anim.Animator->GetLinkedLayerSourceFraction( slot, baseNode ) );
                 }
                 for ( size_t n = 0; n < layerGraph.Nodes.size(); ++n )
@@ -537,7 +537,7 @@ namespace Desert::ECS
         {
             namespace AG = Animation::Graph;
             std::vector<ECS::AnimationComponent::AppliedLayerLink> wanted;
-            std::vector<std::shared_ptr<AG::AnimGraph>>             graphs;
+            std::vector<std::shared_ptr<AG::AnimGraph>>            graphs;
             for ( const Assets::AssetHandle handle : anim.LinkedLayerGraphs )
             {
                 const auto guid = static_cast<uint64_t>( handle );
@@ -548,7 +548,8 @@ namespace Desert::ECS
                     return;
                 }
                 bool pending = false;
-                auto asset   = Demand<Assets::AnimGraphAsset>( handle, Common::Content::ContentKind::AnimGraph, pending );
+                auto asset =
+                     Demand<Assets::AnimGraphAsset>( handle, Common::Content::ContentKind::AnimGraph, pending );
                 if ( !asset || !asset->IsReadyForUse() || !asset->GetGraph() )
                 {
                     if ( pending )
@@ -580,8 +581,8 @@ namespace Desert::ECS
             {
                 const auto guid = static_cast<uint64_t>( handle );
                 return std::find( linkedOk.begin(), linkedOk.end(), guid ) != linkedOk.end() &&
-                       std::none_of( layers.begin(), layers.end(),
-                                     [&]( const AG::LinkedLayerTable::Layer& l ) { return l.Implementation == guid; } );
+                       std::none_of( layers.begin(), layers.end(), [&]( const AG::LinkedLayerTable::Layer& l )
+                                     { return l.Implementation == guid; } );
             };
             std::erase_if( anim.LinkedLayerGraphs, replaced );
             std::erase_if( wanted, [&]( const ECS::AnimationComponent::AppliedLayerLink& link )

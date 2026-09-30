@@ -55,7 +55,8 @@ TEST( TimelineSequence, ValidateRefusesEachBrokenInvariant )
     boolAdditive.Tracks[0].Sections[0].Content =
          Channel{ BoolChannel{ FloatChannel{ { Key( 0, 1.0F, KeyInterp::Constant ) }, 0.0F } } };
     boolAdditive.Tracks[0].Sections[0].Blend = SectionBlendType::Additive;
-    EXPECT_FALSE( Validate( boolAdditive ).IsSuccess() ) << "an Additive section on a Bool track (a flag has no additive)";
+    EXPECT_FALSE( Validate( boolAdditive ).IsSuccess() )
+         << "an Additive section on a Bool track (a flag has no additive)";
 
     Sequence rotation       = good;
     rotation.Tracks[0].Kind = TrackKind::Rotation;

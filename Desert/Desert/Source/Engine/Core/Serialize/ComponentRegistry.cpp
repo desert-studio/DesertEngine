@@ -1642,8 +1642,8 @@ namespace Desert::Core::Serialize
                 const auto& d = parsed.value();
                 if ( d.Loop < 0 || d.Loop > static_cast<int>( Animation::Timeline::LoopMode::PingPong ) )
                 {
-                    issues.push_back( { g.Where().Key( "Loop" ).ToString(), "a LoopMode (0 Once, 1 Loop, 2 PingPong)",
-                                        std::format( "{}", d.Loop ) } );
+                    issues.push_back( { g.Where().Key( "Loop" ).ToString(),
+                                        "a LoopMode (0 Once, 1 Loop, 2 PingPong)", std::format( "{}", d.Loop ) } );
                     return;
                 }
                 const std::string text     = Common::Json::Write( d.Sequence );
@@ -1651,8 +1651,8 @@ namespace Desert::Core::Serialize
                      std::span( reinterpret_cast<const uint8_t*>( text.data() ), text.size() ) );
                 if ( !sequence )
                 {
-                    issues.push_back( { g.Where().Key( "Sequence" ).ToString(), "a TMLN sequence",
-                                        sequence.GetError() } );
+                    issues.push_back(
+                         { g.Where().Key( "Sequence" ).ToString(), "a TMLN sequence", sequence.GetError() } );
                     return;
                 }
                 if ( sequence.GetValue().Host != Animation::Timeline::SequenceHost::UIAnimation )
@@ -1661,8 +1661,8 @@ namespace Desert::Core::Serialize
                                         Animation::Timeline::ToString( sequence.GetValue().Host ) } );
                     return;
                 }
-                auto& ac = e.HasComponent<ECS::UIAnimComponent>() ? e.GetComponent<ECS::UIAnimComponent>()
-                                                                  : e.AddComponent<ECS::UIAnimComponent>();
+                auto& ac         = e.HasComponent<ECS::UIAnimComponent>() ? e.GetComponent<ECS::UIAnimComponent>()
+                                                                          : e.AddComponent<ECS::UIAnimComponent>();
                 ac.Data.Sequence = std::move( sequence.GetValue() );
                 ac.Data.Loop     = static_cast<Animation::Timeline::LoopMode>( d.Loop );
                 ac.Data.AutoPlay = d.AutoPlay;
@@ -1922,7 +1922,8 @@ namespace Desert::Core::Serialize
             {
                 const auto&                 actor = entity.GetComponent<ECS::LevelSequenceComponent>();
                 Common::Json::ObjectBuilder out;
-                if ( const auto sequence = assetManager.FindByHandle<Assets::LevelSequenceAsset>( actor.Sequence ) )
+                if ( const auto sequence =
+                          assetManager.FindByHandle<Assets::LevelSequenceAsset>( actor.Sequence ) )
                 {
                     out.Set( "SequenceGuid", Common::Content::AssetGuidToText( sequence->Guid() ) );
                     out.Set( "SequencePath",
@@ -1933,19 +1934,21 @@ namespace Desert::Core::Serialize
                 }
                 else if ( actor.Sequence )
                 {
-                    LOG_ERROR( "[LevelSequence] Entity '{}' names sequence handle {} that no loaded asset carries; "
-                               "its reference is saved empty",
-                               entity.GetComponent<ECS::TagComponent>().Tag, static_cast<uint64_t>( actor.Sequence ) );
+                    LOG_ERROR(
+                         "[LevelSequence] Entity '{}' names sequence handle {} that no loaded asset carries; "
+                         "its reference is saved empty",
+                         entity.GetComponent<ECS::TagComponent>().Tag, static_cast<uint64_t>( actor.Sequence ) );
                 }
                 // LoopMode is stored BY NAME ("Once" / "Loop" / "PingPong"): the scene is text a person reads.
                 out.Set( "Loop", actor.Loop );
                 out.Set( "AutoPlay", actor.AutoPlay );
                 Common::Json::Value::Array overrides;
                 for ( const auto& over : actor.BindingOverrides )
-                    overrides.emplace_back( Common::Json::ObjectBuilder()
-                                                 .Set( "Binding", Common::Content::AssetGuidToText( over.Binding.Value ) )
-                                                 .Set( "Entity", over.Entity )
-                                                 .Build() );
+                    overrides.emplace_back(
+                         Common::Json::ObjectBuilder()
+                              .Set( "Binding", Common::Content::AssetGuidToText( over.Binding.Value ) )
+                              .Set( "Entity", over.Entity )
+                              .Build() );
                 out.Set( "BindingOverrides", Common::Json::Value( std::move( overrides ) ) );
                 return { out.Build() };
             };

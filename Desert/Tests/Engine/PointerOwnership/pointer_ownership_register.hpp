@@ -1019,8 +1019,8 @@ namespace Desert::Tests::PointerCensus
           "PoseEdit", "Animator", Guard::ReboundBeforeEveryUse,
           "SequenceEditCommand's pose half (std::optional<PoseEdit>): the Animator whose authoring buffer the entry restores. It takes ByteCommand's guard by the same mechanism and for a reason the type could not avoid: the Animator is a unique_ptr MEMBER of AnimationComponent, so there is no weak_ptr to take and no handle to re-resolve from. The command reports IsVolatile(), so CommandHistory::DropVolatile drops it whenever the selected entity changes or any structural command runs, and DropPoseRecordsFor drops every entry naming a preview Animator the moment its document closes. Apply() refuses when the authoring pose is no longer the length this half was recorded against, and CommandHistory::Undo discards a command that reports failure -- so an entry surviving onto a DIFFERENT rig of the same-sized skeleton is the residual, not one surviving onto a destroyed one" },
         { "Editor/Source/Editor/Core/Commands/SequenceEdit.hpp",
-          "SequenceOwner", "Identity", Guard::ReboundBeforeEveryUse,
-          "an IDENTITY, never dereferenced: the address of the clip or the UIAnimData whose Timeline::Sequence the entry is about, compared by CommandHistory::DropFor and returned by EditedObject/Subject. The sequence itself is reached only through SequenceOwner::Resolve on every Undo/Redo, never through this pointer. The clip lives inside an AnimationAsset that an eviction may unload and the UIAnimData inside an entt pool that relocates when it grows, so a stale Identity could at worst match a new object at the same address: the command is volatile (dropped by DropVolatile on selection change and every structural command) and its closing document calls DropFor on the same address, which is what keeps that from happening" },
+          "SequenceOwner", "Identity", Guard::IdentityOnly,
+          "an IDENTITY, never dereferenced (a const void*, so reading through it would need a cast nobody writes): the address of the clip or the UIAnimData whose Timeline::Sequence the entry is about, compared by CommandHistory::DropFor and returned by EditedObject/Subject. The sequence itself is reached only through SequenceOwner::Resolve on every Undo/Redo, never through this pointer. The clip lives inside an AnimationAsset that an eviction may unload and the UIAnimData inside an entt pool that relocates when it grows, so a stale Identity could at worst match a new object at the same address: the command is volatile (dropped by DropVolatile on selection change and every structural command) and its closing document calls DropFor on the same address, which is what keeps that from happening" },
         { "Editor/Source/Editor/Core/Commands/SequenceEdit.hpp",
           "SequenceEditTransaction", "m_Animator", Guard::ReboundBeforeEveryUse,
           "written by Begin and cleared by End or Cancel, so it is only non-null while an interaction is OPEN -- a gizmo drag, a Key press or a widget being held, which is a span of frames inside one document's OnUIRender. SequenceEditTransaction is a member of the surface that opens it (the Sequencer, an Animation Editor document, the UI animation editor), which is closed by the editor's own liveness sweep on the same frame its subject dies (IsSubjectAlive), and the same OnUIRender that resolves the entity is the only writer of this field. WHAT WOULD BREAK IT: a second surface calling Begin with an animator it did not resolve this frame" },
@@ -1438,6 +1438,19 @@ namespace Desert::Tests::PointerCensus
           "AnimationAsset behind it, so it is honest only while nothing yields -- which is what CallScoped "
           "means here, and why the undo entry that must outlive the frame is VOLATILE instead" },
         { "Editor/Source/Editor/Panels/Sequencer/SequencerPanel.hpp",
+          "SectionTarget", "Track", Guard::CallScoped,
+          "the same span as Animator and Clip above: ResolveSectionTarget takes &clip->Sequence.Tracks[m_SelTrack] "
+          "after a bounds check in the same expression that resolved the clip. The edits RunSectionEdit runs "
+          "change a track's Sections, never the Tracks vector itself, so no edit inside the call can move it" },
+        { "Editor/Source/Editor/Panels/Sequencer/SequencerPanel.cpp",
+          "PartKeys", "Shape", Guard::CallScoped,
+          "a key inside one of the TransformChannel's component FloatChannels, filled by PartKeysAt and held as "
+          "a const local for the length of one section-inspector draw. The only structural write inside that "
+          "span is SetComponentValue's insert, and it goes into a component that had NO key at the tick (the "
+          "found-key path assigns in place) -- while Shape is the first component that DID, so its vector never "
+          "reallocates under it. WHAT WOULD BREAK IT: an edit that inserts or sorts into the component Shape "
+          "lives in before the draw ends" },
+        { "Editor/Source/Editor/Panels/Sequencer/SequencerPanel.hpp",
           "SequencerPanel", "m_Library", Guard::HostOutlivesUs,
           "EditorLayer owns it and declares it BEFORE m_OpenDocuments -- this is a DOCUMENT, so m_Panels is the wrong container to cite (members die in reverse declaration order); EditorLayerDeclaresItsHostsBeforeItsPanels asserts both orders rather than trusting either" },
         { "Editor/Source/Editor/Panels/Animation/AnimGraphPanel.hpp",
@@ -1620,7 +1633,7 @@ namespace Desert::Tests::PointerCensus
           "was WRONG in the one direction it needed to be right: the danger is not a recycled clip address, it "
           "is the SAME clip address whose Tracks vector has been freed and reallocated under it by an asset "
           "unload + reload (D34, a segfault in lower_bound). The value type now carries the storage it was "
-          "built from and is rebuilt when that storage moves; see TrackBinding::TracksData below" },
+          "built from and is rebuilt when that storage moves; see ClipBinding::TracksData below" },
         { "Desert/Desert/Source/Engine/Animation/Animator.hpp",
           "Animator", "m_SourceTrackBinding", Guard::IdentityOnly,
           "A25: the same memo, built against the SOURCE rig when a retarget is attached. A SECOND MAP and "
@@ -1643,15 +1656,60 @@ namespace Desert::Tests::PointerCensus
         // is name the wrong track, which the revision check turns into a rebuild. A raw pointer deleted is
         // worth more than a raw pointer argued for.
         { "Desert/Desert/Source/Engine/Animation/Animator.hpp",
-          "TrackBinding", "TracksData", Guard::IdentityOnly,
-          "NOT DEREFERENCED, EVER. It is clip->Tracks.data() as it stood when the binding was built, kept only "
-          "to be compared against the clip's current data() -- an identity, exactly like Mouse::m_Window. That "
-          "comparison is what makes the ByBone pointers below safe, and it is the whole fix: the clip keeps one "
-          "address for its asset's life while AnimationAsset::Unload frees its Tracks and Load allocates a new "
-          "vector, so an address-only key handed back pointers into returned memory" },
+          "ClipBinding", "TracksData", Guard::IdentityOnly,
+          "NOT DEREFERENCED, EVER. It is clip->Sequence.Tracks.data() as it stood when the binding was built, kept "
+          "only to be compared by Animator::BindingFor against the clip's current data() -- an identity, exactly "
+          "like Mouse::m_Window. The clip keeps one address for its asset's life while AnimationAsset::Unload "
+          "replaces its Sequence and Load builds a new one, so an address-only key once handed back a table for "
+          "freed tracks. A RECYCLED track address is not mistaken for the old storage because it is never the "
+          "only thing compared: BindingFor rebuilds unless the address, TrackCount, the table's Sequence::Revision "
+          "(which the asset stamps on every replacement) and the table's length all still match. The table itself "
+          "holds bone INDICES, so there is nothing further to dangle" },
         { "Desert/Desert/Source/Engine/Animation/Graph/AnimGraph.hpp",
           "Result", "Current", Guard::HostOutlivesUs,
           "a State inside the AnimGraph asset the result was produced from; the graph outlives one evaluation" },
+        { "Desert/Desert/Source/Engine/Animation/Graph/AnimGraph.hpp",
+          "PoseNodePins", "ParameterPins", Guard::StaticStorage,
+          "a span over a table of string literals: PinsOf (PoseGraph.cpp) returns either an empty span or one "
+          "over a function-local `static constexpr std::array<const char*, N>` whose entries are .data() of "
+          "`inline constexpr std::string_view` pin names. Both the array and the characters have static storage "
+          "duration, so every PoseNodePins value may be kept for the life of the process" },
+        { "Desert/Desert/Source/Engine/Animation/Graph/LayeredBlendPerBone.cpp",
+          "Source", "Pose", Guard::CallScoped,
+          "a struct local to BlendCurves: the vector of Sources is built from its own `base` and `layers` "
+          "parameters and destroyed when BlendCurves returns, so every Pose is an argument of the call that "
+          "reads it. Nothing appends to `layers` or `base` during the call -- they are const" },
+        { "Desert/Desert/Source/Engine/Animation/Graph/PoseGraphInstance.hpp",
+          "PoseGraphSources", "Linked", Guard::CallScoped,
+          "an argument pack (UE: the AnimInstance proxy handed to one update): Animator::EvaluateGraph builds "
+          "a local PoseGraphSources, points Linked at its own m_LinkedLayers and passes the pack by const "
+          "reference to PoseGraphInstance::Evaluate, which recurses through EvaluateLayer and returns before the "
+          "local dies. The table is a member of the Animator running the call, so it outlives it by construction; "
+          "nothing inside the evaluation links or unlinks layers (SyncLinkedLayers runs in AnimationECSSystem, "
+          "outside it)" },
+        { "Desert/Desert/Source/Engine/Animation/Graph/PoseGraphInstance.hpp",
+          "PoseGraphSources", "AdditiveReference", Guard::CallScoped,
+          "the same pack, the same call: Animator::EvaluateGraph sets it to its own m_BindPose, or to the "
+          "attached retarget's GetRetargetedRest() -- both owned by the Animator (the retarget through its unique_ptr "
+          "member m_Retarget), and AttachRetarget/DetachRetarget cannot run inside Evaluate" },
+        { "Desert/Desert/Source/Engine/Animation/Timeline/Channel.hpp",
+          "CrossedEvent", "Key", Guard::FrameScoped,
+          "an EventKey inside the EventChannel CollectCrossed was handed. The window is one step: the Evaluator "
+          "collects into EvaluatedFrame::Events at the start of Evaluate (which clears them first) and the host's "
+          "Fire consumes them in Apply on the same step, with the Sequence held by the Evaluator's owner "
+          "throughout (LevelSequenceSystem's Actor keeps the asset's shared_ptr; PlayUIAnimations evaluates the "
+          "component's own sequence in one loop body). The editor's CrossedNotifies reads its local vector and "
+          "returns indices. The frame object is REUSED between steps and holds stale keys until the next "
+          "Evaluate clears it -- nothing reads Events outside Evaluate..Apply, and that is what a new reader "
+          "would have to respect" },
+        { "Desert/Desert/Source/Engine/Animation/Timeline/Evaluator.hpp",
+          "Evaluator", "m_Sequence", Guard::HostOutlivesUs,
+          "the Sequence the Evaluator was constructed on (a reference, so never null). Two holders: "
+          "LevelSequencePlayback, owned by LevelSequenceSystem::Actor through a unique_ptr declared AFTER the "
+          "Asset<LevelSequenceAsset> (a shared_ptr) whose member m_Sequence this is -- members die in reverse "
+          "order, so the asset outlives the playback; an Unload in between empties the Sequence in place (same "
+          "address), and Apply re-resolves on Sequence::Revision. And PlayUIAnimations, where the Evaluator is a "
+          "loop-body local over the UIAnimData's own sequence, destroyed before the registry can move it" },
         // A10 (T5.3): THE KEYING TARGET. Three pointers in one pack, and the pack exists PRECISELY so that
         // the keyer stores none of them -- `ControlKeyer`'s only members are a bool and a vector of
         // indices. A keyer holding a clip would owe this register an argument about outliving an asset
@@ -1714,6 +1772,22 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/ECS/System/AnimationECSSystem.hpp",
           "AnimationECSSystem", "m_AnimationLibrary", Guard::HostOutlivesUs,
           "EditorLayer owns the library and hands it in; the systems are torn down with their scene before the layer releases it" },
+        { "Desert/Desert/Source/Engine/ECS/Components.hpp",
+          "AppliedLayerLink", "Graph", Guard::IdentityOnly,
+          "NEVER DEREFERENCED: AnimationECSSystem::SyncLinkedLayers compares the whole AppliedLayerLink list "
+          "(defaulted operator==) against what it would link now, and links from its own shared_ptr<AnimGraph> "
+          "list, never from this field; the linked PoseGraphInstance COPIES the graph. A recycled address cannot "
+          "pass for the old graph alone: the key is (Guid, Graph, Revision), so a false match needs the same "
+          "asset GUID at the same revision -- the same graph content, whose skipped relink would have built "
+          "identical links" },
+        { "Desert/Desert/Source/Engine/ECS/System/LevelSequenceSystem.hpp",
+          "LevelSequenceSystem", "m_Scene", Guard::ObservedContainsUs,
+          "Scene owns its systems in a vector<unique_ptr<ECS::System>>, so the scene cannot be destroyed while one of them is alive to read this; both hosts (EditorLayer, RuntimeLayer) pass the scene the system is added to" },
+        { "Desert/Desert/Source/Engine/ECS/System/LevelSequenceSystem.hpp",
+          "LevelSequenceSystem", "m_AssetManager", Guard::HostOutlivesUs,
+          "the same host and the same order as AnimationECSSystem::m_AssetManager: EditorLayer and RuntimeLayer "
+          "hold the manager as a shared_ptr member declared BEFORE the scene that carries the systems, so the "
+          "scene and its systems are destroyed first. NULL is allowed and Update returns without playing" },
         { "Desert/Desert/Source/Engine/ECS/System/AttachmentSystem.hpp",
           "AttachmentSystem", "m_Scene", Guard::ObservedContainsUs,
           "Scene owns its systems in a vector<unique_ptr<ECS::System>>, so the scene cannot be destroyed while one of them is alive to read this" },

@@ -18,7 +18,7 @@ namespace
     // Idle <-> Run, gated on a float "Speed": Idle --(Speed > 0.5)--> Run, Run --(Speed < 0.1)--> Idle.
     AnimGraph LocomotionGraph()
     {
-        AnimGraph g = ::Desert::Animation::Graph::MakeStateMachineGraph();
+        AnimGraph g               = ::Desert::Animation::Graph::MakeStateMachineGraph();
         g.Name  = "Locomotion";
         OutputMachine( g )->Entry = "Idle";
         g.Parameters.push_back( { "Speed", static_cast<int>( ParamType::Float ), 0.0f } );
@@ -83,7 +83,7 @@ TEST( AnimGraph, TransitionsWhenConditionMet )
 
 TEST( AnimGraph, ExitTimeGatesTransition )
 {
-    AnimGraph g = ::Desert::Animation::Graph::MakeStateMachineGraph();
+    AnimGraph g               = ::Desert::Animation::Graph::MakeStateMachineGraph();
     OutputMachine( g )->Entry = "A";
     State a;
     a.Name = "A";
@@ -104,7 +104,7 @@ TEST( AnimGraph, ExitTimeGatesTransition )
 
 TEST( AnimGraph, DanglingAndSelfTargetsIgnored )
 {
-    AnimGraph g = ::Desert::Animation::Graph::MakeStateMachineGraph();
+    AnimGraph g               = ::Desert::Animation::Graph::MakeStateMachineGraph();
     OutputMachine( g )->Entry = "Only";
     State s;
     s.Name = "Only";
@@ -134,7 +134,7 @@ TEST( AnimGraph, SyncGraphPreservesStateAndParams )
     EXPECT_FLOAT_EQ( eval.GetFloat( "Speed" ), 1.0f ); // live value preserved
 
     // Removing the active state re-enters at the entry.
-    AnimGraph idleOnly = ::Desert::Animation::Graph::MakeStateMachineGraph();
+    AnimGraph idleOnly               = ::Desert::Animation::Graph::MakeStateMachineGraph();
     OutputMachine( idleOnly )->Entry = "Idle";
     State idle;
     idle.Name       = "Idle";
@@ -245,7 +245,7 @@ TEST( PoseGraph, AnUnwiredMachineIsNotEvaluated )
 {
     AnimGraph graph = PG::MakeStateMachineGraph( "Hero" );
     State     idle;
-    idle.Name = "Idle";
+    idle.Name                          = "Idle";
     PG::OutputMachine( graph )->States = { idle };
 
     PG::PoseNode spare = graph.Nodes[0];
@@ -264,7 +264,7 @@ TEST( PoseGraph, AnUnwiredMachineIsNotEvaluated )
     ASSERT_TRUE( plan.IsSuccess() ) << plan.GetError();
     EXPECT_EQ( plan.GetValue(), std::vector<int>{ 0 } );
 
-    Evaluator eval( graph );
+    Evaluator  eval( graph );
     const auto result = eval.Update( 1.0f );
     ASSERT_NE( result.Current, nullptr );
     EXPECT_EQ( result.Current->Name, "Idle" );
@@ -371,14 +371,15 @@ TEST( PoseGraph, ASequencePlayerWithNoClipAndAnAdditiveMissingAWireAreRefusedByN
     ASSERT_FALSE( silent.IsSuccess() );
     EXPECT_NE( silent.GetError().find( "Silent" ), std::string::npos ) << silent.GetError();
 
-    AnimGraph oneWire = PG::MakeStateMachineGraph( "Hero" );
-    PG::PoseNode add  = AdditiveNode( "Add", std::string( PG::kDefaultStateMachineNode ), "x" );
+    AnimGraph    oneWire = PG::MakeStateMachineGraph( "Hero" );
+    PG::PoseNode add     = AdditiveNode( "Add", std::string( PG::kDefaultStateMachineNode ), "x" );
     add.PoseInputs.pop_back();
     oneWire.Nodes.push_back( add );
     oneWire.OutputPose = "Add";
     const auto missing = PG::PlanPoseGraph( oneWire );
     ASSERT_FALSE( missing.IsSuccess() );
-    EXPECT_NE( missing.GetError().find( "'Add' (ApplyAdditive) has 2 Pose pin(s) and 1 wire(s)" ), std::string::npos )
+    EXPECT_NE( missing.GetError().find( "'Add' (ApplyAdditive) has 2 Pose pin(s) and 1 wire(s)" ),
+               std::string::npos )
          << missing.GetError();
 }
 
@@ -462,11 +463,12 @@ TEST( LinkedAnimLayer, AnImplementationIsWholeAndAnInputPoseLivesOnlyInALayerGra
          KindNode( "Nested", PG::PoseNodeKind::LinkedAnimLayer, { "In" } ) );
     graph.Layers->Implemented[0].Nodes.back().LinkedLayer = PG::LinkedAnimLayerNode{ "Weapon", "Hands" };
     graph.Layers->Implemented[0].OutputPose               = "Nested";
-    const auto nestedPlan = PG::PlanPoseGraph( graph );
+    const auto nestedPlan                                 = PG::PlanPoseGraph( graph );
     EXPECT_TRUE( nestedPlan.IsSuccess() ) << "a layer graph may call another layer: " << nestedPlan.GetError();
 
     // UpperBody calls Hands and Hands calls UpperBody: a cycle within the graph, refused with its path.
-    graph.Layers->Implemented[1].Nodes.push_back( KindNode( "Back", PG::PoseNodeKind::LinkedAnimLayer, { "In" } ) );
+    graph.Layers->Implemented[1].Nodes.push_back(
+         KindNode( "Back", PG::PoseNodeKind::LinkedAnimLayer, { "In" } ) );
     graph.Layers->Implemented[1].Nodes.back().LinkedLayer = PG::LinkedAnimLayerNode{ "Weapon", "UpperBody" };
     graph.Layers->Implemented[1].OutputPose               = "Back";
     const auto cycle                                      = PG::PlanPoseGraph( graph );

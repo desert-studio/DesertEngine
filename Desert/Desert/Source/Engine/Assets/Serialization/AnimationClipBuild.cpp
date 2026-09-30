@@ -12,9 +12,9 @@ namespace Desert::Assets::Serialization
 {
     Common::ResultStr<Animation::AnimationClip> BuildClipFromAssetData( const AnimationAssetData& data )
     {
-        const std::string block = Common::Json::Write( data.Sequence );
-        auto sequence = Animation::Timeline::ReadSequence( std::span<const uint8_t>(
-             reinterpret_cast<const uint8_t*>( block.data() ), block.size() ) );
+        const std::string block    = Common::Json::Write( data.Sequence );
+        auto              sequence = Animation::Timeline::ReadSequence(
+             std::span<const uint8_t>( reinterpret_cast<const uint8_t*>( block.data() ), block.size() ) );
         if ( !sequence )
         {
             return Common::MakeFormattedError<Animation::AnimationClip>( "clip '{}': {}", data.Name,
@@ -27,7 +27,7 @@ namespace Desert::Assets::Serialization
                  Animation::Timeline::ToString( sequence.GetValue().Host ) );
         }
         Animation::AnimationClip clip;
-        clip.AnimationName     = data.Name;
+        clip.AnimationName = data.Name;
         if ( data.Skeleton )
         {
             auto skeleton = Common::Content::AssetGuidFromText( data.Skeleton->Guid );
@@ -56,7 +56,7 @@ namespace Desert::Assets::Serialization
                                                                    block.GetError() );
         }
         const std::vector<uint8_t>& bytes = block.GetValue();
-        auto value = Common::Json::Read<Common::Json::Value>(
+        auto                        value = Common::Json::Read<Common::Json::Value>(
              std::string_view( reinterpret_cast<const char*>( bytes.data() ), bytes.size() ) );
         if ( !value )
         {

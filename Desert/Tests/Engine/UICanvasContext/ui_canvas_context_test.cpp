@@ -438,7 +438,8 @@ TEST( UICanvasContext, OnlyTheDrivingViewAdvancesTheScenesAnimationPlayhead )
     clip.AutoPlay      = true;
     clip.Loop          = TL::LoopMode::Once;
     clip.Sequence.End  = AN::FrameNumber{ 100 * AN::PROJECT_TICK_RATE.Numerator }; // long enough that nothing ends
-    const auto seconds = [&clip] { return AN::FrameTimeToSeconds( clip.Playback->Current(), clip.Sequence.TickRate ); };
+    const auto seconds = [&clip]
+    { return AN::FrameTimeToSeconds( clip.Playback->Current(), clip.Sequence.TickRate ); };
 
     UIViewContext viewport;
     UIViewContext preview;
@@ -469,10 +470,10 @@ TEST( UICanvasContext, AClipMovesTheElementItsBindingNamesInEveryView )
 
     TL::UIAnimationV40 v40;
     v40.Duration = 1.0F;
-    v40.Tracks.push_back( { /*Offset*/ 0,
-                            { { 0.0F, glm::vec4( 0.0F ), static_cast<int>( ECS::UIEasing::Linear ) },
-                              { 1.0F, glm::vec4( 100.0F, 0.0F, 0.0F, 0.0F ),
-                                static_cast<int>( ECS::UIEasing::Linear ) } } } );
+    v40.Tracks.push_back(
+         { /*Offset*/ 0,
+           { { 0.0F, glm::vec4( 0.0F ), static_cast<int>( ECS::UIEasing::Linear ) },
+             { 1.0F, glm::vec4( 100.0F, 0.0F, 0.0F, 0.0F ), static_cast<int>( ECS::UIEasing::Linear ) } } } );
     auto lifted = TL::LiftUIAnimation( v40, buttonUuid, AN::PROJECT_TICK_RATE, AN::DEFAULT_DISPLAY_RATE );
     ASSERT_TRUE( lifted ) << lifted.GetError();
     auto& clip    = f.Registry.emplace<ECS::UIAnimComponent>( f.Canvas ).Data;

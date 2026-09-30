@@ -29,7 +29,8 @@ namespace Desert::Animation::Timeline
         /// Sorted, one key per tick: the channel invariant. BoneTrack tolerated two keys on one tick (the later
         /// won at that tick, the earlier after it); folding them would change a sampled value, so it is refused.
         template <typename TKey>
-        [[nodiscard]] std::string CheckKeys( const std::vector<TKey>& keys, const std::string& bone, const char* what )
+        [[nodiscard]] std::string CheckKeys( const std::vector<TKey>& keys, const std::string& bone,
+                                             const char* what )
         {
             for ( size_t i = 1; i < keys.size(); ++i )
             {

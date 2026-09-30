@@ -157,7 +157,6 @@ namespace Desert::Editor
         Animation::BoneTransform     m_Before;
     };
 
-
     /**
      * @brief The Animation Editor's bone gizmo gesture: ONE undo entry per press-drag-release.
      *
@@ -209,7 +208,7 @@ namespace Desert::Editor
      *         animator or clip, a bone outside the skeleton, a non-finite pose and a transaction already open.
      */
 
-    [[nodiscard]] Common::ResultStr<uint32_t> KeyBonePose( SequenceEditTransaction&      transaction,
+    [[nodiscard]] Common::ResultStr<uint32_t> KeyBonePose( SequenceEditTransaction&  transaction,
                                                            Animation::Animator*      animator,
                                                            Animation::AnimationClip* clip, uint32_t bone,
                                                            Animation::FrameNumber tick );
@@ -225,7 +224,7 @@ namespace Desert::Editor
      * @return keys written. Refuses a target with no hierarchy or no clip, an empty selection, and a
      *         transaction already open (a key pressed mid-drag belongs to the drag, which records it).
      */
-    [[nodiscard]] Common::ResultStr<uint32_t> KeyControlsRecorded( SequenceEditTransaction&               transaction,
+    [[nodiscard]] Common::ResultStr<uint32_t> KeyControlsRecorded( SequenceEditTransaction&           transaction,
                                                                    Animation::Animator*               animator,
                                                                    Animation::ControlKeyer&           keyer,
                                                                    const Animation::ControlKeyTarget& target,

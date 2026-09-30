@@ -33,8 +33,8 @@ namespace Desert::Animation::Timeline
          * THE SEGMENT IS (prev, next]: a key's own tick reads that key (every mode reaches `next.Value` at
          * factor 1). The segment's SHAPE is `prev.Interp` — UE's rule (FRichCurve / FMovieSceneFloatChannel,
          * FBX): a key's mode governs the segment LEAVING it, Constant holding the key's value up to the next
-         * key (ANIM v6; SceneMigrator shifts v5 modes one key back). `next` is the first key at or after the sample as
-         * a REAL tick count, not as the whole tick: a sample a sub-tick past a key is inside the segment
+         * key (ANIM v6; SceneMigrator shifts v5 modes one key back). `next` is the first key at or after the
+         * sample as a REAL tick count, not as the whole tick: a sample a sub-tick past a key is inside the segment
          * that key starts, never a factor above 1 in the one before it.
          */
         struct Bracket

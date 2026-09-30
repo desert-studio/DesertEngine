@@ -22,5 +22,6 @@ namespace Desert::Assets::Serialization
      * The header is left to the caller (SaveClipToFile keeps the file's GUID; the migrator keeps the gen-3
      * file's). Refuses what `WriteSequence` refuses, rather than writing an error text as the body.
      */
-    [[nodiscard]] Common::ResultStr<AnimationAssetData> BuildAssetDataFromClip( const Animation::AnimationClip& clip );
+    [[nodiscard]] Common::ResultStr<AnimationAssetData>
+    BuildAssetDataFromClip( const Animation::AnimationClip& clip );
 } // namespace Desert::Assets::Serialization

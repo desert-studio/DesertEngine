@@ -140,7 +140,6 @@ namespace Desert::Editor
         return RecordControlDrag( hierarchy, control, m_Before );
     }
 
-
     // ── BoneGizmoGesture ─────────────────────────────────────────────────────────────────────────────
 
     Common::ResultStr<uint32_t> BoneGizmoGesture::Step( SequenceEditTransaction& transaction, const bool held,
@@ -214,7 +213,7 @@ namespace Desert::Editor
         return Common::MakeSuccess( keyed );
     }
 
-    Common::ResultStr<uint32_t> ControlAutoKey::Step( SequenceEditTransaction&               transaction,
+    Common::ResultStr<uint32_t> ControlAutoKey::Step( SequenceEditTransaction&           transaction,
                                                       Animation::Animator*               animator,
                                                       Animation::ControlKeyer&           keyer,
                                                       const Animation::ControlKeyTarget& target, uint32_t control,
@@ -299,7 +298,6 @@ namespace Desert::Editor
         return ended;
     }
 
-
     Common::ResultStr<uint32_t> KeyBonePose( SequenceEditTransaction& transaction, Animation::Animator* animator,
                                              Animation::AnimationClip* clip, uint32_t bone,
                                              Animation::FrameNumber tick )
@@ -325,7 +323,8 @@ namespace Desert::Editor
         // Binding, track and section are created as needed; Cancel pushes nothing, so a refused key must
         // leave nothing behind — SetBoneKey refuses a non-finite pose BEFORE it creates anything.
         const std::string& name = bones[bone].Name;
-        if ( const auto keyed = Animation::SetBoneKey( clip->Sequence, name, tick, animator->GetAuthoringPose()[bone] );
+        if ( const auto keyed =
+                  Animation::SetBoneKey( clip->Sequence, name, tick, animator->GetAuthoringPose()[bone] );
              !keyed.IsSuccess() )
         {
             transaction.Cancel();

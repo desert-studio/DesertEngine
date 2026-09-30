@@ -120,7 +120,8 @@ namespace Desert::Scripting
         {
             if ( !self.Valid() || !self.Reg().has<ECS::AnimationComponent>( self.handle ) )
             {
-                LOG_ERROR( "[Anim] {}('{}'): the entity has no AnimationComponent to link layers on.", verb, path );
+                LOG_ERROR( "[Anim] {}('{}'): the entity has no AnimationComponent to link layers on.", verb,
+                           path );
                 return std::nullopt;
             }
             if ( *assets == nullptr )
@@ -164,8 +165,8 @@ namespace Desert::Scripting
             const auto handle = layerGraph( self, path, "unlinkAnimLayers" );
             if ( !handle )
                 return false;
-            if ( !ECS::AnimationECSSystem::UnlinkAnimLayers( self.Reg().get<ECS::AnimationComponent>( self.handle ),
-                                                             *handle ) )
+            if ( !ECS::AnimationECSSystem::UnlinkAnimLayers(
+                      self.Reg().get<ECS::AnimationComponent>( self.handle ), *handle ) )
             {
                 LOG_ERROR( "[Anim] unlinkAnimLayers('{}'): the entity has not linked that graph.", path );
                 return false;

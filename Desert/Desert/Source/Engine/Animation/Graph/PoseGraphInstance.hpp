@@ -130,7 +130,7 @@ namespace Desert::Animation::Graph
         std::vector<GraphPose>                       m_Poses;  ///< per node: its pose this evaluation
         std::vector<GraphPose>                       m_LayerScratch;
         std::vector<float>                           m_WeightScratch;
-        std::vector<float>                           m_Weights; ///< per node: its total weight, see Weight
+        std::vector<float>                           m_Weights;     ///< per node: its total weight, see Weight
         std::vector<float>                           m_WeightDelta; ///< one AccumulateWeights call's share
     };
 

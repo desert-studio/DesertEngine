@@ -173,11 +173,11 @@ namespace Desert::Animation::Graph
         /// The payload, present exactly when Kind == LayeredBlendPerBone. Pose pin 0 is the base, pin i+1
         /// layer i's pose; LayerWeightPin(i) its weight.
         std::optional<LayeredBlendPerBoneNode> LayeredBlend;
-        std::optional<SequencePlayerNode>      Sequence; // the payload, present exactly when Kind == SequencePlayer
+        std::optional<SequencePlayerNode> Sequence; // the payload, present exactly when Kind == SequencePlayer
         /// The payload, present exactly when Kind == LinkedAnimLayer: the interface and layer it calls.
         std::optional<LinkedAnimLayerNode> LinkedLayer;
-        float                       X = 0.0f;        // node editor canvas position (persisted, unused at runtime)
-        float                       Y = 0.0f;
+        float                              X = 0.0f; // node editor canvas position (persisted, unused at runtime)
+        float                              Y = 0.0f;
     };
 
     /**
@@ -399,7 +399,7 @@ namespace Desert::Animation::Graph
         /// A state machine node's running state: indices into its machine's States.
         struct MachineRun
         {
-            int Current  = -1;
+            int Current = -1;
             int Previous = -1; ///< см. PreviousState(): пишется там же, где срабатывает переход
         };
 

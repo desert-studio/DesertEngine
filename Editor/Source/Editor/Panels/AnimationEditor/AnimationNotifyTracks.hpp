@@ -50,8 +50,8 @@ namespace Desert::Editor
         }
 
         [[nodiscard]] inline const Animation::Timeline::Track*
-        FindSequenceTrack( const Animation::Timeline::Sequence& sequence, const Animation::Timeline::TrackKind kind,
-                           const std::string_view property )
+        FindSequenceTrack( const Animation::Timeline::Sequence& sequence,
+                           const Animation::Timeline::TrackKind kind, const std::string_view property )
         {
             const auto* binding = SequenceBinding( sequence );
             if ( binding == nullptr )
@@ -103,9 +103,9 @@ namespace Desert::Editor
         }
 
         template <typename ChannelType>
-        [[nodiscard]] ChannelType& FirstChannelForEdit( Animation::Timeline::Sequence& sequence,
+        [[nodiscard]] ChannelType& FirstChannelForEdit( Animation::Timeline::Sequence&       sequence,
                                                         const Animation::Timeline::TrackKind kind,
-                                                        const std::string& property )
+                                                        const std::string&                   property )
         {
             auto& section = EnsureFirstSection( sequence, kind, property );
             auto* channel = std::get_if<Animation::Timeline::Channel>( &section.Content );
@@ -116,10 +116,11 @@ namespace Desert::Editor
     } // namespace NotifyTrackDetail
 
     /// The clip's Event channel (the notifies), or null when the clip has no notify track yet.
-    [[nodiscard]] inline const Animation::Timeline::EventChannel* ClipNotifyChannel( const Animation::AnimationClip& clip )
+    [[nodiscard]] inline const Animation::Timeline::EventChannel*
+    ClipNotifyChannel( const Animation::AnimationClip& clip )
     {
-        return NotifyTrackDetail::FirstChannel<Animation::Timeline::EventChannel>( NotifyTrackDetail::FindSequenceTrack(
-             clip.Sequence, Animation::Timeline::TrackKind::Event, "" ) );
+        return NotifyTrackDetail::FirstChannel<Animation::Timeline::EventChannel>(
+             NotifyTrackDetail::FindSequenceTrack( clip.Sequence, Animation::Timeline::TrackKind::Event, "" ) );
     }
 
     /// The clip's notifies, in tick order (empty when it has none).
@@ -127,7 +128,7 @@ namespace Desert::Editor
     ClipNotifies( const Animation::AnimationClip& clip )
     {
         static const std::vector<Animation::Timeline::EventKey> kNone;
-        const auto* channel = ClipNotifyChannel( clip );
+        const auto*                                             channel = ClipNotifyChannel( clip );
         return channel != nullptr ? channel->Keys : kNone;
     }
 
@@ -146,7 +147,8 @@ namespace Desert::Editor
     }
 
     /// The keys of a curve track's first section (empty when it has none).
-    [[nodiscard]] inline const std::vector<Animation::ScalarKey>& CurveKeys( const Animation::Timeline::Track& curve )
+    [[nodiscard]] inline const std::vector<Animation::ScalarKey>&
+    CurveKeys( const Animation::Timeline::Track& curve )
     {
         static const std::vector<Animation::ScalarKey> kNone;
         const auto* channel = NotifyTrackDetail::FirstChannel<Animation::Timeline::FloatChannel>( &curve );
@@ -154,8 +156,8 @@ namespace Desert::Editor
     }
 
     /// The curve's value at @p at, on the clip's tick rate.
-    [[nodiscard]] inline float CurveValueAt( const Animation::Timeline::Track& curve, const Animation::FrameTime at,
-                                             const Animation::FrameRate tickRate )
+    [[nodiscard]] inline float CurveValueAt( const Animation::Timeline::Track& curve,
+                                             const Animation::FrameTime at, const Animation::FrameRate tickRate )
     {
         const auto* channel = NotifyTrackDetail::FirstChannel<Animation::Timeline::FloatChannel>( &curve );
         return channel != nullptr ? Animation::Timeline::Evaluate( *channel, at, tickRate ) : 0.0F;
@@ -214,7 +216,8 @@ namespace Desert::Editor
     // tick keep the order the person made them in (they fire in list order).
     inline void SortNotifies( std::vector<Animation::Timeline::EventKey>& notifies )
     {
-        std::ranges::stable_sort( notifies, {}, []( const Animation::Timeline::EventKey& n ) { return n.Tick.Value; } );
+        std::ranges::stable_sort( notifies, {},
+                                  []( const Animation::Timeline::EventKey& n ) { return n.Tick.Value; } );
     }
 
     // The notifies to light this frame: those the playhead crossed moving @p before -> @p after (seconds). A
@@ -324,7 +327,7 @@ namespace Desert::Editor
         {
             const int64_t newBegin     = std::clamp<int64_t>( tick.Value, 0, end - 1 );
             notify.Tick.Value          = static_cast<decltype( notify.Tick.Value )>( newBegin );
-            notify.Duration.Value = static_cast<decltype( notify.Duration.Value )>( end - newBegin );
+            notify.Duration.Value      = static_cast<decltype( notify.Duration.Value )>( end - newBegin );
         }
         return notify;
     }
@@ -372,24 +375,25 @@ namespace Desert::Editor
         const auto* track =
              NotifyTrackDetail::FindSequenceTrack( clip.Sequence, Animation::Timeline::TrackKind::Float, name );
         if ( track == nullptr || from == to ||
-             std::ranges::find( CurveKeys( *track ), from, &Animation::ScalarKey::Tick ) == CurveKeys( *track ).end() )
+             std::ranges::find( CurveKeys( *track ), from, &Animation::ScalarKey::Tick ) ==
+                  CurveKeys( *track ).end() )
             return false;
-        return EditClipSequence( clip, changed,
-                                 [&]( Animation::Timeline::Sequence& sequence )
-                                 {
-                                     auto& keys =
-                                          NotifyTrackDetail::FirstChannelForEdit<Animation::Timeline::FloatChannel>(
-                                               sequence, Animation::Timeline::TrackKind::Float, name )
-                                               .Keys;
-                                     auto moved = *std::ranges::find( keys, from, &Animation::ScalarKey::Tick );
-                                     std::erase_if( keys, [&]( const Animation::ScalarKey& k )
-                                                    { return k.Tick == from || k.Tick == to; } );
-                                     moved.Tick = to;
-                                     keys.push_back( moved );
-                                     std::ranges::stable_sort( keys, {}, &Animation::ScalarKey::Tick );
-                                     Animation::AutoSetTangents( keys, sequence.TickRate );
-                                     return true;
-                                 } );
+        return EditClipSequence(
+             clip, changed,
+             [&]( Animation::Timeline::Sequence& sequence )
+             {
+                 auto& keys = NotifyTrackDetail::FirstChannelForEdit<Animation::Timeline::FloatChannel>(
+                                   sequence, Animation::Timeline::TrackKind::Float, name )
+                                   .Keys;
+                 auto moved = *std::ranges::find( keys, from, &Animation::ScalarKey::Tick );
+                 std::erase_if( keys,
+                                [&]( const Animation::ScalarKey& k ) { return k.Tick == from || k.Tick == to; } );
+                 moved.Tick = to;
+                 keys.push_back( moved );
+                 std::ranges::stable_sort( keys, {}, &Animation::ScalarKey::Tick );
+                 Animation::AutoSetTangents( keys, sequence.TickRate );
+                 return true;
+             } );
     }
 
     /// Remove the key of anim curve @p name at @p tick, as ONE undo record; false when there is none.
@@ -398,20 +402,19 @@ namespace Desert::Editor
     {
         const auto* track =
              NotifyTrackDetail::FindSequenceTrack( clip.Sequence, Animation::Timeline::TrackKind::Float, name );
-        if ( track == nullptr ||
-             std::ranges::find( CurveKeys( *track ), tick, &Animation::ScalarKey::Tick ) == CurveKeys( *track ).end() )
+        if ( track == nullptr || std::ranges::find( CurveKeys( *track ), tick, &Animation::ScalarKey::Tick ) ==
+                                      CurveKeys( *track ).end() )
             return false;
-        return EditClipSequence( clip, changed,
-                                 [&]( Animation::Timeline::Sequence& sequence )
-                                 {
-                                     auto& keys =
-                                          NotifyTrackDetail::FirstChannelForEdit<Animation::Timeline::FloatChannel>(
-                                               sequence, Animation::Timeline::TrackKind::Float, name )
-                                               .Keys;
-                                     std::erase_if( keys,
-                                                    [tick]( const Animation::ScalarKey& k ) { return k.Tick == tick; } );
-                                     Animation::AutoSetTangents( keys, sequence.TickRate );
-                                     return true;
-                                 } );
+        return EditClipSequence(
+             clip, changed,
+             [&]( Animation::Timeline::Sequence& sequence )
+             {
+                 auto& keys = NotifyTrackDetail::FirstChannelForEdit<Animation::Timeline::FloatChannel>(
+                                   sequence, Animation::Timeline::TrackKind::Float, name )
+                                   .Keys;
+                 std::erase_if( keys, [tick]( const Animation::ScalarKey& k ) { return k.Tick == tick; } );
+                 Animation::AutoSetTangents( keys, sequence.TickRate );
+                 return true;
+             } );
     }
 } // namespace Desert::Editor

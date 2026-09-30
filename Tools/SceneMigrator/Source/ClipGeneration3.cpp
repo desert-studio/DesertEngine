@@ -436,10 +436,10 @@ namespace Desert::Migration::ClipGen3
         }
 
         AnimationClip clip;
-        clip.AnimationName     = data.Name;
-        clip.DurationTicks     = FrameNumber{ data.DurationTicks };
-        clip.TickRate          = tickRate;
-        clip.DisplayRate       = displayRate;
+        clip.AnimationName = data.Name;
+        clip.DurationTicks = FrameNumber{ data.DurationTicks };
+        clip.TickRate      = tickRate;
+        clip.DisplayRate   = displayRate;
         clip.Tracks.reserve( data.Channels.size() );
 
         std::unordered_set<std::string> claimed;
@@ -545,8 +545,7 @@ namespace Desert::Migration::ClipGen3
                      "unsectioned.",
                      data.Name, i, section.Name, section.StartTick, section.EndTick );
             }
-            if ( section.Blend < 0 ||
-                 section.Blend > static_cast<int32_t>( SectionBlendType::Additive ) )
+            if ( section.Blend < 0 || section.Blend > static_cast<int32_t>( SectionBlendType::Additive ) )
             {
                 return Common::MakeFormattedError<AnimationClip>(
                      "clip '{}': section {} ('{}') states blend type {}, which this build does not have. "
@@ -592,12 +591,11 @@ namespace Desert::Migration::ClipGen3
                      "notify '{}' at tick {} states duration {}; a notify state lasts 0 ticks (instant) or more",
                      n.Name, n.Tick, n.DurationTicks );
             }
-            clip.Notifies.push_back( AnimationNotify{ n.Name, FrameNumber{ n.Tick }, n.Track,
-                                                                 FrameNumber{ n.DurationTicks } } );
+            clip.Notifies.push_back(
+                 AnimationNotify{ n.Name, FrameNumber{ n.Tick }, n.Track, FrameNumber{ n.DurationTicks } } );
         }
         std::sort( clip.Notifies.begin(), clip.Notifies.end(),
-                   []( const AnimationNotify& a, const AnimationNotify& b )
-                   { return a.Tick < b.Tick; } );
+                   []( const AnimationNotify& a, const AnimationNotify& b ) { return a.Tick < b.Tick; } );
 
         clip.Curves.reserve( data.Curves.size() );
         for ( const auto& curve : data.Curves )
@@ -635,8 +633,7 @@ namespace Desert::Migration::ClipGen3
                 built.Keys.push_back( key );
             }
             std::stable_sort( built.Keys.begin(), built.Keys.end(),
-                              []( const ScalarKey& a, const ScalarKey& b )
-                              { return a.Tick < b.Tick; } );
+                              []( const ScalarKey& a, const ScalarKey& b ) { return a.Tick < b.Tick; } );
             clip.Curves.push_back( std::move( built ) );
         }
 

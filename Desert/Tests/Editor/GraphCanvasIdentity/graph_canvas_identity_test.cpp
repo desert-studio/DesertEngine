@@ -141,8 +141,8 @@ namespace
             canvas.DrawNode( node.Id );
 
             const Position back = canvas.GetNodePosition( node.Id );
-            OutputMachine( graph )->States[i].X   = back.X;
-            OutputMachine( graph )->States[i].Y   = back.Y;
+            OutputMachine( graph )->States[i].X = back.X;
+            OutputMachine( graph )->States[i].Y = back.Y;
         }
         return planned;
     }
@@ -158,7 +158,8 @@ namespace
             state.Y    = 10.0f * static_cast<float>( i + 1 );
             OutputMachine( graph )->States.push_back( state );
         }
-        OutputMachine( graph )->Entry = OutputMachine( graph )->States.empty() ? "" : OutputMachine( graph )->States.front().Name;
+        OutputMachine( graph )->Entry =
+             OutputMachine( graph )->States.empty() ? "" : OutputMachine( graph )->States.front().Name;
         return graph;
     }
 

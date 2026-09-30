@@ -160,7 +160,7 @@ namespace Desert::Editor
 
         // The clip asset, found and loaded on first use (a palette entry can run before the first draw).
         [[nodiscard]] Assets::AnimationAsset* ClipAsset();
-        bool EditNotifies( std::vector<Animation::Timeline::EventKey> edited );
+        bool                                  EditNotifies( std::vector<Animation::Timeline::EventKey> edited );
         bool AddNotify( std::string name, double seconds, int32_t track, int32_t durationTicks = 0 );
 
         Assets::AssetManager*            m_Assets  = nullptr;

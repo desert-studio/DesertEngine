@@ -539,8 +539,8 @@ namespace Desert::Animation::Timeline
         return table;
     }
 
-    Common::BoolResultStr EvaluatePose( const Sequence& sequence, const BoneBindingTable& table, const FrameTime at,
-                                        LocalPose& pose )
+    Common::BoolResultStr EvaluatePose( const Sequence& sequence, const BoneBindingTable& table,
+                                        const FrameTime at, LocalPose& pose )
     {
         if ( table.Revision != sequence.Revision || table.BoneOfTrack.size() != sequence.Tracks.size() )
         {
