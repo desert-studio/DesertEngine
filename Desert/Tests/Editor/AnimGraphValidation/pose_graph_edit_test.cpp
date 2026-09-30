@@ -143,6 +143,9 @@ TEST( PoseGraphEdit, TheQuestionAnswersAsTheEditRefusesAndWritesNothing )
     const std::string a     = Add( graph, G::PoseNodeKind::ApplyAdditive );
     const std::string b     = Add( graph, G::PoseNodeKind::LayeredBlendPerBone );
     ASSERT_TRUE( EG::ConnectPose( graph.Nodes, a, b, 0 ).IsSuccess() );
+    auto saved = G::Deserialize( G::Serialize( graph ) );
+    ASSERT_TRUE( saved.IsSuccess() ) << saved.GetError();
+    graph = saved.ExtractValue();
 
     const std::string before = G::Serialize( graph );
     for ( const auto& [from, to, pin] : { std::tuple{ b, a, 0 }, std::tuple{ a, a, 1 }, std::tuple{ a, b, 7 },
