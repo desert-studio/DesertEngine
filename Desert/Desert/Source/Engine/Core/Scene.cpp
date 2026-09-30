@@ -693,6 +693,9 @@ namespace Desert::Core
         r.prepare<ECS::TwoBoneIKComponent>();
         r.prepare<ECS::ControlRigComponent>();
         r.prepare<ECS::RetargetComponent>();
+        // LevelSequenceSystem views every LevelSequenceComponent; a level with no sequence actor would
+        // otherwise create this pool inside the parallel phase.
+        r.prepare<ECS::LevelSequenceComponent>();
         r.prepare<ECS::TextComponent>();
         r.prepare<ECS::LandscapeMaterialComponent>();
 

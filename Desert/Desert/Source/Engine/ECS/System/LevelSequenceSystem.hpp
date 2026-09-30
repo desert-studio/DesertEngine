@@ -60,6 +60,21 @@ namespace Desert::ECS
                           LevelSequenceViewTarget( actor->State, result, m_Scene->GetViewTarget() ) )
                     m_Scene->SetViewTarget( *target );
             }
+
+            // An actor whose entity was destroyed in Play (a streamed-out cell, a delete) or lost its component
+            // is retired: a cut it held in force gives the view target back, as its end would have, and its row
+            // goes with the loaded sequence it pinned.
+            for ( auto it = m_Actors.begin(); it != m_Actors.end(); )
+            {
+                if ( registry.valid( it->first ) && registry.has<LevelSequenceComponent>( it->first ) )
+                {
+                    ++it;
+                    continue;
+                }
+                if ( it->second.State.CutInForce )
+                    m_Scene->SetViewTarget( it->second.State.TargetBeforeCut );
+                it = m_Actors.erase( it );
+            }
         }
 
     private:

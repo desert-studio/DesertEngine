@@ -8,26 +8,6 @@
 
 namespace Desert::Animation::Timeline
 {
-    namespace
-    {
-        /// A position as a real number of ticks back to the FrameTime pair: whole ticks in the integer, the
-        /// fraction of one tick in the float — the representation TimeModel keeps so the error stays bounded.
-        FrameTime FromTicks( const double ticks )
-        {
-            const double whole = std::floor( ticks );
-            FrameTime    out;
-            out.Frame    = FrameNumber{ static_cast<int32_t>( whole ) };
-            out.Subframe = static_cast<float>( ticks - whole );
-            if ( out.Subframe >= 1.0F )
-            {
-                // A fraction a hair under 1 that rounds to 1.0f in float is the next tick, not a subframe.
-                out.Frame.Value += 1;
-                out.Subframe = 0.0F;
-            }
-            return out;
-        }
-    } // namespace
-
     Player::Player( const FrameRate tickRate, const FrameNumber start, const FrameNumber end )
          : m_TickRate( tickRate ), m_Start( start ), m_End( std::max( start, end ) ), m_Current{ start, 0.0F }
     {
@@ -86,7 +66,7 @@ namespace Desert::Animation::Timeline
     {
         const double start = static_cast<double>( m_Start.Value );
         const double end   = static_cast<double>( m_End.Value );
-        m_Current          = FromTicks( std::clamp( at.AsTicks(), start, end ) );
+        m_Current          = FrameTime::FromTicks( std::clamp( at.AsTicks(), start, end ) );
         return TimeStep{ m_Current, m_Current };
     }
 
@@ -114,7 +94,7 @@ namespace Desert::Animation::Timeline
 
         // AdvanceFrameTime carries the whole ticks in the integer; the range logic below is on real ticks,
         // bounded by one range length, so the double holds it exactly enough and the result goes back
-        // through FromTicks.
+        // through FrameTime::FromTicks.
         const double    signedSeconds = seconds * m_Rate * m_Direction;
         const FrameTime moved         = AdvanceFrameTime( m_Current, signedSeconds, m_TickRate );
         step.Direction                = signedSeconds < 0.0 ? PlayDirection::Backward : PlayDirection::Forward;
@@ -154,7 +134,7 @@ namespace Desert::Animation::Timeline
             }
         }
 
-        m_Current = FromTicks( std::clamp( t, start, end ) );
+        m_Current = FrameTime::FromTicks( std::clamp( t, start, end ) );
         step.To   = m_Current;
         return step;
     }

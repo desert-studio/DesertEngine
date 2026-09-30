@@ -1597,6 +1597,8 @@ namespace
              // PACKAGED: editor-authored clips (the Sequencer's Save, AF8b) are content an anim graph names.
              // Covered by the ASSETS_PATH tree (Animations/).
              { "ANIMATION_PATH", &P::ANIMATION_PATH, RootVerdict::Packaged, "" },
+             // PACKAGED: a Level Sequence actor names its .dseq; covered by the ASSETS_PATH tree (Sequences/).
+             { "LEVEL_SEQUENCE_PATH", &P::LEVEL_SEQUENCE_PATH, RootVerdict::Packaged, "" },
              { "COOKED_PATH", &P::COOKED_PATH, RootVerdict::Packaged, "" },
         };
         return roots;

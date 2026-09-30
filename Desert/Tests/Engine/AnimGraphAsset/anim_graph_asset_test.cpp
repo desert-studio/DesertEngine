@@ -9,6 +9,7 @@
 
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
@@ -320,7 +321,9 @@ TEST( AnimGraphAsset, ASaveStatesTheHeaderAndAResaveKeepsItsGuid )
     EXPECT_EQ( first.GetValue().Kind, Common::Content::ContentKind::AnimGraph );
     ASSERT_FALSE( first.GetValue().Guid.IsNull() );
     ASSERT_EQ( first.GetValue().Subsystems.size(), 1u );
-    EXPECT_EQ( first.GetValue().Subsystems[0].Version, 1u );
+    EXPECT_EQ( first.GetValue().Subsystems[0].Tag, Desert::Assets::kAnimGraphSchemaTag );
+    EXPECT_EQ( first.GetValue().Subsystems[0].Version, Desert::Assets::kAnimGraphSchemaVersion )
+         << "a save states the layout this build writes";
 
     AnimGraphAsset asset( file.Path() );
     EXPECT_EQ( static_cast<uint64_t>( asset.GetMetadata().Handle ),

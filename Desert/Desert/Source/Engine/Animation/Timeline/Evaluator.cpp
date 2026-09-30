@@ -214,12 +214,6 @@ namespace Desert::Animation::Timeline
             return false;
         }
 
-        [[nodiscard]] FrameTime FromTicks( const double ticks )
-        {
-            const double whole = std::floor( ticks );
-            return FrameTime{ FrameNumber{ static_cast<int32_t>( whole ) }, static_cast<float>( ticks - whole ) };
-        }
-
         // ── Events: the step as one or two unwrapped legs ─────────────────────────────────────────────
 
         struct Leg
@@ -367,9 +361,9 @@ namespace Desert::Animation::Timeline
                                  return;
                              }
                              const double into = ( at.AsTicks() - section.Start.Value ) * anim->PlayRate;
-                             out.Animations.push_back(
-                                  AnimationSample{ ti, anim->Clip, FromTicks( anim->StartOffset.Value + into ),
-                                                   section.Blend, WeightAt( section, at, rate ), anim->Loop } );
+                             out.Animations.push_back( AnimationSample{
+                                  ti, anim->Clip, FrameTime::FromTicks( anim->StartOffset.Value + into ),
+                                  section.Blend, WeightAt( section, at, rate ), anim->Loop } );
                          } );
                     break;
                 default:

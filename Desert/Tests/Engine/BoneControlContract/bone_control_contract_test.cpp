@@ -441,7 +441,8 @@ TEST( BoneControlContract, TheControlStageJoinsAndLeavesWithTheListAndAlwaysRuns
     // would overwrite exactly the bones the control just solved.
     Desert::Animation::AnimationClip clip = ClipFixture::Clip(
          "layer", Desert::Animation::FrameNumber{ Desert::Animation::PROJECT_TICK_RATE.Numerator } );
-    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::FullBodyLayer( rig.GetBones()[0].Name ), clip ) );
+    ASSERT_TRUE(
+         PoseGraphFixture::Drive( animator, PoseGraphFixture::FullBodyLayer( rig.GetBones()[0].Name ), clip ) );
 
     ASSERT_EQ( animator.GetStages().size(), 3U );
     EXPECT_EQ( animator.GetStages()[0], PoseStage::Source );
