@@ -1721,6 +1721,19 @@ namespace Desert::Core::Serialize
                         ser.Graph = std::move( path );
                     }
                 }
+                // The linked layers, by path like the graph; one the resolver cannot place is dropped with
+                // the rest of the unresolvable handles, never written as an empty string.
+                if ( !ac.LinkedLayerGraphs.empty() )
+                {
+                    auto                     resolver = MakeAssetResolver( assetManager );
+                    std::vector<std::string> paths;
+                    for ( const Assets::AssetHandle linked : ac.LinkedLayerGraphs )
+                        if ( auto path = resolver.ToPath( static_cast<uint64_t>( linked ), "AnimGraphAsset" );
+                             !path.empty() )
+                            paths.push_back( std::move( path ) );
+                    if ( !paths.empty() )
+                        ser.LinkedLayers = std::move( paths );
+                }
                 return Common::Json::FromStruct( ser );
             };
             s.Deserialize = []( ECS::Entity e, const Common::Json::Node& g,
@@ -1746,6 +1759,13 @@ namespace Desert::Core::Serialize
                 {
                     auto resolver = MakeAssetResolver( assetManager );
                     ac.GraphAsset = Assets::AssetHandle( resolver.FromPath( *d.Graph, "AnimGraphAsset" ) );
+                }
+                ac.LinkedLayerGraphs.clear();
+                if ( d.LinkedLayers.has_value() )
+                {
+                    auto resolver = MakeAssetResolver( assetManager );
+                    for ( const std::string& path : *d.LinkedLayers )
+                        ac.LinkedLayerGraphs.emplace_back( resolver.FromPath( path, "AnimGraphAsset" ) );
                 }
             };
             Register( std::move( s ) );

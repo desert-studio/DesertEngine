@@ -7,7 +7,7 @@
 
 namespace Desert::Animation::Graph
 {
-    Evaluator::Evaluator( AnimGraph graph ) : m_Graph( std::move( graph ) )
+    Evaluator::Evaluator( AnimGraph graph, GraphScope scope ) : m_Graph( std::move( graph ) ), m_Scope( scope )
     {
         Reset();
     }
@@ -145,7 +145,7 @@ namespace Desert::Animation::Graph
         // the whole verdict. Then the conditions (the rule's one spelling lives in AnimGraphValidation).
         // ANY COMPOSITION IS PLAYED: the pose graph is evaluated node by node (PoseGraphInstance), so a
         // blend of blends, an additive over a layered blend or a sequence player in a layer are all legal.
-        auto plan = PlanPoseGraph( m_Graph );
+        auto plan = PlanPoseGraph( m_Graph, m_Scope );
         m_Plan.clear();
         m_Output = -1;
         if ( !plan )

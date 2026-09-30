@@ -46,24 +46,27 @@ namespace Desert::ECS
     {
     public:
         /**
-         * @brief UE LinkAnimClassLayers on an entity: `implementation`'s layer graphs answer the LinkedAnimLayer
-         *        nodes of the entity's pose graph (Animator::LinkLayers). Refuses an entity with no animator yet
-         *        and every Animator::LinkLayers refusal, by name.
+         * @brief UE LinkAnimClassLayers on an entity: the `.danimgraph` `graph` joins the END of the entity's
+         *        LinkedLayerGraphs (moved there if listed), so its layers replace those of every earlier
+         *        entry for the interfaces it implements. The Animator is relinked on the system's next tick
+         *        (SyncLinkedLayers), where every refusal of the link is reported by name. Refuses a null
+         *        handle.
          */
-        [[nodiscard]] static Common::BoolResultStr
-        LinkAnimLayers( ECS::AnimationComponent& anim, const Animation::Graph::AnimGraph& implementation )
+        [[nodiscard]] static Common::BoolResultStr LinkAnimLayers( ECS::AnimationComponent& anim,
+                                                                   Assets::AssetHandle      graph )
         {
-            if ( !anim.Animator )
-                return Common::MakeError<bool>( fmt::format(
-                     "cannot link the layers of '{}': the entity has no animator yet", implementation.Name ) );
-            return anim.Animator->LinkLayers( implementation );
+            if ( static_cast<uint64_t>( graph ) == 0 )
+                return Common::MakeError<bool>(
+                     std::string( "cannot link anim layers: the graph handle is null (no .danimgraph named)" ) );
+            std::erase( anim.LinkedLayerGraphs, graph );
+            anim.LinkedLayerGraphs.push_back( graph );
+            return Common::MakeSuccess( true );
         }
-        /// UE UnlinkAnimClassLayers: the interfaces `implementation` linked pass their input through again.
-        static void UnlinkAnimLayers( ECS::AnimationComponent&           anim,
-                                      const Animation::Graph::AnimGraph& implementation )
+        /// UE UnlinkAnimClassLayers: `graph` leaves LinkedLayerGraphs and its interfaces pass their input
+        /// through again (or return to an earlier entry implementing them). False when it was not listed.
+        static bool UnlinkAnimLayers( ECS::AnimationComponent& anim, Assets::AssetHandle graph )
         {
-            if ( anim.Animator )
-                anim.Animator->UnlinkLayers( implementation );
+            return std::erase( anim.LinkedLayerGraphs, graph ) != 0;
         }
 
         /**
@@ -420,6 +423,7 @@ namespace Desert::ECS
                     anim.Animator->ClearPoseGraph();
                 return;
             }
+            bool poseGraphSet = false;
             if ( graphRebuilt || anim.Animator->GetPoseGraph() == nullptr )
             {
                 if ( const auto set = anim.Animator->SetPoseGraph( graph ); !set )
@@ -427,6 +431,7 @@ namespace Desert::ECS
                     ReportOnce( fmt::format( "posegraph:{}", graph.Name ), set.GetError() );
                     return;
                 }
+                poseGraphSet = true;
             }
             for ( const AG::Parameter& parameter : graph.Parameters )
                 anim.Animator->SetPoseGraphParameter( parameter.Name, evaluator.GetFloat( parameter.Name ) );
@@ -453,24 +458,133 @@ namespace Desert::ECS
                 else if ( !m_AnimationLibrary->HasPending( clip ) )
                     ReportUnplayableState( clipRig, owner, clip, found.GetError() );
             }
-            // The linked layers' sequence players (a layer graph holds no state machine: PlanPoseGraph).
+            SyncLinkedLayers( anim, poseGraphSet );
+
+            // The linked layers' sources: sequence players name their clip; a layer's state machines are run
+            // by the link's own Evaluator on the HOST's live parameters (by name, types checked at link) and
+            // their running state names the clip, exactly as the host's machines do above.
             const auto linked = anim.Animator->GetLinkedLayers().Layers();
             for ( size_t slot = 0; slot < linked.size(); ++slot )
             {
                 const AG::AnimGraph& layerGraph = linked[slot].Instance.Graph();
+                AG::Evaluator*       machines   = anim.Animator->GetLinkedLayerMachines( slot );
+                if ( machines != nullptr )
+                {
+                    for ( const AG::Parameter& parameter : layerGraph.Parameters )
+                    {
+                        const auto hostDeclares =
+                             std::any_of( graph.Parameters.begin(), graph.Parameters.end(),
+                                          [&]( const AG::Parameter& p ) { return p.Name == parameter.Name; } );
+                        if ( !hostDeclares )
+                            continue;
+                        const float value = evaluator.GetFloat( parameter.Name );
+                        switch ( static_cast<AG::ParamType>( parameter.Type ) )
+                        {
+                            case AG::ParamType::Bool:
+                                (void)machines->SetBool( parameter.Name, value != 0.0F );
+                                break;
+                            case AG::ParamType::Int:
+                                (void)machines->SetInt( parameter.Name, static_cast<int>( value ) );
+                                break;
+                            default:
+                                (void)machines->SetFloat( parameter.Name, value );
+                                break;
+                        }
+                    }
+                    const AG::PoseNode* base     = AG::BaseSourceNode( layerGraph );
+                    const size_t        baseNode = base != nullptr ? static_cast<size_t>( base - layerGraph.Nodes.data() )
+                                                                   : layerGraph.Nodes.size();
+                    (void)machines->Update( anim.Animator->GetLinkedLayerSourceFraction( slot, baseNode ) );
+                }
                 for ( size_t n = 0; n < layerGraph.Nodes.size(); ++n )
                 {
-                    const AG::PoseNode& node = layerGraph.Nodes[n];
-                    if ( !node.Sequence )
+                    const AG::PoseNode& node  = layerGraph.Nodes[n];
+                    std::string         clip  = node.Sequence ? node.Sequence->Clip : std::string();
+                    std::string         owner = node.Name;
+                    bool                loop  = node.Sequence ? node.Sequence->Loop : true;
+                    if ( node.Machine && machines != nullptr )
+                    {
+                        const AG::State* current = machines->CurrentState( node.Name );
+                        if ( current == nullptr )
+                            continue;
+                        clip  = current->Clip;
+                        owner = current->Name;
+                        loop  = current->Loop;
+                    }
+                    if ( clip.empty() )
                         continue;
-                    const auto found = m_AnimationLibrary->FindForSkeleton( clipRig, node.Sequence->Clip );
+                    const auto found = m_AnimationLibrary->FindForSkeleton( clipRig, clip );
                     if ( found )
-                        anim.Animator->SetLinkedLayerSource( slot, n, found.GetValue()->GetClip(),
-                                                             node.Sequence->Loop );
-                    else if ( !m_AnimationLibrary->HasPending( node.Sequence->Clip ) )
-                        ReportUnplayableState( clipRig, node.Name, node.Sequence->Clip, found.GetError() );
+                        anim.Animator->SetLinkedLayerSource( slot, n, found.GetValue()->GetClip(), loop );
+                    else if ( !m_AnimationLibrary->HasPending( clip ) )
+                        ReportUnplayableState( clipRig, owner, clip, found.GetError() );
                 }
             }
+        }
+
+        /**
+         * @brief AnimationComponent::LinkedLayerGraphs becomes the Animator's links (UE: the Default Linked
+         *        Layers applied at initialisation, then LinkAnimClassLayers). Relinks — every link undone,
+         *        the list linked again in order — when the pose graph was just (re)set or the list, a listed
+         *        graph object or its revision changed; otherwise nothing. A graph still loading defers the
+         *        whole relink (the old links keep playing); a missing one and every refused link are
+         *        reported once, by name. An entry whose every layer a later entry replaced leaves the list,
+         *        as UE's replaced link is gone rather than waiting underneath.
+         */
+        void SyncLinkedLayers( ECS::AnimationComponent& anim, bool poseGraphSet )
+        {
+            namespace AG = Animation::Graph;
+            std::vector<ECS::AnimationComponent::AppliedLayerLink> wanted;
+            std::vector<std::shared_ptr<AG::AnimGraph>>             graphs;
+            for ( const Assets::AssetHandle handle : anim.LinkedLayerGraphs )
+            {
+                const auto guid = static_cast<uint64_t>( handle );
+                if ( m_AssetManager == nullptr )
+                {
+                    ReportOnce( "layers-no-manager", "an entity links anim layers, but this host has no asset "
+                                                     "manager to resolve them through; nothing is linked" );
+                    return;
+                }
+                bool pending = false;
+                auto asset   = Demand<Assets::AnimGraphAsset>( handle, Common::Content::ContentKind::AnimGraph, pending );
+                if ( !asset || !asset->IsReadyForUse() || !asset->GetGraph() )
+                {
+                    if ( pending )
+                        return; // being read: relink once it has landed
+                    ReportOnce( fmt::format( "layers-missing:{}", guid ),
+                                fmt::format( "linked anim layer graph {} is not loaded; its layers are not linked",
+                                             guid ) );
+                    continue;
+                }
+                wanted.push_back( { guid, asset->GetGraph().get(), asset->GetRevision() } );
+                graphs.push_back( asset->GetGraph() );
+            }
+            if ( !poseGraphSet && wanted == anim.AppliedLayerLinks )
+                return;
+
+            anim.Animator->ClearLinkedLayers();
+            std::vector<uint64_t> linkedOk;
+            for ( size_t i = 0; i < wanted.size(); ++i )
+            {
+                if ( const auto linked = anim.Animator->LinkLayers( wanted[i].Guid, *graphs[i] ); !linked )
+                    ReportOnce( fmt::format( "layers-refused:{}:{}", wanted[i].Guid, wanted[i].Revision ),
+                                linked.GetError() );
+                else
+                    linkedOk.push_back( wanted[i].Guid );
+            }
+            // A link that succeeded and no longer answers any layer was replaced whole by a later one.
+            const auto layers   = anim.Animator->GetLinkedLayers().Layers();
+            const auto replaced = [&]( const Assets::AssetHandle handle )
+            {
+                const auto guid = static_cast<uint64_t>( handle );
+                return std::find( linkedOk.begin(), linkedOk.end(), guid ) != linkedOk.end() &&
+                       std::none_of( layers.begin(), layers.end(),
+                                     [&]( const AG::LinkedLayerTable::Layer& l ) { return l.Implementation == guid; } );
+            };
+            std::erase_if( anim.LinkedLayerGraphs, replaced );
+            std::erase_if( wanted, [&]( const ECS::AnimationComponent::AppliedLayerLink& link )
+                           { return replaced( Assets::AssetHandle( link.Guid ) ); } );
+            anim.AppliedLayerLinks = std::move( wanted );
         }
 
         void ReportGraphStructure( const Animation::Graph::Evaluator& evaluator )

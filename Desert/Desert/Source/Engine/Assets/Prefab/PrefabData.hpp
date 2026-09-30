@@ -178,6 +178,9 @@ namespace Desert::Assets
         bool                       Loop          = true;
         float                      PlaybackSpeed = 1.0f;
         std::optional<std::string> Graph;
+        /// AnimationComponent::LinkedLayerGraphs as project paths, in link order; absent = nothing linked
+        /// (every file written before ANIM-I14b), so no scene needs a migration step.
+        std::optional<std::vector<std::string>> LinkedLayers;
     };
 
     // NOTE: camera/light/skybox payloads are no longer mirrored here — they serialize generically through

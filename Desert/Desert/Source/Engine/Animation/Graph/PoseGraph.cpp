@@ -4,6 +4,8 @@
 #include <array>
 #include <cstdint>
 #include <format>
+#include <functional>
+#include <optional>
 #include <utility>
 
 // The pose graph's structure: node kinds and their pins, lookups, and the evaluation plan. Kept apart from
@@ -210,13 +212,6 @@ namespace Desert::Animation::Graph
                 return std::format( "AnimGraph '{}': node '{}' is a LinkedInputPose, which only a layer graph has "
                                     "(it is the pose the layer's caller hands in)",
                                     graph.Name, node.Name );
-            if ( scope == GraphScope::Layer &&
-                 ( kind == PoseNodeKind::LinkedAnimLayer || kind == PoseNodeKind::StateMachine ) )
-                return std::format(
-                     "AnimGraph '{}': node '{}' is a {} inside a layer graph; a layer graph runs on "
-                     "its caller's clocks and calls no layer, so it holds sequence players, "
-                     "blends and its input pose",
-                     graph.Name, node.Name, KindName( kind ) );
             if ( kind != PoseNodeKind::LinkedAnimLayer )
                 return {};
             const AnimLayerInterface* called = FindLayerInterface( graph, node.LinkedLayer->Interface );
@@ -279,6 +274,15 @@ namespace Desert::Animation::Graph
                 if ( auto plan = PlanPoseGraph( LayerGraphAsGraph( graph, layer ), GraphScope::Layer ); !plan )
                     return plan.GetError();
             }
+            // A layer that reaches itself through the graph's own implementations evaluates forever once
+            // the graph is linked; refused here, by name (the cross-graph case is LinkedLayerTable::Link's).
+            std::vector<LayerCalls> own;
+            for ( const AnimLayerGraph& layer : layers.Implemented )
+                own.push_back( { layer.Interface, layer.Layer, CalledLayers( layer.Nodes ) } );
+            if ( std::string cycle = LayerCycle( own ); !cycle.empty() )
+                return std::format( "AnimGraph '{}': its layers call each other in a cycle ({}), which would "
+                                    "evaluate forever once linked",
+                                    graph.Name, cycle );
             for ( const AnimLayerInterface& declared : layers.Interfaces )
             {
                 const auto implements = [&]( const std::string& name )
@@ -382,7 +386,62 @@ namespace Desert::Animation::Graph
         graph.Parameters = owner.Parameters;
         graph.Nodes      = layer.Nodes;
         graph.OutputPose = layer.OutputPose;
+        if ( owner.Layers && !owner.Layers->Interfaces.empty() )
+            graph.Layers = AnimGraphLayers{ owner.Layers->Interfaces, {} };
         return graph;
+    }
+
+    std::vector<LinkedAnimLayerNode> CalledLayers( const std::vector<PoseNode>& nodes )
+    {
+        std::vector<LinkedAnimLayerNode> calls;
+        for ( const PoseNode& node : nodes )
+            if ( static_cast<PoseNodeKind>( node.Kind ) == PoseNodeKind::LinkedAnimLayer && node.LinkedLayer )
+                calls.push_back( *node.LinkedLayer );
+        return calls;
+    }
+
+    std::string LayerCycle( const std::vector<LayerCalls>& layers )
+    {
+        // Depth-first over "layer i calls a layer answered by j"; a grey node met again closes the cycle.
+        const auto answering = [&]( const LinkedAnimLayerNode& call ) -> std::optional<size_t>
+        {
+            for ( size_t j = 0; j < layers.size(); ++j )
+                if ( layers[j].Interface == call.Interface && layers[j].Layer == call.Layer )
+                    return j;
+            return std::nullopt;
+        };
+        enum class Mark : uint8_t { White, Grey, Black };
+        std::vector<Mark>   marks( layers.size(), Mark::White );
+        std::vector<size_t> path;
+        std::string         cycle;
+        std::function<bool( size_t )> visit = [&]( size_t i ) -> bool
+        {
+            marks[i] = Mark::Grey;
+            path.push_back( i );
+            for ( const LinkedAnimLayerNode& call : layers[i].Calls )
+            {
+                const auto j = answering( call );
+                if ( !j || marks[*j] == Mark::Black )
+                    continue;
+                if ( marks[*j] == Mark::Grey )
+                {
+                    const auto from = std::find( path.begin(), path.end(), *j );
+                    for ( auto it = from; it != path.end(); ++it )
+                        cycle += std::format( "{}.{} -> ", layers[*it].Interface, layers[*it].Layer );
+                    cycle += std::format( "{}.{}", layers[*j].Interface, layers[*j].Layer );
+                    return true;
+                }
+                if ( visit( *j ) )
+                    return true;
+            }
+            path.pop_back();
+            marks[i] = Mark::Black;
+            return false;
+        };
+        for ( size_t i = 0; i < layers.size(); ++i )
+            if ( marks[i] == Mark::White && visit( i ) )
+                return cycle;
+        return {};
     }
 
     Common::ResultStr<std::vector<int>> PlanPoseGraph( const AnimGraph& graph, GraphScope scope )

@@ -462,7 +462,20 @@ TEST( LinkedAnimLayer, AnImplementationIsWholeAndAnInputPoseLivesOnlyInALayerGra
          KindNode( "Nested", PG::PoseNodeKind::LinkedAnimLayer, { "In" } ) );
     graph.Layers->Implemented[0].Nodes.back().LinkedLayer = PG::LinkedAnimLayerNode{ "Weapon", "Hands" };
     graph.Layers->Implemented[0].OutputPose               = "Nested";
-    EXPECT_FALSE( PG::PlanPoseGraph( graph ).IsSuccess() ) << "a layer graph calls no layer";
+    const auto nestedPlan = PG::PlanPoseGraph( graph );
+    EXPECT_TRUE( nestedPlan.IsSuccess() ) << "a layer graph may call another layer: " << nestedPlan.GetError();
+
+    // UpperBody calls Hands and Hands calls UpperBody: a cycle within the graph, refused with its path.
+    graph.Layers->Implemented[1].Nodes.push_back( KindNode( "Back", PG::PoseNodeKind::LinkedAnimLayer, { "In" } ) );
+    graph.Layers->Implemented[1].Nodes.back().LinkedLayer = PG::LinkedAnimLayerNode{ "Weapon", "UpperBody" };
+    graph.Layers->Implemented[1].OutputPose               = "Back";
+    const auto cycle                                      = PG::PlanPoseGraph( graph );
+    ASSERT_FALSE( cycle.IsSuccess() );
+    EXPECT_NE( cycle.GetError().find( "Weapon.UpperBody -> Weapon.Hands -> Weapon.UpperBody" ), std::string::npos )
+         << cycle.GetError();
+    graph.Layers->Implemented[1] = PassLayer( "Hands" );
+    graph.Layers->Implemented[0].Nodes.pop_back();
+    graph.Layers->Implemented[0].OutputPose = "In";
 
     AnimGraph host = CallingGraph();
     host.Nodes.push_back( KindNode( "In", PG::PoseNodeKind::LinkedInputPose ) );

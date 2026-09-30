@@ -258,14 +258,23 @@ namespace Desert::Animation
         // `implementation`'s layer graphs now answer the pose graph's LinkedAnimLayer nodes of the interfaces
         // it implements — a weapon swaps a layer without an edit to the character's graph. Refuses with no
         // pose graph set (the host the interfaces are checked against) and every LinkedLayerTable::Link
-        // refusal, by name. Links outlive a re-set pose graph (they resolve by name at evaluation); each
-        // linked layer's sequence players have their own clocks here, fed by SetLinkedLayerSource.
-        [[nodiscard]] Common::BoolResultStr          LinkLayers( const Graph::AnimGraph& implementation );
-        void                                         UnlinkLayers( const Graph::AnimGraph& implementation );
+        // refusal, by name. A link is identified by the implementing graph's asset GUID (UE: its class), so
+        // Unlink takes the GUID. Each linked layer's sources (sequence players, its state machines' running
+        // states) have their own clocks here, fed by SetLinkedLayerSource; its machines are run by the
+        // per-link Evaluator GetLinkedLayerMachines hands out.
+        [[nodiscard]] Common::BoolResultStr          LinkLayers( uint64_t                   implementationId,
+                                                                 const Graph::AnimGraph& implementation );
+        void                                         UnlinkLayers( uint64_t implementationId );
+        /// Every link undone: each LinkedAnimLayer node passes its input again.
+        void                                         ClearLinkedLayers();
         [[nodiscard]] const Graph::LinkedLayerTable& GetLinkedLayers() const
         {
             return m_LinkedLayers;
         }
+        /// The state machines of the layer graph linked in `slot`, or nullptr when it has none.
+        [[nodiscard]] Graph::Evaluator* GetLinkedLayerMachines( size_t slot );
+        /// The playback fraction [0,1] of source `node` of the layer graph in `slot` (a machine's exit time).
+        [[nodiscard]] float GetLinkedLayerSourceFraction( size_t slot, size_t node ) const;
         /// Source node `node` of the layer graph in `slot` of GetLinkedLayers() plays `clip`.
         void SetLinkedLayerSource( size_t slot, size_t node, const AnimationClip& clip, bool loop = true );
         void SetLinkedLayerSource( size_t slot, size_t node, AnimationClip&& clip, bool loop = true ) = delete;

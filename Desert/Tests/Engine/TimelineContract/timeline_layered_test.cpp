@@ -424,14 +424,14 @@ TEST( LinkedAnimLayer, UnlinkedPassesTheInputAndLinkingSwapsTheLayerWithoutEditi
     EXPECT_NEAR( out.Pose[spine].Translation.x, 1.0F, 1e-6F ) << "nothing linked: the call is its input, L0";
 
     const G::AnimGraph rifle  = Rifle();
-    const auto         linked = table.Link( character, rifle, skeleton );
+    const auto         linked = table.Link( character, 101, rifle, skeleton );
     ASSERT_TRUE( linked.IsSuccess() ) << linked.GetError();
     instance.Evaluate( LinkedLeaves( reference, table ), skeleton, out );
     EXPECT_NEAR( out.Pose[0].Translation.x, 1.0F, 1e-6F ) << "the root is outside the rifle's spine branch";
     EXPECT_NEAR( out.Pose[spine].Translation.x, 11.0F, 1e-6F ) << "the spine is the rifle's Aim (layer node 1)";
     EXPECT_EQ( instance.Graph().Nodes.size(), character.Nodes.size() ) << "the character's graph was not edited";
 
-    table.Unlink( rifle );
+    table.Unlink( 101 );
     instance.Evaluate( LinkedLeaves( reference, table ), skeleton, out );
     EXPECT_NEAR( out.Pose[spine].Translation.x, 1.0F, 1e-6F ) << "unlinked: the input passes again";
 }
@@ -445,24 +445,107 @@ TEST( LinkedAnimLayer, ALinkIsRefusedByNameAndLeavesTheTableAsItWas )
     noInterface.Layers.reset();
     noInterface.Nodes.pop_back();
     noInterface.OutputPose = "L0";
-    const auto undeclared  = table.Link( noInterface, Rifle(), skeleton );
+    const auto undeclared  = table.Link( noInterface, 101, Rifle(), skeleton );
     ASSERT_FALSE( undeclared.IsSuccess() );
     EXPECT_NE( undeclared.GetError().find( "'Weapon'" ), std::string::npos ) << undeclared.GetError();
 
     G::AnimGraph otherLayers = Character();
     otherLayers.Layers->Interfaces[0].Layers.push_back( "Hands" );
-    EXPECT_FALSE( table.Link( otherLayers, Rifle(), skeleton ).IsSuccess() ) << "the interfaces disagree";
+    EXPECT_FALSE( table.Link( otherLayers, 101, Rifle(), skeleton ).IsSuccess() ) << "the interfaces disagree";
 
     G::AnimGraph noAim = Character();
     noAim.Parameters.clear();
-    const auto unread = table.Link( noAim, Rifle(), skeleton );
+    const auto unread = table.Link( noAim, 101, Rifle(), skeleton );
     ASSERT_FALSE( unread.IsSuccess() );
     EXPECT_NE( unread.GetError().find( "'Aim'" ), std::string::npos ) << unread.GetError();
 
     G::AnimGraph badBone                                                                = Rifle();
     badBone.Layers->Implemented[0].Nodes[2].LayeredBlend->Layers[0].Filters[0].BoneName = "no_such_bone";
-    const auto unbound = table.Link( Character(), badBone, skeleton );
+    const auto unbound = table.Link( Character(), 101, badBone, skeleton );
     ASSERT_FALSE( unbound.IsSuccess() );
     EXPECT_NE( unbound.GetError().find( "no_such_bone" ), std::string::npos ) << unbound.GetError();
     EXPECT_TRUE( table.Layers().empty() ) << "every refusal left nothing linked";
+}
+
+// ── 9c. ANIM-I14b: a layer is a whole graph (a state machine, a nested call); identity is the GUID ─────────
+
+TEST( LinkedAnimLayer, UnlinkMatchesTheGraphGuidNotItsName )
+{
+    const Skeleton      skeleton = FiveBones();
+    const uint32_t      spine    = skeleton.FindBoneIndex( "spine" ).value();
+    const G::AnimGraph  character = Character();
+    G::PoseGraphInstance instance;
+    ASSERT_TRUE( instance.Bind( character, skeleton ).IsSuccess() );
+    const LocalPose     reference( skeleton.GetBones().size() );
+    G::LinkedLayerTable table;
+    G::GraphPose        out;
+
+    EXPECT_FALSE( table.Link( character, 0, Rifle(), skeleton ).IsSuccess() ) << "a link needs a GUID";
+    ASSERT_TRUE( table.Link( character, 201, Rifle(), skeleton ).IsSuccess() );
+    table.Unlink( 202 ); // another file that happens to be called "Rifle" too
+    instance.Evaluate( LinkedLeaves( reference, table ), skeleton, out );
+    EXPECT_NEAR( out.Pose[spine].Translation.x, 11.0F, 1e-6F ) << "a different GUID unlinks nothing";
+    table.Unlink( 201 );
+    instance.Evaluate( LinkedLeaves( reference, table ), skeleton, out );
+    EXPECT_NEAR( out.Pose[spine].Translation.x, 1.0F, 1e-6F ) << "its own GUID unlinks it";
+}
+
+TEST( LinkedAnimLayer, ALayerMayHoldAStateMachineAndCallANestedLayerButNotACycle )
+{
+    const Skeleton      skeleton = FiveBones();
+    const uint32_t      spine    = skeleton.FindBoneIndex( "spine" ).value();
+    G::AnimGraph        character = Character();
+    character.Layers->Interfaces.push_back( G::AnimLayerInterface{ "Hands", { "Grip" } } );
+    G::PoseGraphInstance instance;
+    ASSERT_TRUE( instance.Bind( character, skeleton ).IsSuccess() );
+
+    // Rifle's UpperBody: a state machine blended over the input, then a nested call of Hands.Grip.
+    G::AnimGraph rifle = Rifle();
+    rifle.Layers->Interfaces.push_back( G::AnimLayerInterface{ "Hands", { "Grip" } } );
+    G::PoseNode machine = Leaf( "Aim" );
+    machine.Kind        = static_cast<int>( G::PoseNodeKind::StateMachine );
+    machine.Sequence.reset();
+    machine.Machine = G::StateMachine{ "Hold", { G::State{ .Name = "Hold", .Clip = "RifleHold" } } };
+    rifle.Layers->Implemented[0].Nodes[1] = machine;
+    G::PoseNode nested;
+    nested.Name        = "Grip";
+    nested.Kind        = static_cast<int>( G::PoseNodeKind::LinkedAnimLayer );
+    nested.PoseInputs  = { "Upper" };
+    nested.LinkedLayer = G::LinkedAnimLayerNode{ "Hands", "Grip" };
+    rifle.Layers->Implemented[0].Nodes.push_back( nested );
+    rifle.Layers->Implemented[0].OutputPose = "Grip";
+    const auto planned = G::PlanPoseGraph( rifle );
+    ASSERT_TRUE( planned.IsSuccess() ) << planned.GetError();
+
+    G::LinkedLayerTable table;
+    const auto          linked = table.Link( character, 301, rifle, skeleton );
+    ASSERT_TRUE( linked.IsSuccess() ) << linked.GetError();
+    ASSERT_TRUE( table.Layers()[0].Machines.has_value() ) << "the layer's machine has its own evaluator";
+    EXPECT_EQ( table.Layers()[0].Machines->CurrentState( "Aim" )->Name, "Hold" );
+    const LocalPose reference( skeleton.GetBones().size() );
+    G::GraphPose    out;
+    instance.Evaluate( LinkedLeaves( reference, table ), skeleton, out );
+    EXPECT_NEAR( out.Pose[spine].Translation.x, 11.0F, 1e-6F ) << "the machine (layer node 1) poses the spine";
+
+    // Gloves implement Hands.Grip by calling Weapon.UpperBody: linked, Weapon.UpperBody -> Hands.Grip -> ...
+    G::AnimGraph gloves;
+    gloves.Name       = "Gloves";
+    gloves.Nodes      = { Leaf( "Idle" ) };
+    gloves.OutputPose = "Idle";
+    G::PoseNode in;
+    in.Name = "In";
+    in.Kind = static_cast<int>( G::PoseNodeKind::LinkedInputPose );
+    G::PoseNode back;
+    back.Name        = "Back";
+    back.Kind        = static_cast<int>( G::PoseNodeKind::LinkedAnimLayer );
+    back.PoseInputs  = { "In" };
+    back.LinkedLayer = G::LinkedAnimLayerNode{ "Weapon", "UpperBody" };
+    gloves.Layers    = G::AnimGraphLayers{
+         { G::AnimLayerInterface{ "Weapon", { "UpperBody" } }, G::AnimLayerInterface{ "Hands", { "Grip" } } },
+         { G::AnimLayerGraph{ "Hands", "Grip", { in, back }, "Back" } } };
+    const auto cycle = table.Link( character, 302, gloves, skeleton );
+    ASSERT_FALSE( cycle.IsSuccess() );
+    EXPECT_NE( cycle.GetError().find( "Weapon.UpperBody -> Hands.Grip -> Weapon.UpperBody" ), std::string::npos )
+         << cycle.GetError();
+    EXPECT_EQ( table.Layers().size(), 1U ) << "the refused link left the table as it was";
 }

@@ -449,6 +449,30 @@ namespace Desert::ECS
         std::vector<PendingGraphParam> PendingGraphParams;
 
         /**
+         * @brief The `.danimgraph`s whose implemented layers answer this entity's LinkedAnimLayer nodes, in
+         *        link order (UE: the Default Linked Layers of the AnimBP plus what LinkAnimClassLayers /
+         *        UnlinkAnimClassLayers did since). AUTHORED — the scene states it — and the one list both the
+         *        Details default and a script's `linkAnimLayers` write, so "what is linked" has one home.
+         *
+         * Applied by AnimationECSSystem whenever the entity's pose graph is set or the list / a listed
+         * graph changes: every link is undone and the list is linked again in order, so a later entry
+         * replaces an earlier one's interfaces exactly as a later LinkAnimClassLayers does. A GUID and not
+         * a name, because a link is identified by its graph (UE: its class) and two files may share a name.
+         */
+        std::vector<Assets::AssetHandle> LinkedLayerGraphs;
+
+        /// What the Animator's links were last built from: per entry of LinkedLayerGraphs its GUID, graph
+        /// object and asset revision. TRANSIENT, plain numbers (not references; see BuiltGraphSource).
+        struct AppliedLayerLink
+        {
+            uint64_t                               Guid     = 0;
+            const Animation::Graph::AnimGraph*     Graph    = nullptr;
+            uint32_t                               Revision = 0;
+            bool operator==( const AppliedLayerLink& ) const = default;
+        };
+        std::vector<AppliedLayerLink> AppliedLayerLinks;
+
+        /**
          * @brief What this entity's evaluator was built FROM. TRANSIENT, and the same shape as
          *        BuiltRigSource/BuiltRigRevision below.
          *

@@ -132,8 +132,10 @@ namespace Desert::Core
         // rig would have hit; it is cheaper to write the row than to debug the symptom a fourth time.
         for ( const auto entity : registry.view<ECS::AnimationComponent>() )
         {
-            roots.Mark( registry.get<ECS::AnimationComponent>( entity ).GraphAsset,
-                        "an entity is animated by it" );
+            const auto& anim = registry.get<ECS::AnimationComponent>( entity );
+            roots.Mark( anim.GraphAsset, "an entity is animated by it" );
+            for ( const Assets::AssetHandle linked : anim.LinkedLayerGraphs )
+                roots.Mark( linked, "its layers are linked on an animated entity" );
         }
 
         // ── THE INTERFACE ─────────────────────────────────────────────────────────────────────────────

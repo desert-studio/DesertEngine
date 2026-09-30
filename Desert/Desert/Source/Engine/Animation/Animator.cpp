@@ -746,23 +746,51 @@ namespace Desert::Animation
                 m_PoseGraph->Parameters[p] = value;
     }
 
-    Common::BoolResultStr Animator::LinkLayers( const Graph::AnimGraph& implementation )
+    Common::BoolResultStr Animator::LinkLayers( uint64_t implementationId, const Graph::AnimGraph& implementation )
     {
         if ( !m_PoseGraph )
             return Common::MakeError<bool>(
                  std::format( "cannot link the layers of '{}': the character has no pose graph to call them",
                               implementation.Name ) );
-        if ( auto linked = m_LinkedLayers.Link( m_PoseGraph->Instance.Graph(), implementation, m_Skeleton );
+        if ( auto linked = m_LinkedLayers.Link( m_PoseGraph->Instance.Graph(), implementationId, implementation,
+                                                    m_Skeleton );
              !linked )
             return linked;
         RebuildLinkedClocks();
         return Common::MakeSuccess( true );
     }
 
-    void Animator::UnlinkLayers( const Graph::AnimGraph& implementation )
+    void Animator::UnlinkLayers( uint64_t implementationId )
     {
-        m_LinkedLayers.Unlink( implementation );
+        m_LinkedLayers.Unlink( implementationId );
         RebuildLinkedClocks();
+    }
+
+    void Animator::ClearLinkedLayers()
+    {
+        m_LinkedLayers.Clear();
+        RebuildLinkedClocks();
+    }
+
+    Graph::Evaluator* Animator::GetLinkedLayerMachines( size_t slot )
+    {
+        if ( slot >= m_LinkedLayers.Layers().size() )
+            return nullptr;
+        auto& machines = m_LinkedLayers.At( slot ).Machines;
+        return machines ? &*machines : nullptr;
+    }
+
+    float Animator::GetLinkedLayerSourceFraction( size_t slot, size_t node ) const
+    {
+        if ( slot >= m_LinkedSources.size() || node >= m_LinkedSources[slot].size() )
+            return 0.0F;
+        const ClipPlayback& playback = m_LinkedSources[slot][node];
+        if ( playback.Clip == nullptr )
+            return 0.0F;
+        const double duration = playback.Clip->DurationSeconds();
+        return duration > 1e-4 ? static_cast<float>( FrameTimeToSeconds( playback.Time, playback.Clip->TickRate ) /
+                                                     duration )
+                               : 0.0F;
     }
 
     void Animator::RebuildLinkedClocks()

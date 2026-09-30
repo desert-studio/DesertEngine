@@ -20,6 +20,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <span>
@@ -120,24 +121,32 @@ namespace Desert::Animation::Graph
     public:
         struct Layer
         {
-            std::string       Implementation; ///< the implementing graph's name (what Unlink matches)
+            /// The implementing graph's identity — its .danimgraph asset GUID, what Unlink matches (UE: the
+            /// linked class). Two graphs may share a Name; they never share a GUID.
+            uint64_t          Implementation = 0;
+            std::string       ImplementationName; ///< for messages only
             std::string       Interface;
             std::string       Name;
             PoseGraphInstance Instance; ///< bound in GraphScope::Layer against the host's skeleton
+            /// The layer graph's state machines, run per link (UE: the linked instance's own state); empty
+            /// when the layer graph has none. Its parameters are fed from the host's by name each tick.
+            std::optional<Evaluator> Machines;
         };
 
         /**
-         * @brief UE LinkAnimClassLayers: every interface `implementation` implements now resolves to its layer
-         *        graphs, replacing whatever was linked for those interfaces. All or nothing; refuses, naming
-         *        it: an interface `host` does not declare or declares with other layers, a parameter a layer
-         *        graph reads that `host` does not declare as the same type, a layer graph that does not bind,
-         *        and a graph implementing no interface at all.
+         * @brief UE LinkAnimClassLayers: every interface `implementation` (asset GUID `implementationId`)
+         *        implements now resolves to its layer graphs, replacing whatever was linked for those
+         *        interfaces. All or nothing; refuses, naming it: a zero GUID, an interface `host` does not
+         *        declare or declares with other layers, a parameter a layer graph reads (a pin or a state
+         *        machine's condition) that `host` does not declare as the same type, a layer graph that does
+         *        not bind, a graph implementing no interface at all, and a link after which linked layers
+         *        would call each other in a cycle.
          */
-        [[nodiscard]] Common::BoolResultStr Link( const AnimGraph& host, const AnimGraph& implementation,
-                                                  const Skeleton& skeleton );
-        /// UE UnlinkAnimClassLayers: the interfaces `implementation` linked go back to pass-through. A no-op
-        /// for interfaces another graph has linked since.
-        void Unlink( const AnimGraph& implementation );
+        [[nodiscard]] Common::BoolResultStr Link( const AnimGraph& host, uint64_t implementationId,
+                                                  const AnimGraph& implementation, const Skeleton& skeleton );
+        /// UE UnlinkAnimClassLayers: the interfaces the graph with GUID `implementationId` linked go back to
+        /// pass-through. A no-op for interfaces another graph has linked since.
+        void Unlink( uint64_t implementationId );
         void Clear()
         {
             m_Layers.clear();

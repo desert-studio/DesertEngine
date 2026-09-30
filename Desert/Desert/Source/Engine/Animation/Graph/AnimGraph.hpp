@@ -109,9 +109,10 @@ namespace Desert::Animation::Graph
         LinkedInputPose     = 5, ///< UE FAnimNode_LinkedInputPose: a layer graph's input, only in one
     };
 
-    /// Where a pose graph lives, which decides two kinds: a LinkedInputPose exists only in a LAYER graph (it
-    /// is the input its caller hands in), and a layer graph calls no linked layer and holds no state machine
-    /// (a linked layer is evaluated by the host's clocks and parameters; see AnimLayerGraph).
+    /// Where a pose graph lives, which decides one kind: a LinkedInputPose exists only in a LAYER graph (it
+    /// is the input its caller hands in). A layer graph is otherwise a WHOLE pose graph, as UE's layer
+    /// function graph is: it may hold state machines (run by a per-link Evaluator in GraphScope::Layer) and
+    /// call further linked layers of the interfaces its graph declares (a cycle is refused, `LayerCycle`).
     enum class GraphScope : int
     {
         Host  = 0,
@@ -227,9 +228,26 @@ namespace Desert::Animation::Graph
     /// The interface `name` the graph declares, or nullptr.
     [[nodiscard]] const AnimLayerInterface* FindLayerInterface( const AnimGraph& graph, std::string_view name );
 
-    /// Layer graph `layer` of `owner` as a graph of its own (`owner`'s parameters, no layers of its own), the
-    /// shape `PlanPoseGraph( ..., GraphScope::Layer )` and `PoseGraphInstance::Bind` take.
+    /// Layer graph `layer` of `owner` as a graph of its own (`owner`'s parameters, and `owner`'s declared
+    /// interfaces so a nested LinkedAnimLayer call resolves; no implemented layers of its own), the shape
+    /// `PlanPoseGraph( ..., GraphScope::Layer )`, `PoseGraphInstance::Bind` and a layer's Evaluator take.
     [[nodiscard]] AnimGraph LayerGraphAsGraph( const AnimGraph& owner, const AnimLayerGraph& layer );
+
+    /// The layers the LinkedAnimLayer nodes of `nodes` call, in node order.
+    [[nodiscard]] std::vector<LinkedAnimLayerNode> CalledLayers( const std::vector<PoseNode>& nodes );
+
+    /// One layer graph as the cycle check sees it: which layer it answers and which layers it calls.
+    struct LayerCalls
+    {
+        std::string                      Interface;
+        std::string                      Layer;
+        std::vector<LinkedAnimLayerNode> Calls;
+    };
+
+    /// Empty when no layer of `layers` reaches itself through calls answered within `layers`; otherwise the
+    /// cycle by name, "Weapon.A -> Weapon.B -> Weapon.A" (UE refuses a layer that re-enters itself; here a
+    /// cycle would evaluate forever, so it is refused where it is made: at plan and at link).
+    [[nodiscard]] std::string LayerCycle( const std::vector<LayerCalls>& layers );
 
     /// The state machine node's name in a graph `MakeStateMachineGraph` built — and the name every ANGR 1
     /// file's machine was given by the migration.
@@ -293,7 +311,9 @@ namespace Desert::Animation::Graph
     class Evaluator
     {
     public:
-        explicit Evaluator( AnimGraph graph );
+        /// `scope` is where `graph` lives: GraphScope::Layer for a linked layer's graph (LayerGraphAsGraph),
+        /// whose state machines this evaluator runs per link, as UE's linked instance runs its own.
+        explicit Evaluator( AnimGraph graph, GraphScope scope = GraphScope::Host );
 
         void Reset(); // jump to the entry state and seed parameters to their defaults
 
@@ -404,6 +424,7 @@ namespace Desert::Animation::Graph
         [[nodiscard]] Common::BoolResultStr RefuseUnknown( const std::string& name ) const;
 
         AnimGraph                              m_Graph;
+        GraphScope                             m_Scope = GraphScope::Host;
         std::unordered_map<std::string, float> m_Params;
         std::vector<int>                       m_Plan; ///< PlanPoseGraph's order; empty when refused
         std::vector<MachineRun>                m_Runs; ///< one per node, parallel to m_Graph.Nodes

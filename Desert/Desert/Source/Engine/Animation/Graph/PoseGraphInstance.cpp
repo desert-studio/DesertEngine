@@ -211,9 +211,13 @@ namespace Desert::Animation::Graph
         out = m_Poses[static_cast<size_t>( m_Plan.back() )];
     }
 
-    Common::BoolResultStr LinkedLayerTable::Link( const AnimGraph& host, const AnimGraph& implementation,
-                                                  const Skeleton& skeleton )
+    Common::BoolResultStr LinkedLayerTable::Link( const AnimGraph& host, uint64_t implementationId,
+                                                  const AnimGraph& implementation, const Skeleton& skeleton )
     {
+        if ( implementationId == 0 )
+            return Common::MakeError<bool>( std::format(
+                 "cannot link '{}' onto '{}': a link is identified by its graph's asset GUID, and it has none",
+                 implementation.Name, host.Name ) );
         if ( !implementation.Layers || implementation.Layers->Implemented.empty() )
             return Common::MakeError<bool>(
                  std::format( "AnimGraph '{}' implements no layer interface, so it has no layer to link onto '{}'",
@@ -236,11 +240,22 @@ namespace Desert::Animation::Graph
                 return Common::MakeError<bool>( std::format(
                      "cannot link '{}' onto '{}': the two declare interface '{}' with different layers",
                      implementation.Name, host.Name, layer.Interface ) );
-            // The layer graph's pins read the HOST's live parameters, by name: the same type or no link.
+            // The layer graph's pins and its machines' conditions read the HOST's live parameters, by name:
+            // the same type or no link.
+            std::vector<std::string> read;
             for ( const PoseNode& node : layer.Nodes )
+            {
                 for ( const ParameterPin& pin : node.ParameterInputs )
+                    read.push_back( pin.Parameter );
+                if ( node.Machine )
+                    for ( const State& state : node.Machine->States )
+                        for ( const Transition& transition : state.Transitions )
+                            for ( const Condition& condition : transition.Conditions )
+                                read.push_back( condition.Parameter );
+            }
+            for ( const std::string& parameter : read )
                 {
-                    const auto same = [&]( const Parameter& p ) { return p.Name == pin.Parameter; };
+                    const auto same = [&]( const Parameter& p ) { return p.Name == parameter; };
                     const auto mineP =
                          std::find_if( implementation.Parameters.begin(), implementation.Parameters.end(), same );
                     const auto theirsP = std::find_if( host.Parameters.begin(), host.Parameters.end(), same );
@@ -249,31 +264,47 @@ namespace Desert::Animation::Graph
                         return Common::MakeError<bool>( std::format(
                              "cannot link '{}' onto '{}': layer '{}.{}' reads parameter '{}', which '{}' does not "
                              "declare as the same type",
-                             implementation.Name, host.Name, layer.Interface, layer.Layer, pin.Parameter,
+                             implementation.Name, host.Name, layer.Interface, layer.Layer, parameter,
                              host.Name ) );
                 }
 
-            Layer entry{ implementation.Name, layer.Interface, layer.Layer, PoseGraphInstance{} };
-            if ( auto bound = entry.Instance.Bind( LayerGraphAsGraph( implementation, layer ), skeleton,
-                                                   GraphScope::Layer );
-                 !bound )
+            Layer     entry{ implementationId, implementation.Name, layer.Interface, layer.Layer, {}, {} };
+            AnimGraph layerGraph = LayerGraphAsGraph( implementation, layer );
+            if ( std::any_of( layer.Nodes.begin(), layer.Nodes.end(),
+                              []( const PoseNode& node ) { return node.Machine.has_value(); } ) )
+                entry.Machines.emplace( layerGraph, GraphScope::Layer );
+            if ( auto bound = entry.Instance.Bind( std::move( layerGraph ), skeleton, GraphScope::Layer ); !bound )
                 return bound;
             linked.push_back( std::move( entry ) );
             if ( std::find( interfaces.begin(), interfaces.end(), layer.Interface ) == interfaces.end() )
                 interfaces.push_back( layer.Interface );
         }
 
-        std::erase_if(
-             m_Layers, [&]( const Layer& l )
-             { return std::find( interfaces.begin(), interfaces.end(), l.Interface ) != interfaces.end(); } );
+        const auto replaced = [&]( const Layer& l )
+        { return std::find( interfaces.begin(), interfaces.end(), l.Interface ) != interfaces.end(); };
+
+        // The table as it would stand after this link: nested calls must not close a cycle through it.
+        std::vector<LayerCalls> after;
+        for ( const Layer& l : m_Layers )
+            if ( !replaced( l ) )
+                after.push_back( { l.Interface, l.Name, CalledLayers( l.Instance.Graph().Nodes ) } );
+        for ( const Layer& l : linked )
+            after.push_back( { l.Interface, l.Name, CalledLayers( l.Instance.Graph().Nodes ) } );
+        if ( std::string cycle = LayerCycle( after ); !cycle.empty() )
+            return Common::MakeError<bool>(
+                 std::format( "cannot link '{}' onto '{}': the linked layers would call each other in a cycle "
+                              "({}), which would evaluate forever",
+                              implementation.Name, host.Name, cycle ) );
+
+        std::erase_if( m_Layers, replaced );
         for ( Layer& entry : linked )
             m_Layers.push_back( std::move( entry ) );
         return Common::MakeSuccess( true );
     }
 
-    void LinkedLayerTable::Unlink( const AnimGraph& implementation )
+    void LinkedLayerTable::Unlink( uint64_t implementationId )
     {
-        std::erase_if( m_Layers, [&]( const Layer& l ) { return l.Implementation == implementation.Name; } );
+        std::erase_if( m_Layers, [&]( const Layer& l ) { return l.Implementation == implementationId; } );
     }
 
     std::optional<size_t> LinkedLayerTable::Find( std::string_view anInterface, std::string_view layer ) const
