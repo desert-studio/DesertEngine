@@ -2846,7 +2846,7 @@ TEST_F( ShaderRootFixture, TheGeneratedShadingModelIndicesAreTheRegistrys )
     ASSERT_TRUE( models.IsSuccess() ) << models.GetError();
     // The include is VIRTUAL (UE /Engine/Generated/): the includer serves the set's text and nothing is written
     // into the engine resource tree. Mutation: write GeneratedGlsl to SHADERDIR_PATH / kGeneratedInclude again.
-    const auto header = Desert::Common::Constants::Path::SHADERDIR_PATH / SM::kGeneratedInclude;
+    const auto header = Common::Constants::Path::SHADERDIR_PATH / SM::kGeneratedInclude;
     EXPECT_FALSE( std::filesystem::exists( header ) ) << header.string() << " was written into the shader root";
     const std::string& text = models.GetValue().GeneratedGlsl;
 
