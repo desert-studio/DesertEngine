@@ -74,7 +74,7 @@ namespace Desert::Editor
         void RenderSkeleton( const std::shared_ptr<Desert::Core::Camera>& camera, float width, float height,
                              float xpos, float ypos );
         // In-editor rig placement (RigBuilder): overlay the bones being placed on a static mesh before
-        // "Convert to Skinned". Shares the UE-style visuals with RenderSkeleton via DrawBoneGizmos.
+        // "Convert to Skinned". Shares the UE-style visuals with RenderSkeleton via DrawBoneOverlay (BoneOverlay.hpp).
         void RenderRigBuilder( const std::shared_ptr<Desert::Core::Camera>& camera, float width, float height );
         /**
          * @brief Control Rig mode: draw the selected entity's control shapes, pick one, and drag it.
@@ -91,12 +91,6 @@ namespace Desert::Editor
         void RenderControlRig( const std::shared_ptr<Desert::Core::Camera>& camera, float width, float height,
                                float xpos, float ypos, const Core::AuthoringOwner& owner,
                                Core::AuthoringContext& mine );
-        // Shared UE-style bone drawing: octahedral parent->child links + sphere joints, from already-projected
-        // absolute-screen head positions (nullopt = behind camera). parents[i] < 0 marks a root. When
-        // recordForPick is set, fills m_BoneScreenPositions for PickBone.
-        void DrawBoneGizmos( ImDrawList* drawList, const std::vector<std::optional<ImVec2>>& screen,
-                             const std::vector<int>& parents, const std::vector<std::string>& names,
-                             int selectedBone, bool showAllNames, bool recordForPick );
         // Billboard icons for entities with no rendered geometry (spawn points, audio emitters, triggers,
         // empties) so they are visible in the viewport. Hover shows a tooltip; the normal LMB pick selects them.
         void RenderSpawnIcons( const std::shared_ptr<Desert::Core::Camera>& camera, float width, float height );
