@@ -8,6 +8,11 @@
 #include <Editor/Import/MeshDeriver.hpp>
 #include <Editor/Import/SourceToEngine.hpp>
 
+#include <Engine/Animation/Timeline/Channel.hpp>
+#include <Engine/Animation/TrackEditing.hpp>
+
+#include "../../Engine/ClipFixture.hpp"
+
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
@@ -24,7 +29,7 @@ namespace
     {
         Ser::MeshAssetData                   Mesh;
         Ser::SkeletonAssetData               Skeleton;
-        std::vector<Ser::AnimationAssetData> Clips;
+        std::vector<Animation::AnimationClip> Clips;
     };
 
     SkinnedFile MakeFile()
@@ -55,19 +60,12 @@ namespace
         child.OffsetMatrix       = glm::inverse( root.LocalBindTransform * child.LocalBindTransform );
         file.Skeleton.Bones      = { root, child };
 
-        Ser::AnimationAssetData clip;
-        Ser::ChannelData        channel;
-        channel.BoneName = "child";
-        Ser::KeyPosition p;
-        p.Value = { 0.0f, 0.0f, 5.0f };
-        channel.Positions.push_back( p );
-        Ser::KeyRotation r;
-        r.Value = glm::angleAxis( glm::radians( 90.0f ), glm::vec3( 0.0f, 0.0f, 1.0f ) );
-        channel.Rotations.push_back( r );
-        Ser::KeyScale s;
-        s.Value = { 1.0f, 2.0f, 3.0f };
-        channel.Scales.push_back( s );
-        clip.Channels.push_back( channel );
+        // The clip as the importer hands it over: one Sequence, the child's Transform track keyed once.
+        Animation::AnimationClip clip =
+             ClipFixture::Clip( "move", Animation::FrameNumber{ Animation::PROJECT_TICK_RATE.Numerator } );
+        (void)ClipFixture::AddStaticBone( clip, "child", { 0.0f, 0.0f, 5.0f },
+                                          glm::angleAxis( glm::radians( 90.0f ), glm::vec3( 0.0f, 0.0f, 1.0f ) ),
+                                          { 1.0f, 2.0f, 3.0f } );
         file.Clips.push_back( clip );
         return file;
     }
@@ -75,6 +73,24 @@ namespace
     void Apply( SkinnedFile& file, const Assets::MeshImportSettings& settings )
     {
         Editor::ApplySourceToEngine( settings, &file.Mesh, &file.Skeleton, file.Clips );
+    }
+
+    // The child's keyed transform in clip @p index, read the way the engine samples it: the bone's Transform
+    // track, its one section's channel evaluated at the clip's first tick.
+    Animation::BoneTransform ChildKey( const SkinnedFile& file, size_t index = 0 )
+    {
+        const Animation::AnimationClip&   clip  = file.Clips[index];
+        const Animation::Timeline::Track* track = Animation::FindBoneTrack( clip.Sequence, "child" );
+        EXPECT_NE( track, nullptr ) << "the clip lost the child's track";
+        if ( track == nullptr || track->Sections.empty() )
+            return {};
+        const auto* content = std::get_if<Animation::Timeline::Channel>( &track->Sections.front().Content );
+        const auto* channel = content ? std::get_if<Animation::Timeline::TransformChannel>( content ) : nullptr;
+        EXPECT_NE( channel, nullptr ) << "the child's section holds no Transform channel";
+        if ( channel == nullptr )
+            return {};
+        return Animation::Timeline::Evaluate( *channel, Animation::FrameTime{ clip.Sequence.Start, 0.0f },
+                                              clip.Sequence.TickRate );
     }
 
     void ExpectNear( const glm::vec3& a, const glm::vec3& b )
@@ -104,7 +120,7 @@ TEST( SkinnedImportTransform, DefaultsChangeNothing )
     Apply( file, {} );
     ExpectNear( file.Mesh.SkinnedVertices[0].Position, { 0.0f, 1.0f, 2.0f } );
     ExpectNear( Translation( file.Skeleton.Bones[1].LocalBindTransform ), { 0.0f, 0.0f, 2.0f } );
-    ExpectNear( file.Clips[0].Channels[0].Positions[0].Value, { 0.0f, 0.0f, 5.0f } );
+    ExpectNear( ChildKey( file ).Translation, { 0.0f, 0.0f, 5.0f } );
 }
 
 TEST( SkinnedImportTransform, UniformScaleScalesVerticesBonesAndClips )
@@ -119,8 +135,8 @@ TEST( SkinnedImportTransform, UniformScaleScalesVerticesBonesAndClips )
     ExpectNear( Translation( file.Skeleton.Bones[1].LocalBindTransform ), { 0.0f, 0.0f, 4.0f } );
     ExpectNear( glm::vec3( file.Skeleton.Bones[1].LocalBindTransform[0] ), { 1.0f, 0.0f, 0.0f } );
     ExpectNear( Translation( file.Skeleton.Bones[1].OffsetMatrix ), { 0.0f, -2.0f, -4.0f } );
-    ExpectNear( file.Clips[0].Channels[0].Positions[0].Value, { 0.0f, 0.0f, 10.0f } );
-    ExpectNear( file.Clips[0].Channels[0].Scales[0].Value, { 1.0f, 2.0f, 3.0f } );
+    ExpectNear( ChildKey( file ).Translation, { 0.0f, 0.0f, 10.0f } );
+    ExpectNear( ChildKey( file ).Scale, { 1.0f, 2.0f, 3.0f } );
     // Bind pose still reproduces the (scaled) vertex: mesh and skeleton moved together.
     ExpectNear( BindSkinned( file ), { 0.0f, 2.0f, 4.0f } );
 }
@@ -133,11 +149,11 @@ TEST( SkinnedImportTransform, ZUpBecomesYUpForVerticesBonesAndClips )
     ExpectNear( file.Mesh.SkinnedVertices[0].Position, { 0.0f, 2.0f, -1.0f } );
     ExpectNear( file.Mesh.SkinnedVertices[0].Normal, { 0.0f, 1.0f, 0.0f } );
     ExpectNear( Translation( file.Skeleton.Bones[1].LocalBindTransform ), { 0.0f, 2.0f, 0.0f } );
-    const auto& channel = file.Clips[0].Channels[0];
-    ExpectNear( channel.Positions[0].Value, { 0.0f, 5.0f, 0.0f } );
+    const Animation::BoneTransform key = ChildKey( file );
+    ExpectNear( key.Translation, { 0.0f, 5.0f, 0.0f } );
     // A turn about the file's up (+z) is a turn about the engine's up (+y).
-    ExpectNear( channel.Rotations[0].Value * glm::vec3( 1.0f, 0.0f, 0.0f ), { 0.0f, 0.0f, -1.0f } );
-    ExpectNear( channel.Scales[0].Value, { 1.0f, 3.0f, 2.0f } );
+    ExpectNear( key.Rotation * glm::vec3( 1.0f, 0.0f, 0.0f ), { 0.0f, 0.0f, -1.0f } );
+    ExpectNear( key.Scale, { 1.0f, 3.0f, 2.0f } );
     ExpectNear( BindSkinned( file ), { 0.0f, 2.0f, -1.0f } );
 }
 
