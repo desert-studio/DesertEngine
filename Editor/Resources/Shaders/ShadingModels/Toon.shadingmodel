@@ -18,7 +18,9 @@ Inputs
 vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
 {
     const float bands = floor( mix( 2.0, 8.0, P.CustomData0 ) + 0.5 );
-    const float lit   = floor( max( dot( S.N, L.L ), 0.0 ) * L.Shadow * bands ) / bands;
+    // The bands quantize the LIGHT (N.L), never the occlusion: a PCF shadow a few percent under 1 across a
+    // low-poly curve would otherwise drop whole triangles a band. The shadow darkens the band it falls on.
+    const float lit   = floor( max( dot( S.N, L.L ), 0.0 ) * bands ) / bands * L.Shadow;
     const float rim   = smoothstep( 1.0 - P.CustomData1, 1.0, 1.0 - max( dot( S.N, S.V ), 0.0 ) );
     return S.BaseColor * L.Radiance * ( lit + rim * lit );
 }

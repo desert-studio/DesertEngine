@@ -87,13 +87,8 @@ void main()
         return;
     }
 
-    DesertSurface surface;
-    surface.WorldPosition = i.WorldPosition;
-    surface.N             = N;
-    surface.V             = normalize( v_Surface.CameraPosition - i.WorldPosition );
-    surface.BaseColor     = s.BaseColor;
-    surface.Metallic      = s.Metallic;
-    surface.Roughness     = max( s.Roughness, 0.04 ); // GGX NDF stays finite for mirror-smooth surfaces
+    const DesertSurface surface = DesertMakeSurface( i.WorldPosition, N, v_Surface.CameraPosition - i.WorldPosition,
+                                                     s.BaseColor, s.Metallic, s.Roughness );
     // The payload a model reads, at the 8 bits an opaque surface's reaches it through the G-buffer.
     const DesertPayload payload = DesertQuantizePayload( DesertPayload( s.CustomData0, s.CustomData1 ) );
 

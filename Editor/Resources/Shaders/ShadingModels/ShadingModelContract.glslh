@@ -117,6 +117,23 @@ struct DesertSurface
     float Roughness; // already clamped to >= 0.04 by the pass (the GGX NDF divides by it)
 };
 
+// THE ONE PLACE a DesertSurface is made: both passes (Pass_Forward.glslh, DeferredLighting.shader) build it here
+// and nowhere else, so every model receives a unit N and V and a clamped roughness and none re-normalizes. An
+// interpolated or G-buffer-decoded normal is not unit length; a model quantizing N.L (Toon's bands) turns that
+// per-triangle shortfall into band edges that follow the polygons.
+DesertSurface DesertMakeSurface( vec3 worldPosition, vec3 normal, vec3 toEye, vec3 baseColor, float metallic,
+                                 float roughness )
+{
+    DesertSurface S;
+    S.WorldPosition = worldPosition;
+    S.N             = normalize( normal );
+    S.V             = normalize( toEye );
+    S.BaseColor     = baseColor;
+    S.Metallic      = metallic;
+    S.Roughness     = max( roughness, 0.04 ); // GGX NDF stays finite for mirror-smooth surfaces
+    return S;
+}
+
 // One light source as it arrives at the surface (DirectLighting.glslh:36-47 is the same split: everything specific
 // to the source is above the call, the BRDF below it).
 struct DesertLight

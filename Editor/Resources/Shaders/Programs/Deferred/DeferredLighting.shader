@@ -298,13 +298,7 @@ Shader "DeferredLighting"
         	shadow        *= CloudShadowFactor(worldPos);
         	vec3  radiance = u_LightColor.rgb * u_LightColor.a;
 
-        	DesertSurface surface;
-        	surface.WorldPosition = worldPos;
-        	surface.N             = N;
-        	surface.V             = view;
-        	surface.BaseColor     = albedo;
-        	surface.Metallic      = metallic;
-        	surface.Roughness     = roughness;
+        	const DesertSurface surface = DesertMakeSurface(worldPos, N, view, albedo, metallic, roughness);
 
         	vec3 result = DesertEvaluateShadingModel(shadingModel, DesertSunLight(u_LightDir.xyz, radiance, shadow),
         	                                         surface, payload);

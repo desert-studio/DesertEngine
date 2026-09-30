@@ -316,6 +316,26 @@ TEST( ShadingModelManifestRules, NameIsTheFileStemAndBodyFollowsInputs )
     EXPECT_NE( m.Body.find( "vec3 Evaluate()" ), std::string::npos );
 }
 
+// THE PASS NORMALIZES, NO MODEL DOES: both passes make their DesertSurface through the contract's one constructor
+// (which normalizes N and V), never field by field, and no shipped model re-normalizes S.N — a model that did would
+// hide a pass that stopped, and Toon's bands followed the polygons exactly when a pass handed it a short normal.
+TEST( ShadingModelSurface, EveryPassMakesTheSurfaceThroughTheOneConstructor )
+{
+    const std::string contract = ReadFile( ShaderRoot() / "ShadingModels" / "ShadingModelContract.glslh" );
+    EXPECT_NE( contract.find( "S.N             = normalize( normal );" ), std::string::npos )
+         << "DesertMakeSurface no longer normalizes N";
+    for ( const auto* pass : { "Mesh/Surface/Pass_Forward.glslh", "Programs/Deferred/DeferredLighting.shader" } )
+    {
+        const std::string text = ReadFile( ShaderRoot() / pass );
+        EXPECT_NE( text.find( "DesertMakeSurface(" ), std::string::npos ) << pass;
+        EXPECT_EQ( text.find( "surface.N " ), std::string::npos ) << pass << ": a surface assembled by hand";
+    }
+    for ( const auto& entry : std::filesystem::directory_iterator( ShaderRoot() / "ShadingModels" ) )
+        if ( entry.path().extension() == ".shadingmodel" )
+            EXPECT_EQ( ReadFile( entry.path() ).find( "normalize( S.N" ), std::string::npos )
+                 << entry.path().filename().string() << " re-normalizes the pass's normal";
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
