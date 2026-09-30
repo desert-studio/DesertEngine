@@ -73,7 +73,7 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
     }
 
-    removefiles { "notify_tracks_test.cpp" }
+
 
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
