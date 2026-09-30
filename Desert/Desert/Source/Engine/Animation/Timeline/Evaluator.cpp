@@ -104,7 +104,7 @@ namespace Desert::Animation::Timeline
             {
                 return false;
             }
-            return !( at.Frame == section.End && at.Subframe > 0.0F );
+            return at.Frame != section.End || at.Subframe <= 0.0F;
         }
 
         /**
@@ -305,7 +305,7 @@ namespace Desert::Animation::Timeline
         {
             for ( size_t i = first + 1; i < events.size(); ++i )
             {
-                FiredEvent   moving = events[i];
+                const FiredEvent moving = events[i];
                 const double key    = Along( leg, moving, start, end );
                 size_t       j      = i;
                 while ( j > first && Along( leg, events[j - 1], start, end ) > key )
@@ -377,7 +377,7 @@ namespace Desert::Animation::Timeline
                     EvaluatedValue value;
                     if ( FoldValue( track, at, rate, value ) )
                     {
-                        out.Values.push_back( EvaluatedTrack{ ti, std::move( value ) } );
+                        out.Values.push_back( EvaluatedTrack{ ti, value } );
                     }
                     break;
                 }

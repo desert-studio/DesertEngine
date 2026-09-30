@@ -362,7 +362,10 @@ namespace Desert::Animation
                     EvaluateSource( m_EvaluatedPose );
                     break;
                 case PoseStage::Graph:
-                    EvaluateGraph( m_EvaluatedPose );
+                    // The stage is listed exactly when the graph is attached (SyncStages); the state is bound
+                    // here, after that check, rather than dereferenced unchecked inside.
+                    if ( m_PoseGraph )
+                        EvaluateGraph( *m_PoseGraph, m_EvaluatedPose );
                     break;
                 case PoseStage::Controls:
                     EvaluateControls( m_EvaluatedPose );
@@ -398,9 +401,8 @@ namespace Desert::Animation
         static_cast<void>( m_Retarget->Run( m_Skeleton, sourcePose, pose ) );
     }
 
-    void Animator::EvaluateGraph( LocalPose& pose )
+    void Animator::EvaluateGraph( PoseGraphState& state, LocalPose& pose )
     {
-        PoseGraphState&         state = *m_PoseGraph;
         const size_t            n     = m_Skeleton.GetBones().size();
         const Graph::AnimGraph& graph = state.Instance.Graph();
 
@@ -959,7 +961,7 @@ namespace Desert::Animation
             return;
         ClipPlayback& playback = m_PoseGraph->Sources[node];
         if ( playback.Clip != &clip )
-            playback = { &clip, FrameTime{}, loop };
+            playback = { .Clip = &clip, .Time = FrameTime{}, .Loop = loop, .StepFrom = FrameTime{} };
         playback.Loop = loop;
     }
 
@@ -1041,7 +1043,7 @@ namespace Desert::Animation
             return;
         ClipPlayback& playback = m_LinkedSources[slot][node];
         if ( playback.Clip != &clip )
-            playback = { &clip, FrameTime{}, loop };
+            playback = { .Clip = &clip, .Time = FrameTime{}, .Loop = loop, .StepFrom = FrameTime{} };
         playback.Loop = loop;
     }
 

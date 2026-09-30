@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <concepts>
 #include <cstdint>
 #include <limits>
 #include <type_traits>
+#include <utility>
 
 namespace Desert::Animation::Timeline
 {
@@ -146,18 +148,24 @@ namespace Desert::Animation::Timeline
             return Common::MakeSuccess( true );
         }
 
-        template <typename Visit>
-        void ForEachKeyTick( FloatChannel& channel, Visit&& visit )
+        // THE WALKS BELOW ARE CONSTNESS-GENERIC: MoveSection first reads every tick (a const walk) and only
+        // then shifts them (a mutable one), so each walk takes its object as `T` or `const T` and hands the
+        // visitor ticks of the same constness.
+        template <typename T, typename Of>
+        concept MaybeConst = std::same_as<std::remove_const_t<T>, Of>;
+
+        template <MaybeConst<FloatChannel> FloatChannelT, typename Visit>
+        void ForEachKeyTick( FloatChannelT& channel, Visit&& visit )
         {
-            for ( ScalarKey& key : channel.Keys )
+            for ( auto& key : channel.Keys )
             {
                 visit( key.Tick );
             }
         }
 
         /// Every tick a section's content owns — the keys MoveSection carries with it.
-        template <typename Visit>
-        void ForEachKeyTick( SectionContent& content, Visit&& visit )
+        template <MaybeConst<SectionContent> SectionContentT, typename Visit>
+        void ForEachKeyTick( SectionContentT& content, Visit&& visit )
         {
             std::visit(
                  [&visit]( auto& held )
@@ -188,7 +196,7 @@ namespace Desert::Animation::Timeline
                                   }
                                   else if constexpr ( std::is_same_v<Kind, TransformChannel> )
                                   {
-                                      for ( FloatChannel* component :
+                                      for ( auto* component :
                                             { &channel.Translation.X, &channel.Translation.Y,
                                               &channel.Translation.Z, &channel.Rotation.X, &channel.Rotation.Y,
                                               &channel.Rotation.Z, &channel.Rotation.W, &channel.Scale.X,
@@ -204,7 +212,7 @@ namespace Desert::Animation::Timeline
                                   else
                                   {
                                       static_assert( std::is_same_v<Kind, EventChannel> );
-                                      for ( EventKey& key : channel.Keys )
+                                      for ( auto& key : channel.Keys )
                                       {
                                           visit( key.Tick );
                                       }
@@ -218,12 +226,12 @@ namespace Desert::Animation::Timeline
                  content );
         }
 
-        template <typename Visit>
-        void ForEachSectionTick( Section& section, Visit&& visit )
+        template <MaybeConst<Section> SectionT, typename Visit>
+        void ForEachSectionTick( SectionT& section, Visit&& visit )
         {
             visit( section.Start );
             visit( section.End );
-            for ( ScalarKey& key : section.Weight )
+            for ( auto& key : section.Weight )
             {
                 visit( key.Tick );
             }
@@ -242,7 +250,7 @@ namespace Desert::Animation::Timeline
         // REFUSED WHOLE, never clamped: a move that pinned one end at the frame type's limit would silently
         // become a resize, the one thing a move exists not to do. Checked before anything is written.
         bool fits = true;
-        ForEachSectionTick( section,
+        ForEachSectionTick( std::as_const( section ),
                             [&fits, deltaTicks]( const FrameNumber& tick )
                             {
                                 const int64_t moved = static_cast<int64_t>( tick.Value ) + deltaTicks;

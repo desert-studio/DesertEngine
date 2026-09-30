@@ -100,8 +100,8 @@ namespace Desert::Animation::Timeline
 
         glm::quat QuatAt( const RotationChannel& channel, const size_t index )
         {
-            return glm::quat( channel.W.Keys[index].Value, channel.X.Keys[index].Value,
-                              channel.Y.Keys[index].Value, channel.Z.Keys[index].Value );
+            return { channel.W.Keys[index].Value, channel.X.Keys[index].Value, channel.Y.Keys[index].Value,
+                     channel.Z.Keys[index].Value };
         }
 
         // ── Events ────────────────────────────────────────────────────────────────────────────────────
@@ -263,8 +263,8 @@ namespace Desert::Animation::Timeline
 
     glm::vec3 Evaluate( const VectorChannel& channel, const FrameTime at, const FrameRate tickRate )
     {
-        return glm::vec3( Evaluate( channel.X, at, tickRate ), Evaluate( channel.Y, at, tickRate ),
-                          Evaluate( channel.Z, at, tickRate ) );
+        return { Evaluate( channel.X, at, tickRate ), Evaluate( channel.Y, at, tickRate ),
+                 Evaluate( channel.Z, at, tickRate ) };
     }
 
     glm::quat Evaluate( const RotationChannel& channel, const FrameTime at, const FrameRate tickRate )
@@ -276,7 +276,7 @@ namespace Desert::Animation::Timeline
                 channel.W.Keys.size() == keys.size() );
         if ( keys.empty() )
         {
-            return glm::quat( channel.W.Default, channel.X.Default, channel.Y.Default, channel.Z.Default );
+            return { channel.W.Default, channel.X.Default, channel.Y.Default, channel.Z.Default };
         }
         const Bracket bracket = FindBracket( keys, at, tickRate );
         switch ( bracket.Place )
@@ -492,15 +492,15 @@ namespace Desert::Animation::Timeline
                                 const EasingPreset preset, const FrameRate tickRate )
         {
             constexpr int kSamplesPerSegment = 16;
-            const double  startTick          = static_cast<double>( keys[first].Tick.Value );
+            const auto    startTick          = static_cast<double>( keys[first].Tick.Value );
             const double  span               = static_cast<double>( keys[last].Tick.Value ) - startTick;
             const double  delta =
                  static_cast<double>( keys[last].Value ) - static_cast<double>( keys[first].Value );
             double worst = 0.0;
             for ( size_t segment = first + 1; segment <= last; ++segment )
             {
-                const double a = static_cast<double>( keys[segment - 1].Tick.Value );
-                const double b = static_cast<double>( keys[segment].Tick.Value );
+                const auto a = static_cast<double>( keys[segment - 1].Tick.Value );
+                const auto b = static_cast<double>( keys[segment].Tick.Value );
                 for ( int i = 1; i < kSamplesPerSegment; ++i )
                 {
                     const double tick = a + ( b - a ) * i / kSamplesPerSegment;

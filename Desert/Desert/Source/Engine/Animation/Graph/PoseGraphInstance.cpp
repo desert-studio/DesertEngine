@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <format>
+#include <ranges>
 #include <utility>
 
 namespace Desert::Animation::Graph
@@ -22,6 +23,15 @@ namespace Desert::Animation::Graph
                 if ( ref[axis] != 0.0F )
                     ratio[axis] = add[axis] / ref[axis];
             return ratio;
+        }
+
+        /// The implementation linked for `node`'s layer, if a table is given and one is linked. A node without
+        /// its payload (the planner refuses one) has nothing to look up.
+        std::optional<size_t> FindLinked( const PoseGraphSources& sources, const PoseNode& node )
+        {
+            if ( sources.Linked == nullptr || !node.LinkedLayer )
+                return std::nullopt;
+            return sources.Linked->Find( node.LinkedLayer->Interface, node.LinkedLayer->Layer );
         }
     } // namespace
 
@@ -98,16 +108,19 @@ namespace Desert::Animation::Graph
                      static_cast<int>( FindNode( graph, wired ) - graph.Nodes.data() ) ); // planned: it exists
             if ( static_cast<PoseNodeKind>( node.Kind ) == PoseNodeKind::LayeredBlendPerBone )
             {
+                if ( !node.LayeredBlend )
+                    return Common::MakeError<bool>( std::format(
+                         "AnimGraph '{}': Layered Blend Per Bone '{}' has no settings", graph.Name, node.Name ) );
                 auto table = BuildPerBoneWeights( *node.LayeredBlend, skeleton );
                 if ( !table )
                     return Common::MakeError<bool>( std::format( "AnimGraph '{}': Layered Blend Per Bone '{}': {}",
                                                                  graph.Name, node.Name, table.GetError() ) );
-                tables[static_cast<size_t>( index )] = std::move( table.GetValue() );
+                tables[static_cast<size_t>( index )] = table.ExtractValue();
             }
         }
 
         m_Graph  = std::move( graph );
-        m_Plan   = std::move( plan.GetValue() );
+        m_Plan   = plan.ExtractValue();
         m_Inputs = std::move( inputs );
         m_Tables = std::move( tables );
         m_Poses.assign( count, GraphPose{} );
@@ -120,12 +133,16 @@ namespace Desert::Animation::Graph
         Run( sources, skeleton, std::nullopt, nullptr, out );
     }
 
+    // Recursion across graphs, not within one: a linked layer's instance is another graph, and
+    // LinkedLayerTable::Link refuses the links that would make that chain loop, so its depth is the link depth.
+    // NOLINTNEXTLINE(misc-no-recursion)
     void PoseGraphInstance::EvaluateLayer( const PoseGraphSources& sources, const Skeleton& skeleton, size_t slot,
                                            const GraphPose& input, GraphPose& out )
     {
         Run( sources, skeleton, slot, &input, out );
     }
 
+    // NOLINTNEXTLINE(misc-no-recursion): EvaluateLayer's reason — the chain crosses into linked graphs only.
     void PoseGraphInstance::Run( const PoseGraphSources& sources, const Skeleton& skeleton,
                                  std::optional<size_t> slot, const GraphPose* input, GraphPose& out )
     {
@@ -165,10 +182,7 @@ namespace Desert::Animation::Graph
                     // UE FAnimNode_LinkedAnimLayer: the linked implementation's layer graph on this node's input,
                     // or — nothing linked — the input itself (the interface's default).
                     const GraphPose& in = m_Poses[static_cast<size_t>( wired[0] )];
-                    const auto       linked =
-                         sources.Linked != nullptr
-                                    ? sources.Linked->Find( node.LinkedLayer->Interface, node.LinkedLayer->Layer )
-                                    : std::nullopt;
+                    const auto       linked = FindLinked( sources, node );
                     if ( linked )
                         sources.Linked->At( *linked ).Instance.EvaluateLayer( sources, skeleton, *linked, in,
                                                                               pose );
@@ -190,9 +204,9 @@ namespace Desert::Animation::Graph
                     }
                     // DISCARDED DELIBERATELY: Bind sized the table against this skeleton and the plan fixed the
                     // layer count, so the node's size checks cannot fail; were one to, the base shows.
-                    if ( !BlendLayeredPerBone( *node.LayeredBlend, m_Tables[n], skeleton,
-                                               m_Poses[static_cast<size_t>( wired[0] )], m_LayerScratch,
-                                               m_WeightScratch, pose ) )
+                    if ( !node.LayeredBlend || !BlendLayeredPerBone( *node.LayeredBlend, m_Tables[n], skeleton,
+                                                                     m_Poses[static_cast<size_t>( wired[0] )],
+                                                                     m_LayerScratch, m_WeightScratch, pose ) )
                         pose = m_Poses[static_cast<size_t>( wired[0] )];
                     break;
                 }
@@ -227,6 +241,7 @@ namespace Desert::Animation::Graph
         }
     }
 
+    // NOLINTNEXTLINE(misc-no-recursion): EvaluateLayer's reason — the chain crosses into linked graphs only.
     float PoseGraphInstance::AccumulateWeights( const PoseGraphSources& sources, const float root )
     {
         if ( m_Plan.empty() )
@@ -239,9 +254,9 @@ namespace Desert::Animation::Graph
         at( m_Plan.back() ) = root;
 
         float input = 0.0F;
-        for ( auto it = m_Plan.rbegin(); it != m_Plan.rend(); ++it )
+        for ( const int index : std::views::reverse( m_Plan ) )
         {
-            const auto      n      = static_cast<size_t>( *it );
+            const auto      n      = static_cast<size_t>( index );
             const float     weight = m_WeightDelta[n];
             const PoseNode& node   = m_Graph.Nodes[n];
             const auto&     wired  = m_Inputs[n];
@@ -259,10 +274,7 @@ namespace Desert::Animation::Graph
 
                 case PoseNodeKind::LinkedAnimLayer:
                 {
-                    const auto linked =
-                         sources.Linked != nullptr
-                              ? sources.Linked->Find( node.LinkedLayer->Interface, node.LinkedLayer->Layer )
-                              : std::nullopt;
+                    const auto linked = FindLinked( sources, node );
                     at( wired[0] ) +=
                          linked ? sources.Linked->At( *linked ).Instance.AccumulateWeights( sources, weight )
                                 : weight;

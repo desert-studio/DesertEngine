@@ -130,7 +130,7 @@ namespace Desert::Animation::Timeline
             for ( size_t i = 0; i < channel.Bits.Keys.size(); ++i )
             {
                 const ScalarKey& key = channel.Bits.Keys[i];
-                if ( key.Interp != KeyInterp::Constant || !( key.Value == 0.0F || key.Value == 1.0F ) )
+                if ( key.Interp != KeyInterp::Constant || ( key.Value != 0.0F && key.Value != 1.0F ) )
                 {
                     return Common::MakeFormattedError<bool>(
                          "bool key {} is {} with value {}; a bool key is Constant and exactly 0 or 1", i,

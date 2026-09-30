@@ -95,28 +95,31 @@ namespace Desert::Animation::Graph
             for ( const std::string& name : names )
             {
                 std::optional<float> value;
-                float                sum = 0.0F, weightSum = 0.0F;
+                float                sum       = 0.0F;
+                float                weightSum = 0.0F;
                 for ( const Source& source : sources )
                 {
-                    const auto v = CurveOf( *source.Pose, name );
-                    if ( !v )
+                    const auto found = CurveOf( *source.Pose, name );
+                    if ( !found )
                         continue;
-                    sum += *v * source.Weight;
+                    const float v = *found;
+                    sum += v * source.Weight;
                     weightSum += source.Weight;
                     switch ( option )
                     {
                         case CurveBlendOption::Override:
                         case CurveBlendOption::UseBasePose:
-                            value = *v;
+                            value = v;
                             break;
                         case CurveBlendOption::DoNotOverride:
-                            value = value ? *value : *v;
+                            if ( !value )
+                                value = v;
                             break;
                         case CurveBlendOption::UseMaxValue:
-                            value = value ? std::max( *value, *v ) : *v;
+                            value = std::max( value.value_or( v ), v );
                             break;
                         case CurveBlendOption::UseMinValue:
-                            value = value ? std::min( *value, *v ) : *v;
+                            value = std::min( value.value_or( v ), v );
                             break;
                         case CurveBlendOption::NormalizeByWeight:
                         case CurveBlendOption::BlendByWeight:
@@ -209,8 +212,10 @@ namespace Desert::Animation::Graph
         out.Pose = base.Pose;
 
         const bool                          meshSpace = node.MeshSpaceRotationBlend || node.MeshSpaceScaleBlend;
-        std::vector<glm::quat>              baseRot, outRot;
-        std::vector<glm::vec3>              baseScale, outScale;
+        std::vector<glm::quat>              baseRot;
+        std::vector<glm::quat>              outRot;
+        std::vector<glm::vec3>              baseScale;
+        std::vector<glm::vec3>              outScale;
         std::vector<std::vector<glm::quat>> layerRot( layers.size() );
         std::vector<std::vector<glm::vec3>> layerScale( layers.size() );
         if ( meshSpace )
