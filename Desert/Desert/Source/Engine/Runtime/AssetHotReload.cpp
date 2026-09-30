@@ -393,7 +393,8 @@ namespace Desert::Runtime
         std::unordered_map<std::string, bool> observedThisPoll;
         const auto changedThisPoll = [this, &observedThisPoll]( const std::filesystem::path& file )
         {
-            const auto [it, first] = observedThisPoll.try_emplace( file.lexically_normal().generic_string(), false );
+            const auto [it, first] =
+                 observedThisPoll.try_emplace( file.lexically_normal().generic_string(), false );
             if ( first )
                 it->second = TouchWatched( file );
             return it->second;
@@ -405,11 +406,12 @@ namespace Desert::Runtime
                 continue;
             const auto& path = asset->GetMetadata().Filepath;
 
-            // A shader is its .shader file AND every .glslh that file pulls in, transitively — Core::ShaderSourceFiles,
-            // the same closure the SPIR-V cache key hashes, walked over the FILE (an unloaded asset holds no text).
-            // Every file is asked of the watch once per poll: a header shared by forty programs is changed for all
-            // forty, not for whichever program happened to observe it first. No short-circuit — every file of every
-            // program has to be observed, or a file first seen after an edit is a baseline and the edit is lost.
+            // A shader is its .shader file AND every .glslh that file pulls in, transitively —
+            // Core::ShaderSourceFiles, the same closure the SPIR-V cache key hashes, walked over the FILE (an
+            // unloaded asset holds no text). Every file is asked of the watch once per poll: a header shared by
+            // forty programs is changed for all forty, not for whichever program happened to observe it first. No
+            // short-circuit — every file of every program has to be observed, or a file first seen after an edit
+            // is a baseline and the edit is lost.
             bool changed = false;
             for ( const auto& file : Core::ShaderSourceFiles( path ) )
                 changed = changedThisPoll( file ) || changed;
@@ -489,9 +491,9 @@ namespace Desert::Runtime
 
         // EVERY PIPELINE BUILT FROM THE OLD CODE FOLLOWS — the scene's cached material pipelines and the ones a
         // renderer built once and holds (DeferredLighting, every compute pass, the fog apply), and the variants'
-        // too: each records its shader's code generation, and the ones behind are rebuilt in place, so their owners
-        // draw the new code next frame (UE: a recompiled shader map invalidates the PSOs built from it). Asked on
-        // every poll, so a recompile from anywhere else (the material editor) is followed as well.
+        // too: each records its shader's code generation, and the ones behind are rebuilt in place, so their
+        // owners draw the new code next frame (UE: a recompiled shader map invalidates the PSOs built from it).
+        // Asked on every poll, so a recompile from anywhere else (the material editor) is followed as well.
         if ( Graphic::AnyPipelineBehindItsShader() )
         {
             Graphic::PipelineBuilds::Get().WaitIdle();

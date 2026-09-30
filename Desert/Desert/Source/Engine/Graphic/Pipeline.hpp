@@ -64,9 +64,9 @@ namespace Desert::Graphic
         {
         }
 
-        // EVERY BUILT PIPELINE IS FINDABLE (RebuildPipelinesBehindTheirShader): a pipeline a renderer built once at
-        // init and holds in a member is exactly as much the shader's dependent as one in a PipelineCache. Entered
-        // at the first build (the object is whole by then), left here.
+        // EVERY BUILT PIPELINE IS FINDABLE (RebuildPipelinesBehindTheirShader): a pipeline a renderer built once
+        // at init and holds in a member is exactly as much the shader's dependent as one in a PipelineCache.
+        // Entered at the first build (the object is whole by then), left here.
         virtual ~IPipeline()
         {
             auto&           live = detail::LivePipelines();
