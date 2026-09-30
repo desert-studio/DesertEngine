@@ -144,10 +144,11 @@ namespace Desert::Assets::Serialization
         auto data    = ReadImportRecord( source );
         if ( !data )
             return Common::MakeError<Result>( data.GetError() );
-        if ( !data.GetValue() || !data.GetValue()->Settings )
+        const auto& stored = data.GetValue();
+        if ( !stored.has_value() || !stored->Settings.has_value() )
             return Common::MakeSuccess(
                  Result{} ); // the first import, or a record from before THM1l: UE's defaults
-        auto settings = ImportSettingsFromText( *data.GetValue()->Settings );
+        auto settings = ImportSettingsFromText( *stored->Settings );
         if ( !settings )
             return Common::MakeFormattedError<Result>(
                  "'{}': {}", Common::Content::ImportRecordPathFor( source ).string(), settings.GetError() );
@@ -161,15 +162,16 @@ namespace Desert::Assets::Serialization
         auto              data   = ReadImportRecord( source );
         if ( !data )
             return Common::MakeError<ContentKind>( data.GetError() );
-        if ( !data.GetValue() )
+        const auto& stored = data.GetValue();
+        if ( !stored.has_value() )
             return Common::MakeFormattedError<ContentKind>( "'{}' does not exist", record );
-        if ( !data.GetValue()->Header )
+        if ( !stored->Header.has_value() )
             return Common::MakeFormattedError<ContentKind>( "'{}' states no header", record );
-        const std::string& name = data.GetValue()->Header->Kind;
+        const std::string& name = stored->Header->Kind;
         const auto         kind = Common::Content::ContentKindNamed( name );
         if ( !kind || !IsImportRecordKind( *kind ) )
-            return Common::MakeFormattedError<ContentKind>( "'{}' states Kind '{}', which no import writes", record,
-                                                            name );
+            return Common::MakeFormattedError<ContentKind>( "'{}' states Kind '{}', which no import writes",
+                                                            record, name );
         return Common::MakeSuccess( *kind );
     }
 
@@ -252,10 +254,11 @@ namespace Desert::Assets::Serialization
         const auto data = ReadImportRecord( source );
         if ( !data )
             return Common::MakeError<ThumbnailOrbit>( data.GetError() );
-        if ( !data.GetValue() )
+        const auto& stored = data.GetValue();
+        if ( !stored.has_value() )
             return Common::MakeFormattedError<ThumbnailOrbit>(
                  "'{}' has no import record, so the orbit of '{}' has no home", source.string(), meshFile );
-        const auto& thumbnail = data.GetValue()->Thumbnail;
+        const auto& thumbnail = stored->Thumbnail;
         if ( !thumbnail )
             return Common::MakeSuccess( ThumbnailOrbit{} );
         const auto it = thumbnail->find( meshFile );
@@ -269,14 +272,17 @@ namespace Desert::Assets::Serialization
         auto                        data   = ReadImportRecord( source );
         if ( !data )
             return Common::MakeError<bool>( data.GetError() );
-        if ( !data.GetValue() )
+        const auto& stored = data.GetValue();
+        if ( !stored.has_value() )
             return Common::MakeFormattedError<bool>( "'{}' does not exist, so its node meshes cannot be recorded",
                                                      record.string() );
-        ImportRecordData out = *data.GetValue();
+        ImportRecordData out = *stored;
         if ( out.Nodes == nodes )
             return BOOLSUCCESS;
         out.Nodes = nodes;
         // The kind the record states stays (ParseImportRecord checked it is a record kind).
+        if ( !out.Header.has_value() )
+            return Common::MakeFormattedError<bool>( "'{}' states no header", record.string() );
         const auto kind = Common::Content::ContentKindNamed( out.Header->Kind );
         const auto text = WriteImportRecord( out, kind.value_or( Common::Content::ContentKind::StaticMesh ) );
         if ( !text )
@@ -357,10 +363,11 @@ namespace Desert::Assets::Serialization
         auto                        data   = ReadImportRecord( source );
         if ( !data )
             return Common::MakeError<bool>( data.GetError() );
-        if ( !data.GetValue() )
+        const auto& stored = data.GetValue();
+        if ( !stored.has_value() )
             return Common::MakeFormattedError<bool>( "'{}' does not exist, so the orbit of '{}' has no home",
                                                      record.string(), meshFile );
-        ImportRecordData                            out = *data.GetValue();
+        ImportRecordData                            out = *stored;
         std::map<std::string, ThumbnailOrbitRecord> entries =
              out.Thumbnail.value_or( std::map<std::string, ThumbnailOrbitRecord>{} );
         if ( orbit == ThumbnailOrbit{} )

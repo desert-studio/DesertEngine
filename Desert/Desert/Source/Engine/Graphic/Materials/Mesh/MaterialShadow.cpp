@@ -8,6 +8,9 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <cstddef>
+#include <span>
+
 namespace Desert::Graphic
 {
     namespace
@@ -16,8 +19,8 @@ namespace Desert::Graphic
         // role, so a caster variant cannot be named here and somewhere else and drift.
         std::string ShadowShaderName( MeshVertexPath path )
         {
-            const auto name =
-                 Runtime::ResourceRegistry::GetMaterialService()->DefaultSurfaceShader( path, MeshPass::ShadowDepth );
+            const auto name = Runtime::ResourceRegistry::GetMaterialService()->DefaultSurfaceShader(
+                 path, MeshPass::ShadowDepth );
             if ( !name )
             {
                 LOG_ERROR( "[MaterialShadow] no {} caster: {}", MeshVertexPathName( path ), name.GetError() );
@@ -54,7 +57,10 @@ namespace Desert::Graphic
         cameraUB.CameraPos  = glm::vec3( 0.0f );
 
         if ( auto* camera = material.Get<UniformBufferProperty>( ShaderProtocols::Camera::Name ) )
-            camera->SetRawData( reinterpret_cast<const std::byte*>( &cameraUB ), sizeof( cameraUB ) );
+        {
+            const auto bytes = std::as_bytes( std::span{ &cameraUB, 1 } );
+            camera->SetRawData( bytes.data(), bytes.size() );
+        }
     }
 
     void MaterialShadow::SetLightMatrix( const glm::mat4& view, const glm::mat4& projection )

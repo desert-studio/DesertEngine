@@ -146,7 +146,8 @@ namespace Desert::Graphic
     // A PASS, not a shading model — the distinction matters and `Glass` is where it is easiest to blur.
     // Glass is drawn in a blended pass over the composite; which objects go there is decided by the BLEND MODE
     // of the template their material draws with (ShaderProgramMeta::Blend, `BlendMode Translucent`), exactly as
-    // UE routes a Translucent material into the translucency pass. Nothing about the shading model is encoded here.
+    // UE routes a Translucent material into the translucency pass. Nothing about the shading model is encoded
+    // here.
     enum class MeshPass : uint8_t
     {
         Forward     = 0, // lit colour, the forward path and the over-composite draws
@@ -200,7 +201,8 @@ namespace Desert::Graphic
     // is a hole the caller must refuse. @p isRegistered answers whether a program of that name is registered
     // (ShaderService at run time); MaterialService builds by this and answers CellOf by it, so "can this draw
     // here" and "what draws here" cannot disagree. Empty = no cell.
-    std::optional<std::string> TemplateCellShader( std::string_view templateName, MeshVertexPath path, MeshPass pass,
+    std::optional<std::string> TemplateCellShader( std::string_view templateName, MeshVertexPath path,
+                                                   MeshPass                                       pass,
                                                    const std::function<bool( std::string_view )>& isRegistered );
 
     // The inverse of MeshShaderFor: which vertex path a compiled cell shader ("<Template>/<Cell>", any

@@ -58,8 +58,8 @@ namespace Desert::Editor
 
     std::size_t ThumbnailCache::ResidentCount() const
     {
-        return static_cast<std::size_t>( std::count_if( m_Cache.begin(), m_Cache.end(),
-                                                        []( const auto& entry ) { return entry.second != nullptr; } ) );
+        return static_cast<std::size_t>( std::count_if( m_Cache.begin(), m_Cache.end(), []( const auto& entry )
+                                                        { return entry.second != nullptr; } ) );
     }
 
     std::shared_ptr<Graphic::Image2D> ThumbnailCache::Get( const std::string& sourcePath )

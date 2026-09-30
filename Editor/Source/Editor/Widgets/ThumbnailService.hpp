@@ -121,12 +121,21 @@ namespace Desert::Editor
         // mesh in pose.Handle, the clip (null: bind pose) in pose.Clip. The same enqueue as RequestMesh.
         std::string RequestPose( const ThumbnailSubject::Mesh& pose );
 
+        /// Queue a SKYBOX picture (ThumbnailProducers::Producer::RenderedSky): the panorama `.detex` @p assetPath
+        /// (the skybox row's file) drawn by the scene's skybox under the dome camera. Keyed on the asset path
+        /// and judged by its content hash, like a material; every shower (Content Browser tile, Details Skybox
+        /// row) asks this and draws the PNG exactly when JudgeSkyboxPicture says Show.
+        std::string RequestSkybox( const Assets::AssetHandle& skybox, const std::string& assetPath );
+        [[nodiscard]] static ThumbnailFreshness::Verdict JudgeSkyboxPicture( const std::string& assetPath );
+
         /// THE ONE JUDGEMENT OF A MESH PICTURE (UE: ThumbnailTools' one freshness answer per asset key). Every
         /// shower of a static, skinned or posed mesh picture — the Content Browser tile, the Details slots —
         /// asks this and draws the PNG exactly when it says Show; RequestMesh/RequestPose gate their enqueue on
         /// the same key (MeshRequestOf) and the same hash (SourceHash), so a shower that says Capture is a
         /// service that queues, and a repeated request of a queued picture is a no-op.
         [[nodiscard]] static ThumbnailFreshness::Verdict JudgeMeshPicture( const std::string& cookedPath );
+        /// The same for a material picture: RequestMaterial's key (the asset path) and hash (its content).
+        [[nodiscard]] static ThumbnailFreshness::Verdict JudgeMaterialPicture( const std::string& assetPath );
 
         /**
          * @brief Queue a picture that is PAINTED ON THE CPU from the file's own bytes — the four cloud
@@ -171,6 +180,10 @@ namespace Desert::Editor
         void WarmMesh( const ThumbnailSubject::Mesh& mesh );
         /// The same for a skinned mesh's pose (ThumbnailPose::ResolveSkinnedMesh's answer).
         void WarmPose( const ThumbnailSubject::Mesh& mesh );
+        /// The same for a skybox (THM-FIXH): RequestSkybox's request — key the `.detex` path, freshness its
+        /// content hash — at the front, so the splash photographs every skybox of the project as it does every
+        /// material.
+        void WarmSkybox( const Assets::AssetHandle& skybox, const std::string& assetPath );
         /// THM1n-13: a painted picture of the project warmed on the splash — RequestPainted, counted in
         /// SceneWarmPending until it lands, and painted before the hand-over (TickCapture(SceneWarmOnly) runs the
         /// paint queue while its front is a warm one).
@@ -192,6 +205,9 @@ namespace Desert::Editor
         std::string RequestPreviewMaterial( const ThumbnailSubject::Material& material,
                                             const std::string& assetPath, const Assets::ThumbnailOrbit& orbit );
         std::string RequestPreviewMesh( const ThumbnailSubject::Mesh& mesh, const Assets::ThumbnailOrbit& orbit );
+        /// The same for a posed picture (a skinned source's .skmesh, ThumbnailPose::ResolvePoseSubject): captured
+        /// as RequestPose captures it, keyed on @p pose.CookedPath.
+        std::string RequestPreviewPose( const ThumbnailSubject::Mesh& pose, const Assets::ThumbnailOrbit& orbit );
         /// The gesture on @p assetPath ended: a waiting preview is dropped (one in flight still lands).
         void EndPreview( const std::string& assetPath );
         /// A preview of @p assetPath has landed since its gesture began: the PreviewPath file is this gesture's.
@@ -243,7 +259,8 @@ namespace Desert::Editor
         {
             Material,
             Mesh,
-            Pose // a skinned mesh posed (AssetThumbnailRenderer::RequestPose)
+            Pose,  // a skinned mesh posed (AssetThumbnailRenderer::RequestPose)
+            Skybox // a skybox's HDR under the dome camera (AssetThumbnailRenderer::RequestSkybox)
         };
         struct Request
         {
@@ -287,6 +304,10 @@ namespace Desert::Editor
         // browser tile, the splash and every kind ask for one picture of one file.
         static Request MeshRequestOf( Kind kind, const Assets::AssetHandle& mesh, const std::string& cookedPath,
                                       const Assets::AssetHandle& material );
+        // THE ONE REQUEST SHAPE of a material capture (queued, warmed, previewed): its preview primitive or mesh
+        // and its whole thumbnail info, keyed under @p identity and written to @p png.
+        static Request MaterialRequestOf( const ThumbnailSubject::Material& material, std::string identity,
+                                          std::string source, std::string png );
         // THE ORBIT FROM THE MESH'S PACKAGE (its import record) into @p req, read only when a capture is owed;
         // an unreadable record is said and the asset marked failed (false).
         bool ReadMeshOrbit( Request& req );

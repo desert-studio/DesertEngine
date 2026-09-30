@@ -17,6 +17,7 @@
 #include <Common/Core/Constants.hpp>
 
 #include <filesystem>
+#include <format>
 
 namespace
 {
@@ -143,7 +144,7 @@ TEST_F( AnimationLibraryOnDemand, AClipAnImportWritesAfterPopulationIsOffered )
     const fs::path source = RepoRoot() / "Editor/Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim";
     const fs::path project =
          fs::temp_directory_path() /
-         ( "anim_library_import_" + std::to_string( ::testing::UnitTest::GetInstance()->random_seed() ) );
+         std::format( "anim_library_import_{}", ::testing::UnitTest::GetInstance()->random_seed() );
     fs::remove_all( project );
     const fs::path clipDir = project / "Resources/Assets/Meshes/Skinned";
     fs::create_directories( clipDir );

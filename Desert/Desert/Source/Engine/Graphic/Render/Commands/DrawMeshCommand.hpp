@@ -42,7 +42,8 @@ namespace Desert::Graphic::Render
         {
             if ( MaterialSlots )
                 renderer.SubmitMesh( Mesh, MaterialSlots, Transform,
-                                     { .Outlined                 = Outlined,
+                                     { .BoneMatrices             = {},
+                                       .Outlined                 = Outlined,
                                        .HiddenSubmeshes          = HiddenSubmeshes,
                                        .ForcedLOD                = ForcedLOD,
                                        .LODBias                  = LODBias,

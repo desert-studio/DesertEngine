@@ -385,17 +385,17 @@ namespace Common::Utils
 
     Common::BoolResultStr FileSystem::WriteBytesToFileAtomic( const std::filesystem::path& filepath,
                                                               std::span<const std::byte>   content,
-                                                              const std::filesystem::path& temp )
+                                                              const std::filesystem::path& workingFile )
     {
         // Contract and the reasoning behind every step are in the header. In one line: the original
         // file must survive a failure at ANY point, so nothing here ever opens the original for write.
-        std::ofstream out( temp, std::ios::binary | std::ios::trunc );
+        std::ofstream out( workingFile, std::ios::binary | std::ios::trunc );
         if ( !out )
         {
             LOG_ERROR( "[FileSystem] Atomic write failed: could not open temporary {} (original untouched)",
-                       temp.string() );
+                       workingFile.string() );
             return Common::MakeFormattedError( "could not open the temporary file {} (the original is unchanged)",
-                                               temp.string() );
+                                               workingFile.string() );
         }
 
         out.write( reinterpret_cast<const char*>( content.data() ),
@@ -406,23 +406,23 @@ namespace Common::Utils
         if ( !out )
         {
             LOG_ERROR( "[FileSystem] Atomic write failed: writing {} bytes to {} (original untouched)",
-                       content.size(), temp.string() );
+                       content.size(), workingFile.string() );
             std::error_code removeEc;
-            fs::remove( temp, removeEc );
+            fs::remove( workingFile, removeEc );
             return Common::MakeFormattedError( "could not write {} bytes to {} (the original is unchanged)",
-                                               content.size(), temp.string() );
+                                               content.size(), workingFile.string() );
         }
 
         std::error_code renameEc;
-        fs::rename( temp, filepath, renameEc ); // POSIX rename(2) / MoveFileExW: replaces atomically
+        fs::rename( workingFile, filepath, renameEc ); // POSIX rename(2) / MoveFileExW: replaces atomically
         if ( renameEc )
         {
             LOG_ERROR( "[FileSystem] Atomic write failed: renaming {} over {}: {} (original untouched)",
-                       temp.string(), filepath.string(), renameEc.message() );
+                       workingFile.string(), filepath.string(), renameEc.message() );
             std::error_code removeEc;
-            fs::remove( temp, removeEc );
+            fs::remove( workingFile, removeEc );
             return Common::MakeFormattedError( "could not rename {} over {}: {} (the original is unchanged)",
-                                               temp.string(), filepath.string(), renameEc.message() );
+                                               workingFile.string(), filepath.string(), renameEc.message() );
         }
         return BOOLSUCCESS;
     }

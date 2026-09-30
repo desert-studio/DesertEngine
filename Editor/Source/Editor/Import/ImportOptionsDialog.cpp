@@ -7,11 +7,13 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Json/Json.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
+#include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
@@ -79,7 +81,7 @@ namespace Desert::Editor::ImportOptions
         // The Details section's working copy of the mesh asset at @p assetPath's source (ImportSettingsEdits).
         Common::ResultStr<ImportSettingsEdit*> SectionEditOf( const std::filesystem::path& assetPath )
         {
-            const auto source = ImportSourceOfMeshAsset( assetPath );
+            const auto source = ImportSourceOfAsset( assetPath );
             if ( !source )
                 return Common::MakeFormattedError<ImportSettingsEdit*>( "'{}' has no import source",
                                                                         assetPath.generic_string() );
@@ -284,7 +286,7 @@ namespace Desert::Editor::ImportOptions
         for ( std::size_t i = 0; i < count && !w.Queue.empty(); ++i )
         {
             // Popped before its continuations run: a continuation may queue again (a drop of another new file).
-            QueuedSource entry = std::move( w.Queue.front() );
+            const QueuedSource entry = std::move( w.Queue.front() );
             w.Queue.pop_front();
             if ( ImportOne( entry.Source, w.Shown ) )
                 for ( const auto& then : entry.OnImported )
@@ -463,7 +465,10 @@ namespace Desert::Editor::ImportOptions
             auto last = LoadLastUsed();
             if ( !last )
                 LOG_ERROR( "[Import] {}; the window starts from the defaults", last.GetError() );
-            w.Shown = last && last.GetValue() ? *last.GetValue() : Assets::SourceImportSettings{};
+            w.Shown = Assets::SourceImportSettings{};
+            if ( last )
+                if ( const auto& saved = last.GetValue(); saved )
+                    w.Shown = *saved;
             ImGui::OpenPopup( kWindowTitle );
             w.Open = true;
         }
@@ -530,8 +535,28 @@ namespace Desert::Editor::ImportOptions
         ImGui::EndPopup();
     }
 
-    std::optional<std::filesystem::path> ImportSourceOfMeshAsset( const std::filesystem::path& assetPath )
+    std::optional<std::filesystem::path> ImportSourceOfAsset( const std::filesystem::path& assetPath )
     {
+        if ( assetPath.extension() == ".anim" ) // `<stem>_<clip>.anim` has no inverse: the clip names its source
+        {
+            const auto text = Common::Utils::FileSystem::ReadFileContentIfExists( assetPath );
+            if ( !text )
+                return std::nullopt;
+            const auto& contents = text.GetValue();
+            if ( !contents.has_value() )
+                return std::nullopt;
+            const auto clip = Assets::Serialization::ReadAnimationJson( *contents );
+            if ( !clip )
+                return std::nullopt;
+            const auto& import = clip.GetValue().Import;
+            if ( !import.has_value() || import->Source.empty() )
+                return std::nullopt;
+            std::filesystem::path source = assetPath.parent_path() / import->Source;
+            std::error_code       ec;
+            if ( !std::filesystem::is_regular_file( source, ec ) )
+                return std::nullopt;
+            return source;
+        }
         if ( auto beside = Common::Content::MeshSourceBeside( assetPath ) )
             return beside;
         if ( assetPath.extension() != ".stmesh" ) // only a static node mesh names its source inside (IMPT)
@@ -559,7 +584,7 @@ namespace Desert::Editor::ImportOptions
 
     void DrawImportSettingsSection( const std::filesystem::path& assetPath )
     {
-        const auto source = ImportSourceOfMeshAsset( assetPath );
+        const auto source = ImportSourceOfAsset( assetPath );
         if ( !source )
             return;
         const std::string key   = source->generic_string();
@@ -575,12 +600,17 @@ namespace Desert::Editor::ImportOptions
         if ( !Utils::ImGuiUtilities::SectionHeader( ICON_MDI_FILE_IMPORT_OUTLINE "  Import Settings" ) )
             return;
         ImGui::PushID( key.c_str() );
+        // The source is a FACT, not a setting (UE's AssetImportData "Source File"): its full path in the
+        // read-only table, whose declared columns cannot clip it down to the extension.
+        if ( Utils::ImGuiUtilities::BeginFactTable( "##ImportSource" ) )
+        {
+            std::error_code ec;
+            const auto      full = std::filesystem::absolute( *source, ec );
+            Utils::ImGuiUtilities::FactRow( "Source File",
+                                            ( ec ? *source : full ).lexically_normal().generic_string() );
+            Utils::ImGuiUtilities::EndFactTable();
+        }
         Utils::ImGuiUtilities::ResetPropertyRows();
-        Utils::ImGuiUtilities::BeginPropertyRow( "Source File" );
-        ImGui::TextUnformatted( source->filename().string().c_str() );
-        if ( ImGui::IsItemHovered() )
-            ImGui::SetTooltip( "%s", key.c_str() );
-        Utils::ImGuiUtilities::EndPropertyRow();
         (void)DrawImportSettingsFields( edit.Edit, ImportKindOf( edit.Kind ) );
 
         const bool edited = edit.Recorded != edit.Edit;
@@ -605,7 +635,7 @@ namespace Desert::Editor::ImportOptions
 
     Common::BoolResultStr Reimport( const std::filesystem::path& assetPath )
     {
-        const auto source = ImportSourceOfMeshAsset( assetPath );
+        const auto source = ImportSourceOfAsset( assetPath );
         if ( !source )
             return Common::MakeFormattedError<bool>( "'{}' has no import source to reimport from",
                                                      assetPath.generic_string() );
@@ -624,7 +654,7 @@ namespace Desert::Editor::ImportOptions
     Common::BoolResultStr ReimportWithNewFile( const std::filesystem::path& assetPath,
                                                const std::filesystem::path& newFile )
     {
-        const auto source = ImportSourceOfMeshAsset( assetPath );
+        const auto source = ImportSourceOfAsset( assetPath );
         if ( !source )
             return Common::MakeFormattedError<bool>( "'{}' has no import source to replace",
                                                      assetPath.generic_string() );
@@ -642,7 +672,8 @@ namespace Desert::Editor::ImportOptions
                                                      newFile.generic_string(), newFile.extension().string(),
                                                      assetPath.generic_string(), source->extension().string() );
         if ( !std::filesystem::equivalent( newFile, *source, ec ) &&
-             !std::filesystem::copy_file( newFile, *source, std::filesystem::copy_options::overwrite_existing, ec ) )
+             !std::filesystem::copy_file( newFile, *source, std::filesystem::copy_options::overwrite_existing,
+                                          ec ) )
             return Common::MakeFormattedError<bool>( "'{}' could not replace '{}': {}", newFile.generic_string(),
                                                      source->generic_string(), ec.message() );
         return Reimport( assetPath );

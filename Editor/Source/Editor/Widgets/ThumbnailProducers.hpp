@@ -28,6 +28,7 @@ namespace Desert::Editor::ThumbnailProducers
                           // preview mesh in the bind pose, an .anim as its preview mesh at the clip's middle
         RenderedMaterial, // the material on its preview (sphere / mesh / volume;
                           // ThumbnailSubject::ResolveMaterial)
+        RenderedSky,      // a skybox's HDR drawn under the dome camera (ThumbnailService::RequestSkybox)
         Decoded,          // the file IS a picture: decoded from disk (ThumbnailCache)
         Painted,          // painted on the CPU from the asset's own bytes (ThumbnailService::RequestPainted)
         NotYetProduced,   // a kind UE gives a picture and this editor does not yet: the type icon, and the
@@ -76,6 +77,8 @@ namespace Desert::Editor::ThumbnailProducers
          Row{ FileType::StringTable, Producer::TypeIcon, "UE draws a StringTable with its class icon" },
          Row{ FileType::CookedWorld, Producer::TypeIcon,
               "cooked streaming data, not authored; nothing to picture" },
+         Row{ FileType::Skybox, Producer::RenderedSky,
+              "UE (UTextureCube): the environment drawn - here by the scene's skybox under the dome camera" },
     };
 
     /// The kinds UE photographs that this editor still draws as an icon. Pinned by name so closing one is

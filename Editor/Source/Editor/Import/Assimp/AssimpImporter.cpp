@@ -1066,11 +1066,11 @@ namespace Desert::Editor
 
     Common::ResultStr<ImportContentKind> AssimpImporter::Probe( const std::filesystem::path& path )
     {
-        static ScopedAssimpLogger logger;
-        Assimp::Importer          importer;
+        static const ScopedAssimpLogger logger;
+        Assimp::Importer                importer;
         // No post-processing: the kind is the scene's meshes and bones as the file states them.
         const aiScene* scene = importer.ReadFile( path.string(), 0 );
-        if ( !scene || !scene->mRootNode )
+        if ( scene == nullptr || scene->mRootNode == nullptr )
             return Common::MakeFormattedError<ImportContentKind>( "'{}' could not be read: {}", path.string(),
                                                                   importer.GetErrorString() );
         if ( scene->mNumMeshes == 0 )

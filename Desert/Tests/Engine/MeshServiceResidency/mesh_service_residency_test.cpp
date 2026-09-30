@@ -26,6 +26,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <format>
 #include <memory>
 #include <thread>
 
@@ -329,10 +330,13 @@ TEST_F( MeshServiceResidency, ASkinnedMeshFailedForItsMissingRigIsDrawnOnceTheRi
     ASSERT_FALSE( repo.empty() );
     const fs::path shipped = repo / "Editor/Resources/Assets/Meshes/Skinned";
 
+    // A snapshot, not a reference: SetProjectRoot below rewrites the state CurrentProjectRoot() refers to, and the
+    // test restores the root it found from this copy.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     const Path::ProjectRootState saved = Path::CurrentProjectRoot();
     const fs::path               project =
          fs::temp_directory_path() /
-         ( "mesh_service_rig_" + std::to_string( ::testing::UnitTest::GetInstance()->random_seed() ) );
+         std::format( "mesh_service_rig_{}", ::testing::UnitTest::GetInstance()->random_seed() );
     fs::remove_all( project );
     const fs::path dir = project / "Resources/Assets/Meshes/Skinned";
     fs::create_directories( dir );

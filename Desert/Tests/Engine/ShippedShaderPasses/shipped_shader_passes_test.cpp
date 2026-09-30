@@ -826,7 +826,8 @@ TEST( ShippedShaderPasses, TheGlassTemplateIsTranslucentWithForwardCellsOnly )
     ASSERT_NE( glass, nullptr );
     EXPECT_EQ( glass->Meta.Domain, Desert::Core::Formats::ShaderDomain::Surface );
     EXPECT_EQ( glass->Surface.Blend, PP::SurfaceBlendMode::Translucent );
-    EXPECT_EQ( glass->Meta.Blend, PP::SurfaceBlendMode::Translucent ) << "the renderer reads the blend off the meta";
+    EXPECT_EQ( glass->Meta.Blend, PP::SurfaceBlendMode::Translucent )
+         << "the renderer reads the blend off the meta";
     const std::vector<std::string> cells = { "Static.Forward", "Instanced.Forward", "Skinned.Forward" };
     EXPECT_EQ( glass->Surface.Cells, cells ) << "a translucent surface writes no G-buffer and no depth";
     for ( const auto& name : cells )
@@ -859,7 +860,7 @@ TEST( ShippedShaderPasses, TwoTranslucentTemplatesAreTwoShadersOfTheTranslucency
          Desert::Graphic::MeshShaderFor( "StaticMeshGlass", MeshVertexPath::Static, MeshPass::Glass );
     const auto water = Desert::Graphic::MeshShaderFor( "Water", MeshVertexPath::Static, MeshPass::Glass );
     ASSERT_TRUE( glass && water );
-    EXPECT_NE( *glass, *water );
+    EXPECT_NE( glass, water );
     EXPECT_FALSE( Desert::Graphic::MeshShaderFor( "", MeshVertexPath::Static, MeshPass::Glass ).has_value() );
 
     std::filesystem::path here = std::filesystem::current_path();

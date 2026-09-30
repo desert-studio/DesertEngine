@@ -16,7 +16,6 @@
 #include <Editor/Core/ToastManager.hpp>
 #include <Editor/Panels/Foliage/FoliagePalette.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
-#include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
@@ -134,8 +133,7 @@ namespace Desert::Editor::Tools
             const std::string png    = ThumbnailService::Get().RequestMesh( mesh, source );
             if ( png.empty() )
                 return nullptr;
-            if ( ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
-                      png, MeshThumbnailFreshness( source ) ) ) != ThumbnailFreshness::Verdict::Show )
+            if ( ThumbnailService::JudgeMeshPicture( source ) != ThumbnailFreshness::Verdict::Show )
             {
                 s_Thumbnails.Invalidate( png );
                 return nullptr;

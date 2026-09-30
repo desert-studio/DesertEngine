@@ -39,11 +39,10 @@ namespace Desert::Editor::ThumbnailSubject
         std::string shaderName = asset.GetShaderName();
         if ( asset.Data().InstanceParentId().has_value() )
         {
-            auto* materials = Runtime::ResourceRegistry::GetMaterialService();
-            if ( materials == nullptr )
-                return Common::MakeFormattedError<Preview>(
-                     "it is a material instance and there is no material service to walk its parent chain" );
-            shaderName = materials->ShaderHandleOf( asset.GetMetadata().Handle ).CompileName;
+            auto name = Runtime::MaterialTemplateNameOf( asset.GetMetadata().Handle );
+            if ( !name.IsSuccess() )
+                return Common::MakeFormattedError<Preview>( "it is a material instance and {}", name.GetError() );
+            shaderName = name.GetValue();
             if ( shaderName.empty() )
                 return Common::MakeFormattedError<Preview>(
                      "it is a material instance and its parent chain reaches no template (a parent missing, "
@@ -72,7 +71,8 @@ namespace Desert::Editor::ThumbnailSubject
         // material. A black square the freshness rule then calls correct for ever.
         return Common::MakeFormattedError<Preview>(
              "its shader '{}' declares Domain {}, and no thumbnail producer draws that domain — the mesh "
-             "path executes only {} and the dome only {} and Skybox. Photographing it would write an empty frame and "
+             "path executes only {} and the dome only {} and Skybox. Photographing it would write an empty frame "
+             "and "
              "file it as the picture of this material",
              shaderName, Core::Formats::ShaderDomainName( domain ),
              Core::Formats::ShaderDomainName( Core::Formats::kMeshPathDomain ),
@@ -81,34 +81,38 @@ namespace Desert::Editor::ThumbnailSubject
 
     Common::ResultStr<std::optional<Common::AssetHandle>> DomeSkyboxOf( const Common::AssetHandle& material )
     {
-        using Answer    = std::optional<Common::AssetHandle>;
-        auto* materials = Runtime::ResourceRegistry::GetMaterialService();
-        auto* shaders   = Runtime::ResourceRegistry::GetShaderService();
-        if ( materials == nullptr || shaders == nullptr )
-            return Common::MakeFormattedError<Answer>( "there is no material or shader service to read its sky" );
+        using Answer  = std::optional<Common::AssetHandle>;
+        auto* shaders = Runtime::ResourceRegistry::GetShaderService();
+        if ( shaders == nullptr )
+            return Common::MakeFormattedError<Answer>( "there is no shader service to read its sky" );
+        auto templateName = Runtime::MaterialTemplateNameOf( Assets::AssetHandle( material ) );
+        if ( !templateName.IsSuccess() )
+            return Common::MakeFormattedError<Answer>( "{}", templateName.GetError() );
 
-        const std::string shaderName = materials->ShaderHandleOf( Assets::AssetHandle( material ) ).CompileName;
+        const std::string& shaderName = templateName.GetValue();
         const auto        shader     = shaders->GetByName( shaderName );
         if ( !shader )
-            return Common::MakeFormattedError<Answer>( "its template '{}' is not a registered shader", shaderName );
+            return Common::MakeFormattedError<Answer>( "its template '{}' is not a registered shader",
+                                                       shaderName );
         const auto& meta = shader->GetProgramMeta();
         if ( meta.Domain != Core::Formats::ShaderDomain::Skybox )
             return Common::MakeSuccess( Answer{} );
 
         // The FIRST cube property, as the Material Editor's ball wraps it: any Skybox-domain shader names its
         // own slot, and the schema is the contract.
-        const auto cube =
-             std::find_if( meta.Params.begin(), meta.Params.end(), []( const auto& p ) { return p.IsCubeTexture; } );
+        const auto cube = std::find_if( meta.Params.begin(), meta.Params.end(),
+                                        []( const auto& p ) { return p.IsCubeTexture; } );
         if ( cube == meta.Params.end() )
             return Common::MakeFormattedError<Answer>(
                  "its shader '{}' is Skybox-domain with no TextureCube property, so there is no sky to show",
                  shaderName );
 
-        Graphic::MaterialOverrides slots;
-        if ( !materials->ResolveOverrides( Assets::AssetHandle( material ), slots ) )
-            return Common::MakeFormattedError<Answer>( "it resolves to no registered material" );
-        const auto bound = std::find_if( slots.Textures.begin(), slots.Textures.end(),
-                                         [&]( const auto& t ) { return t.first == cube->Name; } );
+        auto resolved = Runtime::MaterialOverridesOf( Assets::AssetHandle( material ) );
+        if ( !resolved.IsSuccess() )
+            return Common::MakeFormattedError<Answer>( "{}", resolved.GetError() );
+        const Graphic::MaterialOverrides& slots = resolved.GetValue();
+        const auto                        bound = std::find_if( slots.Textures.begin(), slots.Textures.end(),
+                                                                [&]( const auto& t ) { return t.first == cube->Name; } );
         if ( bound == slots.Textures.end() || bound->second == 0 )
             return Common::MakeFormattedError<Answer>(
                  "nothing is bound to its cube slot '{}', so there is no sky to show", cube->DisplayName );

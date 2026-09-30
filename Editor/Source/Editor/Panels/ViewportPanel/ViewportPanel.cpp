@@ -319,14 +319,16 @@ namespace Desert::Editor
         if ( std::error_code ec;
              !std::filesystem::is_regular_file( Common::Content::ImportRecordPathFor( path ), ec ) )
         {
-            ImportOptions::Request( path,
-                                    [path, target]
-                                    {
-                                        if ( const auto placed = DropMeshIntoActiveViewport( path, target );
-                                             !placed )
-                                            LOG_ERROR( "[Viewport] '{}' imported but not placed: {}", path,
-                                                       placed.GetError() );
-                                    } );
+            // The closure (a std::string and an ActorDrop::Target, moved into std::function) throws nothing the
+            // check can name: it flags the closure's implicit constructor, not the drop.
+            ImportOptions::Request(
+                 path,
+                 // NOLINTNEXTLINE(bugprone-exception-escape)
+                 [path, target]
+                 {
+                     if ( const auto placed = DropMeshIntoActiveViewport( path, target ); !placed )
+                         LOG_ERROR( "[Viewport] '{}' imported but not placed: {}", path, placed.GetError() );
+                 } );
             LOG_INFO( "[Viewport] '{}' is new: confirm the Import Options window to place it", path );
             return BOOLSUCCESS;
         }

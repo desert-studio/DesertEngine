@@ -19,10 +19,14 @@ namespace Desert::Editor::ImportOptions
         Assets::SourceImportSettings    Edit;       // what the section shows and Reimport imports with
         Common::Content::ContentKind    Kind{};     // what the record says the source imports as (its fields)
         std::filesystem::file_time_type RecordTime; // the record's write time at that read
+        // RecordTime was inside the racy window when read (Common::Utils::IsRacyWriteTime): it proves nothing,
+        // and the next ask compares the record's content instead.
+        bool RecordRacy = true;
     };
 
     // @p source's working copy: read from its record on first ask and again whenever the record's write time
-    // differs from the one it was read at (the record then wins over an edit not yet applied, being newer). An
+    // differs from the one it was read at, or was racy then (Common::Utils::IsRacyWriteTime); a record whose
+    // content differs from what was read wins over an edit not yet applied, being newer. An
     // error naming the record when it is missing or unreadable. The pointer lives until DropEdit(@p source).
     Common::ResultStr<ImportSettingsEdit*> EditOf( const std::filesystem::path& source );
 

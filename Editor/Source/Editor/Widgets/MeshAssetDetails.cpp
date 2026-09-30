@@ -7,6 +7,7 @@
 #include <Editor/Import/ImportOptionsDialog.hpp>
 
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
+#include <Engine/Geometry/MeshStats.hpp>
 
 #include <ImGui/imgui.h>
 
@@ -49,7 +50,7 @@ namespace Desert::Editor::MeshAssetDetails
                                               : std::format( "Element {}  {}", index, section.Name );
                 ImGui::TextUnformatted( name.c_str() );
                 ImGui::TableNextColumn();
-                ImGui::TextUnformatted( FormatThousands( section.IndexCount / 3 ).c_str() );
+                ImGui::TextUnformatted( FormatThousands( Geometry::SubmeshTriangles( section ) ).c_str() );
                 ImGui::TableNextColumn();
                 ImGui::TextUnformatted( FormatThousands( section.VertexCount ).c_str() );
                 ImGui::TableNextColumn();

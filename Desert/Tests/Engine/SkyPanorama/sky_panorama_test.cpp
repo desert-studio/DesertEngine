@@ -273,8 +273,11 @@ TEST( SkyLookCensus, EveryProgramThatReadsAnEnvironmentCubeAppliesTheLook )
     // a row whose file stopped declaring a cube reddens it too, so the list cannot rot into prose.
     const std::set<std::string> registered = {
          "Programs/Deferred/DeferredLighting.shader", // the deferred composite's ambient
-         "Mesh/Surface/Pass_Forward.glslh",     // every surface template's forward cell (StandardSurface, graphs)
-         "Programs/PBR/StaticMeshGlass.shader", // the reflection at the glass's grazing edge
+         "Mesh/Surface/Pass_Forward.glslh", // every surface template's forward cell (StandardSurface, graphs)
+         // a Translucent template's forward cell: the sky's reflection at the glass's grazing edge; its
+         // instance gets the cube AND the look together from PBRSceneFrame::ApplyTo -> SceneEnvironmentBind
+         // (MeshRenderer::RenderGlassManual)
+         "Mesh/Surface/Pass_Forward_Translucent.glslh",
          "Programs/Preview/CubemapSphere.shader", // the Details panel's ball beside the sliders
          "Programs/Skybox/Skybox.shader",         // the backdrop
     };

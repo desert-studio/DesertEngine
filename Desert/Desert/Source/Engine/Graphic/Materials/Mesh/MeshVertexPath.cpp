@@ -44,7 +44,8 @@ namespace Desert::Graphic
         return std::format( "{}/{}", templateName, cell );
     }
 
-    std::optional<std::string> TemplateCellShader( std::string_view templateName, MeshVertexPath path, MeshPass pass,
+    std::optional<std::string> TemplateCellShader( std::string_view templateName, MeshVertexPath path,
+                                                   MeshPass                                       pass,
                                                    const std::function<bool( std::string_view )>& isRegistered )
     {
         auto cell = MeshShaderFor( templateName, path, pass );

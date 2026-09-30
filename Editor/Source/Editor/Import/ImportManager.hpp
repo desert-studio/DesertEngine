@@ -107,8 +107,8 @@ namespace Desert::Editor
 
         // Success ALSO means "a .demat was already there and was deliberately kept" — re-import must not
         // clobber the artist's edits, so not writing is the correct outcome, not a failure to write.
-        [[nodiscard]] Common::BoolResultStr
-        SerializeMaterialAsset( const ImportedMaterial& material, const std::filesystem::path& sourcePath );
+        [[nodiscard]] Common::BoolResultStr SerializeMaterialAsset( const ImportedMaterial&      material,
+                                                                    const std::filesystem::path& sourcePath );
 
         // The GUID the written .skeleton states (kept from the file it replaces, minted for a new one).
         [[nodiscard]] Common::ResultStr<Common::Content::AssetGuid>

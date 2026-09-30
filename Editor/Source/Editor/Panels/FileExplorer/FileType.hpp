@@ -1,5 +1,8 @@
 #pragma once
 
+#include <Common/Content/ContentKinds.hpp>
+
+#include <optional>
 #include <string_view>
 
 // The browser's asset kinds, on their own so a device-free header (Widgets/ThumbnailProducers.hpp) and its
@@ -69,12 +72,19 @@ namespace Desert::Editor
         /// A partitioned world's cooked cells and index (`.dwcell`, `.dwindex`). ONE kind for two extensions
         /// for the reason Cloud is: one colour, one icon, one producer, and neither is authored — both are
         /// written by the streaming cook beside their scene.
-        CookedWorld
+        CookedWorld,
+
+        /// A SKYBOX (a panorama `.detex` under the Skybox root; UE: a TextureCube). It shares its extension
+        /// with Texture and is told apart by its ROOT (Common ContentScan's KindOfContentFile), so it is in
+        /// no row of kFileExtensions: FileTypeOfContent types it. Its own kind because its picture is its own
+        /// — the sky drawn under the dome camera (ThumbnailProducers::Producer::RenderedSky), not the decoded
+        /// strip a texture shows.
+        Skybox
     };
 
     /// The last enumerator: the censuses that walk the enum (ThumbnailProducers) stop here, so adding a kind
     /// is one edit of this line rather than a bound hidden in each suite.
-    inline constexpr FileType kLastFileType = FileType::CookedWorld;
+    inline constexpr FileType kLastFileType = FileType::Skybox;
 
     /// ONE MAP: EXTENSION -> KIND (THM1n-3). The link before ThumbnailProducers in the chain
     /// "extension -> FileType -> producer" — the Content Browser types a file here and nowhere else, and the
@@ -155,5 +165,16 @@ namespace Desert::Editor
                 return row.Type;
         }
         return FileType::Unknown;
+    }
+
+    /// The kind of a CONTENT file: @p extension as FileTypeOf types it, except where the content kind the
+    /// file's root gives (Common::Content::KindOfContentFile) is one the extension cannot say — a Skybox
+    /// `.detex` is not a Texture `.detex`. @p kind is nullopt for a file no content scan enumerates.
+    [[nodiscard]] constexpr FileType FileTypeOfContent( std::string_view                            extension,
+                                                        std::optional<Common::Content::ContentKind> kind ) noexcept
+    {
+        if ( kind == Common::Content::ContentKind::Skybox )
+            return FileType::Skybox;
+        return FileTypeOf( extension );
     }
 } // namespace Desert::Editor

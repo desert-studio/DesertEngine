@@ -724,35 +724,68 @@ TEST( ThumbnailRequesters, NoCensusedFileHidesAnUndeclaredDrawingSite )
 // MeshThumbnailFreshness(path))) themselves, beside a service that gated its enqueue on its own spelling of the
 // same question; and the slot kept its ThumbnailCache in a widget its registration builds per draw, so every
 // frame re-asked the worker for the .skmesh PNG (417 decodes in 90 s, FPS 111 -> 59, both pictures on icons).
-// Mutations: put `ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(` back in either shower -> the first
-// test reds; put `ThumbnailCache m_Thumbnails;` back in SkinnedMeshComponentWidget.hpp -> the second reds.
+// THM-FIXE moved the other showers (Details static row, CB mesh tile and warm sweep, Collections card, Foliage
+// palette) onto the same verdict. Mutations: put `ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(` /
+// `MeshThumbnailFreshness(` back in any shower -> the first test reds; put `ThumbnailCache m_Thumbnails;` back in
+// SkinnedMeshComponentWidget.hpp -> the second reds.
 // ---------------------------------------------------------------------------------------------------
 TEST( ThumbnailRequesters, MeshPictureShowersAskTheServicesOneJudgement )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const std::pair<const char*, const char*> showers[] = {
+    // Every shower of a mesh picture (census of the call sites, THM-FIXE). The last field says whether the
+    // body also shows pictures that are NOT meshes (the warm sweep judges textures too), where an Observe of
+    // its own is legitimate; a mesh observation composed in place (MeshThumbnailFreshness) never is.
+    struct Shower
+    {
+        const char* File;
+        const char* Function;
+        bool        OtherPictures;
+    };
+    const Shower showers[] = {
          { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkinnedMeshComponentWidget.cpp",
-           "SkinnedMeshComponentWidget::DrawMeshThumbnail" },
+           "SkinnedMeshComponentWidget::DrawMeshThumbnail", false },
+         { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/StaticMeshComponent.cpp",
+           "StaticMeshComponentWidget::DrawMeshThumbnail", false },
          { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
-           "FileExplorerPanel::DrawRenderedPoseThumbnail" } };
-    for ( const auto& [file, function] : showers )
+           "FileExplorerPanel::DrawRenderedPoseThumbnail", false },
+         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
+           "bool FileExplorerPanel::DrawRenderedMeshThumbnail", false },
+         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
+           "FileExplorerPanel::WarmProjectThumbnails", true },
+         { "Editor/Source/Editor/Panels/Collections/CollectionsPanel.cpp", "CollectionsPanel::DrawCard", false },
+         { "Editor/Source/Editor/Panels/Foliage/FoliagePanel.cpp", "const void* ThumbnailOf(", false } };
+    for ( const auto& [file, function, otherPictures] : showers )
     {
         const std::string body = FunctionBody( CodeOf( root, file ), function );
         ASSERT_FALSE( body.empty() ) << function << " is not in " << file;
         EXPECT_NE( body.find( "ThumbnailService::JudgeMeshPicture" ), std::string::npos )
              << function
              << " must judge its picture through ThumbnailService::JudgeMeshPicture — the key and hash "
-                "RequestPose gates on — or it can say Capture where the service says Show";
-        EXPECT_EQ( body.find( "ThumbnailFreshness::Observe" ), std::string::npos )
-             << function << " composes its own freshness observation again";
+                "RequestMesh/RequestPose gate on — or it can say Capture where the service says Show";
+        EXPECT_EQ( body.find( "MeshThumbnailFreshness" ), std::string::npos )
+             << function << " composes its own mesh freshness hash again";
+        if ( !otherPictures )
+            EXPECT_EQ( body.find( "ThumbnailFreshness::Observe" ), std::string::npos )
+                 << function << " composes its own freshness observation again";
     }
+    // The Details mesh row falls back to a material picture: judged by the material gate's own verdict.
+    EXPECT_NE( FunctionBody( CodeOf( root, "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/"
+                                           "StaticMeshComponent.cpp" ),
+                             "StaticMeshComponentWidget::DrawMeshThumbnail" )
+                    .find( "ThumbnailService::JudgeMaterialPicture" ),
+               std::string::npos );
     const std::string service = CodeOf( root, "Editor/Source/Editor/Widgets/ThumbnailService.cpp" );
     const std::string judge   = FunctionBody( service, "ThumbnailService::JudgeMeshPicture" );
     ASSERT_FALSE( judge.empty() );
     for ( const char* shared : { "MeshRequestOf", "NeedsCapture", "SourceHash" } )
         EXPECT_NE( judge.find( shared ), std::string::npos )
              << "JudgeMeshPicture must build its answer from the enqueue gate's own " << shared;
+    const std::string material = FunctionBody( service, "ThumbnailService::JudgeMaterialPicture" );
+    ASSERT_FALSE( material.empty() );
+    for ( const char* shared : { "ThumbnailKey::DiskPath", "NeedsCapture", "ThumbnailFreshness::ContentHash" } )
+        EXPECT_NE( material.find( shared ), std::string::npos )
+             << "JudgeMaterialPicture must build its answer from RequestMaterial's own " << shared;
 }
 
 TEST( ThumbnailRequesters, AComponentWidgetBuiltPerDrawOwnsNoPictureCache )
@@ -772,6 +805,39 @@ TEST( ThumbnailRequesters, AComponentWidgetBuiltPerDrawOwnsNoPictureCache )
             "forever";
     EXPECT_EQ( header.find( "std::unique_ptr<UI::UIHelper>" ), std::string::npos )
          << "a widget rebuilt every frame builds its own UIHelper: texture ids die with the frame";
+}
+
+// THM-FIXF: DETAILS HOLDS NO RENDER VIEW. UE's Details slots draw pictures from the thumbnail pool; a live view
+// belongs to an asset window and dies with it. The panel used to build a full SceneRenderer (shadow cascade,
+// SMAA, fog) as 'preview #N' the moment a mesh was clicked and render it every frame while the entity stayed
+// selected — 140 -> 100 FPS measured. The census: no Details file names a view's creator.
+TEST( ThumbnailRequesters, DetailsBuildsNoRenderViewOfItsOwn )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    std::vector<std::string> files = {
+         "Editor/Source/Editor/Panels/SceneProperties/ScenePropertiesPanel.hpp",
+         "Editor/Source/Editor/Panels/SceneProperties/ScenePropertiesPanel.cpp",
+         "Editor/Source/Editor/Panels/SceneProperties/ComponentEditor.hpp",
+         "Editor/Source/Editor/Panels/SceneProperties/ComponentEditor.cpp",
+         "Editor/Source/Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp",
+         "Editor/Source/Editor/Panels/PropertyEditor/ComponentWidgetRegistry.cpp",
+    };
+    const std::string widgets = "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets";
+    for ( const auto& entry : fs::recursive_directory_iterator( root + widgets ) )
+        if ( entry.is_regular_file() )
+            files.push_back( fs::relative( entry.path(), root ).generic_string() );
+    ASSERT_GT( files.size(), 10u ) << "the ComponentWidgets folder was not found from " << root;
+
+    for ( const auto& file : files )
+    {
+        const std::string code = CodeOf( root, file );
+        ASSERT_FALSE( code.empty() ) << file;
+        for ( const char* creator :
+              { "PreviewViewport", "SceneRenderer", "MayCreateView", "kPreviewViewProfile", "DrawPreview" } )
+            EXPECT_EQ( code.find( creator ), std::string::npos )
+                 << file << " names " << creator << ": Details shows thumbnails, a live view is an asset window's";
+    }
 }
 
 int main( int argc, char** argv )

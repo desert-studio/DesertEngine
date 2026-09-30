@@ -3,7 +3,8 @@
 //
 // The engine has two routes for a data-driven material, and they are NOT equivalent:
 //
-//   * the per-SLOT route -- StaticMeshComponent::MaterialSlots -> MaterialService (CreateSurfaceMaterial) -> a DataDrivenMaterial
+//   * the per-SLOT route -- StaticMeshComponent::MaterialSlots -> MaterialService (CreateSurfaceMaterial) -> a
+//   DataDrivenMaterial
 //     that IS the asset. What a real scene mesh takes.
 //   * the shader-OVERRIDE route -- MaterialComponent::ShaderName + per-draw overrides, driving a material
 //     shared by shader name. MeshRenderer re-applies ApplyDefaults() to it EVERY frame, so an asset's
@@ -25,6 +26,7 @@
 
 #include <gtest/gtest.h>
 
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -361,7 +363,8 @@ int main( int argc, char** argv )
 // per capture, before the subject is staged — and the staging itself is once per capture, not per frame.
 TEST_F( MaterialPreviewRoute, EveryCaptureStartsFromTheBaseScene )
 {
-    const std::string src = ReadFile( RepoRoot() + "Editor/Source/Editor/Widgets/AssetThumbnailRenderer.cpp" );
+    const std::string src =
+         ReadFile( std::format( "{}Editor/Source/Editor/Widgets/AssetThumbnailRenderer.cpp", RepoRoot() ) );
     ASSERT_FALSE( src.empty() );
     const auto staged = src.find( "if ( !m_Staged )" );
     ASSERT_NE( staged, std::string::npos );

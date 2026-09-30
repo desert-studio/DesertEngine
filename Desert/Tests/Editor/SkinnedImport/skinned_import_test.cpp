@@ -22,6 +22,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/SkeletonReferenceAssets.hpp>
+#include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
@@ -35,13 +36,17 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+#include <bit>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <format>
 #include <fstream>
 #include <iterator>
 #include <map>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace Desert;
@@ -52,8 +57,8 @@ namespace
     template <typename T>
     void Put( std::vector<unsigned char>& bytes, const T& value )
     {
-        const auto* p = reinterpret_cast<const unsigned char*>( &value );
-        bytes.insert( bytes.end(), p, p + sizeof( T ) );
+        const auto raw = std::bit_cast<std::array<unsigned char, sizeof( T )>>( value );
+        bytes.insert( bytes.end(), raw.begin(), raw.end() );
     }
 
     std::string Base64( const std::vector<unsigned char>& bytes )
@@ -84,27 +89,33 @@ namespace
     {
         std::vector<unsigned char> b;
         const float                positions[9] = { -0.5f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f };
-        for ( float f : positions )
+        for ( const float f : positions )
             Put( b, f );
         const unsigned char joints[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0 };
-        for ( unsigned char j : joints )
+        for ( const unsigned char j : joints )
             Put( b, j );
         for ( int v = 0; v < 3; ++v )
-            for ( float w : { 1.0f, 0.0f, 0.0f, 0.0f } )
+            for ( const float w : { 1.0f, 0.0f, 0.0f, 0.0f } )
                 Put( b, w );
         // Column-major, as glTF states them: the root's bind is the identity, the tip's is 1 unit up +Z.
         for ( int bone = 0; bone < 2; ++bone )
             for ( int i = 0; i < 16; ++i )
-                Put( b, i == 14 ? ( bone == 1 ? -1.0f : 0.0f ) : ( i % 5 == 0 ? 1.0f : 0.0f ) );
-        for ( float t : { 0.0f, 1.0f } )
+            {
+                float element = i % 5 == 0 ? 1.0f : 0.0f;
+                if ( i == 14 && bone == 1 )
+                    element = -1.0f;
+                Put( b, element );
+            }
+        for ( const float t : { 0.0f, 1.0f } )
             Put( b, t );
-        const float s = std::sin( glm::radians( 22.5f ) ), c = std::cos( glm::radians( 22.5f ) );
-        for ( float q : { 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, s, c } )
+        const float s = std::sin( glm::radians( 22.5f ) );
+        const float c = std::cos( glm::radians( 22.5f ) );
+        for ( const float q : { 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, s, c } )
             Put( b, q );
         EXPECT_EQ( b.size(), 264u );
 
-        const std::string uri = "data:application/octet-stream;base64," + Base64( b );
-        return R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],
+        const std::string          uri    = std::format( "data:application/octet-stream;base64,{}", Base64( b ) );
+        constexpr std::string_view head   = R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],
 "nodes":[
  {"name":"Z_UP","matrix":[1,0,0,0, 0,0,-1,0, 0,1,0,0, 0,0,0,1],"children":[1,3]},
  {"name":"Root","children":[2]},
@@ -115,8 +126,8 @@ namespace
 "meshes":[{"name":"Body","primitives":[{"attributes":{"POSITION":0,"JOINTS_0":1,"WEIGHTS_0":2},"material":0}]}],
 "materials":[{"name":"Skin","pbrMetallicRoughness":{"baseColorTexture":{"index":0}}}],
 "textures":[{"source":0}],
-"images":[{"mimeType":"image/png","uri":"data:image/png;base64,)" +
-               std::string( OnePixelPng ) + R"("}],
+"images":[{"mimeType":"image/png","uri":"data:image/png;base64,)";
+        constexpr std::string_view middle = R"("}],
 "animations":[{"name":"Turn","samplers":[{"input":4,"output":5,"interpolation":"LINEAR"}],
  "channels":[{"sampler":0,"target":{"node":1,"path":"rotation"}}]}],
 "accessors":[
@@ -133,8 +144,9 @@ namespace
  {"buffer":0,"byteOffset":96,"byteLength":128},
  {"buffer":0,"byteOffset":224,"byteLength":8},
  {"buffer":0,"byteOffset":232,"byteLength":32}],
-"buffers":[{"byteLength":264,"uri":")" +
-               uri + R"("}]})";
+"buffers":[{"byteLength":264,"uri":")";
+        constexpr std::string_view tail   = R"("}]})";
+        return std::format( "{}{}{}{}{}", head, OnePixelPng, middle, uri, tail );
     }
 
     std::string Read( const std::filesystem::path& file )
@@ -159,19 +171,19 @@ namespace
     {
     protected:
         // The mock's material needs a template to go to, as in the editor after its shaders load: the shipped
-        // PBR and Unlit shaders, read by the importer's own reader and published through the same seam the
-        // registry uses (run from the tree root, before the sandbox moves the process).
+        // StandardSurface and Unlit templates, read by the importer's own reader and published through the same
+        // seam the registry uses (run from the tree root, before the sandbox moves the process).
         static void SetUpTestSuite()
         {
             std::vector<Editor::ImportTemplate> shipped;
-            for ( const char* file : { "Editor/Resources/Shaders/Programs/PBR/StaticMeshPBR.shader",
+            for ( const char* file : { "Editor/Resources/Shaders/Programs/PBR/StandardSurface.shader",
                                        "Editor/Resources/Shaders/Programs/Unlit/Unlit.shader" } )
             {
                 const auto text = Common::Utils::FileSystem::ReadFileContent( file );
                 ASSERT_TRUE( text.IsSuccess() ) << file << " (run from the tree root)";
                 auto read = Editor::ReadImportTemplate( text.GetValue(), file );
                 ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
-                shipped.push_back( std::move( read.GetValue() ) );
+                shipped.push_back( read.GetValue() );
             }
             ASSERT_EQ( Editor::ImportManager::PublishImportTemplates( std::move( shipped ) ), 2u );
         }
@@ -200,11 +212,11 @@ namespace
         // The embedded base colour is cooked as a texture, and a texture cook stores its platform data in the
         // DDC: without a sandboxed cache root the texture import refuses and the whole cook is Incomplete.
         TestSupport::DerivedDataSandbox m_DerivedData{ "SkinnedImport" };
-        TestSupport::AssetsSandbox m_Sandbox{ "SkinnedImport", {} };
-        std::filesystem::path      m_Source = "Resources/Assets/Mock/Rig.gltf";
-        Editor::ImportOutcome      m_Outcome;
-        uint64_t                   m_Before = 0;
-        uint64_t                   m_After  = 0;
+        TestSupport::AssetsSandbox      m_Sandbox{ "SkinnedImport", {} };
+        std::filesystem::path           m_Source = "Resources/Assets/Mock/Rig.gltf";
+        Editor::ImportOutcome           m_Outcome;
+        uint64_t                        m_Before = 0;
+        uint64_t                        m_After  = 0;
     };
 } // namespace
 
@@ -272,12 +284,31 @@ TEST_F( SkinnedImport, TheRigAndItsClipAreWrittenBeforeTheMeshAndTheRecordSaysSk
     EXPECT_EQ( kind.GetValue(), ContentKind::SkinnedMesh );
 }
 
+// THM-FIXJ: Reimport of a clip re-imports its source (UE: UAnimSequence::AssetImportData). `<stem>_<clip>.anim`
+// has no inverse, so the clip STATES the source it came from and the bytes' hash; live on Fox_Walk.anim "has no
+// import source to reimport from". ImportOptions::ImportSourceOfAsset resolves this statement beside the clip.
+TEST_F( SkinnedImport, TheClipNamesTheSourceItWasImportedFrom )
+{
+    ASSERT_FALSE( m_Outcome.WrittenClips.empty() );
+    const auto clip = Ser::ReadAnimationJson( Read( m_Outcome.WrittenClips.front() ) );
+    ASSERT_TRUE( clip.IsSuccess() ) << clip.GetError();
+    const auto& import = clip.GetValue().Import;
+    if ( !import.has_value() )
+        FAIL() << "the clip states no import source";
+    const auto& stated = *import;
+    EXPECT_EQ( stated.Source, m_Source.filename().generic_string() );
+    const auto hash = Assets::HashMeshSourceFile( m_Source );
+    ASSERT_TRUE( hash.IsSuccess() ) << hash.GetError();
+    EXPECT_EQ( stated.SourceHash, hash.GetValue() );
+}
+
 // THM1l-b19: the texture EMBEDDED in the file ("*0" to assimp, a data-URI image here, a bufferView image in a
 // .glb) is written out beside the source as a texture of its own and the material names it. Live on Fox.glb:
 // "texture '*0' (type 1) NOT FOUND" and the fox drew white.
 TEST_F( SkinnedImport, TheEmbeddedBaseColourIsWrittenBesideTheSource )
 {
-    const std::filesystem::path extracted = m_Source.parent_path() / ( m_Source.stem().string() + "_0.png" );
+    const std::filesystem::path extracted =
+         m_Source.parent_path() / std::format( "{}_0.png", m_Source.stem().string() );
     EXPECT_TRUE( std::filesystem::exists( extracted ) ) << extracted.string();
 }
 

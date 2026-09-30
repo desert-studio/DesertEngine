@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <format>
 
 namespace Desert::Editor
 {
@@ -58,7 +59,9 @@ namespace Desert::Editor
     std::optional<uint64_t> ThumbnailService::SourceHash( Kind type, const std::string& source )
     {
         // A posed skinned mesh is a mesh picture: judged by its bytes AND the orbit its import record states.
-        return type == Kind::Material ? ThumbnailFreshness::ContentHash( source ) : MeshThumbnailFreshness( source );
+        // A material and a skybox are pictures of their own file's content.
+        return type == Kind::Material || type == Kind::Skybox ? ThumbnailFreshness::ContentHash( source )
+                                                              : MeshThumbnailFreshness( source );
     }
 
     bool ThumbnailService::NeedsCapture( const std::string& png, std::optional<uint64_t> current )
@@ -103,12 +106,7 @@ namespace Desert::Editor
         const std::string png      = ThumbnailKey::DiskPath( assetPath );
         if ( ShouldQueue( identity, png, ThumbnailFreshness::ContentHash( assetPath ) ) )
         {
-            Request req{ Kind::Material, material.Handle, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
-                         identity,       assetPath,       png,
-                         material.How };
-            req.PreviewMesh = material.PreviewMesh;
-            req.Thumbnail   = material.Thumbnail;
-            m_Queue.push_back( req );
+            m_Queue.push_back( MaterialRequestOf( material, identity, assetPath, png ) );
             m_Queued.insert( identity );
             HoldSubjects();
         }
@@ -130,7 +128,7 @@ namespace Desert::Editor
         if ( !resolved )
         {
             Refuse( assetPath, resolved.GetError() );
-            return std::string();
+            return {};
         }
         return RequestMaterial( resolved.GetValue(), assetPath );
     }
@@ -144,16 +142,8 @@ namespace Desert::Editor
 
     void ThumbnailService::WarmMaterial( const ThumbnailSubject::Material& material, const std::string& assetPath )
     {
-        Request req{ Kind::Material,
-                     material.Handle,
-                     Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
-                     ThumbnailKey::Identity( assetPath ),
-                     assetPath,
-                     ThumbnailKey::DiskPath( assetPath ),
-                     material.How };
-        req.PreviewMesh = material.PreviewMesh;
-        req.Thumbnail   = material.Thumbnail;
-        Warm( std::move( req ) );
+        Warm( MaterialRequestOf( material, ThumbnailKey::Identity( assetPath ), assetPath,
+                                 ThumbnailKey::DiskPath( assetPath ) ) );
     }
 
     void ThumbnailService::WarmMesh( const ThumbnailSubject::Mesh& mesh )
@@ -174,17 +164,50 @@ namespace Desert::Editor
             Warm( std::move( req ) );
     }
 
+    void ThumbnailService::WarmSkybox( const Assets::AssetHandle& skybox, const std::string& assetPath )
+    {
+        Warm( { .Type        = Kind::Skybox,
+                .Handle      = skybox,
+                .Material    = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
+                .Identity    = ThumbnailKey::Identity( assetPath ),
+                .Source      = assetPath,
+                .Png         = ThumbnailKey::DiskPath( assetPath ),
+                .How         = ThumbnailSubject::Preview::Sphere,
+                .PreviewMesh = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
+                .Thumbnail   = {},
+                .Clip        = nullptr } );
+    }
+
     ThumbnailService::Request ThumbnailService::MeshRequestOf( Kind kind, const Assets::AssetHandle& mesh,
                                                                const std::string&         cookedPath,
                                                                const Assets::AssetHandle& material )
     {
-        return { kind,
-                 mesh,
-                 material,
-                 ThumbnailKey::Identity( cookedPath ),
-                 ThumbnailFreshness::MeshFreshnessSource( cookedPath ).generic_string(),
-                 ThumbnailKey::DiskPath( cookedPath ),
-                 ThumbnailSubject::Preview::Sphere };
+        return { .Type        = kind,
+                 .Handle      = mesh,
+                 .Material    = material,
+                 .Identity    = ThumbnailKey::Identity( cookedPath ),
+                 .Source      = ThumbnailFreshness::MeshFreshnessSource( cookedPath ).generic_string(),
+                 .Png         = ThumbnailKey::DiskPath( cookedPath ),
+                 .How         = ThumbnailSubject::Preview::Sphere,
+                 .PreviewMesh = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
+                 .Thumbnail   = {},
+                 .Clip        = nullptr };
+    }
+
+    ThumbnailService::Request ThumbnailService::MaterialRequestOf( const ThumbnailSubject::Material& material,
+                                                                   std::string identity, std::string source,
+                                                                   std::string png )
+    {
+        return { .Type        = Kind::Material,
+                 .Handle      = material.Handle,
+                 .Material    = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
+                 .Identity    = std::move( identity ),
+                 .Source      = std::move( source ),
+                 .Png         = std::move( png ),
+                 .How         = material.How,
+                 .PreviewMesh = material.PreviewMesh,
+                 .Thumbnail   = material.Thumbnail,
+                 .Clip        = nullptr };
     }
 
     bool ThumbnailService::ReadMeshOrbit( Request& req )
@@ -235,7 +258,7 @@ namespace Desert::Editor
             {
                 if ( static_cast<uint64_t>( handle ) != 0 )
                     pins.push_back( std::make_unique<Assets::AssetRootPin>(
-                         handle, "a thumbnail of '" + req.Source + "' is queued for capture" ) );
+                         handle, std::format( "a thumbnail of '{}' is queued for capture", req.Source ) ) );
             }
         }
     }
@@ -267,6 +290,38 @@ namespace Desert::Editor
                                            cookedPath, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
         return NeedsCapture( req.Png, SourceHash( req.Type, req.Source ) ) ? ThumbnailFreshness::Verdict::Capture
                                                                            : ThumbnailFreshness::Verdict::Show;
+    }
+
+    ThumbnailFreshness::Verdict ThumbnailService::JudgeMaterialPicture( const std::string& assetPath )
+    {
+        return NeedsCapture( ThumbnailKey::DiskPath( assetPath ), ThumbnailFreshness::ContentHash( assetPath ) )
+                    ? ThumbnailFreshness::Verdict::Capture
+                    : ThumbnailFreshness::Verdict::Show;
+    }
+
+    std::string ThumbnailService::RequestSkybox( const Assets::AssetHandle& skybox, const std::string& assetPath )
+    {
+        const std::string identity = ThumbnailKey::Identity( assetPath );
+        const std::string png      = ThumbnailKey::DiskPath( assetPath );
+        if ( ShouldQueue( identity, png, SourceHash( Kind::Skybox, assetPath ) ) )
+        {
+            // Every field stated: a skybox is framed by the dome camera alone - no preview primitive, no preview
+            // mesh, no thumbnail info, no clip.
+            m_Queue.push_back( { Kind::Skybox, skybox, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ), identity,
+                                 assetPath, png, ThumbnailSubject::Preview::Sphere,
+                                 Assets::AssetHandle( static_cast<uint64_t>( 0 ) ), Assets::ThumbnailInfo{},
+                                 nullptr } );
+            m_Queued.insert( identity );
+            HoldSubjects();
+        }
+        return png;
+    }
+
+    ThumbnailFreshness::Verdict ThumbnailService::JudgeSkyboxPicture( const std::string& assetPath )
+    {
+        return NeedsCapture( ThumbnailKey::DiskPath( assetPath ), SourceHash( Kind::Skybox, assetPath ) )
+                    ? ThumbnailFreshness::Verdict::Capture
+                    : ThumbnailFreshness::Verdict::Show;
     }
 
     std::string ThumbnailService::EnqueueMeshLike( Request req )
@@ -482,6 +537,8 @@ namespace Desert::Editor
     {
         if ( req.Type == Kind::Mesh )
             return m_Renderer->RequestMesh( req.Handle, req.Png, req.Thumbnail.Orbit, req.Material );
+        if ( req.Type == Kind::Skybox )
+            return m_Renderer->RequestSkybox( req.Handle, req.Png );
         if ( req.Type == Kind::Pose )
             return m_Renderer->RequestPose( req.Handle, req.Clip, req.Png,
                                             req.Thumbnail.Orbit ); // null: bind pose
@@ -500,12 +557,8 @@ namespace Desert::Editor
     {
         const std::string identity = ThumbnailKey::Identity( assetPath );
         const std::string png      = ThumbnailKey::PreviewPath( assetPath );
-        Request           req{ Kind::Material, material.Handle, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
-                     identity,       assetPath,       png,
-                     material.How };
-        req.PreviewMesh     = material.PreviewMesh;
-        req.Thumbnail       = material.Thumbnail;
-        req.Thumbnail.Orbit = orbit;
+        Request           req      = MaterialRequestOf( material, identity, assetPath, png );
+        req.Thumbnail.Orbit        = orbit;
         m_Preview.Put( identity, orbit, std::move( req ) );
         return png;
     }
@@ -515,13 +568,36 @@ namespace Desert::Editor
     {
         const std::string identity = ThumbnailKey::Identity( mesh.CookedPath );
         const std::string png      = ThumbnailKey::PreviewPath( mesh.CookedPath );
-        Request           req{ Kind::Mesh,
-                     mesh.Handle,
-                     mesh.Material,
-                     identity,
-                     mesh.CookedPath,
-                     png,
-                     ThumbnailSubject::Preview::Sphere };
+        Request           req{ .Type        = Kind::Mesh,
+                               .Handle      = mesh.Handle,
+                               .Material    = mesh.Material,
+                               .Identity    = identity,
+                               .Source      = mesh.CookedPath,
+                               .Png         = png,
+                               .How         = ThumbnailSubject::Preview::Sphere,
+                               .PreviewMesh = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
+                               .Thumbnail   = {},
+                               .Clip        = nullptr };
+        req.Thumbnail.Orbit = orbit;
+        m_Preview.Put( identity, orbit, std::move( req ) );
+        return png;
+    }
+
+    std::string ThumbnailService::RequestPreviewPose( const ThumbnailSubject::Mesh& pose,
+                                                      const Assets::ThumbnailOrbit& orbit )
+    {
+        const std::string identity = ThumbnailKey::Identity( pose.CookedPath );
+        const std::string png      = ThumbnailKey::PreviewPath( pose.CookedPath );
+        Request           req{ .Type        = Kind::Pose,
+                               .Handle      = pose.Handle,
+                               .Material    = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
+                               .Identity    = identity,
+                               .Source      = pose.CookedPath,
+                               .Png         = png,
+                               .How         = ThumbnailSubject::Preview::Sphere,
+                               .PreviewMesh = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
+                               .Thumbnail   = {},
+                               .Clip        = pose.Clip };
         req.Thumbnail.Orbit = orbit;
         m_Preview.Put( identity, orbit, std::move( req ) );
         return png;
@@ -548,10 +624,12 @@ namespace Desert::Editor
         }
         // A person is dragging: ahead of the background queue and its budget, never on the splash, and never
         // into a background capture still in flight (the renderer has a single slot).
-        if ( !m_Preview.Waiting() || scope != ThumbnailWarmup::CaptureScope::Everything ||
-             m_Capture.Outstanding() || m_Renderer->HasPending() )
+        if ( scope != ThumbnailWarmup::CaptureScope::Everything || m_Capture.Outstanding() ||
+             m_Renderer->HasPending() )
             return false;
-        const auto      entry = m_Preview.Take();
+        const auto entry = m_Preview.Take(); // nothing waiting: nothing to photograph
+        if ( !entry )
+            return false;
         std::error_code ec;
         std::filesystem::create_directories( std::filesystem::path( entry->What.Png ).parent_path(), ec );
         if ( ec )

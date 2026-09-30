@@ -18,6 +18,7 @@
 
 #include <gtest/gtest.h>
 
+#include <format>
 #include <fstream>
 #include <sstream>
 
@@ -149,7 +150,7 @@ TEST( ImportRecord, TheRecordStatesTheImportedBoxAndTheRegistryReadsItWithoutThe
     ASSERT_TRUE( expected.has_value() );
     // A cold DDC: only the record exists - no envelope was ever cached for this source.
     ASSERT_TRUE(
-         Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, *expected, {} ) );
+         Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, expected, {} ) );
     ASSERT_FALSE( Editor::ImportedMeshAssetIsFresh( project.Source ) ) << "the DDC is not cold";
 
     const auto described =
@@ -177,7 +178,7 @@ TEST( ImportRecord, TheDetailsCopyIsReadAgainWhenTheRecordOnDiskIsNewer )
     Assets::SourceImportSettings imported;
     imported.Mesh.UniformScale = 10.0f;
     ASSERT_TRUE(
-         Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, *box, imported ) );
+         Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, box, imported ) );
 
     const auto first = Editor::ImportOptions::EditOf( project.Source );
     ASSERT_TRUE( first ) << first.GetError();
@@ -193,7 +194,7 @@ TEST( ImportRecord, TheDetailsCopyIsReadAgainWhenTheRecordOnDiskIsNewer )
     Assets::SourceImportSettings onDisk;
     onDisk.Mesh.UniformScale = 1.0f;
     ASSERT_TRUE(
-         Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, *box, onDisk ) );
+         Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, box, onDisk ) );
     const fs::path record = Common::Content::ImportRecordPathFor( project.Source );
     fs::last_write_time( record, fs::last_write_time( record ) + std::chrono::seconds( 2 ) );
     const auto again = Editor::ImportOptions::EditOf( project.Source );
@@ -242,7 +243,7 @@ TEST( ImportRecord, ARecordCopiedBesideAnotherSourceIsRefusedByName )
     const auto    bounds = Ser::MeshDataBounds( Quad() );
     if ( !bounds.has_value() )
         FAIL() << "the quad has no bounds";
-    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, *bounds, {} ) );
+    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, bounds, {} ) );
     const fs::path other = project.Source.parent_path() / "Tree.fbx";
     std::ofstream( other ) << "tree";
     fs::copy_file( Common::Content::ImportRecordPathFor( project.Source ),
@@ -291,7 +292,7 @@ TEST( ImportRecord, ADroppedThumbnailMeshIsNamedByTheRecordsGuid )
     const auto bounds = Ser::MeshDataBounds( Quad() );
     if ( !bounds.has_value() )
         FAIL() << "the quad has no bounds";
-    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, *bounds, {} ) );
+    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, bounds, {} ) );
     const auto guid = Ser::ReadImportRecordGuid( project.Source );
     ASSERT_TRUE( guid );
     const auto ref = Editor::PreviewMeshRefFor( project.Source );
@@ -302,10 +303,11 @@ TEST( ImportRecord, ADroppedThumbnailMeshIsNamedByTheRecordsGuid )
 
 TEST( ImportRecord, ARecordStatingAKindNoImportWritesIsRefusedByName )
 {
-    const Project project( "import_record_foreign_kind" );
+    const Project  project( "import_record_foreign_kind" );
     const fs::path record = Common::Content::ImportRecordPathFor( project.Source );
-    const auto box     = Ser::MeshDataBounds( Quad() );
-    const auto written = Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::SkinnedMesh, box, {} );
+    const auto     box    = Ser::MeshDataBounds( Quad() );
+    const auto     written =
+         Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::SkinnedMesh, box, {} );
     ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
     const auto skinned = Ser::ReadImportRecordKind( project.Source );
     ASSERT_TRUE( skinned.IsSuccess() ) << skinned.GetError();
@@ -330,7 +332,9 @@ TEST( ImportRecord, ARecordStatingAKindNoImportWritesIsRefusedByName )
 TEST( ImportRecord, NoRecordInTheRepositoryCallsASkinnedSourceStatic )
 {
     std::string root = "./";
-    for ( int up = 0; up < 6 && !fs::exists( root + "Desert/Desert/Source/Engine/Core/SceneSettings.hpp" ); ++up )
+    for ( int up = 0;
+          up < 6 && !fs::exists( std::format( "{}Desert/Desert/Source/Engine/Core/SceneSettings.hpp", root ) );
+          ++up )
         root += "../";
     const fs::path resources = fs::path( root ) / "Editor/Resources";
     ASSERT_TRUE( fs::is_directory( resources ) ) << "the census runs from inside the repository";

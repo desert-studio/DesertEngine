@@ -89,21 +89,19 @@ TEST( ThumbnailWarmup, TheSplashWarmsTheScenesSubjectsThenTheFoldersUncapturedTi
          { "/p/Assets/Meshes/Rock.stmesh", WarmKind::Mesh },
     };
     const std::vector<WarmItem> folder = {
-         { "/p/Assets/Meshes/Crate.fbx", WarmKind::Mesh },       // no picture on disk
-         { "/p/Assets/Meshes/Barrel.fbx", WarmKind::Mesh },      // fresh picture
-         { "/p/Assets/Meshes/Rock.stmesh", WarmKind::Mesh },     // the scene already warms it
+         { "/p/Assets/Meshes/Crate.fbx", WarmKind::Mesh },          // no picture on disk
+         { "/p/Assets/Meshes/Barrel.fbx", WarmKind::Mesh },         // fresh picture
+         { "/p/Assets/Meshes/Rock.stmesh", WarmKind::Mesh },        // the scene already warms it
          { "/p/Assets/Materials/Stale.demat", WarmKind::Material }, // stale picture
     };
     const std::map<std::string, bool> needs = {
-         { "/p/Assets/Meshes/Crate.fbx", true },
-         { "/p/Assets/Meshes/Barrel.fbx", false },
-         { "/p/Assets/Meshes/Rock.stmesh", true },
-         { "/p/Assets/Materials/Stale.demat", true },
+         { "/p/Assets/Meshes/Crate.fbx", true },   { "/p/Assets/Meshes/Barrel.fbx", false },
+         { "/p/Assets/Meshes/Rock.stmesh", true }, { "/p/Assets/Materials/Stale.demat", true },
          { "/p/Assets/Materials/A.demat", false },
     };
     const auto needsCapture = [&]( const WarmItem& item ) { return needs.at( item.Path ); };
 
-    const std::vector<WarmItem> warm = Warmup::SplashWarmList( scene, folder, needsCapture );
+    const std::vector<WarmItem> warm     = Warmup::SplashWarmList( scene, folder, needsCapture );
     const std::vector<WarmItem> expected = {
          { "/p/Assets/Materials/A.demat", WarmKind::Material },
          { "/p/Assets/Meshes/Rock.stmesh", WarmKind::Mesh },
@@ -223,7 +221,7 @@ TEST( ThumbnailWarmup, TheProjectListIsEveryRegistryRowWithAPictureProducer )
          { "/p/Assets/Meshes/Fox.skmesh", WarmKind::Pose },
          { "/p/Assets/Meshes/Fox_Walk.anim", WarmKind::Pose }, // THM-FIXB: the preview mesh at mid-clip
          { "/p/Assets/Meshes/Rock.stmesh", WarmKind::Mesh },
-         { "/p/Assets/Skybox/Dusk.detex", WarmKind::Decoded },
+         { "/p/Assets/Skybox/Dusk.detex", WarmKind::Sky }, // THM-FIXH: typed by its row's kind, photographed
          { "/p/Assets/Textures/Bark.detex", WarmKind::Decoded },
          { "/p/Assets/UI/Dark.detheme", WarmKind::Painted },
     };
@@ -242,7 +240,25 @@ TEST( ThumbnailWarmup, TheProjectListIsEveryRegistryRowWithAPictureProducer )
     // A texture is its own picture: in the project list, never a capture.
     const std::vector<WarmItem> captures =
          Warmup::SplashWarmList( {}, expected, []( const WarmItem& ) { return true; } );
-    EXPECT_EQ( captures.size(), expected.size() - 2 );
+    EXPECT_EQ( captures.size(), expected.size() - 1 );
     EXPECT_TRUE( std::none_of( captures.begin(), captures.end(),
                                []( const WarmItem& item ) { return item.Kind == WarmKind::Decoded; } ) );
+
+    // THM-FIXH (owner 09-29: the window shows when EVERY picture of EVERY kind is ready): a skybox is a capture
+    // the splash runs, not one left to the first sight of its tile.
+    const WarmItem sky{ "/p/Assets/Skybox/Dusk.detex", WarmKind::Sky };
+    EXPECT_NE( std::find( captures.begin(), captures.end(), sky ), captures.end() )
+         << "the splash photographs the project's skyboxes";
+}
+
+// Every producer that makes a picture has a warm kind — none is left to be captured on sight after the reveal.
+TEST( ThumbnailWarmup, EveryRenderedProducerIsWarmedOnTheSplash )
+{
+    using Desert::Editor::ThumbnailProducers::Producer;
+    for ( const Desert::Editor::ThumbnailProducers::Row& row : Desert::Editor::ThumbnailProducers::kTable )
+    {
+        const bool pictured = row.How != Producer::TypeIcon && row.How != Producer::NotYetProduced;
+        EXPECT_EQ( Warmup::WarmKindOfType( row.Type ).has_value(), pictured )
+             << "file type " << static_cast<int>( row.Type ) << ": " << row.Why;
+    }
 }

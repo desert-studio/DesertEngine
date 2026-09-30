@@ -7,6 +7,10 @@
 // Same serialization environment as SurfaceMaterialAsset.cpp: glm/UUID adapters + json backend.
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
+#include <format>
+#include <optional>
+#include <string>
+
 using Desert::Assets::MaterialAssetRef;
 using Desert::Assets::MaterialData;
 using Desert::Assets::MaterialShaderParam;
@@ -245,7 +249,7 @@ TEST( MaterialData, ThumbnailInfoRoundTripsWithItsPreviewMeshAStatedDependency )
     info.Primitive = Desert::Assets::ThumbnailPrimitive::Cube;
     info.PreviewMesh =
          Desert::Assets::AssetGuidRef{ "45d579b03cc0d0a8df2e4cb025d6bea5", "Resources/Assets/Meshes/G.fbx" };
-    info.Orbit      = Desert::Assets::ThumbnailOrbit{ -11.25f, 90.0f, 0.25f };
+    info.Orbit = Desert::Assets::ThumbnailOrbit{ -11.25f, 90.0f, 0.25f };
     m.SetThumbnail( info );
     const auto text = Desert::Assets::WriteMaterialJson( m );
     ASSERT_TRUE( text ) << text.GetError();
@@ -322,7 +326,7 @@ TEST( MaterialData, ThumbnailMembersLeftOutAreTheirDefaults )
     const auto withThumbnail = [&]( std::string_view block )
     {
         std::string text = base.GetValue();
-        text.insert( text.rfind( '}' ), ",\"Thumbnail\":" + std::string( block ) );
+        text.insert( text.rfind( '}' ), std::format( R"(,"Thumbnail":{})", block ) );
         return Desert::Assets::ParseMaterialJson( "p.demat", text );
     };
 
@@ -348,8 +352,10 @@ TEST( MaterialData, ThumbnailMembersLeftOutAreTheirDefaults )
     Desert::Assets::MaterialData written;
     written.SetThumbnail( expected );
     ASSERT_TRUE( written.Thumbnail.has_value() );
-    EXPECT_EQ( *written.Thumbnail,
-               Desert::Assets::ThumbnailInfoRecord{ .Primitive = Desert::Assets::ThumbnailPrimitive::Cube } )
+    EXPECT_EQ( written.Thumbnail, std::optional( Desert::Assets::ThumbnailInfoRecord{
+                                       .Primitive   = Desert::Assets::ThumbnailPrimitive::Cube,
+                                       .PreviewMesh = std::nullopt,
+                                       .Orbit       = std::nullopt } ) )
          << "the writer states only the members that differ";
     const auto text = Desert::Assets::WriteMaterialJson( written );
     ASSERT_TRUE( text ) << text.GetError();
@@ -371,7 +377,6 @@ TEST( MaterialData, AbsentThumbnailIsTheDefaultAndTheOldKeyIsRefused )
     EXPECT_EQ( back.GetValue().ThumbnailOrDefault(), Desert::Assets::ThumbnailInfo{} );
 
     std::string old = text.GetValue();
-    old.insert( old.rfind( '}' ),
-                ",\"PreviewMesh\":{\"Guid\":\"45d579b03cc0d0a8df2e4cb025d6bea5\",\"Path\":\"G.fbx\"}" );
+    old.insert( old.rfind( '}' ), R"(,"PreviewMesh":{"Guid":"45d579b03cc0d0a8df2e4cb025d6bea5","Path":"G.fbx"})" );
     EXPECT_FALSE( Desert::Assets::ParseMaterialJson( "d.demat", old ) ) << "the pre-THM1l key was accepted";
 }

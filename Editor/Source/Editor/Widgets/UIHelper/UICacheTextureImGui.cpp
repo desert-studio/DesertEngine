@@ -12,30 +12,34 @@
 
 namespace Desert::Editor::UI
 {
-    const void* UICacheTextureImGui::AddTextureCache( const std::shared_ptr<Graphic::Image2D>& image )
+    UICacheTextureImGui& UICacheTextureImGui::Get()
+    {
+        static UICacheTextureImGui s_Cache;
+        return s_Cache;
+    }
+
+    ImTextureID UICacheTextureImGui::AddTextureCache( const std::shared_ptr<Graphic::Image2D>& image )
     {
         if ( !image )
             return nullptr;
 
         if ( Graphic::RendererAPI::GetAPIType() == Graphic::RendererAPIType::Vulkan )
         {
-            static std::unordered_map<VkImageView, ImTextureID> g_TextureCache;
-
             auto        vulkanImage = sp_cast<Graphic::API::Vulkan::VulkanImage2D>( image );
             const auto& res         = vulkanImage->GetResource();
 
             if ( res.ImageView == VK_NULL_HANDLE )
                 return nullptr;
 
-            auto it = g_TextureCache.find( res.ImageView );
-            if ( it != g_TextureCache.end() )
+            auto it = m_TextureCache.find( res.ImageView );
+            if ( it != m_TextureCache.end() )
             {
                 return it->second;
             }
 
             ImTextureID textureID = ImGui_ImplVulkan_AddTexture( res.Sampler, res.ImageView, res.Layout );
 
-            g_TextureCache[res.ImageView] = textureID;
+            m_TextureCache[res.ImageView] = textureID;
             return textureID;
         }
 

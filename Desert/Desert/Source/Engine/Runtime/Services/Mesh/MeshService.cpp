@@ -193,7 +193,7 @@ namespace Desert::Runtime
              [] {} );
     }
 
-    bool MeshService::RearmOnRigWritten( const Assets::AssetHandle& handle, Entry& entry ) const
+    bool MeshService::RearmOnRigWritten( const Assets::AssetHandle& handle, Entry& entry )
     {
         if ( !entry.AwaitedRig )
             return false;

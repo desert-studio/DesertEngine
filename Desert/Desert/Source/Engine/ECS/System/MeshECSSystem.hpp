@@ -115,7 +115,8 @@ namespace Desert::ECS
                              if ( mesh.MaterialSlots.empty() )
                              {
                                  // Use persistent system default material template
-                                 mesh.RuntimeMaterialInstances.push_back( DefaultInstance( Graphic::MeshVertexPath::Static ) );
+                                 mesh.RuntimeMaterialInstances.push_back(
+                                      DefaultInstance( Graphic::MeshVertexPath::Static ) );
                              }
                              else
                              {
@@ -127,7 +128,8 @@ namespace Desert::ECS
                                      auto inst = Runtime::ResourceRegistry::GetMaterialService()
                                                       ->CreateRuntimeInstance( assetHandle );
                                      mesh.RuntimeMaterialInstances.push_back(
-                                          inst ? std::move( inst ) : DefaultInstance( Graphic::MeshVertexPath::Static ) );
+                                          inst ? std::move( inst )
+                                               : DefaultInstance( Graphic::MeshVertexPath::Static ) );
                                  }
                              }
 
@@ -368,14 +370,16 @@ namespace Desert::ECS
                          {
                              ism.RuntimeMaterialInstances.clear();
                              if ( ism.MaterialSlots.empty() )
-                                 ism.RuntimeMaterialInstances.push_back( DefaultInstance( Graphic::MeshVertexPath::Static ) );
+                                 ism.RuntimeMaterialInstances.push_back(
+                                      DefaultInstance( Graphic::MeshVertexPath::Static ) );
                              else
                                  for ( const auto& h : ism.MaterialSlots )
                                  {
                                      auto inst = Runtime::ResourceRegistry::GetMaterialService()
                                                       ->CreateRuntimeInstance( h );
                                      ism.RuntimeMaterialInstances.push_back(
-                                          inst ? std::move( inst ) : DefaultInstance( Graphic::MeshVertexPath::Static ) );
+                                          inst ? std::move( inst )
+                                               : DefaultInstance( Graphic::MeshVertexPath::Static ) );
                                  }
                          }
                          if ( ism.RuntimeMaterialInstances.empty() )
@@ -570,36 +574,36 @@ namespace Desert::ECS
                               skinnedMesh, slots, worldTransform, boneMatrices, isSelected, mesh.CastShadows );
                      } );
             }
-    }
-
-    private :
-         // A component with no material slot takes its mesh asset's (static and skinned alike).
-         // ALL-OR-NOTHING: an external id that doesn't resolve yet (material registered later than the mesh)
-         // leaves the slots EMPTY so this retries next frame - pushing Null() handles would pass the empty()
-         // gate forever and freeze the mesh on the fallback material.
-         static void
-         AdoptMeshMaterialSlots( std::vector<Assets::AssetHandle>& slots, const Assets::AssetHandle& meshHandle )
-    {
-        if ( !slots.empty() || !meshHandle )
-            return;
-        auto* meshAsset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( meshHandle );
-        if ( !meshAsset )
-            return;
-        const auto&                      defaultHandles = meshAsset->GetMaterialHandles();
-        std::vector<Assets::AssetHandle> resolved;
-        resolved.reserve( defaultHandles.size() );
-        for ( const auto& h : defaultHandles )
-        {
-            const auto internal = Runtime::ResourceRegistry::GetMaterialService()->GetAssetHandleByExternal( h );
-            if ( internal.IsNull() )
-                return;
-            resolved.push_back( internal );
         }
-        if ( !resolved.empty() )
-            slots = std::move( resolved );
-    }
 
     private:
+        // A component with no material slot takes its mesh asset's (static and skinned alike).
+        // ALL-OR-NOTHING: an external id that doesn't resolve yet (material registered later than the mesh)
+        // leaves the slots EMPTY so this retries next frame - pushing Null() handles would pass the empty()
+        // gate forever and freeze the mesh on the fallback material.
+        static void AdoptMeshMaterialSlots( std::vector<Assets::AssetHandle>& slots,
+                                            const Assets::AssetHandle&        meshHandle )
+        {
+            if ( !slots.empty() || meshHandle.IsNull() )
+                return;
+            auto* meshAsset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( meshHandle );
+            if ( meshAsset == nullptr )
+                return;
+            const auto&                      defaultHandles = meshAsset->GetMaterialHandles();
+            std::vector<Assets::AssetHandle> resolved;
+            resolved.reserve( defaultHandles.size() );
+            for ( const auto& h : defaultHandles )
+            {
+                const auto internal =
+                     Runtime::ResourceRegistry::GetMaterialService()->GetAssetHandleByExternal( h );
+                if ( internal.IsNull() )
+                    return;
+                resolved.push_back( internal );
+            }
+            if ( !resolved.empty() )
+                slots = std::move( resolved );
+        }
+
         // The fallback for a mesh with no material slot at all — the DEFAULT SURFACE template's cell per vertex
         // path (found by that role, MaterialService::DefaultSurfaceShader), built like every other surface
         // material (a DataDrivenMaterial of that cell). Two objects and not one because a material owns the
@@ -607,7 +611,8 @@ namespace Desert::ECS
         // use: the template registry is the asset manager's, which exists after the systems do.
         Graphic::MaterialInstancePtr DefaultInstance( Graphic::MeshVertexPath path )
         {
-            auto& material = path == Graphic::MeshVertexPath::Skinned ? m_DefaultSkinnedMaterial : m_DefaultMaterial;
+            auto& material =
+                 path == Graphic::MeshVertexPath::Skinned ? m_DefaultSkinnedMaterial : m_DefaultMaterial;
             if ( !material )
             {
                 const auto shader = Runtime::ResourceRegistry::GetMaterialService()->DefaultSurfaceShader(
@@ -615,7 +620,8 @@ namespace Desert::ECS
                 if ( !shader )
                 {
                     if ( !m_DefaultRefusalLogged )
-                        LOG_ERROR( "[MeshECSSystem] a mesh with no material draws nothing: {}", shader.GetError() );
+                        LOG_ERROR( "[MeshECSSystem] a mesh with no material draws nothing: {}",
+                                   shader.GetError() );
                     m_DefaultRefusalLogged = true;
                     return nullptr;
                 }

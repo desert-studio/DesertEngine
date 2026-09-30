@@ -184,9 +184,8 @@ namespace Desert::Assets
         {
             const ThumbnailInfo thumb = material.ThumbnailOrDefault();
             if ( !IsValidThumbnailOrbit( thumb.Orbit ) )
-                return Common::MakeError<MaterialData>(
-                     std::format( "[Material] '{}': Thumbnail.Orbit is not finite or its Zoom is not above -1",
-                                  source ) );
+                return Common::MakeError<MaterialData>( std::format(
+                     "[Material] '{}': Thumbnail.Orbit is not finite or its Zoom is not above -1", source ) );
             if ( thumb.PreviewMesh.has_value() )
             {
                 const MaterialAssetRef meshRef{
@@ -210,7 +209,7 @@ namespace Desert::Assets
     {
         std::ifstream in( file, std::ios::binary );
         if ( !in )
-            return Common::MakeError<bool>( "[Material] '" + file.generic_string() + "' cannot be opened" );
+            return Common::MakeFormattedError<bool>( "[Material] '{}' cannot be opened", file.generic_string() );
         const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
         auto              parsed = ParseMaterialJson( file.generic_string(), text );
         if ( !parsed )

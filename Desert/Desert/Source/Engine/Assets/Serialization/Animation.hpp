@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Assets/AssetGuidRef.hpp>
+#include <Engine/Assets/Serialization/ImportSourceInfo.hpp>
 #include <Engine/Assets/TextAssetHeaderCheck.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
@@ -236,6 +237,12 @@ namespace Desert::Assets::Serialization
         // The corpus was rewritten with `"Curves": []` in the same change and ANIM stays 4, because no
         // value any file held changes meaning — the step adds a statement, it does not reinterpret one.
         std::vector<CurveData> Curves;
+
+        // THE SOURCE THE CLIP WAS IMPORTED FROM (THM-FIXJ; UE: UAnimSequence::AssetImportData): Reimport of the
+        // clip re-imports this file, beside the clip, with its record's options. Absent on a hand-authored clip;
+        // a save of an imported clip keeps it (SaveClipToFile). No ANIM step: no value any file held changes
+        // meaning - the one imported clip of the corpus was given the statement in the same change.
+        std::optional<ImportSourceInfo> Import;
     };
 
     /**

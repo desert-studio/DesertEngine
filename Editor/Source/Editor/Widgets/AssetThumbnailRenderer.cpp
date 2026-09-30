@@ -348,9 +348,9 @@ namespace Desert::Editor
             auto sky = ThumbnailSubject::DomeSkyboxOf( materialHandle );
             if ( !sky )
                 return Common::MakeFormattedError( "'{}' was not queued: {}", outPng, sky.GetError() );
-            if ( sky.GetValue() )
+            if ( const auto& dome = sky.GetValue(); dome )
             {
-                m_PendingSky = Assets::AssetHandle( *sky.GetValue() );
+                m_PendingSky = Assets::AssetHandle( *dome );
                 (void)Runtime::RequireSkybox( *m_PendingSky );
             }
         }
@@ -373,6 +373,31 @@ namespace Desert::Editor
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr AssetThumbnailRenderer::RequestSkybox( const Assets::AssetHandle& skyboxHandle,
+                                                                 const std::string&         outPng )
+    {
+        if ( static_cast<uint64_t>( skyboxHandle ) == 0 )
+            return Common::MakeFormattedError( "no skybox handle for '{}'", outPng );
+        if ( m_Phase != 0 )
+            return Common::MakeFormattedError( "a capture is already in flight; '{}' was not queued", outPng );
+        // Required now: the loader delivers it while the dome settles (DomeIsStillSettling waits for it).
+        if ( !Runtime::RequireSkybox( skyboxHandle ) )
+            return Common::MakeFormattedError( "'{}' was not queued: the registry has no skybox {}", outPng,
+                                               static_cast<uint64_t>( skyboxHandle ) );
+        m_PendingSky       = skyboxHandle;
+        m_PendingHandle    = skyboxHandle;
+        m_PendingPng       = outPng;
+        m_PendingSubject   = Subject::Sky;
+        m_PendingThumbnail = {};
+        m_Phase            = kRenderFrames;
+        m_CaptureMainMs    = 0.0;
+        m_CaptureTicks     = 0;
+        m_DomeSettle       = kDomeSettleFrames;
+        m_DomeFrames       = 0;
+        m_Staged           = false;
+        return Common::MakeSuccess( true );
+    }
+
     namespace
     {
         // The mesh's own material slots, resolved through the material service — or REFUSED, naming the slot.
@@ -384,7 +409,7 @@ namespace Desert::Editor
         {
             using Slots = std::vector<Assets::AssetHandle>;
             auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( meshHandle );
-            if ( !asset )
+            if ( asset == nullptr )
                 return Common::MakeFormattedError<Slots>( "mesh {} has no asset in the MeshService to read its "
                                                           "material slots from",
                                                           static_cast<uint64_t>( meshHandle ) );
@@ -444,7 +469,7 @@ namespace Desert::Editor
         // resulting file as a finished picture. Asked here rather than in Tick() because this is the last
         // moment the caller is still on the stack and can be told; five frames later there is only a PNG.
         auto* mesh = Runtime::ResourceRegistry::GetMeshService()->Get( meshHandle );
-        if ( !mesh )
+        if ( mesh == nullptr )
         {
             return Common::MakeFormattedError(
                  "mesh {} is not built in the MeshService, so a capture would photograph an empty scene "
@@ -476,7 +501,7 @@ namespace Desert::Editor
             auto slots = MeshOwnSlots( meshHandle );
             if ( !slots )
                 return Common::MakeFormattedError( "'{}' was not queued: {}", outPng, slots.GetError() );
-            m_PendingSlots = std::move( slots.GetValue() );
+            m_PendingSlots = slots.GetValue();
         }
 
         m_PendingHandle   = meshHandle;
@@ -485,20 +510,20 @@ namespace Desert::Editor
         m_PendingThumbnail.Orbit = orbit;
         m_PendingPng      = outPng;
         m_PendingSubject  = Subject::Mesh;
-        m_PendingClip     = nullptr;
+        m_PendingClip            = nullptr;
         m_Phase           = kRenderFrames;
         m_CaptureMainMs   = 0.0;
         m_CaptureTicks    = 0;
         m_DomeSettle      = 0;
         m_DomeFrames      = 0;
-        m_Staged          = false;
+        m_Staged                 = false;
         return Common::MakeSuccess( true );
     }
 
     Common::BoolResultStr AssetThumbnailRenderer::RequestPose( const Assets::AssetHandle&            meshHandle,
                                                                Assets::Asset<Assets::AnimationAsset> clip,
-                                                               const std::string&                    outPng ,
-                                                               const Assets::ThumbnailOrbit&         orbit)
+                                                               const std::string&                    outPng,
+                                                               const Assets::ThumbnailOrbit&         orbit )
     {
         // Refused BEFORE the shared checks queue anything: a static mesh posed would stage a skinned
         // component on geometry with no skeleton and photograph nothing.
@@ -656,7 +681,7 @@ namespace Desert::Editor
         // Nothing rides the mesh path here — a cloud material has no surface to put on a ball, and the
         // mesh path would refuse it by name anyway (MeshRenderer::DrawGenericMeshes). What is photographed
         // is the SKY it authors, from a camera standing on a rise and looking up.
-        if ( m_PendingSubject == Subject::Material && m_PendingPreview == ThumbnailSubject::Preview::SkyDome )
+        if ( IsDomeCapture() )
         {
             smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
             smc.Primitive.reset();
@@ -672,7 +697,7 @@ namespace Desert::Editor
                     m_SkyboxLayer = m_Scene->CreateNewEntity( "ThumbSkybox" );
                     m_SkyboxLayer.AddComponent<ECS::SkyboxComponent>();
                 }
-                m_SkyboxLayer.GetComponent<ECS::SkyboxComponent>().SkyboxHandle = *m_PendingSky;
+                m_SkyboxLayer.GetComponent<ECS::SkyboxComponent>().SkyboxHandle          = *m_PendingSky;
                 m_SkyAtmosphere.GetComponent<ECS::SkyAtmosphereComponent>().Data.Enabled = false;
                 PinDomeCamera();
                 return true;
@@ -772,7 +797,7 @@ namespace Desert::Editor
 
     bool AssetThumbnailRenderer::DomeIsStillSettling()
     {
-        if ( m_PendingSubject != Subject::Material || m_PendingPreview != ThumbnailSubject::Preview::SkyDome )
+        if ( !IsDomeCapture() )
             return false;
 
         if ( m_DomeFrames >= kDomeMaxSettleFrames )

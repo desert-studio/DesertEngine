@@ -396,8 +396,18 @@ namespace
                Verdict::Shipped, "reflective shadow map — the GI bounce's caster" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
                "\"StaticMeshGBufferInstanced\"", Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "\"StaticMeshGlass\"",
-               Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "cellShader",
+               Verdict::Shipped,
+               "a translucent material's forward cell (Surface template x Pass_Forward_Translucent), cached per "
+               "cell; every glass/translucent material an author saves draws through it" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "std::format( \"{",
+               Verdict::Shipped,
+               "MeshRenderer's per-cell pipeline cache: a pass's shared specification with the material's cell "
+               "shader (vertex path x pass) swapped in; every opaque material draws through it" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
+               "std::format( \"ShadowPipelineMasked {", Verdict::Shipped,
+               "the masked shadow caster of a material with an opacity mask (foliage): the shared caster "
+               "specification with the material's caster cell swapped in" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
                "\"SkinnedMeshGeometry\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "\"SilhouettePipeline\"",

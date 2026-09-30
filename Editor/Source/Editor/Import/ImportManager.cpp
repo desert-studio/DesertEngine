@@ -376,10 +376,11 @@ namespace Desert::Editor
         if ( !staticMesh )
         {
             // What the file imports as: a skinned mesh, else the skeleton, else clips only.
-            const Common::Content::ContentKind kind = resolved.Mesh ? Common::Content::ContentKind::SkinnedMesh
-                                                      : resolved.Skeleton
-                                                           ? Common::Content::ContentKind::Skeleton
-                                                           : Common::Content::ContentKind::Animation;
+            Common::Content::ContentKind kind = Common::Content::ContentKind::Animation;
+            if ( resolved.Mesh )
+                kind = Common::Content::ContentKind::SkinnedMesh;
+            else if ( resolved.Skeleton )
+                kind = Common::Content::ContentKind::Skeleton;
             if ( resolved.Mesh || resolved.Skeleton || !resolved.Animations.empty() )
                 record( RecordImport( sourcePath, kind, resolved.Mesh ? &resolved.Mesh.value() : nullptr,
                                       settings ) );
@@ -434,7 +435,8 @@ namespace Desert::Editor
                 anim.Skeleton = Assets::ContentRegistry::ReferenceTo( skeleton );
             const auto serialized = SerializeAnimationAsset( anim, sourcePath );
             if ( serialized )
-                written.WrittenClips.push_back( SkinnedAssetPath( sourcePath, "_" + anim.Name + ".anim" ) );
+                written.WrittenClips.push_back(
+                     SkinnedAssetPath( sourcePath, std::format( "_{}.anim", anim.Name ) ) );
             record( serialized );
         }
 
@@ -555,6 +557,14 @@ namespace Desert::Editor
         auto stamped   = data;
         stamped.Header = Assets::HeaderKeepingFileGuid( cookedPath, Common::Content::ContentKind::Animation,
                                                         Assets::Serialization::AnimationTextSubsystems() );
+        // THE CLIP NAMES ITS SOURCE (THM-FIXJ; UE: UAnimSequence::AssetImportData): Reimport of
+        // the clip re-imports this file (ImportOptions::ImportSourceOfAsset), which rewrites every asset made
+        // from it. The clip's file name cannot say it - `<stem>_<clip>.anim` has no inverse.
+        const auto hash = Assets::HashMeshSourceFile( sourcePath );
+        if ( !hash )
+            return Common::MakeError<bool>( hash.GetError() );
+        stamped.Import =
+             Assets::Serialization::ImportSourceInfo{ sourcePath.filename().generic_string(), hash.GetValue() };
         return WriteCookedJson( stamped, cookedPath );
     }
 
@@ -600,16 +610,15 @@ namespace Desert::Editor
 
     std::size_t ImportManager::PublishImportTemplates( std::vector<ImportTemplate> templates )
     {
-        auto published          = std::make_shared<const std::vector<ImportTemplate>>( std::move( templates ) );
-        const std::size_t count = published->size();
+        auto published = std::make_shared<const std::vector<ImportTemplate>>( std::move( templates ) );
+        const std::size_t      count = published->size();
         const std::scoped_lock lock( s_TemplatesMutex );
         s_Templates = std::move( published );
         return count;
     }
 
-    Common::BoolResultStr
-    ImportManager::SerializeMaterialAsset( const ImportedMaterial&                    material,
-                                           const std::filesystem::path&               sourcePath )
+    Common::BoolResultStr ImportManager::SerializeMaterialAsset( const ImportedMaterial&      material,
+                                                                 const std::filesystem::path& sourcePath )
     {
         // Imported materials are EDITABLE CONTENT, not cooked intermediates -> write them into the content
         // tree at Resources/Assets/Materials/<meshRelativeId>/<materialName>.demat (browsable + editable in
@@ -675,8 +684,8 @@ namespace Desert::Editor
             data.Textures.push_back( { slot.Slot, Common::Content::AssetGuidToText( key.GetValue().Guid ),
                                        Common::AssetHandle::StableKeyForPath( asset ), slot.Sampler } );
         }
-        data.Header = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material, material.Guid,
-                                                            Assets::MaterialTextSubsystems() );
+        data.Header     = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material, material.Guid,
+                                                           Assets::MaterialTextSubsystems() );
         const auto text = Assets::WriteMaterialJson( data );
         if ( !text )
             return Common::MakeFormattedError<bool>( "material '{}' refused: {}", path.string(), text.GetError() );

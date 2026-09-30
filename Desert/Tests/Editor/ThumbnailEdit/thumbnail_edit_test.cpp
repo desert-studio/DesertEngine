@@ -28,7 +28,8 @@ TEST( ThumbnailOrbitEdit, YawWrapsAt180FromBothSides )
     EXPECT_FLOAT_EQ( TE::Orbited( farSide, -10.0f * kPixelsPerDegree, 0.0f, 0.0f ).Yaw, 180.0f );
     for ( int turns = -3; turns <= 3; ++turns )
     {
-        const float yaw = TE::Orbited( {}, turns * 400.0f * kPixelsPerDegree, 0.0f, 0.0f ).Yaw;
+        const float yaw =
+             TE::Orbited( {}, static_cast<float>( turns ) * 400.0f * kPixelsPerDegree, 0.0f, 0.0f ).Yaw;
         EXPECT_GT( yaw, -180.0f );
         EXPECT_LE( yaw, 180.0f );
     }
@@ -78,7 +79,8 @@ TEST( ThumbnailPreviewSlot, TheLastRequestWins )
     EXPECT_TRUE( slot.Put( "a", { 0, 10, 0 }, 1 ) );
     EXPECT_TRUE( slot.Put( "a", { 0, 20, 0 }, 2 ) );
     const auto taken = slot.Take();
-    ASSERT_TRUE( taken );
+    if ( !taken.has_value() )
+        FAIL() << "a waiting orbit was not handed out";
     EXPECT_EQ( taken->What, 2 );
     EXPECT_FALSE( slot.Waiting() );
     // One capture at a time: a newer orbit waits behind the one in flight, and replaces any other waiting one.
@@ -87,7 +89,10 @@ TEST( ThumbnailPreviewSlot, TheLastRequestWins )
     EXPECT_FALSE( slot.Take() );
     slot.Land();
     EXPECT_EQ( slot.LandedOrbit( "a" ), ( ThumbnailOrbit{ 0, 20, 0 } ) );
-    EXPECT_EQ( slot.Take()->What, 4 );
+    const auto next = slot.Take();
+    if ( !next.has_value() )
+        FAIL() << "the orbit waiting behind the landed one was not handed out";
+    EXPECT_EQ( next->What, 4 );
 }
 
 TEST( ThumbnailPreviewSlot, AnOrbitInFlightOrOnScreenIsNotAskedTwice )

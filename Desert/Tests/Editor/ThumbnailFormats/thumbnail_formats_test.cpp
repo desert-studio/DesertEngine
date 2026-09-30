@@ -39,6 +39,7 @@
 #include <array>
 #include <cctype>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <set>
 #include <sstream>
@@ -55,6 +56,9 @@ namespace
     using Desert::Editor::kFileExtensions;
 
     constexpr const char* kBrowserTable = "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp";
+    // The Details panel's Skybox row, which asks ThumbnailService for the skybox picture.
+    constexpr const char* kSkyboxDetailsRow =
+         "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkyboxComponent.cpp";
 
     std::string RepoRoot()
     {
@@ -132,7 +136,7 @@ TEST( ThumbnailFormats, EveryExtensionTheBrowserTypesReachesAProducer )
 {
     for ( const auto& row : kFileExtensions )
     {
-        const std::string path = "Assets/Some/File." + std::string( row.Extension );
+        const std::string path = std::format( "Assets/Some/File.{}", row.Extension );
         EXPECT_EQ( FileTypeOf( TF::ExtensionOf( path ) ), row.Type ) << path;
         const std::optional<TP::Producer> chained = TP::ProducerOfPath( path );
         ASSERT_TRUE( chained.has_value() )
@@ -161,7 +165,7 @@ TEST( ThumbnailFormats, EveryEngineAssetFormatIsTypedByTheBrowser )
              << "the engine asset kind " << spec.Name << " ('" << spec.Extension
              << "') is in no row of FileType.hpp's kFileExtensions, so the browser draws it as Unknown with "
                 "a grey glyph. Type it there (and give its kind a ThumbnailProducers row).";
-        EXPECT_TRUE( TP::ProducerOfPath( std::string( "Assets/x" ) + std::string( spec.Extension ) ).has_value() )
+        EXPECT_TRUE( TP::ProducerOfPath( std::format( "Assets/x{}", spec.Extension ) ).has_value() )
              << spec.Name << ": typed, but its kind has no producer row";
     }
 }
@@ -178,9 +182,9 @@ TEST( ThumbnailFormats, EveryContentKindHasAProducerOrANamedDebt )
     {
         if ( spec.Extension.empty() )
             continue;
-        const auto producer = TP::ProducerOfPath( std::string( "Assets/x" ) + std::string( spec.Extension ) );
+        const auto producer = TP::ProducerOfPath( std::format( "Assets/x{}", spec.Extension ) );
         ASSERT_TRUE( producer.has_value() ) << spec.Name;
-        if ( *producer != TP::Producer::NotYetProduced )
+        if ( producer != TP::Producer::NotYetProduced )
             continue;
         const FileType type = FileTypeOf( spec.Extension.substr( 1 ) );
         EXPECT_NE( std::find( TP::kNotYetProduced.begin(), TP::kNotYetProduced.end(), type ),
@@ -393,8 +397,8 @@ TEST( ThumbnailMaterialDomains, APictureExistsForExactlyTheDomainsADrawPathCanEx
     {
         // The cubemap domain has no draw-path predicate (no renderable slot takes it); its picture is the HDR
         // it binds, drawn as the thumbnail scene's skybox — a producer named here so removing it is an edit.
-        const bool drawable = F::DrawnByMeshPath( domain ) || F::DrawnByVolumePath( domain ) ||
-                              domain == F::ShaderDomain::Skybox;
+        const bool drawable =
+             F::DrawnByMeshPath( domain ) || F::DrawnByVolumePath( domain ) || domain == F::ShaderDomain::Skybox;
         EXPECT_EQ( TS::PreviewForDomain( domain ).has_value(), drawable )
              << "domain " << F::ShaderDomainName( domain )
              << ": the thumbnail router and the draw paths disagree about whether this can be drawn at "
@@ -485,4 +489,30 @@ TEST( ThumbnailSubject, APreviewMeshRoutesASurfaceMaterialToTheMeshAndNothingEls
     EXPECT_EQ( TS::PreviewForMaterial( F::kMeshPathDomain, true ), TS::Preview::Mesh );
     EXPECT_EQ( TS::PreviewForMaterial( F::kMeshPathDomain, false ), TS::Preview::Sphere );
     EXPECT_EQ( TS::PreviewForMaterial( F::kVolumePathDomain, true ), TS::Preview::SkyDome );
+}
+
+// ---------------------------------------------------------------------------------------------------
+// 3c. A SKYBOX IS ITS OWN KIND WITH A RENDERED PICTURE (THM-FIXG). It shares `.detex` with a texture and is
+// typed by its root; its producer is RenderedSky, and both showers — the browser tile and the Details Skybox
+// row — ask the ONE request (ThumbnailService::RequestSkybox), so they show one picture under one key.
+// ---------------------------------------------------------------------------------------------------
+TEST( ThumbnailFormats, ASkyboxIsItsOwnKindWithARenderedPicture )
+{
+    EXPECT_EQ( Desert::Editor::FileTypeOfContent( "detex", Common::Content::ContentKind::Skybox ),
+               FileType::Skybox );
+    EXPECT_EQ( Desert::Editor::FileTypeOfContent( "detex", Common::Content::ContentKind::Texture ),
+               FileType::Texture );
+    EXPECT_EQ( TP::ProducerOf( FileType::Skybox ), TP::Producer::RenderedSky );
+
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const std::string panel = ReadFile( root + kBrowserTable );
+    EXPECT_NE( panel.find( "case Producer::RenderedSky:" ), std::string::npos )
+         << "the browser no longer draws a skybox tile through its producer";
+    EXPECT_NE( panel.find( "RequestSkybox(" ), std::string::npos )
+         << "the browser tile no longer asks the service";
+    const std::string details = ReadFile( std::format( "{}{}", root, kSkyboxDetailsRow ) );
+    ASSERT_FALSE( details.empty() );
+    EXPECT_NE( details.find( "RequestSkybox(" ), std::string::npos )
+         << "the Details Skybox row no longer asks ThumbnailService for the skybox picture";
 }

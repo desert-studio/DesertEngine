@@ -289,9 +289,10 @@ namespace Common::Content
             return guid ? guid.GetValue() : AssetGuid{};
         }
 
-        // An import record's `Nodes` member (THM1j): present when the last import split the source into node meshes
-        // (<stem>_<node>.stmesh beside it) and wrote NO combined mesh. Such a source is not a StaticMesh row of its
-        // own - its node meshes are, each an asset file the scan lists from disk.
+        // An import record's `Nodes` member (THM1j): present when the last import split the source into node
+        // meshes
+        // (<stem>_<node>.stmesh beside it) and wrote NO combined mesh. Such a source is not a StaticMesh row of
+        // its own - its node meshes are, each an asset file the scan lists from disk.
         struct StatedImportNodes
         {
             std::optional<std::vector<std::string>> Nodes;
@@ -466,10 +467,14 @@ namespace Common::Content
                             continue;
                         // Only a static file's record stands for a mesh: a skinned source's (or a skeleton's
                         // and clips') states its own kind and names no static mesh (ImportRecord.hpp).
-                        const auto stated =
-                             ReadAssetHeaderIfStated( candidate, AssetHeaderReadContext{ {}, true } );
-                        if ( stated && stated.GetValue() && stated.GetValue()->Kind != ContentKind::StaticMesh )
-                            continue;
+                        if ( const auto stated =
+                                  ReadAssetHeaderIfStated( candidate, AssetHeaderReadContext{ {}, true } );
+                             stated )
+                        {
+                            const auto& header = stated.GetValue();
+                            if ( header.has_value() && header->Kind != ContentKind::StaticMesh )
+                                continue;
+                        }
                         if ( const std::string key = AssetHandle::StableKeyForPath( asset ); !key.empty() )
                             visit( candidate, kind, key );
                         continue;

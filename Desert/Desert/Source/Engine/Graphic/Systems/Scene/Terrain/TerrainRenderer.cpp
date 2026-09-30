@@ -178,6 +178,13 @@ namespace Desert::Graphic::System
     Common::BoolResultStr
     TerrainRenderer::CreateShadowPipeline( const std::shared_ptr<Framebuffer>& cascadeFramebuffer )
     {
+        // A renderer BUILT WITHOUT CASCADES (Graphic::kNoShadowQuality — every asset thumbnail and preview)
+        // asks nothing of its casters: the mesh renderer registers no cascade pass, so there is nothing to
+        // cast into and no pipeline to build. The budget the SceneRenderer was built with is the one source
+        // (MeshRenderer::SetupShadowPass reads the same count); only a missing target UNDER a non-zero
+        // budget is a failure.
+        if ( m_SceneRenderer->GetShadowQuality().CascadeCount == 0 )
+            return BOOLSUCCESS;
         if ( !cascadeFramebuffer )
             return Common::MakeError( "TerrainRenderer: no cascade target to build the shadow caster against" );
 

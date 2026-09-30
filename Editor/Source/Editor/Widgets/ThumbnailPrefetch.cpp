@@ -62,6 +62,8 @@ namespace Desert::Editor
                           path );
                 return std::nullopt;
             }
+            // stb reads bytes as unsigned char: the one place the section's std::byte meets it.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
             pixels = stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( source->Bytes.data() ),
                                             static_cast<int>( source->Bytes.size() ), &w, &h, &ch, 4 );
         }

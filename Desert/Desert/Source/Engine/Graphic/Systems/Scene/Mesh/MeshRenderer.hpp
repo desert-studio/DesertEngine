@@ -439,8 +439,8 @@ namespace Desert::Graphic::System
         // (ShadowCasterCellFor), on a per-cascade copy of that material (MaterialService::GetViewVariant) —
         // its mask texture and clip threshold with it. The cascade material of the draw, or null when the
         // caster takes the shared program (opaque, or no batched-path material).
-        DataDrivenMaterial* MaskedCasterMaterial( const DataDrivenMaterial* material, MeshVertexPath path,
-                                                  uint32_t cascade ) const;
+        static DataDrivenMaterial* MaskedCasterMaterial( const DataDrivenMaterial* material, MeshVertexPath path,
+                                                         uint32_t cascade );
         // The pipeline of one masked caster cell: the shared caster's state for @p path with the cell's shader,
         // built on first use and kept per cell shader. Null (logged once per shader) when it cannot.
         GraphicsPipeline* MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path );

@@ -111,9 +111,11 @@ TEST( AnimationClipFormat, AssetFieldCensus )
     // A28 (generation 3): `Sections` — a clip now states the range, blend type and weight its values are
     // read under, which is report 05 §938's "from day one".
     // T7e (generation 4): `Version` moves into the text asset `Header`, beside the clip's GUID.
+    // THM-FIXJ: `Import` - the source file the clip was imported from (UE: UAnimSequence::
+    // AssetImportData), so Reimport reads it from the asset itself.
     EXPECT_EQ( FieldNames<Ser::AnimationAssetData>(),
-               ( std::vector<std::string>{ "Channels", "Curves", "DisplayRate", "DurationTicks", "Header", "Name",
-                                           "Notifies", "Sections", "Skeleton", "TickRate" } ) );
+               ( std::vector<std::string>{ "Channels", "Curves", "DisplayRate", "DurationTicks", "Header", "Import",
+                                           "Name", "Notifies", "Sections", "Skeleton", "TickRate" } ) );
     // SKEL-TREE (ANIM 5): the clip names its rig by the .skeleton's GUID (UE UAnimSequence::Skeleton), no
     // longer by a hash of the bones; the reference is the one GUID+path pair every text format uses.
     EXPECT_EQ( FieldNames<Desert::Assets::AssetGuidRef>(), ( std::vector<std::string>{ "Guid", "Path" } ) );

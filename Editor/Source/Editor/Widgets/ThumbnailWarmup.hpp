@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Common/Content/ContentScan.hpp>
+
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/AssetHandle.hpp>
 
@@ -38,6 +40,7 @@ namespace Desert::Editor::ThumbnailWarmup
         Mesh,     // a static mesh, photographed from its cooked form (ThumbnailSubject::ResolveMesh)
         Pose,     // a skinned mesh in its bind pose (ThumbnailPose::ResolveSkinnedMesh)
         Painted,  // painted on a worker from the asset's own bytes (ThumbnailService::WarmPainted)
+        Sky,      // a skybox, its sky drawn under the dome camera (ThumbnailService::WarmSkybox)
         Decoded,  // the file IS the picture (a texture): decoded, never captured
     };
 
@@ -67,6 +70,8 @@ namespace Desert::Editor::ThumbnailWarmup
                 return WarmKind::Painted;
             case Producer::Decoded:
                 return WarmKind::Decoded;
+            case Producer::RenderedSky:
+                return WarmKind::Sky;
             case Producer::NotYetProduced:
             case Producer::TypeIcon:
                 return std::nullopt;
@@ -74,23 +79,32 @@ namespace Desert::Editor::ThumbnailWarmup
         return std::nullopt;
     }
 
-    /// The file type of a registry row's file, as the browser types it (extension without the dot).
-    [[nodiscard]] inline FileType FileTypeOfPath( const std::filesystem::path& path )
+    /// The file type of a file of content kind @p kind, as the browser types it (FileTypeOfContent: the
+    /// extension without the dot, and the kind — a skybox `.detex` is a Skybox, not a texture).
+    [[nodiscard]] inline FileType FileTypeOfRow( const std::filesystem::path&                path,
+                                                 std::optional<Common::Content::ContentKind> kind )
     {
         std::string extension = path.extension().string();
         if ( !extension.empty() )
             extension.erase( 0, 1 );
         std::transform( extension.begin(), extension.end(), extension.begin(),
                         []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
-        return FileTypeOf( extension );
+        return FileTypeOfContent( extension, kind );
+    }
+
+    /// The file type of a file the caller knows only by path: its kind is the census's (KindOfContentFile).
+    [[nodiscard]] inline FileType FileTypeOfPath( const std::filesystem::path& path )
+    {
+        return FileTypeOfRow( path, Common::Content::KindOfContentFile( path ) );
     }
 
     /// EVERY PICTURE OF THE PROJECT (THM1n-13): each row of the content registry, of every kind, whose file
-    /// type has a picture producer — sorted by path, each once. @p filesOf = ContentRegistry::FilesOfKind in
-    /// the editor, a table in a test. The registry and not a walk of the disk: it is the one census of what
-    /// is content, and it is complete before the splash asks (ContentRegistry::Gather). A redirector is a
-    /// forwarding stub at a moved asset's old path, spelled with the asset's own extension — the asset has
-    /// its row and its picture under its new path, so the stub is not asked for one.
+    /// type has a picture producer — sorted by path, each once. Each row is typed by the kind the registry
+    /// FILED it under (FileTypeOfRow), not re-derived from its path: a skybox row is a sky picture. @p filesOf =
+    /// ContentRegistry::FilesOfKind in the editor, a table in a test. The registry and not a walk of the disk: it
+    /// is the one census of what is content, and it is complete before the splash asks (ContentRegistry::Gather).
+    /// A redirector is a forwarding stub at a moved asset's old path, spelled with the asset's own extension — the
+    /// asset has its row and its picture under its new path, so the stub is not asked for one.
     [[nodiscard]] inline std::vector<WarmItem> ProjectWarmList(
          const std::function<std::vector<std::filesystem::path>( Common::Content::ContentKind )>& filesOf )
     {
@@ -103,7 +117,7 @@ namespace Desert::Editor::ThumbnailWarmup
                 continue;
             for ( const std::filesystem::path& file : filesOf( kind ) )
             {
-                if ( const std::optional<WarmKind> warm = WarmKindOfType( FileTypeOfPath( file ) ) )
+                if ( const std::optional<WarmKind> warm = WarmKindOfType( FileTypeOfRow( file, kind ) ) )
                     out.push_back( { file.generic_string(), *warm } );
             }
         }
@@ -135,7 +149,7 @@ namespace Desert::Editor::ThumbnailWarmup
                 continue;
             for ( const std::filesystem::path& file : filesOf( kind ) )
             {
-                const FileType type = FileTypeOfPath( file );
+                const FileType type = FileTypeOfRow( file, kind );
                 if ( ThumbnailProducers::ProducerOf( type ) != ThumbnailProducers::Producer::NotYetProduced )
                     continue;
                 if ( out.empty() || out.back().Kind != kind )
