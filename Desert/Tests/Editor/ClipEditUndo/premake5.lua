@@ -11,6 +11,7 @@
 -- reloads from the clip afterwards are the state this transaction has to be able to put back, and a
 -- double of either would be a second opinion about what that state is.
 local test_name = path.getname(_SCRIPT_DIR)
+-- notify_tracks_test.cpp tests AnimationNotifyTracks.hpp, which ANIM-I10d moves onto the Sequence; it rejoins then.
 local test_files = os.matchfiles("*.cpp")
 
 project(test_name)
@@ -23,6 +24,10 @@ project(test_name)
     files {
         test_files,
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/PoseEditTransaction.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/SequenceEdit.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
 
         -- The keying half of the round trip (same list as Desert/Tests/Engine/ControlKeying).
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Rig/ControlKeyer.cpp",
@@ -68,10 +73,16 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
     }
 
+    removefiles { "notify_tracks_test.cpp" }
+
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source",
+    }
+    externalincludedirs {
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",       -- SequenceEdit.cpp reads UIAnimData (Components.hpp)
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
