@@ -14,6 +14,8 @@ project(test_name)
         "level_sequence_main.cpp",
         "level_sequence_test.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/ECS/LevelSequencePlayback.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/ECS/LevelSequenceAuthoring.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/TrackEditing.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/LevelSequenceAsset.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Channel.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Player.cpp",

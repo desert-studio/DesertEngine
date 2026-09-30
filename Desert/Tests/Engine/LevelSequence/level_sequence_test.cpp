@@ -10,6 +10,7 @@
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/LevelSequencePlayback.hpp>
+#include <Engine/ECS/LevelSequenceAuthoring.hpp>
 
 #include <Common/Json/Document.hpp>
 
@@ -286,4 +287,106 @@ TEST( LevelSequenceComponent, LoopModeNamesAreTheStoredOnes )
     }
     EXPECT_FALSE( T::LoopModeFromString( "Sometimes" ).has_value() );
     EXPECT_STREQ( T::ToString( static_cast<T::LoopMode>( 7 ) ), "Unknown" );
+}
+
+// ── THE LEVEL SEQUENCE DOCUMENT (ANIM-LSEQ) ──────────────────────────────────────────────────────────────────
+namespace
+{
+    /// What the Sequencer's document authors: "+ Track → Actor" on the door, Transform keys X 0 at tick 0 and
+    /// X 100 at tick 100 — through the document's own edits, not a hand-built sequence.
+    T::Sequence AuthoredDoor()
+    {
+        T::Sequence sequence;
+        sequence.Host   = T::SequenceHost::LevelSequence;
+        sequence.Start  = A::FrameNumber{ 0 };
+        sequence.End    = A::FrameNumber{ 100 };
+        const auto door = ECS::AddEntityBinding( sequence, Common::UUID( kDoorUuid ), "Door" );
+        EXPECT_TRUE( door.IsSuccess() );
+        ECS::TransformComponent pose;
+        EXPECT_TRUE(
+             ECS::SetEntityTransformKey( sequence, door.GetValue(), A::FrameNumber{ 0 }, ECS::EntityPose( pose ) )
+                  .IsSuccess() );
+        pose.Translation.x = 100.0F;
+        EXPECT_TRUE( ECS::SetEntityTransformKey( sequence, door.GetValue(), A::FrameNumber{ 100 },
+                                                 ECS::EntityPose( pose ) )
+                          .IsSuccess() );
+        return sequence;
+    }
+} // namespace
+
+TEST( LevelSequenceDocument, SavesAndReadsWhatTheComponentPlays )
+{
+    const T::Sequence authored = AuthoredDoor();
+    ASSERT_TRUE( T::Validate( authored ).IsSuccess() ) << T::Validate( authored ).GetError();
+    const auto text = Desert::Assets::LevelSequenceAsset::Write( authored, AssetGuid{ 1, 2 } );
+    ASSERT_TRUE( text.IsSuccess() ) << text.GetError();
+    const auto parsed = Desert::Assets::LevelSequenceAsset::Parse( text.GetValue() );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+
+    World                             world;
+    const ECS::LevelSequenceComponent component;
+    ECS::LevelSequencePlayback        playback( parsed.GetValue().Sequence );
+    const auto step = ECS::StepLevelSequence( world.registry, component, playback, Step( 50 ) );
+    EXPECT_TRUE( step.Report.Unresolved.empty() );
+    EXPECT_TRUE( step.Refusals.empty() ) << step.Refusals.front();
+    EXPECT_NEAR( world.registry.get<ECS::TransformComponent>( world.door ).Translation.x, 50.0F, 1e-3F );
+}
+
+TEST( LevelSequenceDocument, TheActorBindingSurvivesTheSaveAndNamesTheEntityByUuid )
+{
+    T::Sequence sequence = AuthoredDoor();
+    const auto  again    = ECS::AddEntityBinding( sequence, Common::UUID( kDoorUuid ), "Door (again)" );
+    ASSERT_TRUE( again.IsSuccess() );
+    EXPECT_EQ( sequence.Bindings.size(), 1U ) << "binding one entity twice is one binding";
+
+    const auto text   = Desert::Assets::LevelSequenceAsset::Write( sequence, AssetGuid{ 1, 2 } );
+    const auto parsed = Desert::Assets::LevelSequenceAsset::Parse( text.GetValue() );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    ASSERT_EQ( parsed.GetValue().Sequence.Bindings.size(), 1U );
+    const T::Binding& binding = parsed.GetValue().Sequence.Bindings.front();
+    EXPECT_EQ( binding.Guid, again.GetValue() );
+    EXPECT_EQ( binding.Kind, T::BindingKind::Entity );
+    EXPECT_EQ( binding.Locator, std::to_string( kDoorUuid ) );
+
+    World                             world;
+    const ECS::LevelSequenceComponent component;
+    ECS::LevelSequenceEntityHost      host( world.registry, component );
+    const auto                        resolved = host.Resolve( binding );
+    ASSERT_TRUE( resolved.has_value() );
+    EXPECT_EQ( static_cast<entt::entity>( static_cast<uint32_t>( resolved->Handle ) ), world.door );
+}
+
+TEST( LevelSequenceDocument, PreviewPosesTheSceneAndClosingGivesItBack )
+{
+    const T::Sequence sequence = AuthoredDoor();
+    World             world;
+    world.registry.get<ECS::TransformComponent>( world.door ).Translation = { 7.0F, 1.0F, 2.0F };
+
+    ECS::LevelSequencePreview preview;
+    (void)preview.Scrub( world.registry, sequence, A::FrameNumber{ 50 } );
+    EXPECT_TRUE( preview.Active() );
+    EXPECT_NEAR( world.registry.get<ECS::TransformComponent>( world.door ).Translation.x, 50.0F, 1e-3F );
+    (void)preview.Scrub( world.registry, sequence, A::FrameNumber{ 100 } );
+    EXPECT_NEAR( world.registry.get<ECS::TransformComponent>( world.door ).Translation.x, 100.0F, 1e-3F );
+
+    preview.Restore( world.registry );
+    EXPECT_FALSE( preview.Active() );
+    const auto& restored = world.registry.get<ECS::TransformComponent>( world.door ).Translation;
+    EXPECT_EQ( restored.x, 7.0F );
+    EXPECT_EQ( restored.y, 1.0F );
+    EXPECT_EQ( restored.z, 2.0F );
+    EXPECT_FALSE( world.registry.has<ECS::VisibilityComponent>( world.door ) );
+}
+
+TEST( LevelSequenceDocument, AnOverlappingCameraCutLeavesTheSequenceAsItWas )
+{
+    T::Sequence sequence = AuthoredDoor();
+    const auto  camera   = ECS::AddEntityBinding( sequence, Common::UUID( kCameraUuid ), "Camera" );
+    ASSERT_TRUE(
+         ECS::AddCameraCut( sequence, camera.GetValue(), A::FrameNumber{ 0 }, A::FrameNumber{ 40 } ).IsSuccess() );
+    const size_t tracks = sequence.Tracks.size();
+    EXPECT_FALSE( ECS::AddCameraCut( sequence, camera.GetValue(), A::FrameNumber{ 20 }, A::FrameNumber{ 60 } )
+                       .IsSuccess() );
+    EXPECT_EQ( sequence.Tracks.size(), tracks );
+    EXPECT_EQ( sequence.Tracks.back().Sections.size(), 1U );
 }
