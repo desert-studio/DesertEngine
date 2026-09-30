@@ -45,6 +45,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
@@ -444,7 +445,8 @@ namespace
 TEST( ShaderSchemaConsumers, TheScanSeesTheSchemaAtAll )
 {
     const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "could not locate the repository from " << fs::current_path().string();
+    ASSERT_FALSE( root.empty() ) << "could not locate the repository from "
+                                 << Desert::TestSupport::RepositoryRoot().string();
 
     for ( const auto& source : k_Structs )
     {

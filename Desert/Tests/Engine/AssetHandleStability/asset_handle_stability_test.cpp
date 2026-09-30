@@ -1813,19 +1813,9 @@ TEST( ShaderAssetIdentity, AGraphRecompileKeepsTheShadersGuidAndAFirstCompileMin
 TEST( ShaderAssetIdentity, EveryCommittedGraphShaderKeepsItsGuidOnRecompile )
 {
     namespace CC = Common::Content;
-    std::filesystem::path graphShaders;
-    for ( auto at = std::filesystem::current_path(); !at.empty(); at = at.parent_path() )
-    {
-        if ( std::filesystem::is_directory( at / "Editor/Resources/Shaders/Programs/Graph" ) )
-        {
-            graphShaders = at / "Editor/Resources/Shaders/Programs/Graph";
-            break;
-        }
-        if ( at == at.parent_path() )
-            break;
-    }
-    ASSERT_FALSE( graphShaders.empty() )
-         << "no Editor/Resources/Shaders/Programs/Graph above " << std::filesystem::current_path();
+    const std::filesystem::path graphShaders =
+         Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders/Programs/Graph";
+    ASSERT_TRUE( std::filesystem::is_directory( graphShaders ) ) << graphShaders;
     // A register, not a count: every graph shader the corpus commits, by name. A walk that found nothing
     // (wrong root) or lost one of these fails by the missing name; a new graph adds its row here.
     // NewShaderGraph.shader left the corpus with SURF1f-2 (graph surfaces lit through Pass_Forward).

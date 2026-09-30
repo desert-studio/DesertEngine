@@ -6,8 +6,10 @@
 // scripts/Windows/RunTests.ps1), but handoff_check, an IDE and a developer's shell start them from the
 // repository root — so a probe project built as `current_path() / "RegistryProbe"` landed in the checkout
 // (Assets/, DerivedDataCache/, RegistryProbe/ on Windows, 09-27). UE writes its automation output under
-// Saved/Automation for the same reason. A test that needs files gets a ScratchDir; a test whose code under
-// test resolves RELATIVE paths gets a ScratchWorkingDirectory; neither ever joins onto current_path().
+// Saved/Automation for the same reason. A test that needs files gets a ScratchDir and passes its path on
+// explicitly; the engine is pointed with EngineDirScope / SetProjectRoot, never by moving the process.
+// ScratchWorkingDirectory is TRANSITIONAL: it stays only while Common::AssetHandle::StableKeyForPath resolves
+// a relative spelling through the working directory (AssetHandleStability, ThumbnailKey measure that).
 // Tools/TestScratchCensus holds every suite to that.
 
 #include <gtest/gtest.h>

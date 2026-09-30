@@ -25,6 +25,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace fs = std::filesystem;
 
@@ -35,15 +36,7 @@ namespace
 
     fs::path RepoRoot()
     {
-        for ( fs::path dir = fs::current_path(); !dir.empty(); dir = dir.parent_path() )
-        {
-            std::error_code ec;
-            if ( fs::exists( dir / ".gitignore", ec ) && fs::is_directory( dir / "Desert" / "Common", ec ) )
-                return dir;
-            if ( dir == dir.parent_path() )
-                break;
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     std::string ReadText( const fs::path& path )

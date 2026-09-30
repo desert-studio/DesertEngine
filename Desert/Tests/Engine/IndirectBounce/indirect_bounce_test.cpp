@@ -410,7 +410,7 @@ TEST( IndirectBounce, TheDeferredGIGatherReachesTheOneSharedBRDFToo )
 {
     const std::filesystem::path root = ShaderRoot();
     ASSERT_TRUE( std::filesystem::exists( root ) )
-         << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
+         << "could not find Editor/Resources/Shaders above " << Desert::TestSupport::RepositoryRoot();
 
     const std::string gather = Read( root / "Programs" / "Deferred" / "DeferredLighting.shader" );
     ASSERT_FALSE( gather.empty() );

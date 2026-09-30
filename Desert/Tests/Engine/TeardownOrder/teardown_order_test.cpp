@@ -137,7 +137,7 @@ namespace
 TEST( TeardownOrder, TheRepositoryRootWasFound )
 {
     ASSERT_TRUE( std::filesystem::exists( RepoRoot() / "Desert" / "Desert" / "Source" ) )
-         << "walked up from " << std::filesystem::current_path().string()
+         << "walked up from " << Desert::TestSupport::RepositoryRoot().string()
          << " and found no source tree; "
             "every other test in this suite would pass vacuously";
 }

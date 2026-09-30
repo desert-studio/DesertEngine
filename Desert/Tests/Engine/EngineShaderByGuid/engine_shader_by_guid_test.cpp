@@ -29,6 +29,7 @@
 #include <iterator>
 #include <string>
 #include <vector>
+#include "../../TestSupport/engine_dir.hpp"
 
 namespace
 {
@@ -50,24 +51,6 @@ namespace
     // after — `Common::Constants::Path::RESOURCE_PATH` ("Resources/") is a literal relative to the
     // working directory and is deliberately never remapped by a project (StartupLayout.hpp), so it is
     // the ONE thing a test that wants the real engine content has to set up itself.
-    class WorkingDirectoryGuard
-    {
-    public:
-        WorkingDirectoryGuard( const std::filesystem::path& next ) : m_Previous( std::filesystem::current_path() )
-        {
-            std::filesystem::current_path( next );
-        }
-        ~WorkingDirectoryGuard()
-        {
-            std::error_code ec;
-            std::filesystem::current_path( m_Previous, ec );
-        }
-        WorkingDirectoryGuard( const WorkingDirectoryGuard& )            = delete;
-        WorkingDirectoryGuard& operator=( const WorkingDirectoryGuard& ) = delete;
-
-    private:
-        std::filesystem::path m_Previous;
-    };
 
     // Every `.demat` under the real content tree, walked directly rather than through
     // `ContentRegistry::FilesOfKind` — the mechanism under test is shader resolution, not the content
@@ -97,7 +80,7 @@ TEST( EngineShaderByGuid, EveryCommittedMaterialResolvesItsShaderByGuid )
     ASSERT_TRUE( std::filesystem::exists( editorDir / "Resources" / "Shaders" ) )
          << "expected the real engine content at '" << editorDir.string() << "'";
 
-    const WorkingDirectoryGuard cwdGuard( editorDir );
+    const Desert::TestSupport::EngineDirScope engineDir( editorDir );
 
     const auto gathered = Desert::Assets::ContentRegistry::Gather();
     ASSERT_TRUE( gathered ) << gathered.GetError();

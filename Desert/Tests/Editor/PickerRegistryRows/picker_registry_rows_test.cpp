@@ -19,6 +19,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
@@ -81,7 +82,8 @@ namespace
 TEST( PickerRegistryRows, NoPanelOrWidgetEnumeratesLoadedObjects )
 {
     const fs::path root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "the editor's sources were not found from " << fs::current_path();
+    ASSERT_FALSE( root.empty() ) << "the editor's sources were not found from "
+                                 << Desert::TestSupport::RepositoryRoot();
 
     std::vector<std::string> offenders;
     std::size_t              scanned = 0;

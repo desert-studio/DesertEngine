@@ -95,10 +95,11 @@ namespace
     {
     public:
         explicit SandboxProject( const fs::path& repoRoot )
-             : m_SavedRoot( Common::Constants::Path::CurrentProjectRoot() ), m_SavedCwd( fs::current_path() )
+             : m_SavedRoot( Common::Constants::Path::CurrentProjectRoot() ),
+               m_SavedEngineDir( Common::Constants::Path::EngineDir() )
         {
             const fs::path editorDir = repoRoot / "Editor";
-            fs::current_path( editorDir );
+            Common::Constants::Path::SetEngineDir( editorDir );
 
             const auto json =
                  Common::Utils::FileSystem::ReadFileContent( ( editorDir / "Desert.deproj" ).string() );
@@ -115,8 +116,7 @@ namespace
         {
             VFS::Unmount();
             Common::Constants::Path::SetProjectRoot( m_SavedRoot.ProjectDir, m_SavedRoot.AssetsRoot );
-            std::error_code ec;
-            fs::current_path( m_SavedCwd, ec );
+            Common::Constants::Path::SetEngineDir( m_SavedEngineDir );
         }
 
         SandboxProject( const SandboxProject& )            = delete;
@@ -129,7 +129,7 @@ namespace
 
     private:
         Common::Constants::Path::ProjectRootState m_SavedRoot;
-        fs::path                                  m_SavedCwd;
+        fs::path                                  m_SavedEngineDir;
         bool                                      m_Opened = false;
     };
 

@@ -81,9 +81,9 @@ namespace
 
             s_RepoRoot = here;
             ASSERT_TRUE( std::filesystem::exists( s_RepoRoot / "Editor" / "Resources" / "Shaders" ) )
-                 << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
+                 << "could not find Editor/Resources/Shaders above " << Desert::TestSupport::RepositoryRoot();
 
-            std::filesystem::current_path( s_RepoRoot / "Editor" );
+            Common::Constants::Path::SetEngineDir( s_RepoRoot / "Editor" );
         }
 
         static std::filesystem::path s_RepoRoot;
@@ -525,9 +525,6 @@ TEST_F( ShaderRootFixture, SubstitutingTheShippedMediumMovesTheKeyOfTheRealCloud
 
 namespace
 {
-    // Captured during static initialisation, before any fixture moves the working directory, so a
-    // relative argv[0] still resolves.
-    const std::filesystem::path kStartDirectory = std::filesystem::current_path();
 
     constexpr const char* kPrintKeysFlag = "--print-shader-keys";
     constexpr const char* kKeyLinePrefix = "SHADERKEY ";
@@ -583,7 +580,7 @@ namespace
     {
         std::filesystem::path self( ::testing::internal::GetArgvs().at( 0 ) );
         if ( self.is_relative() )
-            self = kStartDirectory / self;
+            self = std::filesystem::absolute( self );
         // Double quotes: cmd.exe does not treat single quotes as quoting, POSIX sh accepts both.
         const std::string command =
              std::format( "\"{}\" --gtest_filter=ShaderRootFixture.PrintsTheKeysForAnotherProcess {} 2>&1",

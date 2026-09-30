@@ -50,11 +50,10 @@ namespace
             Assets::AsyncAssetLoader::Get().ResetForTest();
             const fs::path root = RepoRoot();
             ASSERT_FALSE( root.empty() );
-            // The engine's content mount (ENGINE_CONTENT_PATH) resolves against the host's working directory,
-            // as SHADERDIR_PATH does: stand where the editor stands, or the built-in humanoid's clips are
-            // outside the registry this suite gathers.
-            m_Cwd = fs::current_path();
-            fs::current_path( root / "Editor" );
+            // The engine's content mount (ENGINE_CONTENT_PATH) hangs off the engine directory: the checkout's
+            // Editor/, or the built-in humanoid's clips are outside the registry this suite gathers.
+            m_SavedEngineDir = Common::Constants::Path::EngineDir();
+            Common::Constants::Path::SetEngineDir( root / "Editor" );
             Path::SetProjectRoot( root / "Editor", "Resources/Assets" );
             Assets::ContentRegistry::ResetForTest();
             std::vector<std::string> refused;
@@ -67,8 +66,7 @@ namespace
             Path::SetProjectRoot( m_Saved.ProjectDir, m_Saved.AssetsRoot );
             Assets::ContentRegistry::ResetForTest();
             Common::AssetPathIndex::Clear();
-            if ( !m_Cwd.empty() )
-                fs::current_path( m_Cwd );
+            Common::Constants::Path::SetEngineDir( m_SavedEngineDir );
         }
 
         std::size_t ClipAssets() const
@@ -80,7 +78,7 @@ namespace
 
     private:
         Path::ProjectRootState m_Saved;
-        fs::path               m_Cwd;
+        fs::path               m_SavedEngineDir;
     };
 } // namespace
 

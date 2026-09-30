@@ -46,6 +46,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace fs = std::filesystem;
 
@@ -213,18 +214,8 @@ int main( int argc, char** argv )
 // A partitioned header (none is committed today) is compared against its joined text, not its bytes.
 TEST( SceneMigratorWritePath, EveryCommittedSceneIsAlreadyTheSaversCanonicalText )
 {
-    fs::path assets;
-    for ( fs::path at = fs::current_path(); !at.empty(); at = at.parent_path() )
-    {
-        if ( fs::is_directory( at / "Editor/Resources/Assets" ) )
-        {
-            assets = at / "Editor/Resources/Assets";
-            break;
-        }
-        if ( at == at.parent_path() )
-            break;
-    }
-    ASSERT_FALSE( assets.empty() ) << "no Editor/Resources/Assets above " << fs::current_path();
+    const fs::path assets = Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Assets";
+    ASSERT_TRUE( fs::is_directory( assets ) ) << assets;
 
     bool sawOne = false;
     for ( const auto& entry : fs::recursive_directory_iterator( assets ) )

@@ -24,6 +24,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
@@ -80,7 +81,7 @@ TEST( SceneInitDeferral, TheSourceWasFound )
     // wrong answer.
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "could not locate the repository from "
-                                 << std::filesystem::current_path().string();
+                                 << Desert::TestSupport::RepositoryRoot().string();
     const std::string source = StripLineComments( ReadAll( root + kEditorLayer ) );
     ASSERT_GT( source.size(), 100000u )
          << "EditorLayer.cpp read as " << source.size() << " bytes; that is not the file this suite is about";

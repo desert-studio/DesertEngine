@@ -55,6 +55,7 @@
 #include <filesystem>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 using Desert::Assets::AssetManager;
 using Desert::Assets::StaticMeshAsset;
@@ -76,11 +77,7 @@ namespace
     // Tests/Engine/ShippedShaderPasses and Tests/Engine/ShaderCacheKey locate shipped content.
     std::filesystem::path RepositoryRoot()
     {
-        std::filesystem::path here = std::filesystem::current_path();
-        for ( int up = 0;
-              up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Assets" / "Meshes" ); ++up )
-            here = here.parent_path();
-        return here;
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     std::filesystem::path ProbeFile()

@@ -258,7 +258,7 @@ TEST( AmbientIBL, BothRenderPathsReachTheirAmbientThroughTheOneSharedComposition
     // The test binary lives in build/Bin/Tests/<config>; walk up to the repository root.
     const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
     ASSERT_TRUE( std::filesystem::exists( root / "Editor" / "Resources" / "Shaders" ) )
-         << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
+         << "could not find Editor/Resources/Shaders above " << Desert::TestSupport::RepositoryRoot();
 
     // Every shader that shades an opaque surface's ambient, on both paths. StaticMeshGlass is not here:
     // it composes a refraction, not an ambient, and reads the specular cube for a mirror term instead.

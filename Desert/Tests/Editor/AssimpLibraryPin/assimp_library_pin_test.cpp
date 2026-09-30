@@ -34,17 +34,13 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
     std::filesystem::path RepositoryRoot()
     {
-        std::filesystem::path here = std::filesystem::current_path();
-        for ( int up = 0; up < 8 && !std::filesystem::exists( here / "BuildScripts" / "ThirdParty" ); ++up )
-        {
-            here = here.parent_path();
-        }
-        return here;
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     std::string ReadFile( const std::filesystem::path& path )

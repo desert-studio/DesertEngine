@@ -247,7 +247,7 @@ TEST( DirectLighting, EveryDirectLightInTheEngineReachesTheOneSharedBRDF )
 {
     const std::filesystem::path root = ShaderRoot();
     ASSERT_TRUE( std::filesystem::exists( root ) )
-         << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
+         << "could not find Editor/Resources/Shaders above " << Desert::TestSupport::RepositoryRoot();
 
     // Each consumer, the text it must compile and the call it must make. Both passes hand EVERY source (the sun,
     // point and spot lights) as a DesertLight from Mesh/LightSources.glslh to the surface's shading model; the

@@ -40,6 +40,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 using Desert::Animation::AnimationClip;
 using Desert::Animation::Animator;
@@ -282,20 +283,7 @@ namespace
     // same trick the AnimGraphScript census uses, because a source-text census has to read the tree.
     std::string RepoRoot()
     {
-        std::filesystem::path here = std::filesystem::current_path();
-        for ( int i = 0; i < 12; ++i )
-        {
-            if ( std::filesystem::exists( here / "Desert" / "Desert" / "Source" / "Engine" ) )
-            {
-                return here.string() + "/";
-            }
-            if ( !here.has_parent_path() || here.parent_path() == here )
-            {
-                break;
-            }
-            here = here.parent_path();
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot().string() + "/";
     }
 
     std::string ReadFile( const std::string& path )

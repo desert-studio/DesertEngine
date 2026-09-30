@@ -15,6 +15,7 @@
 #include <fstream>
 #include <set>
 #include <string>
+#include "../../TestSupport/scratch_dir.hpp"
 
 using namespace Desert::Editor::Commands;
 namespace Geometry = Desert::Geometry;
@@ -221,9 +222,8 @@ TEST( InstanceFold, TheStaticMeshPassDoesNotReturnBeforeItReachesTheInstancedQue
 {
     namespace fs = std::filesystem;
 
-    fs::path root = fs::current_path();
-    for ( int i = 0; i < 8 && !( fs::exists( root / "Desert" / "Common" ) && fs::exists( root / "Editor" ) ); ++i )
-        root = root.parent_path();
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
+    root                = root.parent_path();
     ASSERT_TRUE( fs::exists( root / "Desert" / "Common" ) ) << "tree not found -- this census saw nothing";
 
     const fs::path renderer = root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "Systems" / "Scene" /

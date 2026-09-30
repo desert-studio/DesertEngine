@@ -29,6 +29,7 @@
 #include <random>
 #include <set>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace fs = std::filesystem;
 using namespace Desert;
@@ -324,11 +325,8 @@ namespace
 {
     std::filesystem::path ProbeMeshFile()
     {
-        std::filesystem::path here = std::filesystem::current_path();
-        for ( int up = 0;
-              up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Assets" / "Meshes" ); ++up )
-            here = here.parent_path();
-        return here / "Editor" / "Resources" / "Assets" / "Meshes" / "StaticProbe.stmesh";
+        return Desert::TestSupport::RepositoryRoot() / "Editor" / "Resources" / "Assets" / "Meshes" /
+               "StaticProbe.stmesh";
     }
 } // namespace
 

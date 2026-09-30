@@ -56,6 +56,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 using namespace Desert::Assets;
 using Desert::Graphic::CloudTypeBaseKm;
@@ -100,18 +101,7 @@ namespace
     // them is a suite they will stop running.
     std::filesystem::path LibraryDirectory()
     {
-        std::filesystem::path here = std::filesystem::current_path();
-        for ( int up = 0; up < 6; ++up )
-        {
-            const std::filesystem::path candidate = here / "Editor" / "Resources" / "Assets" / "Clouds" / "Types";
-            std::error_code             ec;
-            if ( std::filesystem::is_directory( candidate, ec ) )
-                return candidate;
-            if ( !here.has_parent_path() )
-                break;
-            here = here.parent_path();
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot() / "Editor" / "Resources" / "Assets" / "Clouds" / "Types";
     }
 
     // Opens one shipped preset by name, or FAILS. Not skipped: a library that is not there is exactly the
@@ -120,7 +110,7 @@ namespace
     {
         const std::filesystem::path dir = LibraryDirectory();
         EXPECT_FALSE( dir.empty() ) << "Editor/Resources/Assets/Clouds/Types was not found from "
-                                    << std::filesystem::current_path()
+                                    << Desert::TestSupport::RepositoryRoot()
                                     << " or any of its six parents — the shipped cloud type library is "
                                        "missing, and every scene raised by the v4 -> v5 migration names it";
 

@@ -17,6 +17,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
@@ -110,7 +111,7 @@ namespace
 TEST( QueueSubmitCensus, EveryQueueCallOutsideTheDeviceLockIsAViolation )
 {
     const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "repository root not found from " << fs::current_path();
+    ASSERT_FALSE( root.empty() ) << "repository root not found from " << Desert::TestSupport::RepositoryRoot();
 
     std::size_t scanned = 0;
     for ( const char* dir : { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source" } )

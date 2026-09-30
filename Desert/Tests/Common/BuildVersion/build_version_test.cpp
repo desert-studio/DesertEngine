@@ -128,7 +128,7 @@ TEST( BuildVersion, TheSuiteIsRunFromInsideTheRepository )
 {
     ASSERT_TRUE( std::filesystem::exists( RepoRoot() / "Desert" / "Common" / "Source" / "Common" / "Core" /
                                           "Version.cpp" ) )
-         << "Could not find the repository root by walking up from " << std::filesystem::current_path()
+         << "Could not find the repository root by walking up from " << Desert::TestSupport::RepositoryRoot()
          << ". Run this suite from inside the checkout (RunTests.sh does).";
 }
 

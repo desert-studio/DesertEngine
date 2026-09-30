@@ -76,9 +76,9 @@ namespace
             const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
 
             ASSERT_TRUE( std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" ) )
-                 << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
+                 << "could not find Editor/Resources/Shaders above " << Desert::TestSupport::RepositoryRoot();
 
-            std::filesystem::current_path( here / "Editor" );
+            Common::Constants::Path::SetEngineDir( here / "Editor" );
         }
     };
 

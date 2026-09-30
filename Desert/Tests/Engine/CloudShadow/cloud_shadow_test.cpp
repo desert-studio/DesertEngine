@@ -942,7 +942,7 @@ TEST( CloudShadowReceiver, EverySunLitShaderReachesTheOneSharedFactor )
 {
     const std::filesystem::path root = RepositoryRoot();
     ASSERT_TRUE( std::filesystem::exists( root / "Editor" / "Resources" / "Shaders" ) )
-         << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
+         << "could not find Editor/Resources/Shaders above " << Desert::TestSupport::RepositoryRoot();
 
     const std::filesystem::path shaders = root / "Editor" / "Resources" / "Shaders";
 

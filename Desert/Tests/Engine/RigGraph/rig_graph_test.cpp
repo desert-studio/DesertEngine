@@ -43,6 +43,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 using Desert::Animation::AnimationClip;
 using Desert::Animation::Animator;
@@ -1334,24 +1335,9 @@ TEST( RigGraphTest, EveryRigThisBuildShipsParsesAndAtLeastOneOfThemCarriesAGraph
     // on disk was unreadable — which is `PreloadCloudLayouts` again: a format tested, a corpus shipped,
     // and no test that ran the layer joining them.
     //
-    // The repository root is found by walking up for a marker, the same trick the AnimGraphScript census
-    // uses, because a corpus census has to read the tree it is testing.
-    std::filesystem::path here = std::filesystem::current_path();
-    std::filesystem::path root;
-    for ( int i = 0; i < 12; ++i )
-    {
-        if ( std::filesystem::exists( here / "Desert" / "Desert" / "Source" / "Engine" ) )
-        {
-            root = here;
-            break;
-        }
-        if ( !here.has_parent_path() || here.parent_path() == here )
-        {
-            break;
-        }
-        here = here.parent_path();
-    }
-    ASSERT_FALSE( root.empty() ) << "could not find the repository root from " << std::filesystem::current_path();
+    // The checkout is baked by the build (DESERT_TEST_REPO_ROOT): a corpus census reads the tree it tests.
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
+    ASSERT_TRUE( std::filesystem::exists( root / "Desert" / "Desert" / "Source" / "Engine" ) ) << root;
 
     const std::filesystem::path rigs = root / "Editor" / "Resources" / "Assets" / "Rigs";
     ASSERT_TRUE( std::filesystem::exists( rigs ) ) << rigs.string();

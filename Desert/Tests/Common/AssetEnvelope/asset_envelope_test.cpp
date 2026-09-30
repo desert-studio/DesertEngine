@@ -12,6 +12,7 @@
 #include <map>
 #include <sstream>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
@@ -231,17 +232,8 @@ TEST( AssetEnvelope, DecoderIsChosenByContentNotByName )
 // decision it is not given the name for, and must not start to.
 TEST( AssetEnvelope, ReaderSourceNeverConsultsAnExtension )
 {
-    fs::path root = fs::current_path();
-    while ( !root.empty() && !fs::exists( root / "Desert/Common/Source/Common/Content/AssetEnvelope.cpp" ) )
-    {
-        if ( root == root.parent_path() )
-        {
-            root.clear();
-            break;
-        }
-        root = root.parent_path();
-    }
-    ASSERT_FALSE( root.empty() ) << "could not locate the repository from " << fs::current_path();
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
+    ASSERT_TRUE( fs::exists( root / "Desert/Common/Source/Common/Content/AssetEnvelope.cpp" ) ) << root;
 
     for ( const char* relative : { "Desert/Common/Source/Common/Content/AssetEnvelope.cpp",
                                    "Desert/Common/Source/Common/Content/AssetEnvelope.hpp" } )

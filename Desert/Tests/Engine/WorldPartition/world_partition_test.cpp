@@ -723,10 +723,10 @@ namespace
     public:
         explicit EditorProject( const std::string& repoRoot )
              : m_SavedRoot( Common::Constants::Path::CurrentProjectRoot() ),
-               m_SavedCwd( std::filesystem::current_path() )
+               m_SavedEngineDir( Common::Constants::Path::EngineDir() )
         {
             const std::filesystem::path editorDir = std::filesystem::absolute( repoRoot + "Editor" );
-            std::filesystem::current_path( editorDir );
+            Common::Constants::Path::SetEngineDir( editorDir );
             const auto project = Common::Project::ReadProjectFile( ReadAll( editorDir / "Desert.deproj" ) );
             if ( !project )
                 return;
@@ -736,8 +736,7 @@ namespace
         ~EditorProject()
         {
             Common::Constants::Path::SetProjectRoot( m_SavedRoot.ProjectDir, m_SavedRoot.AssetsRoot );
-            std::error_code ec;
-            std::filesystem::current_path( m_SavedCwd, ec );
+            Common::Constants::Path::SetEngineDir( m_SavedEngineDir );
         }
         EditorProject( const EditorProject& )            = delete;
         EditorProject& operator=( const EditorProject& ) = delete;
@@ -748,7 +747,7 @@ namespace
 
     private:
         Common::Constants::Path::ProjectRootState m_SavedRoot;
-        std::filesystem::path                     m_SavedCwd;
+        std::filesystem::path                     m_SavedEngineDir;
         bool                                      m_Opened = false;
     };
 } // namespace

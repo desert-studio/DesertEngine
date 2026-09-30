@@ -21,6 +21,8 @@
 #include <map>
 #include <string>
 #include <vector>
+#include "../../TestSupport/engine_dir.hpp"
+#include <Common/Core/Constants.hpp>
 
 namespace
 {
@@ -65,7 +67,7 @@ namespace
             const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
             ASSERT_FALSE( root.empty() );
             s_EditorDir = root / "Editor";
-            std::filesystem::current_path( s_EditorDir );
+            Common::Constants::Path::SetEngineDir( s_EditorDir );
         }
     };
 
@@ -220,8 +222,7 @@ TEST_F( SurfaceTemplateFixture, EditingAnyCellHeaderMovesTheKeyOfEveryCell )
     std::filesystem::copy( s_EditorDir / "Resources/Shaders/ShadingModels", shaders / "ShadingModels",
                            std::filesystem::copy_options::recursive );
 
-    const auto previous = std::filesystem::current_path();
-    std::filesystem::current_path( root );
+    const Desert::TestSupport::EngineDirScope engineDir( root );
     const std::filesystem::path program = "Resources/Shaders/Programs/Test/MockSurface.shader";
 
     const auto keys = [&]
@@ -248,7 +249,6 @@ TEST_F( SurfaceTemplateFixture, EditingAnyCellHeaderMovesTheKeyOfEveryCell )
                  << "editing " << header << " left the key of cell " << ExpectedCells()[i] << " where it was";
     }
 
-    std::filesystem::current_path( previous );
     std::filesystem::remove_all( root );
 }
 

@@ -56,6 +56,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include "../../TestSupport/scratch_dir.hpp"
 
 using Desert::Assets::AssetManager;
 using Desert::Assets::SkeletonAsset;
@@ -84,20 +85,10 @@ namespace
     constexpr std::uint64_t kProbeMeshGuidHi = 0x047623816f024edfull;
     constexpr std::uint64_t kProbeMeshGuidLo = 0x9fd7a557f6501f7eull;
 
-    // The checkout root: the first directory above the working directory holding .gitignore and Editor/.
+    // The checkout, baked by the build (DESERT_TEST_REPO_ROOT).
     std::filesystem::path RepoRoot()
     {
-        std::error_code ec;
-        for ( std::filesystem::path here = std::filesystem::current_path( ec ); !here.empty();
-              here                       = here.parent_path() )
-        {
-            if ( std::filesystem::exists( here / ".gitignore", ec ) &&
-                 std::filesystem::exists( here / "Editor", ec ) )
-                return here;
-            if ( here == here.parent_path() )
-                break;
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     Desert::Assets::Serialization::SkeletonAssetData

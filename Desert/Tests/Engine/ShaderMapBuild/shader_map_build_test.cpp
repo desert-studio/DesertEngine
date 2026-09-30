@@ -22,6 +22,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <Common/Core/Constants.hpp>
 
 namespace
 {
@@ -35,8 +36,8 @@ namespace
             // Includes resolve against "Resources/Shaders/", relative: run from Editor/ as the editor does.
             const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
             ASSERT_TRUE( std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" ) )
-                 << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
-            std::filesystem::current_path( here / "Editor" );
+                 << "could not find Editor/Resources/Shaders above " << Desert::TestSupport::RepositoryRoot();
+            Common::Constants::Path::SetEngineDir( here / "Editor" );
         }
     };
 

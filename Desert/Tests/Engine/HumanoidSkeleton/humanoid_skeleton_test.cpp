@@ -12,6 +12,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <Common/Core/Constants.hpp>
 
 namespace
 {
@@ -35,15 +36,15 @@ namespace
     protected:
         void SetUp() override
         {
-            m_Cwd                 = fs::current_path();
+            m_SavedEngineDir      = Common::Constants::Path::EngineDir();
             const fs::path editor = EditorDir();
             ASSERT_FALSE( editor.empty() ) << "Editor/" << kHumanoid << " not found";
-            fs::current_path( editor );
+            Common::Constants::Path::SetEngineDir( editor );
         }
 
         void TearDown() override
         {
-            fs::current_path( m_Cwd );
+            Common::Constants::Path::SetEngineDir( m_SavedEngineDir );
         }
 
         // The file read on its own, NOT through ReadSkeletonFile, so the comparison has two sides.
@@ -57,7 +58,7 @@ namespace
             return read.IsSuccess() ? read.ExtractValue() : Assets::Serialization::SkeletonAssetData{};
         }
 
-        fs::path m_Cwd;
+        fs::path m_SavedEngineDir;
     };
 } // namespace
 
@@ -106,7 +107,7 @@ TEST_F( HumanoidSkeleton, NoFileMeansNoRigNotAFallback )
 {
     const fs::path empty = fs::temp_directory_path() / "humanoid_skeleton_no_mount";
     fs::create_directories( empty );
-    fs::current_path( empty );
+    Common::Constants::Path::SetEngineDir( empty );
     EXPECT_EQ( Geometry::LoadHumanoidSkeleton(), nullptr );
 }
 

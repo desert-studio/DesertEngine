@@ -27,6 +27,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace fs = std::filesystem;
 using namespace Desert;
@@ -301,7 +302,7 @@ TEST( ModelingToolTargetCensus, TheRuleSeesAReadAndIgnoresCommentsAndSetters )
 TEST( ModelingToolTargetCensus, NoModelingToolReadsTheEditableMeshItself )
 {
     const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "repository root not found from " << fs::current_path();
+    ASSERT_FALSE( root.empty() ) << "repository root not found from " << Desert::TestSupport::RepositoryRoot();
     const fs::path           editor = fs::path( root ) / "Editor/Source/Editor";
     int                      files  = 0;
     std::vector<std::string> seenAllowed;

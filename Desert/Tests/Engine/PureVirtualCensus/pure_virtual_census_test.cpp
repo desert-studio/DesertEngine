@@ -38,6 +38,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
@@ -736,7 +737,8 @@ TEST( PureVirtualCensus, TheScanSeesTheTreeAtAll )
     // the form "nothing unexpected was found", so a scan that found NOTHING passes all of them while
     // checking nothing at all. These are the floors under that.
     const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "could not locate the repository from " << fs::current_path().string();
+    ASSERT_FALSE( root.empty() ) << "could not locate the repository from "
+                                 << Desert::TestSupport::RepositoryRoot().string();
 
     const Tree tree = ReadTree( root );
     ASSERT_GT( tree.Files.size(), 800u )

@@ -79,6 +79,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace Ser = Desert::Assets::Serialization;
 
@@ -86,14 +87,7 @@ namespace
 {
     std::filesystem::path RepoRoot()
     {
-        std::filesystem::path here = std::filesystem::current_path();
-        for ( int up = 0; up < 6; ++up )
-        {
-            if ( std::filesystem::exists( here / ".gitignore" ) && std::filesystem::exists( here / "Desert" ) )
-                return here;
-            here = here.parent_path();
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     std::string ReadFile( const std::filesystem::path& path )
@@ -722,17 +716,17 @@ TEST( MeshBinaryFormat, EveryCommittedCookedMeshIsTheContainer )
 
 namespace
 {
-    // The editor's project, opened the way the editor opens it: cwd = Editor/ (engine resource roots resolve
-    // against it) and the project root set from Desert.deproj. Restored on scope exit.
+    // The editor's project, opened the way the editor opens it: engine dir = Editor/ (engine resource roots
+    // hang off it) and the project root set from Desert.deproj. Restored on scope exit.
     class EditorProject
     {
     public:
         explicit EditorProject( const std::filesystem::path& repoRoot )
              : m_SavedRoot( Common::Constants::Path::CurrentProjectRoot() ),
-               m_SavedCwd( std::filesystem::current_path() )
+               m_SavedEngineDir( Common::Constants::Path::EngineDir() )
         {
             const std::filesystem::path editorDir = std::filesystem::absolute( repoRoot / "Editor" );
-            std::filesystem::current_path( editorDir );
+            Common::Constants::Path::SetEngineDir( editorDir );
             const auto project = Common::Project::ReadProjectFile( ReadFile( editorDir / "Desert.deproj" ) );
             if ( !project )
                 return;
@@ -742,8 +736,7 @@ namespace
         ~EditorProject()
         {
             Common::Constants::Path::SetProjectRoot( m_SavedRoot.ProjectDir, m_SavedRoot.AssetsRoot );
-            std::error_code ec;
-            std::filesystem::current_path( m_SavedCwd, ec );
+            Common::Constants::Path::SetEngineDir( m_SavedEngineDir );
         }
         EditorProject( const EditorProject& )            = delete;
         EditorProject& operator=( const EditorProject& ) = delete;
@@ -754,7 +747,7 @@ namespace
 
     private:
         Common::Constants::Path::ProjectRootState m_SavedRoot;
-        std::filesystem::path                     m_SavedCwd;
+        std::filesystem::path                     m_SavedEngineDir;
         bool                                      m_Opened = false;
     };
 } // namespace

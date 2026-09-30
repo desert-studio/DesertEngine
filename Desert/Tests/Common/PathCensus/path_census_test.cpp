@@ -22,6 +22,7 @@
 #include <sstream>
 #include <optional>
 #include <string>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace Path = Common::Constants::Path;
 namespace fs   = std::filesystem;
@@ -270,18 +271,10 @@ TEST( PathCensus, TheInverseRefusesAPathOutsideTheRowAndKeepsACallerRelativeFram
 
 namespace
 {
-    // The checkout root: the nearest ancestor of the working directory holding `.gitignore` and `Desert/`.
+    // The checkout, baked by the build (DESERT_TEST_REPO_ROOT).
     std::optional<fs::path> RepoRoot()
     {
-        std::error_code ec;
-        for ( fs::path here = fs::current_path( ec ); !here.empty(); here = here.parent_path() )
-        {
-            if ( fs::exists( here / ".gitignore", ec ) && fs::exists( here / "Desert", ec ) )
-                return here;
-            if ( here == here.parent_path() )
-                break;
-        }
-        return std::nullopt;
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     std::string ReadText( const fs::path& file )
@@ -331,7 +324,7 @@ TEST( PathCensus, EverySourceFileThatSpellsTheCookedRootIsARegisteredDerivedUse 
 
     const auto root = RepoRoot();
     ASSERT_TRUE( root.has_value() ) << "run from inside the checkout (no .gitignore + Desert/ above "
-                                    << fs::current_path().generic_string() << ")";
+                                    << Desert::TestSupport::RepositoryRoot().generic_string() << ")";
 
     // NOLINTNEXTLINE(bugprone-unchecked-optional-access): the ASSERT above returns on nullopt
     const fs::path& repo = root.value();

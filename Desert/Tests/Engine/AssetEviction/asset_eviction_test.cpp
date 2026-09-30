@@ -64,6 +64,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 using namespace Desert;
 using namespace Desert::Assets;
@@ -404,15 +405,8 @@ TEST( AssetEviction, TheDefaultSurfaceTemplateSurvivesASweepWithNoRootsBecauseTh
 
     const auto readSource = []( const char* relative )
     {
-        for ( std::filesystem::path dir = std::filesystem::current_path(); !dir.empty(); dir = dir.parent_path() )
-        {
-            std::ifstream in( dir / relative, std::ios::binary );
-            if ( in )
-                return std::string( std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() );
-            if ( dir == dir.parent_path() )
-                break;
-        }
-        return std::string();
+        std::ifstream in( Desert::TestSupport::RepositoryRoot() / relative, std::ios::binary );
+        return std::string( std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() );
     };
     const std::string boot = Desert::Tests::ConsumerText::StripComments(
          readSource( "Desert/Desert/Source/Engine/Assets/BootContent.cpp" ) );

@@ -23,6 +23,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
@@ -30,12 +31,7 @@ namespace
 
     std::filesystem::path RepositoryRoot()
     {
-        std::filesystem::path here = std::filesystem::current_path();
-        for ( int up = 0; up < 8 && !std::filesystem::exists( here / "BuildScripts" / "ThirdParty" ); ++up )
-        {
-            here = here.parent_path();
-        }
-        return here;
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     // assimp's own metres-per-file-unit for an FBX, straight out of FBXImporter.cpp:180:

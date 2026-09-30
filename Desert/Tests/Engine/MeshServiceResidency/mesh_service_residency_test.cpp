@@ -29,6 +29,7 @@
 #include <format>
 #include <memory>
 #include <thread>
+#include "../../TestSupport/scratch_dir.hpp"
 
 using namespace Desert;
 using Assets::AsyncAssetLoader;
@@ -316,18 +317,7 @@ TEST_F( MeshServiceResidency, ASkinnedMeshFailedForItsMissingRigIsDrawnOnceTheRi
 {
     namespace fs   = std::filesystem;
     namespace Path = Common::Constants::Path;
-    fs::path repo;
-    for ( fs::path here = fs::current_path(); !here.empty(); here = here.parent_path() )
-    {
-        if ( fs::exists( here / ".gitignore" ) && fs::exists( here / "Editor" ) )
-        {
-            repo = here;
-            break;
-        }
-        if ( here == here.parent_path() )
-            break;
-    }
-    ASSERT_FALSE( repo.empty() );
+    const fs::path repo    = Desert::TestSupport::RepositoryRoot();
     const fs::path shipped = repo / "Editor/Resources/Assets/Meshes/Skinned";
 
     // A snapshot, not a reference: SetProjectRoot below rewrites the state CurrentProjectRoot() refers to, and the
