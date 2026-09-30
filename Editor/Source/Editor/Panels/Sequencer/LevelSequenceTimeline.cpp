@@ -41,7 +41,7 @@ namespace Desert::Editor
 
         /// The entity a binding names, in @p scene — nullopt for a binding that is not an Entity binding or
         /// names nothing of this scene.
-        std::optional<ECS::Entity> BoundEntity( const Core::Scene& scene, const TL::Binding& binding )
+        std::optional<ECS::Entity> BoundEntity( const ::Desert::Core::Scene& scene, const TL::Binding& binding )
         {
             if ( binding.Kind != TL::BindingKind::Entity )
                 return std::nullopt;
