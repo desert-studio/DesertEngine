@@ -68,7 +68,7 @@ namespace
         return v40;
     }
 
-    Desert::Common::ResultStr<TL::UILiftResult> Lift( const TL::UIAnimationV40& v40 )
+    auto Lift( const TL::UIAnimationV40& v40 )
     {
         return TL::LiftUIAnimation( v40, "widget-uuid", AN::PROJECT_TICK_RATE, AN::DEFAULT_DISPLAY_RATE );
     }
