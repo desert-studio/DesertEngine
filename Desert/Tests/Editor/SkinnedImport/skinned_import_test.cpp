@@ -288,8 +288,9 @@ TEST_F( SkinnedImport, TheClipNamesTheSourceItWasImportedFrom )
     const auto clip = Ser::ReadAnimationJson( Read( m_Outcome.WrittenClips.front() ) );
     ASSERT_TRUE( clip.IsSuccess() ) << clip.GetError();
     const auto& import = clip.GetValue().Import;
-    ASSERT_TRUE( import.has_value() );
-    const auto& stated = import.value(); // checked access: the ASSERT above is invisible to the analyzer
+    if ( !import.has_value() )
+        FAIL() << "the clip states no import source";
+    const auto& stated = *import;
     EXPECT_EQ( stated.Source, m_Source.filename().generic_string() );
     const auto hash = Assets::HashMeshSourceFile( m_Source );
     ASSERT_TRUE( hash.IsSuccess() ) << hash.GetError();

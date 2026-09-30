@@ -89,7 +89,7 @@ namespace Desert::Editor::ThumbnailSubject
         if ( !templateName.IsSuccess() )
             return Common::MakeFormattedError<Answer>( "{}", templateName.GetError() );
 
-        const std::string shaderName = templateName.GetValue();
+        const std::string& shaderName = templateName.GetValue();
         const auto        shader     = shaders->GetByName( shaderName );
         if ( !shader )
             return Common::MakeFormattedError<Answer>( "its template '{}' is not a registered shader",
