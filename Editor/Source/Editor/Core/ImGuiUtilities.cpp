@@ -174,24 +174,6 @@ namespace Desert::Editor::Utils
 
         ImGui::Columns( 2 );
         ImGui::SetColumnWidth( 0, PropertyLabelWidth() );
-        // BeginColumns cut each column's clip rect from the offsets it held BEFORE SetColumnWidth — the
-        // default half-and-half split for a set seen for the first time — and NextColumn pushes that stale
-        // rect, so the start of a value (the "Fox" of "Fox.glb") was clipped away under the label column's
-        // old extent. The rects are re-cut from the offsets the row actually uses, and column 0's re-pushed.
-        {
-            ImGuiWindow*     window  = ImGui::GetCurrentWindow();
-            ImGuiOldColumns* columns = window->DC.CurrentColumns;
-            for ( int n = 0; n < columns->Count; ++n )
-            {
-                auto&       column = columns->Columns[n];
-                const float x1     = IM_ROUND( window->Pos.x + ImGui::GetColumnOffset( n ) );
-                const float x2     = IM_ROUND( window->Pos.x + ImGui::GetColumnOffset( n + 1 ) - 1.0f );
-                column.ClipRect    = ImRect( x1, -FLT_MAX, x2, +FLT_MAX );
-                column.ClipRect.ClipWithFull( window->ClipRect );
-            }
-            ImGui::PopClipRect();
-            ImGui::PushColumnClipRect( 0 );
-        }
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted( label );
         if ( tooltip )
