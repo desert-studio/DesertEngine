@@ -12,8 +12,9 @@ namespace Desert::Graphic::System
 {
     // Bloom via a compute mip-chain (Call of Duty / Jimenez): progressive 13-tap downsample of the HDR
     // scene color (with a Karis average + bright-pass on the first mip), then a tent-filtered additive
-    // upsample back to mip 0. The mip-0 result (GetBloomImage()) is added in during tonemapping. Runs as
-    // part of the explicit post-process chain, outside any render pass (compute dispatches only).
+    // upsample back to mip 0. The mip-0 result (GetBloomImage()) is added in during tonemapping. Every
+    // dispatch is its own compute node of the frame graph (SceneRendererFramePostFX.cpp "PostFX: Bloom"),
+    // which declares the mip it samples and the mip it writes and places every barrier between them.
     class BloomRenderer final : public RenderSystem
     {
     public:
@@ -25,7 +26,16 @@ namespace Desert::Graphic::System
         {
         }
 
-        void Execute();
+        // False: nothing to record this frame (no scene colour, chain or pipelines).
+        bool Prepare() const;
+        // Downsample into @p mip: mip 0 samples the scene colour (Karis + threshold), mip i samples mip i-1.
+        void RecordDownsample( uint32_t mip );
+        // Additive upsample: samples @p mip (>= 1) and accumulates into mip - 1 (read-modify-write).
+        void     RecordUpsample( uint32_t mip );
+        uint32_t GetMipLevels() const
+        {
+            return m_MipLevels;
+        }
         void Resize( uint32_t width, uint32_t height );
 
         void SetThreshold( float threshold )

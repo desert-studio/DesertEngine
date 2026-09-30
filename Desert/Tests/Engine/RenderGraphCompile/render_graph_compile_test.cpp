@@ -1239,10 +1239,16 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
     }
     const auto bodyOf = [&source]( std::string_view function ) -> std::string
     {
-        const size_t begin = source.find( std::format( "void SceneRenderer::{}(", function ) );
+        // A definition returns void, or the graph handle it made (AddFrameBackdropBlur hands the UI its pyramid).
+        const auto definition = [&source]( std::string_view name, size_t from )
+        {
+            return std::min( source.find( std::format( "void SceneRenderer::{}", name ), from ),
+                             source.find( std::format( "RDG::TextureRef SceneRenderer::{}", name ), from ) );
+        };
+        const size_t begin = definition( std::format( "{}(", function ), 0 );
         if ( begin == std::string::npos )
             return {};
-        const size_t end = source.find( "void SceneRenderer::", begin + 1 );
+        const size_t end = definition( "", begin + 1 );
         return source.substr( begin, end == std::string::npos ? std::string::npos : end - begin );
     };
     const std::string body = bodyOf( "OnUpdate" );
@@ -1264,10 +1270,15 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
             const size_t phases = text.find( "AddGraphPhasePasses(", at );
             const size_t frame  = text.find( "AddFrame", at );
             size_t       raster = text.find( "AddRaster(", at );
+            // A graph node: its name is the first string literal of the call (a std::format loop name keeps
+            // its "{}", one entry per call site).
+            size_t node = text.find( "graph.AddPass(", at );
+            while ( node != std::string::npos && text.find( '"', node ) > text.find( ')', node ) )
+                node = text.find( "graph.AddPass(", node + 1 );
             // A call names its node first (a quote before the call's first ')'); the helper's definition does not.
             while ( raster != std::string::npos && text.find( '"', raster ) > text.find( ')', raster ) )
                 raster = text.find( "AddRaster(", raster + 1 );
-            const size_t first = std::min( { legacy, phases, frame, raster } );
+            const size_t first = std::min( { legacy, phases, frame, raster, node } );
             if ( first == std::string::npos )
                 return;
             if ( first == frame )
@@ -1279,7 +1290,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
                 collect( called, called.find( '(' ) + 1 );
                 at = open + 1;
             }
-            else if ( first == legacy || first == raster )
+            else if ( first == legacy || first == raster || first == node )
             {
                 const size_t open  = text.find( '"', first );
                 const size_t close = text.find( '"', open + 1 );
@@ -1326,16 +1337,25 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
          "Debug: Overdraw",
          "Debug: Overdraw Resolve",
          "phases[phase==RenderPhase::Debug]",
-         "UI: BackdropBlur",
+         "UI: BackdropBlur{}",
          "phases[phase==RenderPhase::UI]",
-         "PostFX: JumpFlood",
-         "PostFX: AutoExposure",
-         "PostFX: Bloom",
-         "PostFX: LightShafts",
-         "PostFX: LensFlare",
+         "PostFX: JumpFloodInit",
+         "PostFX: JumpFloodStep{}",
+         "PostFX: JumpFloodFinal",
+         "PostFX: AutoExposureClear",
+         "PostFX: AutoExposureHistogram",
+         "PostFX: AutoExposureAverage",
+         "PostFX: BloomDownsample{}",
+         "PostFX: BloomUpsample{}",
+         "PostFX: LightShaftMask",
+         "PostFX: LightShaftBlur{}",
+         "PostFX: LensFlareBright{}",
+         "PostFX: LensFlareFeatures",
          "PostFX: Tonemap",
          "PostFX: FXAA",
-         "PostFX: SMAA",
+         "PostFX: SMAAEdges",
+         "PostFX: SMAAWeights",
+         "PostFX: SMAABlend",
     };
     EXPECT_EQ( added, legacyOrder );
 
@@ -1377,6 +1397,83 @@ TEST( RenderGraphCompile, DepthResolveIsACopyNodeWithCopySrcCopyDstAndPlannedBar
                std::string::npos );
     EXPECT_NE( body.find( "\"GBuffer.Depth\",DeferredFrameNodes::kGBufferDepthFinal" ), std::string::npos );
     EXPECT_EQ( body.find( "AddLegacy(" ), std::string::npos );
+}
+
+// THE POST-PROCESS AND BACKDROP PASSES ARE GRAPH NODES (RDG-LEG1-L4). Every pass SceneRendererFramePostFX.cpp
+// adds is a Compute or Raster node whose setup declares what it samples and writes, so the graph places every
+// barrier and opens every render pass: no AddLegacy wrapper is left, and neither the file nor the renderers it
+// drives record a manual image transition, a ComputeImageBegin/EndWrite bracket or their own render pass. A
+// node that declares nothing must be a culling root (NeverCull): the auto-exposure histogram clear writes only
+// a buffer the graph does not import yet.
+TEST( RenderGraphCompile, PostFxPassesAreRealGraphNodesWithDeclaredAccess )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const auto read = [&root]( const std::string& relative )
+    {
+        std::ifstream file( root / relative );
+        std::string   text;
+        std::string   line;
+        while ( std::getline( file, line ) )
+        {
+            const size_t comment = line.find( "//" );
+            std::format_to( std::back_inserter( text ), "{}\n",
+                            comment == std::string::npos ? line : line.substr( 0, comment ) );
+        }
+        return text;
+    };
+    const std::string postFx = read( "Desert/Desert/Source/Engine/Graphic/SceneRendererFramePostFX.cpp" );
+    ASSERT_FALSE( postFx.empty() ) << "SceneRendererFramePostFX.cpp is gone";
+
+    EXPECT_EQ( postFx.find( "AddLegacy(" ), std::string::npos ) << "a PostFX/UI pass is still a legacy wrapper";
+
+    size_t nodes = 0;
+    for ( size_t at = postFx.find( "graph.AddPass(" ); at != std::string::npos;
+          at        = postFx.find( "graph.AddPass(", at + 1 ) )
+    {
+        ++nodes;
+        const size_t open  = postFx.find( '"', at );
+        const size_t close = postFx.find( '"', open + 1 );
+        ASSERT_NE( close, std::string::npos );
+        const std::string name  = postFx.substr( open + 1, close - open - 1 );
+        const size_t      setup = postFx.find( "RDG::PassBuilder&", close );
+        const size_t      exec  = postFx.find( "RDG::PassContext&", close );
+        ASSERT_NE( setup, std::string::npos ) << name << ": no setup lambda";
+        ASSERT_NE( exec, std::string::npos ) << name << ": no exec lambda";
+        const std::string flags = postFx.substr( close, setup - close );
+        EXPECT_TRUE( flags.find( "RDG::PassFlags::Compute" ) != std::string::npos ||
+                     flags.find( "RDG::PassFlags::Raster" ) != std::string::npos )
+             << name << " is neither a Compute nor a Raster node";
+        EXPECT_EQ( flags.find( "PassFlags::Legacy" ), std::string::npos ) << name << " is a legacy node";
+
+        const std::string declarations = postFx.substr( setup, exec - setup );
+        const bool        declares     = declarations.find( "pass.Read(" ) != std::string::npos ||
+                              declarations.find( "pass.Write(" ) != std::string::npos ||
+                              declarations.find( "pass.ColorTarget(" ) != std::string::npos ||
+                              declarations.find( "ReadEach(" ) != std::string::npos;
+        EXPECT_TRUE( declares || flags.find( "PassFlags::NeverCull" ) != std::string::npos )
+             << name << " declares no access and is not a culling root";
+        if ( flags.find( "RDG::PassFlags::Raster" ) != std::string::npos )
+            EXPECT_NE( declarations.find( "pass.ColorTarget(" ), std::string::npos )
+                 << name << " is a Raster node without a colour target: the graph has no render pass to open";
+    }
+    // JumpFlood 3, AutoExposure 3, Bloom 2, LightShafts 2, LensFlare 2, Tonemap 1, FXAA 1, SMAA 3, BackdropBlur 1.
+    EXPECT_EQ( nodes, 18u );
+
+    const std::string dir = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/";
+    for ( const std::string& file :
+          { std::string( "SceneRendererFramePostFX.cpp" ), dir + "JumpFloodOutlineRenderer.cpp",
+            dir + "LensFlareRenderer.cpp", dir + "BackdropBlurRenderer.hpp", dir + "BloomRenderer.cpp",
+            dir + "AutoExposureRenderer.cpp", dir + "LightShaftRenderer.cpp", dir + "TonemapRenderer.cpp",
+            dir + "FXAARenderer.cpp", dir + "SMAARenderer.cpp" } )
+    {
+        const std::string text = file == "SceneRendererFramePostFX.cpp" ? postFx : read( file );
+        ASSERT_FALSE( text.empty() ) << file << " is gone";
+        for ( const char* manual : { "ComputeImageBeginWrite(", "ComputeImageEndWrite(", "TransitionLayout(",
+                                     "BeginRenderPass(", "EndRenderPass(", "RenderPass::Create(" } )
+            EXPECT_EQ( text.find( manual ), std::string::npos )
+                 << file << " still records " << manual << " itself; the graph owns barriers and render passes";
+    }
 }
 
 // ── Imported framebuffers and render-pass merging (RDG-LEG1-L0) ───────────────────────────────────

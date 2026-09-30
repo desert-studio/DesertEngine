@@ -27,7 +27,29 @@ namespace Desert::Graphic::System
         {
         }
 
-        void Execute();
+        // Three compute nodes of the frame graph (SceneRendererFramePostFX.cpp "PostFX: AutoExposure*"). Prepare
+        // runs when the graph is built: it advances the 1x1 ping-pong, so GetAdaptedLuminanceImage() is the image
+        // this frame's RecordAverage writes and GetPreviousLuminanceImage() the one it adapts from. False:
+        // nothing to record (no scene colour, histogram or pipelines), and the ping-pong does not move.
+        bool Prepare();
+        // 1) Zero the histogram (a storage buffer the graph does not track yet: the dispatch's own memory
+        //    barrier orders it against the next dispatch).
+        void RecordClear();
+        // 2) Histogram of GetSceneColorImage() (sampled), atomic adds into the histogram.
+        void RecordHistogram();
+        // 3) Percentile-clipped average + temporal adaptation: samples GetPreviousLuminanceImage(), writes
+        //    GetAdaptedLuminanceImage() (storage).
+        void RecordAverage();
+
+        std::shared_ptr<Image2D> GetSceneColorImage() const
+        {
+            const auto scene = m_TargetFramebuffer.lock();
+            return scene ? scene->GetColorAttachmentImage() : nullptr;
+        }
+        const std::shared_ptr<Image2D>& GetPreviousLuminanceImage() const
+        {
+            return m_LumImage[1 - m_ReadIndex];
+        }
         void Resize( uint32_t, uint32_t )
         {
         } // histogram + 1x1 buffers are viewport-independent
@@ -64,7 +86,8 @@ namespace Desert::Graphic::System
             m_MaxLuma    = maxLuma;
         }
 
-        // The 1x1 image holding the latest adapted luminance (sampled by tonemap).
+        // The 1x1 image holding the latest adapted luminance (sampled by tonemap); after Prepare, the one this
+        // frame writes.
         const std::shared_ptr<Image2D>& GetAdaptedLuminanceImage() const
         {
             return m_LumImage[m_ReadIndex];
@@ -80,8 +103,8 @@ namespace Desert::Graphic::System
         std::shared_ptr<ComputePipeline> m_HistogramPipeline;
         std::shared_ptr<ComputePipeline> m_AveragePipeline;
 
-        int m_ReadIndex = 0; // holds the latest adapted luminance after Execute
-        // Set by OnSceneReplaced, consumed and cleared by the next Execute — see that override.
+        int m_ReadIndex = 0; // holds the latest adapted luminance; Prepare points it at this frame's write
+        // Set by OnSceneReplaced, consumed and cleared by the next RecordAverage — see that override.
         bool  m_SnapNextAdaptation = false;
         float m_AdaptSpeed         = 1.5f;
         float m_DeltaSeconds       = 0.0f;

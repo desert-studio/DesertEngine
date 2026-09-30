@@ -113,64 +113,53 @@ namespace Desert::Graphic::System
         CreateImage( width, height );
     }
 
-    void BloomRenderer::Execute()
+    bool BloomRenderer::Prepare() const
     {
         const auto& scene = m_TargetFramebuffer.lock();
-        if ( !scene || !m_BloomImage || !m_DownsamplePipeline || !m_UpsamplePipeline )
-            return;
+        return scene && scene->GetColorAttachmentImage() && m_BloomImage && m_DownsamplePipeline &&
+               m_UpsamplePipeline;
+    }
 
-        Image2D* sceneColor = scene->GetColorAttachmentImage().get();
-        Image2D* bloom      = m_BloomImage.get();
-        if ( !sceneColor )
+    void BloomRenderer::RecordDownsample( uint32_t mip )
+    {
+        const auto& scene = m_TargetFramebuffer.lock();
+        if ( !scene )
             return;
-
-        const uint32_t sceneW = scene->GetFramebufferWidth();
-        const uint32_t sceneH = scene->GetFramebufferHeight();
+        const bool     first  = ( mip == 0 );
+        Image2D*       src    = first ? scene->GetColorAttachmentImage().get() : m_BloomImage.get();
+        const uint32_t srcMip = first ? 0u : mip - 1;
         const uint32_t bw     = m_BloomImage->GetWidth();
         const uint32_t bh     = m_BloomImage->GetHeight();
+        const uint32_t srcW   = first ? scene->GetFramebufferWidth() : MipSize( bw, mip - 1 );
+        const uint32_t srcH   = first ? scene->GetFramebufferHeight() : MipSize( bh, mip - 1 );
 
-        auto& renderer = Renderer::GetInstance();
+        DownsamplePush push{ glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ),
+                             static_cast<int32_t>( srcMip ), first ? 1 : 0, m_Threshold };
 
-        // Keep the whole chain in GENERAL; the renderer inserts a graphics->compute barrier here and a
-        // compute->compute|fragment barrier after each dispatch.
-        renderer.ComputeImageBeginWrite( bloom );
+        m_DownsamplePipeline->SetInput( 0, src );
+        m_DownsamplePipeline->SetOutput( 1, m_BloomImage.get(), mip );
+        m_DownsamplePipeline->SetPushConstants( &push, sizeof( push ) );
+        Renderer::GetInstance().DispatchComputeInFrame(
+             m_DownsamplePipeline.get(), GroupCount( MipSize( bw, mip ) ), GroupCount( MipSize( bh, mip ) ), 1 );
+    }
 
-        // --- Downsample: scene -> mip0 (Karis + threshold), then mip(i-1) -> mip(i). ---
-        for ( uint32_t i = 0; i < m_MipLevels; ++i )
-        {
-            const bool     first  = ( i == 0 );
-            Image2D*       src    = first ? sceneColor : bloom;
-            const uint32_t srcMip = first ? 0u : i - 1;
-            const uint32_t srcW   = first ? sceneW : MipSize( bw, i - 1 );
-            const uint32_t srcH   = first ? sceneH : MipSize( bh, i - 1 );
+    void BloomRenderer::RecordUpsample( uint32_t mip )
+    {
+        if ( mip == 0 )
+            return;
+        const uint32_t bw   = m_BloomImage->GetWidth();
+        const uint32_t bh   = m_BloomImage->GetHeight();
+        const uint32_t srcW = MipSize( bw, mip );
+        const uint32_t srcH = MipSize( bh, mip );
 
-            DownsamplePush push{ glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ),
-                                 static_cast<int32_t>( srcMip ), first ? 1 : 0, m_Threshold };
+        UpsamplePush push{ glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ),
+                           static_cast<int32_t>( mip ), kFilterRadius };
 
-            m_DownsamplePipeline->SetInput( 0, src );
-            m_DownsamplePipeline->SetOutput( 1, bloom, i );
-            m_DownsamplePipeline->SetPushConstants( &push, sizeof( push ) );
-            renderer.DispatchComputeInFrame( m_DownsamplePipeline.get(), GroupCount( MipSize( bw, i ) ),
-                                             GroupCount( MipSize( bh, i ) ), 1 );
-        }
-
-        // --- Upsample (additive): mip(i) -> mip(i-1), walking back to mip0. ---
-        for ( uint32_t i = m_MipLevels - 1; i >= 1; --i )
-        {
-            const uint32_t srcW = MipSize( bw, i );
-            const uint32_t srcH = MipSize( bh, i );
-
-            UpsamplePush push{ glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ),
-                               static_cast<int32_t>( i ), kFilterRadius };
-
-            m_UpsamplePipeline->SetInput( 0, bloom );
-            m_UpsamplePipeline->SetOutput( 1, bloom, i - 1 );
-            m_UpsamplePipeline->SetPushConstants( &push, sizeof( push ) );
-            renderer.DispatchComputeInFrame( m_UpsamplePipeline.get(), GroupCount( MipSize( bw, i - 1 ) ),
-                                             GroupCount( MipSize( bh, i - 1 ) ), 1 );
-        }
-
-        // Back to SHADER_READ_ONLY so tonemap can sample mip 0.
-        renderer.ComputeImageEndWrite( bloom );
+        m_UpsamplePipeline->SetInput( 0, m_BloomImage.get() );
+        m_UpsamplePipeline->SetOutput( 1, m_BloomImage.get(), mip - 1 );
+        m_UpsamplePipeline->SetPushConstants( &push, sizeof( push ) );
+        Renderer::GetInstance().DispatchComputeInFrame( m_UpsamplePipeline.get(),
+                                                        GroupCount( MipSize( bw, mip - 1 ) ),
+                                                        GroupCount( MipSize( bh, mip - 1 ) ), 1 );
     }
 } // namespace Desert::Graphic::System

@@ -24,11 +24,6 @@ namespace Desert::Graphic::System
         m_Framebuffer->Resize( targetFramebuffer->GetFramebufferWidth(),
                                targetFramebuffer->GetFramebufferHeight() );
 
-        // RenderPass
-        RenderPassSpecification rpSpec;
-        rpSpec.DebugName         = debugName;
-        rpSpec.TargetFramebuffer = m_Framebuffer;
-
         // Pipeline
         m_Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SceneComposite" );
 
@@ -49,33 +44,19 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    void TonemapRenderer::Execute()
-    {
-        auto& renderer = Renderer::GetInstance();
-
-        auto renderPass = RenderPass::Create( {
-             .TargetFramebuffer = m_Framebuffer,
-             .DebugName         = "TonemapPass",
-        } );
-
-        renderer.BeginRenderPass( renderPass.get() );
-        Render();
-        renderer.EndRenderPass();
-    }
-
     void TonemapRenderer::Resize( uint32_t width, uint32_t height )
     {
         if ( m_Framebuffer )
             m_Framebuffer->Resize( width, height );
     }
 
-    void TonemapRenderer::Render()
+    void TonemapRenderer::Record()
     {
         const auto& framebuffer =
              m_TargetFramebuffer.lock(); // We call lock internally to avoid cyclic dependencies.
         if ( !framebuffer )
         {
-            LOG_ERROR( "The framebuffer for `TonemapRenderer::ProcessSystem` was destroyed or wasn't set up" );
+            LOG_ERROR( "The framebuffer for `TonemapRenderer::Record` was destroyed or wasn't set up" );
             return;
         }
 

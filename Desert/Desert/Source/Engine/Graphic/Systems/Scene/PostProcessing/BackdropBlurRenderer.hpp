@@ -10,6 +10,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 
 namespace Desert::Graphic::System
@@ -25,7 +26,7 @@ namespace Desert::Graphic::System
     // image. Mip 0 is a mild blur and every further level roughly doubles it, so a UI element picks a
     // LOD instead of each element paying for its own kernel. No new shader, no new blur to maintain.
     //
-    // Runs right before the UI phase (compute only, outside any render pass) and ONLY when the UI
+    // Compute nodes of the frame graph right before the UI phase, added ONLY when the UI
     // actually asked for it — see SceneRenderer::SetBackdropBlurNeeded.
     class BackdropBlurRenderer final : public RenderSystem
     {
@@ -66,53 +67,58 @@ namespace Desert::Graphic::System
             CreateImage( width, height );
         }
 
-        // The blur pyramid. Null until Execute() has run once — callers must handle that (the UI falls
-        // back to a plain tinted panel).
+        // The blur pyramid. Null until it is created — callers must handle that (the UI falls back to a
+        // plain tinted panel). Written by the "UI: BackdropBlur{mip}" graph nodes; the UI phase declares
+        // that it samples it.
         const std::shared_ptr<Image2D>& GetImage() const
         {
             return m_Image;
         }
 
-        void Execute()
+        // False: nothing to record this frame (no scene colour, pyramid or pipeline).
+        bool Prepare() const
         {
-            const auto& scene = m_TargetFramebuffer.lock();
-            if ( !scene || !m_Image || !m_DownsamplePipeline )
-                return;
+            return GetSceneColorImage() && m_Image && m_DownsamplePipeline;
+        }
 
-            Image2D* sceneColor = scene->GetColorAttachmentImage().get();
-            if ( !sceneColor )
-                return;
+        uint32_t GetMipLevels() const
+        {
+            return m_MipLevels;
+        }
 
-            const uint32_t sceneW = scene->GetFramebufferWidth();
-            const uint32_t sceneH = scene->GetFramebufferHeight();
+        std::shared_ptr<Image2D> GetSceneColorImage() const
+        {
+            const auto scene = m_TargetFramebuffer.lock();
+            return scene ? scene->GetColorAttachmentImage() : nullptr;
+        }
+
+        // Downsample into pyramid @p mip: mip 0 samples the scene colour, mip i samples mip i-1. One
+        // dispatch, recorded into the frame graph node that declares those two subresources.
+        void RecordDownsample( uint32_t mip )
+        {
+            const auto scene = m_TargetFramebuffer.lock();
+            if ( !scene )
+                return;
+            const bool     first  = ( mip == 0 );
+            Image2D*       src    = first ? scene->GetColorAttachmentImage().get() : m_Image.get();
+            const uint32_t srcMip = first ? 0u : mip - 1;
             const uint32_t bw     = m_Image->GetWidth();
             const uint32_t bh     = m_Image->GetHeight();
+            const uint32_t srcW   = first ? scene->GetFramebufferWidth() : MipSize( bw, mip - 1 );
+            const uint32_t srcH   = first ? scene->GetFramebufferHeight() : MipSize( bh, mip - 1 );
 
-            auto& renderer = Renderer::GetInstance();
-            renderer.ComputeImageBeginWrite( m_Image.get() );
+            // FirstPass = 0 everywhere: the Karis average + bright-pass belong to bloom, not to a
+            // backdrop, which must keep the scene's own colours.
+            const DownsamplePush push{
+                 glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ),
+                 static_cast<int32_t>( srcMip ), 0, 0.0f };
 
-            for ( uint32_t i = 0; i < m_MipLevels; ++i )
-            {
-                const bool     first  = ( i == 0 );
-                Image2D*       src    = first ? sceneColor : m_Image.get();
-                const uint32_t srcMip = first ? 0u : i - 1;
-                const uint32_t srcW   = first ? sceneW : MipSize( bw, i - 1 );
-                const uint32_t srcH   = first ? sceneH : MipSize( bh, i - 1 );
-
-                // FirstPass = 0 everywhere: the Karis average + bright-pass belong to bloom, not to a
-                // backdrop, which must keep the scene's own colours.
-                const DownsamplePush push{
-                     glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ),
-                     static_cast<int32_t>( srcMip ), 0, 0.0f };
-
-                m_DownsamplePipeline->SetInput( 0, src );
-                m_DownsamplePipeline->SetOutput( 1, m_Image.get(), i );
-                m_DownsamplePipeline->SetPushConstants( &push, sizeof( push ) );
-                renderer.DispatchComputeInFrame( m_DownsamplePipeline.get(), GroupCount( MipSize( bw, i ) ),
-                                                 GroupCount( MipSize( bh, i ) ), 1 );
-            }
-
-            renderer.ComputeImageEndWrite( m_Image.get() );
+            m_DownsamplePipeline->SetInput( 0, src );
+            m_DownsamplePipeline->SetOutput( 1, m_Image.get(), mip );
+            m_DownsamplePipeline->SetPushConstants( &push, sizeof( push ) );
+            Renderer::GetInstance().DispatchComputeInFrame( m_DownsamplePipeline.get(),
+                                                            GroupCount( MipSize( bw, mip ) ),
+                                                            GroupCount( MipSize( bh, mip ) ), 1 );
         }
 
         // Highest LOD a caller may ask for (the chain's coarsest level).
