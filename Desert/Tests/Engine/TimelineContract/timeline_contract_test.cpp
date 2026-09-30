@@ -15,8 +15,9 @@
 //   8. LiftClip: the migration is the identity, bit for bit;
 //   9. LayeredBlendPerBone and LinkedAnimLayer.
 //
-// ONE FILE PER LANDED GROUP: groups 1-2 (timeline_channel_test.cpp) and 4 (timeline_player_test.cpp) have
-// their implementation and are built; this file holds the groups whose pieces have not landed, and joins
+// ONE FILE PER LANDED GROUP: groups 1-2 (timeline_channel_test.cpp), 3 without the fold
+// (timeline_section_test.cpp), 4 (timeline_player_test.cpp) and 6 (timeline_easing_test.cpp) have their
+// implementation and are built; this file holds the groups whose pieces have not landed, and joins
 // the suite's `files` (premake5.lua) with them — excluded until then, never stubbed.
 
 #include "TimelineFixtures.hpp"
@@ -35,13 +36,7 @@ namespace
     }
 } // namespace
 
-// ── 3. Sections, tracks, the sequence ───────────────────────────────────────────────────────────────
-
-TEST( TimelineSection, AnEmptyWeightIsOneNotZero )
-{
-    Section section;
-    EXPECT_EQ( WeightAt( section, At( 5 ), FrameRate{ 60, 1 } ), 1.0F );
-}
+// ── 3. Sections, tracks, the sequence: the FOLD (the rest of group 3 is timeline_section_test.cpp) ──
 
 TEST( TimelineSection, FullWeightAbsoluteIsTheKeyValueBitForBit )
 {
@@ -84,71 +79,6 @@ TEST( TimelineSection, AHalfWeightAbsoluteIsHalfTheValueFromTheDefault )
     Sequence sequence                     = OneFloatTrack( channel );
     sequence.Tracks[0].Sections[0].Weight = { Key( 0, 0.5F ) };
     EXPECT_NEAR( EvaluateOnlyFloat( sequence, At( 10 ) ), 6.0F, 1e-6F );
-}
-
-TEST( TimelineSequence, AMinimalSequenceValidates )
-{
-    const Sequence sequence = OneFloatTrack( FloatChannel{ { Key( 0, 1.0F ) }, 0.0F } );
-    const auto     valid    = Validate( sequence );
-    EXPECT_TRUE( valid.IsSuccess() ) << valid.GetError();
-}
-
-TEST( TimelineSequence, ValidateRefusesEachBrokenInvariant )
-{
-    const Sequence good = OneFloatTrack( FloatChannel{ { Key( 0, 1.0F ) }, 0.0F } );
-
-    Sequence unknownBinding          = good;
-    unknownBinding.Tracks[0].Binding = Guid( 99 );
-    EXPECT_FALSE( Validate( unknownBinding ).IsSuccess() ) << "a track pointing at no binding";
-
-    Sequence kindMismatch       = good;
-    kindMismatch.Tracks[0].Kind = TrackKind::Vector;
-    EXPECT_FALSE( Validate( kindMismatch ).IsSuccess() ) << "a Vector track holding a Float section";
-
-    Sequence duplicate = good;
-    duplicate.Tracks.push_back( duplicate.Tracks[0] );
-    EXPECT_FALSE( Validate( duplicate ).IsSuccess() ) << "two tracks for one property";
-
-    Sequence unsorted = OneFloatTrack( FloatChannel{ { Key( 20, 1.0F ), Key( 10, 2.0F ) }, 0.0F } );
-    EXPECT_FALSE( Validate( unsorted ).IsSuccess() ) << "keys out of tick order";
-
-    Sequence nullGuid         = good;
-    nullGuid.Bindings[0].Guid = BindingGuid{};
-    EXPECT_FALSE( Validate( nullGuid ).IsSuccess() ) << "a null binding GUID";
-
-    Sequence boolLinear       = good;
-    boolLinear.Tracks[0].Kind = TrackKind::Bool;
-    boolLinear.Tracks[0].Sections[0].Content =
-         Channel{ BoolChannel{ FloatChannel{ { Key( 0, 0.0F ), Key( 10, 1.0F, KeyInterp::Linear ) }, 0.0F } } };
-    EXPECT_FALSE( Validate( boolLinear ).IsSuccess() ) << "a Bool key that interpolates";
-
-    Sequence rotation       = good;
-    rotation.Tracks[0].Kind = TrackKind::Rotation;
-    RotationChannel misaligned;
-    misaligned.X.Keys                      = { Key( 0, 0.0F ), Key( 10, 0.0F ) };
-    misaligned.W.Keys                      = { Key( 0, 1.0F ) };
-    rotation.Tracks[0].Sections[0].Content = Channel{ misaligned };
-    EXPECT_FALSE( Validate( rotation ).IsSuccess() ) << "rotation components keyed apart";
-
-    Sequence badRange                    = good;
-    badRange.Tracks[0].Sections[0].Start = Tick( 50 );
-    badRange.Tracks[0].Sections[0].End   = Tick( 10 );
-    EXPECT_FALSE( Validate( badRange ).IsSuccess() ) << "Start after End";
-}
-
-TEST( TimelineSequence, TheHostRestrictsWhatASequenceMayHold )
-{
-    Sequence clip = OneFloatTrack( FloatChannel{ { Key( 0, 1.0F ) }, 0.0F } );
-    clip.Host     = SequenceHost::AnimationClip;
-    EXPECT_FALSE( Validate( clip ).IsSuccess() ) << "an .anim cannot bind an entity";
-
-    Sequence ui = clip;
-    ui.Host     = SequenceHost::UIAnimation;
-    EXPECT_FALSE( Validate( ui ).IsSuccess() ) << "a UI clip binds widgets only";
-
-    Sequence level = clip;
-    level.Host     = SequenceHost::LevelSequence;
-    EXPECT_TRUE( Validate( level ).IsSuccess() );
 }
 
 // ── 5. The Evaluator and the host seam ──────────────────────────────────────────────────────────────
@@ -219,47 +149,6 @@ TEST( TimelineEvaluator, AMutedTrackIsAbsentNotDefaulted )
     EvaluatedFrame frame;
     evaluator.Evaluate( TimeStep{ At( 0 ), At( 0 ) }, frame );
     EXPECT_TRUE( frame.Values.empty() );
-}
-
-// ── 6. Easing presets: the UI key model's replacement ───────────────────────────────────────────────
-
-TEST( TimelineEasing, CubicOutIsExactOnTwoKeys )
-{
-    std::vector<ScalarKey> keys = { Key( 0, 0.0F ), Key( 60, 1.0F ) };
-    const FrameRate        rate{ 60, 1 };
-    const auto             result = ApplyEasingPreset( keys, 1, EasingPreset::CubicOut, rate, rate );
-    ASSERT_TRUE( result.IsSuccess() ) << result.GetError();
-    EXPECT_EQ( result.GetValue().InsertedKeys, 0U );
-    EXPECT_EQ( result.GetValue().MaxDeviation, 0.0F );
-    EXPECT_EQ( keys[1].Mode, TangentMode::User ) << "AutoSetTangents must not undo a preset";
-
-    const FloatChannel channel{ keys, 0.0F };
-    EXPECT_NEAR( Evaluate( channel, At( 30 ), rate ), 1.0F - 0.125F, 1e-5F ); // 1 - (1 - 0.5)^3
-    EXPECT_NEAR( Evaluate( channel, At( 15 ), rate ), 1.0F - 0.421875F, 1e-5F );
-}
-
-TEST( TimelineEasing, InOutInsertsOneMiddleKeyAndElasticReportsItsBake )
-{
-    const FrameRate        rate{ 60, 1 };
-    std::vector<ScalarKey> inOut = { Key( 0, 0.0F ), Key( 60, 1.0F ) };
-    const auto             a     = ApplyEasingPreset( inOut, 1, EasingPreset::QuadInOut, rate, rate );
-    ASSERT_TRUE( a.IsSuccess() );
-    EXPECT_EQ( a.GetValue().InsertedKeys, 1U );
-    ASSERT_EQ( inOut.size(), 3U );
-    EXPECT_EQ( inOut[1].Tick, Tick( 30 ) );
-
-    std::vector<ScalarKey> elastic = { Key( 0, 0.0F ), Key( 60, 1.0F ) };
-    const auto             b       = ApplyEasingPreset( elastic, 1, EasingPreset::ElasticOut, rate, rate );
-    ASSERT_TRUE( b.IsSuccess() );
-    EXPECT_GT( b.GetValue().InsertedKeys, 0U );
-    EXPECT_GE( b.GetValue().MaxDeviation, 0.0F );
-}
-
-TEST( TimelineEasing, TheFirstKeyOwnsNoSegment )
-{
-    std::vector<ScalarKey> keys = { Key( 0, 0.0F ), Key( 60, 1.0F ) };
-    EXPECT_FALSE( ApplyEasingPreset( keys, 0, EasingPreset::QuadIn, FrameRate{}, FrameRate{} ).IsSuccess() );
-    EXPECT_FALSE( ApplyEasingPreset( keys, 2, EasingPreset::QuadIn, FrameRate{}, FrameRate{} ).IsSuccess() );
 }
 
 // ── 7. Serialization ────────────────────────────────────────────────────────────────────────────────

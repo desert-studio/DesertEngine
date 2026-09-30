@@ -1,7 +1,11 @@
 #include "Channel.hpp"
 
+#include <Engine/Animation/Timeline/Section.hpp>
+
 #include <algorithm>
 #include <cassert>
+#include <cmath>
+#include <numbers>
 #include <type_traits>
 
 namespace Desert::Animation::Timeline
@@ -334,5 +338,297 @@ namespace Desert::Animation::Timeline
             SweepBackward( channel, b, a, edges );
         }
         Emit( channel, edges, out );
+    }
+    // ── Section weight ────────────────────────────────────────────────────────────────────────────────
+
+    // Declared in Section.hpp, DEFINED HERE because a weight is a bare key list sampled by the channel
+    // sampler above: wrapping it in a FloatChannel to call `Evaluate` would copy the keys on every sample,
+    // and a second bracket search would be a second sampling rule.
+    float WeightAt( const Section& section, const FrameTime at, const FrameRate tickRate )
+    {
+        if ( section.Weight.empty() )
+        {
+            return 1.0F;
+        }
+        return SampleKeys( section.Weight, FindBracket( section.Weight, at, tickRate ) );
+    }
+
+    // ── Easing presets ────────────────────────────────────────────────────────────────────────────────
+
+    namespace
+    {
+        /**
+         * The easing formulas, normalised: f(0) = 0, f(1) = 1, u in [0, 1]. They are the UI tween's
+         * (UICanvasRenderer2D `Ease`, deleted with `UIEasing` by the UI lift) term for term, so a lifted
+         * UI clip plays the curve it played before. Double precision: they feed key values and the
+         * deviation report, not playback.
+         */
+        constexpr double kBackC1    = 1.70158;
+        constexpr double kBackC3    = kBackC1 + 1.0;
+        constexpr double kElasticC4 = 2.0 * std::numbers::pi / 3.0;
+        constexpr double kBounceN1  = 7.5625;
+        constexpr double kBounceD1  = 2.75;
+
+        /// Bounce's four parabolas: the offset each is centred on and the height it rests at.
+        struct BouncePiece
+        {
+            double Centre = 0.0;
+            double Floor  = 0.0;
+        };
+        BouncePiece BouncePieceAt( const double u )
+        {
+            if ( u < 1.0 / kBounceD1 )
+            {
+                return { 0.0, 0.0 };
+            }
+            if ( u < 2.0 / kBounceD1 )
+            {
+                return { 1.5 / kBounceD1, 0.75 };
+            }
+            if ( u < 2.5 / kBounceD1 )
+            {
+                return { 2.25 / kBounceD1, 0.9375 };
+            }
+            return { 2.625 / kBounceD1, 0.984375 };
+        }
+
+        double EaseValue( const EasingPreset preset, const double u )
+        {
+            switch ( preset )
+            {
+                case EasingPreset::Linear:
+                    return u;
+                case EasingPreset::QuadIn:
+                    return u * u;
+                case EasingPreset::QuadOut:
+                    return 1.0 - ( 1.0 - u ) * ( 1.0 - u );
+                case EasingPreset::QuadInOut:
+                    return u < 0.5 ? 2.0 * u * u : 1.0 - 2.0 * ( 1.0 - u ) * ( 1.0 - u );
+                case EasingPreset::CubicIn:
+                    return u * u * u;
+                case EasingPreset::CubicOut:
+                    return 1.0 - std::pow( 1.0 - u, 3.0 );
+                case EasingPreset::CubicInOut:
+                    return u < 0.5 ? 4.0 * u * u * u : 1.0 - std::pow( -2.0 * u + 2.0, 3.0 ) * 0.5;
+                case EasingPreset::BackOut:
+                    return 1.0 + kBackC3 * std::pow( u - 1.0, 3.0 ) + kBackC1 * std::pow( u - 1.0, 2.0 );
+                case EasingPreset::ElasticOut:
+                    if ( u <= 0.0 || u >= 1.0 )
+                    {
+                        return u;
+                    }
+                    return std::pow( 2.0, -10.0 * u ) * std::sin( ( u * 10.0 - 0.75 ) * kElasticC4 ) + 1.0;
+                case EasingPreset::BounceOut:
+                {
+                    const BouncePiece piece = BouncePieceAt( u );
+                    const double      d     = u - piece.Centre;
+                    return kBounceN1 * d * d + piece.Floor;
+                }
+            }
+            return u;
+        }
+
+        /// df/du, analytic. At an InOut's middle both halves agree; at a bounce's floor contact the piece
+        /// `u` falls in speaks (the contact lands between display frames, never on a key the bake makes).
+        double EaseSlope( const EasingPreset preset, const double u )
+        {
+            switch ( preset )
+            {
+                case EasingPreset::Linear:
+                    return 1.0;
+                case EasingPreset::QuadIn:
+                    return 2.0 * u;
+                case EasingPreset::QuadOut:
+                    return 2.0 * ( 1.0 - u );
+                case EasingPreset::QuadInOut:
+                    return u < 0.5 ? 4.0 * u : 4.0 * ( 1.0 - u );
+                case EasingPreset::CubicIn:
+                    return 3.0 * u * u;
+                case EasingPreset::CubicOut:
+                    return 3.0 * ( 1.0 - u ) * ( 1.0 - u );
+                case EasingPreset::CubicInOut:
+                    return u < 0.5 ? 12.0 * u * u : 12.0 * ( 1.0 - u ) * ( 1.0 - u );
+                case EasingPreset::BackOut:
+                    return 3.0 * kBackC3 * ( u - 1.0 ) * ( u - 1.0 ) + 2.0 * kBackC1 * ( u - 1.0 );
+                case EasingPreset::ElasticOut:
+                {
+                    const double phase = ( u * 10.0 - 0.75 ) * kElasticC4;
+                    return std::pow( 2.0, -10.0 * u ) * ( -10.0 * std::numbers::ln2 * std::sin( phase ) +
+                                                          10.0 * kElasticC4 * std::cos( phase ) );
+                }
+                case EasingPreset::BounceOut:
+                    return 2.0 * kBounceN1 * ( u - BouncePieceAt( u ).Centre );
+            }
+            return 1.0;
+        }
+
+        enum class EasingShape : uint8_t
+        {
+            OneCubic,  ///< the formula IS a cubic: the two keys' tangents reproduce it exactly
+            TwoCubics, ///< two cubics joined at u = 0.5: one key at the middle tick
+            Baked,     ///< not a polynomial: keys on the display grid, deviation measured
+        };
+
+        EasingShape ShapeOf( const EasingPreset preset )
+        {
+            switch ( preset )
+            {
+                case EasingPreset::QuadInOut:
+                case EasingPreset::CubicInOut:
+                    return EasingShape::TwoCubics;
+                case EasingPreset::ElasticOut:
+                case EasingPreset::BounceOut:
+                    return EasingShape::Baked;
+                default:
+                    return EasingShape::OneCubic;
+            }
+        }
+
+        /// The largest |curve - formula| over the segment [first, last] of @p keys, in normalised units.
+        float MeasureDeviation( const std::vector<ScalarKey>& keys, const size_t first, const size_t last,
+                                const EasingPreset preset, const FrameRate tickRate )
+        {
+            constexpr int kSamplesPerSegment = 16;
+            const double  startTick          = static_cast<double>( keys[first].Tick.Value );
+            const double  span               = static_cast<double>( keys[last].Tick.Value ) - startTick;
+            const double  delta =
+                 static_cast<double>( keys[last].Value ) - static_cast<double>( keys[first].Value );
+            double worst = 0.0;
+            for ( size_t segment = first + 1; segment <= last; ++segment )
+            {
+                const double a = static_cast<double>( keys[segment - 1].Tick.Value );
+                const double b = static_cast<double>( keys[segment].Tick.Value );
+                for ( int i = 1; i < kSamplesPerSegment; ++i )
+                {
+                    const double tick = a + ( b - a ) * i / kSamplesPerSegment;
+                    FrameTime    at;
+                    at.Frame.Value     = static_cast<int32_t>( std::floor( tick ) );
+                    at.Subframe        = static_cast<float>( tick - std::floor( tick ) );
+                    const double value = SampleKeys( keys, FindBracket( keys, at, tickRate ) );
+                    const double u     = ( at.AsTicks() - startTick ) / span;
+                    // A flat segment has no shape to miss: every preset of it is the constant.
+                    const double error =
+                         delta == 0.0 ? 0.0
+                                      : std::abs( ( value - keys[first].Value ) / delta - EaseValue( preset, u ) );
+                    worst = std::max( worst, error );
+                }
+            }
+            return static_cast<float>( worst );
+        }
+    } // namespace
+
+    Common::ResultStr<EasingResult> ApplyEasingPreset( std::vector<ScalarKey>& keys, const size_t endKey,
+                                                       const EasingPreset preset, const FrameRate tickRate,
+                                                       const FrameRate displayRate )
+    {
+        if ( endKey == 0 || endKey >= keys.size() )
+        {
+            return Common::MakeFormattedError<EasingResult>(
+                 "key {} of {} ends no segment: a preset shapes the segment ending at a key after the first",
+                 endKey, keys.size() );
+        }
+        if ( !tickRate.IsValid() || !displayRate.IsValid() )
+        {
+            return Common::MakeFormattedError<EasingResult>(
+                 "easing key {}: tick rate {}/{} or display rate {}/{} "
+                 "is not a rate",
+                 endKey, tickRate.Numerator, tickRate.Denominator, displayRate.Numerator,
+                 displayRate.Denominator );
+        }
+        const FrameNumber startTick = keys[endKey - 1].Tick;
+        const FrameNumber endTick   = keys[endKey].Tick;
+        if ( !( startTick < endTick ) )
+        {
+            return Common::MakeFormattedError<EasingResult>(
+                 "easing key {}: the segment runs from tick {} to tick {} — keys are sorted, one per tick", endKey,
+                 startTick.Value, endTick.Value );
+        }
+
+        const auto   span        = static_cast<double>( endTick.Value - startTick.Value );
+        const double spanSeconds = span / tickRate.AsDouble();
+        const float  startValue  = keys[endKey - 1].Value;
+        const double delta       = static_cast<double>( keys[endKey].Value ) - static_cast<double>( startValue );
+        // A slope of the normalised formula, df/du, as a key tangent in value units per SECOND.
+        const auto tangentAt = [&]( const double u )
+        { return static_cast<float>( EaseSlope( preset, u ) * delta / spanSeconds ); };
+        const auto keyAt = [&]( const FrameNumber tick )
+        {
+            const double u = static_cast<double>( tick.Value - startTick.Value ) / span;
+            ScalarKey    key;
+            key.Tick  = tick;
+            key.Value = static_cast<float>( static_cast<double>( startValue ) + delta * EaseValue( preset, u ) );
+            key.ArriveTangent = tangentAt( u );
+            key.LeaveTangent  = key.ArriveTangent;
+            key.Interp        = KeyInterp::Cubic;
+            key.Mode          = TangentMode::User;
+            return key;
+        };
+
+        // The keys between the two ends, strictly inside the segment, in tick order.
+        std::vector<ScalarKey> inner;
+        EasingResult           result;
+        switch ( ShapeOf( preset ) )
+        {
+            case EasingShape::OneCubic:
+                break;
+            case EasingShape::TwoCubics:
+            {
+                if ( span < 2.0 )
+                {
+                    return Common::MakeFormattedError<EasingResult>(
+                         "easing key {}: a {}-tick segment has no middle tick for the second cubic of {}", endKey,
+                         endTick.Value - startTick.Value,
+                         preset == EasingPreset::QuadInOut ? "QuadInOut" : "CubicInOut" );
+                }
+                inner.push_back(
+                     keyAt( FrameNumber{ startTick.Value + ( endTick.Value - startTick.Value ) / 2 } ) );
+                break;
+            }
+            case EasingShape::Baked:
+            {
+                // Every display frame strictly inside the segment, on the grid `SnapToDisplayRate` defines.
+                const double ticksPerFrame = tickRate.AsDouble() / displayRate.AsDouble();
+                for ( int64_t frame = DisplayFrameIndex( startTick, tickRate, displayRate );; ++frame )
+                {
+                    const FrameTime   candidate{ FrameNumber{ static_cast<int32_t>( std::llround(
+                                                    static_cast<double>( frame ) * ticksPerFrame ) ) },
+                                               0.0F };
+                    const FrameNumber tick = SnapToDisplayRate( candidate, tickRate, displayRate );
+                    if ( !( tick < endTick ) )
+                    {
+                        break;
+                    }
+                    if ( startTick < tick && ( inner.empty() || inner.back().Tick < tick ) )
+                    {
+                        inner.push_back( keyAt( tick ) );
+                    }
+                }
+                break;
+            }
+        }
+
+        ScalarKey& start   = keys[endKey - 1];
+        ScalarKey& end     = keys[endKey];
+        start.LeaveTangent = tangentAt( 0.0 );
+        start.Mode         = TangentMode::User;
+        end.ArriveTangent  = tangentAt( 1.0 );
+        end.Mode           = TangentMode::User;
+        // Linear is the one preset that is not a Hermite: its keys say so, which is what the curve
+        // editor draws and what a later key edit keeps.
+        end.Interp = preset == EasingPreset::Linear ? KeyInterp::Linear : KeyInterp::Cubic;
+
+        result.InsertedKeys = static_cast<uint32_t>( inner.size() );
+        keys.insert( keys.begin() + static_cast<std::ptrdiff_t>( endKey ), inner.begin(), inner.end() );
+
+        // Exact shapes report 0 because they ARE the formula; a measurement there would report float noise
+        // as a deviation. The two-cubic split is exact only when the middle tick is the segment's middle.
+        const bool exact =
+             ShapeOf( preset ) == EasingShape::OneCubic ||
+             ( ShapeOf( preset ) == EasingShape::TwoCubics && ( endTick.Value - startTick.Value ) % 2 == 0 );
+        if ( !exact )
+        {
+            result.MaxDeviation = MeasureDeviation( keys, endKey - 1, endKey + inner.size(), preset, tickRate );
+        }
+        return Common::MakeSuccess( result );
     }
 } // namespace Desert::Animation::Timeline
