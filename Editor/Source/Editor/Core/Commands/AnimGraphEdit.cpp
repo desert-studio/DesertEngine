@@ -1,5 +1,9 @@
 #include "AnimGraphEdit.hpp"
 
+#include <Common/Core/Logger.hpp>
+
+#include <cstdio>
+#include <exception>
 #include <format>
 #include <utility>
 
@@ -32,7 +36,7 @@ namespace Desert::Editor
     {
     }
 
-    bool AnimGraphEditCommand::Apply( const G::AnimGraph& value )
+    bool AnimGraphEditCommand::Apply( const G::AnimGraph& value ) const
     {
         G::AnimGraph* graph = m_Owner.Resolve ? m_Owner.Resolve() : nullptr;
         if ( graph == nullptr )
@@ -176,7 +180,27 @@ namespace Desert::Editor
 
     AnimGraphEditTransaction::Scope::~Scope()
     {
-        if ( m_Began )
-            (void)m_Transaction.End();
+        if ( !m_Began )
+            return;
+        // A destructor may not throw: the edit inside the scope already happened, so a failed End loses only
+        // its undo entry, and the author is told so (UE: FScopedTransaction's EndTransaction).
+        try
+        {
+            try
+            {
+                if ( const auto ended = m_Transaction.End(); !ended.IsSuccess() )
+                    LOG_ERROR( "[AnimGraphUndo] this edit will not be undoable: {}", ended.GetError() );
+            }
+            catch ( const std::exception& error )
+            {
+                LOG_ERROR( "[AnimGraphUndo] this edit will not be undoable: {}", error.what() );
+            }
+        }
+        catch ( ... )
+        {
+            // The logger itself threw: stderr is the channel left to say the entry is gone.
+            (void)std::fputs(
+                 "[AnimGraphUndo] an edit's undo entry was lost and the logger failed to report why\n", stderr );
+        }
     }
 } // namespace Desert::Editor

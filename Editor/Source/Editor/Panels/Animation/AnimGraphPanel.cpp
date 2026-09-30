@@ -123,9 +123,9 @@ namespace Desert::Editor
 
     AnimGraphPanel::~AnimGraphPanel()
     {
-        if ( m_Context )
+        if ( m_Context != nullptr )
             ed::DestroyEditor( m_Context );
-        if ( m_PoseContext )
+        if ( m_PoseContext != nullptr )
             ed::DestroyEditor( m_PoseContext );
     }
 
@@ -245,7 +245,7 @@ namespace Desert::Editor
 
     void AnimGraphPanel::AddState()
     {
-        AnimGraphEditTransaction::Scope transaction( m_GraphEdit, GraphOwner() );
+        const AnimGraphEditTransaction::Scope transaction( m_GraphEdit, GraphOwner() );
         ECS::AnimationComponent* anim = ResolveComponent();
         G::StateMachine* machine = anim != nullptr && anim->Graph ? ResolveMachine( *anim->Graph ) : nullptr;
         if ( machine == nullptr )
@@ -260,8 +260,8 @@ namespace Desert::Editor
         // added, and two states sharing a name is not cosmetic: `Entry`, `Transition::To` and
         // `Evaluator::FindState` all resolve by string and all take the FIRST match, so the second one is
         // unreachable and plays the first one's clip with nothing said.
-        ns.Name = Graph::MakeUniqueStateName( machine->States, "State_" + std::to_string( machine->States.size() ),
-                                              -1 );
+        ns.Name =
+             Graph::MakeUniqueStateName( machine->States, std::format( "State_{}", machine->States.size() ), -1 );
         // AND NOT (0, 0), which is where every new state used to land: the second one covered the first
         // exactly, and a node under another node cannot be clicked, renamed, given a clip or deleted. The
         // rule is in `AnimGraphCanvasPlan` because that unit has no ImGui in it and can therefore be
@@ -275,7 +275,7 @@ namespace Desert::Editor
 
     void AnimGraphPanel::AddParameter()
     {
-        AnimGraphEditTransaction::Scope transaction( m_GraphEdit, GraphOwner() );
+        const AnimGraphEditTransaction::Scope transaction( m_GraphEdit, GraphOwner() );
         ECS::AnimationComponent* anim = ResolveComponent();
         if ( anim == nullptr || !anim->Graph )
         {
@@ -688,7 +688,8 @@ namespace Desert::Editor
 
         int activeIndex = -1;
         // The live evaluator runs the Output Pose's machine: another machine's state of the same name is not it.
-        if ( &machine == G::OutputMachine( graph ) && anim.GraphEvaluator && anim.GraphEvaluator->CurrentState() )
+        if ( &machine == G::OutputMachine( graph ) && anim.GraphEvaluator &&
+             anim.GraphEvaluator->CurrentState() != nullptr )
         {
             const std::string& activeName = anim.GraphEvaluator->CurrentState()->Name;
             for ( int i = 0; i < static_cast<int>( machine.States.size() ); ++i )

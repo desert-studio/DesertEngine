@@ -1165,7 +1165,9 @@ namespace Desert::Editor
         const auto& clip = asset->GetClip();
         // Keys per part (position, rotation, scale) of every Transform section — a rotation key is one key,
         // not its four components; sections across every track.
-        size_t keys = 0, boneTracks = 0, sections = 0;
+        size_t keys       = 0;
+        size_t boneTracks = 0;
+        size_t sections   = 0;
         for ( const auto& track : clip.Sequence.Tracks )
         {
             sections += track.Sections.size();

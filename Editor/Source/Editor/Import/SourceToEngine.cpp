@@ -3,6 +3,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <array>
 #include <limits>
 
 namespace Desert::Editor
@@ -103,9 +104,10 @@ namespace Desert::Editor
                 const glm::vec3 v = map( part( &Animation::ScalarKey::Value ), true );
                 const glm::vec3 a = map( part( &Animation::ScalarKey::ArriveTangent ), false );
                 const glm::vec3 l = map( part( &Animation::ScalarKey::LeaveTangent ), false );
+                const std::array axes{ &c.X, &c.Y, &c.Z };
                 for ( int i = 0; i < 3; ++i )
                 {
-                    auto& key         = ( i == 0 ? c.X : i == 1 ? c.Y : c.Z ).Keys[k];
+                    auto& key         = axes[static_cast<std::size_t>( i )]->Keys[k];
                     key.Value         = v[i];
                     key.ArriveTangent = a[i];
                     key.LeaveTangent  = l[i];
@@ -117,8 +119,9 @@ namespace Desert::Editor
                 for ( auto& section : track.Sections )
                 {
                     auto* content = std::get_if<Animation::Timeline::Channel>( &section.Content );
-                    auto* channel =
-                         content ? std::get_if<Animation::Timeline::TransformChannel>( content ) : nullptr;
+                    auto* channel = content != nullptr
+                                         ? std::get_if<Animation::Timeline::TransformChannel>( content )
+                                         : nullptr;
                     if ( channel == nullptr )
                         continue;
                     vec3Keys( channel->Translation, [&]( const glm::vec3& v, bool ) { return vector( v ); } );

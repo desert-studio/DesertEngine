@@ -557,7 +557,7 @@ namespace Desert::Editor
     Common::BoolResultStr ImportManager::SerializeAnimationAsset( const Animation::AnimationClip& clip,
                                                                   const std::filesystem::path&    sourcePath )
     {
-        auto cookedPath = SkinnedAssetPath( sourcePath, "_" + clip.AnimationName + ".anim" );
+        auto cookedPath = SkinnedAssetPath( sourcePath, std::format( "_{}.anim", clip.AnimationName ) );
         // THE ONE CLIP WRITER'S BODY (BuildAssetDataFromClip, as SaveClipToFile): the import adds only what a
         // save keeps from the file it replaces — the header GUID — and the source it came from.
         auto built = Assets::Serialization::BuildAssetDataFromClip( clip );

@@ -49,17 +49,33 @@ namespace Desert::Editor
             return nullptr;
         }
 
-        [[nodiscard]] inline const Animation::Timeline::Track*
-        FindSequenceTrack( const Animation::Timeline::Sequence& sequence,
-                           const Animation::Timeline::TrackKind kind, const std::string_view property )
+        /// ONE BODY FOR BOTH CONSTNESSES: the track comes back as const as the sequence it was found in.
+        template <typename SequenceT>
+        [[nodiscard]] inline auto
+        FindSequenceTrackIn( SequenceT& sequence, const Animation::Timeline::TrackKind kind,
+                             const std::string_view property ) -> decltype( &sequence.Tracks.front() )
         {
             const auto* binding = SequenceBinding( sequence );
             if ( binding == nullptr )
                 return nullptr;
-            for ( const auto& track : sequence.Tracks )
+            for ( auto& track : sequence.Tracks )
                 if ( track.Binding == binding->Guid && track.Kind == kind && track.Property == property )
                     return &track;
             return nullptr;
+        }
+
+        [[nodiscard]] inline const Animation::Timeline::Track*
+        FindSequenceTrack( const Animation::Timeline::Sequence& sequence,
+                           const Animation::Timeline::TrackKind kind, const std::string_view property )
+        {
+            return FindSequenceTrackIn( sequence, kind, property );
+        }
+
+        [[nodiscard]] inline Animation::Timeline::Track*
+        FindSequenceTrack( Animation::Timeline::Sequence& sequence, const Animation::Timeline::TrackKind kind,
+                           const std::string_view property )
+        {
+            return FindSequenceTrackIn( sequence, kind, property );
         }
 
         /// The track, its Sequence binding and its first (whole-clip) section created when missing. A
@@ -77,7 +93,7 @@ namespace Desert::Editor
                 sequence.Bindings.push_back( std::move( binding ) );
                 ++sequence.Revision;
             }
-            auto* found = const_cast<T::Track*>( FindSequenceTrack( sequence, kind, property ) );
+            T::Track* found = FindSequenceTrack( sequence, kind, property );
             if ( found == nullptr )
             {
                 T::Track track;
