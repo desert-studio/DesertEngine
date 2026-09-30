@@ -163,10 +163,10 @@ TEST( ThumbnailOrbitKinds, EveryRenderedPictureHasAnOrbitAndNoOtherDoes )
 // "longest stem wins" filed it under Fox_Extra.glb).
 TEST( ThumbnailOrbitKinds, ASkinnedFileIsFiledUnderTheSourceItStates )
 {
-    namespace IAS    = Desert::Editor::ImportedAssetSource;
-    namespace Ser    = Desert::Assets::Serialization;
-    namespace CP     = Desert::Editor::CookPaths;
-    const auto  root = std::filesystem::temp_directory_path() / "ThumbnailEdit_SkinnedAssetSource";
+    namespace IAS        = Desert::Editor::ImportedAssetSource;
+    namespace Ser        = Desert::Assets::Serialization;
+    namespace CP         = Desert::Editor::CookPaths;
+    const auto      root = std::filesystem::temp_directory_path() / "ThumbnailEdit_SkinnedAssetSource";
     std::error_code ec;
     std::filesystem::remove_all( root, ec );
     std::filesystem::create_directories( root );
