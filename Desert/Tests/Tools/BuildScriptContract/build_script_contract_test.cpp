@@ -466,8 +466,9 @@ TEST( BuildScriptContract, GlfwIsIncludedOnlyThroughItsEntryHeaders )
     std::ostringstream callReport;
     for ( const auto& u : undeclared )
         callReport << "\n  " << u;
-    EXPECT_TRUE( undeclared.empty() ) << "sources calling glfwCreateWindowSurface / glfwInitVulkanLoader without naming "
-                                      << "<Engine/Core/GlfwVulkan.hpp>:" << callReport.str();
+    EXPECT_TRUE( undeclared.empty() )
+         << "sources calling glfwCreateWindowSurface / glfwInitVulkanLoader without naming "
+         << "<Engine/Core/GlfwVulkan.hpp>:" << callReport.str();
 }
 
 // THE GLUED-TEXT GATE, PINNED ON FIXTURES (FMT1). scripts/CI/CheckGluedText.sh gates CI's changed lines and the
