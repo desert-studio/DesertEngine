@@ -210,6 +210,10 @@ namespace Desert::Core
         {
             return m_SceneName;
         }
+        [[nodiscard]] const std::string& GetSceneName() const
+        {
+            return m_SceneName;
+        }
 
         void SetSceneName( const std::string& name )
         {
