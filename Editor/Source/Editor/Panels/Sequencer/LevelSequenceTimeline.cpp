@@ -42,13 +42,14 @@ namespace Desert::Editor
 {
     namespace
     {
-        namespace TL = Animation::Timeline;
+        namespace LevelTL = Animation::Timeline;
 
         /// The entity a binding names, in @p scene — nullopt for a binding that is not an Entity binding or
         /// names nothing of this scene.
-        std::optional<ECS::Entity> BoundEntity( const ::Desert::Core::Scene& scene, const TL::Binding& binding )
+        std::optional<ECS::Entity> BoundEntity( const ::Desert::Core::Scene& scene,
+                                                const LevelTL::Binding&      binding )
         {
-            if ( binding.Kind != TL::BindingKind::Entity )
+            if ( binding.Kind != LevelTL::BindingKind::Entity )
                 return std::nullopt;
             const auto found = scene.FindEntityByID( Common::UUID( binding.Locator ) );
             if ( !found )
@@ -58,15 +59,15 @@ namespace Desert::Editor
 
         /// The ticks of every Transform key on @p track (the translation's X lane carries one key per keyed
         /// pose — SetEntityTransformKey writes all ten lanes at once).
-        std::vector<Animation::FrameNumber> TransformKeyTicks( const TL::Track& track )
+        std::vector<Animation::FrameNumber> TransformKeyTicks( const LevelTL::Track& track )
         {
             std::vector<Animation::FrameNumber> ticks;
             for ( const auto& section : track.Sections )
             {
-                const auto* channel = std::get_if<TL::Channel>( &section.Content );
+                const auto* channel = std::get_if<LevelTL::Channel>( &section.Content );
                 if ( channel == nullptr )
                     continue;
-                if ( const auto* transform = std::get_if<TL::TransformChannel>( channel ) )
+                if ( const auto* transform = std::get_if<LevelTL::TransformChannel>( channel ) )
                 {
                     for ( const auto& key : transform->Translation.X.Keys )
                         ticks.push_back( key.Tick );
@@ -100,7 +101,7 @@ namespace Desert::Editor
         SequenceOwner                             owner;
         owner.Identity = asset.get();
         // The asset may be unloaded between the edit and its undo; the step then has nothing to restore.
-        owner.Resolve = [weak]() -> TL::Sequence*
+        owner.Resolve = [weak]() -> LevelTL::Sequence*
         {
             const auto locked = weak.lock();
             return locked ? &locked->EditSequence() : nullptr;
@@ -111,7 +112,7 @@ namespace Desert::Editor
         return owner;
     }
 
-    void SequencerPanel::PreviewLevelIfChanged( const TL::Sequence& sequence )
+    void SequencerPanel::PreviewLevelIfChanged( const LevelTL::Sequence& sequence )
     {
         // NOT EVERY FRAME: a per-frame pose would fight the gizmo the user moves an actor with before keying
         // it. The scene is posed when the playhead moved or the sequence changed (every edit, undo and redo
@@ -141,14 +142,14 @@ namespace Desert::Editor
                                 6.0f );
     }
 
-    void SequencerPanel::KeyLevelTransform( const TL::BindingGuid& binding )
+    void SequencerPanel::KeyLevelTransform( const LevelTL::BindingGuid& binding )
     {
         const auto asset = ResolveLevelAsset();
         const auto scene = m_Scene.lock();
         if ( !asset || !scene )
             return;
-        TL::Sequence& sequence = asset->EditSequence();
-        const auto*   bound    = TL::FindBinding( sequence, binding );
+        LevelTL::Sequence& sequence = asset->EditSequence();
+        const auto*        bound    = LevelTL::FindBinding( sequence, binding );
         const auto    entity   = bound != nullptr ? BoundEntity( *scene, *bound ) : std::nullopt;
         if ( !entity || !entity->HasComponent<ECS::TransformComponent>() )
         {
@@ -165,25 +166,25 @@ namespace Desert::Editor
                                 6.0f );
     }
 
-    void SequencerPanel::AddLevelCameraCut( const TL::BindingGuid& camera )
+    void SequencerPanel::AddLevelCameraCut( const LevelTL::BindingGuid& camera )
     {
         const auto asset = ResolveLevelAsset();
         if ( !asset )
             return;
-        TL::Sequence&            sequence = asset->EditSequence();
+        LevelTL::Sequence&       sequence = asset->EditSequence();
         const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
         if ( const auto cut = ECS::AddCameraCut( sequence, camera, m_LevelTick, sequence.End ); !cut.IsSuccess() )
             ToastManager::Push( std::format( "Camera Cut refused: {}", cut.GetError() ), ToastLevel::Error, 6.0f );
     }
 
     std::vector<std::shared_ptr<Assets::AnimationAsset>>
-         SequencerPanel::LevelAnimationClips( const TL::BindingGuid& binding ) const
+    SequencerPanel::LevelAnimationClips( const LevelTL::BindingGuid& binding ) const
     {
         const auto asset = ResolveLevelAsset();
         const auto scene = m_Scene.lock();
         if ( !asset || !scene || m_Library == nullptr )
             return {};
-        const auto* bound  = TL::FindBinding( asset->GetSequence(), binding );
+        const auto* bound  = LevelTL::FindBinding( asset->GetSequence(), binding );
         const auto  entity = bound != nullptr ? BoundEntity( *scene, *bound ) : std::nullopt;
         if ( !entity || !entity->HasComponent<ECS::SkinnedMeshComponent>() ||
              !entity->HasComponent<ECS::AnimationComponent>() )
@@ -194,7 +195,7 @@ namespace Desert::Editor
              m_Library->IdentifyMeshHandle( entity->GetComponent<ECS::SkinnedMeshComponent>().MeshHandle ) );
     }
 
-    void SequencerPanel::AddLevelAnimation( const TL::BindingGuid&                         binding,
+    void SequencerPanel::AddLevelAnimation( const LevelTL::BindingGuid&                    binding,
                                             const std::shared_ptr<Assets::AnimationAsset>& clip )
     {
         const auto asset = ResolveLevelAsset();
@@ -211,7 +212,7 @@ namespace Desert::Editor
                                 ToastLevel::Error, 6.0f );
             return;
         }
-        TL::Sequence& sequence = asset->EditSequence();
+        LevelTL::Sequence& sequence = asset->EditSequence();
         // UE: the section starts at the playhead and spans the clip once, in the SEQUENCE's ticks.
         const auto& clipSequence = clip->GetClip().Sequence;
         const auto  length = Animation::ConvertTick( clip->GetClip().DurationTicks(), clipSequence.TickRate,
@@ -242,7 +243,7 @@ namespace Desert::Editor
         const auto asset = ResolveLevelAsset();
         if ( !asset )
             return;
-        const TL::Sequence& sequence = asset->GetSequence();
+        const LevelTL::Sequence& sequence = asset->GetSequence();
         const double        span     = static_cast<double>( sequence.End.Value - sequence.Start.Value );
         m_LevelTick.Value = sequence.Start.Value + static_cast<int32_t>( std::llround( span * percent / 100.0 ) );
     }
@@ -256,7 +257,7 @@ namespace Desert::Editor
             ImGui::TextDisabled( "The level sequence could not be loaded; see the log." );
             return;
         }
-        TL::Sequence& sequence = asset->EditSequence();
+        LevelTL::Sequence& sequence = asset->EditSequence();
         m_LevelTick.Value      = std::clamp( m_LevelTick.Value, sequence.Start.Value, sequence.End.Value );
 
         // ── TOOLBAR: Save, + Track, the playhead ─────────────────────────────────────────────────────
@@ -305,10 +306,10 @@ namespace Desert::Editor
             ImGui::TextDisabled( "No tracks. + Track → Actor binds an entity of the scene." );
 
         // Copied: a button below may add a binding and reallocate the vector this loop walks.
-        const std::vector<TL::Binding> bindings = sequence.Bindings;
+        const std::vector<LevelTL::Binding> bindings = sequence.Bindings;
         for ( const auto& binding : bindings )
         {
-            if ( binding.Kind != TL::BindingKind::Entity )
+            if ( binding.Kind != LevelTL::BindingKind::Entity )
                 continue;
             ImGui::PushID( binding.Locator.c_str() );
             const auto  entity = BoundEntity( *scene, binding );
@@ -347,8 +348,8 @@ namespace Desert::Editor
                     ImGui::EndPopup();
                 }
             }
-            if ( const TL::Track* track =
-                      TL::FindTrack( sequence, binding.Guid, ECS::kLevelSequenceTransformProperty ) )
+            if ( const LevelTL::Track* track =
+                      LevelTL::FindTrack( sequence, binding.Guid, ECS::kLevelSequenceTransformProperty ) )
             {
                 const float y = rowY + ImGui::GetFrameHeight() * 0.5f;
                 draw->AddLine( ImVec2( laneX0, y ), ImVec2( laneX0 + laneW, y ), IM_COL32( 90, 90, 90, 255 ) );
@@ -360,13 +361,13 @@ namespace Desert::Editor
                 }
             }
             // The Animation track: one bar per section, labelled with the clip it plays.
-            if ( const TL::Track* track =
-                      TL::FindTrack( sequence, binding.Guid, ECS::kLevelSequenceAnimationProperty ) )
+            if ( const LevelTL::Track* track =
+                      LevelTL::FindTrack( sequence, binding.Guid, ECS::kLevelSequenceAnimationProperty ) )
             {
                 const auto clips = LevelAnimationClips( binding.Guid );
                 for ( const auto& section : track->Sections )
                 {
-                    const auto* anim = std::get_if<TL::AnimationSectionContent>( &section.Content );
+                    const auto* anim = std::get_if<LevelTL::AnimationSectionContent>( &section.Content );
                     if ( anim == nullptr )
                         continue;
                     std::string label = "?";
@@ -393,10 +394,10 @@ namespace Desert::Editor
             ImGui::TextUnformatted( ICON_MDI_VIDEO " Camera Cuts" );
             for ( const auto& section : track.Sections )
             {
-                const auto* cut = std::get_if<TL::CameraCutSectionContent>( &section.Content );
+                const auto* cut = std::get_if<LevelTL::CameraCutSectionContent>( &section.Content );
                 if ( cut == nullptr )
                     continue;
-                const auto* camera = TL::FindBinding( sequence, cut->Camera );
+                const auto* camera = LevelTL::FindBinding( sequence, cut->Camera );
                 const float x0 = xOf( section.Start.Value ), x1 = xOf( section.End.Value );
                 draw->AddRectFilled( ImVec2( x0, rowY + 2 ), ImVec2( x1, rowY + ImGui::GetFrameHeight() - 2 ),
                                      IM_COL32( 70, 110, 170, 255 ), 3.0f );
@@ -440,9 +441,9 @@ namespace Desert::Editor
         }
         for ( const auto& binding : asset->GetSequence().Bindings )
         {
-            if ( binding.Kind != TL::BindingKind::Entity )
+            if ( binding.Kind != LevelTL::BindingKind::Entity )
                 continue;
-            const TL::BindingGuid guid = binding.Guid;
+            const LevelTL::BindingGuid guid = binding.Guid;
             actions.push_back( DocumentAction{ std::format( "Key Transform {}", binding.Label ),
                                                [this, guid] { KeyLevelTransform( guid ); } } );
             actions.push_back( DocumentAction{ std::format( "Camera Cut {}", binding.Label ),
@@ -465,7 +466,7 @@ namespace Desert::Editor
     {
         using Outcome = SubjectEditorRegistry::PathOpenOutcome;
         std::error_code ec;
-        if ( assets == nullptr || std::filesystem::path( path ).extension() != TL::kLevelSequenceExtension ||
+        if ( assets == nullptr || std::filesystem::path( path ).extension() != LevelTL::kLevelSequenceExtension ||
              !std::filesystem::exists( path, ec ) )
             return Outcome::NotMine;
 

@@ -1641,6 +1641,11 @@ namespace Desert::Tests::PointerCensus
           "the type is neither copyable nor movable (all four operators deleted), because a copy would give "
           "two scopes one parent and a move would leave a live pointer to a husk. Dereferenced exactly once, "
           "in the destructor, to add this scope's duration to the parent's child-time" },
+        { "Desert/Desert/Source/Engine/ECS/LevelSequenceAuthoring.hpp",
+          "Saved", "Clip", Guard::HostOutlivesUs,
+          "ANIM-LSEQ: the clip the bound entity's Animator was playing when the Level Sequence preview took it over "
+          "(Animator::GetCurrentClip), kept only to hand back to the same Animator on restore; it lives in the "
+          "AnimationLibrary entry that Animator plays through, which outlives the preview (ClipPlayback::Clip below)" },
         { "Desert/Desert/Source/Engine/Animation/Animator.hpp",
           "ClipPlayback", "Clip", Guard::HostOutlivesUs,
           "an AnimationClip inside an AnimationLibrary entry; the library outlives the animator that plays it" },
