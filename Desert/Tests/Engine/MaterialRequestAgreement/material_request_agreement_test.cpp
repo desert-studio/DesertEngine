@@ -197,6 +197,14 @@ TEST( MaterialRequestAgreement, EveryShippedDemoMaterialStillSaysWhatItsAuthorAs
 
         const MaterialData onDisk = LoadMaterialFile( path );
         ASSERT_FALSE( onDisk.Params.empty() ) << path << " parsed to no parameters at all";
+        // The template is part of what the author asked: glass params on the Default Surface template would be
+        // params with no row (SURF2). An empty Template is the Default Surface one, which the file states too.
+        if ( !demo.Template.empty() )
+        {
+            ASSERT_TRUE( onDisk.Shader.has_value() ) << path << " states no template";
+            EXPECT_EQ( onDisk.Shader->Guid, demo.Template )
+                 << path << " is authored on a different template than DemoMaterials.hpp names";
+        }
         const auto divergences = DiffRequestedParams( demo.Params, onDisk );
         EXPECT_TRUE( divergences.empty() )
              << path << " has drifted from Editor/Core/DemoMaterials.hpp, which is what generated it: "
@@ -213,7 +221,7 @@ TEST( MaterialRequestAgreement, AnUnknownDemoMaterialIsRefusedRatherThanAnswered
 {
     EXPECT_EQ( FindDemoMaterial( "CB_NoSuchMaterial" ), nullptr );
     ASSERT_NE( FindDemoMaterial( "CB_Red" ), nullptr );
-    EXPECT_FALSE( FindDemoMaterial( "CB_Red" )->empty() );
+    EXPECT_FALSE( FindDemoMaterial( "CB_Red" )->Params.empty() );
 }
 
 int main( int argc, char** argv )

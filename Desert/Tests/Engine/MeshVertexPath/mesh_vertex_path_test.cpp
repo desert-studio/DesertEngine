@@ -126,13 +126,18 @@ namespace
         return name;
     }
 
-    // The (path x pass) shader of the default template, or nullptr for a hole — stable storage per pair.
+    // The (path x pass) shader of the default template (of the glass template for Glass), or nullptr for a hole.
     const char* TableShader( MeshVertexPath path, Desert::Graphic::MeshPass pass )
     {
         static std::map<std::pair<int, int>, std::optional<std::string>> cache;
         auto& slot = cache[{ static_cast<int>( path ), static_cast<int>( pass ) }];
         if ( !slot )
-            slot = Desert::Graphic::MeshShaderFor( DefaultTemplate(), path, pass ).value_or( std::string() );
+            // The translucency pass is drawn by a TRANSLUCENT template's own cell; the shipped one is the glass.
+            slot = Desert::Graphic::MeshShaderFor( pass == Desert::Graphic::MeshPass::Glass
+                                                        ? std::string( "StaticMeshGlass" )
+                                                        : DefaultTemplate(),
+                                                   path, pass )
+                        .value_or( std::string() );
         return slot->empty() ? nullptr : slot->c_str();
     }
 

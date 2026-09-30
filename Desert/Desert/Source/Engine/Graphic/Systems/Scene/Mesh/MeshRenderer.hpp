@@ -174,8 +174,9 @@ namespace Desert::Graphic::System
         // (outside the graph — see the note in RegisterPasses). No-op unless the deferred pipeline exists.
         // Called by SceneRenderer when RenderPath == Deferred, before the deferred lighting pass.
         void RenderGBufferManual();
-        // Forward transparent (glass) pass: draws meshes with material Transmission > 0 over the composited
-        // scene. sceneColor = a snapshot of the opaque scene the glass samples for refraction (may be null).
+        // Translucency pass: draws the meshes whose material's template is BlendMode Translucent over the
+        // composited scene, each with its OWN template's cell/pipeline (TranslucentDrawFor), in queue order.
+        // sceneColor = a snapshot of the opaque scene the translucent cells sample for refraction (may be null).
         void RenderGlassManual( const std::shared_ptr<Image2D>& sceneColor );
         // Deferred path: draws the generic (custom-shader) meshes FORWARD over the deferred
         // lighting composite in a LOAD render pass — they have no G-buffer variant, so without
@@ -382,7 +383,12 @@ namespace Desert::Graphic::System
     private:
         bool SetupGeometryPass();
         bool SetupGBufferPass(); // deferred: static-mesh G-buffer write pipeline
-        bool SetupGlassPass();   // forward transparent: static-mesh glass pipeline (blend, composites over scene)
+        // The translucency pass's draw state for ONE translucent cell shader (a translucent template's
+        // Static.Forward cell), built on first use and kept: UE draws each translucent material with its own
+        // shader/PSO, so every translucent template gets its own pipeline here. Null (logged once per shader) when
+        // it cannot.
+        struct TranslucentDraw;
+        TranslucentDraw* TranslucentDrawFor( const std::string& cellShader );
         bool SetupSkinnedGeometryPass();
         bool SetupSilhouettePass();
         bool SetupShadowPass();
@@ -438,19 +444,17 @@ namespace Desert::Graphic::System
         std::shared_ptr<Shader>           m_InstancedGBufferShader;
         std::shared_ptr<GraphicsPipeline> m_InstancedGBufferPipeline;
         bool                              m_DeferredGeometry = false; // set true only while drawing the G-buffer pass
-        std::shared_ptr<Shader>           m_StaticGlassShader;
-        std::shared_ptr<GraphicsPipeline> m_StaticGlassPipeline;
-        // `bool m_GlassPass` stood here, described as "set true only while drawing the transparent glass
-        // pass". No line in the engine ever set it, so its two readers were a transparency test that could
-        // only ever mean "skip glass" and a pipeline branch nothing could reach — and the unreachable
-        // branch was the one that would have bound a FORWARD material against the glass pipeline, which is
-        // the only reason StaticMeshGlass.shader was padded to the forward layout. Both are gone.
-        // DEDICATED glass material (never drawn by the opaque passes) so its per-frame UB ring is written ONCE
-        // per frame in the glass pass — sharing an opaque material across two passes/frame hangs the GPU.
-        // It is (Static x Glass) rather than its own class: what made it different from the opaque
-        // material was always the shader, and the shader is what the pair names.
-        std::shared_ptr<DataDrivenMaterial> m_GlassMaterial;
-        MaterialInstancePtr          m_GlassInstance;
+        // THE TRANSLUCENCY PASS, PER TRANSLUCENT CELL. One entry per translucent template's cell shader: its
+        // blended pipeline and a DEDICATED material (+ instance) owning that pass's per-frame UBs / Materials
+        // rows — never shared with an opaque material, whose per-frame ring would then be written twice a frame
+        // (the GPU hang). There is no engine-wide glass material: the object's template decides its shader.
+        struct TranslucentDraw
+        {
+            std::shared_ptr<GraphicsPipeline>   Pipeline;
+            std::shared_ptr<DataDrivenMaterial> Material;
+            MaterialInstancePtr                 Instance;
+        };
+        std::unordered_map<std::string, std::unique_ptr<TranslucentDraw>> m_Translucent;
 
         // Reflective Shadow Map (G-buffer from the sun) — the off-screen bounce source for the RSM GI mode.
         // Its camera UB carries the SUN's matrices, so like glass it needs its OWN material: sharing one with

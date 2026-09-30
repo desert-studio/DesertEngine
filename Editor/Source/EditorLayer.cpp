@@ -822,8 +822,10 @@ namespace Desert::Editor
         MakeSplashPlan();
         BeginSplashStage( m_ShaderStage );
         // The splash's close button, pressed during this one long call, stops it between programs.
-        Assets::CompileEngineShaders( m_AssetManager, SplashItems(),
-                                      [this]() { return m_Splash && m_Splash->CloseRequested(); } );
+        if ( const auto shaders = Assets::CompileEngineShaders(
+                  m_AssetManager, SplashItems(), [this]() { return m_Splash && m_Splash->CloseRequested(); } );
+             !shaders )
+            return Common::MakeFormattedError( "the engine shaders: {}", shaders.GetError() );
         // The imported materials choose among these shaders' Import blocks; every cook below comes after.
         LOG_INFO( "[Import] {} import template(s) published from the loaded shaders",
                   ImportManager::PublishImportTemplates( *m_AssetManager ) );
@@ -9684,12 +9686,15 @@ namespace Desert::Editor
             tf.Translation = pos * Common::Units::UnitsPerMetre;
             tf.Scale       = scale;
         };
-        auto mat = [&]( const std::string& name, std::initializer_list<std::pair<const char*, glm::vec4>> params )
+        // @p templateGuid: the material's template by shader GUID; empty = the `Default Surface` one.
+        auto mat = [&]( const std::string& name, std::initializer_list<std::pair<const char*, glm::vec4>> params,
+                        std::string_view templateGuid = {} )
         {
             // .Handle drops the rest of the answer on purpose: this builder has nothing to do about a
             // demo material the user has since edited, and the disagreement is already reported by name
             // and value from inside the call. See Editor/Core/MaterialAssetUtils.hpp.
-            return Editor::MaterialAssetUtils::FindOrCreatePBRMaterialAsset( m_AssetManager.get(), name, params )
+            return Editor::MaterialAssetUtils::FindOrCreatePBRMaterialAsset( m_AssetManager.get(), name, params,
+                                                                             templateGuid )
                  .Handle;
         };
 
@@ -9729,8 +9734,8 @@ namespace Desert::Editor
 
         // Glass probe (refraction path) + emissive probe (bloom path — glows past the threshold).
         prim( "GlassSphere", Geometry::PrimitiveType::Sphere, { -2.5f, 1.0f, 0.5f }, glm::vec3( 1.2f ),
-              mat( "Starter_Glass", { { "IOR", { 1.5f, 0, 0, 0 } },
-                                      { "GlassTint", { 0.8f, 0.95f, 1.0f, 1.0f } } } ) );
+              mat( "Starter_Glass", { { "IOR", { 1.5f, 0, 0, 0 } }, { "GlassTint", { 0.8f, 0.95f, 1.0f, 1.0f } } },
+                   Editor::MaterialAssetUtils::kGlassTemplateGuid ) );
         prim( "EmissiveCube", Geometry::PrimitiveType::Cube, { 2.5f, 0.5f, 0.5f }, glm::vec3( 1.0f ),
               mat( "Starter_Emissive", { { "AlbedoColor", { 0.1f, 0.1f, 0.1f, 1.0f } },
                                          { "EmissiveColor", { 0.2f, 0.8f, 1.0f, 1.0f } },
@@ -9800,8 +9805,8 @@ namespace Desert::Editor
             auto& e            = m_MainScene->CreateNewEntity( std::string( name ) );
             auto& smc          = e.AddComponent<ECS::StaticMeshComponent>();
             smc.Primitive      = Geometry::PrimitiveType::Cube;
-            const auto* params = Editor::MaterialAssetUtils::FindDemoMaterial( matName );
-            if ( !params )
+            const auto* demo   = Editor::MaterialAssetUtils::FindDemoMaterial( matName );
+            if ( !demo )
             {
                 LOG_ERROR( "[Cornell] '{}' is not in the demo material table; '{}' gets no material.", matName,
                            name );
@@ -9809,7 +9814,7 @@ namespace Desert::Editor
             else
             {
                 smc.MaterialSlots.push_back( Editor::MaterialAssetUtils::FindOrCreatePBRMaterialAsset(
-                                                  m_AssetManager.get(), matName, *params )
+                                                  m_AssetManager.get(), matName, demo->Params, demo->Template )
                                                   .Handle );
             }
             auto& tf       = e.GetComponent<ECS::TransformComponent>();
@@ -9827,11 +9832,12 @@ namespace Desert::Editor
         auto& glass    = m_MainScene->CreateNewEntity( std::string( "CB_GlassSphere" ) );
         auto& gsmc     = glass.AddComponent<ECS::StaticMeshComponent>();
         gsmc.Primitive = Geometry::PrimitiveType::Sphere;
-        if ( const auto* glassParams = Editor::MaterialAssetUtils::FindDemoMaterial( "CB_Glass" ) )
+        if ( const auto* glassDemo = Editor::MaterialAssetUtils::FindDemoMaterial( "CB_Glass" ) )
         {
-            gsmc.MaterialSlots.push_back( Editor::MaterialAssetUtils::FindOrCreatePBRMaterialAsset(
-                                               m_AssetManager.get(), "CB_Glass", *glassParams )
-                                               .Handle );
+            gsmc.MaterialSlots.push_back(
+                 Editor::MaterialAssetUtils::FindOrCreatePBRMaterialAsset( m_AssetManager.get(), "CB_Glass",
+                                                                           glassDemo->Params, glassDemo->Template )
+                      .Handle );
         }
         auto& gtf       = glass.GetComponent<ECS::TransformComponent>();
         gtf.Translation = Common::Units::Metres( 1.0f ) * glm::vec3( 0.0f, 1.5f, 0.7f );

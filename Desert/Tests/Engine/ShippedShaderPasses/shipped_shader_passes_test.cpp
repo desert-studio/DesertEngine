@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <optional>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -816,10 +817,37 @@ TEST( ShippedShaderPasses, TheGlassTemplateIsTranslucentWithForwardCellsOnly )
     ASSERT_NE( standard, nullptr );
     EXPECT_EQ( standard->Meta.Blend, PP::SurfaceBlendMode::Opaque );
 
-    // The translucent pass is Static x Glass in the mesh-shader table, and it is the glass template's program.
-    EXPECT_STREQ( Desert::Graphic::MeshShaderFor( Desert::Graphic::MeshVertexPath::Static,
-                                                  Desert::Graphic::MeshPass::Glass ),
-                  "StaticMeshGlass" );
+    // The translucent pass is Static x Glass, drawn by the glass template's OWN Static.Forward cell.
+    EXPECT_EQ( Desert::Graphic::MeshShaderFor( "StaticMeshGlass", Desert::Graphic::MeshVertexPath::Static,
+                                               Desert::Graphic::MeshPass::Glass ),
+               std::optional<std::string>( "StaticMeshGlass/Static.Forward" ) );
+}
+
+// UE: every translucent material is drawn by its own shader/PSO in the translucency pass. Two translucent
+// templates are two cells of the pass, and the mesh renderer holds no single engine-wide glass material — its
+// translucency state is keyed by the object's cell shader (MeshRenderer::TranslucentDrawFor).
+TEST( ShippedShaderPasses, TwoTranslucentTemplatesAreTwoShadersOfTheTranslucencyPass )
+{
+    using Desert::Graphic::MeshPass;
+    using Desert::Graphic::MeshVertexPath;
+    const auto glass =
+         Desert::Graphic::MeshShaderFor( "StaticMeshGlass", MeshVertexPath::Static, MeshPass::Glass );
+    const auto water = Desert::Graphic::MeshShaderFor( "Water", MeshVertexPath::Static, MeshPass::Glass );
+    ASSERT_TRUE( glass && water );
+    EXPECT_NE( *glass, *water );
+    EXPECT_FALSE( Desert::Graphic::MeshShaderFor( "", MeshVertexPath::Static, MeshPass::Glass ).has_value() );
+
+    std::filesystem::path here = std::filesystem::current_path();
+    for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Desert" / "Desert" / "Source" ); ++up )
+        here = here.parent_path();
+    const std::string source =
+         ReadFile( here / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
+    ASSERT_FALSE( source.empty() ) << "MeshRenderer.cpp was not found from " << here;
+    for ( const std::string_view single : { "m_GlassMaterial", "m_StaticGlassPipeline", "\"StaticMeshGlass\"" } )
+        EXPECT_EQ( source.find( single ), std::string::npos )
+             << "MeshRenderer.cpp holds " << single << ": one translucency material/pipeline for every template";
+    EXPECT_NE( source.find( "TranslucentDrawFor( mat->GetShaderName() )" ), std::string::npos )
+         << "the translucency pass must take each object's draw state from ITS material's cell shader";
 }
 
 // THE CENSUS: no string literal naming a material parameter picks a pass in the mesh renderer. The pass an

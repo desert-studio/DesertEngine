@@ -206,8 +206,6 @@ namespace Desert::Graphic::System
         // here compiles the deferred shader + validates the MRT pipeline at startup.
         if ( !SetupGBufferPass() )
             LOG_WARN( "[MeshRenderer] Deferred G-buffer pipeline not set up (deferred path unavailable)." );
-        if ( !SetupGlassPass() )
-            LOG_WARN( "[MeshRenderer] Glass pipeline not set up (transparent materials won't draw)." );
 
         if ( !SetupSkinnedGeometryPass() )
             return Common::MakeError( "Failed to setup skinned geometry pass" );
@@ -777,20 +775,26 @@ namespace Desert::Graphic::System
 
     void MeshRenderer::RenderGlassManual( const std::shared_ptr<Image2D>& sceneColor )
     {
-        if ( !m_StaticGlassPipeline || !m_GlassMaterial || !m_GlassInstance || m_StaticQueue.empty() )
+        if ( m_StaticQueue.empty() )
             return;
         const auto& target = m_SceneRenderer ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
         const auto  camera = m_SceneRenderer ? m_SceneRenderer->GetMainCamera() : nullptr;
         if ( !target || !camera )
             return;
 
-        // Collect the translucent objects (their template's BlendMode) + their effective GPU material entries. Uses a
-        // DEDICATED material so the opaque passes' per-frame UBs are untouched (the double-write-per-frame that
-        // hung the GPU).
+        // Collect the translucent objects (their template's BlendMode), each with the draw state of ITS
+        // template's cell: two translucent templates are two shaders and two pipelines, never one glass material.
+        // Each cell's rows go to that cell's dedicated material (written ONCE per frame, see TranslucentDraw).
         const Core::Frustum frustum = camera->GetFrustum();
 
-        std::vector<const StaticMeshRenderData*> glassObjs;
-        std::vector<glm::vec4>                   gpuMats;
+        struct Draw
+        {
+            const StaticMeshRenderData* Object;
+            TranslucentDraw*            State;
+            uint32_t                    Row;
+        };
+        std::vector<Draw>                                            draws;
+        std::unordered_map<TranslucentDraw*, std::vector<glm::vec4>> rows;
         for ( const auto& data : m_StaticQueue )
         {
             if ( !data.Mesh || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
@@ -800,47 +804,47 @@ namespace Desert::Graphic::System
             MaterialInstance* pbrInst = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
             if ( !pbrInst )
                 continue;
-            auto*      mat = static_cast<DataDrivenMaterial*>( pbrInst->GetParentMaterial() );
-            const auto row = EffectiveRow( mat, pbrInst );
+            auto* mat = static_cast<DataDrivenMaterial*>( pbrInst->GetParentMaterial() );
             if ( !IsTranslucent( mat ) )
                 continue; // opaque -> drawn by the opaque pass, not here
-            glassObjs.push_back( &data );
-            AppendRow( gpuMats, row );
+            TranslucentDraw* state = TranslucentDrawFor( mat->GetShaderName() );
+            if ( !state )
+                continue; // refused once, by name, inside TranslucentDrawFor
+            draws.push_back( { &data, state, AppendRow( rows[state], EffectiveRow( mat, pbrInst ) ) } );
         }
-        if ( glassObjs.empty() )
+        if ( draws.empty() )
             return;
 
         auto& renderer = Renderer::GetInstance();
 
-        // --- One-time shared setup on the dedicated glass material (written ONCE per frame) ---
-        if ( auto* sb = m_GlassMaterial->Get<StorageBufferProperty>( "Materials" ) )
-            sb->SetRawData( gpuMats.data(), static_cast<uint32_t>( gpuMats.size() * sizeof( glm::vec4 ) ) );
+        // --- Per translucent cell, once per frame: its rows, the scene snapshot, the refraction source ---
+        auto frame = CaptureFrameState( camera );
+        for ( auto& [state, cellRows] : rows )
+        {
+            if ( auto* sb = state->Material->Get<StorageBufferProperty>( "Materials" ) )
+                sb->SetRawData( cellRows.data(), static_cast<uint32_t>( cellRows.size() * sizeof( glm::vec4 ) ) );
+            frame.ApplyTo( state->Instance.get() );
+            if ( sceneColor )
+                if ( auto tex = state->Material->GetMaterialExecutor()->GetTexture2DProperty( "u_SceneColor" ) )
+                    tex->SetImage( sceneColor.get() );
+        }
 
-        // The whole scene contribution in one snapshot (see Graphic::PBRSceneFrame) — the glass pass
-        // needs every part of it, including the env cube + BRDF bindings it epsilon-touches.
-        MaterialInstance* gi = m_GlassInstance.get();
-        CaptureFrameState( camera ).ApplyTo( gi );
-
-        // Bind the scene snapshot the glass samples for refraction (binding 19, glass-shader-only).
-        if ( sceneColor )
-            if ( auto tex = m_GlassMaterial->GetMaterialExecutor()->GetTexture2DProperty( "u_SceneColor" ) )
-                tex->SetImage( sceneColor.get() );
-
-        // --- Draw the glass over the composited scene (LOAD + blend) ---
+        // --- Draw over the composited scene (LOAD + blend), in queue order, each with its own pipeline ---
         RenderPassSpecification rpSpec;
         rpSpec.TargetFramebuffer = target;
-        rpSpec.DebugName         = "GlassPass";
+        rpSpec.DebugName         = "TranslucencyPass";
         auto rp                  = RenderPass::Create( rpSpec );
 
         renderer.BeginRenderPass( rp.get(), false ); // LOAD: composite over the opaque scene
-        for ( uint32_t i = 0; i < static_cast<uint32_t>( glassObjs.size() ); ++i )
+        for ( const auto& draw : draws )
         {
-            const auto* obj = glassObjs[i];
-            m_GlassMaterial->SetPushMatrix( obj->Transform );
-            m_GlassMaterial->SetMaterialIndex( i );
-            m_GlassMaterial->Bind( gi );
-            renderer.RenderMesh( m_StaticGlassPipeline.get(), obj->Mesh, obj->Transform,
-                                 m_GlassMaterial->GetMaterialExecutor(), 1, 0, obj->HiddenSubmeshes,
+            const auto* obj      = draw.Object;
+            auto&       material = *draw.State->Material;
+            material.SetPushMatrix( obj->Transform );
+            material.SetMaterialIndex( draw.Row );
+            material.Bind( draw.State->Instance.get() );
+            renderer.RenderMesh( draw.State->Pipeline.get(), obj->Mesh, obj->Transform,
+                                 material.GetMaterialExecutor(), 1, 0, obj->HiddenSubmeshes,
                                  ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ) );
         }
         renderer.EndRenderPass();
@@ -1126,8 +1130,8 @@ namespace Desert::Graphic::System
             // The effective material is built ONCE per object here and reused for the glass split,
             // the batch entry and the per-object SSBO (it used to be rebuilt up to three times).
             // Translucency split: a material whose template is BlendMode Translucent is skipped by every
-            // opaque pass (forward + deferred G-buffer) and drawn ONLY by RenderGlassManual, which holds its own (Static x Glass) material and composites
-            // forward over the scene with blending.
+            // opaque pass (forward + deferred G-buffer) and drawn ONLY by RenderGlassManual (a dedicated material
+            // per translucent cell), which composites forward over the scene with blending.
             for ( const auto* obj : objects )
             {
                 ObjDraw od;
@@ -1811,53 +1815,57 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    bool MeshRenderer::SetupGlassPass()
+    MeshRenderer::TranslucentDraw* MeshRenderer::TranslucentDrawFor( const std::string& cellShader )
     {
-        // Optional (like the G-buffer pass): needs the glass shader + the scene target. Failure leaves the
-        // rest fully functional — glass just won't draw.
-        m_StaticGlassShader = Runtime::ResourceRegistry::GetShaderService()->GetByName(
-             MeshShaderFor( MeshVertexPath::Static, MeshPass::Glass ) );
-        if ( !m_StaticGlassShader )
-            return false;
+        if ( const auto found = m_Translucent.find( cellShader ); found != m_Translucent.end() )
+            return found->second.get(); // null = refused before (said once, below)
+        auto& slot = m_Translucent[cellShader];
 
         const auto& target = m_SceneRenderer ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
-        if ( !target )
-            return false;
+        auto        shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellShader );
+        if ( !shader || !target )
+        {
+            LOG_ERROR( "[MeshRenderer] translucent cell '{}' will not draw: {}", cellShader,
+                       !shader ? "no such shader is registered" : "the renderer has no target framebuffer" );
+            return nullptr;
+        }
 
         GraphicsPipelineSpecification spec;
-        spec.DebugName         = "StaticMeshGlass";
+        spec.DebugName         = cellShader;
         spec.Layout            = { { Graphic::ShaderDataType::Float3, "a_Position" },
                                    { Graphic::ShaderDataType::Float3, "a_Normal" },
                                    { Graphic::ShaderDataType::Float3, "a_Tangent" },
                                    { Graphic::ShaderDataType::Float3, "a_Bitangent" },
                                    { Graphic::ShaderDataType::Float2, "a_TextureCoord" } };
-        spec.Shader            = m_StaticGlassShader;
+        spec.Shader            = shader;
         spec.Framebuffer       = target;
         spec.DepthCompareOp    = DepthCompare::CloserOrEqual;
-        spec.DepthWriteEnabled = false;      // transparent: don't occlude later fragments / itself
+        spec.DepthWriteEnabled = false; // translucent: don't occlude later fragments / itself
         spec.CullMode          = CullMode::Back;
-        spec.BlendEnable       = true;       // src-alpha over the composited scene
-        spec.UseLoadRenderPass = true;       // begun with clearFrame=false to preserve the opaque scene
+        spec.BlendEnable       = true; // src-alpha over the composited scene
+        spec.UseLoadRenderPass = true; // begun with clearFrame=false to preserve the opaque scene
 
-        const auto glassPipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
-        if ( !glassPipeline )
+        const auto pipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+        if ( !pipeline )
         {
-            LOG_ERROR( "[MeshRenderer] glass materials will not draw: {}", glassPipeline.GetError() );
-            return false;
+            LOG_ERROR( "[MeshRenderer] translucent cell '{}' will not draw: {}", cellShader, pipeline.GetError() );
+            return nullptr;
         }
-        m_StaticGlassPipeline = glassPipeline.GetValue();
 
-        // A dedicated material (+ one instance) owns the glass pass's per-frame UBs / Materials SSBO. It is
-        // descriptor-layout-compatible with the glass pipeline because Glass.glsl.frag declares the same
-        // bindings as StaticMeshPBR. Being separate from every opaque material, its per-frame ring is written
-        // exactly once per frame (here) — no double-update hang.
-        // (Static x Glass): same surface, same plumbing, a shader whose fragment stage refracts the
-        // composited scene. Dedicated for the per-frame-UB reason above.
-        m_GlassMaterial = CreateCellMaterial( MeshVertexPath::Static, MeshPass::Glass );
-        if ( !m_GlassMaterial )
-            return false;
-        m_GlassInstance = m_GlassMaterial->CreateInstance();
-        return m_GlassMaterial && m_GlassInstance;
+        // Dedicated to the translucency pass: its per-frame UBs / Materials rows are written once per frame, in
+        // RenderGlassManual, and by no opaque pass (see TranslucentDraw).
+        auto draw      = std::make_unique<TranslucentDraw>();
+        draw->Pipeline = pipeline.GetValue();
+        draw->Material = std::make_shared<DataDrivenMaterial>( cellShader );
+        draw->Instance = draw->Material->CreateInstance();
+        if ( !draw->Instance )
+        {
+            LOG_ERROR( "[MeshRenderer] translucent cell '{}' will not draw: its material has no instance",
+                       cellShader );
+            return nullptr;
+        }
+        slot = std::move( draw );
+        return slot.get();
     }
 
     bool MeshRenderer::SetupSkinnedGeometryPass()

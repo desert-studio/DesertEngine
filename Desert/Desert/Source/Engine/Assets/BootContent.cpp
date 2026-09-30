@@ -7,9 +7,11 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderMapBuild.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
+#include <Engine/Project/ProjectContext.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <chrono>
+#include <format>
 
 namespace Desert::Assets
 {
@@ -18,14 +20,13 @@ namespace Desert::Assets
         return ContentRegistry::FilesOfKind( Common::Content::ContentKind::Shader ).size();
     }
 
-    void CompileEngineShaders( const std::shared_ptr<AssetManager>& manager, const ItemProgress& progress,
-                               const StopRequested& stop )
+    Common::BoolResultStr CompileEngineShaders( const std::shared_ptr<AssetManager>& manager,
+                                                const ItemProgress& progress, const StopRequested& stop )
     {
         if ( !manager )
-        {
-            LOG_ERROR( "[BootContent] no asset manager to create the engine shaders in; none compiled" );
-            return;
-        }
+            return Common::MakeError(
+                 std::string( "[BootContent] no asset manager to create the engine shaders in; none compiled" ) );
+        bool stopped = false;
 
         // Timed as a phase: Register() builds every stage of every pass, so this is the whole "shader startup
         // cost" in one number.
@@ -42,6 +43,7 @@ namespace Desert::Assets
             {
                 LOG_INFO( "[BootContent] engine shader load stopped on request after {} of {} program(s)",
                           shaders.size(), rows.size() );
+                stopped = true;
                 break;
             }
             ReportItem( progress, path.filename().string(), shaders.size(), rows.size() );
@@ -137,6 +139,20 @@ namespace Desert::Assets
                   "failure(s) in {}",
                   cache.MapHits, cache.MapMisses, cache.Hits, cache.Compiled, cache.StoreFailures,
                   Core::ShaderCacheDir().string() );
+
+        // THE ENGINE'S ONE REQUIRED TEMPLATE. A mesh with no material and every newly authored material take the
+        // `Default Surface` template, found by that role (UE: a missing DefaultMaterial is fatal at load). Without
+        // it the renderer would carry a null default down to every draw; the start is refused here, by the role.
+        if ( stopped )
+            return BOOLSUCCESS;
+        const auto defaultSurface = FindDefaultSurfaceTemplate(
+             *manager, Project::ProjectContext::DefaultSurfaceTemplate(), Project::ProjectContext::FilePath() );
+        if ( !defaultSurface )
+            return Common::MakeError(
+                 std::format( "the engine has no 'Default Surface' template — the shader every "
+                              "slot-less mesh and every new material is authored on: {}",
+                              defaultSurface.GetError() ) );
+        return BOOLSUCCESS;
     }
 
     void IndexAnimationClips( AssetManager& manager, Animation::AnimationLibrary& library )

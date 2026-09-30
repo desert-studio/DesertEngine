@@ -12,7 +12,8 @@ namespace Desert::Graphic
         // see, because the combination was never named anywhere. Every entry is a CELL of whichever surface
         // template the material names ("<Path>.<Pass>", DShaderParser's SurfaceCellName); shadow depth too: an
         // opaque template's ShadowDepth cell is the path's vertex header plus Mesh/Surface/Pass_ShadowDepth,
-        // with no surface evaluated. Glass is not a cell (kMeshGlassProgram, the translucent domain).
+        // with no surface evaluated. Glass is not a cell of its own: the translucent template's Forward cell draws
+        // it.
         constexpr const char* kMeshCells[kMeshVertexPathCount][kMeshPassCount] = {
              // Forward             GBuffer              Glass    Shadow depth
              { "Static.Forward", "Static.GBuffer", nullptr, "Static.ShadowDepth" },
@@ -28,8 +29,12 @@ namespace Desert::Graphic
 
     std::optional<std::string> MeshShaderFor( std::string_view templateName, MeshVertexPath path, MeshPass pass )
     {
+        // The translucency pass draws a translucent template's OWN lit cell (UE: each translucent material is
+        // drawn by its own shader in the translucency pass) — there is no translucency program of the engine's.
         if ( path == MeshVertexPath::Static && pass == MeshPass::Glass )
-            return std::string( kMeshGlassProgram );
+            return templateName.empty() ? std::nullopt
+                                        : std::optional<std::string>( std::format(
+                                               "{}/{}", templateName, MeshCellFor( path, MeshPass::Forward ) ) );
         const char* cell = MeshCellFor( path, pass );
         if ( cell == nullptr || templateName.empty() )
             return std::nullopt;

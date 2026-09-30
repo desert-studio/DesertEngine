@@ -33,9 +33,9 @@ namespace Desert::Graphic
     //   | scene binding  | PBRSceneFrame + SceneLightingBinding| 1, already shared |
     //
     // `MaterialGlass` and `MaterialRSM` are gone entirely: they were a shader name and nothing else, so
-    // they are the renderer's own cell materials for (Static, Glass) and (Static, GBuffer). And glass was never chosen
-    // by a class in the first place — `MeshRenderer::DrawStaticMeshes` splits it out by the material's
-    // own `Transmission` value, i.e. by DATA, which is what makes deleting the class safe.
+    // they are cells of a template: glass is a translucent template's own cell, (Static, GBuffer) the RSM's.
+    // And glass was never chosen by a class — `MeshRenderer::DrawStaticMeshes` splits it out by the template's
+    // blend mode (ShaderProgramMeta::Blend), i.e. by DATA, which is what makes deleting the class safe.
     //
     // THERE IS NO C++ SPLIT LEFT. Every surface material — a `.demat` of any template, and the renderer's
     // own glass / RSM / instanced cells — is a DataDrivenMaterial of one cell: the shader of that cell, its
@@ -165,8 +165,8 @@ namespace Desert::Graphic
     //   (Skinned  x GBuffer) is NOT a hole any more: Forward and GBuffer are cells of every surface
     //                          template, which has every path. The skinned mesh is still drawn forward
     //                          (MeshRenderer::RenderSkinnedManual); the cell exists unused.
-    //   (* x Glass)          — transparency is a static-mesh feature drawn by its own program
-    //                          (kMeshGlassProgram); no skinned or instanced glass exists to draw.
+    //   (* x Glass)          — no cell of its own: the translucency pass draws a translucent template's
+    //                          (Static x Forward) cell (MeshShaderFor); no skinned or instanced glass exists.
     //
     // (Instanced x GBuffer) WAS A HOLE AND WAS NOT ONE. Its stated reason — "instancing is disabled in
     // the G-buffer pass, every static takes the per-object path there" — was true of the AUTO-BATCHED
@@ -177,12 +177,10 @@ namespace Desert::Graphic
     // because a hole justified by a half-true sentence is the failure this table exists to make visible.
     const char* MeshCellFor( MeshVertexPath path, MeshPass pass );
 
-    // The translucent domain's own program: (Static x Glass) whatever the material's template.
-    inline constexpr std::string_view kMeshGlassProgram = "StaticMeshGlass";
-
     // THE SHADER a (path x pass) of a material built on the surface template @p templateName draws with:
     // "<Template>/<MeshCellFor(path, pass)>" — the program ShaderService registers for every template that
-    // declares a Surface block — or kMeshGlassProgram for (Static x Glass). Empty = a hole (or no template
+    // declares a Surface block — for (Static x Glass) the template's own Static.Forward cell, each translucent
+    // template drawing with its own shader in the translucency pass. Empty = a hole (or no template
     // named), and the caller must SAY so rather than silently drawing something else. The template name comes
     // from the material (or, for the renderer's own draws, from the template declaring `Default Surface`,
     // found by that role — MaterialService::DefaultSurfaceTemplate), never from a literal here.
