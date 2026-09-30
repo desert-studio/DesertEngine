@@ -6,6 +6,7 @@
 #include <Common/Core/UUID.hpp>
 
 #include <filesystem>
+#include <optional>
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
@@ -23,6 +24,8 @@
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/Timeline/Player.hpp>
+#include <Engine/Animation/Timeline/Sequence.hpp>
 
 #include <Engine/Physics/PhysicsWorld.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
@@ -1840,37 +1843,20 @@ namespace Desert::ECS
         UIBindingData Data;
     };
 
-    // One keyframe of a UI animation track. Value is read exactly like UITweenData::From/To — xy for
-    // Offset/Size, x for Opacity, rgb for Color — and Easing shapes the segment ENDING at this key.
-    struct UIAnimKey
-    {
-        float     Time   = 0.0f;
-        glm::vec4 Value  = glm::vec4( 0.0f );
-        UIEasing  Easing = UIEasing::CubicOut;
-    };
-
-    // One property's lane on the timeline. Keys are kept sorted by time; a lane with a single key just
-    // holds that value.
-    struct UIAnimTrack
-    {
-        UITweenProperty        Property = UITweenProperty::Offset;
-        std::vector<UIAnimKey> Keys;
-    };
-
-    // A multi-key UI animation, authored on the timeline (View -> Sequencer with a UI element selected).
-    // UITween is the one-shot from->to; this is the clip: several properties, many keys, one clock.
-    // Serialized by hand (ComponentRegistry) because the reflected path has no vector-of-struct support —
-    // the Sequencer is its editor, not the Details grid.
+    // A multi-key UI animation: a Timeline::Sequence hosted as UIAnimation (Timeline/Hosts.hpp) — UE's
+    // UWidgetAnimation, the same MovieScene core a LevelSequence plays; widgets own no key model of their own.
+    // Its Widget bindings name elements by entity UUID, so one clip may drive several elements. Authored on the
+    // Sequencer, serialized by hand (ComponentRegistry) as the TMLN text block.
     struct UIAnimData
     {
-        std::vector<UIAnimTrack> Tracks;
-        float                    Duration = 1.0f;
-        bool                     Loop     = false;
-        bool                     Playing  = true;
+        Animation::Timeline::Sequence Sequence{ .Host = Animation::Timeline::SequenceHost::UIAnimation };
+        Animation::Timeline::LoopMode Loop     = Animation::Timeline::LoopMode::Once;
+        bool                          AutoPlay = true;
 
-        // Playhead. RUNTIME only — never serialized, so scrubbing in the editor cannot dirty the scene.
-        // The canvas advances it while Playing; the Sequencer pauses and writes it directly to scrub.
-        float Time = 0.0f;
+        // Where playback is. RUNTIME only — never serialized, so scrubbing in the editor cannot dirty the
+        // scene. Created lazily from Sequence.TickRate/Start/End by the one view that drives scene animation
+        // (UIAnimationPlayback.hpp); whoever edits the range resets it so the next frame re-creates it.
+        std::optional<Animation::Timeline::Player> Playback;
     };
     struct UIAnimComponent
     {

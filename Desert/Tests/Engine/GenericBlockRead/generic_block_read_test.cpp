@@ -92,16 +92,17 @@ TEST( GenericBlockRead, ATextBlockMissingEverythingButItsTextIsStillAText )
     EXPECT_FALSE( parsed.value().Billboard );
 }
 
-TEST( GenericBlockRead, AUIAnimBlockMissingItsPlaybackFlagsKeepsItsTracks )
+TEST( GenericBlockRead, AUIAnimBlockMissingItsAutoPlayFlagKeepsItsSequence )
 {
-    const auto older = FromJsonText( R"({"Tracks":[],"Duration":4.0})" );
+    const auto older = FromJsonText( R"({"Sequence":{"Start":0},"Loop":1})" );
 
     const auto parsed = ReadBlockOf<Assets::UIAnimComponentSer>( older );
 
     ASSERT_TRUE( parsed.has_value() );
-    EXPECT_FLOAT_EQ( parsed.value().Duration, 4.0f );
-    EXPECT_FALSE( parsed.value().Loop );
-    EXPECT_TRUE( parsed.value().Playing );
+    EXPECT_EQ( parsed.value().Loop, 1 );
+    EXPECT_TRUE( parsed.value().AutoPlay ) << "an absent AutoPlay must read as the authored default, true";
+    EXPECT_EQ( Common::Json::Write( parsed.value().Sequence ), R"({"Start":0})" )
+         << "the TMLN block is carried verbatim; the sequence reader is the one that judges it";
 }
 
 // ── THE DIRECTION THAT WAS ALREADY SAFE, PINNED SO IT STAYS SAFE ───────────────────────────────────

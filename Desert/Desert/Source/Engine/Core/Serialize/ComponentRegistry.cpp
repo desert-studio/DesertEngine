@@ -41,6 +41,7 @@
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
+#include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/CubeGridBlockoutComponent.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
@@ -1598,29 +1599,30 @@ namespace Desert::Core::Serialize
             Register( std::move( s ) );
         }
 
-        // ---- UI Anim (custom: the reflected path has no vector-of-struct support; the playhead is
-        //      runtime-only and never written) ----
+        // ---- UI Anim (custom: the sequence travels as the TMLN block — the one timeline format — and the
+        //      playhead is runtime-only and never written) ----
         {
             ComponentSerializer s;
             s.Key       = "UIAnim";
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::UIAnimComponent>(); };
             s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
             {
-                const auto&                d = e.GetComponent<ECS::UIAnimComponent>().Data;
-                Assets::UIAnimComponentSer ser;
-                ser.Duration = d.Duration;
-                ser.Loop     = d.Loop;
-                ser.Playing  = d.Playing;
-                ser.Tracks.reserve( d.Tracks.size() );
-                for ( const auto& tr : d.Tracks )
+                const auto&                d     = e.GetComponent<ECS::UIAnimComponent>().Data;
+                const std::vector<uint8_t> bytes = Animation::Timeline::WriteSequence( d.Sequence );
+                auto                       block = Common::Json::Read<Common::Json::Value>(
+                     std::string_view( reinterpret_cast<const char*>( bytes.data() ), bytes.size() ) );
+                if ( !block )
                 {
-                    Assets::UIAnimTrackSer ts;
-                    ts.Property = static_cast<int>( tr.Property );
-                    ts.Keys.reserve( tr.Keys.size() );
-                    for ( const auto& k : tr.Keys )
-                        ts.Keys.push_back( { k.Time, k.Value, static_cast<int>( k.Easing ) } );
-                    ser.Tracks.push_back( std::move( ts ) );
+                    // WriteSequence's own output not reading back as JSON is a broken writer, not a state of the
+                    // data; it is named here rather than saved as an empty clip.
+                    LOG_ERROR( "UIAnim: the TMLN writer produced text that does not read back: {}",
+                               block.GetError() );
+                    return Common::Json::Value{};
                 }
+                Assets::UIAnimComponentSer ser;
+                ser.Sequence = block.GetValue();
+                ser.Loop     = static_cast<int>( d.Loop );
+                ser.AutoPlay = d.AutoPlay;
                 return Common::Json::FromStruct( ser );
             };
             s.Deserialize = []( ECS::Entity e, const Common::Json::Node& g, const Assets::AssetManager&,
@@ -1629,27 +1631,34 @@ namespace Desert::Core::Serialize
                 auto parsed = ReadBlock<Assets::UIAnimComponentSer>( g, issues );
                 if ( !parsed.has_value() )
                     return;
-                const auto& d    = parsed.value();
-                auto&       ac   = e.HasComponent<ECS::UIAnimComponent>() ? e.GetComponent<ECS::UIAnimComponent>()
-                                                                          : e.AddComponent<ECS::UIAnimComponent>();
-                ac.Data.Duration = d.Duration;
-                ac.Data.Loop     = d.Loop;
-                ac.Data.Playing  = d.Playing;
-                ac.Data.Time     = 0.0f;
-                ac.Data.Tracks.clear();
-                ac.Data.Tracks.reserve( d.Tracks.size() );
-                for ( const auto& ts : d.Tracks )
+                const auto& d = parsed.value();
+                if ( d.Loop < 0 || d.Loop > static_cast<int>( Animation::Timeline::LoopMode::PingPong ) )
                 {
-                    ECS::UIAnimTrack tr;
-                    tr.Property = static_cast<ECS::UITweenProperty>( ts.Property );
-                    tr.Keys.reserve( ts.Keys.size() );
-                    for ( const auto& k : ts.Keys )
-                        tr.Keys.push_back( { k.Time, k.Value, static_cast<ECS::UIEasing>( k.Easing ) } );
-                    std::sort( tr.Keys.begin(), tr.Keys.end(),
-                               []( const ECS::UIAnimKey& a, const ECS::UIAnimKey& b )
-                               { return a.Time < b.Time; } );
-                    ac.Data.Tracks.push_back( std::move( tr ) );
+                    issues.push_back( { g.Where().Key( "Loop" ).ToString(), "a LoopMode (0 Once, 1 Loop, 2 PingPong)",
+                                        std::format( "{}", d.Loop ) } );
+                    return;
                 }
+                const std::string text     = Common::Json::Write( d.Sequence );
+                auto              sequence = Animation::Timeline::ReadSequence(
+                     std::span( reinterpret_cast<const uint8_t*>( text.data() ), text.size() ) );
+                if ( !sequence )
+                {
+                    issues.push_back( { g.Where().Key( "Sequence" ).ToString(), "a TMLN sequence",
+                                        sequence.GetError() } );
+                    return;
+                }
+                if ( sequence.GetValue().Host != Animation::Timeline::SequenceHost::UIAnimation )
+                {
+                    issues.push_back( { g.Where().Key( "Sequence" ).ToString(), "a sequence hosted as UIAnimation",
+                                        Animation::Timeline::ToString( sequence.GetValue().Host ) } );
+                    return;
+                }
+                auto& ac = e.HasComponent<ECS::UIAnimComponent>() ? e.GetComponent<ECS::UIAnimComponent>()
+                                                                  : e.AddComponent<ECS::UIAnimComponent>();
+                ac.Data.Sequence = std::move( sequence.GetValue() );
+                ac.Data.Loop     = static_cast<Animation::Timeline::LoopMode>( d.Loop );
+                ac.Data.AutoPlay = d.AutoPlay;
+                ac.Data.Playback.reset(); // the range may have changed; the next frame re-creates the player
             };
             Register( std::move( s ) );
         }
