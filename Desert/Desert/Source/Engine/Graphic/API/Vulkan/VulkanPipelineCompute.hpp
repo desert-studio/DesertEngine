@@ -23,7 +23,6 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         // --- Resource-binding API (see ComputePipeline) ---
-        ComputePipeline& SetInput( uint32_t binding, Image* image ) override;
         ComputePipeline& SetInput( uint32_t binding, Image* image, RDG::Access declared,
                                    std::optional<uint32_t> mip ) override;
         ComputePipeline& SetOutput( uint32_t binding, Image* image, uint32_t mip = 0 ) override;
@@ -91,13 +90,13 @@ namespace Desert::Graphic::API::Vulkan
             Image*   Image = nullptr;
             uint32_t Mip   = 0;
         };
-        // A sampled input: the whole view in the image's recorded layout (SetInput without an access), or
-        // the view and layout a graph node declared (Declared set; Mip set for a single-mip view).
+        // A sampled input: the view (Mip set for a single-mip view) in the layout its declared access
+        // leaves the image in. There is no binding in the image's recorded layout.
         struct InputBinding
         {
-            Image*                     Image = nullptr;
-            std::optional<RDG::Access> Declared;
-            std::optional<uint32_t>    Mip;
+            Image*                  Image    = nullptr;
+            RDG::Access             Declared = RDG::Access::SampledCompute;
+            std::optional<uint32_t> Mip;
         };
         std::unordered_map<uint32_t, InputBinding>                    m_BoundInputs;
         std::unordered_map<uint32_t, OutputBinding>                   m_BoundOutputs;

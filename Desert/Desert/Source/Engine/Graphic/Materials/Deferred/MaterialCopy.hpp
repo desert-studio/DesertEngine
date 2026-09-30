@@ -16,7 +16,7 @@ namespace Desert::Graphic
         void BindInputs( const std::shared_ptr<Image2D>& input )
         {
             if ( m_Input && input )
-                m_Input->SetImage( input.get() );
+                m_Input->SetImage( input.get(), RDG::Access::SampledGraphics );
         }
 
     private:

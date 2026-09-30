@@ -122,7 +122,7 @@ namespace Desert::Graphic
             return false;
         }
 
-        property->SetImage( image );
+        property->SetImage( image, RDG::Access::SampledGraphics );
         return true;
     }
 
@@ -157,7 +157,7 @@ namespace Desert::Graphic
                 if ( texPtr )
                 {
                     if ( auto texProp = m_MaterialExecutor->GetTexture2DProperty( std::string( prop->GetShaderName() ) ) )
-                        texProp->SetImage( static_cast<const Image2D*>( texPtr ) );
+                        texProp->SetImage( static_cast<const Image2D*>( texPtr ), RDG::Access::SampledGraphics );
                 }
             }
             else
@@ -194,7 +194,8 @@ namespace Desert::Graphic
                          if ( val )
                          {
                              if ( auto texProp = m_MaterialExecutor->GetTexture2DProperty( propName ) )
-                                 texProp->SetImage( static_cast<const Image2D*>( val ) );
+                                 texProp->SetImage( static_cast<const Image2D*>( val ),
+                                                    RDG::Access::SampledGraphics );
                          }
                      }
                      else

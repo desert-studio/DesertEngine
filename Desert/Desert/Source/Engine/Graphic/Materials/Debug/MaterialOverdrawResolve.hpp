@@ -17,7 +17,7 @@ namespace Desert::Graphic
         void BindInputs( const std::shared_ptr<Image2D>& accum )
         {
             if ( m_Overdraw && accum )
-                m_Overdraw->SetImage( accum.get() );
+                m_Overdraw->SetImage( accum.get(), RDG::Access::SampledGraphics );
         }
 
     private:

@@ -360,15 +360,16 @@ namespace Desert::Graphic
 
         // --- Resource-binding API (UE-style): set inputs/outputs/push-constants, then Dispatch ---
 
-        /** Bind a sampled input image at @p binding (e.g. a panorama or a source cubemap). */
-        virtual ComputePipeline& SetInput( uint32_t binding, Image* image ) = 0;
         /**
-         * Bind a sampled input inside a render-graph node. The descriptor names exactly what the node
-         * declared: @p mip selects ONE mip (the view holds that mip alone, so the shader samples it at
-         * lod 0), nullopt the whole image. Its layout is the one the node's @p declared access puts the
-         * image in, NOT the image's own layout record: the graph writes that record back only after it
-         * executes, so mid-graph it is stale, and one record cannot describe a chain whose mips sit in
-         * different layouts (the mip being written is GENERAL while the one read is SHADER_READ_ONLY).
+         * Bind a sampled input image at @p binding. The descriptor names exactly what the caller declared:
+         * @p mip selects ONE mip (the view holds that mip alone, so the shader samples it at lod 0), nullopt
+         * the whole image. Its layout is the one the @p declared access puts the image in, NEVER the image's
+         * own layout record: the graph writes that record back only after it executes, so mid-graph it is
+         * stale, and one record cannot describe a chain whose mips sit in different layouts (the mip being
+         * written is GENERAL while the one read is SHADER_READ_ONLY).
+         * Inside a render-graph node (RecordInFrame) @p declared is the node's declared access and the graph
+         * has already put the image there. Outside the graph (Dispatch, Record: bakes) the pipeline records
+         * the transition to that layout itself, before the dispatch.
          * An access that does not leave the image sampleable drops the dispatch with an error.
          */
         virtual ComputePipeline& SetInput( uint32_t binding, Image* image, RDG::Access declared,

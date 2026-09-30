@@ -48,7 +48,7 @@ namespace Desert::Graphic
             if ( auto* img = resolveImage( handle ) )
             {
                 if ( auto* prop = material.Get<Texture2DProperty>( shaderName ) )
-                    prop->SetImage( img );
+                    prop->SetImage( img, RDG::Access::SampledGraphics );
                 return;
             }
 

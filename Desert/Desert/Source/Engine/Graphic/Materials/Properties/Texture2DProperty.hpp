@@ -45,7 +45,12 @@ namespace Desert::Graphic
         /// was empty and the surface kept drawing the old map, with nothing in between to notice. The
         /// route back to a default exists now, so a null reaching here is a caller that has not been
         /// told about it, and it says so with the binding it is about.
-        void SetImage( const Image2D* texture )
+        /// Every binding names the access it is read under: a raster node's declared access (the graph has put
+        /// the image in that layout when the node's draws run; the image's own record is stale until the graph
+        /// ends), or, for an image outside the graph (an asset or default texture, resident in
+        /// SHADER_READ_ONLY from its upload on), RDG::Access::SampledGraphics. An access that does not leave
+        /// the image sampleable is refused and the binding keeps its image.
+        void SetImage( const Image2D* texture, RDG::Access declared )
         {
             if ( !texture )
             {
@@ -56,17 +61,6 @@ namespace Desert::Graphic
                            m_Uniform ? m_Uniform->GetBinding() : 0u );
                 return;
             }
-
-            m_Texture  = texture;
-            m_Declared = std::nullopt;
-            NoteWritten();
-        }
-        /// Point this sampler at @p texture, an image the graph node that draws with this material declared as
-        /// @p declared. The descriptor names the layout that access leaves the image in, which is the layout
-        /// the graph has put it in when the node's draws run; the image's own record is stale until the graph
-        /// ends. An access that does not leave the image sampleable is refused and the binding keeps its image.
-        void SetImage( const Image2D* texture, RDG::Access declared )
-        {
             const RDG::ImageLayout layout = RDG::GetAccessState( declared ).Layout;
             if ( layout != RDG::ImageLayout::ShaderReadOnly && layout != RDG::ImageLayout::General )
             {
@@ -75,9 +69,10 @@ namespace Desert::Graphic
                            m_Uniform ? m_Uniform->GetBinding() : 0u, RDG::GetAccessName( declared ) );
                 return;
             }
-            SetImage( texture );
-            if ( m_Texture == texture )
-                m_Declared = declared;
+
+            m_Texture  = texture;
+            m_Declared = declared;
+            NoteWritten();
         }
 
         const auto& GetUniform() const
@@ -88,7 +83,7 @@ namespace Desert::Graphic
     private:
         std::shared_ptr<ShaderResources::UniformImage2D> m_Uniform;
         const Image2D*                                   m_Texture        = nullptr;
-        std::optional<RDG::Access>                       m_Declared; // the graph access m_Texture is read under
+        RDG::Access m_Declared = RDG::Access::SampledGraphics; // the access m_Texture is read under
         uint64_t                                         m_UniformVersion = PropertyVersion::kNeverWritten;
     };
 } // namespace Desert::Graphic

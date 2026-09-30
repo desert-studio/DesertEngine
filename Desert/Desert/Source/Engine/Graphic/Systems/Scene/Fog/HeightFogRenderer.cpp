@@ -244,7 +244,8 @@ namespace Desert::Graphic::System
 
             m_FogPipeline->SetOutput( kFogOutputBinding, m_FogImage.get(), 0 );
             m_FogPipeline->SetStorageBuffer( kFogParamsBinding, m_ParamsBuffer.get() );
-            m_FogPipeline->SetInput( kFogSceneDepthBinding, depthImage );
+            m_FogPipeline->SetInput( kFogSceneDepthBinding, depthImage, RDG::Access::SampledCompute,
+                                     std::nullopt );
 
             // ALWAYS bound, even when the shader will not read it: a `sampler3D` with no image is an invalid
             // descriptor set, not an unused one, and ComputePipeline refuses to dispatch at all when a volume
@@ -254,7 +255,8 @@ namespace Desert::Graphic::System
                  kFogAerialPerspectiveBinding,
                  apActive
                       ? atmosphere.AerialPerspectiveVolume
-                      : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get() );
+                      : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get(),
+                 RDG::Access::SampledCompute, std::nullopt );
             // The distant sky light, on exactly the same terms as the volume above — always bound, read only
             // when the payload's Ambient.w says the texel is real (PackFogParams sets that from this same
             // handle, so the two cannot disagree).
@@ -262,7 +264,8 @@ namespace Desert::Graphic::System
                  kFogDistantSkyLightBinding,
                  atmosphere.DistantSkyLight
                       ? atmosphere.DistantSkyLight
-                      : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ).get() );
+                      : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ).get(),
+                 RDG::Access::SampledCompute, std::nullopt );
             m_FogPipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
 
             renderer.DispatchComputeInFrame( m_FogPipeline.get(), GroupCount( m_FogWidth ),

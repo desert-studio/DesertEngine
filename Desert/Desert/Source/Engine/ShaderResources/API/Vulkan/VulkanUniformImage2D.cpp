@@ -15,8 +15,7 @@ namespace Desert::ShaderResources::API::Vulkan
     {
     }
 
-    void VulkanUniformImage2D::SetImage2D( const Graphic::Image2D*             image2D,
-                                           std::optional<Graphic::RDG::Access> declared )
+    void VulkanUniformImage2D::SetImage2D( const Graphic::Image2D* image2D, Graphic::RDG::Access declared )
     {
         if ( image2D )
         {
@@ -24,9 +23,7 @@ namespace Desert::ShaderResources::API::Vulkan
             m_DescriptorInfo.imageView   = res.ImageView;
             m_DescriptorInfo.sampler     = res.Sampler;
             m_DescriptorInfo.imageLayout =
-                 declared
-                      ? Graphic::API::Vulkan::RdgVulkanLayout( Graphic::RDG::GetAccessState( *declared ).Layout )
-                      : res.Layout;
+                 Graphic::API::Vulkan::RdgVulkanLayout( Graphic::RDG::GetAccessState( declared ).Layout );
         }
         else
         {

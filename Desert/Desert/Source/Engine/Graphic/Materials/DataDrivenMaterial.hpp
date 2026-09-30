@@ -100,7 +100,7 @@ namespace Desert::Graphic
 
             if ( auto* tex = Get<Texture2DProperty>( name ) )
             {
-                tex->SetImage( image );
+                tex->SetImage( image, RDG::Access::SampledGraphics );
                 return true;
             }
             return false;

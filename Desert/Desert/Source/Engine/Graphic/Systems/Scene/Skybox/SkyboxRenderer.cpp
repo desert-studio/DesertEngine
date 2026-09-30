@@ -264,7 +264,8 @@ namespace Desert::Graphic::System
         m_MultiScatterLutPipeline->SetOutput( kSkyMultiScatterLutOutputBinding, m_MultiScatterLut.get(), 0 );
         m_MultiScatterLutPipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
         // Written a moment ago; both paths leave it sampleable by the dispatch that follows.
-        m_MultiScatterLutPipeline->SetInput( kSkyTransmittanceLutBinding, m_TransmittanceLut.get() );
+        m_MultiScatterLutPipeline->SetInput( kSkyTransmittanceLutBinding, m_TransmittanceLut.get(),
+                                             RDG::Access::SampledCompute, std::nullopt );
         if ( inFrame )
         {
             renderer.DispatchComputeInFrame( m_MultiScatterLutPipeline.get(),
@@ -321,8 +322,10 @@ namespace Desert::Graphic::System
 
         m_SkyViewLutPipeline->SetOutput( kSkyViewLutOutputBinding, m_SkyViewLut.get(), 0 );
         m_SkyViewLutPipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
-        m_SkyViewLutPipeline->SetInput( kSkyTransmittanceLutBinding, m_TransmittanceLut.get() );
-        m_SkyViewLutPipeline->SetInput( kSkyMultiScatterLutBinding, m_MultiScatterLut.get() );
+        m_SkyViewLutPipeline->SetInput( kSkyTransmittanceLutBinding, m_TransmittanceLut.get(),
+                                        RDG::Access::SampledCompute, std::nullopt );
+        m_SkyViewLutPipeline->SetInput( kSkyMultiScatterLutBinding, m_MultiScatterLut.get(),
+                                        RDG::Access::SampledCompute, std::nullopt );
         m_SkyViewLutPipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
         renderer.DispatchComputeInFrame( m_SkyViewLutPipeline.get(), LutGroupCount( kSkyViewLutWidth ),
                                          LutGroupCount( kSkyViewLutHeight ), 1 );
@@ -377,8 +380,10 @@ namespace Desert::Graphic::System
         m_AerialPerspectivePipeline->SetOutput( kSkyAerialPerspectiveOutputBinding, m_AerialPerspectiveLut.get(),
                                                 0 );
         m_AerialPerspectivePipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
-        m_AerialPerspectivePipeline->SetInput( kSkyTransmittanceLutBinding, m_TransmittanceLut.get() );
-        m_AerialPerspectivePipeline->SetInput( kSkyMultiScatterLutBinding, m_MultiScatterLut.get() );
+        m_AerialPerspectivePipeline->SetInput( kSkyTransmittanceLutBinding, m_TransmittanceLut.get(),
+                                               RDG::Access::SampledCompute, std::nullopt );
+        m_AerialPerspectivePipeline->SetInput( kSkyMultiScatterLutBinding, m_MultiScatterLut.get(),
+                                               RDG::Access::SampledCompute, std::nullopt );
         m_AerialPerspectivePipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
 
         // ONE INVOCATION PER FROXEL COLUMN — the z extent is walked inside the shader so consecutive
@@ -433,8 +438,10 @@ namespace Desert::Graphic::System
 
         m_DistantLightPipeline->SetOutput( kSkyDistantLightOutputBinding, m_DistantLight.get(), 0 );
         m_DistantLightPipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
-        m_DistantLightPipeline->SetInput( kSkyTransmittanceLutBinding, m_TransmittanceLut.get() );
-        m_DistantLightPipeline->SetInput( kSkyMultiScatterLutBinding, m_MultiScatterLut.get() );
+        m_DistantLightPipeline->SetInput( kSkyTransmittanceLutBinding, m_TransmittanceLut.get(),
+                                          RDG::Access::SampledCompute, std::nullopt );
+        m_DistantLightPipeline->SetInput( kSkyMultiScatterLutBinding, m_MultiScatterLut.get(),
+                                          RDG::Access::SampledCompute, std::nullopt );
 
         // ONE WORKGROUP, and it must stay one: the 64 directions are reduced in groupshared memory,
         // which no second group can see. The shader's LocalSize is 64 for the same reason.

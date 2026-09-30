@@ -496,7 +496,7 @@ namespace Desert::Graphic::System
         // Bind the scene snapshot the glass samples for refraction (binding 19, glass-shader-only).
         if ( sceneColor )
             if ( auto tex = m_GlassMaterial->GetMaterialExecutor()->GetTexture2DProperty( "u_SceneColor" ) )
-                tex->SetImage( sceneColor.get() );
+                tex->SetImage( sceneColor.get(), RDG::Access::SampledGraphics );
 
         // --- Draw the glass over the composited scene: the graph opens the render pass (LOAD + blend) ---
         for ( uint32_t i = 0; i < static_cast<uint32_t>( glassObjs.size() ); ++i )

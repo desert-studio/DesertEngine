@@ -163,10 +163,13 @@ namespace Desert::Graphic::System
             } push{ viewProj, glm::vec4( glm::vec3( cameraPos ), static_cast<float>( m_FrameIndex % 1024u ) ),
                     glm::vec4( static_cast<float>( maxSteps ), maxDistance, intensity, thickness ) };
 
-            m_TracePipeline->SetInput( 0, gbuffer->GetColorAttachmentImage( 0 ).get() );
-            m_TracePipeline->SetInput( 1, gbuffer->GetColorAttachmentImage( 1 ).get() );
-            m_TracePipeline->SetInput( 2, gbuffer->GetColorAttachmentImage( 2 ).get() );
-            m_TracePipeline->SetInput( 3, sceneColor.get() );
+            m_TracePipeline->SetInput( 0, gbuffer->GetColorAttachmentImage( 0 ).get(), RDG::Access::SampledCompute,
+                                       std::nullopt );
+            m_TracePipeline->SetInput( 1, gbuffer->GetColorAttachmentImage( 1 ).get(), RDG::Access::SampledCompute,
+                                       std::nullopt );
+            m_TracePipeline->SetInput( 2, gbuffer->GetColorAttachmentImage( 2 ).get(), RDG::Access::SampledCompute,
+                                       std::nullopt );
+            m_TracePipeline->SetInput( 3, sceneColor.get(), RDG::Access::SampledCompute, std::nullopt );
             m_TracePipeline->SetOutput( 4, m_TraceImage.get() );
             m_TracePipeline->SetOutput( 5, m_TileMask.get() );
             m_TracePipeline->SetPushConstants( &push, sizeof( push ) );

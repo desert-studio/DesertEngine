@@ -52,6 +52,6 @@ namespace Desert::Graphic
         // the slot undefined for a shader that is about to be told, by Params.y, not to read it.
         if ( cloudShadow.IsLive() )
             if ( auto* tex = material->Get<Texture2DProperty>( "u_CloudShadowMap" ) )
-                tex->SetImage( cloudShadow.Map );
+                tex->SetImage( cloudShadow.Map, RDG::Access::SampledGraphics );
     }
 } // namespace Desert::Graphic

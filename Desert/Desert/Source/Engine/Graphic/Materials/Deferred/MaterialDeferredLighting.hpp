@@ -124,7 +124,7 @@ namespace Desert::Graphic
             // Same asymmetry as SceneEnvironmentBind: the LUT is a renderer-global that is never
             // legitimately absent, so a null is a fault to leave visible rather than a state to bind.
             if ( m_BrdfLut && environment.BrdfLut )
-                m_BrdfLut->SetImage( environment.BrdfLut );
+                m_BrdfLut->SetImage( environment.BrdfLut, RDG::Access::SampledGraphics );
 
             SetLightDir( lightDir );
             SetLightColor( lightColor );

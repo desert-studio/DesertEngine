@@ -1145,15 +1145,18 @@ namespace Desert::Graphic::System
             m_ShadowMapPipeline->SetOutput( kCloudShadowOutputBinding, m_ShadowMapImage.get(), 0 );
             m_ShadowMapPipeline->SetStorageBuffer( kCloudShadowParamsBinding, m_ShadowParamsBuffer.get() );
             for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
-                m_ShadowMapPipeline->SetInput( kCloudShadowNoiseBindings[slot], m_NoiseVolume[slot] );
-            m_ShadowMapPipeline->SetInput( kCloudShadowModellingBinding, m_ModellingVolume.get() );
+                m_ShadowMapPipeline->SetInput( kCloudShadowNoiseBindings[slot], m_NoiseVolume[slot],
+                                               RDG::Access::SampledCompute, std::nullopt );
+            m_ShadowMapPipeline->SetInput( kCloudShadowModellingBinding, m_ModellingVolume.get(),
+                                           RDG::Access::SampledCompute, std::nullopt );
             m_ShadowMapPipeline->SetStorageBuffer( kCloudShadowAuthoredBinding, m_ShadowAuthoredBuffer.get() );
             // ALWAYS bound, fallback included — see the note at the march's own binding of it.
             m_ShadowMapPipeline->SetInput(
                  kCloudShadowAuthoredAtlasBinding,
                  m_AuthoredAtlas
                       ? m_AuthoredAtlas.get()
-                      : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get() );
+                      : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get(),
+                 RDG::Access::SampledCompute, std::nullopt );
             BindMedium( m_ShadowMapPipeline.get(), m_ShadowMediumParamsBuffer.get() );
             m_ShadowMapPipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
 
@@ -1390,7 +1393,8 @@ namespace Desert::Graphic::System
             // that has not come up, and it binds SOMETHING because an unwritten descriptor costs the whole
             // dispatch rather than one sampler.
             pipeline->SetInput( Core::kCloudMediumTextureFirst + static_cast<uint32_t>( slot ),
-                                m_MediumImages[slot] ? m_MediumImages[slot] : fallback );
+                                m_MediumImages[slot] ? m_MediumImages[slot] : fallback,
+                                RDG::Access::SampledCompute, std::nullopt );
         }
     }
 
@@ -1846,8 +1850,10 @@ namespace Desert::Graphic::System
                                                    0 );
                 m_SkyOcclusionPipeline->SetStorageBuffer( kCloudSkyOcclusionParamsBinding, m_ParamsBuffer.get() );
                 for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
-                    m_SkyOcclusionPipeline->SetInput( kCloudSkyOcclusionNoiseBindings[slot], m_NoiseVolume[slot] );
-                m_SkyOcclusionPipeline->SetInput( kCloudSkyOcclusionModellingBinding, m_ModellingVolume.get() );
+                    m_SkyOcclusionPipeline->SetInput( kCloudSkyOcclusionNoiseBindings[slot], m_NoiseVolume[slot],
+                                                      RDG::Access::SampledCompute, std::nullopt );
+                m_SkyOcclusionPipeline->SetInput( kCloudSkyOcclusionModellingBinding, m_ModellingVolume.get(),
+                                                  RDG::Access::SampledCompute, std::nullopt );
                 m_SkyOcclusionPipeline->SetStorageBuffer( kCloudSkyOcclusionAuthoredBinding,
                                                           m_AuthoredBuffer.get() );
                 // The same buffer the march binds, and legitimately so: this dispatch is issued inside
@@ -1860,7 +1866,8 @@ namespace Desert::Graphic::System
                      m_AuthoredAtlas ? m_AuthoredAtlas.get()
                                      : FallbackTextures::Get()
                                             .GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F )
-                                            .get() );
+                                            .get(),
+                     RDG::Access::SampledCompute, std::nullopt );
 
                 // ONE INVOCATION PER COLUMN — the altitude axis is walked inside the shader, because the whole
                 // point of the pass is that a column's optical depth accumulates downward and a thread per
@@ -1923,13 +1930,16 @@ namespace Desert::Graphic::System
             m_MarchPipeline->SetOutput( kCloudOutputBinding, m_TraceImage.get(), 0 );
             m_MarchPipeline->SetOutput( kCloudGuideOutputBinding, m_TraceGuideImage.get(), 0 );
             m_MarchPipeline->SetStorageBuffer( kCloudParamsBinding, m_ParamsBuffer.get() );
-            m_MarchPipeline->SetInput( kCloudSceneDepthBinding, depthImage );
+            m_MarchPipeline->SetInput( kCloudSceneDepthBinding, depthImage, RDG::Access::SampledCompute,
+                                       std::nullopt );
             // ALL FOUR, always, whatever the layer needs — an unbound sampler is an invalid descriptor set and
             // this backend answers one by skipping the dispatch. Slots past the distinct count repeat slot 0's
             // image, which is what ResolveCloudNoiseVolumes filled them with.
             for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
-                m_MarchPipeline->SetInput( kCloudNoiseBindings[slot], m_NoiseVolume[slot] );
-            m_MarchPipeline->SetInput( kCloudModellingBinding, m_ModellingVolume.get() );
+                m_MarchPipeline->SetInput( kCloudNoiseBindings[slot], m_NoiseVolume[slot],
+                                           RDG::Access::SampledCompute, std::nullopt );
+            m_MarchPipeline->SetInput( kCloudModellingBinding, m_ModellingVolume.get(),
+                                       RDG::Access::SampledCompute, std::nullopt );
 
             // ALWAYS bound, even when the payload's gate says it will not be read: a declared sampler with no
             // image is an invalid descriptor set, not an unused one, and this backend answers an invalid set
@@ -1938,7 +1948,8 @@ namespace Desert::Graphic::System
                  kCloudDistantSkyLightBinding,
                  atmosphere.DistantSkyLight
                       ? atmosphere.DistantSkyLight
-                      : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ).get() );
+                      : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ).get(),
+                 RDG::Access::SampledCompute, std::nullopt );
 
             // The aerial-perspective volume, on the same terms: always bound, read only when the payload's
             // gate says the volume is real. It is what makes a cloud at the horizon the colour of the sky
@@ -1947,7 +1958,8 @@ namespace Desert::Graphic::System
                  kCloudAerialPerspectiveBinding,
                  atmosphere.AerialPerspectiveVolume
                       ? atmosphere.AerialPerspectiveVolume
-                      : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get() );
+                      : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get(),
+                 RDG::Access::SampledCompute, std::nullopt );
 
             // Slot A's instance list and the atlas of sculpted bodies it addresses. The image is ALWAYS bound,
             // even when the count is zero and nothing will read it, on exactly the terms the two samplers above
@@ -1960,7 +1972,8 @@ namespace Desert::Graphic::System
                  kCloudAuthoredAtlasBinding,
                  m_AuthoredAtlas
                       ? m_AuthoredAtlas.get()
-                      : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get() );
+                      : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get(),
+                 RDG::Access::SampledCompute, std::nullopt );
 
             // The sky-light occlusion volume, on the same always-bound terms as the two samplers above and for
             // the same reason. When the layer does not want it the image does not exist at all, so the
@@ -1969,7 +1982,8 @@ namespace Desert::Graphic::System
                  kCloudSkyOcclusionBinding,
                  skyOcclusionReady
                       ? m_SkyOcclusionVolume.get()
-                      : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get() );
+                      : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get(),
+                 RDG::Access::SampledCompute, std::nullopt );
 
             // The atmosphere's transmittance LUT, again always bound and for the fourth time for the same
             // reason. The handle is the sky's — a scene on the artistic gradient, or one whose LUTs have not
@@ -1978,7 +1992,8 @@ namespace Desert::Graphic::System
                  kCloudSunTransmittanceLutBinding,
                  atmosphere.TransmittanceLut
                       ? atmosphere.TransmittanceLut
-                      : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ).get() );
+                      : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ).get(),
+                 RDG::Access::SampledCompute, std::nullopt );
 
             m_MarchPipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
 
@@ -2042,8 +2057,10 @@ namespace Desert::Graphic::System
             m_ResolvePipeline->SetOutput( kCloudResolveGuideOutputBinding, m_HistoryGuideImage[writeIndex].get(),
                                           0 );
             m_ResolvePipeline->SetStorageBuffer( kCloudResolveParamsBinding, m_ResolveParamsBuffer.get() );
-            m_ResolvePipeline->SetInput( kCloudResolveTraceBinding, m_TraceImage.get() );
-            m_ResolvePipeline->SetInput( kCloudResolveTraceGuideBinding, m_TraceGuideImage.get() );
+            m_ResolvePipeline->SetInput( kCloudResolveTraceBinding, m_TraceImage.get(),
+                                         RDG::Access::SampledCompute, std::nullopt );
+            m_ResolvePipeline->SetInput( kCloudResolveTraceGuideBinding, m_TraceGuideImage.get(),
+                                         RDG::Access::SampledCompute, std::nullopt );
 
             // THE HISTORY, OR SOMETHING REAL IN ITS PLACE. Before the first reconstruction the read slot has
             // never been written, so its device memory is uninitialised AND its tracked layout is the one it
@@ -2057,9 +2074,10 @@ namespace Desert::Graphic::System
             Image2D* fallback =
                  FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ).get();
 
-            m_ResolvePipeline->SetInput( kCloudResolveHistoryBinding, historyScatter ? historyScatter : fallback );
-            m_ResolvePipeline->SetInput( kCloudResolveHistoryGuideBinding,
-                                         historyGuide ? historyGuide : fallback );
+            m_ResolvePipeline->SetInput( kCloudResolveHistoryBinding, historyScatter ? historyScatter : fallback,
+                                         RDG::Access::SampledCompute, std::nullopt );
+            m_ResolvePipeline->SetInput( kCloudResolveHistoryGuideBinding, historyGuide ? historyGuide : fallback,
+                                         RDG::Access::SampledCompute, std::nullopt );
 
             {
                 DESERT_PROFILE_PASS( "Clouds: TemporalResolve" );

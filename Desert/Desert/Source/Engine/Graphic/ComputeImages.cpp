@@ -113,11 +113,13 @@ namespace Desert::Graphic
         pipeline->SetInput( kSkyTransmittanceLutBinding,
                             transmittanceLut
                                  ? transmittanceLut
-                                 : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get() );
+                                 : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
+                            RDG::Access::SampledCompute, std::nullopt );
         pipeline->SetInput( kSkyMultiScatterLutBinding,
                             multiScatterLut
                                  ? multiScatterLut
-                                 : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get() );
+                                 : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
+                            RDG::Access::SampledCompute, std::nullopt );
 
         // ---- THE CLOUD LAYER -------------------------------------------------------------------------
         //
@@ -156,21 +158,26 @@ namespace Desert::Graphic
         for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
         {
             Image3D* noise = cloudsBound ? clouds.Noise[slot] : nullptr;
-            pipeline->SetInput( kSkyBakeCloudNoiseBindings[slot], noise ? noise : volumeFallback );
+            pipeline->SetInput( kSkyBakeCloudNoiseBindings[slot], noise ? noise : volumeFallback,
+                                RDG::Access::SampledCompute, std::nullopt );
         }
 
         pipeline->SetInput( kSkyBakeCloudModellingBinding,
-                            cloudsBound && clouds.Modelling ? clouds.Modelling : volumeFallback );
+                            cloudsBound && clouds.Modelling ? clouds.Modelling : volumeFallback,
+                            RDG::Access::SampledCompute, std::nullopt );
         pipeline->SetInput( kSkyBakeCloudAuthoredAtlasBinding,
-                            cloudsBound && clouds.AuthoredAtlas ? clouds.AuthoredAtlas : volumeFallback );
+                            cloudsBound && clouds.AuthoredAtlas ? clouds.AuthoredAtlas : volumeFallback,
+                            RDG::Access::SampledCompute, std::nullopt );
         pipeline->SetInput( kSkyBakeCloudSkyOcclusionBinding,
                             cloudsBound && clouds.SkyOcclusion && clouds.SkyOcclusionVolume
                                  ? clouds.SkyOcclusionVolume
-                                 : volumeFallback );
+                                 : volumeFallback,
+                            RDG::Access::SampledCompute, std::nullopt );
         pipeline->SetInput( kSkyBakeDistantSkyLightBinding,
                             clouds.DistantSkyLight
                                  ? clouds.DistantSkyLight
-                                 : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get() );
+                                 : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
+                            RDG::Access::SampledCompute, std::nullopt );
 
         // ---- THE AUTHORED MEDIUM'S OWN RESOURCES -----------------------------------------------------
         //
@@ -191,11 +198,11 @@ namespace Desert::Graphic
         // a declared sampler left unwritten invalidates the set and this pass answers that by not
         // dispatching, which costs the scene its entire environment rather than its clouds.
         for ( std::size_t slot = 0; slot < clouds.MediumImages.size(); ++slot )
-            pipeline->SetInput(
-                 Core::kCloudMediumTextureFirst + static_cast<uint32_t>( slot ),
-                 clouds.MediumImages[slot]
-                      ? clouds.MediumImages[slot]
-                      : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get() );
+            pipeline->SetInput( Core::kCloudMediumTextureFirst + static_cast<uint32_t>( slot ),
+                                clouds.MediumImages[slot]
+                                     ? clouds.MediumImages[slot]
+                                     : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
+                                RDG::Access::SampledCompute, std::nullopt );
 
         // x marches, y reads the sky-occlusion volume, z is the aerial perspective's start depth, w applies
         // the atmosphere's transmittance at each cloud sample's own altitude. The last three are ANDed with
@@ -249,7 +256,7 @@ namespace Desert::Graphic
         }
         const auto& pipeline = built.GetValue();
 
-        pipeline->SetInput( 0, input );
+        pipeline->SetInput( 0, input, RDG::Access::SampledCompute, std::nullopt );
         pipeline->SetOutput( 1, output.get(), 0 );
 
         // One thread per face texel (the shaders normalize by `imageSize(outputTexture)`, which is the
@@ -328,7 +335,7 @@ namespace Desert::Graphic
             const uint32_t mipSize   = std::max( 1u, faceSize >> mip );
             const uint32_t groups    = DispatchGroupCount( mipSize, kComputeImagesWorkGroupSize );
 
-            pipeline->SetInput( 0, radiance );
+            pipeline->SetInput( 0, radiance, RDG::Access::SampledCompute, std::nullopt );
             pipeline->SetOutput( 1, output.get(), mip );
             pipeline->SetPushConstants( &roughness, sizeof( float ) );
             pipeline->Record( batch, groups, groups, 6u );

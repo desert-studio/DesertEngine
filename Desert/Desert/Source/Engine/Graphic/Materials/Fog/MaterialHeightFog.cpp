@@ -19,6 +19,6 @@ namespace Desert::Graphic
     void MaterialHeightFog::BindInputs( const Image2D* fogImage )
     {
         if ( m_FogTexture && fogImage )
-            m_FogTexture->SetImage( fogImage );
+            m_FogTexture->SetImage( fogImage, RDG::Access::SampledGraphics );
     }
 } // namespace Desert::Graphic

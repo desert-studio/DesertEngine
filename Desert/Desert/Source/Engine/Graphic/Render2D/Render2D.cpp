@@ -184,7 +184,7 @@ namespace Desert::Graphic::Render2D
         }
 
         if ( auto texProp = exec->GetTexture2DProperty( sampler ) )
-            texProp->SetImage( image );
+            texProp->SetImage( image, RDG::Access::SampledGraphics );
         return exec;
     }
 

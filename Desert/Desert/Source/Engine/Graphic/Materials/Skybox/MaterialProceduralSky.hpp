@@ -49,10 +49,10 @@ namespace Desert::Graphic
 
             if ( transmittanceLut )
                 if ( auto* tex = Get<Texture2DProperty>( "u_TransmittanceLut" ) )
-                    tex->SetImage( transmittanceLut );
+                    tex->SetImage( transmittanceLut, RDG::Access::SampledGraphics );
             if ( skyViewLut )
                 if ( auto* tex = Get<Texture2DProperty>( "u_SkyViewLut" ) )
-                    tex->SetImage( skyViewLut );
+                    tex->SetImage( skyViewLut, RDG::Access::SampledGraphics );
         }
     };
 } // namespace Desert::Graphic

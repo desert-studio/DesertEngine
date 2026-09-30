@@ -27,12 +27,6 @@ namespace Desert::Graphic::API::Vulkan
         Release();
     }
 
-    ComputePipeline& VulkanPipelineCompute::SetInput( uint32_t binding, Image* image )
-    {
-        m_BoundInputs[binding] = { image, std::nullopt, std::nullopt };
-        return *this;
-    }
-
     ComputePipeline& VulkanPipelineCompute::SetInput( uint32_t binding, Image* image, RDG::Access declared,
                                                       std::optional<uint32_t> mip )
     {
@@ -106,10 +100,9 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         // Inputs: sampled images (2D, cube and volume share the same VkDescriptorImageInfo shape, but not
-        // the same write builder — see ClassifySampledImage). An input bound by a render-graph node names
-        // the view it declared (one mip, or all) in the layout its declared access guarantees; any other
-        // input uses the whole view in the image's own tracked layout (e.g. whatever ComputeImageBeginRead
-        // left for the scene depth).
+        // the same write builder — see ClassifySampledImage). Every input names the view it declared (one
+        // mip, or all) in the layout its declared access guarantees: the graph's transition in-frame, the
+        // pipeline's own one (RecordTransitionedDispatch) outside it.
         for ( const auto& [binding, input] : m_BoundInputs )
         {
             Image* image = input.Image;
@@ -120,20 +113,16 @@ namespace Desert::Graphic::API::Vulkan
             const SampledImageKind kind = ClassifySampledImage( image );
 
             VkImageView   view   = input.Mip ? img->GetMipView( *input.Mip ) : r.ImageView;
-            VkImageLayout layout = r.Layout;
-            if ( input.Declared )
+            const RDG::ImageLayout declaredLayout = RDG::GetAccessState( input.Declared ).Layout;
+            if ( declaredLayout != RDG::ImageLayout::ShaderReadOnly &&
+                 declaredLayout != RDG::ImageLayout::General )
             {
-                const RDG::ImageLayout declaredLayout = RDG::GetAccessState( *input.Declared ).Layout;
-                if ( declaredLayout != RDG::ImageLayout::ShaderReadOnly &&
-                     declaredLayout != RDG::ImageLayout::General )
-                {
-                    LOG_ERROR( "ComputePipeline '{}': input at binding {} is declared as {}, which does not "
-                               "leave the image sampleable; dispatch skipped",
-                               m_Specification.DebugName, binding, RDG::GetAccessName( *input.Declared ) );
-                    return;
-                }
-                layout = RdgVulkanLayout( declaredLayout );
+                LOG_ERROR( "ComputePipeline '{}': input at binding {} is declared as {}, which does not "
+                           "leave the image sampleable; dispatch skipped",
+                           m_Specification.DebugName, binding, RDG::GetAccessName( input.Declared ) );
+                return;
             }
+            const VkImageLayout layout = RdgVulkanLayout( declaredLayout );
             if ( input.Mip && view == VK_NULL_HANDLE )
             {
                 LOG_ERROR( "ComputePipeline '{}': input at binding {} has no view of mip {}; dispatch skipped",
@@ -260,6 +249,13 @@ namespace Desert::Graphic::API::Vulkan
     {
         // Explicit stages and access, because a batch puts the NEXT consumer (a blit, another dispatch,
         // a readback) in the same command buffer: the layout alone orders nothing there.
+        // Outside the graph nothing else puts an input where its declared access says it is, so this does:
+        // the descriptor names that layout (RecordDescriptorsAndDispatch), never the image's record.
+        for ( const auto& [binding, in] : m_BoundInputs )
+            if ( auto* img = dynamic_cast<IVulkanImage*>( in.Image ) )
+                img->TransitionLayout( cmd, RdgVulkanLayout( RDG::GetAccessState( in.Declared ).Layout ),
+                                       VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                       VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT );
         for ( const auto& [binding, out] : m_BoundOutputs )
             if ( auto* img = dynamic_cast<IVulkanImage*>( out.Image ) )
                 img->TransitionLayout( cmd, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,

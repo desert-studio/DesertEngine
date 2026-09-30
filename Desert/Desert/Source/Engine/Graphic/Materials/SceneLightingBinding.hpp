@@ -214,6 +214,6 @@ namespace Desert::Graphic
             tex->SetTexture( prefiltered );
         if ( brdfLut )
             if ( auto* tex = material->Get<Texture2DProperty>( MaterialPBRBase::kBrdfLutName ) )
-                tex->SetImage( brdfLut );
+                tex->SetImage( brdfLut, RDG::Access::SampledGraphics );
     }
 } // namespace Desert::Graphic
