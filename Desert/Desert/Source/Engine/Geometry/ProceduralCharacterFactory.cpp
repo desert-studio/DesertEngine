@@ -53,11 +53,11 @@ namespace Desert::Geometry
                     const float     a   = static_cast<float>( s ) / radial * 2.0f * kPi;
                     const glm::vec3 dir = std::cos( a ) * u + std::sin( a ) * w;
                     Assets::Serialization::SkinnedVertexData v{};
-                    v.Position  = c + r * dir;
-                    v.Normal    = glm::normalize( dir );
-                    v.Tangent   = axis;
-                    v.Bitangent = glm::cross( v.Normal, axis );
-                    v.TexCoord  = { static_cast<float>( s ) / radial, static_cast<float>( ring ) };
+                    v.Position               = c + r * dir;
+                    v.Normal                 = glm::normalize( dir );
+                    v.Tangent                = axis;
+                    v.Bitangent              = glm::cross( v.Normal, axis );
+                    v.TexCoord               = { static_cast<float>( s ) / radial, static_cast<float>( ring ) };
                     v.BoneIDs[0]             = bone;
                     v.BoneWeights[0]         = 1.0f;
                     verts.push_back( v );
@@ -75,8 +75,8 @@ namespace Desert::Geometry
 
         // A UV sphere centered at `center`, rigid-skinned to `bone`. Outward normals + CCW-outward winding.
         void AppendSphere( std::vector<Assets::Serialization::SkinnedVertexData>& verts,
-                             std::vector<Assets::Serialization::IndexData>& indices,
-                           const glm::vec3& center, float radius, uint32_t bone, int stacks = 10, int slices = 14 )
+                           std::vector<Assets::Serialization::IndexData>& indices, const glm::vec3& center,
+                           float radius, uint32_t bone, int stacks = 10, int slices = 14 )
         {
             const uint32_t base   = static_cast<uint32_t>( verts.size() );
             const int      stride = slices + 1;
@@ -93,8 +93,7 @@ namespace Desert::Geometry
                     v.Normal    = n;
                     v.Tangent   = glm::vec3( -std::sin( phi ), 0.0f, std::cos( phi ) );
                     v.Bitangent = glm::cross( n, v.Tangent );
-                    v.TexCoord  = { static_cast<float>( j ) / slices,
-                                                 static_cast<float>( i ) / stacks };
+                    v.TexCoord  = { static_cast<float>( j ) / slices, static_cast<float>( i ) / stacks };
                     v.BoneIDs[0]             = bone;
                     v.BoneWeights[0]         = 1.0f;
                     verts.push_back( v );
@@ -176,8 +175,9 @@ namespace Desert::Geometry
                             foot );
         }
         if ( !missing.empty() )
-            return Common::MakeFormattedError<Result>( "the humanoid's skeleton '{}' has no bone '{}' the body names",
-                                                       HumanoidSkeletonFile().generic_string(), missing );
+            return Common::MakeFormattedError<Result>(
+                 "the humanoid's skeleton '{}' has no bone '{}' the body names",
+                 HumanoidSkeletonFile().generic_string(), missing );
 
         // One submesh covering the whole body, bounded by its own vertices.
         Assets::Serialization::SubmeshData sub{};
@@ -206,7 +206,8 @@ namespace Desert::Geometry
         const std::filesystem::path skeletonFile = HumanoidSkeletonFile();
         auto                        read         = Assets::Serialization::ReadSkeletonFile( skeletonFile );
         if ( !read )
-            return Common::MakeFormattedError<Result>( "the humanoid's skeleton does not read: {}", read.GetError() );
+            return Common::MakeFormattedError<Result>( "the humanoid's skeleton does not read: {}",
+                                                       read.GetError() );
         auto                       rigData = read.ExtractValue();
         Common::Content::AssetGuid skeletonGuid;
         if ( rigData.Header )
@@ -223,9 +224,10 @@ namespace Desert::Geometry
         if ( !mesh )
             return Common::MakeError<Result>( mesh.GetError() );
         const std::string bytes = Assets::Serialization::EncodeMeshBinary( mesh.GetValue() );
-        if ( const auto ok = Common::Utils::FileSystem::WriteContentToFileAtomic( HumanoidMeshFile(), bytes ); !ok )
-            return Common::MakeFormattedError<Result>( "'{}' was not written: {}", HumanoidMeshFile().generic_string(),
-                                                       ok.GetError() );
+        if ( const auto ok = Common::Utils::FileSystem::WriteContentToFileAtomic( HumanoidMeshFile(), bytes );
+             !ok )
+            return Common::MakeFormattedError<Result>( "'{}' was not written: {}",
+                                                       HumanoidMeshFile().generic_string(), ok.GetError() );
         written.push_back( HumanoidMeshFile() );
 
         for ( const HumanoidClipAsset& clipAsset : kHumanoidClips )
@@ -233,9 +235,11 @@ namespace Desert::Geometry
             auto clip = Animation::ProceduralCharacterAnimations::Build( skeleton, clipAsset.Name );
             if ( !clip )
                 return Common::MakeError<Result>( clip.GetError() );
-            clip.GetValue().Skeleton = skeletonGuid;
+            Animation::AnimationClip bound   = clip.ExtractValue();
+            bound.Skeleton                   = skeletonGuid;
             const std::filesystem::path file = HumanoidClipFile( clipAsset.Name );
-            if ( const auto ok = Assets::Serialization::SaveClipToFile( file, clip.GetValue(), clipAsset.Guid ); !ok )
+            if ( const auto ok = Assets::Serialization::SaveClipToFile( file, bound, clipAsset.Guid );
+                 !ok )
                 return Common::MakeError<Result>( ok.GetError() );
             written.push_back( file );
         }

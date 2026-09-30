@@ -251,8 +251,9 @@ namespace Desert::Animation
         m_Requests.clear();
     }
 
-    Common::ResultStr<LibraryPopulation> PopulateLibrary( Assets::AssetManager& /*assets*/, AnimationLibrary& library,
-                                                          const size_t clipFilesDiscovered )
+    Common::ResultStr<LibraryPopulation> PopulateLibrary( Assets::AssetManager& /*assets*/,
+                                                          AnimationLibrary& library,
+                                                          const size_t      clipFilesDiscovered )
     {
         // CLEARED FIRST because this is also the re-index path: `Assets::IndexAnimationClips` from ("Rebuild
         // Cooked Assets") runs the whole discovery again, and a library that only ever grew would answer

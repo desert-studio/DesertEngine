@@ -20,6 +20,7 @@ namespace Desert::Animation
     public:
         // The clip named @p name (Idle, Walk, Run, Jump - Geometry::kHumanoidClips) over @p skeleton; the clip's
         // Skeleton reference is left for the caller to state. An unknown name is refused by name.
-        [[nodiscard]] static Common::ResultStr<AnimationClip> Build( const Skeleton& skeleton, std::string_view name );
+        [[nodiscard]] static Common::ResultStr<AnimationClip> Build( const Skeleton&  skeleton,
+                                                                     std::string_view name );
     };
 } // namespace Desert::Animation

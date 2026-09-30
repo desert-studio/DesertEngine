@@ -134,8 +134,8 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<bool>( "clip '{}' was not saved to '{}': no identity was stated",
                                                      clip.AnimationName, path.string() );
         AnimationAssetData data = BuildAssetDataFromClip( clip );
-        data.Header = Common::Content::MakeTextHeader( Common::Content::ContentKind::Animation, identity,
-                                                       AnimationTextSubsystems() );
+        data.Header       = Common::Content::MakeTextHeader( Common::Content::ContentKind::Animation, identity,
+                                                             AnimationTextSubsystems() );
         const auto import = ImportOfFileBeingReplaced( path );
         if ( !import )
             return Common::MakeError<bool>( import.GetError() );

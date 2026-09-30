@@ -37,8 +37,9 @@ namespace Desert::Animation
         /// and that skeleton's CompatibleSkeletons (its bound SkeletonAsset). The one place callers get it.
         [[nodiscard]] static MeshSkeletonIdentity IdentifyMesh( const Assets::SkinnedMeshAsset& mesh );
 
-        /// IdentifyMesh of the SkinnedMeshAsset @p mesh names, if it is resident; else none. Not (not resident, or an editor-built runtime rig, which has no asset) = an
-        /// identity that references no skeleton: every clip is refused.
+        /// IdentifyMesh of the SkinnedMeshAsset @p mesh names, if it is resident; else none. Not (not resident, or
+        /// an editor-built runtime rig, which has no asset) = an identity that references no skeleton: every clip
+        /// is refused.
         [[nodiscard]] MeshSkeletonIdentity IdentifyMeshHandle( const Assets::AssetHandle& mesh ) const;
 
         /// A skeleton reference with its name for refusals (the registry key of its row, or its GUID text).
@@ -104,7 +105,7 @@ namespace Desert::Animation
     /// What one population run put in the library, so a caller can say which half is empty.
     struct LibraryPopulation
     {
-        size_t FromFiles  = 0; ///< clips registered out of `.anim` assets the scan created
+        size_t FromFiles = 0; ///< clips registered out of `.anim` assets the scan created
     };
 
     /**

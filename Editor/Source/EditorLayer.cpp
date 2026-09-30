@@ -10546,7 +10546,8 @@ namespace Desert::Editor
         {
             auto& body = m_MainScene->CreateNewEntity( "PlayerBody" );
             body.AddComponent<ECS::SkinnedMeshComponent>().MeshHandle = Geometry::HumanoidMeshHandle();
-            body.AddComponent<ECS::AnimationComponent>().CurrentClip  = std::string( Geometry::kHumanoidDefaultClip );
+            body.AddComponent<ECS::AnimationComponent>().CurrentClip =
+                 std::string( Geometry::kHumanoidDefaultClip );
             body.GetComponent<ECS::TransformComponent>().Translation =
                  Common::Units::Metres( 1.0f ) * glm::vec3( 0.0f, -0.9f, 0.0f );
             m_MainScene->Attach( player, body );
