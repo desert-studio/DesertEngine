@@ -262,7 +262,7 @@ TEST( NodeMeshSplit, EachImportedMeshReadsItsOrbitFromTheRecord )
          { tuftB.filename().string(), Assets::ToRecord( yawed ) },
          { project.Source.filename().string(), Assets::ThumbnailOrbitRecord{ .Yaw = 90.0f } } };
     const fs::path recordPath = Common::Content::ImportRecordPathFor( project.Source );
-    std::ofstream( recordPath, std::ios::binary | std::ios::trunc ) << Ser::WriteImportRecord( stated );
+    std::ofstream( recordPath, std::ios::binary | std::ios::trunc ) << Ser::WriteImportRecord( stated, Common::Content::ContentKind::StaticMesh ).GetValue();
 
     const auto node = Editor::MeshThumbnailOrbit( tuftB );
     ASSERT_TRUE( node.IsSuccess() ) << node.GetError();
@@ -283,7 +283,7 @@ TEST( NodeMeshSplit, EachImportedMeshReadsItsOrbitFromTheRecord )
 
     // A stated default is refused by name.
     stated.Thumbnail->at( tuftB.filename().string() ) = Assets::ThumbnailOrbitRecord{ .Pitch = 0.0f };
-    const auto refused                                = Ser::ParseImportRecord( Ser::WriteImportRecord( stated ) );
+    const auto refused                                = Ser::ParseImportRecord( Ser::WriteImportRecord( stated, Common::Content::ContentKind::StaticMesh ).GetValue() );
     ASSERT_FALSE( refused.IsSuccess() );
     EXPECT_NE( refused.GetError().find( "default" ), std::string::npos ) << refused.GetError();
 }

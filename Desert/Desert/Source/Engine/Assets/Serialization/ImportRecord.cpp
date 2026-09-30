@@ -294,8 +294,14 @@ namespace Desert::Assets::Serialization
         if ( out.Thumbnail == next )
             return BOOLSUCCESS;
         out.Thumbnail = std::move( next );
-        if ( auto written = Common::Content::WriteCanonicalJsonFileAtomic( record, WriteImportRecord( out ) );
-             !written )
+        // The record keeps the kind it states (an orbit edit is no re-import).
+        const auto kind = ReadImportRecordKind( source );
+        if ( !kind )
+            return Common::MakeError<bool>( kind.GetError() );
+        const auto text = WriteImportRecord( out, kind.GetValue() );
+        if ( !text )
+            return Common::MakeError<bool>( text.GetError() );
+        if ( auto written = Common::Content::WriteCanonicalJsonFileAtomic( record, text.GetValue() ); !written )
             return Common::MakeFormattedError<bool>( "'{}' could not be written: {}", record.string(),
                                                      written.GetError() );
         return BOOLSUCCESS;
