@@ -82,7 +82,8 @@ namespace Desert::ECS
 
     // "Reflected render-data block": editable, reflected fields the editor draws and the renderer maps
     // to its GPU representation. This is the general concept — a surface material (its template's
-    // MaterialLayout) is just ONE specialization; camera and lights are others. NOT a material, hence the member is `Data`.
+    // MaterialLayout) is just ONE specialization; camera and lights are others. NOT a material, hence the member
+    // is `Data`.
     struct CameraData
     {
         REFLECT()

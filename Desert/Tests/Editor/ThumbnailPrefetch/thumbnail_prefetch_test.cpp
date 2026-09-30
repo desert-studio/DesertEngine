@@ -371,9 +371,11 @@ TEST( ThumbnailPrefetch, TheSplashUploadsTheFolderTheBrowserOpensOn )
     EXPECT_NE( panel.find( "m_PrefetchItems = items;\n" ), std::string::npos )
          << "the splash upload no longer reads the list the browser prefetched";
     // THM1n-13: the folder's list AND the project's — every picture of the project is uploaded on the splash.
-    EXPECT_NE( panel.find( "items.insert( items.end(), m_ProjectPrefetchItems.begin(), m_ProjectPrefetchItems.end() );\n"
-                           "        const ThumbnailPrefetch::Survey survey = ThumbnailPrefetch::Get().SurveyOf( items );" ),
-               std::string::npos )
+    EXPECT_NE(
+         panel.find(
+              "items.insert( items.end(), m_ProjectPrefetchItems.begin(), m_ProjectPrefetchItems.end() );\n"
+              "        const ThumbnailPrefetch::Survey survey = ThumbnailPrefetch::Get().SurveyOf( items );" ),
+         std::string::npos )
          << "the splash upload no longer reads the project's pictures with the folder's";
     EXPECT_NE( panel.find( "(void)m_Thumbnails->Get( picture );" ), std::string::npos )
          << "the splash upload does not go through the cache the tiles draw from";
@@ -491,8 +493,8 @@ TEST( ThumbnailPrefetch, AFolderOfResidentPicturesDecodesNothingWhenEntered )
     ASSERT_FALSE( root.empty() );
     const std::string panel =
          ReadFile( std::format( "{}Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp", root ) );
-    std::size_t       requests = 0;
-    std::size_t       filtered = 0;
+    std::size_t requests = 0;
+    std::size_t filtered = 0;
     for ( std::size_t at = panel.find( "ThumbnailPrefetch::Get().Request(" ); at != std::string::npos;
           at             = panel.find( "ThumbnailPrefetch::Get().Request(", at + 1 ) )
     {

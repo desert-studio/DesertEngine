@@ -152,8 +152,8 @@ namespace Desert::Runtime
     // registered shaders. CreateSurfaceMaterial builds by it and MaterialService::CellOf answers by it, so "can
     // this draw here" and "what draws here" cannot disagree.
     // @p asset is a BASE material (an instance's cells are its base's); the error names material, template, cell.
-    static Common::ResultStr<std::string> CellShaderOf( const Assets::MaterialAsset& asset, Graphic::MeshVertexPath path,
-                                                 Graphic::MeshPass pass )
+    static Common::ResultStr<std::string> CellShaderOf( const Assets::MaterialAsset& asset,
+                                                        Graphic::MeshVertexPath path, Graphic::MeshPass pass )
     {
         const std::string templateName = asset.GetShaderName();
         auto              cell         = Graphic::TemplateCellShader(
@@ -282,8 +282,8 @@ namespace Desert::Runtime
         if ( !assets )
             return Common::MakeError<std::string>(
                  std::string( "no asset manager is bound, so no template declares 'Default Surface' yet" ) );
-        const auto handle = Assets::FindDefaultSurfaceTemplate( *assets, Project::ProjectContext::DefaultSurfaceTemplate(),
-                                                                Project::ProjectContext::FilePath() );
+        const auto handle = Assets::FindDefaultSurfaceTemplate(
+             *assets, Project::ProjectContext::DefaultSurfaceTemplate(), Project::ProjectContext::FilePath() );
         if ( !handle )
             return Common::MakeError<std::string>( handle.GetError() );
         const auto shader = assets->FindByHandle<Assets::ShaderAsset>( handle.GetValue() );

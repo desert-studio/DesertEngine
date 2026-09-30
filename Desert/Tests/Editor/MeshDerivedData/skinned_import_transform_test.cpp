@@ -92,7 +92,7 @@ namespace
     // The skinned position of vertex 0 in bind pose: global(child) * offset(child) * v.
     glm::vec3 BindSkinned( const SkinnedFile& file )
     {
-        const auto& bones  = file.Skeleton.Bones;
+        const auto&     bones  = file.Skeleton.Bones;
         const glm::mat4 global = bones[0].LocalBindTransform * bones[1].LocalBindTransform;
         return { global * bones[1].OffsetMatrix * glm::vec4( file.Mesh.SkinnedVertices[0].Position, 1 ) };
     }

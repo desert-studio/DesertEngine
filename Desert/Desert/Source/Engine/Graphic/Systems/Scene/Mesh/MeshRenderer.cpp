@@ -187,7 +187,8 @@ namespace Desert::Graphic::System
 
         // A renderer-owned material of one (path x pass) cell of the default surface template — the same
         // DataDrivenMaterial every `.demat` builds, with the cell's default row.
-        std::shared_ptr<DataDrivenMaterial> CreateCellMaterial( MeshVertexPath path, MeshPass pass = MeshPass::Forward )
+        std::shared_ptr<DataDrivenMaterial> CreateCellMaterial( MeshVertexPath path,
+                                                                MeshPass       pass = MeshPass::Forward )
         {
             const auto shaderName = DefaultSurfaceShaderName( path, pass );
             return shaderName ? std::make_shared<DataDrivenMaterial>( *shaderName ) : nullptr;
@@ -1736,8 +1737,7 @@ namespace Desert::Graphic::System
         // Instanced variant: same vertex layout + state, but the vertex shader pulls the per-instance model
         // matrix from the InstanceTransforms SSBO (binding 16) by gl_InstanceIndex. Drawn via one instanced
         // draw call (RenderMeshInstanced). Optional — if the shader is missing, instancing is just disabled.
-        m_InstancedGeometryShader =
-             DefaultSurfaceProgram( MeshVertexPath::Instanced, MeshPass::Forward );
+        m_InstancedGeometryShader = DefaultSurfaceProgram( MeshVertexPath::Instanced, MeshPass::Forward );
         if ( m_InstancedGeometryShader )
         {
             GraphicsPipelineSpecification ispec;
@@ -2491,9 +2491,9 @@ namespace Desert::Graphic::System
                               !IsVisibleInView( cascadeFrustum, rd.Transform,
                                                 Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
                              continue;
-                         const PBRSlot slot = rd.MaterialSlots != nullptr
-                                                   ? FirstPBRSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
-                                                   : PBRSlot{};
+                         const PBRSlot slot = rd.MaterialSlots != nullptr ? FirstPBRSlot( rd.MaterialSlots->Slots,
+                                                                                          MeshVertexPath::Static )
+                                                                          : PBRSlot{};
                          MaterialInstance*         inst = slot.Instance;
                          const DataDrivenMaterial* mat  = slot.Surface;
                          if ( !isMasked( mat ) )
@@ -2605,8 +2605,8 @@ namespace Desert::Graphic::System
                              MaterialInstance* ismInst = ism.Material.get();
                              const auto*       ismMat =
                                   ismInst != nullptr
-                                       ? dynamic_cast<const DataDrivenMaterial*>( ismInst->GetParentMaterial() )
-                                       : nullptr;
+                                             ? dynamic_cast<const DataDrivenMaterial*>( ismInst->GetParentMaterial() )
+                                             : nullptr;
                              if ( isMasked( ismMat ) )
                              {
                                  auto* caster = MaskedCasterMaterial( ismMat, MeshVertexPath::Instanced, c );

@@ -19,8 +19,8 @@ namespace Desert::Graphic
         // role, so a caster variant cannot be named here and somewhere else and drift.
         std::string ShadowShaderName( MeshVertexPath path )
         {
-            const auto name =
-                 Runtime::ResourceRegistry::GetMaterialService()->DefaultSurfaceShader( path, MeshPass::ShadowDepth );
+            const auto name = Runtime::ResourceRegistry::GetMaterialService()->DefaultSurfaceShader(
+                 path, MeshPass::ShadowDepth );
             if ( !name )
             {
                 LOG_ERROR( "[MaterialShadow] no {} caster: {}", MeshVertexPathName( path ), name.GetError() );

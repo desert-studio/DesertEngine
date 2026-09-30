@@ -62,9 +62,10 @@ namespace Desert::Editor::Splash
 
     /// THE ONE EXCEPTION TO ThumbnailCaptureAllowed (THUMB3, THM1m, THM1n-13): the subjects the open scene uses,
     /// and every picture of the project with no fresh one on disk (ThumbnailWarmup::ProjectWarmList), may be
-    /// captured or painted on the splash, once the start-up stages are done (the renderer is up) and the scene is loaded. Anything else
-    /// the browser asks for waits for the hand-over — ThumbnailService::TickCapture(SceneWarmOnly)
-    /// dispatches nothing that ThumbnailService::WarmMaterial / WarmMesh did not queue.
+    /// captured or painted on the splash, once the start-up stages are done (the renderer is up) and the scene is
+    /// loaded. Anything else the browser asks for waits for the hand-over —
+    /// ThumbnailService::TickCapture(SceneWarmOnly) dispatches nothing that ThumbnailService::WarmMaterial /
+    /// WarmMesh did not queue.
     [[nodiscard]] constexpr bool SceneThumbnailCaptureAllowed( const RevealState& s )
     {
         return s.HasSplash && !s.Revealed && !s.StartupLoading && !s.SceneLoadPending;

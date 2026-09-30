@@ -184,7 +184,8 @@ namespace Desert::Editor
         std::vector<std::filesystem::path>        m_MeshCandidates;
         uint64_t                                  m_Signature = 0; // the rig every mode of this window is on
         std::shared_ptr<Assets::SkinnedMeshAsset> m_Mesh;
-        // The Mesh mode's skinning audit, cached against (mesh handle, bone count): a vertex scan per frame is waste.
+        // The Mesh mode's skinning audit, cached against (mesh handle, bone count): a vertex scan per frame is
+        // waste.
         MeshAssetDetails::SkinningAudit m_SkinningAudit;
         uint64_t                        m_SkinningAuditOf    = 0;
         std::size_t                     m_SkinningAuditBones = 0;

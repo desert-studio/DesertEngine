@@ -139,7 +139,8 @@ namespace Desert::Core::Preprocess
     std::string SurfaceVertexInclude( std::string_view path );
     std::string SurfacePassInclude( std::string_view pass, SurfaceShadingModel model, SurfaceBlendMode blend );
     // The translucency pass header: a Translucent template's Forward cells are lit and composited by it.
-    inline constexpr std::string_view kSurfaceTranslucentPassInclude = "Mesh/Surface/Pass_Forward_Translucent.glslh";
+    inline constexpr std::string_view kSurfaceTranslucentPassInclude =
+         "Mesh/Surface/Pass_Forward_Translucent.glslh";
     // Whether a template of this blend mode has a cell in @p pass: a Translucent surface is drawn by the
     // translucency pass alone (UE: no depth or base-pass G-buffer write), so it has Forward cells only.
     bool SurfaceBlendHasPass( SurfaceBlendMode blend, std::string_view pass );

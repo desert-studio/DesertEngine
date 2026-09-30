@@ -510,20 +510,20 @@ namespace Desert::Editor
         m_PendingThumbnail.Orbit = orbit;
         m_PendingPng      = outPng;
         m_PendingSubject  = Subject::Mesh;
-        m_PendingClip     = nullptr;
+        m_PendingClip            = nullptr;
         m_Phase           = kRenderFrames;
         m_CaptureMainMs   = 0.0;
         m_CaptureTicks    = 0;
         m_DomeSettle      = 0;
         m_DomeFrames      = 0;
-        m_Staged          = false;
+        m_Staged                 = false;
         return Common::MakeSuccess( true );
     }
 
     Common::BoolResultStr AssetThumbnailRenderer::RequestPose( const Assets::AssetHandle&            meshHandle,
                                                                Assets::Asset<Assets::AnimationAsset> clip,
-                                                               const std::string&                    outPng ,
-                                                               const Assets::ThumbnailOrbit&         orbit)
+                                                               const std::string&                    outPng,
+                                                               const Assets::ThumbnailOrbit&         orbit )
     {
         // Refused BEFORE the shared checks queue anything: a static mesh posed would stage a skinned
         // component on geometry with no skeleton and photograph nothing.
@@ -697,7 +697,7 @@ namespace Desert::Editor
                     m_SkyboxLayer = m_Scene->CreateNewEntity( "ThumbSkybox" );
                     m_SkyboxLayer.AddComponent<ECS::SkyboxComponent>();
                 }
-                m_SkyboxLayer.GetComponent<ECS::SkyboxComponent>().SkyboxHandle = *m_PendingSky;
+                m_SkyboxLayer.GetComponent<ECS::SkyboxComponent>().SkyboxHandle          = *m_PendingSky;
                 m_SkyAtmosphere.GetComponent<ECS::SkyAtmosphereComponent>().Data.Enabled = false;
                 PinDomeCamera();
                 return true;

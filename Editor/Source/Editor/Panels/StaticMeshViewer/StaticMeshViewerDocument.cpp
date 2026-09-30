@@ -248,7 +248,8 @@ namespace Desert::Editor
             DrawStats();
             // The asset's Details (UE's Static Mesh Editor): its elements and the source's Import Settings with
             // Reimport — the one body the Animation Editor's Mesh mode draws too.
-            if ( const auto asset = m_Assets->FindByHandle<Assets::StaticMeshAsset>( Assets::AssetHandle( Subject().Owner ) ) )
+            if ( const auto asset =
+                      m_Assets->FindByHandle<Assets::StaticMeshAsset>( Assets::AssetHandle( Subject().Owner ) ) )
                 MeshAssetDetails::Draw( *asset );
             DrawLightAndLOD();
         }

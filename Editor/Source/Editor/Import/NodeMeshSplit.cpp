@@ -120,7 +120,7 @@ namespace Desert::Editor
                                                                  std::span<const std::string> submeshNodes,
                                                                  const std::filesystem::path& source )
     {
-        using Result       = std::vector<NodeMesh>;
+        using Result        = std::vector<NodeMesh>;
         const auto settings = Ser::ReadImportRecordSettings( source );
         if ( !settings )
             return Common::MakeError<Result>( settings.GetError() );

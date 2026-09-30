@@ -89,21 +89,19 @@ TEST( ThumbnailWarmup, TheSplashWarmsTheScenesSubjectsThenTheFoldersUncapturedTi
          { "/p/Assets/Meshes/Rock.stmesh", WarmKind::Mesh },
     };
     const std::vector<WarmItem> folder = {
-         { "/p/Assets/Meshes/Crate.fbx", WarmKind::Mesh },       // no picture on disk
-         { "/p/Assets/Meshes/Barrel.fbx", WarmKind::Mesh },      // fresh picture
-         { "/p/Assets/Meshes/Rock.stmesh", WarmKind::Mesh },     // the scene already warms it
+         { "/p/Assets/Meshes/Crate.fbx", WarmKind::Mesh },          // no picture on disk
+         { "/p/Assets/Meshes/Barrel.fbx", WarmKind::Mesh },         // fresh picture
+         { "/p/Assets/Meshes/Rock.stmesh", WarmKind::Mesh },        // the scene already warms it
          { "/p/Assets/Materials/Stale.demat", WarmKind::Material }, // stale picture
     };
     const std::map<std::string, bool> needs = {
-         { "/p/Assets/Meshes/Crate.fbx", true },
-         { "/p/Assets/Meshes/Barrel.fbx", false },
-         { "/p/Assets/Meshes/Rock.stmesh", true },
-         { "/p/Assets/Materials/Stale.demat", true },
+         { "/p/Assets/Meshes/Crate.fbx", true },   { "/p/Assets/Meshes/Barrel.fbx", false },
+         { "/p/Assets/Meshes/Rock.stmesh", true }, { "/p/Assets/Materials/Stale.demat", true },
          { "/p/Assets/Materials/A.demat", false },
     };
     const auto needsCapture = [&]( const WarmItem& item ) { return needs.at( item.Path ); };
 
-    const std::vector<WarmItem> warm = Warmup::SplashWarmList( scene, folder, needsCapture );
+    const std::vector<WarmItem> warm     = Warmup::SplashWarmList( scene, folder, needsCapture );
     const std::vector<WarmItem> expected = {
          { "/p/Assets/Materials/A.demat", WarmKind::Material },
          { "/p/Assets/Meshes/Rock.stmesh", WarmKind::Mesh },

@@ -147,8 +147,8 @@ namespace
     }
 
     // The stages of the program the table names: the default program, or the named cell/pass.
-    std::unordered_map<ShaderStage, std::string> StagesOf( const Desert::Core::Preprocess::DShaderParseResult& parsed,
-                                                           const std::string&                                cell )
+    std::unordered_map<ShaderStage, std::string>
+    StagesOf( const Desert::Core::Preprocess::DShaderParseResult& parsed, const std::string& cell )
     {
         if ( cell.empty() )
             return parsed.Stages;
@@ -597,7 +597,7 @@ TEST_F( ShaderRootFixture, EveryInstancedVertexStagePositionsThroughTheOneWindFu
     {
         const char* name = TableShader( MeshVertexPath::Instanced, pass );
         ASSERT_NE( name, nullptr );
-        const auto  file  = ShaderFileFor( name );
+        const auto  file   = ShaderFileFor( name );
         std::string vertex = StageSource( name, ShaderStage::Vertex );
         // A template cell's vertex stage is the path's engine header, included; what is asserted is that
         // header's text. Whitespace is dropped on both sides: the claims are about calls, not layout.
@@ -619,7 +619,7 @@ TEST_F( ShaderRootFixture, EveryInstancedVertexStagePositionsThroughTheOneWindFu
              << name << " still computes an undisplaced position beside the shared one";
 
         // Compiled from the stage as assembled — `vertex` above is a whitespace-free text for the finds.
-        const auto        spirv = CompileStage( StageSource( name, ShaderStage::Vertex ), file, shaderc_vertex_shader );
+        const auto spirv = CompileStage( StageSource( name, ShaderStage::Vertex ), file, shaderc_vertex_shader );
         const std::string words( reinterpret_cast<const char*>( spirv.data() ),
                                  spirv.size() * sizeof( uint32_t ) );
         EXPECT_NE( words.find( "FoliageWindOffset(" ), std::string::npos )
@@ -803,8 +803,9 @@ TEST_F( ShaderRootFixture, EveryMeshCellDeclaresEachPushFieldTheRendererWritesBy
     };
 
     // The fields each cell's writers name (Material::SetPushMatrix/SetMaterialIndex/SetInstancedWind,
-    // Material::SetSkinnedBoneOffset, MaterialShadowSkinned::SetBoneOffset). A cell that lost one would silently drop the
-    // write (MaterialBinder: Absent), so the cell must declare it; the layout, not C++, says where it sits.
+    // Material::SetSkinnedBoneOffset, MaterialShadowSkinned::SetBoneOffset). A cell that lost one would silently
+    // drop the write (MaterialBinder: Absent), so the cell must declare it; the layout, not C++, says where it
+    // sits.
     const Expectation expectations[] = {
          { MeshVertexPath::Static, MeshPass::Forward, { "Transform", "MaterialIndex" } },
          { MeshVertexPath::Static, MeshPass::GBuffer, { "Transform", "MaterialIndex" } },
@@ -955,11 +956,13 @@ TEST( MeshCellPath, EveryCellOfAnyTemplateRoutesToThePathItWasAllocatedFor )
                 if ( !cell || pass == MeshPass::Glass )
                     continue;
                 const auto routed = Desert::Graphic::MeshCellPath( *cell );
-                ASSERT_TRUE( routed.has_value() ) << *cell << " is a cell of the table and must take the batched path";
+                ASSERT_TRUE( routed.has_value() )
+                     << *cell << " is a cell of the table and must take the batched path";
                 EXPECT_EQ( *routed, path ) << *cell << " routes to " << MeshVertexPathName( *routed )
                                            << ", allocated for " << MeshVertexPathName( path );
             }
-    EXPECT_FALSE( Desert::Graphic::MeshCellPath( "TextSDF" ).has_value() ) << "a template's default program is no cell";
+    EXPECT_FALSE( Desert::Graphic::MeshCellPath( "TextSDF" ).has_value() )
+         << "a template's default program is no cell";
     EXPECT_FALSE( Desert::Graphic::MeshCellPath( "" ).has_value() );
 }
 
@@ -971,8 +974,8 @@ TEST( MeshCellPath, EveryCellOfAnyTemplateRoutesToThePathItWasAllocatedFor )
 // program, never its own name on a path that would need a skinning or G-buffer stage it does not carry.
 TEST( TemplateCellShader, ASurfaceTemplateHasEveryCellAPlainTemplateOnlyItsStaticForward )
 {
-    constexpr std::string_view kSurface = "SomeSurface"; // registers every "<SomeSurface>/<Cell>"
-    constexpr std::string_view kPlain   = "TextSDF";     // no Surface block: registers only "TextSDF"
+    constexpr std::string_view kSurface   = "SomeSurface"; // registers every "<SomeSurface>/<Cell>"
+    constexpr std::string_view kPlain     = "TextSDF";     // no Surface block: registers only "TextSDF"
     const auto                 registered = [&]( std::string_view name )
     { return name == kPlain || name.starts_with( std::format( "{}/", kSurface ) ); };
 
@@ -980,23 +983,24 @@ TEST( TemplateCellShader, ASurfaceTemplateHasEveryCellAPlainTemplateOnlyItsStati
     for ( uint32_t p = 0; p < Desert::Graphic::kMeshVertexPathCount; ++p )
         for ( uint32_t s = 0; s < Desert::Graphic::kMeshPassCount; ++s )
         {
-            const auto path  = static_cast<MeshVertexPath>( p );
-            const auto pass  = static_cast<MeshPass>( s );
-            const auto where = std::format( "({} x {})", MeshVertexPathName( path ), Desert::Graphic::MeshPassName( pass ) );
+            const auto path = static_cast<MeshVertexPath>( p );
+            const auto pass = static_cast<MeshPass>( s );
+            const auto where =
+                 std::format( "({} x {})", MeshVertexPathName( path ), Desert::Graphic::MeshPassName( pass ) );
 
             const auto table   = Desert::Graphic::MeshShaderFor( kSurface, path, pass );
             const auto surface = Desert::Graphic::TemplateCellShader( kSurface, path, pass, registered );
             EXPECT_EQ( surface, table ) << "the Surface template's " << where << " must be the table's cell";
             surfaceCells += surface.has_value() ? 1u : 0u;
 
-            const auto plain       = Desert::Graphic::TemplateCellShader( kPlain, path, pass, registered );
-            const bool staticFwd   = path == MeshVertexPath::Static && pass == MeshPass::Forward;
+            const auto plain     = Desert::Graphic::TemplateCellShader( kPlain, path, pass, registered );
+            const bool staticFwd = path == MeshVertexPath::Static && pass == MeshPass::Forward;
             if ( staticFwd )
                 EXPECT_EQ( plain, std::optional<std::string>( kPlain ) )
                      << "a template without a Surface block draws (Static x Forward) with its own program";
             else
-                EXPECT_FALSE( plain.has_value() )
-                     << "a template without a Surface block has no " << where << " cell, got " << plain.value_or( "" );
+                EXPECT_FALSE( plain.has_value() ) << "a template without a Surface block has no " << where
+                                                  << " cell, got " << plain.value_or( "" );
         }
     // Every path has Forward, GBuffer and ShadowDepth; only Static has Glass.
     EXPECT_EQ( surfaceCells, Desert::Graphic::kMeshVertexPathCount * 3u + 1u );

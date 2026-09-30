@@ -69,9 +69,9 @@ namespace Desert::Editor
         };
 
         static constexpr std::size_t kMaxInFlight = 4;   ///< jobs at once: leave the pool to the settle
-        /// Decoded pixels not yet uploaded (CPU memory). The splash and the browser take what is ready every frame,
-        /// so the bound is a guard against a reader that stopped taking, not a residency limit — the uploaded
-        /// pictures live in ThumbnailCache, which is not bounded (THM1n-13).
+        /// Decoded pixels not yet uploaded (CPU memory). The splash and the browser take what is ready every
+        /// frame, so the bound is a guard against a reader that stopped taking, not a residency limit — the
+        /// uploaded pictures live in ThumbnailCache, which is not bounded (THM1n-13).
         static constexpr std::size_t kMaxReady = 512;
 
         static ThumbnailPrefetch& Get();
@@ -83,8 +83,8 @@ namespace Desert::Editor
         /// THE RESIDENT PICTURES ARE NOT DECODED AGAIN (THM1n-13): @p items without the ones @p resident already
         /// holds (ThumbnailCache::Holds). The splash uploads every picture of the project, so a folder entered
         /// after the hand-over hands the worker nothing — only a picture that changed since, or arrived since.
-        [[nodiscard]] static std::vector<Item> Unresident( std::vector<Item>                               items,
-                                                           const std::function<bool( const std::string& )>& resident )
+        [[nodiscard]] static std::vector<Item>
+        Unresident( std::vector<Item> items, const std::function<bool( const std::string& )>& resident )
         {
             std::erase_if( items, [&]( const Item& item ) { return resident( item.Picture ); } );
             return items;

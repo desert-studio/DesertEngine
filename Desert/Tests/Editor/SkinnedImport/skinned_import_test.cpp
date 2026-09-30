@@ -207,11 +207,11 @@ namespace
         // The embedded base colour is cooked as a texture, and a texture cook stores its platform data in the
         // DDC: without a sandboxed cache root the texture import refuses and the whole cook is Incomplete.
         TestSupport::DerivedDataSandbox m_DerivedData{ "SkinnedImport" };
-        TestSupport::AssetsSandbox m_Sandbox{ "SkinnedImport", {} };
-        std::filesystem::path      m_Source = "Resources/Assets/Mock/Rig.gltf";
-        Editor::ImportOutcome      m_Outcome;
-        uint64_t                   m_Before = 0;
-        uint64_t                   m_After  = 0;
+        TestSupport::AssetsSandbox      m_Sandbox{ "SkinnedImport", {} };
+        std::filesystem::path           m_Source = "Resources/Assets/Mock/Rig.gltf";
+        Editor::ImportOutcome           m_Outcome;
+        uint64_t                        m_Before = 0;
+        uint64_t                        m_After  = 0;
     };
 } // namespace
 

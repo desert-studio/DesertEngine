@@ -470,8 +470,9 @@ namespace Desert::Editor
         // push them out of the queue (nor the other way round). What the cache already holds is not handed
         // over at all (THM1n-13): the splash made the project resident, so entering a folder decodes nothing.
         items.insert( items.end(), m_ProjectPrefetchItems.begin(), m_ProjectPrefetchItems.end() );
-        ThumbnailPrefetch::Get().Request( ThumbnailPrefetch::Unresident(
-             std::move( items ), [this]( const std::string& picture ) { return m_Thumbnails->Holds( picture ); } ) );
+        ThumbnailPrefetch::Get().Request(
+             ThumbnailPrefetch::Unresident( std::move( items ), [this]( const std::string& picture )
+                                            { return m_Thumbnails->Holds( picture ); } ) );
     }
 
     const std::string& FileExplorerPanel::ThumbnailPngFor( const std::string& assetPath )
@@ -483,7 +484,7 @@ namespace Desert::Editor
     }
 
     std::size_t FileExplorerPanel::WarmProjectThumbnails( const std::vector<ThumbnailWarmup::WarmItem>& scene,
-                                                         const std::vector<ThumbnailWarmup::WarmItem>& project )
+                                                          const std::vector<ThumbnailWarmup::WarmItem>& project )
     {
         using ThumbnailWarmup::WarmItem;
         using ThumbnailWarmup::WarmKind;
@@ -520,7 +521,8 @@ namespace Desert::Editor
             }
             if ( item.Kind == WarmKind::Sky )
                 return ThumbnailService::JudgeSkyboxPicture( item.Path ); // the tile's and RequestSkybox's verdict
-            return ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( ThumbnailPngFor( item.Path ), item.Path ) );
+            return ThumbnailFreshness::Judge(
+                 ThumbnailFreshness::Observe( ThumbnailPngFor( item.Path ), item.Path ) );
         };
         const auto needsCapture = [&]( const WarmItem& item ) {
             return !m_FailedThumbs.contains( item.Path ) &&
@@ -596,7 +598,7 @@ namespace Desert::Editor
                     // Resolved on a worker when it is not read yet; the arrival queues it as the tile's would.
                     const auto subject = ThumbnailSubject::ResolveMaterial(
                          *m_AssetManager, item.Path,
-                         []( const std::string&                                      assetPath,
+                         []( const std::string&                                   assetPath,
                              const Common::ResultStr<ThumbnailSubject::Material>& resolved )
                          {
                              if ( resolved )
@@ -625,8 +627,9 @@ namespace Desert::Editor
     {
         std::vector<ThumbnailPrefetch::Item> items = m_PrefetchItems;
         items.insert( items.end(), m_ProjectPrefetchItems.begin(), m_ProjectPrefetchItems.end() );
-        ThumbnailPrefetch::Get().Request( ThumbnailPrefetch::Unresident(
-             std::move( items ), [this]( const std::string& picture ) { return m_Thumbnails->Holds( picture ); } ) );
+        ThumbnailPrefetch::Get().Request(
+             ThumbnailPrefetch::Unresident( std::move( items ), [this]( const std::string& picture )
+                                            { return m_Thumbnails->Holds( picture ); } ) );
     }
 
     std::size_t FileExplorerPanel::ResidentThumbnails() const
@@ -648,7 +651,8 @@ namespace Desert::Editor
                            if ( !subject )
                            {
                                // The same refusal the tile would log and blacklist; once, here, instead.
-                               LOG_WARN( "[Thumbnails] the splash cannot warm '{}': {}", path, subject.GetError() );
+                               LOG_WARN( "[Thumbnails] the splash cannot warm '{}': {}", path,
+                                         subject.GetError() );
                                m_FailedThumbs.insert( path );
                                return true;
                            }
@@ -2130,7 +2134,7 @@ namespace Desert::Editor
             return false;
 
         // The mesh tile's rule, with the .skmesh as its own cooked form: one key, one freshness source.
-        const std::string& pngPath   = ThumbnailPngFor( subject );
+        const std::string& pngPath = ThumbnailPngFor( subject );
         const bool haveFresh = ThumbnailService::JudgeMeshPicture( subject ) == ThumbnailFreshness::Verdict::Show;
         if ( !haveFresh )
             m_Thumbnails->Invalidate( pngPath );
@@ -2158,7 +2162,8 @@ namespace Desert::Editor
         return MeshSourceFor( entry.AssetPath, entry.Type );
     }
 
-    std::optional<std::string> FileExplorerPanel::MeshSourceFor( const std::string& assetPath, const FileType type )
+    std::optional<std::string> FileExplorerPanel::MeshSourceFor( const std::string& assetPath,
+                                                                 const FileType     type )
     {
         if ( type != FileType::FoliageType )
             return assetPath;
@@ -2169,8 +2174,7 @@ namespace Desert::Editor
         if ( const auto it = m_MeshSourceOf.find( assetPath );
              it != m_MeshSourceOf.end() && !ec && it->second.Written == written )
             return it->second.Source;
-        const auto source =
-             ThumbnailFoliage::ReadMeshSource( assetPath, Common::Constants::Path::ASSETS_PATH );
+        const auto source = ThumbnailFoliage::ReadMeshSource( assetPath, Common::Constants::Path::ASSETS_PATH );
         if ( !source )
         {
             LOG_WARN( "[Thumbnail] '{}': {}", assetPath, source.GetError() );
@@ -2178,7 +2182,7 @@ namespace Desert::Editor
             m_MeshSourceOf.erase( assetPath );
             return std::nullopt;
         }
-        std::string mesh                = source.GetValue().generic_string();
+        std::string mesh          = source.GetValue().generic_string();
         m_MeshSourceOf[assetPath] = { written, mesh };
         return mesh;
     }
@@ -2433,7 +2437,8 @@ namespace Desert::Editor
                     const auto chosen = Common::Utils::FileSystem::OpenFileDialog(
                          "Meshes\0*.fbx;*.glb;*.gltf;*.obj\0All\0*.*\0" );
                     if ( !chosen.empty() )
-                        if ( const auto done = ImportOptions::ReimportWithNewFile( entry.AssetPath, chosen ); !done )
+                        if ( const auto done = ImportOptions::ReimportWithNewFile( entry.AssetPath, chosen );
+                             !done )
                             LOG_ERROR( "[Import] {}", done.GetError() );
                 }
             }

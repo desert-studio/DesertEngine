@@ -225,8 +225,9 @@ namespace Desert::Runtime
         [[nodiscard]] MaterialTemplate ShaderHandleOf( const Assets::AssetHandle& handle ) const;
 
         // Whether the material at @p handle HAS a (path x pass) cell, asked of its base through the same chain
-        // walk (CellShaderOf in the .cpp is the rule — the one CreateSurfaceMaterial builds by). For a caller that must refuse BEFORE it stages a draw
-        // instead of photographing the default material the scene substitutes (the skinned thumbnail).
+        // walk (CellShaderOf in the .cpp is the rule — the one CreateSurfaceMaterial builds by). For a caller that
+        // must refuse BEFORE it stages a draw instead of photographing the default material the scene substitutes
+        // (the skinned thumbnail).
         [[nodiscard]] Common::BoolResultStr CellOf( const Assets::AssetHandle& handle,
                                                     Graphic::MeshVertexPath path, Graphic::MeshPass pass ) const;
 
@@ -345,8 +346,8 @@ namespace Desert::Runtime
         // GetViewVariant's materials: per asset, one per (cell slot x view), built on first ask.
         struct ViewVariant
         {
-            size_t                             Slot = 0;
-            uint32_t                           View = 0;
+            size_t                                       Slot = 0;
+            uint32_t                                     View = 0;
             std::shared_ptr<Graphic::DataDrivenMaterial> Material;
         };
         mutable std::unordered_map<Assets::AssetHandle, std::vector<ViewVariant>> m_ViewMaterials;

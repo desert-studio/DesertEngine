@@ -72,7 +72,8 @@ namespace Desert::Editor::ThumbnailSubject
         // material. A black square the freshness rule then calls correct for ever.
         return Common::MakeFormattedError<Preview>(
              "its shader '{}' declares Domain {}, and no thumbnail producer draws that domain — the mesh "
-             "path executes only {} and the dome only {} and Skybox. Photographing it would write an empty frame and "
+             "path executes only {} and the dome only {} and Skybox. Photographing it would write an empty frame "
+             "and "
              "file it as the picture of this material",
              shaderName, Core::Formats::ShaderDomainName( domain ),
              Core::Formats::ShaderDomainName( Core::Formats::kMeshPathDomain ),
@@ -90,15 +91,16 @@ namespace Desert::Editor::ThumbnailSubject
         const std::string shaderName = materials->ShaderHandleOf( Assets::AssetHandle( material ) ).CompileName;
         const auto        shader     = shaders->GetByName( shaderName );
         if ( !shader )
-            return Common::MakeFormattedError<Answer>( "its template '{}' is not a registered shader", shaderName );
+            return Common::MakeFormattedError<Answer>( "its template '{}' is not a registered shader",
+                                                       shaderName );
         const auto& meta = shader->GetProgramMeta();
         if ( meta.Domain != Core::Formats::ShaderDomain::Skybox )
             return Common::MakeSuccess( Answer{} );
 
         // The FIRST cube property, as the Material Editor's ball wraps it: any Skybox-domain shader names its
         // own slot, and the schema is the contract.
-        const auto cube =
-             std::find_if( meta.Params.begin(), meta.Params.end(), []( const auto& p ) { return p.IsCubeTexture; } );
+        const auto cube = std::find_if( meta.Params.begin(), meta.Params.end(),
+                                        []( const auto& p ) { return p.IsCubeTexture; } );
         if ( cube == meta.Params.end() )
             return Common::MakeFormattedError<Answer>(
                  "its shader '{}' is Skybox-domain with no TextureCube property, so there is no sky to show",

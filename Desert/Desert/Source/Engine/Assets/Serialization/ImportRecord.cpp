@@ -158,8 +158,8 @@ namespace Desert::Assets::Serialization
         const std::string& name = stored->Header->Kind;
         const auto         kind = Common::Content::ContentKindNamed( name );
         if ( !kind || !IsImportRecordKind( *kind ) )
-            return Common::MakeFormattedError<ContentKind>( "'{}' states Kind '{}', which no import writes", record,
-                                                            name );
+            return Common::MakeFormattedError<ContentKind>( "'{}' states Kind '{}', which no import writes",
+                                                            record, name );
         return Common::MakeSuccess( *kind );
     }
 
@@ -204,7 +204,7 @@ namespace Desert::Assets::Serialization
             data.Source = source.filename().string(); // no header: the stamp mints the GUID
         if ( box )
             data.Bounds = box;
-        data.Settings = ImportSettingsToText( settings );
+        data.Settings   = ImportSettingsToText( settings );
         const auto text = WriteImportRecord( data, kind );
         if ( !text )
             return Common::MakeFormattedError<AssetGuid>( "'{}': {}", record.string(), text.GetError() );

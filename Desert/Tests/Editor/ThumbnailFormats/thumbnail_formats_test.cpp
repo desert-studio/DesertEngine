@@ -394,8 +394,8 @@ TEST( ThumbnailMaterialDomains, APictureExistsForExactlyTheDomainsADrawPathCanEx
     {
         // The cubemap domain has no draw-path predicate (no renderable slot takes it); its picture is the HDR
         // it binds, drawn as the thumbnail scene's skybox — a producer named here so removing it is an edit.
-        const bool drawable = F::DrawnByMeshPath( domain ) || F::DrawnByVolumePath( domain ) ||
-                              domain == F::ShaderDomain::Skybox;
+        const bool drawable =
+             F::DrawnByMeshPath( domain ) || F::DrawnByVolumePath( domain ) || domain == F::ShaderDomain::Skybox;
         EXPECT_EQ( TS::PreviewForDomain( domain ).has_value(), drawable )
              << "domain " << F::ShaderDomainName( domain )
              << ": the thumbnail router and the draw paths disagree about whether this can be drawn at "

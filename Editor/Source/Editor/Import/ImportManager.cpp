@@ -481,16 +481,15 @@ namespace Desert::Editor
 
     std::size_t ImportManager::PublishImportTemplates( std::vector<ImportTemplate> templates )
     {
-        auto published          = std::make_shared<const std::vector<ImportTemplate>>( std::move( templates ) );
-        const std::size_t count = published->size();
+        auto published = std::make_shared<const std::vector<ImportTemplate>>( std::move( templates ) );
+        const std::size_t      count = published->size();
         const std::scoped_lock lock( s_TemplatesMutex );
         s_Templates = std::move( published );
         return count;
     }
 
-    Common::BoolResultStr
-    ImportManager::SerializeMaterialAsset( const ImportedMaterial&                    material,
-                                           const std::filesystem::path&               sourcePath )
+    Common::BoolResultStr ImportManager::SerializeMaterialAsset( const ImportedMaterial&      material,
+                                                                 const std::filesystem::path& sourcePath )
     {
         // Imported materials are EDITABLE CONTENT, not cooked intermediates -> write them into the content
         // tree at Resources/Assets/Materials/<meshRelativeId>/<materialName>.demat (browsable + editable in
@@ -556,8 +555,8 @@ namespace Desert::Editor
             data.Textures.push_back( { slot.Slot, Common::Content::AssetGuidToText( key.GetValue().Guid ),
                                        Common::AssetHandle::StableKeyForPath( asset ), slot.Sampler } );
         }
-        data.Header = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material, material.Guid,
-                                                            Assets::MaterialTextSubsystems() );
+        data.Header     = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material, material.Guid,
+                                                           Assets::MaterialTextSubsystems() );
         const auto text = Assets::WriteMaterialJson( data );
         if ( !text )
             return Common::MakeFormattedError<bool>( "material '{}' refused: {}", path.string(), text.GetError() );

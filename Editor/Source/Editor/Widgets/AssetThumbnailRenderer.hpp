@@ -130,9 +130,9 @@ namespace Desert::Editor
         // one's picture — a branch that forgets to take its predecessor's layer down has nothing to forget.
         void ResetPreviewScene();
         // Once per capture, after ResetPreviewScene: puts this capture's subject into the base scene.
-        [[nodiscard]] bool StageSubject(); // false: nothing measurable to frame, the capture is abandoned
-        void StagePose(); // StageSubject's Subject::Pose branch
-        void PinDomeCamera(); // both dome kinds: pinned so Scene::OnUpdate cannot take the view back
+        [[nodiscard]] bool StageSubject();  // false: nothing measurable to frame, the capture is abandoned
+        void               StagePose();     // StageSubject's Subject::Pose branch
+        void               PinDomeCamera(); // both dome kinds: pinned so Scene::OnUpdate cannot take the view back
 
         /// True while the dome must keep rendering without counting a warm-up frame: the modelling volume
         /// bakes on a worker and the march accumulates over frames, so an early readback photographs the
@@ -203,7 +203,7 @@ namespace Desert::Editor
             return m_PendingSubject == Subject::Sky || ( m_PendingSubject == Subject::Material &&
                                                          m_PendingPreview == ThumbnailSubject::Preview::SkyDome );
         }
-        Subject                               m_PendingSubject = Subject::Material;
+        Subject m_PendingSubject = Subject::Material;
         // The subject's frame, measured from the asset's own bounds when the capture was accepted (Mesh, Pose).
         ThumbnailFraming::Frame               m_PendingFrame;
         Assets::Asset<Assets::AnimationAsset> m_PendingClip;

@@ -554,7 +554,7 @@ namespace Desert::Editor
         const std::string identity = ThumbnailKey::Identity( assetPath );
         const std::string png      = ThumbnailKey::PreviewPath( assetPath );
         Request           req      = MaterialRequestOf( material, identity, assetPath, png );
-        req.Thumbnail.Orbit = orbit;
+        req.Thumbnail.Orbit        = orbit;
         m_Preview.Put( identity, orbit, std::move( req ) );
         return png;
     }

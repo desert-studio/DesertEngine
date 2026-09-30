@@ -107,7 +107,8 @@ TEST_F( SurfaceTemplateFixture, TheSurfaceBlockExpandsIntoTheNineNamedCells )
 
         const auto& fragment = cell->Stages.at( Desert::Core::Formats::ShaderStage::Fragment );
         const auto  pass     = name.substr( name.find( '.' ) + 1 );
-        EXPECT_NE( fragment.find( PP::SurfacePassInclude( pass, result.Surface.Shading, result.Surface.Blend ) ), std::string::npos )
+        EXPECT_NE( fragment.find( PP::SurfacePassInclude( pass, result.Surface.Shading, result.Surface.Blend ) ),
+                   std::string::npos )
              << name;
         EXPECT_NE( fragment.find( "EvaluateSurface" ), std::string::npos ) << name;
         EXPECT_NE( fragment.find( "#define DESERT_SURFACE_MASKED" ), std::string::npos ) << name;

@@ -613,7 +613,8 @@ namespace Desert::Editor::ImportOptions
                                                      newFile.generic_string(), newFile.extension().string(),
                                                      assetPath.generic_string(), source->extension().string() );
         if ( !std::filesystem::equivalent( newFile, *source, ec ) &&
-             !std::filesystem::copy_file( newFile, *source, std::filesystem::copy_options::overwrite_existing, ec ) )
+             !std::filesystem::copy_file( newFile, *source, std::filesystem::copy_options::overwrite_existing,
+                                          ec ) )
             return Common::MakeFormattedError<bool>( "'{}' could not replace '{}': {}", newFile.generic_string(),
                                                      source->generic_string(), ec.message() );
         return Reimport( assetPath );

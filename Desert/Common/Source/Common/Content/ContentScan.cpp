@@ -288,9 +288,10 @@ namespace Common::Content
             return document ? document.GetValue().SkeletonSignature : 0;
         }
 
-        // An import record's `Nodes` member (THM1j): present when the last import split the source into node meshes
-        // (<stem>_<node>.stmesh beside it) and wrote NO combined mesh. Such a source is not a StaticMesh row of its
-        // own - its node meshes are, each an asset file the scan lists from disk.
+        // An import record's `Nodes` member (THM1j): present when the last import split the source into node
+        // meshes
+        // (<stem>_<node>.stmesh beside it) and wrote NO combined mesh. Such a source is not a StaticMesh row of
+        // its own - its node meshes are, each an asset file the scan lists from disk.
         struct StatedImportNodes
         {
             std::optional<std::vector<std::string>> Nodes;

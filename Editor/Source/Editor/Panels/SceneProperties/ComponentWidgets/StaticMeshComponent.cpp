@@ -8,7 +8,6 @@
 
 #include "MaterialsPanelComponent.hpp"
 
-
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>

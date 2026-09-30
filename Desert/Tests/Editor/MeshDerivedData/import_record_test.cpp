@@ -303,10 +303,11 @@ TEST( ImportRecord, ADroppedThumbnailMeshIsNamedByTheRecordsGuid )
 
 TEST( ImportRecord, ARecordStatingAKindNoImportWritesIsRefusedByName )
 {
-    const Project project( "import_record_foreign_kind" );
+    const Project  project( "import_record_foreign_kind" );
     const fs::path record = Common::Content::ImportRecordPathFor( project.Source );
-    const auto box     = Ser::MeshDataBounds( Quad() );
-    const auto written = Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::SkinnedMesh, box, {} );
+    const auto     box    = Ser::MeshDataBounds( Quad() );
+    const auto     written =
+         Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::SkinnedMesh, box, {} );
     ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
     const auto skinned = Ser::ReadImportRecordKind( project.Source );
     ASSERT_TRUE( skinned.IsSuccess() ) << skinned.GetError();

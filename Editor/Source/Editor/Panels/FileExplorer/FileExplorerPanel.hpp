@@ -359,7 +359,8 @@ namespace Desert::Editor
         // What PrefetchCurrentFolderThumbnails last handed to the workers: the one list the splash's upload
         // pass reads, so "which folder opens" and "which pictures it shows" are never asked twice.
         std::vector<ThumbnailPrefetch::Item> m_PrefetchItems;
-        std::vector<ThumbnailPrefetch::Item> m_ProjectPrefetchItems; // WarmProjectThumbnails' pictures, decoded too
+        std::vector<ThumbnailPrefetch::Item>
+             m_ProjectPrefetchItems; // WarmProjectThumbnails' pictures, decoded too
         std::vector<ThumbnailWarmup::WarmItem>
              m_WarmMeshesPending; // TickWarmMeshes: cold meshes/poses still being read
 

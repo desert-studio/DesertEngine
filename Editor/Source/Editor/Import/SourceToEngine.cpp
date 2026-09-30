@@ -28,8 +28,8 @@ namespace Desert::Editor
             const glm::vec3 corner = glm::vec3( c * glm::vec4( ( k & 1 ) != 0 ? box.Max.x : box.Min.x,
                                                                ( k & 2 ) != 0 ? box.Max.y : box.Min.y,
                                                                ( k & 4 ) != 0 ? box.Max.z : box.Min.z, 1.0f ) );
-            mn = glm::min( mn, corner );
-            mx = glm::max( mx, corner );
+            mn                     = glm::min( mn, corner );
+            mx                     = glm::max( mx, corner );
         }
         return Common::Math::AABB{ mn, mx };
     }

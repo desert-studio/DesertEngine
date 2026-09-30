@@ -1858,10 +1858,9 @@ namespace Desert::Core::Preprocess
                     cell.Name  = SurfaceCellName( path, pass );
                     cell.State = cellState;
                     for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
-                        cell.Stages.emplace( stage, AssembleSurfaceCellStage( stage, path, pass, *surfaceBlock,
-                                                                              includeBlock, autoDecls,
-                                                                              result.Surface.Blend,
-                                                                              result.Surface.Shading ) );
+                        cell.Stages.emplace( stage, AssembleSurfaceCellStage(
+                                                         stage, path, pass, *surfaceBlock, includeBlock, autoDecls,
+                                                         result.Surface.Blend, result.Surface.Shading ) );
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );
