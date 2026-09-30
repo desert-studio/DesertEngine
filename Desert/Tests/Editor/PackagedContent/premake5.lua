@@ -109,10 +109,6 @@ project(test_name)
     links { "Common", "Optick" } -- Commons JobSystem registers worker threads with Optick
     links { "OpenEXRCore" } -- .exr texture sources (BuildScripts/ThirdParty/OpenEXR.lua)
 
-    -- Common contains Objective-C (MacOSFileSystem file dialog) — pulled in because this test
-    -- references FileSystem, so the ObjC runtime + AppKit must link too.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

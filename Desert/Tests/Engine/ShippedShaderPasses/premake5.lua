@@ -45,9 +45,6 @@ project(test_name)
 
     links { "Common", "Optick" } -- Common's JobSystem registers worker threads with Optick
 
-    -- Common contains Objective-C (the macOS file dialog), so the ObjC runtime links here too.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

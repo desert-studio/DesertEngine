@@ -34,13 +34,6 @@ project(test_name)
 
     links { "Common", "Optick" }
 
-    -- Common contains Objective-C (MacOSFileSystem's file dialogs), and this suite now reaches it
-    -- transitively: it tests the removal guard against a real ContentUpdatePlan, and the object that
-    -- defines PlanContentUpdate also defines ApplyContentUpdate, which writes files. The linker pulls
-    -- whole objects, so the ObjC runtime + AppKit have to come too — the same two lines every other
-    -- suite that touches FileSystem carries.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

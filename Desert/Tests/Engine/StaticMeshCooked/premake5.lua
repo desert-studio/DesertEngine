@@ -69,10 +69,6 @@ project(test_name)
     -- Optick: Common's JobSystem registers its worker threads with the profiler.
     links { "Common", "Optick", "MeshOptimizer" }
 
-    -- Common contains Objective-C (MacOSFileSystem's file dialog) and the asset loader reaches
-    -- Common::Utils::FileSystem, so the ObjC runtime + AppKit have to link as well.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

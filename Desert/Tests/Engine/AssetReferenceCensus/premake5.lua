@@ -45,11 +45,6 @@ project(test_name)
 
     links { "Common", "Optick" } -- Commons JobSystem registers worker threads with Optick
 
-    -- ReadTextureAssetKey reads through Common::Utils::FileSystem, whose macOS half is Objective-C
-    -- (MacOSFileSystem's file dialog), so the ObjC runtime + AppKit link as well.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
-
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do
             links { path }

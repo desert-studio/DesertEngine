@@ -51,8 +51,6 @@ project(test_name)
     -- `// DesertAsset {...}` header the load path also skips), so the census and ShaderAsset's load-time
     -- refusal cannot disagree about which line is the declaration. Optick: Common's JobSystem.
     links { "Common", "Optick" }
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

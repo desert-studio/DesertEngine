@@ -134,9 +134,6 @@ project(test_name)
 
     links { "Common", "Optick", "MeshOptimizer", "Assimp", "OpenEXRCore" }
 
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
-
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do
             links { path }

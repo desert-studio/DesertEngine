@@ -51,8 +51,6 @@ project(test_name)
     -- two frameworks come with it — FileSystemWrite's premake makes the same pair for the same reason.
     links { "Common", "Optick" }
 
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     for name, path in pairs(deps.Common.IncludeDir) do

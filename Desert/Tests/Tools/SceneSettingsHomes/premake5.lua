@@ -81,8 +81,4 @@ project(test_name)
 
     filter {}
 
-    filter "system:macosx"
-        links { "Cocoa.framework" }
-    filter {}
-
 print("Configured test project: " .. test_name)
