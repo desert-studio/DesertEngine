@@ -115,7 +115,7 @@ namespace
         EXPECT_EQ( b.size(), 264u );
 
         const std::string          uri    = std::format( "data:application/octet-stream;base64,{}", Base64( b ) );
-        constexpr std::string_view head   = R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],
+        const std::string          head   = R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],
 "nodes":[
  {"name":"Z_UP","matrix":[1,0,0,0, 0,0,-1,0, 0,1,0,0, 0,0,0,1],"children":[1,3]},
  {"name":"Root","children":[2]},
