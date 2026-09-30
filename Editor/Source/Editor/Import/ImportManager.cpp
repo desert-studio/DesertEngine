@@ -270,6 +270,16 @@ namespace Desert::Editor
             if ( resolved.Mesh || resolved.Skeleton || !resolved.Animations.empty() )
                 record( RecordImport( sourcePath, kind, resolved.Mesh ? &resolved.Mesh.value() : nullptr,
                                       settings ) );
+            // The file's unit was logged at the parse ("geometry scaled by <cm per unit>"); the record's options
+            // are the second factor, baked here, and say so - a reimport at Scale 10 read "scaled by 100" alone.
+            LOG_INFO( "[Import] '{}': Uniform Scale {} and Up Axis {} (import options) baked into the mesh, the "
+                      "rig and "
+                      "{} clip(s)",
+                      sourcePath.generic_string(), settings.Mesh.UniformScale,
+                      settings.Mesh.UpAxis == Assets::MeshSourceUpAxis::Z   ? "Z"
+                      : settings.Mesh.UpAxis == Assets::MeshSourceUpAxis::Y ? "Y"
+                                                                            : "from the file",
+                      resolved.Animations.size() );
             ApplySourceToEngine( settings.Mesh, resolved.Mesh ? &resolved.Mesh.value() : nullptr,
                                  resolved.Skeleton ? &resolved.Skeleton.value() : nullptr, resolved.Animations );
         }

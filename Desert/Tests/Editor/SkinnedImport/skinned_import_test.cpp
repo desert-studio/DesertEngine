@@ -14,8 +14,10 @@
 //    CreateAssetsFromImport, by the registry's write journal), and the record states Kind = SkinnedMesh.
 
 #include <Editor/Import/ImportManager.hpp>
+#include <Editor/Import/MaterialAdoption.hpp>
 #include <Editor/Import/MaterialImportContract.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
@@ -25,6 +27,7 @@
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 
 #include "../../TestSupport/assets_sandbox.hpp"
+#include "../../TestSupport/derived_data_sandbox.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -32,6 +35,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <string>
@@ -188,6 +192,9 @@ namespace
 
         using ImportManager = Editor::ImportManager;
 
+        // The embedded base colour is cooked as a texture, and a texture cook stores its platform data in the
+        // DDC: without a sandboxed cache root the texture import refuses and the whole cook is Incomplete.
+        TestSupport::DerivedDataSandbox m_DerivedData{ "SkinnedImport" };
         TestSupport::AssetsSandbox m_Sandbox{ "SkinnedImport", {} };
         std::filesystem::path      m_Source = "Resources/Assets/Mock/Rig.gltf";
         Editor::ImportOutcome      m_Outcome;
@@ -269,6 +276,26 @@ TEST_F( SkinnedImport, TheEmbeddedBaseColourIsWrittenBesideTheSource )
     EXPECT_TRUE( std::filesystem::exists( extracted ) ) << extracted.string();
 }
 
+// THM1l-b21: THE SKINNED MESH NAMES ITS MATERIAL AS THE STATIC ONE DOES: every .skmesh submesh states the GUID of
+// the .demat the same import wrote (the entity takes it through MeshECSSystem::AdoptMeshMaterialSlots). Live on
+// Fox.glb the fox drew the grey default although fox_material.demat and Fox_0.detex were written.
+TEST_F( SkinnedImport, TheSkinnedMeshNamesTheMaterialTheImportWrote )
+{
+    const auto mesh = Ser::ReadMeshAssetData( Read( m_Outcome.WrittenMeshes.front() ),
+                                              m_Outcome.WrittenMeshes.front().string() );
+    ASSERT_TRUE( mesh.IsSuccess() ) << mesh.GetError();
+    const std::filesystem::path demat = Editor::MaterialAdoption::MaterialAssetPath( m_Source, "Skin" );
+    const auto header = Common::Content::ReadAssetHeader( demat, Common::Content::AssetHeaderReadContext{ {}, true } );
+    ASSERT_TRUE( header.IsSuccess() ) << demat.string() << ": " << header.GetError();
+    ASSERT_FALSE( mesh.GetValue().Submeshes.empty() );
+    for ( const auto& submesh : mesh.GetValue().Submeshes )
+    {
+        EXPECT_FALSE( submesh.MaterialGuid.IsNull() ) << "a skinned submesh names no material";
+        EXPECT_EQ( submesh.MaterialGuid, header.GetValue().Guid ) << "the submesh names another material than "
+                                                                  << demat.string();
+    }
+}
+
 namespace
 {
     struct Cooked
@@ -342,6 +369,11 @@ TEST_F( SkinnedImport, AReimportAtTenTimesTheScaleScalesMeshRigAndClipTogether )
     }
     const auto& boxWas = before.Mesh.Submeshes.front().BoundingBox;
     const auto& boxNow = after.Mesh.Submeshes.front().BoundingBox;
+    // The scale the reimport REALLY applied, printed (live, the log's "geometry scaled by 100" is the file's unit,
+    // glTF metres -> cm, and says nothing of the record's Uniform Scale, which ApplySourceToEngine bakes after).
+    const float applied = ( boxNow.Max.z - boxNow.Min.z ) / ( boxWas.Max.z - boxWas.Min.z );
+    std::printf( "[SkinnedImport] Uniform Scale 1 -> 10: the mesh's box grew x%g\n", static_cast<double>( applied ) );
+    EXPECT_NEAR( applied, 10.0f, 1e-3f );
     EXPECT_NEAR( glm::length( ( boxNow.Max - boxNow.Min ) - 10.0f * ( boxWas.Max - boxWas.Min ) ), 0.0f, 1e-3f );
 
     // The rig: bind translations x10, and the skin in the bind pose is the identity on every vertex.

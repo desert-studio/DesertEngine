@@ -95,35 +95,8 @@ namespace Desert::ECS
 
                          if ( !targetMesh )
                              return;
-
-                         // --- Auto-Initialize Material Slots ---
-                         // If the component has no materials assigned, try to fetch defaults from the asset.
-                         // ALL-OR-NOTHING: an external id that doesn't resolve yet (material registered
-                         // later than the mesh) leaves the slots EMPTY so this retries next frame —
-                         // pushing Null() handles would pass the empty() gate forever and freeze the
-                         // mesh on the fallback material.
-                         if ( mesh.MaterialSlots.empty() && mesh.MeshHandle )
-                         {
-                             auto* meshAsset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( mesh.MeshHandle );
-                             if ( meshAsset )
-                             {
-                                 const auto& defaultHandles = meshAsset->GetMaterialHandles();
-                                 std::vector<Assets::AssetHandle> resolved;
-                                 resolved.reserve( defaultHandles.size() );
-                                 for ( const auto& h : defaultHandles )
-                                 {
-                                     const auto internal =
-                                          Runtime::ResourceRegistry::GetMaterialService()->GetAssetHandleByExternal( h );
-                                     if ( internal.IsNull() )
-                                     {
-                                         resolved.clear();
-                                         break;
-                                     }
-                                     resolved.push_back( internal );
-                                 }
-                                 if ( !resolved.empty() )
-                                     mesh.MaterialSlots = std::move( resolved );
-                             }
+                         // --- Auto-Initialize Material Slots --- (the one rule, AdoptMeshMaterialSlots)
+                         AdoptMeshMaterialSlots( mesh.MaterialSlots, mesh.MeshHandle );
                          }
 
                          // A MaterialService::Invalidate() this frame dropped some runtime Material —
@@ -492,6 +465,14 @@ namespace Desert::ECS
                              return;
                          auto* skinnedMesh = static_cast<Desert::SkinnedMesh*>( baseMesh );
 
+                         // THE COOKED SKINNED MESH NAMES ITS MATERIALS AS THE STATIC ONE DOES (the .skmesh submeshes'
+                         // MaterialGuid, SkinnedMeshAsset::GetMaterialHandles): an entity with no slot of its own
+                         // takes them, by the same rule. Without it every placed skinned mesh drew the grey default
+                         // although its .demat and textures were written (THM1l, live on Fox.glb). A runtime rig
+                         // (Convert to Skinned) carries its own slots.
+                         if ( !mesh.RuntimeMesh )
+                             AdoptMeshMaterialSlots( mesh.MaterialSlots, mesh.MeshHandle );
+
                          // One skinned PBR material instance (default if no slot assigned), rebuilt only when
                          // the slot set changes.
                          // Invalidation stamp (see the static path) — rebuild on any Invalidate().
@@ -592,6 +573,32 @@ namespace Desert::ECS
         }
 
     private:
+        // A component with no material slot takes its mesh asset's (static and skinned alike).
+        // ALL-OR-NOTHING: an external id that doesn't resolve yet (material registered later than the mesh)
+        // leaves the slots EMPTY so this retries next frame - pushing Null() handles would pass the empty()
+        // gate forever and freeze the mesh on the fallback material.
+        static void AdoptMeshMaterialSlots( std::vector<Assets::AssetHandle>& slots,
+                                            const Assets::AssetHandle&        meshHandle )
+        {
+            if ( !slots.empty() || !meshHandle )
+                return;
+            auto* meshAsset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( meshHandle );
+            if ( !meshAsset )
+                return;
+            const auto& defaultHandles = meshAsset->GetMaterialHandles();
+            std::vector<Assets::AssetHandle> resolved;
+            resolved.reserve( defaultHandles.size() );
+            for ( const auto& h : defaultHandles )
+            {
+                const auto internal = Runtime::ResourceRegistry::GetMaterialService()->GetAssetHandleByExternal( h );
+                if ( internal.IsNull() )
+                    return;
+                resolved.push_back( internal );
+            }
+            if ( !resolved.empty() )
+                slots = std::move( resolved );
+        }
+
         std::shared_ptr<Graphic::MaterialPBR> m_DefaultMaterial;
         std::shared_ptr<Graphic::MaterialPBR> m_DefaultSkinnedMaterial;
         // Gameplay seconds since the scene's systems started (FO-7). Double: a float clock loses the sway's

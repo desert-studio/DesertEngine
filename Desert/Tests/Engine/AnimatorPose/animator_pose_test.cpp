@@ -253,7 +253,7 @@ TEST( AnimatorPose, AnAnimatorIsRebuiltWhenItsSkeletonIsRewrittenWithAnExtraBone
     ASSERT_TRUE( Desert::Animation::EnsureAnimatorFor( animator, built, rig ) )
          << "the rig gained a bone and the Animator built on one bone was kept";
     EXPECT_EQ( &animator->GetSkeleton(), &rig );
-    EXPECT_EQ( built, rig.GetSignature() );
+    EXPECT_EQ( built, rig.GetContentSignature() ) << "the stamp is the rig's content (names + binds)";
     animator->ApplyLocalPose();
     EXPECT_EQ( animator->GetPose().Matrices.size(), 2U ) << "the rebuilt pose does not have the new bone";
     EXPECT_EQ( animator->GetLocalPose().Size(), 2U );
