@@ -83,10 +83,10 @@ namespace Desert::Graphic::API::Vulkan
         bool       waitedOnImage = false;
         for ( size_t i = 0; i < frame.size(); ++i )
         {
-            const VulkanRdgSubmission&        entry = frame[i];
-            const bool                        last  = i + 1 == frame.size();
-            std::vector<VkSemaphore>          waits  = entry.WaitSemaphores;
-            std::vector<VkPipelineStageFlags> stages = entry.WaitStages;
+            const VulkanRdgSubmission&        entry   = frame[i];
+            const bool                        last    = i + 1 == frame.size();
+            std::vector<VkSemaphore>          waits   = entry.WaitSemaphores;
+            std::vector<VkPipelineStageFlags> stages  = entry.WaitStages;
             std::vector<VkSemaphore>          signals = entry.SignalSemaphores;
             if ( !waitedOnImage && entry.OnPipe == RDG::Pipe::Graphics )
             {
@@ -104,9 +104,9 @@ namespace Desert::Graphic::API::Vulkan
             submitInfo.pCommandBuffers      = &entry.CommandBuffer;
             submitInfo.signalSemaphoreCount = static_cast<uint32_t>( signals.size() );
             submitInfo.pSignalSemaphores    = signals.data();
-            const VkQueue  target = entry.Queue != VK_NULL_HANDLE ? entry.Queue : queue;
-            const VkResult submitted =
-                 device->SubmitToQueue( target, 1, &submitInfo, last ? m_WaitFences[currentIndex] : VK_NULL_HANDLE );
+            const VkQueue  target           = entry.Queue != VK_NULL_HANDLE ? entry.Queue : queue;
+            const VkResult submitted        = device->SubmitToQueue( target, 1, &submitInfo,
+                                                              last ? m_WaitFences[currentIndex] : VK_NULL_HANDLE );
             if ( submitted != VK_SUCCESS )
             {
                 (void)NoteIfDeviceLost( submitted, "vkQueueSubmit", __FILE__, __LINE__ );

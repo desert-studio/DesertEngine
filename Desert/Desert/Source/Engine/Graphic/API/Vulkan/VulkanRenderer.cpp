@@ -739,7 +739,7 @@ namespace Desert::Graphic::API::Vulkan
 
         if ( !m_RdgBackend )
             return Common::MakeError( "the render graph frame objects were not begun (BeginFrame)" );
-        // The sink the profiler holds now: GPU timing can be switched on and off between frames.
+            // The sink the profiler holds now: GPU timing can be switched on and off between frames.
 #if DESERT_DEV_INSTRUMENTS
         m_RdgDevice.Profiler = ::Common::Profiling::Profiler::Get().GetGpuSink();
 #endif
@@ -784,7 +784,7 @@ namespace Desert::Graphic::API::Vulkan
             m_RdgPool                 = std::make_unique<VulkanRdgPool>( m_RdgDevice, slots );
             m_RdgBackend              = std::make_unique<VulkanRdgBackend>( m_RdgDevice, *m_RdgPool );
             m_RdgTransients           = std::make_unique<VulkanRdgTransientAllocator>( m_RdgDevice, slots );
-            m_RdgDescriptors = std::make_unique<VulkanRdgPassDescriptors>( m_RdgDevice.Device, slots );
+            m_RdgDescriptors          = std::make_unique<VulkanRdgPassDescriptors>( m_RdgDevice.Device, slots );
 
             // The compute queue is the graph's AsyncCompute pipe only when its family differs from the
             // graphics one (VulkanPhysicalDevice falls back to the graphics family when there is none);

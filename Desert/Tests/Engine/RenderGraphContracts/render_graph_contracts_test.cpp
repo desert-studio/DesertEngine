@@ -256,9 +256,9 @@ namespace
         ExternalTexture history;
         history.Desc = Tex2D( 64, 64 );
         history.SubresourceStates.assign( 1, AccessState{} );
-        const TextureRef previous = graph.RegisterExternal( history, "History" );
+        const TextureRef previous  = graph.RegisterExternal( history, "History" );
         const TextureRef simulated = graph.CreateTexture( Tex2D( 64, 64 ), "Simulated" );
-        ExternalTexture output;
+        ExternalTexture  output;
         output.Desc = Tex2D( 64, 64 );
         output.SubresourceStates.assign( 1, AccessState{} );
         const TextureRef out = graph.RegisterExternal( output, "Output" );

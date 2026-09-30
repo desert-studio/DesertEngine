@@ -154,7 +154,7 @@ namespace Desert::Graphic::RDG
         uint32_t ReleasePosition = 0;
         // Its OwnershipAcquire is in this pass's Barriers; kJoinAtGraphEnd (amendment A): in FinalBarriers,
         // recorded after the graphics queue waited on the graph-end join.
-        uint32_t AcquirePosition = 0;
+        uint32_t         AcquirePosition = 0;
         uint32_t         Sync            = 0; // the CrossPipeSync ordering the two (index into Syncs)
     };
 
@@ -279,7 +279,7 @@ namespace Desert::Graphic::RDG
         std::vector<DependencyEdge>     Edges;         // between executed passes
         std::vector<Barrier>            FinalBarriers; // after the last pass: extraction / final accesses
         // Amendment B: the releases the graphics prologue segment records (fork at kForkAtGraphStart).
-        std::vector<Barrier> PrologueBarriers;
+        std::vector<Barrier>            PrologueBarriers;
         std::vector<ResourceLifetime>   Lifetimes;
         std::vector<DerivedUsage>       Usages;
         std::vector<ExternalFinalState> ExternalFinalStates;

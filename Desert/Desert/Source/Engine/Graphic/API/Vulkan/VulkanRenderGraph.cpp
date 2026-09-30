@@ -1068,7 +1068,7 @@ namespace Desert::Graphic::API::Vulkan
             // source's writes available (dstAccess 0); the acquire repeats them with srcAccess 0. The acquire
             // chains to the semaphore wait before it through ALL_COMMANDS (its first scope must meet the wait's
             // stages, whatever they are).
-            const bool     ownership = barrier.BarrierType == RDG::BarrierKind::OwnershipRelease ||
+            const bool ownership = barrier.BarrierType == RDG::BarrierKind::OwnershipRelease ||
                                    barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire;
             const uint32_t srcFamily = ownership ? m_Queues->FamilyOf( barrier.SrcPipe ) : VK_QUEUE_FAMILY_IGNORED;
             const uint32_t dstFamily = ownership ? m_Queues->FamilyOf( barrier.DstPipe ) : VK_QUEUE_FAMILY_IGNORED;

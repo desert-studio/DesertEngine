@@ -387,7 +387,7 @@ namespace Desert::Graphic::API::Vulkan
         const VulkanRdgDevice&      m_Device;
         VulkanRdgPool&              m_Pool;
         VulkanRdgMemoryRequirements m_Memory;
-        VkCommandBuffer             m_CommandBuffer = VK_NULL_HANDLE; // the open segment's (or the graph tail's)
+        VkCommandBuffer              m_CommandBuffer = VK_NULL_HANDLE; // the open segment's (or the graph tail's)
         VulkanRdgSegmentRecorder     m_Segments;    // B(3): segment command buffers, semaphores, submissions
         RDG::AsyncComputeFallbackLog m_FallbackLog; // B(4): the engine logger at Warning
         // Bound by BeginFrame for the frame being recorded (A1: transients and descriptors; B2: queues).
