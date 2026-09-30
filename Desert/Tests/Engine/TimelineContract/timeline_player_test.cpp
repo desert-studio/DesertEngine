@@ -43,7 +43,10 @@ TEST( TimelinePlayer, PingPongTurnsAround )
     player.Play();
     const TimeStep step = player.Advance( 1.25 ); // 75 → bounced back to 45
     EXPECT_TRUE( step.Reversed );
+    EXPECT_EQ( step.Direction, PlayDirection::Forward ) << "the step STARTS forward and turns at End";
     EXPECT_NEAR( player.Current().AsTicks(), 45.0, 1e-6 );
+    const TimeStep back = player.Advance( 0.25 );
+    EXPECT_EQ( back.Direction, PlayDirection::Backward ) << "after the turn the Player states it moves backward";
 }
 
 TEST( TimelinePlayer, AJumpCrossesNothing )

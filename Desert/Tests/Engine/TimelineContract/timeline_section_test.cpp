@@ -50,6 +50,13 @@ TEST( TimelineSequence, ValidateRefusesEachBrokenInvariant )
          Channel{ BoolChannel{ FloatChannel{ { Key( 0, 0.0F ), Key( 10, 1.0F, KeyInterp::Linear ) }, 0.0F } } };
     EXPECT_FALSE( Validate( boolLinear ).IsSuccess() ) << "a Bool key that interpolates";
 
+    Sequence boolAdditive       = good;
+    boolAdditive.Tracks[0].Kind = TrackKind::Bool;
+    boolAdditive.Tracks[0].Sections[0].Content =
+         Channel{ BoolChannel{ FloatChannel{ { Key( 0, 1.0F, KeyInterp::Constant ) }, 0.0F } } };
+    boolAdditive.Tracks[0].Sections[0].Blend = SectionBlendType::Additive;
+    EXPECT_FALSE( Validate( boolAdditive ).IsSuccess() ) << "an Additive section on a Bool track (a flag has no additive)";
+
     Sequence rotation       = good;
     rotation.Tracks[0].Kind = TrackKind::Rotation;
     RotationChannel misaligned;

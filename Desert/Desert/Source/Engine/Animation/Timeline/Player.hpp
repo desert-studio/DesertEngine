@@ -36,10 +36,20 @@ namespace Desert::Animation::Timeline
     };
 
     /// What one `Advance` covered — the evaluator's input.
+    /// Which way the playhead moves (UE FMovieSceneEvaluationRange::Direction).
+    enum class PlayDirection : uint8_t
+    {
+        Forward,
+        Backward,
+    };
+
     struct TimeStep
     {
         FrameTime From;
         FrameTime To;
+        /// The way the step STARTS. A wrap or a PingPong turn is taken this way round — stated by the Player
+        /// that moved, not guessed from the ends by the Evaluator.
+        PlayDirection Direction = PlayDirection::Forward;
         bool      Wrapped  = false; ///< crossed End→Start (or Start→End backwards) once
         bool      Reversed = false; ///< PingPong turned around inside this step
         bool      Finished = false; ///< Once mode reached the end in this step; the state is now Stopped

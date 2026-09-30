@@ -103,7 +103,7 @@ namespace Desert::Scripting
                 return false;
             }
             const auto& active = anim.Animator->GetActiveNotifyStates();
-            return std::any_of( active.begin(), active.end(), [&name]( const Animation::AnimationNotify& state )
+            return std::any_of( active.begin(), active.end(), [&name]( const Animation::ActiveNotifyState& state )
                                 { return state.Name == name; } );
         };
 

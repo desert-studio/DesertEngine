@@ -67,6 +67,9 @@ namespace Desert::Animation::Timeline
         FrameTime                  ClipTime;
         SectionBlendType           Blend  = SectionBlendType::Absolute;
         float                      Weight = 1.0F;
+        /// The section's Loop: the HOST wraps `ClipTime` by the clip's length, because the host holds the
+        /// clip (UE MapTimeToAnimation reads the length from the asset).
+        bool Loop = false;
     };
 
     struct EvaluatedFrame
@@ -128,6 +131,18 @@ namespace Desert::Animation::Timeline
         uint32_t                                    m_ResolvedRevision = UINT32_MAX;
         std::vector<std::optional<ResolvedBinding>> m_Resolved; // index-aligned with Sequence::Bindings
     };
+
+    /**
+     * @brief The events @p step crosses on every unmuted Event track, in firing order — appended to @p out.
+     * `Evaluate`'s own event half, public for a host that plays events without a whole frame (the
+     * Animator's notifies: its bone tracks go through `EvaluatePose`, and evaluating them twice is the
+     * cost the fast path exists to avoid). A jump (From == To, no wrap, no turn) crosses nothing.
+     */
+    void CollectFired( const Sequence& sequence, const TimeStep& step, std::vector<FiredEvent>& out );
+
+    /// One track's folded value at @p at — `Evaluate`'s per-track half (a clip curve read by name). false =
+    /// muted, or no section covers @p at.
+    [[nodiscard]] bool EvaluateTrack( const Track& track, FrameTime at, FrameRate tickRate, EvaluatedValue& out );
 
     /// Bone binding i → skeleton bone index, or `Skeleton::NO_PARENT`-style UINT32_MAX when the skeleton
     /// has no bone of that name (the clip animates a bone this rig lacks — legal, reported by count).

@@ -39,7 +39,7 @@
  * ── LevelSequence (.dseq) — new ──────────────────────────────────────────────────────────────────────
  *
  * A text-header asset (Kind "LevelSequence") whose body is the `TMLN` block. Placed in a scene by a
- * `LevelSequenceComponent { AssetGuid Sequence; LoopMode; bool AutoPlay; binding overrides }`; its
+ * `LevelSequenceComponent { Assets::AssetHandle Sequence; LoopMode; bool AutoPlay; binding overrides }`; its
  * Entity bindings' locators are entity UUIDs of THAT scene.
  */
 

@@ -112,7 +112,9 @@ namespace Desert::Animation::Timeline
         // AdvanceFrameTime carries the whole ticks in the integer; the range logic below is on real ticks,
         // bounded by one range length, so the double holds it exactly enough and the result goes back
         // through FromTicks.
-        const FrameTime moved = AdvanceFrameTime( m_Current, seconds * m_Rate * m_Direction, m_TickRate );
+        const double    signedSeconds = seconds * m_Rate * m_Direction;
+        const FrameTime moved         = AdvanceFrameTime( m_Current, signedSeconds, m_TickRate );
+        step.Direction = signedSeconds < 0.0 ? PlayDirection::Backward : PlayDirection::Forward;
         double          t     = moved.AsTicks();
 
         if ( t > end || t < start )

@@ -97,12 +97,6 @@ namespace Desert::Animation::Timeline
             acc.Rotation    = acc.Rotation * ( w == 1.0F ? v.Rotation : glm::slerp( kIdentity, v.Rotation, w ) );
             acc.Scale       = acc.Scale * ( glm::vec3( 1.0F ) + w * ( v.Scale - glm::vec3( 1.0F ) ) );
         }
-        // The additive of a bool is OR: an additive section can switch a flag on, never off.
-        void Additive( bool& acc, const bool v, const float w )
-        {
-            acc = acc || ( v && w >= 0.5F );
-        }
-
         /// [Start, End] inclusive on the REAL tick: a subframe past End is outside.
         [[nodiscard]] bool CoversTime( const Section& section, const FrameTime at )
         {
@@ -171,7 +165,17 @@ namespace Desert::Animation::Timeline
                                  }
                                  const Value v = Evaluate( *typed, at, tickRate );
                                  const float w = WeightAt( section, at, tickRate );
-                                 if ( section.Blend == SectionBlendType::Additive )
+                                 if constexpr ( std::is_same_v<Value, bool> )
+                                 {
+                                     // A flag has no additive: Validate refuses an Additive section on a
+                                     // Bool track, and a sequence that skipped it gets nothing from one.
+                                     if ( section.Blend == SectionBlendType::Additive )
+                                     {
+                                         return;
+                                     }
+                                     Absolute( acc, v, w );
+                                 }
+                                 else if ( section.Blend == SectionBlendType::Additive )
                                  {
                                      Additive( acc, v, w );
                                  }
@@ -227,8 +231,8 @@ namespace Desert::Animation::Timeline
         };
 
         /**
-         * The step's path. A TimeStep states its ends and flags, not its direction, so a wrap or a turn is
-         * taken the SHORTER way round — the one a frame step (far shorter than the range) always is.
+         * The step's path: its ends, its flags and its DIRECTION (the Player's, UE's evaluation-range
+         * direction), so a wrap or a turn goes the way the playhead actually went.
          *
          *   plain       one leg, From → To (CollectCrossed orders backwards itself)
          *   Wrapped     forward: one wrapped leg; backward: [Start, From) then [To, End] — I1 left the
@@ -238,14 +242,13 @@ namespace Desert::Animation::Timeline
         [[nodiscard]] size_t LegsOf( const TimeStep& step, const FrameNumber start, const FrameNumber end,
                                      Leg ( &legs )[2] )
         {
-            const double a  = step.From.AsTicks();
-            const double b  = step.To.AsTicks();
-            const double s  = start.Value;
-            const double e  = end.Value;
-            const auto   at = []( const FrameNumber tick ) { return FrameTime{ tick, 0.0F }; };
+            const double a       = step.From.AsTicks();
+            const double b       = step.To.AsTicks();
+            const bool   forward = step.Direction == PlayDirection::Forward;
+            const auto   at      = []( const FrameNumber tick ) { return FrameTime{ tick, 0.0F }; };
             if ( step.Wrapped )
             {
-                if ( ( e - a ) + ( b - s ) <= ( a - s ) + ( e - b ) )
+                if ( forward )
                 {
                     legs[0] = Leg{ step.From, step.To, true, true };
                     return 1;
@@ -258,7 +261,7 @@ namespace Desert::Animation::Timeline
             }
             if ( step.Reversed )
             {
-                if ( ( e - a ) + ( e - b ) <= ( a - s ) + ( b - s ) )
+                if ( forward )
                 {
                     legs[0] = Leg{ step.From, at( end ), false, true };
                     legs[1] = Leg{ at( end ), step.To, false, false };
@@ -330,11 +333,6 @@ namespace Desert::Animation::Timeline
         const FrameTime at       = step.To;
         const FrameRate rate     = sequence.TickRate;
 
-        Leg          legs[2];
-        const size_t legCount = LegsOf( step, sequence.Start, sequence.End, legs );
-        const bool   moved    = step.From.AsTicks() != step.To.AsTicks() || step.Wrapped || step.Reversed;
-
-        std::vector<CrossedEvent> crossed;
         for ( uint32_t ti = 0; ti < sequence.Tracks.size(); ++ti )
         {
             const Track& track = sequence.Tracks[ti];
@@ -371,7 +369,7 @@ namespace Desert::Animation::Timeline
                              const double into = ( at.AsTicks() - section.Start.Value ) * anim->PlayRate;
                              out.Animations.push_back(
                                   AnimationSample{ ti, anim->Clip, FromTicks( anim->StartOffset.Value + into ),
-                                                   section.Blend, WeightAt( section, at, rate ) } );
+                                                   section.Blend, WeightAt( section, at, rate ), anim->Loop } );
                          } );
                     break;
                 default:
@@ -386,6 +384,16 @@ namespace Desert::Animation::Timeline
             }
         }
 
+        CollectFired( sequence, step, out.Events );
+    }
+
+    void CollectFired( const Sequence& sequence, const TimeStep& step, std::vector<FiredEvent>& out )
+    {
+        Leg          legs[2];
+        const size_t legCount = LegsOf( step, sequence.Start, sequence.End, legs );
+        const bool   moved    = step.From.AsTicks() != step.To.AsTicks() || step.Wrapped || step.Reversed;
+
+        std::vector<CrossedEvent> crossed;
         if ( !moved )
         {
             return; // a jump (From == To) crosses nothing
@@ -393,7 +401,7 @@ namespace Desert::Animation::Timeline
         for ( size_t li = 0; li < legCount; ++li )
         {
             const Leg&   leg   = legs[li];
-            const size_t first = out.Events.size();
+            const size_t first = out.size();
             for ( uint32_t ti = 0; ti < sequence.Tracks.size(); ++ti )
             {
                 const Track& track = sequence.Tracks[ti];
@@ -417,13 +425,18 @@ namespace Desert::Animation::Timeline
                         // A section contributes nothing outside [Start, End] — its keys may lie beyond it.
                         if ( section.Covers( TickOf( event ) ) )
                         {
-                            out.Events.push_back( FiredEvent{ ti, event } );
+                            out.push_back( FiredEvent{ ti, event } );
                         }
                     }
                 }
             }
-            SortLeg( out.Events, first, leg, sequence.Start, sequence.End );
+            SortLeg( out, first, leg, sequence.Start, sequence.End );
         }
+    }
+
+    bool EvaluateTrack( const Track& track, const FrameTime at, const FrameRate tickRate, EvaluatedValue& out )
+    {
+        return !track.Muted && FoldValue( track, at, tickRate, out );
     }
 
     ApplyReport Evaluator::Apply( const EvaluatedFrame& frame, ITimelineHost& host )

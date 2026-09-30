@@ -16,6 +16,52 @@
 
 namespace Desert::Animation
 {
+    namespace
+    {
+        /// A playhead (ticks from the clip's Start) on the clip's Sequence.
+        [[nodiscard]] FrameTime OnSequence( const AnimationClip& clip, const FrameTime time )
+        {
+            return FrameTime{ FrameNumber{ clip.Sequence.Start.Value + time.Frame.Value }, time.Subframe };
+        }
+
+        /// The notify states (Event keys with a duration) spanning @p at, in track / key order.
+        void ActiveStatesAt( const Timeline::Sequence& sequence, const double at, std::vector<ActiveNotifyState>& out )
+        {
+            out.clear();
+            for ( const Timeline::Track& track : sequence.Tracks )
+            {
+                if ( track.Muted || track.Kind != Timeline::TrackKind::Event )
+                {
+                    continue;
+                }
+                for ( const Timeline::Section& section : track.Sections )
+                {
+                    const auto* channel = std::get_if<Timeline::Channel>( &section.Content );
+                    const auto* events  = channel != nullptr ? std::get_if<Timeline::EventChannel>( channel ) : nullptr;
+                    if ( events == nullptr )
+                    {
+                        continue;
+                    }
+                    for ( const Timeline::EventKey& key : events->Keys )
+                    {
+                        const auto begin = static_cast<double>( key.Tick.Value );
+                        if ( key.Duration.Value > 0 && section.Covers( key.Tick ) && at >= begin &&
+                             at < begin + static_cast<double>( key.Duration.Value ) )
+                        {
+                            out.push_back( ActiveNotifyState{ key.Name, key.Tick, key.Duration } );
+                        }
+                    }
+                }
+            }
+        }
+
+        [[nodiscard]] bool Holds( const std::vector<ActiveNotifyState>& states, const Timeline::EventKey& key )
+        {
+            return std::any_of( states.begin(), states.end(), [&key]( const ActiveNotifyState& state )
+                                { return state.Name == key.Name && state.Tick == key.Tick && state.Duration == key.Duration; } );
+        }
+    } // namespace
+
     const char* ToString( PoseStage stage )
     {
         switch ( stage )
@@ -117,8 +163,7 @@ namespace Desert::Animation
         const size_t n = m_Skeleton.GetBones().size();
         if ( m_AuthoringPose.Size() != n )
             m_AuthoringPose = m_BindPose;
-        for ( uint32_t i = 0; i < n; ++i )
-            m_AuthoringPose[i] = SampleLocalTransform( TargetSampling(), &clip, i, time );
+        SampleClipPose( TargetSampling(), &clip, time, m_AuthoringPose );
     }
 
     void Animator::ApplyLocalPose()
@@ -163,12 +208,20 @@ namespace Desert::Animation
             {
                 return std::nullopt;
             }
-            const AnimationCurve* curve = playback.Clip->FindCurve( curveName );
-            if ( curve == nullptr || curve->Keys.empty() )
+            // The clip's curves are its Float tracks, named by Property (the lift's mapping); the fold is the
+            // Evaluator's own, so a curve reads here what the Sequencer shows.
+            const Timeline::Sequence& sequence = playback.Clip->Sequence;
+            for ( const Timeline::Track& track : sequence.Tracks )
             {
-                return std::nullopt;
+                Timeline::EvaluatedValue value;
+                if ( track.Kind == Timeline::TrackKind::Float && track.Property == curveName &&
+                     Timeline::EvaluateTrack( track, OnSequence( *playback.Clip, playback.Time ), sequence.TickRate,
+                                              value ) )
+                {
+                    return std::get<float>( value );
+                }
             }
-            return curve->Evaluate( playback.Time, playback.Clip->TickRate );
+            return std::nullopt;
         };
 
         const std::optional<float> current = valueOf( m_Current, name );
@@ -301,19 +354,16 @@ namespace Desert::Animation
     {
         if ( !m_Retarget )
         {
-            const RigSampling rig = TargetSampling();
-            for ( uint32_t i = 0; i < pose.Size(); ++i )
-                pose[i] = BlendedBaseLocal( rig, i );
+            BlendedBasePose( TargetSampling(), pose );
             return;
         }
 
         // THE CLIPS ARE ON ANOTHER RIG. Sample the whole base pose there — through the same
-        // `BlendedBaseLocal`, so a crossfade is blended once and identically on either rig — and let the
+        // `BlendedBasePose`, so a crossfade is blended once and identically on either rig — and let the
         // retargeter say what it is on this one.
         const RigSampling rig        = SourceSampling();
         LocalPose&        sourcePose = m_Retarget->SourceScratch();
-        for ( uint32_t i = 0; i < sourcePose.Size(); ++i )
-            sourcePose[i] = BlendedBaseLocal( rig, i );
+        BlendedBasePose( rig, sourcePose );
 
         // A REFUSAL LEAVES `pose` AS THE LAST FRAME LEFT IT, and `Run` has already said why, once per
         // distinct message. Falling back to the bind pose instead would look like a character snapping to
@@ -343,17 +393,14 @@ namespace Desert::Animation
             {
                 const RigSampling rig        = SourceSampling();
                 LocalPose&        sourcePose = m_Retarget->SourceScratch();
-                for ( uint32_t b = 0; b < sourcePose.Size(); ++b )
-                    sourcePose[b] = SampleLocalTransform( rig, playback.Clip, b, playback.Time );
+                SampleClipPose( rig, playback.Clip, playback.Time, sourcePose );
                 // THE BIND POSE, NOT THE SOURCE RIG'S TRANSFORMS: `Run` has reported the reason, and source-rig
                 // local transforms written onto target bones are the proportion defect a retarget removes.
                 if ( !m_Retarget->Run( m_Skeleton, sourcePose, out.Pose ) )
                     out.Pose = m_BindPose;
                 return;
             }
-            const RigSampling rig = TargetSampling();
-            for ( uint32_t b = 0; b < n; ++b )
-                out.Pose[b] = SampleLocalTransform( rig, playback.Clip, b, playback.Time );
+            SampleClipPose( TargetSampling(), playback.Clip, playback.Time, out.Pose );
         };
         sources.Sample = [&]( size_t node, Graph::GraphPose& out )
         {
@@ -459,7 +506,7 @@ namespace Desert::Animation
             return;
         }
 
-        const FrameNumber duration = playback.Clip->DurationTicks;
+        const FrameNumber duration = playback.Clip->DurationTicks();
         const FrameTime   previous = playback.Time;
 
         // THE WHOLE TICKS GO INTO AN INTEGER AND ONLY THE FRACTION OF ONE STAYS IN A FLOAT. What this
@@ -467,9 +514,10 @@ namespace Desert::Animation
         // with the value already there, and every loop left a residue behind. Measured in
         // Tests/Engine/AnimationTimeModel: an hour of 1/60 s steps drifts less than one tick here and
         // hundreds of times further on the float.
-        playback.Time = AdvanceFrameTime( playback.Time, deltaTime, playback.Clip->TickRate );
+        playback.Time = AdvanceFrameTime( playback.Time, deltaTime, playback.Clip->Sequence.TickRate );
 
-        const bool looped = playback.Loop && duration.Value > 0 && playback.Time.Frame.Value >= duration.Value;
+        const bool looped = playback.Loop && duration.Value > 0 &&
+                            ( playback.Time.Frame.Value >= duration.Value || playback.Time.Frame.Value < 0 );
 
         if ( playback.Loop )
         {
@@ -486,8 +534,7 @@ namespace Desert::Animation
         // loop, which holds for real playback.
         if ( &playback == &m_Current )
         {
-            StepNotifyStates( playback.Clip->Notifies, m_ActiveStates, previous.AsTicks(), playback.Time.AsTicks(),
-                              deltaTime > 0.0F, looped, m_NotifyEvents );
+            StepNotifies( previous, looped, true, deltaTime < 0.0F );
         }
     }
 
@@ -495,32 +542,34 @@ namespace Desert::Animation
     // Sampling
     // ============================================================
 
-    BoneTransform Animator::SampleLocalTransform( const RigSampling& rig, const AnimationClip* clip,
-                                                  uint32_t boneIndex, FrameTime time )
+    void Animator::SampleClipPose( const RigSampling& rig, const AnimationClip* clip, const FrameTime time,
+                                   LocalPose& out )
     {
-        if ( const BoneTrack* track = ResolveTrack( rig, clip, boneIndex ) )
-            if ( track->HasKeys() )
-            {
-                // THROUGH THE CLIP'S SECTIONS, not straight off the curve. The rest pose is handed in
-                // because it is what a partially weighted section blends against, and it is the SAME
-                // value the untracked case returns below — so a section at weight 0 and a bone with no
-                // track agree, which they would not if this reached for the bind pose instead.
-                return clip->SampleTrack( *track, time, rig.Rest[boneIndex] );
-            }
-        // THE REST OF THE RIG BEING SAMPLED, NOT OF THIS ANIMATOR. Under a retarget that is the source
-        // rig's retarget pose (`SourceInitial`), which is the ONE value that makes an untracked bone a
-        // no-op: the equation is `sourceCurrent * sourceInitial^-1`, so `sourceInitial` gives the identity
-        // delta and the target keeps its own rest. Feeding the source's BIND pose here instead would hand
-        // every untracked bone the inverse of the authored retarget-pose offset.
-        return rig.Rest[boneIndex];
+        // THE REST OF THE RIG BEING SAMPLED, NOT OF THIS ANIMATOR, under every untracked bone. Under a
+        // retarget that is the source rig's retarget pose (`SourceInitial`), the ONE value that makes an
+        // untracked bone a no-op: the equation is `sourceCurrent * sourceInitial^-1`.
+        out = rig.Rest;
+        if ( clip == nullptr )
+        {
+            return;
+        }
+        const Timeline::BoneBindingTable& table = BindingFor( rig, *clip );
+        if ( auto sampled = Timeline::EvaluatePose( clip->Sequence, table, OnSequence( *clip, time ), out );
+             !sampled.IsSuccess() )
+        {
+            // BindingFor rebuilt the table for this very revision, so this is a broken invariant, said loudly.
+            LOG_ERROR( "[Animator] clip '{}' did not sample: {} The rig holds its rest pose.", clip->AnimationName,
+                       sampled.GetError() );
+            out = rig.Rest;
+        }
     }
 
-    BoneTransform Animator::BlendedBaseLocal( const RigSampling& rig, uint32_t boneIndex ) const
+    void Animator::BlendedBasePose( const RigSampling& rig, LocalPose& out )
     {
-        const BoneTransform a = SampleLocalTransform( rig, m_Current.Clip, boneIndex, m_Current.Time );
+        SampleClipPose( rig, m_Current.Clip, m_Current.Time, out );
         if ( !m_IsBlending || !m_Next.IsValid() )
         {
-            return a;
+            return;
         }
 
         const float alpha = BlendAlpha();
@@ -530,16 +579,19 @@ namespace Desert::Animation
         // clip, bit for bit" a property that can be asserted rather than approximated.
         if ( alpha <= 0.0F )
         {
-            return a;
+            return;
         }
 
-        const BoneTransform b = SampleLocalTransform( rig, m_Next.Clip, boneIndex, m_Next.Time );
+        SampleClipPose( rig, m_Next.Clip, m_Next.Time, m_BlendScratch );
         if ( alpha >= 1.0F )
         {
-            return b;
+            out = m_BlendScratch;
+            return;
         }
-
-        return Blend( a, b, alpha );
+        for ( uint32_t b = 0; b < out.Size(); ++b )
+        {
+            out[b] = Blend( out[b], m_BlendScratch[b], alpha );
+        }
     }
 
     Animator::RigSampling Animator::TargetSampling() const
@@ -550,56 +602,107 @@ namespace Desert::Animation
     Animator::RigSampling Animator::SourceSampling() const
     {
         // The source rig's REST is its retarget pose applied to its bind pose — `SourceInitial`, which is
-        // what the retarget equation measures a delta against. See SampleLocalTransform.
+        // what the retarget equation measures a delta against. See SampleClipPose.
         return RigSampling{ m_Retarget->GetSourceSkeleton(), m_Retarget->GetRetargeter().GetSourceInitialPose(),
                             m_SourceTrackBinding };
     }
 
-    const BoneTrack* Animator::ResolveTrack( const RigSampling& rig, const AnimationClip* clip,
-                                             uint32_t boneIndex )
+    const Timeline::BoneBindingTable& Animator::BindingFor( const RigSampling& rig, const AnimationClip& clip )
     {
-        if ( !clip )
+        const Timeline::Sequence& sequence = clip.Sequence;
+        ClipBinding&              binding  = rig.Binding[&clip];
+
+        // REBUILT WHEN THE CLIP'S SEQUENCE HAS BEEN REPLACED, not only when the cache is empty — an unload +
+        // reload leaves the clip at the same address holding a new track list. See ClipBinding.
+        if ( binding.TracksData != sequence.Tracks.data() || binding.TrackCount != sequence.Tracks.size() ||
+             binding.Table.Revision != sequence.Revision || binding.Table.BoneOfTrack.size() != sequence.Tracks.size() )
         {
-            return nullptr;
+            binding.Table      = Timeline::BindBones( sequence, rig.Rig );
+            binding.TracksData = sequence.Tracks.data();
+            binding.TrackCount = sequence.Tracks.size();
         }
+        return binding.Table;
+    }
 
-        auto& binding = rig.Binding[clip];
-
-        // REBUILT WHEN THE CLIP'S TRACK STORAGE HAS MOVED, not only when the cache is empty. An unload +
-        // reload of the clip's asset leaves the AnimationClip at the same address holding a freshly
-        // allocated Tracks vector, so a cache keyed on the address alone hands back pointers into memory
-        // that has been returned to the allocator. See Animator::TrackBinding for the crash this caused.
-        if ( binding.ByBone.empty() || binding.TracksData != clip->Tracks.data() ||
-             binding.TrackCount != clip->Tracks.size() || binding.Revision != clip->TrackRevision )
+    void Animator::ScrubTo( ClipPlayback& playback, const FrameTime time )
+    {
+        if ( !playback.IsValid() )
         {
-            const auto& bones = rig.Rig.GetBones();
-            binding.ByBone.assign( bones.size(), TrackBinding::NO_TRACK );
-            binding.TracksData = clip->Tracks.data();
-            binding.TrackCount = clip->Tracks.size();
-            binding.Revision   = clip->TrackRevision;
+            return;
+        }
+        const FrameNumber duration = playback.Clip->DurationTicks();
+        if ( time.Frame.Value < 0 )
+        {
+            playback.Time = FrameTime{};
+        }
+        else if ( duration.Value > 0 && time.Frame.Value >= duration.Value )
+        {
+            playback.Time = playback.Loop ? WrapFrameTime( time, duration ) : FrameTime{ duration, 0.0F };
+        }
+        else
+        {
+            playback.Time = time;
+        }
+    }
 
-            // The skeleton's own name -> index map, rather than a second one built here per clip. One
-            // answer to "which bone is called this", and it is the one `FindBoneIndex` gives.
-            for ( uint32_t t = 0; t < clip->Tracks.size(); ++t )
+    void Animator::StepNotifies( const FrameTime previous, const bool wrapped, const bool played, const bool backward )
+    {
+        const AnimationClip&      clip     = *m_Current.Clip;
+        const Timeline::Sequence& sequence = clip.Sequence;
+
+        m_Crossed.clear();
+        if ( played )
+        {
+            Timeline::TimeStep step{ OnSequence( clip, previous ), OnSequence( clip, m_Current.Time ),
+                                     backward ? Timeline::PlayDirection::Backward : Timeline::PlayDirection::Forward };
+            step.Wrapped = wrapped;
+            Timeline::CollectFired( sequence, step, m_Crossed );
+        }
+        ActiveStatesAt( sequence, OnSequence( clip, m_Current.Time ).AsTicks(), m_StatesScratch );
+
+        // Ends first: states active before the step and not after it.
+        for ( const ActiveNotifyState& state : m_ActiveStates )
+        {
+            if ( std::find( m_StatesScratch.begin(), m_StatesScratch.end(), state ) == m_StatesScratch.end() )
             {
-                const auto& track = clip->Tracks[t];
-                if ( track.BoneName.empty() )
-                {
-                    continue;
-                }
-                if ( const auto bone = rig.Rig.FindBoneIndex( track.BoneName ) )
-                {
-                    binding.ByBone[*bone] = t;
-                }
+                m_NotifyEvents.push_back( NotifyEvent{ state.Name, NotifyEventKind::End } );
             }
         }
-
-        if ( boneIndex >= binding.ByBone.size() )
+        // A state begun AND ended inside the step (shorter than the frame) is active at neither end, and
+        // still reports both — the crossing says so.
+        for ( const Timeline::FiredEvent& fired : m_Crossed )
         {
-            return nullptr;
+            const Timeline::EventKey& key = *fired.Event.Key;
+            if ( fired.Event.Edge != Timeline::EventEdge::Begin || Holds( m_ActiveStates, key ) ||
+                 Holds( m_StatesScratch, key ) )
+            {
+                continue;
+            }
+            const bool ended = std::any_of( m_Crossed.begin(), m_Crossed.end(), [&key]( const Timeline::FiredEvent& other )
+                                            { return other.Event.Key == &key && other.Event.Edge == Timeline::EventEdge::End; } );
+            if ( ended )
+            {
+                m_NotifyEvents.push_back( NotifyEvent{ key.Name, NotifyEventKind::Begin } );
+                m_NotifyEvents.push_back( NotifyEvent{ key.Name, NotifyEventKind::End } );
+            }
         }
-        const uint32_t track = binding.ByBone[boneIndex];
-        return track == TrackBinding::NO_TRACK ? nullptr : &clip->Tracks[track];
+        // Begins: states active after the step and not before it.
+        for ( const ActiveNotifyState& state : m_StatesScratch )
+        {
+            if ( std::find( m_ActiveStates.begin(), m_ActiveStates.end(), state ) == m_ActiveStates.end() )
+            {
+                m_NotifyEvents.push_back( NotifyEvent{ state.Name, NotifyEventKind::Begin } );
+            }
+        }
+        // Instant notifies the step crossed, in firing order (either direction, as UE plays them).
+        for ( const Timeline::FiredEvent& fired : m_Crossed )
+        {
+            if ( fired.Event.Edge == Timeline::EventEdge::Instant )
+            {
+                m_NotifyEvents.push_back( NotifyEvent{ fired.Event.Key->Name, NotifyEventKind::Fire } );
+            }
+        }
+        m_ActiveStates.swap( m_StatesScratch );
     }
 
     // ============================================================
@@ -631,45 +734,46 @@ namespace Desert::Animation
             return false;
         }
 
-        return m_Current.Time.Frame.Value >= m_Current.Clip->DurationTicks.Value;
+        return m_Current.Time.Frame.Value >= m_Current.Clip->DurationTicks().Value;
     }
 
     void Animator::SetTick( FrameTime time )
     {
-        if ( !m_Current.IsValid() )
+        // THE SCRUB MOVES EVERY PLAYER (UE: SetPosition reaches each sequence player): the base clip, the
+        // incoming one of a crossfade, and every source clock of the pose graph and its linked layers. The
+        // tick is on the current clip's grid (the project's, without one); every other player gets the same
+        // moment in seconds on its own grid.
+        const FrameRate rate    = m_Current.IsValid() ? m_Current.Clip->Sequence.TickRate : PROJECT_TICK_RATE;
+        const double    seconds = FrameTimeToSeconds( time, rate );
+        const auto      scrub   = [seconds]( ClipPlayback& playback )
         {
-            return;
-        }
+            if ( playback.IsValid() )
+            {
+                ScrubTo( playback, SecondsToFrameTime( seconds, playback.Clip->Sequence.TickRate ) );
+            }
+        };
 
-        const FrameNumber duration = m_Current.Clip->DurationTicks;
-        const double      before   = m_Current.Time.AsTicks();
-        m_Current.Time             = time;
-        if ( m_Current.Time.Frame.Value < 0 )
+        if ( m_Current.IsValid() )
         {
-            m_Current.Time = FrameTime{};
+            const FrameTime before = m_Current.Time;
+            ScrubTo( m_Current, time );
+            StepNotifies( before, false, false, false );
         }
-        else if ( duration.Value > 0 && m_Current.Time.Frame.Value > duration.Value )
-        {
-            m_Current.Time = FrameTime{ duration, 0.0F };
-        }
-        // A scrub is not playback: instant notifies stay silent, but a state the playhead moved into or out
-        // of — forwards or BACKWARDS — begins or ends, so a script holding a state's effect can release it.
-        StepNotifyStates( m_Current.Clip->Notifies, m_ActiveStates, before, m_Current.Time.AsTicks(), false, false,
-                          m_NotifyEvents );
+        scrub( m_Next );
+        if ( m_PoseGraph )
+            for ( auto& source : m_PoseGraph->Sources )
+                scrub( source );
+        for ( auto& layer : m_LinkedSources )
+            for ( auto& source : layer )
+                scrub( source );
         EvaluatePipeline();
     }
 
-    void Animator::SetTime( float time )
-    {
-        if ( !m_Current.IsValid() )
-        {
-            return;
-        }
-
-        // Through the tick, and onto the NEAREST one: a scrub arrives as a real number that has been
+    \1        // Through the tick, and onto the NEAREST one: a scrub arrives as a real number that has been
         // through a pixel position and a division, so flooring it would put a user who dragged onto a key
         // one tick before it. See TimeModel.hpp.
-        const FrameTime   asTicks = SecondsToFrameTime( static_cast<double>( time ), m_Current.Clip->TickRate );
+        const FrameRate   rate    = m_Current.IsValid() ? m_Current.Clip->Sequence.TickRate : PROJECT_TICK_RATE;
+        const FrameTime   asTicks = SecondsToFrameTime( static_cast<double>( time ), rate );
         const FrameNumber nearest = NearestTick( asTicks );
         SetTick( FrameTime{ nearest, 0.0F } );
     }
@@ -788,7 +892,7 @@ namespace Desert::Animation
         if ( playback.Clip == nullptr )
             return 0.0F;
         const double duration = playback.Clip->DurationSeconds();
-        return duration > 1e-4 ? static_cast<float>( FrameTimeToSeconds( playback.Time, playback.Clip->TickRate ) /
+        return duration > 1e-4 ? static_cast<float>( FrameTimeToSeconds( playback.Time, playback.Clip->Sequence.TickRate ) /
                                                      duration )
                                : 0.0F;
     }

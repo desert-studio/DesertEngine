@@ -58,7 +58,7 @@ namespace Desert::Assets
         // A NEW GENERATION OF THE TRACK LIST. Stamped here rather than by the builder: the builder makes a
         // fresh clip that knows nothing of the one it is about to replace, and it is the REPLACEMENT that
         // any cache downstream has to notice.
-        m_Clip.TrackRevision = ++m_TrackRevision;
+        m_Clip.Sequence.Revision = ++m_TrackRevision;
         m_SkeletonSignature  = m_Clip.SkeletonSignature;
         m_HasClip            = true;
         return BOOLSUCCESS;

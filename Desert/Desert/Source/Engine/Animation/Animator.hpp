@@ -9,11 +9,13 @@
 #include "Graph/PoseGraphInstance.hpp"
 #include "Rig/ControlRigStage.hpp"
 #include "Retarget/RetargetSource.hpp"
+#include "Timeline/Evaluator.hpp"
 
 #include <Common/Core/Timestep.hpp>
 
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <unordered_map>
 
@@ -49,6 +51,34 @@ namespace Desert::Animation
     };
 
     [[nodiscard]] const char* ToString( PoseStage stage );
+
+    /// What one notify did during a step of playback: UE's Notify (instant) / NotifyBegin / NotifyEnd.
+    enum class NotifyEventKind : uint8_t
+    {
+        Fire,
+        Begin,
+        End,
+    };
+
+    struct NotifyEvent
+    {
+        std::string     Name;
+        NotifyEventKind Kind = NotifyEventKind::Fire;
+
+        bool operator==( const NotifyEvent& ) const = default;
+    };
+
+    /// A notify state (an Event key with a duration on the clip's Event track) spanning the playhead — UE's
+    /// active AnimNotifyState. BY VALUE, not a key pointer: a reload of the clip frees the key, and an edit
+    /// between two steps must End the state edited away and Begin its replacement.
+    struct ActiveNotifyState
+    {
+        std::string Name;
+        FrameNumber Tick;
+        FrameNumber Duration;
+
+        bool operator==( const ActiveNotifyState& ) const = default;
+    };
 
     class Animator
     {
@@ -133,13 +163,13 @@ namespace Desert::Animation
         [[nodiscard]] float GetCurrentTime() const
         {
             return m_Current.Clip != nullptr
-                        ? static_cast<float>( FrameTimeToSeconds( m_Current.Time, m_Current.Clip->TickRate ) )
+                        ? static_cast<float>( FrameTimeToSeconds( m_Current.Time, m_Current.Clip->Sequence.TickRate ) )
                         : 0.0F;
         }
 
         [[nodiscard]] FrameNumber GetDurationTicks() const
         {
-            return m_Current.Clip != nullptr ? m_Current.Clip->DurationTicks : FrameNumber{};
+            return m_Current.Clip != nullptr ? m_Current.Clip->DurationTicks() : FrameNumber{};
         }
 
         [[nodiscard]] float GetDuration() const
@@ -214,7 +244,7 @@ namespace Desert::Animation
         }
 
         /// The current clip's notify states active at the playhead (UE: the active AnimNotifyStates).
-        [[nodiscard]] const std::vector<AnimationNotify>& GetActiveNotifyStates() const
+        [[nodiscard]] const std::vector<ActiveNotifyState>& GetActiveNotifyStates() const
         {
             return m_ActiveStates;
         }
@@ -370,7 +400,7 @@ namespace Desert::Animation
         };
 
     private:
-        // DEFINED BELOW, next to the `TrackBinding` it names. Declared here because the sampling functions
+        // DEFINED BELOW, next to the `ClipBinding` it names. Declared here because the sampling functions
         // take it by reference and a reference needs no complete type — which is what lets the definition
         // stay beside the cache it is a view of, rather than being dragged up here away from it.
         struct RigSampling;
@@ -405,31 +435,30 @@ namespace Desert::Animation
         /// pipeline's fixed order. See the definition for why this is a rebuild and not an insert.
         void SyncStages();
 
-        /// Local (parent-relative) transform of `boneIndex` driven by `clip` at `time`, or the bind-pose
-        /// local when the clip has no track for it. Straight from the clip's TRS keys — the matrix this
-        /// used to build, only to be decomposed again by the next step, is gone.
-        /// STATIC SINCE A25, for `ResolveTrack`'s reason: the rest pose an untracked bone falls back to
-        /// is `rig.Rest` now and not `m_BindPose`, so nothing here reads a member. `BlendedBaseLocal`
-        /// below is NOT static and must not become so — it reads the playheads, which are the Animator's.
-        [[nodiscard]] static BoneTransform SampleLocalTransform( const RigSampling& rig, const AnimationClip* clip,
-                                                                 uint32_t boneIndex, FrameTime time );
+        /// `clip`'s pose at `time` (ticks from the clip's Start) on `rig`: the rig's rest, then every bone
+        /// Transform track of the clip's Sequence sampled over it by `Timeline::EvaluatePose` — the
+        /// AnimationClip host's playback path (UE: the sequence samples its own data model). A bone the clip
+        /// has no track for keeps the rest. STATIC: it reads nothing but its arguments, which is what makes
+        /// two rigs safe to sample in one frame.
+        static void SampleClipPose( const RigSampling& rig, const AnimationClip* clip, FrameTime time,
+                                    LocalPose& out );
 
-        /// The base pose's local transform for one bone: the current clip, or current -> next blended by
-        /// BlendAlpha(). The ONE answer to "what is the base pose right now", shared by the source stage
-        /// and by layer composition, so the two cannot have different opinions.
-        [[nodiscard]] BoneTransform BlendedBaseLocal( const RigSampling& rig, uint32_t boneIndex ) const;
+        /// The base pose: the current clip, or current -> next blended by BlendAlpha(). The ONE answer to
+        /// "what is the base pose right now". NOT static — it reads the playheads, which are the Animator's.
+        void BlendedBasePose( const RigSampling& rig, LocalPose& out );
 
-        /// Returns the clip track that drives skeleton bone `boneIndex`, matched by bone NAME (not by the
-        /// clip's own bone index). This lets a clip authored against a differently-ordered or skinless
-        /// export of the same rig still drive the correct bones. Built lazily per clip, and rebuilt whenever
-        /// the clip's own track storage has been replaced under it — see TrackBinding.
-        /// STATIC SINCE A25, AND THAT IS THE SHAPE OF THE CHANGE RATHER THAN AN ANNOTATION. It used to
-        /// read `m_Skeleton` and `m_TrackBinding` directly; both now arrive in `rig`, so the function
-        /// touches no member and the analyser said so. Leaving it non-static would have hidden the one
-        /// property that makes two rigs safe to sample in the same frame: this lookup depends on nothing
-        /// but its arguments.
-        static const BoneTrack* ResolveTrack( const RigSampling& rig, const AnimationClip* clip,
-                                              uint32_t boneIndex );
+        /// The bone binding of `clip` on `rig`, built by `Timeline::BindBones` once per clip + rig and rebuilt
+        /// when the clip's Sequence has been replaced under it — see ClipBinding.
+        static const Timeline::BoneBindingTable& BindingFor( const RigSampling& rig, const AnimationClip& clip );
+
+        /// Moves one player's clock to `time` (ticks from its clip's Start): wrapped on a looping clip,
+        /// clamped to [0, duration] otherwise. The scrub's one rule, for every player.
+        static void ScrubTo( ClipPlayback& playback, FrameTime time );
+
+        /// The current clip's notifies for the step that brought its playhead from `previous` to now. Played
+        /// (`played`): the Event keys the step crossed (Timeline::CollectFired) fire, and a state begun and
+        /// ended inside the step reports both. Always: states Begin / End by the difference of the active set.
+        void StepNotifies( FrameTime previous, bool wrapped, bool played, bool backward );
 
         /// The rig the pipeline's own stages read: this Animator's skeleton, its bind pose and its clip
         /// binding cache.
@@ -440,29 +469,20 @@ namespace Desert::Animation
 
     private:
         /**
-         * @brief The bone -> track lookup for ONE clip, together with the two facts about that clip's
-         *        storage the lookup is only valid against.
+         * @brief `Timeline::BindBones`' table for ONE clip, with the facts about the clip's Sequence it is
+         *        valid against.
          *
-         * THE CLIP'S ADDRESS IS NOT A SUFFICIENT KEY, and believing it was is a use-after-free that
-         * segfaulted the moment a file-backed clip first played in this engine. `AnimationAsset` owns its
-         * `AnimationClip` BY VALUE, so the clip keeps its address for the asset's whole life while
-         * `Unload()` frees the `Tracks` vector (`clear()` + `shrink_to_fit()`) and a later `Load()`
-         * allocates a new one. Asset eviction does exactly that to a clip an entity is still playing —
-         * deliberately, because `AnimationLibrary::Resolve` reloads on every lookup and the design accepts
-         * eviction on that basis — and the cached `BoneTrack*` then pointed into freed storage. The crash
-         * was inside `lower_bound` over a keyframe vector that no longer existed.
-         *
-         * The relation asserted here is between the cache and the container it points into: the binding is
-         * usable only while the clip's tracks still live where they lived when it was built.
+         * THE CLIP'S ADDRESS IS NOT A SUFFICIENT KEY — a use-after-free once segfaulted on exactly that:
+         * `AnimationAsset` owns its clip BY VALUE, so the clip keeps its address while `Unload()` replaces its
+         * Sequence and a later `Load()` builds a new one. The asset stamps every replacement into
+         * `Sequence::Revision`, and the track storage's address and size are kept beside it, so a table is
+         * used only against the track list it was built from.
          */
-        struct TrackBinding
+        struct ClipBinding
         {
-            static constexpr uint32_t NO_TRACK = UINT32_MAX;
-
-            const BoneTrack*      TracksData = nullptr; ///< clip->Tracks.data() at build time
-            size_t                TrackCount = 0;       ///< clip->Tracks.size() at build time
-            uint32_t              Revision   = 0;       ///< clip->TrackRevision at build time
-            std::vector<uint32_t> ByBone;               ///< skeleton bone index -> track INDEX, or NO_TRACK
+            Timeline::BoneBindingTable Table;
+            const Timeline::Track*     TracksData = nullptr; ///< clip->Sequence.Tracks.data() at build time
+            size_t                     TrackCount = 0;       ///< clip->Sequence.Tracks.size() at build time
         };
 
         /**
@@ -480,20 +500,20 @@ namespace Desert::Animation
         {
             const Skeleton&  Rig;
             const LocalPose& Rest; ///< what a bone with no track in this clip reads
-            std::unordered_map<const AnimationClip*, TrackBinding>& Binding;
+            std::unordered_map<const AnimationClip*, ClipBinding>& Binding;
         };
 
         const Skeleton& m_Skeleton;
 
-        // clip -> its binding. See ResolveTrack and TrackBinding.
-        mutable std::unordered_map<const AnimationClip*, TrackBinding> m_TrackBinding;
+        // clip -> its binding. See BindingFor and ClipBinding.
+        mutable std::unordered_map<const AnimationClip*, ClipBinding> m_TrackBinding;
 
         // The same cache, built against the SOURCE rig. A SECOND MAP AND NOT A SECOND ENTRY IN THE FIRST:
         // the key is the clip, and one clip is legally sampled on both rigs in the same frame (the base on
         // the source, an editor's authoring sample on the target), so one map would hand back a binding
         // built for the wrong rig's bone order. Cleared by Attach/DetachRetarget, because the rig it was
         // built against is exactly what those two change.
-        mutable std::unordered_map<const AnimationClip*, TrackBinding> m_SourceTrackBinding;
+        mutable std::unordered_map<const AnimationClip*, ClipBinding> m_SourceTrackBinding;
 
         ClipPlayback m_Current;
         ClipPlayback m_Next;
@@ -506,8 +526,13 @@ namespace Desert::Animation
 
         // Notify events of the current clip not yet drained by ConsumeNotifyEvents().
         std::vector<NotifyEvent> m_NotifyEvents;
-        // The current clip's notify states active at its playhead — see StepNotifyStates.
-        std::vector<AnimationNotify> m_ActiveStates;
+        // The current clip's notify states active at its playhead — see StepNotifies.
+        std::vector<ActiveNotifyState> m_ActiveStates;
+        // Per-step scratch of StepNotifies (reused, no allocation once warm).
+        std::vector<ActiveNotifyState>    m_StatesScratch;
+        std::vector<Timeline::FiredEvent> m_Crossed;
+        // The incoming clip's pose during a crossfade (BlendedBasePose).
+        LocalPose m_BlendScratch;
 
         /// Ends every active state: the clip they belong to stops being the current one.
         void RetireNotifyStates();

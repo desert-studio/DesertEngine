@@ -351,6 +351,11 @@ namespace Desert::Animation::Timeline
                 return Common::MakeFormattedError<bool>( "holds {} content on a {} track", ToString( held ),
                                                          ToString( track.Kind ) );
             }
+            if ( track.Kind == TrackKind::Bool && section.Blend == SectionBlendType::Additive )
+            {
+                return Common::MakeFormattedError<bool>(
+                     "an Additive section on a Bool track: a flag has no additive — make the section Absolute" );
+            }
             if ( const auto* channel = std::get_if<Channel>( &section.Content ) )
             {
                 return CheckChannel( *channel );
