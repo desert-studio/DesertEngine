@@ -149,6 +149,12 @@ namespace Common::Utils
 #endif
     }
 
+    std::filesystem::path FileSystem::BaseDir()
+    {
+        const fs::path executable = ExecutablePath();
+        return executable.empty() ? fs::path{} : executable.parent_path().lexically_normal();
+    }
+
     std::string FileSystem::GetFileDirectoryString( const std::filesystem::path& filepath )
     {
         return filepath.parent_path().string();

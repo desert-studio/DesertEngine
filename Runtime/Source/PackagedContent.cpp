@@ -115,26 +115,28 @@ namespace Desert::Player
         // chunks existed and must keep starting.
         if ( !result.BasePak.empty() )
         {
-            std::vector<std::string> chunkNames;
-            if ( const auto listed = Common::Utils::VFS::ReadFile(
-                      result.BasePak.parent_path() / std::string( Common::Content::CHUNK_MANIFEST_KEY ) ) )
+            // NO LIST IS A REFUSAL, naming the path. The packager writes it into EVERY base archive, an
+            // undivided game included (ContentChunks.cpp: "an archive whose manifest is missing is
+            // indistinguishable from a game that was never divided"), so a base without one is damaged.
+            const fs::path listPath = result.BasePak.parent_path() / std::string( Common::Content::CHUNK_MANIFEST_KEY );
+            const auto     listed   = Common::Utils::VFS::ReadFile( listPath );
+            const auto     parsed   = listed ? Common::Content::ParseChunkManifest( *listed )
+                                             : Common::MakeFormattedError<std::vector<std::string>>(
+                                                  "{} is not in {}", listPath.string(), result.BasePak.string() );
+            if ( !parsed )
             {
-                const auto parsed = Common::Content::ParseChunkManifest( *listed );
-                if ( !parsed )
-                {
-                    Common::Utils::VFS::Unmount();
-                    result.BasePak.clear();
-                    result.ExitCode = kContentChunkArchiveFailed;
-                    result.Message  = RefusalMessage(
-                         "The game's content archive lists the parts it is divided into, and that list "
-                          "could not be read.",
-                         parsed.GetError(),
-                         "  What to do: reinstall the game, or use your store's \"verify/repair files\" "
-                          "option, then start it again." );
-                    return result;
-                }
-                chunkNames = parsed.GetValue();
+                Common::Utils::VFS::Unmount();
+                result.BasePak.clear();
+                result.ExitCode = kContentChunkArchiveFailed;
+                result.Message  = RefusalMessage(
+                     "The game's content archive must list the parts it is divided into, and that list is "
+                      "missing or could not be read.",
+                     parsed.GetError(),
+                     "  What to do: reinstall the game, or use your store's \"verify/repair files\" "
+                      "option, then start it again." );
+                return result;
             }
+            const std::vector<std::string> chunkNames = parsed.GetValue();
 
             for ( const std::string& name : chunkNames )
             {

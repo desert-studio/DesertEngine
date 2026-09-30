@@ -195,5 +195,12 @@ namespace Common::Utils
 
         // Absolute path of the running executable — for locating content (a .dpak) packaged next to it.
         [[nodiscard]] static std::filesystem::path ExecutablePath();
+
+        // THE PROCESS'S BASE DIRECTORY (UE: FPlatformProcess::BaseDir) — the directory of the running
+        // executable, absolute, symlinks resolved; empty exactly when the OS would not say. The one anchor a
+        // packaged game has: its archives and chunk manifest sit here (GamePackager puts them beside the
+        // player binary in both layouts — Contents/MacOS inside a .app, П5), and nothing is read from the
+        // working directory, which a Finder launch sets to `/`.
+        [[nodiscard]] static std::filesystem::path BaseDir();
     };
 } // namespace Common::Utils

@@ -995,12 +995,10 @@ namespace Desert::Editor
 
         // 7) Launcher + (bundle) Info.plist. The launcher script is the bundle's CFBundleExecutable.
         //
-        // WHAT THE LAUNCHER IS STILL FOR, now that it no longer names the project (П5): the Vulkan
-        // environment, and only that. Finder gives a double-clicked .app no VK_ICD_FILENAMES, and the loader
-        // reads it when the player first calls into Vulkan, so the launcher names the bundle's own ICD manifest.
-        // The library path is no longer part of it: the player binary names the bundled loader itself. It is
-        // therefore not a second way to start the game — running the binary directly works and is tested — it is
-        // the environment the host does not provide.
+        // WHAT THE LAUNCHER IS STILL FOR, now that it names neither the project (П5) nor the Vulkan driver
+        // (ENG-ROOT-4b: the player finds the bundle's MoltenVK_icd.json itself, from its own executable
+        // position — VulkanContext.cpp SelectDriverManifest): only the working directory engine_log.txt
+        // lands in. It is not a second way to start the game — running the binary directly works.
         if ( bundle )
         {
             std::ostringstream run;
@@ -1008,9 +1006,6 @@ namespace Desert::Editor
                 << "# Launches " << projectName << " (packaged by the Desert Editor).\n"
                 << "set -euo pipefail\n"
                 << "DIR=\"$(cd \"$(dirname \"$0\")\" && pwd)\"\n"
-                // The loader finds its driver through the bundle's own ICD manifest; the player binary already
-                // names the bundled loader (BundleVulkan), so no library search path is set.
-                << "export VK_ICD_FILENAMES=\"$DIR/../Resources/vulkan/icd.d/MoltenVK_icd.json\"\n"
                 // The game directory IS this script's own directory now, so the cd is only about where
                 // engine_log.txt lands — the player finds its content from its executable path.
                 << "cd \"$DIR\"\n"
@@ -1045,10 +1040,10 @@ namespace Desert::Editor
         }
         else
         {
-            // The plain-folder launcher, in the host's own shell. On macOS it has to find MoltenVK
-            // through Homebrew (there is no Frameworks directory outside a bundle); on Windows the
-            // Vulkan loader is installed by the graphics driver and there is nothing to point at, so the
-            // script only has to cd and run. Writing the bash version on Windows produced a `run.sh`
+            // The plain-folder launcher, in the host's own shell: cd and run. It sets no Vulkan
+            // environment on either host — on macOS the player picks its MoltenVK manifest itself
+            // (VulkanContext.cpp SelectDriverManifest; a plain folder has no Frameworks, so that is the
+            // one the build machine recorded), on Windows the driver installs the loader. Writing the bash version on Windows produced a `run.sh`
             // nothing there can execute.
             std::ostringstream run;
             if ( host.Platform == TargetPlatform::Windows )
@@ -1064,13 +1059,6 @@ namespace Desert::Editor
                     << "# Launches " << projectName << " (packaged by the Desert Editor).\n"
                     << "set -euo pipefail\n"
                     << "cd \"$(dirname \"$0\")\"\n"
-                    << "BREW_PREFIX=\"${HOMEBREW_PREFIX:-$(brew --prefix 2>/dev/null || echo /opt/homebrew)}\"\n"
-                    << "export "
-                       "VK_ICD_FILENAMES=\"${VK_ICD_FILENAMES:-$BREW_PREFIX/etc/vulkan/icd.d/"
-                       "MoltenVK_icd.json}\"\n"
-                    << "export "
-                       "DYLD_FALLBACK_LIBRARY_PATH=\"$BREW_PREFIX/"
-                       "lib${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}\"\n"
                     << "exec ./" << host.RuntimeBinary << " \"$@\"\n";
             }
             const fs::path launcher = root / host.LauncherName;

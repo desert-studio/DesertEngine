@@ -50,6 +50,14 @@ namespace
         ASSERT_EQ( writer.Finalize(), entries.size() );
     }
 
+    // A base archive as the packager writes it: every base carries the chunk list, an undivided game an
+    // empty one (MountPackagedContent refuses a base without it).
+    void WriteBasePak( const fs::path& file, std::vector<std::pair<std::string, std::string>> entries )
+    {
+        entries.emplace_back( std::string( Common::Content::CHUNK_MANIFEST_KEY ), "" );
+        WritePak( file, entries );
+    }
+
     std::string ReadBytes( const fs::path& file )
     {
         std::ifstream in( file, std::ios::binary );
@@ -96,7 +104,7 @@ TEST( PackagedMount, AnIntactUpdateMountsAndTheGameSeesItsContent )
     const MountGuard guard;
     const fs::path dir = MakeTempDir( "intact" );
 
-    WritePak( dir / "Content.dpak",
+    WriteBasePak( dir / "Content.dpak",
               { { "Assets/level.desce", "first release" }, { "Assets/music.wav", "untouched by the update" } } );
     WritePak( dir / "Patch_001.dpak", { { "Assets/level.desce", "the fix the player downloaded" } } );
 
@@ -120,7 +128,7 @@ TEST( PackagedMount, AnUpdateThatREMOVESAFileIsAppliedAtStartup )
     const MountGuard guard;
     const fs::path dir = MakeTempDir( "removal" );
 
-    WritePak( dir / "Content.dpak", { { "Assets/level.desce", "first release" },
+    WriteBasePak( dir / "Content.dpak", { { "Assets/level.desce", "first release" },
                                       { "Assets/cut_character.mesh", "an asset the sequel drops" } } );
 
     // Present BEFORE the update — with the base alone, because the patch is what has to make the
@@ -157,7 +165,7 @@ TEST( PackagedMount, AnUpdateBuiltAgainstADifferentBaseStopsStartup )
     const MountGuard guard;
     const fs::path dir = MakeTempDir( "wrongbase" );
 
-    WritePak( dir / "Content.dpak", { { "Assets/level.desce", "first release" } } );
+    WriteBasePak( dir / "Content.dpak", { { "Assets/level.desce", "first release" } } );
     {
         Common::Utils::PakWriter writer( dir / "Patch_001.dpak" );
         ASSERT_TRUE( writer.IsOpen() );
@@ -199,7 +207,7 @@ TEST( PackagedMount, ADamagedUpdateStopsStartupAndNothingIsLeftMounted )
     const MountGuard guard;
     const fs::path dir = MakeTempDir( "bad_patch" );
 
-    WritePak( dir / "Content.dpak", { { "Assets/level.desce", "first release" } } );
+    WriteBasePak( dir / "Content.dpak", { { "Assets/level.desce", "first release" } } );
     WritePak( dir / "Patch_001.dpak", { { "Assets/level.desce", "the fix the player downloaded" } } );
     TruncateToHalf( dir / "Patch_001.dpak" );
 
@@ -226,7 +234,7 @@ TEST( PackagedMount, ADamagedGameArchiveStopsStartupWithADifferentCode )
     const MountGuard guard;
     const fs::path dir = MakeTempDir( "bad_base" );
 
-    WritePak( dir / "Content.dpak", { { "Assets/level.desce", "first release" } } );
+    WriteBasePak( dir / "Content.dpak", { { "Assets/level.desce", "first release" } } );
     FlipByte( dir / "Content.dpak", 0 ); // the magic — "this is not a Desert archive at all"
 
     const auto result = Desert::Player::MountPackagedContent( dir, "MyGame" );
@@ -254,7 +262,7 @@ TEST( PackagedMount, TheBaseArchiveIsChosenByAFixedPreferenceOrder )
     WritePak( dir / "Whatever.dpak", { { "w.txt", "w" } } );
     EXPECT_EQ( Desert::Player::FindBasePak( dir, "MyGame" ), dir / "Whatever.dpak" ); // the only one
 
-    WritePak( dir / "Content.dpak", { { "c.txt", "c" } } );
+    WriteBasePak( dir / "Content.dpak", { { "c.txt", "c" } } );
     EXPECT_EQ( Desert::Player::FindBasePak( dir, "MyGame" ), dir / "Content.dpak" ); // beats "only one"
 
     WritePak( dir / "MyGame.dpak", { { "g.txt", "g" } } );
@@ -324,7 +332,7 @@ TEST( PackagedMount, DamageInsideTheContentItselfFailsTheREADRatherThanReturning
     const fs::path dir = MakeTempDir( "bad_blob" );
 
     const std::string payload = "the level the player is about to load";
-    WritePak( dir / "Content.dpak", { { "Assets/level.desce", payload } } );
+    WriteBasePak( dir / "Content.dpak", { { "Assets/level.desce", payload } } );
 
     // The data region starts right after the 16-byte header, so this lands squarely inside the blob.
     FlipByte( dir / "Content.dpak", 16 + payload.size() / 2 );
@@ -347,7 +355,7 @@ TEST( PackagedMount, AnUndamagedArchiveStillReadsBackEveryByte )
     const std::string empty;
     const std::string one( 1, '\x01' );
     const std::string big( 300000, '\xa5' );
-    WritePak( dir / "Content.dpak",
+    WriteBasePak( dir / "Content.dpak",
               { { "Assets/empty.bin", empty }, { "Assets/one.bin", one }, { "Assets/big.bin", big } } );
 
     const auto result = Desert::Player::MountPackagedContent( dir, "MyGame" );
@@ -431,7 +439,7 @@ TEST( PackagedMount, AnArchiveThatNamesNoChunksIsAGameThatWasNeverDivided )
 {
     const MountGuard guard;
     const fs::path dir = MakeTempDir( "undivided" );
-    WritePak( dir / "Content.dpak", { { "Assets/menu.desce", "the whole game" } } );
+    WriteBasePak( dir / "Content.dpak", { { "Assets/menu.desce", "the whole game" } } );
 
     const auto result = Desert::Player::MountPackagedContent( dir, "MyGame" );
     ASSERT_EQ( result.ExitCode, Desert::Player::kContentOk ) << result.Message;
@@ -444,4 +452,21 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+TEST( PackagedMount, ABaseWithoutItsChunkListIsRefusedNamingThePath )
+{
+    // The packager writes the list into every base (ContentChunks.cpp), so a base without one is not
+    // "a game that was never divided" — it is damaged, and starting it would guess.
+    const MountGuard guard;
+    const fs::path   dir = MakeTempDir( "nochunklist" );
+    WritePak( dir / "Content.dpak", { { "Assets/menu.desce", "the whole game" } } );
+
+    const auto result = Desert::Player::MountPackagedContent( dir, "MyGame" );
+
+    EXPECT_EQ( result.ExitCode, Desert::Player::kContentChunkArchiveFailed ) << result.Message;
+    EXPECT_NE( result.Message.find( ( dir / std::string( Common::Content::CHUNK_MANIFEST_KEY ) ).string() ),
+               std::string::npos )
+         << result.Message;
+    EXPECT_FALSE( Common::Utils::VFS::IsMounted() );
 }

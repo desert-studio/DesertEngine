@@ -1173,6 +1173,11 @@ TEST( PackagedContent, APackagedGameIsABinaryAndAnArchiveThatStartWithNoArgument
          << "the generated launcher still names a project on the command line. That flag is the DEV door; "
             "a shipped game that needs it is a game that only starts when started the one blessed way:\n"
          << launcherRead.GetValue();
+    // Nor the Vulkan driver: the player finds its MoltenVK manifest from its own position (ENG-ROOT-4b,
+    // VulkanContext.cpp SelectDriverManifest), so a script that still exports one is a second source of
+    // the same answer — and a double-click without the script would have had no GPU.
+    EXPECT_EQ( launcherRead.GetValue().find( "VK_ICD_FILENAMES" ), std::string::npos ) << launcherRead.GetValue();
+    EXPECT_EQ( launcherRead.GetValue().find( "DYLD_" ), std::string::npos ) << launcherRead.GetValue();
 
     // ── THE ACCEPTANCE: the player's own sequence, no arguments anywhere in it.
     fs::current_path( root );
