@@ -68,8 +68,7 @@ namespace Desert::Animation
                 }
             }
             // In skeleton order, so a regeneration writes the same bytes (angleFns is unordered).
-            std::sort( clip.Tracks.begin(), clip.Tracks.end(),
-                       [&]( const BoneTrack& a, const BoneTrack& b )
+            std::sort( clip.Tracks.begin(), clip.Tracks.end(), [&]( const BoneTrack& a, const BoneTrack& b )
                        { return nameToIdx.at( a.BoneName ) < nameToIdx.at( b.BoneName ); } );
             return clip;
         }
