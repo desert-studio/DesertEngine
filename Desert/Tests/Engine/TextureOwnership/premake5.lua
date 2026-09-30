@@ -59,10 +59,6 @@ project(test_name)
 
     links { "Common", "Optick" }
 
-    -- Texture.cpp names a texture by Common::Utils::FileSystem::GetFileName, and that TU in libCommon is
-    -- the macOS one, so the ObjC runtime and AppKit come with it.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "system:not windows"

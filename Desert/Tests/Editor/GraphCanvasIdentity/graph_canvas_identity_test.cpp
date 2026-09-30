@@ -51,6 +51,7 @@
 #include <algorithm>
 #include <cfloat>
 #include <cstdio>
+#include <format>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -131,7 +132,7 @@ namespace
     {
         const GC::AnimGraphCanvas planned = GC::PlanAnimGraph( graph, ids );
 
-        for ( size_t i = 0; i < graph.States.size(); ++i )
+        for ( size_t i = 0; i < OutputMachine( graph )->States.size(); ++i )
         {
             const GC::PlannedNode& node = planned.Plan.Nodes[i];
 
@@ -141,24 +142,25 @@ namespace
             canvas.DrawNode( node.Id );
 
             const Position back = canvas.GetNodePosition( node.Id );
-            graph.States[i].X   = back.X;
-            graph.States[i].Y   = back.Y;
+            OutputMachine( graph )->States[i].X = back.X;
+            OutputMachine( graph )->States[i].Y = back.Y;
         }
         return planned;
     }
 
     G::AnimGraph GraphWithStates( int count )
     {
-        G::AnimGraph graph;
+        G::AnimGraph graph = ::Desert::Animation::Graph::MakeStateMachineGraph();
         for ( int i = 0; i < count; ++i )
         {
             G::State state;
             state.Name = "S" + std::to_string( i );
             state.X    = 100.0f * static_cast<float>( i + 1 );
             state.Y    = 10.0f * static_cast<float>( i + 1 );
-            graph.States.push_back( state );
+            OutputMachine( graph )->States.push_back( state );
         }
-        graph.Entry = graph.States.empty() ? "" : graph.States.front().Name;
+        OutputMachine( graph )->Entry =
+             OutputMachine( graph )->States.empty() ? "" : OutputMachine( graph )->States.front().Name;
         return graph;
     }
 
@@ -179,32 +181,32 @@ TEST( GraphCanvasIdentity, DeletingOneStateMovesNoneOfTheOthers )
     (void)DrawFrame( graph, ids, canvas ); // the document opens: every stored position goes in
 
     std::vector<Position> before;
-    for ( const auto& state : graph.States )
+    for ( const auto& state : OutputMachine( graph )->States )
         before.push_back( Position{ state.X, state.Y } );
 
     // The user deletes the second state. Everything after it shifts down one index in the model — which
     // is a fact about a vector and must not be a fact about the canvas.
-    graph.States.erase( graph.States.begin() + 1 );
+    OutputMachine( graph )->States.erase( OutputMachine( graph )->States.begin() + 1 );
     before.erase( before.begin() + 1 );
 
     (void)DrawFrame( graph, ids, canvas );
 
     int moved = 0;
-    for ( size_t i = 0; i < graph.States.size(); ++i )
+    for ( size_t i = 0; i < OutputMachine( graph )->States.size(); ++i )
     {
-        const Position now{ graph.States[i].X, graph.States[i].Y };
+        const Position now{ OutputMachine( graph )->States[i].X, OutputMachine( graph )->States[i].Y };
         if ( !( now == before[i] ) )
         {
             ++moved;
             std::printf( "[GraphCanvasIdentity] '%s' moved (%.1f,%.1f) -> (%.1f,%.1f)\n",
-                         graph.States[i].Name.c_str(), before[i].X, before[i].Y, now.X, now.Y );
+                         OutputMachine( graph )->States[i].Name.c_str(), before[i].X, before[i].Y, now.X, now.Y );
         }
     }
 
     // FIVE STATES SURVIVE AND NOT ONE OF THEM MAY HAVE MOVED. With `NodeId( i ) = i + 1` this number is
     // 4: every state after the deleted one inherits its neighbour's position, and the last one — drawn
     // under an id the canvas has never seen — reads back (FLT_MAX, FLT_MAX).
-    EXPECT_EQ( moved, 0 ) << moved << " of " << graph.States.size()
+    EXPECT_EQ( moved, 0 ) << moved << " of " << OutputMachine( graph )->States.size()
                           << " states were moved by deleting a DIFFERENT state";
 }
 
@@ -217,7 +219,7 @@ TEST( GraphCanvasIdentity, ADeletedStateTakesItsIdWithIt )
     const GC::ElementId       secondId = first.StateNodes[1];
     const GC::ElementId       thirdId  = first.StateNodes[2];
 
-    graph.States.erase( graph.States.begin() + 1 );
+    OutputMachine( graph )->States.erase( OutputMachine( graph )->States.begin() + 1 );
 
     const GC::AnimGraphCanvas second = GC::PlanAnimGraph( graph, ids );
 
@@ -233,9 +235,9 @@ TEST( GraphCanvasIdentity, ADeletedStateTakesItsIdWithIt )
 TEST( GraphCanvasIdentity, DeletingATransitionDoesNotRenumberTheOthers )
 {
     G::AnimGraph graph = GraphWithStates( 4 );
-    graph.States[0].Transitions.push_back( G::Transition{ "S1", 0.2f, false, 1.0f, {} } );
-    graph.States[0].Transitions.push_back( G::Transition{ "S2", 0.2f, false, 1.0f, {} } );
-    graph.States[0].Transitions.push_back( G::Transition{ "S3", 0.2f, false, 1.0f, {} } );
+    OutputMachine( graph )->States[0].Transitions.push_back( G::Transition{ "S1", 0.2f, false, 1.0f, {} } );
+    OutputMachine( graph )->States[0].Transitions.push_back( G::Transition{ "S2", 0.2f, false, 1.0f, {} } );
+    OutputMachine( graph )->States[0].Transitions.push_back( G::Transition{ "S3", 0.2f, false, 1.0f, {} } );
 
     GC::ElementIdMap          ids;
     const GC::AnimGraphCanvas first = GC::PlanAnimGraph( graph, ids );
@@ -246,7 +248,7 @@ TEST( GraphCanvasIdentity, DeletingATransitionDoesNotRenumberTheOthers )
 
     // Delete S0 -> S1. `kLink + state * 4096 + index` would now decode `toS3` as S0 -> S3's OLD slot,
     // which after the erase holds nothing; the next click would edit a different transition.
-    graph.States[0].Transitions.erase( graph.States[0].Transitions.begin() );
+    OutputMachine( graph )->States[0].Transitions.erase( OutputMachine( graph )->States[0].Transitions.begin() );
 
     const GC::AnimGraphCanvas second = GC::PlanAnimGraph( graph, ids );
     const GC::TransitionRef   ref    = GC::TransitionOfLink( second, toS3 );
@@ -254,7 +256,7 @@ TEST( GraphCanvasIdentity, DeletingATransitionDoesNotRenumberTheOthers )
     ASSERT_TRUE( ref.Valid() );
     EXPECT_EQ( ref.State, 0 );
     EXPECT_EQ( ref.Index, 1 ); // it moved down one SLOT and is still the same transition
-    EXPECT_EQ( graph.States[ref.State].Transitions[ref.Index].To, "S3" );
+    EXPECT_EQ( OutputMachine( graph )->States[ref.State].Transitions[ref.Index].To, "S3" );
 }
 
 TEST( GraphCanvasIdentity, IdsDoNotCollideAcrossKindsOrAtScale )
@@ -263,7 +265,7 @@ TEST( GraphCanvasIdentity, IdsDoNotCollideAcrossKindsOrAtScale )
     // at 1 while pins started at 0x2000'0000 — three ranges chosen by hand and never checked against one
     // another. 120 states with 60 transitions each is 7200 links, well past where the old encoding wraps.
     G::AnimGraph graph = GraphWithStates( 120 );
-    for ( auto& state : graph.States )
+    for ( auto& state : OutputMachine( graph )->States )
         for ( int t = 0; t < 60; ++t )
             state.Transitions.push_back( G::Transition{ "S" + std::to_string( t ), 0.2f, false, 1.0f, {} } );
 
@@ -277,7 +279,7 @@ TEST( GraphCanvasIdentity, IdsDoNotCollideAcrossKindsOrAtScale )
         EXPECT_TRUE( seen.insert( GC::Raw( id ) ).second ) << "id " << GC::Raw( id ) << " issued twice";
     };
 
-    for ( size_t i = 0; i < graph.States.size(); ++i )
+    for ( size_t i = 0; i < OutputMachine( graph )->States.size(); ++i )
     {
         claim( planned.StateNodes[i] );
         claim( planned.StateInPins[i] );
@@ -291,7 +293,7 @@ TEST( GraphCanvasIdentity, IdsDoNotCollideAcrossKindsOrAtScale )
 
     // Every id must also be in the range its kind claims, or `KindOf` — which the panels use to tell a
     // pin from a node — answers about a number rather than about an element.
-    for ( size_t i = 0; i < graph.States.size(); ++i )
+    for ( size_t i = 0; i < OutputMachine( graph )->States.size(); ++i )
     {
         EXPECT_EQ( GC::KindOf( planned.StateNodes[i] ), GC::ElementKind::Node );
         EXPECT_EQ( GC::KindOf( planned.StateInPins[i] ), GC::ElementKind::Pin );
@@ -315,15 +317,15 @@ TEST( GraphCanvasIdentity, AStateAddedAfterTheFirstFrameStillGetsItsStoredPositi
     late.Name = "Late";
     late.X    = 777.0f;
     late.Y    = 555.0f;
-    graph.States.push_back( late );
+    OutputMachine( graph )->States.push_back( late );
 
     const GC::AnimGraphCanvas planned = DrawFrame( graph, ids, canvas );
     EXPECT_FALSE( planned.Plan.Nodes[0].PushPosition );
     EXPECT_FALSE( planned.Plan.Nodes[1].PushPosition );
     EXPECT_TRUE( planned.Plan.Nodes[2].PushPosition ) << "the canvas has never seen this element";
 
-    EXPECT_FLOAT_EQ( graph.States[2].X, 777.0f );
-    EXPECT_FLOAT_EQ( graph.States[2].Y, 555.0f );
+    EXPECT_FLOAT_EQ( OutputMachine( graph )->States[2].X, 777.0f );
+    EXPECT_FLOAT_EQ( OutputMachine( graph )->States[2].Y, 555.0f );
 }
 
 // ── 4. A DUPLICATE NAME IS STILL TWO ELEMENTS ────────────────────────────────────────────────────────
@@ -333,7 +335,7 @@ TEST( GraphCanvasIdentity, TwoStatesSharingANameGetTwoIds )
     // A `.danimgraph` is a text file, so this can arrive from disk however carefully the editor keeps
     // names unique. Handing one id to two nodes makes the canvas draw one of them and lose the other.
     G::AnimGraph graph   = GraphWithStates( 2 );
-    graph.States[1].Name = graph.States[0].Name;
+    OutputMachine( graph )->States[1].Name = OutputMachine( graph )->States[0].Name;
 
     GC::ElementIdMap          ids;
     const GC::AnimGraphCanvas planned = GC::PlanAnimGraph( graph, ids );
@@ -379,7 +381,7 @@ namespace
         for ( const auto& node : GC::PlanAnimGraph( graph, ids ).Plan.Nodes )
             run.SecondFrame.push_back( node.PushPosition );
 
-        graph.States[1].Name = "Renamed";
+        OutputMachine( graph )->States[1].Name = "Renamed";
         for ( const auto& node : GC::PlanAnimGraph( graph, ids ).Plan.Nodes )
             run.AfterOneWasReplaced.push_back( node.PushPosition );
         return run;
@@ -516,25 +518,25 @@ TEST( GraphCanvasIdentity, TheFingerprintNoticesWhatItIsFor )
 
     {
         G::AnimGraph moved = GraphWithStates( 3 );
-        moved.States[1].X += 1.0f;
+        OutputMachine( moved )->States[1].X += 1.0f;
         GC::ElementIdMap other;
         EXPECT_NE( GC::Fingerprint( GC::PlanAnimGraph( moved, other ).Plan ), base ) << "position";
     }
     {
         G::AnimGraph renamed   = GraphWithStates( 3 );
-        renamed.States[1].Name = "Other";
+        OutputMachine( renamed )->States[1].Name = "Other";
         GC::ElementIdMap other;
         EXPECT_NE( GC::Fingerprint( GC::PlanAnimGraph( renamed, other ).Plan ), base ) << "identity";
     }
     {
         G::AnimGraph reordered = GraphWithStates( 3 );
-        std::swap( reordered.States[0], reordered.States[2] );
+        std::swap( OutputMachine( reordered )->States[0], OutputMachine( reordered )->States[2] );
         GC::ElementIdMap other;
         EXPECT_NE( GC::Fingerprint( GC::PlanAnimGraph( reordered, other ).Plan ), base ) << "order";
     }
     {
         G::AnimGraph linked = GraphWithStates( 3 );
-        linked.States[0].Transitions.push_back( G::Transition{ "S1", 0.2f, false, 1.0f, {} } );
+        OutputMachine( linked )->States[0].Transitions.push_back( G::Transition{ "S1", 0.2f, false, 1.0f, {} } );
         GC::ElementIdMap other;
         EXPECT_NE( GC::Fingerprint( GC::PlanAnimGraph( linked, other ).Plan ), base ) << "links";
     }
@@ -609,19 +611,36 @@ TEST( GraphCanvasIdentity, BothGraphDocumentsOfferFrameAllWithoutAMouse )
     // empty rectangle for its whole life once `imgui-node-editor`'s lazy first-frame init had refused its
     // canvas. And it has to be a DOCUMENT ACTION, not only a button: synthetic input is closed on this
     // machine, so a button is a control no script and no test can press.
-    for ( const char* relative : { "Editor/Source/Editor/Panels/Animation/AnimGraphPanel.cpp",
-                                   "Editor/Source/Editor/Panels/NodeGraph/NodeGraphPanel.cpp" } )
+    //
+    // THE CANVAS THE ACTION FRAMES IS THE ONE ON SCREEN. The anim graph has two canvases (the pose graph and
+    // the state machine, each its own editor context), so its actions name `ShownCanvas()` -- and that
+    // accessor is pinned to choose between exactly those two, so an action framing a hidden canvas (which
+    // does nothing the user can see) is red as well.
+    struct Document
     {
-        SCOPED_TRACE( relative );
-        const std::string source = PanelSource( relative );
-        ASSERT_FALSE( source.empty() ) << relative;
-        EXPECT_NE( source.find( R"({ "Frame All", [this] { Graph::FrameAll( m_Context ); } },)" ),
+        const char* Relative;
+        const char* Canvas;
+    };
+    for ( const Document& doc :
+          { Document{ "Editor/Source/Editor/Panels/Animation/AnimGraphPanel.cpp", "ShownCanvas()" },
+            Document{ "Editor/Source/Editor/Panels/NodeGraph/NodeGraphPanel.cpp", "m_Context" } } )
+    {
+        SCOPED_TRACE( doc.Relative );
+        const std::string source = PanelSource( doc.Relative );
+        ASSERT_FALSE( source.empty() ) << doc.Relative;
+        EXPECT_NE( source.find(
+                        std::format( R"({{ "Frame All", [this] {{ Graph::FrameAll( {} ); }} }},)", doc.Canvas ) ),
                    std::string::npos )
              << "no Frame All among this document's actions";
-        EXPECT_NE( source.find( R"({ "Frame Selection", [this] { Graph::FrameSelection( m_Context ); } },)" ),
+        EXPECT_NE( source.find( std::format(
+                        R"({{ "Frame Selection", [this] {{ Graph::FrameSelection( {} ); }} }},)", doc.Canvas ) ),
                    std::string::npos )
              << "no Frame Selection among this document's actions";
     }
+    const std::string header = PanelSource( "Editor/Source/Editor/Panels/Animation/AnimGraphPanel.hpp" );
+    ASSERT_FALSE( header.empty() );
+    EXPECT_NE( header.find( "return m_EditingMachine ? m_Context : m_PoseContext;" ), std::string::npos )
+         << "AnimGraphPanel::ShownCanvas no longer answers with the canvas the panel is drawing";
 }
 
 TEST( GraphCanvasIdentity, NeitherCanvasIsWrappedInAChildWindow )

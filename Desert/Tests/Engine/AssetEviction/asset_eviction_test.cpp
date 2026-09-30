@@ -641,7 +641,8 @@ TEST( AssetEviction, AnUnloadedAssetStopsAnsweringWithItsPayload )
     AnimationAsset animation( path );
     ASSERT_TRUE( animation.Unload() );
     EXPECT_TRUE( animation.GetSkeleton().IsNull() );
-    EXPECT_TRUE( animation.GetClip().Tracks.empty() );
+    EXPECT_TRUE( animation.GetClip().Sequence.Tracks.empty() );
+    EXPECT_TRUE( animation.GetClip().Sequence.Bindings.empty() );
 
     CloudNoiseVolumeAsset noise( path );
     ASSERT_TRUE( noise.Unload() );

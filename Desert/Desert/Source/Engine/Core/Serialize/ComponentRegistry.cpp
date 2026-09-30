@@ -8,6 +8,7 @@
 #include <Engine/Core/Serialize/TextureSlot.hpp>
 #include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 
+#include <Common/Core/ByteText.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Json/Document.hpp>
 #include <Common/Core/AssetHandle.hpp>
@@ -37,10 +38,12 @@
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
 #include <Engine/Assets/FoliageTypeAsset.hpp>
+#include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
+#include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/CubeGridBlockoutComponent.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
@@ -1599,29 +1602,36 @@ namespace Desert::Core::Serialize
             Register( std::move( s ) );
         }
 
-        // ---- UI Anim (custom: the reflected path has no vector-of-struct support; the playhead is
-        //      runtime-only and never written) ----
+        // ---- UI Anim (custom: the sequence travels as the TMLN block — the one timeline format — and the
+        //      playhead is runtime-only and never written) ----
         {
             ComponentSerializer s;
             s.Key       = "UIAnim";
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::UIAnimComponent>(); };
             s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
             {
-                const auto&                d = e.GetComponent<ECS::UIAnimComponent>().Data;
-                Assets::UIAnimComponentSer ser;
-                ser.Duration = d.Duration;
-                ser.Loop     = d.Loop;
-                ser.Playing  = d.Playing;
-                ser.Tracks.reserve( d.Tracks.size() );
-                for ( const auto& tr : d.Tracks )
+                const auto& d       = e.GetComponent<ECS::UIAnimComponent>().Data;
+                auto        written = Animation::Timeline::WriteSequence( d.Sequence );
+                if ( !written )
                 {
-                    Assets::UIAnimTrackSer ts;
-                    ts.Property = static_cast<int>( tr.Property );
-                    ts.Keys.reserve( tr.Keys.size() );
-                    for ( const auto& k : tr.Keys )
-                        ts.Keys.push_back( { k.Time, k.Value, static_cast<int>( k.Easing ) } );
-                    ser.Tracks.push_back( std::move( ts ) );
+                    // A sequence the writer refuses is named here rather than saved as an empty clip.
+                    LOG_ERROR( "UIAnim: the TMLN writer refused the sequence: {}", written.GetError() );
+                    return Common::Json::Value{};
                 }
+                const std::vector<uint8_t> bytes = written.ExtractValue();
+                auto block = Common::Json::Read<Common::Json::Value>( Common::TextOf( bytes ) );
+                if ( !block )
+                {
+                    // WriteSequence's own output not reading back as JSON is a broken writer, not a state of the
+                    // data; it is named here rather than saved as an empty clip.
+                    LOG_ERROR( "UIAnim: the TMLN writer produced text that does not read back: {}",
+                               block.GetError() );
+                    return Common::Json::Value{};
+                }
+                Assets::UIAnimComponentSer ser;
+                ser.Sequence = block.GetValue();
+                ser.Loop     = static_cast<int>( d.Loop );
+                ser.AutoPlay = d.AutoPlay;
                 return Common::Json::FromStruct( ser );
             };
             s.Deserialize = []( ECS::Entity e, const Common::Json::Node& g, const Assets::AssetManager&,
@@ -1630,27 +1640,33 @@ namespace Desert::Core::Serialize
                 auto parsed = ReadBlock<Assets::UIAnimComponentSer>( g, issues );
                 if ( !parsed.has_value() )
                     return;
-                const auto& d    = parsed.value();
-                auto&       ac   = e.HasComponent<ECS::UIAnimComponent>() ? e.GetComponent<ECS::UIAnimComponent>()
-                                                                          : e.AddComponent<ECS::UIAnimComponent>();
-                ac.Data.Duration = d.Duration;
-                ac.Data.Loop     = d.Loop;
-                ac.Data.Playing  = d.Playing;
-                ac.Data.Time     = 0.0f;
-                ac.Data.Tracks.clear();
-                ac.Data.Tracks.reserve( d.Tracks.size() );
-                for ( const auto& ts : d.Tracks )
+                const auto& d = parsed.value();
+                if ( d.Loop < 0 || d.Loop > static_cast<int>( Animation::Timeline::LoopMode::PingPong ) )
                 {
-                    ECS::UIAnimTrack tr;
-                    tr.Property = static_cast<ECS::UITweenProperty>( ts.Property );
-                    tr.Keys.reserve( ts.Keys.size() );
-                    for ( const auto& k : ts.Keys )
-                        tr.Keys.push_back( { k.Time, k.Value, static_cast<ECS::UIEasing>( k.Easing ) } );
-                    std::sort( tr.Keys.begin(), tr.Keys.end(),
-                               []( const ECS::UIAnimKey& a, const ECS::UIAnimKey& b )
-                               { return a.Time < b.Time; } );
-                    ac.Data.Tracks.push_back( std::move( tr ) );
+                    issues.push_back( { g.Where().Key( "Loop" ).ToString(),
+                                        "a LoopMode (0 Once, 1 Loop, 2 PingPong)", std::format( "{}", d.Loop ) } );
+                    return;
                 }
+                const std::string text     = Common::Json::Write( d.Sequence );
+                auto              sequence = Animation::Timeline::ReadSequence( Common::BytesOf( text ) );
+                if ( !sequence )
+                {
+                    issues.push_back(
+                         { g.Where().Key( "Sequence" ).ToString(), "a TMLN sequence", sequence.GetError() } );
+                    return;
+                }
+                if ( sequence.GetValue().Host != Animation::Timeline::SequenceHost::UIAnimation )
+                {
+                    issues.push_back( { g.Where().Key( "Sequence" ).ToString(), "a sequence hosted as UIAnimation",
+                                        Animation::Timeline::ToString( sequence.GetValue().Host ) } );
+                    return;
+                }
+                auto& ac         = e.HasComponent<ECS::UIAnimComponent>() ? e.GetComponent<ECS::UIAnimComponent>()
+                                                                          : e.AddComponent<ECS::UIAnimComponent>();
+                ac.Data.Sequence = sequence.ExtractValue();
+                ac.Data.Loop     = static_cast<Animation::Timeline::LoopMode>( d.Loop );
+                ac.Data.AutoPlay = d.AutoPlay;
+                ac.Data.Playback.reset(); // the range may have changed; the next frame re-creates the player
             };
             Register( std::move( s ) );
         }
@@ -1722,6 +1738,19 @@ namespace Desert::Core::Serialize
                         ser.Graph = std::move( path );
                     }
                 }
+                // The linked layers, by path like the graph; one the resolver cannot place is dropped with
+                // the rest of the unresolvable handles, never written as an empty string.
+                if ( !ac.LinkedLayerGraphs.empty() )
+                {
+                    auto                     resolver = MakeAssetResolver( assetManager );
+                    std::vector<std::string> paths;
+                    for ( const Assets::AssetHandle linked : ac.LinkedLayerGraphs )
+                        if ( auto path = resolver.ToPath( static_cast<uint64_t>( linked ), "AnimGraphAsset" );
+                             !path.empty() )
+                            paths.push_back( std::move( path ) );
+                    if ( !paths.empty() )
+                        ser.LinkedLayers = std::move( paths );
+                }
                 return Common::Json::FromStruct( ser );
             };
             s.Deserialize = []( ECS::Entity e, const Common::Json::Node& g,
@@ -1747,6 +1776,13 @@ namespace Desert::Core::Serialize
                 {
                     auto resolver = MakeAssetResolver( assetManager );
                     ac.GraphAsset = Assets::AssetHandle( resolver.FromPath( *d.Graph, "AnimGraphAsset" ) );
+                }
+                ac.LinkedLayerGraphs.clear();
+                if ( d.LinkedLayers.has_value() )
+                {
+                    auto resolver = MakeAssetResolver( assetManager );
+                    for ( const std::string& path : *d.LinkedLayers )
+                        ac.LinkedLayerGraphs.emplace_back( resolver.FromPath( path, "AnimGraphAsset" ) );
                 }
             };
             Register( std::move( s ) );
@@ -1874,6 +1910,114 @@ namespace Desert::Core::Serialize
         Register(
              MakeFlag<ECS::VisibilityComponent>( "Visibility", "Visible", &ECS::VisibilityComponent::Visible ) );
 
+        // ---- Level sequence actor: the `.dseq` it plays + playback settings + binding overrides (I11) ----
+        // {SequenceGuid, SequencePath, Loop, AutoPlay, BindingOverrides[{Binding, Entity}]}: the Foliage shape
+        // for the reference (GUID is the identity, path for the reader and the refusal).
+        {
+            ComponentSerializer s;
+            s.Key = "LevelSequence";
+            s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::LevelSequenceComponent>(); };
+
+            s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
+            {
+                const auto&                 actor = entity.GetComponent<ECS::LevelSequenceComponent>();
+                Common::Json::ObjectBuilder out;
+                if ( const auto sequence =
+                          assetManager.FindByHandle<Assets::LevelSequenceAsset>( actor.Sequence ) )
+                {
+                    out.Set( "SequenceGuid", Common::Content::AssetGuidToText( sequence->Guid() ) );
+                    out.Set( "SequencePath",
+                             sequence->GetMetadata()
+                                  .Filepath.lexically_normal()
+                                  .lexically_relative( Common::Constants::Path::ASSETS_PATH.lexically_normal() )
+                                  .generic_string() );
+                }
+                else if ( static_cast<uint64_t>( actor.Sequence ) != 0 )
+                {
+                    LOG_ERROR(
+                         "[LevelSequence] Entity '{}' names sequence handle {} that no loaded asset carries; "
+                         "its reference is saved empty",
+                         entity.GetComponent<ECS::TagComponent>().Tag, static_cast<uint64_t>( actor.Sequence ) );
+                }
+                // LoopMode is stored BY NAME ("Once" / "Loop" / "PingPong"): the scene is text a person reads.
+                out.Set( "Loop", actor.Loop );
+                out.Set( "AutoPlay", actor.AutoPlay );
+                Common::Json::Value::Array overrides;
+                for ( const auto& over : actor.BindingOverrides )
+                    overrides.emplace_back(
+                         Common::Json::ObjectBuilder()
+                              .Set( "Binding", Common::Content::AssetGuidToText( over.Binding.Value ) )
+                              .Set( "Entity", over.Entity )
+                              .Build() );
+                out.Set( "BindingOverrides", Common::Json::Value( std::move( overrides ) ) );
+                return { out.Build() };
+            };
+
+            s.Deserialize = []( ECS::Entity entity, const Common::Json::Node& g,
+                                const Assets::AssetManager& assetManager, Common::Json::Issues& issues )
+            {
+                if ( !g.ExpectKind( Common::Json::Kind::Object, issues ) )
+                    return;
+                std::string guidText;
+                std::string path;
+                g.ReadInto( "SequenceGuid", guidText, issues );
+                g.ReadInto( "SequencePath", path, issues );
+
+                auto& actor = entity.AddComponent<ECS::LevelSequenceComponent>();
+                g.ReadInto( "Loop", actor.Loop, issues ); // an unknown name is a named issue, the default kept
+                g.ReadInto( "AutoPlay", actor.AutoPlay, issues );
+                if ( const auto overrides = g.Find( "BindingOverrides" ) )
+                    overrides->ForEachElement(
+                         [&]( std::size_t, const Common::Json::Node& element )
+                         {
+                             std::string                       bindingText;
+                             ECS::LevelSequenceBindingOverride over;
+                             element.ReadInto( "Binding", bindingText, issues );
+                             element.ReadInto( "Entity", over.Entity, issues );
+                             const auto binding = Common::Content::AssetGuidFromText( bindingText );
+                             if ( !binding )
+                             {
+                                 issues.push_back( Common::Json::Issue{ element.Where().ToString(),
+                                                                        "a binding GUID (32 hex)", bindingText } );
+                                 return;
+                             }
+                             over.Binding.Value = binding.GetValue();
+                             actor.BindingOverrides.push_back( over );
+                         } );
+                if ( guidText.empty() && path.empty() )
+                    return; // an actor whose sequence was never chosen: authored so, saved so
+
+                const auto guid = Common::Content::AssetGuidFromText( guidText );
+                // A deserializer is handed the registry as const, and creating the asset it names is a write
+                // (the same cast the FoliageType row below and FromPath make).
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+                auto& manager = const_cast<Assets::AssetManager&>( assetManager );
+                Assets::Asset<Assets::LevelSequenceAsset> sequence;
+                if ( guid )
+                {
+                    sequence = manager.FindByHandle<Assets::LevelSequenceAsset>( Common::UUID(
+                         static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) ) );
+                    if ( !sequence )
+                        sequence = Assets::CreateFromRegistryGuid<Assets::LevelSequenceAsset>(
+                             manager, guid.GetValue(), Common::Content::ContentKind::LevelSequence );
+                }
+                if ( !sequence )
+                {
+                    // REFUSED, NOT SUBSTITUTED: an actor playing nothing would look authored.
+                    issues.push_back(
+                         Common::Json::Issue{ "LevelSequence.SequenceGuid", "a .dseq the content registry knows",
+                                              std::format( "GUID '{}', path '{}'", guidText, path ) } );
+                    LOG_ERROR( "[LevelSequence] Entity '{}': sequence GUID '{}' (path '{}') is not a .dseq this "
+                               "project has scanned; the actor plays nothing",
+                               entity.GetComponent<ECS::TagComponent>().Tag, guidText, path );
+                    return;
+                }
+                actor.Sequence = sequence->GetMetadata().Handle;
+            };
+
+            Register( std::move( s ) );
+        }
+
         // ---- Foliage field: the `.defoliage` it is painted with (FO-1, SCNE 33) ----
         // {FoliageTypeGuid, FoliageTypePath}, the mesh block's shape: the GUID is the identity, the path is for
         // the reader and the refusal. The scatter numbers used to be inline here; SceneMigrator moved them into
@@ -1935,9 +2079,9 @@ namespace Desert::Core::Serialize
                 {
                     // REFUSED, NOT SUBSTITUTED: a field painted with defaults would look like the scene's grass
                     // while being nobody's.
-                    issues.push_back( Common::Json::Issue{ "Foliage.FoliageTypeGuid",
-                                                           "a .defoliage the content registry knows",
-                                                           "GUID '" + guidText + "', path '" + path + "'" } );
+                    issues.push_back(
+                         Common::Json::Issue{ "Foliage.FoliageTypeGuid", "a .defoliage the content registry knows",
+                                              std::format( "GUID '{}', path '{}'", guidText, path ) } );
                     LOG_ERROR(
                          "[Foliage] Entity '{}': foliage type GUID '{}' (path '{}') is not a .defoliage this "
                          "project has scanned; the field keeps no type",

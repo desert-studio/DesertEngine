@@ -257,7 +257,7 @@ namespace Desert::Editor
         m_UIHelper = std::make_unique<Editor::UI::UIHelper>();
         m_UIHelper->Init();
 
-        m_LightGizmoRenderer = std::make_unique<LightGizmoRenderer>( scene, m_UIHelper.get() );
+        m_LightGizmoRenderer = std::make_unique<LightGizmoRenderer>( scene, assetManager, m_UIHelper.get() );
         m_AsyncLoader        = std::make_unique<AsyncMeshLoader>(); // starts the background cook worker
 
         s_Live.push_back( this );
@@ -787,6 +787,43 @@ namespace Desert::Editor
         if ( !target )
             return Common::MakeError<bool>( "there is no viewport to aim." );
         return target->ApplyCameraPreset( preset );
+    }
+
+    Common::BoolResultStr ViewportPanel::RequestCommand( ViewportCommand command )
+    {
+        ViewportPanel* target = ActiveViewport();
+        if ( target == nullptr )
+            return Common::MakeFormattedError<bool>( "'{}': there is no viewport to run it in.",
+                                                     CommandInfo( command ).Label );
+        return target->RunCommand( command );
+    }
+
+    Common::BoolResultStr ViewportPanel::RunCommand( ViewportCommand command )
+    {
+        switch ( command )
+        {
+            case ViewportCommand::SelectNone:
+                Core::SelectionManager::ClearSelection();
+                return Common::MakeSuccess( true );
+            case ViewportCommand::FocusSelected:
+            {
+                const auto selected = Core::SelectionManager::GetSelected();
+                if ( !selected )
+                    return Common::MakeError<bool>( "Focus Selected: nothing is selected." );
+                const auto camera       = ViewCamera();
+                auto*      editorCamera = dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() );
+                if ( editorCamera == nullptr )
+                    return Common::MakeError<bool>(
+                         "Focus Selected: this viewport looks through a scene camera, not the editor camera." );
+                const auto entity = m_Scene ? m_Scene->FindEntityByID( *selected ) : std::nullopt;
+                if ( !entity )
+                    return Common::MakeError<bool>(
+                         "Focus Selected: the selected entity is not in this viewport's scene." );
+                editorCamera->Focus( glm::vec3( entity->get().GetWorldTransform()[3] ) );
+                return Common::MakeSuccess( true );
+            }
+        }
+        return Common::MakeError<bool>( "unknown viewport command" );
     }
 
     Common::BoolResultStr ViewportPanel::SetCameraPreset( uint64_t sceneViewId, ViewportCameraPreset preset )
@@ -2267,7 +2304,7 @@ namespace Desert::Editor
         std::sort( tips2.begin(), tips2.end(), []( const Tip& l, const Tip& r ) { return l.Depth < r.Depth; } );
 
         // Clickable: a tip under the cursor snaps the editor camera to view FROM that axis end (forward =
-        // -worldDir). Hover state suppresses picking (see OnMousePressed). Nearest-to-cursor tip wins.
+        // -worldDir). Hover state suppresses picking (see OnMouseButtonPressed). Nearest-to-cursor tip wins.
         const ImVec2 mouse = ::ImGui::GetMousePos();
         auto*        editorCam =
              m_Scene ? dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() ) : nullptr;
@@ -2315,22 +2352,7 @@ namespace Desert::Editor
             editorCam->SnapToDirection( -tips2[hotTip].WorldDir );
     }
 
-    void ViewportPanel::OnEvent( Common::Event& e )
-    {
-        // NO EventWindowResize SUBSCRIPTION. There was one, and it called an `OnWindowResize` whose whole
-        // body was two commented-out lines naming members this class does not have (`m_ImGuiLayer`,
-        // `m_EditorCamera`) and a `return false`. A viewport takes its size from its ImGui window, not
-        // from the OS window; the handler and the subscription are both gone rather than left looking
-        // like the resize is being handled somewhere.
-        Common::EventManager eventManager( e );
-        eventManager.Notify<Common::MouseButtonPressedEvent>( [this]( Common::MouseButtonPressedEvent& e )
-                                                              { return OnMousePressed( e ); } );
-
-        eventManager.Notify<Common::KeyPressedEvent>( [this]( Common::KeyPressedEvent& e )
-                                                      { return OnKeyPressedEvent( e ); } );
-    }
-
-    bool ViewportPanel::OnMousePressed( Common::MouseButtonPressedEvent& e )
+    bool ViewportPanel::OnMouseButtonPressed( Common::MouseButtonPressedEvent& e )
     {
         // LMB picks/selects ONLY in Select mode and when no brush is active (terrain brush / Foliage paint
         // both consume LMB in OnUIRender instead).
@@ -2454,17 +2476,19 @@ namespace Desert::Editor
         return false;
     }
 
-    bool ViewportPanel::OnKeyPressedEvent( Common::KeyPressedEvent& e )
+    bool ViewportPanel::OnKeyPressed( Common::KeyPressedEvent& e )
     {
+        if ( const std::optional<ViewportCommand> command = ViewportCommandForKey( e.GetKeyCode() ) )
+        {
+            if ( *command == ViewportCommand::SelectNone &&
+                 m_Gizmo.GetOperation() != Tools::GizmoController::Operation::None )
+                m_Gizmo.SetOperation( Tools::GizmoController::Operation::None );
+            else if ( const auto ran = RunCommand( *command ); !ran )
+                LOG_WARN( "[Viewport] {}", ran.GetError() );
+            return false;
+        }
         switch ( e.GetKeyCode() )
         {
-            case Common::KeyCode::Escape:
-                // First Esc turns the gizmo off; a second Esc (gizmo already off) clears the selection.
-                if ( m_Gizmo.GetOperation() == Tools::GizmoController::Operation::None )
-                    Core::SelectionManager::ClearSelection();
-                else
-                    m_Gizmo.SetOperation( Tools::GizmoController::Operation::None );
-                break;
             case Common::KeyCode::T:
                 m_Gizmo.SetOperation( Tools::GizmoController::Operation::Translate );
                 break;
@@ -2489,14 +2513,6 @@ namespace Desert::Editor
                         LOG_WARN( "[Animation] the control manipulator mode was not changed: {}", set.GetError() );
                     }
                 }
-                break;
-            case Common::KeyCode::F:
-                // Frame the selected entity (Unity/Godot 'F').
-                if ( const auto sel = Core::SelectionManager::GetSelected() )
-                    if ( auto cam = ViewCamera() )
-                        if ( auto* editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( cam.get() ) )
-                            if ( auto ref = m_Scene->FindEntityByID( *sel ) )
-                                editorCam->Focus( glm::vec3( ref->get().GetWorldTransform()[3] ) );
                 break;
             // A `default` and not 115 empty cases: this is a KEYBOARD, and the shortcuts it handles are a
             // deliberately small set. Enumerating the rest would make every key an editing decision and
@@ -2595,3 +2611,6 @@ namespace Desert::Editor
     }
 
 } // namespace Desert::Editor
+
+static_assert( Common::HandlesEvent<Desert::Editor::ViewportPanel, Common::MouseButtonPressedEvent> &&
+               Common::HandlesEvent<Desert::Editor::ViewportPanel, Common::KeyPressedEvent> );

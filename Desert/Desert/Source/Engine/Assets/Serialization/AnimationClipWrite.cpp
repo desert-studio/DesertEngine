@@ -1,4 +1,5 @@
 #include "AnimationClipWrite.hpp"
+#include "AnimationClipBuild.hpp"
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Common/Content/CanonicalText.hpp>
@@ -11,89 +12,6 @@
 
 namespace Desert::Assets::Serialization
 {
-    AnimationAssetData BuildAssetDataFromClip( const Animation::AnimationClip& clip )
-    {
-        AnimationAssetData data;
-        data.Name              = clip.AnimationName;
-        data.TickRate          = FrameRateData{ clip.TickRate.Numerator, clip.TickRate.Denominator };
-        data.DisplayRate       = FrameRateData{ clip.DisplayRate.Numerator, clip.DisplayRate.Denominator };
-        data.DurationTicks     = clip.DurationTicks.Value;
-        // The GUID resolves; the path is the registry's key for it, for the reader (AssetGuidRef).
-        if ( !clip.Skeleton.IsNull() )
-            data.Skeleton = ContentRegistry::ReferenceTo( clip.Skeleton );
-
-        data.Channels.reserve( clip.Tracks.size() );
-        for ( const auto& track : clip.Tracks )
-        {
-            ChannelData channel;
-            channel.BoneName = track.BoneName;
-
-            channel.Positions.reserve( track.PositionKeys.size() );
-            for ( const auto& k : track.PositionKeys )
-                channel.Positions.push_back(
-                     KeyPosition{ k.Tick.Value, k.Position,
-                                  KeyShape{ static_cast<int>( k.Interp ), static_cast<int>( k.Mode ), 0.0f, 0.0f },
-                                  k.ArriveTangent, k.LeaveTangent } );
-
-            channel.Rotations.reserve( track.RotationKeys.size() );
-            for ( const auto& k : track.RotationKeys )
-                channel.Rotations.push_back( KeyRotation{
-                     k.Tick.Value, k.Rotation, KeyShape{ static_cast<int>( k.Interp ), 0, 0.0f, 0.0f } } );
-
-            channel.Scales.reserve( track.ScaleKeys.size() );
-            for ( const auto& k : track.ScaleKeys )
-                channel.Scales.push_back(
-                     KeyScale{ k.Tick.Value, k.Scale,
-                               KeyShape{ static_cast<int>( k.Interp ), static_cast<int>( k.Mode ), 0.0f, 0.0f },
-                               k.ArriveTangent, k.LeaveTangent } );
-
-            data.Channels.push_back( std::move( channel ) );
-        }
-
-        data.Sections.reserve( clip.Sections.size() );
-        for ( const auto& section : clip.Sections )
-        {
-            SectionData out;
-            out.Name      = section.Name;
-            out.StartTick = section.Start.Value;
-            out.EndTick   = section.End.Value;
-            out.Blend     = static_cast<int32_t>( section.Blend );
-            out.Tracks    = section.Tracks;
-            out.Weight.reserve( section.Weight.size() );
-            for ( const auto& k : section.Weight )
-                out.Weight.push_back( SectionWeightKey{
-                     k.Tick.Value, k.Value,
-                     KeyShape{ static_cast<int>( k.Interp ), static_cast<int>( k.Mode ), 0.0f, 0.0f },
-                     k.ArriveTangent, k.LeaveTangent } );
-            data.Sections.push_back( std::move( out ) );
-        }
-
-        data.Notifies.reserve( clip.Notifies.size() );
-        for ( const auto& notify : clip.Notifies )
-            data.Notifies.push_back(
-                 NotifyData{ notify.Name, notify.Tick.Value, notify.Track, notify.DurationTicks.Value } );
-
-        data.Curves.reserve( clip.Curves.size() );
-        for ( const auto& curve : clip.Curves )
-        {
-            CurveData out;
-            out.Name = curve.Name;
-            out.Keys.reserve( curve.Keys.size() );
-            for ( const auto& k : curve.Keys )
-                out.Keys.push_back( SectionWeightKey{
-                     k.Tick.Value, k.Value,
-                     KeyShape{ static_cast<int>( k.Interp ), static_cast<int>( k.Mode ), 0.0f, 0.0f },
-                     k.ArriveTangent, k.LeaveTangent } );
-            data.Curves.push_back( std::move( out ) );
-        }
-
-        // An in-memory clip that never got a section is written with the one it behaves as, so no
-        // generation-3 file can be silent about what its values mean. One producer for all three writers.
-        EnsureStatedSections( data );
-
-        return data;
-    }
-
     namespace
     {
         // THE SOURCE THE FILE BEING REPLACED NAMES (THM-FIXJ), kept as its GUID is: a save of an imported clip
@@ -133,9 +51,15 @@ namespace Desert::Assets::Serialization
         if ( identity.IsNull() )
             return Common::MakeFormattedError<bool>( "clip '{}' was not saved to '{}': no identity was stated",
                                                      clip.AnimationName, path.string() );
-        AnimationAssetData data = BuildAssetDataFromClip( clip );
-        data.Header       = Common::Content::MakeTextHeader( Common::Content::ContentKind::Animation, identity,
-                                                             AnimationTextSubsystems() );
+        auto built = BuildAssetDataFromClip( clip );
+        if ( !built )
+            return Common::MakeError<bool>( built.GetError() );
+        AnimationAssetData data = built.ExtractValue();
+        data.Header = Common::Content::MakeTextHeader( Common::Content::ContentKind::Animation, identity,
+                                                       AnimationTextSubsystems() );
+        // THE CLIP'S SKELETON (SKEL-TREE): the GUID it holds, spelled with the registry's path for it.
+        if ( !clip.Skeleton.IsNull() )
+            data.Skeleton = ContentRegistry::ReferenceTo( clip.Skeleton );
         const auto import = ImportOfFileBeingReplaced( path );
         if ( !import )
             return Common::MakeError<bool>( import.GetError() );

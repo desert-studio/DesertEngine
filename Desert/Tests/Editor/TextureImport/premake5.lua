@@ -65,10 +65,6 @@ project(test_name)
     links { "Common", "Optick" }
     links { "OpenEXRCore" } -- .exr texture sources (BuildScripts/ThirdParty/OpenEXR.lua)
 
-    -- Common contains Objective-C (MacOSFileSystem's file dialog) and TextureAsset::Load reaches
-    -- Common::Utils::FileSystem, so the ObjC runtime + AppKit have to link as well.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

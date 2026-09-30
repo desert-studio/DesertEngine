@@ -51,6 +51,11 @@ namespace Desert::Editor::Graph
     /// `EndFrame` on the map itself: the plan IS the frame, and a caller that had to remember to bracket
     /// it is a caller that will one day forget.
     [[nodiscard]] AnimGraphCanvas PlanAnimGraph( const Animation::Graph::AnimGraph& graph, ElementIdMap& ids );
+    /// The same plan over ANY machine's states: a state machine nested in the pose graph (or in a layer graph) is
+    /// opened on its own canvas, as UE opens a state machine node's graph. `PlanAnimGraph` is this over the
+    /// machine at Output Pose.
+    [[nodiscard]] AnimGraphCanvas PlanStateMachine( const std::vector<Animation::Graph::State>& states,
+                                                    ElementIdMap&                               ids );
 
     /// The state a node id names, or -1. NOT `id - 1`.
     [[nodiscard]] int StateOfNode( const AnimGraphCanvas& canvas, ElementId node );
@@ -110,6 +115,9 @@ namespace Desert::Editor::Graph
     /// unreachable and plays the first one's clip with nothing said. Nothing enforced it before.
     [[nodiscard]] std::string MakeUniqueStateName( const Animation::Graph::AnimGraph& graph,
                                                    const std::string& desired, int selfIndex );
+    /// The same rule over one machine's states (a nested machine is its own name space).
+    [[nodiscard]] std::string MakeUniqueStateName( const std::vector<Animation::Graph::State>& states,
+                                                   const std::string& desired, int selfIndex );
 
     /// @p desired, or @p desired with a numeric suffix, such that no OTHER parameter of @p graph carries
     /// it. @p selfIndex is the parameter being named (-1 when it does not exist yet).
@@ -160,6 +168,8 @@ namespace Desert::Editor::Graph
     /// as the user has dragged things around. This asks which grid cell is free, which is true whatever
     /// the user did with the mouse.
     [[nodiscard]] StatePosition NextStatePosition( const Animation::Graph::AnimGraph& graph );
+    /// The same rule over one machine's states (any machine node's, a layer graph's included).
+    [[nodiscard]] StatePosition NextStatePosition( const std::vector<Animation::Graph::State>& states );
 
     /// The grid `NextStatePosition` places on. Named here because the test asserts separation in terms
     /// of them, and a test that spelled its own numbers would pass while the panel drifted.

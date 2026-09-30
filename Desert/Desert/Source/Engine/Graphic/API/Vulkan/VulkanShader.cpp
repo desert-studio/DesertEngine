@@ -62,7 +62,10 @@ namespace Desert::Graphic::API::Vulkan
         if ( !built.IsSuccess() )
             return Common::MakeError( built.GetError() );
         m_ProgramMeta = built.GetValue().Meta;
-        return BuildFromSpirv( built.GetValue().Stages );
+        auto rebuilt  = BuildFromSpirv( built.GetValue().Stages );
+        if ( rebuilt )
+            BumpCodeGeneration(); // the pipelines built from the previous modules are now behind
+        return rebuilt;
     }
 
     Common::BoolResultStr VulkanShader::BuildFromSpirv( const std::vector<Core::ShaderMapStage>& stages )

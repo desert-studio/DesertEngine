@@ -88,7 +88,7 @@ namespace Desert::Graphic::API::Vulkan
             return m_VulkanQueue;
         }
 
-        void OnResize( uint32_t width, uint32_t height ) override;
+        void RequestRebuild( uint32_t width, uint32_t height ) override;
 
         void Release() override;
 
@@ -154,8 +154,9 @@ namespace Desert::Graphic::API::Vulkan
         // that could all silently fail to exist on the swapchain rebuild path, which is the exact path a
         // lost device walks. The project's NO_DISCARD discipline covers wrappers like these; these three
         // were simply missed, and nothing but the attribute would have said so.
-        // OnResize without the log: the acquire path needs to know whether the rebuild happened.
         [[nodiscard]] Common::ResultStr<bool> Rebuild( uint32_t width, uint32_t height );
+        [[nodiscard]] Common::ResultStr<bool> ApplyRequestedRebuild();
+        void                                  RequestRebuildAtCurrentSize();
         /// Whether the surface has area a swapchain image can be created at RIGHT NOW. A minimised window
         /// reports 0x0 on Windows, and every object the rebuild makes is sized from that extent.
         [[nodiscard]] bool HasDrawableSurfaceArea( const Graphic::ViewExtent& requested ) const;
@@ -179,6 +180,8 @@ namespace Desert::Graphic::API::Vulkan
 
         uint32_t m_Width  = 0u;
         uint32_t m_Height = 0u;
+
+        Graphic::SwapchainRebuildRequest m_RebuildRequest;
 
         /// Answered once by the surface at creation (CreateSwapChain) rather than re-derived per capture:
         /// the usage flags the images were actually made with are what decide this, and asking the surface

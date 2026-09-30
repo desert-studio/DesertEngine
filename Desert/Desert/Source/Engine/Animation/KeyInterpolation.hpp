@@ -35,7 +35,7 @@
 namespace Desert::Animation
 {
     /**
-     * @brief How the segment ENDING at a key is shaped.
+     * @brief How the segment LEAVING a key is shaped (UE's rule: FRichCurve, FMovieSceneFloatChannel, FBX).
      *
      * ON THE KEY AND NOT ON THE TRACK, which is the whole of T4.2: before this, a clip had exactly one
      * rule — `glm::lerp` / `glm::slerp`, unconditionally — so an animator could not hold a pose and then
@@ -43,7 +43,7 @@ namespace Desert::Animation
      */
     enum class KeyInterp : uint8_t
     {
-        Constant, ///< hold the previous key's value until this one; the stepped look, and pose-holding
+        Constant, ///< hold this key's value until the next key; the stepped look, and pose-holding
         Linear,   ///< straight line between the two values — what every clip in this engine did
         Cubic,    ///< a Bézier shaped by the two keys' tangents
     };
@@ -99,9 +99,9 @@ namespace Desert::Animation
      * inside the segment, and `spanSeconds` is what turns the per-second tangents into that parameter's
      * units — the one conversion in this file.
      *
-     * `interp` is the interpolation of the LATER key, because a segment is shaped by the key it arrives
-     * at; that is the same convention `UIAnimKey::Easing` already uses ("Easing shapes the segment ENDING
-     * at this key"), and matching it is deliberate — see the report in Docs/Animation/Shots/A6.
+     * `interp` is the interpolation of the EARLIER key: a key's mode shapes the segment leaving it, UE's
+     * rule (FRichCurve / FMovieSceneFloatChannel, FBX), so a Constant key holds its own value until the
+     * next key. ANIM v5 and older stated the LATER key's mode; SceneMigrator shifts them one key back.
      */
     [[nodiscard]] float EvaluateSegment( float startValue, float startLeaveTangent, float endValue,
                                          float endArriveTangent, KeyInterp interp, double spanSeconds, float t );

@@ -107,7 +107,6 @@ namespace
          { "Desert/Desert/Source/Engine/ECS/Components.hpp", "StaticMeshComponent", "RuntimeMaterialInstances",
            Form::Shared },
          { "Desert/Desert/Source/Engine/Core/WorldStreamer.hpp", "WorldStreamer", "m_Assets", Form::Raw },
-         { "Desert/Common/Source/Common/Core/AutoRegistry.hpp", "AutoRegistry", "m_Instances", Form::Raw },
     };
 } // namespace
 

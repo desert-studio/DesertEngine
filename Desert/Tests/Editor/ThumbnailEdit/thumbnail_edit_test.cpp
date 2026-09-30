@@ -7,9 +7,16 @@
 
 #include <gtest/gtest.h>
 
+#include <Editor/Import/CookPaths.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
+#include <Editor/Widgets/ThumbnailProducers.hpp>
 #include <Editor/Widgets/ThumbnailOrbitEdit.hpp>
 #include <Editor/Widgets/ThumbnailPreview.hpp>
+
+#include <filesystem>
+#include <format>
+#include <fstream>
+#include <string>
 
 namespace
 {
@@ -133,6 +140,54 @@ TEST( ThumbnailPreviewKey, ThePreviewIsFiledApartFromTheCachedThumbnail )
     EXPECT_EQ( Key::PreviewPath( asset ), Key::PreviewPath( asset ) );
     const auto cacheDir = std::filesystem::path( Key::DiskPath( asset ) ).parent_path();
     EXPECT_NE( std::filesystem::path( Key::PreviewPath( asset ) ).parent_path(), cacheDir );
+}
+
+// MCP-CMD2: UE offers Edit Thumbnail on every class whose picture is shot through an orbit camera — a skeletal
+// mesh, a skeleton and an animation as much as a static mesh or a material. The live check was refused on
+// Fox.skmesh as "not a model".
+TEST( ThumbnailOrbitKinds, EveryRenderedPictureHasAnOrbitAndNoOtherDoes )
+{
+    using Desert::Editor::FileType;
+    namespace TP = Desert::Editor::ThumbnailProducers;
+    for ( const FileType type : { FileType::Model, FileType::Material, FileType::SkinnedMesh, FileType::Skeleton,
+                                  FileType::Animation, FileType::FoliageType } )
+        EXPECT_TRUE( TP::HasThumbnailOrbit( type ) ) << static_cast<int>( type );
+    for ( const FileType type : { FileType::Texture, FileType::Cloud, FileType::Skybox, FileType::Scene } )
+        EXPECT_FALSE( TP::HasThumbnailOrbit( type ) ) << static_cast<int>( type );
+}
+
+// UI-FIX2c: UE's Capture Thumbnail takes the viewport's view for any asset whose picture is shot through a camera.
+// The live check was refused on Fox.skmesh as "only a model or a material has a rendered thumbnail". The kinds are
+// exactly Edit Thumbnail's, and each is filed where its tile reads: a model on its import's cooked mesh, a skinned
+// file on itself, a material on itself.
+TEST( ThumbnailCaptureKinds, EveryKindWithAnOrbitIsCapturedAndFiledWhereItsTileReads )
+{
+    namespace TP = Desert::Editor::ThumbnailProducers;
+    using Key    = TP::CaptureKey;
+    for ( const TP::Row& row : TP::kTable )
+        EXPECT_EQ( TP::CaptureKeyOf( row.Type ).has_value(), TP::HasThumbnailOrbit( row.Type ) )
+             << static_cast<int>( row.Type ) << ": Capture Thumbnail and Edit Thumbnail disagree";
+    using Desert::Editor::FileType;
+    EXPECT_EQ( TP::CaptureKeyOf( FileType::SkinnedMesh ), Key::PosedFile );
+    EXPECT_EQ( TP::CaptureKeyOf( FileType::Skeleton ), Key::PosedFile );
+    EXPECT_EQ( TP::CaptureKeyOf( FileType::Animation ), Key::PosedFile );
+    EXPECT_EQ( TP::CaptureKeyOf( FileType::Model ), Key::ImportedMesh );
+    EXPECT_EQ( TP::CaptureKeyOf( FileType::FoliageType ), Key::ImportedMesh );
+    EXPECT_EQ( TP::CaptureKeyOf( FileType::Material ), Key::MaterialFile );
+    EXPECT_FALSE( TP::CaptureKeyOf( FileType::Texture ) ) << "a decoded picture is the file itself";
+    EXPECT_FALSE( TP::CaptureKeyOf( FileType::Skybox ) ) << "drawn under the dome camera, not the viewport's";
+}
+
+// The files a skinned import writes (CookPaths::SkinnedAsset's three suffixes) are each their own cooked form, so
+// a picture of one is filed under the file itself. Which source wrote one: SkinnedImport's
+// ASkinnedFileIsFiledUnderTheSourceThatWroteIt (it reads import records, Engine code this suite does not link).
+TEST( ThumbnailOrbitKinds, TheSkinnedImportFilesAreTheirOwnCookedForm )
+{
+    namespace CP = Desert::Editor::CookPaths;
+    EXPECT_TRUE( CP::IsSkinnedAssetFile( "a/Fox.skmesh" ) );
+    EXPECT_TRUE( CP::IsSkinnedAssetFile( "a/Fox_Walk.anim" ) );
+    EXPECT_FALSE( CP::IsSkinnedAssetFile( "a/Fox.stmesh" ) );
+    EXPECT_FALSE( CP::IsSkinnedAssetFile( "a/Fox.glb" ) );
 }
 
 int main( int argc, char** argv )

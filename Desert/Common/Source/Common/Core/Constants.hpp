@@ -123,6 +123,7 @@ namespace Common::Constants
             FoliageType,
             LandscapeLayerInfo,
             Animation,
+            LevelSequence,
             Cooked,
             COUNT
         };
@@ -210,6 +211,9 @@ namespace Common::Constants
              // The Cooked root is the ONLY row under DirRoot::Cooked: generated intermediates (font/icon caches,
              // the local registry) live there, and no content kind is rooted in it (AF8b moved the authored
              // skinned meshes, rigs and clips into the assets tree; PathCensus pins the relation).
+             // Level sequences (`.dseq`, UE ULevelSequence) get their own folder for the anim graph's reason: a
+             // sequence component's slot offers only what is scanned from here.
+             /* LevelSequence */ { "Sequences/", DirRoot::Assets },
              /* Cooked        */ { "", DirRoot::Cooked },
         } };
 
@@ -485,6 +489,7 @@ namespace Common::Constants
         inline const std::filesystem::path& FOLIAGE_TYPE_PATH         = Dir( ContentDir::FoliageType );
         inline const std::filesystem::path& LANDSCAPE_LAYER_INFO_PATH = Dir( ContentDir::LandscapeLayerInfo );
         inline const std::filesystem::path& ANIMATION_PATH            = Dir( ContentDir::Animation );
+        inline const std::filesystem::path& LEVEL_SEQUENCE_PATH       = Dir( ContentDir::LevelSequence );
         inline const std::filesystem::path& COOKED_PATH               = Dir( ContentDir::Cooked );
     } // namespace Path
 

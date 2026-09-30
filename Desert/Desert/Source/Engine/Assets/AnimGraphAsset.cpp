@@ -70,8 +70,8 @@ namespace Desert::Assets
         m_DisplayName = m_Graph->Name.empty() ? m_Metadata.Filepath.stem().string() : m_Graph->Name;
         ++m_Revision;
 
-        LOG_INFO( "[Animation] Anim graph '{}' loaded: {} state(s), {} parameter(s).", m_DisplayName,
-                  m_Graph->States.size(), m_Graph->Parameters.size() );
+        LOG_INFO( "[Animation] Anim graph '{}' loaded: {} pose node(s), {} parameter(s).", m_DisplayName,
+                  m_Graph->Nodes.size(), m_Graph->Parameters.size() );
         return BOOLSUCCESS;
     }
 
@@ -102,8 +102,8 @@ namespace Desert::Assets
             return ok;
         }
 
-        LOG_INFO( "[Animation] Anim graph written: '{}', {} state(s), {} parameter(s).", filepath.string(),
-                  graph.States.size(), graph.Parameters.size() );
+        LOG_INFO( "[Animation] Anim graph written: '{}', {} pose node(s), {} parameter(s).", filepath.string(),
+                  graph.Nodes.size(), graph.Parameters.size() );
         return BOOLSUCCESS;
     }
 } // namespace Desert::Assets

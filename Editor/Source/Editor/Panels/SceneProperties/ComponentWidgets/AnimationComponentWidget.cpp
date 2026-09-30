@@ -278,7 +278,7 @@ namespace Desert::Editor
         }
         if ( animation.Graph )
         {
-            ImGui::TextDisabled( "%zu states  \xc2\xb7  %zu parameters", animation.Graph->States.size(),
+            ImGui::TextDisabled( "%zu pose nodes  \xc2\xb7  %zu parameters", animation.Graph->Nodes.size(),
                                  animation.Graph->Parameters.size() );
         }
         else
@@ -312,7 +312,7 @@ namespace Desert::Editor
             return;
         }
 
-        G::AnimGraph graph;
+        G::AnimGraph graph = G::MakeStateMachineGraph();
         // NAMED AFTER THE ENTITY, because the FILE is named after the graph (the migration does the same)
         // and a file called "AnimGraph.danimgraph" would be claimed by the first character and then
         // silently shared by every one after it — sharing is the feature, but it has to be CHOSEN.
@@ -321,8 +321,8 @@ namespace Desert::Editor
         idle.Name = "Idle";
         if ( !clips.empty() )
             idle.Clip = clips.front()->GetClip().AnimationName;
-        graph.States.push_back( idle );
-        graph.Entry = "Idle";
+        G::OutputMachine( graph )->States.push_back( idle );
+        G::OutputMachine( graph )->Entry = "Idle";
 
         // The same sanitisation the migration applies, and for the same reason: an entity tag is anything
         // the author typed, and a '/' in it would put the file outside AnimGraphs/.

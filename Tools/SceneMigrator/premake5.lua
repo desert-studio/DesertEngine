@@ -34,6 +34,7 @@ project "SceneMigrator"
         -- serialized, so reading it with a hand-written parser here would be a second statement of the
         -- format — the fork this tool's own header forbids.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/PoseGraph.cpp",
         -- THE FOLIAGE TYPE FORMAT, for the v32 -> v33 step: the `.defoliage` it writes is the engine's own
         -- WriteFoliageType output, not a second statement of the format.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.cpp",
@@ -67,9 +68,21 @@ project "SceneMigrator"
         -- THE MESH ASSET READER, since MIG1: a `.stmesh`/`.skmesh` stamped 'MSAS' (AF4d) is judged by the
         -- engine's own DecodeMeshSourceAsset rather than refused as "not DESTMESH"; pure bytes, no GPU.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/MeshSourceAsset.cpp",
-        -- SKEL-TREE: ANIM 4 -> 5 and MeshBinary 3/4 -> 5 resolve the bone hash to the one .skeleton with it
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/SkeletonReference.cpp",
+        -- THE .anim STEP ANIM v4/5 -> v6 (ANIM-I8a, SKEL-TREE): the engine's one clip writer and the Timeline it
+        -- writes, plus the evaluator VerifyLift proves the lift with. Generation 3 itself is this tool's (Source/).
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Channel.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Binding.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Track.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Sequence.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/SequenceFormat.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Evaluator.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
+        -- SKEL-TREE: ANIM 4 and MeshBinary 3/4 -> 5 resolve the bone hash to the one .skeleton with it
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/SkeletonReference.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp",
         -- SKEL-fixa: a skinned import's record states its source's hash (Source/ImportRecordSourceHash) through
         -- the engine's own record reader/writer and the one source hash (HashMeshSourceFile); Common only.
@@ -109,8 +122,6 @@ project "SceneMigrator"
 
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
-        -- Common contains Objective-C (file dialog); linking it needs AppKit + the ObjC runtime.
-        links { "Cocoa.framework", "Foundation.framework" }
 
     filter "system:linux"
         defines { "DESERT_PLATFORM_LINUX" }

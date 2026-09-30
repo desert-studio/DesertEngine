@@ -20,6 +20,7 @@ project(test_name)
         -- The two FILE formats, so the fingerprints below are taken over the graphs this project ships
         -- rather than over graphs the test invented for itself.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/PoseGraph.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/ShaderGraph.cpp",
     }
 
@@ -31,8 +32,6 @@ project(test_name)
 
     links { "Common", "Optick" } -- Common's JobSystem registers worker threads with Optick
 
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     for name, path in pairs(deps.Common.IncludeDir) do

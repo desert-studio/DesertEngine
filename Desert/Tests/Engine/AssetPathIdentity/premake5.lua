@@ -50,9 +50,6 @@ project(test_name)
     -- registry's refusals go to. Optick: Common's JobSystem registers its workers with the profiler.
     links { "Common", "Optick" }
 
-    -- Common contains Objective-C (MacOSFileSystem's file dialog), so the ObjC runtime links too.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

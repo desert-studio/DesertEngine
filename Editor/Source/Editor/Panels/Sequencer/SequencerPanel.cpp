@@ -16,6 +16,7 @@
 #include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Editor/Core/GizmoState.hpp>
 
+#include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -27,6 +28,7 @@
 
 #include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Animation/TrackEditing.hpp>
+#include <Editor/Panels/AnimationEditor/AnimationNotifyTracks.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
@@ -50,7 +52,9 @@
 #include <cstdio>
 #include <filesystem>
 #include <format>
+#include <iterator>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -156,6 +160,8 @@ namespace Desert::Editor
 
     namespace
     {
+        namespace TL = Animation::Timeline;
+
         // A hoverable "(?)" that shows a wrapped explanation — used to demystify advanced controls.
         void HelpMarker( const char* text )
         {
@@ -185,6 +191,279 @@ namespace Desert::Editor
             }
             return Animation::TrackChannel::Scale;
         }
+
+        // ── THE CLIP'S TIMELINE, READ AND EDITED THROUGH THE ENGINE ──────────────────────────────────────
+        //
+        // A bone's keys are the `TransformChannel` of the sections of its Transform track (TrackEditing.hpp);
+        // these helpers only FIND things in that model. Every structural edit (insert, remove, retime a key;
+        // add, move, resize, re-row a section) is an engine function — TrackEditing's or Timeline/Track's.
+
+        /// "<what>: <why>" as an error toast: the one form every refused Sequencer edit is reported in.
+        void ToastRefusal( std::string_view what, std::string_view why, float seconds )
+        {
+            ToastManager::Push( std::format( "{}: {}", what, why ), ToastLevel::Error, seconds );
+        }
+
+        /// The bone a track animates, or null when it is not a bone's Transform track.
+        const std::string* BoneOfTrack( const TL::Sequence& sequence, const TL::Track& track )
+        {
+            if ( track.Kind != TL::TrackKind::Transform || !track.Property.empty() )
+            {
+                return nullptr;
+            }
+            const TL::Binding* binding = TL::FindBinding( sequence, track.Binding );
+            return binding != nullptr && binding->Kind == TL::BindingKind::Bone ? &binding->Locator : nullptr;
+        }
+
+        /// What a track row is called: its binding's locator (a bone, an element) and property, or its kind.
+        std::string TrackLabel( const TL::Sequence& sequence, const TL::Track& track )
+        {
+            const TL::Binding* binding = TL::FindBinding( sequence, track.Binding );
+            std::string        label   = binding != nullptr && !binding->Locator.empty()
+                                              ? binding->Locator
+                                              : std::string( TL::ToString( track.Kind ) );
+            if ( !track.Property.empty() )
+            {
+                std::format_to( std::back_inserter( label ), ".{}", track.Property );
+            }
+            return label;
+        }
+
+        TL::TransformChannel* TransformOf( TL::Section& section )
+        {
+            auto* channel = std::get_if<TL::Channel>( &section.Content );
+            return channel != nullptr ? std::get_if<TL::TransformChannel>( channel ) : nullptr;
+        }
+
+        const TL::TransformChannel* TransformOf( const TL::Section& section )
+        {
+            const auto* channel = std::get_if<TL::Channel>( &section.Content );
+            return channel != nullptr ? std::get_if<TL::TransformChannel>( channel ) : nullptr;
+        }
+
+        /// The part's components: x, y, z (and w for a rotation; null otherwise), as const as @p channel.
+        template <typename TransformChannelT>
+        auto ComponentsOf( TransformChannelT&      channel,
+                           Animation::TrackChannel part ) -> std::array<decltype( &channel.Translation.X ), 4>
+        {
+            switch ( part )
+            {
+                case Animation::TrackChannel::Position:
+                    return { &channel.Translation.X, &channel.Translation.Y, &channel.Translation.Z, nullptr };
+                case Animation::TrackChannel::Rotation:
+                    return { &channel.Rotation.X, &channel.Rotation.Y, &channel.Rotation.Z, &channel.Rotation.W };
+                case Animation::TrackChannel::Scale:
+                    return { &channel.Scale.X, &channel.Scale.Y, &channel.Scale.Z, nullptr };
+            }
+            return { nullptr, nullptr, nullptr, nullptr };
+        }
+
+        bool ComponentHasKeyAt( const TL::FloatChannel& component, Animation::FrameNumber tick )
+        {
+            return std::ranges::any_of( component.Keys,
+                                        [&]( const Animation::ScalarKey& k ) { return k.Tick == tick; } );
+        }
+
+        /// The part's key ticks over every section of the track, sorted and unique — one diamond per tick.
+        std::vector<Animation::FrameNumber> PartTicks( const TL::Track& track, Animation::TrackChannel part )
+        {
+            std::vector<Animation::FrameNumber> ticks;
+            for ( const TL::Section& section : track.Sections )
+            {
+                const TL::TransformChannel* channel = TransformOf( section );
+                if ( channel == nullptr )
+                {
+                    continue;
+                }
+                for ( const TL::FloatChannel* component : ComponentsOf( *channel, part ) )
+                {
+                    if ( component == nullptr )
+                        continue;
+                    for ( const Animation::ScalarKey& key : component->Keys )
+                        ticks.push_back( key.Tick );
+                }
+            }
+            std::ranges::sort( ticks, []( Animation::FrameNumber a, Animation::FrameNumber b ) { return a < b; } );
+            ticks.erase( std::unique( ticks.begin(), ticks.end() ), ticks.end() );
+            return ticks;
+        }
+
+        /// The section channel holding the part's key at @p tick (the one MoveBoneKey/RemoveBoneKey edit).
+        TL::TransformChannel* ChannelHoldingPartKey( TL::Track& track, Animation::TrackChannel part,
+                                                     Animation::FrameNumber tick )
+        {
+            for ( TL::Section& section : track.Sections )
+            {
+                TL::TransformChannel* channel = TransformOf( section );
+                if ( channel == nullptr )
+                    continue;
+                for ( const TL::FloatChannel* component : ComponentsOf( *channel, part ) )
+                {
+                    if ( component != nullptr && ComponentHasKeyAt( *component, tick ) )
+                        return channel;
+                }
+            }
+            return nullptr;
+        }
+
+        /// One part's key at a tick, as the inspector edits it: each component and its key there (null when
+        /// that component has none), and the key whose shape the part shows.
+        struct PartKeys
+        {
+            std::array<TL::FloatChannel*, 4>     Components{};
+            std::array<Animation::ScalarKey*, 4> Keys{};
+            Animation::ScalarKey*                Shape = nullptr;
+        };
+
+        PartKeys PartKeysAt( TL::TransformChannel& channel, Animation::TrackChannel part,
+                             Animation::FrameNumber tick )
+        {
+            PartKeys keys;
+            keys.Components = ComponentsOf( channel, part );
+            for ( size_t i = 0; i < keys.Components.size(); ++i )
+            {
+                if ( keys.Components[i] == nullptr )
+                    continue;
+                for ( Animation::ScalarKey& key : keys.Components[i]->Keys )
+                {
+                    if ( key.Tick == tick )
+                    {
+                        keys.Keys[i] = &key;
+                        keys.Shape   = keys.Shape != nullptr ? keys.Shape : &key;
+                    }
+                }
+            }
+            return keys;
+        }
+
+        /// Write @p value at @p tick into one component: the key there, or a new one shaped like @p shape
+        /// (a part's key is a key in every component; a component that lacked one gets it here).
+        void SetComponentValue( TL::FloatChannel& component, Animation::FrameNumber tick, float value,
+                                Animation::ScalarKey shape )
+        {
+            for ( Animation::ScalarKey& key : component.Keys )
+            {
+                if ( key.Tick == tick )
+                {
+                    key.Value = value;
+                    return;
+                }
+            }
+            shape.Tick    = tick;
+            shape.Value   = value;
+            const auto at = std::ranges::find_if( component.Keys,
+                                                  [&]( const Animation::ScalarKey& k ) { return tick < k.Tick; } );
+            component.Keys.insert( at, shape );
+        }
+
+        /// A value or shape edit made in place: the neighbours' Auto tangents follow (§969 item 1) and the
+        /// revision moves, as every TrackEditing edit does (the Animator's binding cache is keyed by it).
+        void FinishChannelEdit( TL::Sequence& sequence, TL::TransformChannel& channel )
+        {
+            Animation::RefreshTangents( channel, sequence.TickRate );
+            ++sequence.Revision;
+        }
+
+        /// A key on one part of a bone at @p tick: what the curve says there (`InsertBoneKey`), or — when the
+        /// part has no curve yet — the bone's pose on screen, in the section a key there lands in.
+        Common::BoolResultStr KeyPartAtTick( Animation::AnimationClip& clip, const Animation::Animator& animator,
+                                             const std::string& bone, Animation::TrackChannel part,
+                                             Animation::FrameNumber tick )
+        {
+            TL::Track* track = Animation::FindBoneTrack( clip.Sequence, bone );
+            if ( track == nullptr )
+            {
+                return Common::MakeFormattedError<bool>( "'{}' has no track in '{}'", bone, clip.AnimationName );
+            }
+            if ( !PartTicks( *track, part ).empty() )
+            {
+                return Animation::InsertBoneKey( clip.Sequence, bone, part, tick );
+            }
+            const auto boneIndex = animator.GetSkeleton().FindBoneIndex( bone );
+            if ( !boneIndex.has_value() )
+            {
+                // No pose to record and no curve to read: adding nothing is the answer, the origin is not.
+                return Common::MakeFormattedError<bool>( "'{}' is not a bone of this rig", bone );
+            }
+            if ( tick < clip.Sequence.Start || clip.Sequence.End < tick )
+            {
+                return Common::MakeFormattedError<bool>( "tick {} is outside the clip [{}, {}]", tick.Value,
+                                                         clip.Sequence.Start.Value, clip.Sequence.End.Value );
+            }
+            TL::TransformChannel& channel = Animation::ChannelForKey( clip.Sequence, *track, tick );
+            if ( !Animation::InsertFirstKeyFromPose( channel, part, tick,
+                                                     animator.GetBoneLocalPose( boneIndex.value() ) ) )
+            {
+                return Common::MakeFormattedError<bool>( "'{}': the pose on screen does not decompose", bone );
+            }
+            FinishChannelEdit( clip.Sequence, channel );
+            return Common::MakeSuccess( true );
+        }
+
+        /// Every scalar a channel is made of, in a fixed order — how a new section is seeded.
+        std::vector<TL::FloatChannel*> FloatsOf( TL::Channel& channel )
+        {
+            if ( auto* f = std::get_if<TL::FloatChannel>( &channel ) )
+                return { f };
+            if ( auto* v = std::get_if<TL::VectorChannel>( &channel ) )
+                return { &v->X, &v->Y, &v->Z };
+            if ( auto* r = std::get_if<TL::RotationChannel>( &channel ) )
+                return { &r->X, &r->Y, &r->Z, &r->W };
+            if ( auto* t = std::get_if<TL::TransformChannel>( &channel ) )
+                return { &t->Translation.X, &t->Translation.Y, &t->Translation.Z, &t->Rotation.X, &t->Rotation.Y,
+                         &t->Rotation.Z,    &t->Rotation.W,    &t->Scale.X,       &t->Scale.Y,    &t->Scale.Z };
+            if ( auto* b = std::get_if<TL::BoolChannel>( &channel ) )
+                return { &b->Bits };
+            return {};
+        }
+
+        /// The section whose value is SEEN at @p tick: highest row, then last in the list (the fold's order).
+        const TL::Section* TopmostAt( const TL::Track& track, Animation::FrameNumber tick )
+        {
+            const TL::Section* top = nullptr;
+            for ( const TL::Section& section : track.Sections )
+            {
+                if ( section.Covers( tick ) && ( top == nullptr || !( section.Row < top->Row ) ) )
+                    top = &section;
+            }
+            return top;
+        }
+
+        constexpr std::array<Animation::TrackChannel, 3> kParts = { Animation::TrackChannel::Position,
+                                                                    Animation::TrackChannel::Rotation,
+                                                                    Animation::TrackChannel::Scale };
+
+        /// Retime a control's key — a POSE, so every part keyed on @p from — all or nothing: a part that
+        /// already has a key on @p to refuses the whole move, since a merge would silently delete a key.
+        bool MoveControlKey( TL::Sequence& sequence, const std::string& bone, Animation::FrameNumber from,
+                             Animation::FrameNumber to )
+        {
+            const TL::Track* track = Animation::FindBoneTrack( sequence, bone );
+            if ( track == nullptr )
+            {
+                return false;
+            }
+            std::vector<Animation::TrackChannel> moving;
+            for ( const Animation::TrackChannel part : kParts )
+            {
+                const auto ticks = PartTicks( *track, part );
+                if ( std::ranges::find( ticks, from ) == ticks.end() )
+                {
+                    continue;
+                }
+                if ( std::ranges::find( ticks, to ) != ticks.end() )
+                {
+                    return false;
+                }
+                moving.push_back( part );
+            }
+            bool moved = !moving.empty();
+            for ( const Animation::TrackChannel part : moving )
+            {
+                moved = Animation::MoveBoneKey( sequence, bone, part, from, to ).IsSuccess() && moved;
+            }
+            return moved;
+        }
     } // namespace
 
     Animation::ControlKeyTarget SequencerPanel::KeyTargetFor( Animation::AnimationClip*  clip,
@@ -203,8 +482,8 @@ namespace Desert::Editor
         target.Clip         = clip;
         target.AuthoredPose = &animator.GetAuthoringPose();
         target.Tick         = Animation::SnapToDisplayRate(
-             animator.GetCurrentTick(), clip != nullptr ? clip->TickRate : Animation::PROJECT_TICK_RATE,
-             clip != nullptr ? clip->DisplayRate : Animation::DEFAULT_DISPLAY_RATE );
+             animator.GetCurrentTick(), clip != nullptr ? clip->Sequence.TickRate : Animation::PROJECT_TICK_RATE,
+             clip != nullptr ? clip->Sequence.DisplayRate : Animation::DEFAULT_DISPLAY_RATE );
         return target;
     }
 
@@ -244,16 +523,16 @@ namespace Desert::Editor
         // One second on the project grid, shown on the default display rate. `Duration = 1.0f` with
         // `TicksPerSecond = 25.0f` used to say "25 ticks" and mean "one second", which is the confusion
         // the tick grid exists to end.
-        clip.DurationTicks     = Animation::FrameNumber{ Animation::PROJECT_TICK_RATE.Numerator };
-        clip.TickRate          = Animation::PROJECT_TICK_RATE;
-        clip.DisplayRate       = Animation::DEFAULT_DISPLAY_RATE;
+        clip.Sequence.TickRate    = Animation::PROJECT_TICK_RATE;
+        clip.Sequence.DisplayRate = Animation::DEFAULT_DISPLAY_RATE;
+        clip.Sequence.Start       = Animation::FrameNumber{ 0 };
+        clip.Sequence.End         = Animation::FrameNumber{ Animation::PROJECT_TICK_RATE.Numerator };
         clip.Skeleton = mesh.Skeleton.Guid; // the mesh's skeleton asset: the clip plays where it was authored
-        clip.Tracks.reserve( skeleton.GetBones().size() );
+        // One Transform track per bone and no section yet: the first key of a bone makes its section
+        // (TrackEditing::ChannelForKey), so an empty clip states nothing it would have to take back.
         for ( const auto& bone : skeleton.GetBones() )
         {
-            Animation::BoneTrack track;
-            track.BoneName = bone.Name; // empty channels; the user adds keys in the track editor
-            clip.Tracks.push_back( std::move( track ) );
+            static_cast<void>( Animation::AddBoneTrack( clip.Sequence, bone.Name ) );
         }
 
         auto asset = m_AssetManager->CreateAsset<Assets::AnimationAsset>(
@@ -459,7 +738,7 @@ namespace Desert::Editor
                 if ( saved )
                     ToastManager::Push( "Saved clip to " + saved.GetValue(), ToastLevel::Success );
                 else
-                    ToastManager::Push( "Clip NOT saved: " + saved.GetError(), ToastLevel::Error, 8.0f );
+                    ToastRefusal( "Clip NOT saved", saved.GetError(), 8.0f );
             }
             Utils::ImGuiUtilities::Tooltip(
                  "Write this clip to Assets/Animations/<name>.anim so it survives a restart\n"
@@ -615,7 +894,7 @@ namespace Desert::Editor
                 // ONE UNDO STEP FOR THE WHOLE PRESS, and the scope has to cover `showKeyedPose` below as
                 // well as the key: that call reloads the WHOLE authoring buffer from the clip, so the pose
                 // the animator is left looking at is part of what this press did.
-                const ScopedPoseEdit undoStep( m_ClipEdit, animator, editClip );
+                const ScopedSequenceEdit undoStep( m_ClipEdit, OwnerOf( editClip ), animator );
                 const auto keyed =
                      m_Keyer.WriteBone( KeyTargetFor( editClip, *animator ), static_cast<uint32_t>( selBone ) );
                 if ( !keyed.IsSuccess() )
@@ -690,7 +969,8 @@ namespace Desert::Editor
             //
             // Called with the same bit `ControlKeyer::Observe` was given, not a second one: two bools for
             // one fact is how a REC light comes to disagree with what is being recorded (see m_Keyer).
-            const auto recorded = m_ClipEdit.Observe( animator, editClip, Core::GizmoState::PoseInteraction() );
+            const auto recorded =
+                 m_ClipEdit.Observe( OwnerOf( editClip ), animator, Core::GizmoState::PoseInteraction() );
             if ( !recorded.IsSuccess() )
             {
                 LOG_ERROR( "[Sequencer] pose edit not undoable: {}", recorded.GetError() );
@@ -723,16 +1003,17 @@ namespace Desert::Editor
             if ( const Animation::AnimationClip* ruled = animator->GetCurrentClip() )
             {
                 DrawFrameGrid( dl, axis, origin.y, origin.y + rulerH, animator->GetDurationTicks(),
-                               ruled->TickRate, ruled->DisplayRate, true, IM_COL32( 255, 255, 255, 25 ) );
+                               ruled->Sequence.TickRate, ruled->Sequence.DisplayRate, true,
+                               IM_COL32( 255, 255, 255, 25 ) );
             }
 
             // Notify markers (from the current clip).
             if ( const Animation::AnimationClip* clip = animator->GetCurrentClip() )
             {
-                for ( const auto& n : clip->Notifies )
+                for ( const auto& n : ClipNotifies( *clip ) )
                 {
-                    const float  x = timeToX( static_cast<float>(
-                         Animation::FrameTimeToSeconds( Animation::FrameTime{ n.Tick, 0.0F }, clip->TickRate ) ) );
+                    const float  x = timeToX( static_cast<float>( Animation::FrameTimeToSeconds(
+                         Animation::FrameTime{ n.Tick, 0.0F }, clip->Sequence.TickRate ) ) );
                     const ImVec2 d0( x, origin.y + rulerH - 11.0f );
                     dl->AddTriangleFilled( ImVec2( d0.x - 5.0f, d0.y ), ImVec2( d0.x + 5.0f, d0.y ),
                                            ImVec2( d0.x, d0.y + 9.0f ), IM_COL32( 240, 200, 90, 255 ) );
@@ -798,52 +1079,23 @@ namespace Desert::Editor
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast) — the cast the dope sheet documents
             DrawSectionInspector( const_cast<Animation::AnimationClip*>( animator->GetCurrentClip() ), animator );
         }
-
-        // ---- Additive layers (advanced, collapsed by default) ----
-        ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
-        const bool layersOpen =
-             Utils::ImGuiUtilities::SectionHeader( ICON_MDI_LAYERS "  Additive Layers  (advanced)", false );
-        ImGui::SameLine();
-        HelpMarker( "Play a SECOND clip ON TOP of the current one — e.g. a wave or aim while walking.\n\n"
-                    "- Weight: how strongly it blends in (0..1).\n"
-                    "- Additive: adds the layer's motion as an offset (good for lean/aim); off = it overrides.\n"
-                    "- Mask from bone: restrict the layer to that bone + its children (empty = whole body, so a "
-                    "'wave' would mask e.g. the right shoulder).\n\n"
-                    "This is a preview tool; layers are not saved with the clip." );
-        if ( layersOpen && animator )
-        {
-            ImGui::SetNextItemWidth( 200.0f );
-            ImGui::Combo( "Layer clip", &m_LayerClip, clipNames.empty() ? nullptr : clipNames.data(),
-                          static_cast<int>( clipNames.size() ) );
-            ImGui::SetNextItemWidth( 160.0f );
-            ImGui::SliderFloat( "Weight", &m_LayerWeight, 0.0f, 1.0f );
-            ImGui::SameLine();
-            ImGui::Checkbox( "Additive", &m_LayerAdditive );
-            ImGui::SetNextItemWidth( 200.0f );
-            ImGui::InputText( "Mask from bone", m_LayerMaskBone, sizeof( m_LayerMaskBone ) );
-
-            const bool canAdd = m_LayerClip >= 0 && m_LayerClip < static_cast<int>( clips.size() );
-            ImGui::BeginDisabled( !canAdd );
-            if ( ImGui::Button( "Add Layer" ) && canAdd )
-            {
-                const int idx = animator->AddLayer( clips[m_LayerClip]->GetClip(), m_LayerWeight, m_LayerAdditive,
-                                                    /*loop=*/true );
-                if ( m_LayerMaskBone[0] != '\0' )
-                    animator->SetLayerMaskByNames( idx, { std::string( m_LayerMaskBone ) } );
-            }
-            ImGui::EndDisabled();
-            ImGui::SameLine();
-            ImGui::Text( "Active: %zu", animator->GetLayerCount() );
-            ImGui::SameLine();
-            if ( ImGui::Button( "Clear Layers" ) )
-                animator->ClearLayers();
-        }
     }
 
     void SequencerPanel::DrawClipTracks( Animation::AnimationClip* clip, Animation::Animator* animator,
                                          float contentX0, float gutter, float laneW, float duration )
     {
-        if ( !clip || clip->Tracks.empty() )
+        // THE ROWS ARE THE SEQUENCE'S BONE TRACKS. A bone's keys are the Transform channel of the sections
+        // of its track (TrackEditing.hpp), so a lane shows the union of the part's key ticks over every
+        // section and every edit is a TrackEditing sequence edit — the lane never writes a key list itself.
+        size_t boneTracks = 0;
+        if ( clip != nullptr )
+        {
+            for ( const TL::Track& track : clip->Sequence.Tracks )
+            {
+                boneTracks += BoneOfTrack( clip->Sequence, track ) != nullptr ? 1U : 0U;
+            }
+        }
+        if ( boneTracks == 0 )
         {
             ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
             ImGui::TextDisabled( "This clip has no bone tracks." );
@@ -851,10 +1103,10 @@ namespace Desert::Editor
         }
 
         // The grids come from THE CLIP BEING EDITED, which is this function's argument — not from the
-        // animator's current clip, which is the one being PLAYED. They are usually the same clip and were
-        // always assumed to be; naming the right one costs nothing and removes the assumption.
-        const Animation::FrameRate tickRate    = clip->TickRate;
-        const Animation::FrameRate displayRate = clip->DisplayRate;
+        // animator's current clip, which is the one being PLAYED.
+        TL::Sequence&                      sequence    = clip->Sequence;
+        const Animation::FrameRate         tickRate    = sequence.TickRate;
+        const Animation::FrameRate         displayRate = sequence.DisplayRate;
         const Animation::ControlHierarchy* rigControls =
              animator->GetRig() != nullptr ? &animator->GetRig()->GetHierarchy() : nullptr;
 
@@ -866,160 +1118,143 @@ namespace Desert::Editor
         const Sequencer::CurveViewport axis      = TimeAxis( laneX0, laneW, duration );
         const auto                     timeToX   = [&]( float t ) { return axis.TimeToX( t ); };
 
-        const float childH = std::min( 260.0f, 8.0f + clip->Tracks.size() * 3.0f * laneH );
+        const float childH = std::min( 260.0f, 8.0f + static_cast<float>( boneTracks ) * 3.0f * laneH );
         ImGui::BeginChild( "##seqTracks", ImVec2( gutter + laneW, childH ), false,
                            ImGuiWindowFlags_HorizontalScrollbar );
         ImDrawList* dl = ImGui::GetWindowDrawList();
 
-        const float playX = timeToX( animator->GetCurrentTime() );
+        const float playX       = timeToX( animator->GetCurrentTime() );
+        bool        liveRefresh = false; // a key moved this frame -> refresh the pose live
 
-        bool liveRefresh = false; // a key is being dragged this frame -> refresh the pose live
-        bool needSort    = false; // a drag just ended -> re-sort that channel + reselect the moved key
-        int  sortTrack   = -1;
-        int  sortChannel = -1;
-
-        for ( int ti = 0; ti < static_cast<int>( clip->Tracks.size() ); ++ti )
+        for ( int ti = 0; ti < static_cast<int>( sequence.Tracks.size() ); ++ti )
         {
-            auto& tr = clip->Tracks[ti];
+            const std::string* bonePtr = BoneOfTrack( sequence, sequence.Tracks[ti] );
+            if ( bonePtr == nullptr )
+            {
+                continue;
+            }
+            // A copy: an edit below may grow `Tracks`/`Bindings` and move the string it points at.
+            const std::string bone = *bonePtr;
             // A CONTROL'S TRACK IS DRAWN IN THE RIG BLOCK above, as one row; three bone lanes of it here
             // would be a second place to edit the same keys.
-            if ( rigControls != nullptr &&
-                 rigControls->Find( tr.BoneName ) != Animation::ControlHierarchy::INVALID )
+            if ( rigControls != nullptr && rigControls->Find( bone ) != Animation::ControlHierarchy::INVALID )
             {
                 continue;
             }
             for ( int ch = 0; ch < 3; ++ch )
             {
-                const ImVec2 rp    = ImGui::GetCursorScreenPos();
-                const float  laneY = rp.y;
-                const ImU32  strip = ( ti % 2 ) ? IM_COL32( 40, 40, 46, 255 ) : IM_COL32( 33, 33, 39, 255 );
+                const Animation::TrackChannel part  = ChannelOfLane( ch );
+                const ImVec2                  rp    = ImGui::GetCursorScreenPos();
+                const float                   laneY = rp.y;
+                const ImU32 strip = ( ti % 2 ) != 0 ? IM_COL32( 40, 40, 46, 255 ) : IM_COL32( 33, 33, 39, 255 );
                 dl->AddRectFilled( ImVec2( laneX0, laneY ), ImVec2( laneX0 + laneW, laneY + laneH - 2.0f ),
                                    strip );
 
                 if ( ch == 0 )
                     dl->AddText( ImVec2( contentX0 + 6.0f, laneY + 1.0f ), IM_COL32( 205, 205, 215, 255 ),
-                                 tr.BoneName.c_str() );
+                                 bone.c_str() );
                 dl->AddText( ImVec2( contentX0 + gutter - 58.0f, laneY + 1.0f ), chCol[ch], chName[ch] );
 
-                // Per-lane "+" (add a key at the playhead) so empty channels are keyable from scratch.
-                // THE SAME ORIGIN DEFECT §936 NAMES LIVED HERE TOO, eleven lines below the "Add Key @
-                // Playhead" button that was fixed for it: this one pushed `glm::vec3( 0.0f )` / an identity
-                // quaternion / a scale of 1. A populated channel records its CURVE; an empty one has no
-                // curve, so it records the POSE on screen. Neither answer is the origin.
+                ImGui::PushID( ti * 3 + ch );
+
+                // Per-lane "+" (add a key at the playhead) so empty parts are keyable from scratch: a
+                // populated part records its CURVE, an empty one the POSE on screen (§936) — never the origin.
                 ImGui::SetCursorScreenPos( ImVec2( contentX0 + gutter - 22.0f, laneY - 1.0f ) );
-                ImGui::PushID( ( ti * 3 + ch ) * 4096 + 3999 );
                 if ( ImGui::SmallButton( "+" ) )
                 {
-                    // Opened BEFORE the insert below, which is the only place it can be opened: the button
-                    // both adds the key and refreshes the whole channel's tangents, and the "before" has to
-                    // predate both.
-                    ScopedPoseEdit               undoStep( m_ClipEdit, animator, clip );
                     const Animation::FrameNumber t =
                          Animation::SnapToDisplayRate( animator->GetCurrentTick(), tickRate, displayRate );
-                    const Animation::TrackChannel channel = ChannelOfLane( ch );
-                    const auto                    bone    = animator->GetSkeleton().FindBoneIndex( tr.BoneName );
-
-                    bool empty = tr.ScaleKeys.empty();
-                    if ( ch == 0 )
                     {
-                        empty = tr.PositionKeys.empty();
+                        // Opened BEFORE the insert: the insert also refreshes the part's tangents, and the
+                        // "before" has to predate both.
+                        const ScopedSequenceEdit undoStep( m_ClipEdit, OwnerOf( clip ), animator );
+                        if ( const auto added = KeyPartAtTick( *clip, *animator, bone, part, t );
+                             !added.IsSuccess() )
+                        {
+                            LOG_WARN( "[Sequencer] add key refused: {}", added.GetError() );
+                        }
                     }
-                    else if ( ch == 1 )
+                    SelectKey( ti, ch, t, sequence );
+                    if ( const auto bi = animator->GetSkeleton().FindBoneIndex( bone ); bi.has_value() )
                     {
-                        empty = tr.RotationKeys.empty();
-                    }
-
-                    bool added = false;
-                    if ( !empty )
-                    {
-                        added = Animation::InsertKeyFromCurve( tr, channel, t, tickRate );
-                    }
-                    else if ( bone.has_value() )
-                    {
-                        added = Animation::InsertFirstKeyFromPose( tr, channel, t,
-                                                                   animator->GetBoneLocalPose( bone.value() ) );
-                    }
-                    // else: the track names a bone this rig does not have, so there is no pose to record
-                    // and no curve to read. Adding nothing is the answer; adding the origin was not.
-
-                    if ( added )
-                    {
-                        Animation::RefreshTangents( tr, tickRate );
-                    }
-                    m_SelTrack   = ti;
-                    m_SelChannel = ch;
-                    if ( bone.has_value() )
-                    {
-                        SelectBoneFromTrack( bone.value() );
+                        SelectBoneFromTrack( bi.value() );
                     }
                     animator->SetTime( animator->GetCurrentTime() );
                 }
-                ImGui::PopID();
 
                 dl->AddLine( ImVec2( playX, laneY ), ImVec2( playX, laneY + laneH - 2.0f ),
                              IM_COL32( 255, 90, 90, 150 ), 1.0f );
 
-                const size_t nKeys = ( ch == 0 )   ? tr.PositionKeys.size()
-                                     : ( ch == 1 ) ? tr.RotationKeys.size()
-                                                   : tr.ScaleKeys.size();
-                for ( int k = 0; k < static_cast<int>( nKeys ); ++k )
-                {
-                    Animation::FrameNumber* ktp = &tr.ScaleKeys[k].Tick;
-                    if ( ch == 0 )
-                    {
-                        ktp = &tr.PositionKeys[k].Tick;
-                    }
-                    else if ( ch == 1 )
-                    {
-                        ktp = &tr.RotationKeys[k].Tick;
-                    }
-                    Animation::FrameNumber& kt  = *ktp;
-                    const float             kx  = timeToX( TickToSeconds( kt, tickRate ) );
-                    const bool  isS = ( m_SelTrack == ti && m_SelChannel == ch && m_SelKey == k );
+                const std::vector<Animation::FrameNumber> ticks    = PartTicks( sequence.Tracks[ti], part );
+                const bool                                thisLane = m_SelTrack == ti && m_SelChannel == ch;
 
-                    ImGui::SetCursorScreenPos( ImVec2( kx - 6.0f, laneY ) );
-                    ImGui::PushID( ( ti * 3 + ch ) * 4096 + k );
-                    ImGui::InvisibleButton( "##k", ImVec2( 12.0f, laneH - 2.0f ) );
-                    const bool hov = ImGui::IsItemHovered();
-                    if ( ImGui::IsItemActivated() )
+                // ONE BUTTON PER LANE, hit-tested by hand (the control-rig rows do the same): a button per
+                // diamond would change its ID with the tick it is dragged to and lose the drag on the first
+                // frame the key moved.
+                ImGui::SetCursorScreenPos( ImVec2( laneX0, laneY ) );
+                ImGui::InvisibleButton( "##keys", ImVec2( std::max( laneW, 1.0f ), laneH - 2.0f ) );
+                const float mouseX = ImGui::GetMousePos().x;
+                int         hover  = -1;
+                for ( int k = 0; k < static_cast<int>( ticks.size() ); ++k )
+                {
+                    if ( std::abs( timeToX( TickToSeconds( ticks[k], tickRate ) ) - mouseX ) <= 6.0f )
                     {
-                        // THE RETIME'S OWN RISING EDGE, which this widget knows and nothing else does. It
-                        // is opened here rather than through `Observe` because ImGui reports activation
-                        // BEFORE the first drag delta is applied — so unlike the gizmo, whose bit is
-                        // published from another file a frame late, this one needs no baseline.
-                        if ( const auto began = m_ClipEdit.Begin( animator, clip ); !began.IsSuccess() )
+                        hover = k;
+                        break;
+                    }
+                }
+                if ( ImGui::IsItemActivated() )
+                {
+                    m_SelTrack   = ti;
+                    m_SelChannel = ch;
+                    m_SelKey     = hover;
+                    SelectSection( -1 ); // the section list is the selected track's
+                    if ( hover >= 0 )
+                    {
+                        m_SelKeyTick = ticks[hover];
+                        // THE RETIME'S OWN RISING EDGE, which this widget knows and nothing else does.
+                        if ( const auto began = m_ClipEdit.Begin( OwnerOf( clip ), animator ); !began.IsSuccess() )
                         {
                             LOG_ERROR( "[Sequencer] retime not undoable: {}", began.GetError() );
                         }
-                        m_SelTrack   = ti;
-                        m_SelChannel = ch;
-                        m_SelKey     = k;
-                        // Selecting a bone's track also selects that bone on the skeleton (viewport highlight
-                        // + gizmo), so the Sequencer and the viewport overlay stay in sync.
-                        if ( auto bi = animator->GetSkeleton().FindBoneIndex( tr.BoneName ); bi.has_value() )
-                            SelectBoneFromTrack( bi.value() );
                     }
-                    if ( ImGui::IsItemActive() && laneW > 0.0f )
+                    // Selecting a bone's track also selects that bone on the skeleton (viewport highlight
+                    // + gizmo), so the Sequencer and the viewport overlay stay in sync.
+                    if ( const auto bi = animator->GetSkeleton().FindBoneIndex( bone ); bi.has_value() )
                     {
-                        // Retime WITHOUT sorting mid-drag: sorting would change this key's index (and thus its
-                        // ImGui ID), dropping the drag. We sort once on release instead.
-                        // DRAGGED ONTO THE DISPLAY GRID, not to wherever the pixel landed. A retime that
-                        // follows the mouse exactly puts a key at 0.4173 s, which no other key and no
-                        // playhead position will ever equal again.
-                        const float draggedSeconds =
-                             std::clamp( ( ImGui::GetMousePos().x - laneX0 ) / laneW, 0.0f, 1.0f ) * duration;
-                        kt          = SecondsToSnappedTick( draggedSeconds, tickRate, displayRate );
-                        m_DragTime  = TickToSeconds( kt, tickRate );
+                        SelectBoneFromTrack( bi.value() );
+                    }
+                }
+                if ( ImGui::IsItemActive() && thisLane && m_SelKey >= 0 && laneW > 0.0f &&
+                     ImGui::IsMouseDragging( ImGuiMouseButton_Left ) )
+                {
+                    // DRAGGED ONTO THE DISPLAY GRID, not to wherever the pixel landed. The move is the
+                    // engine's (MoveBoneKey: keeps the key's shape, refuses a tick that is taken, refreshes
+                    // the tangents on both sides) and runs live, so the pose follows the drag.
+                    const float draggedSeconds = std::clamp( ( mouseX - laneX0 ) / laneW, 0.0f, 1.0f ) * duration;
+                    const Animation::FrameNumber to =
+                         SecondsToSnappedTick( draggedSeconds, tickRate, displayRate );
+                    if ( !( to == m_SelKeyTick ) &&
+                         Animation::MoveBoneKey( sequence, bone, part, m_SelKeyTick, to ).IsSuccess() )
+                    {
+                        SelectKey( ti, ch, to, sequence );
                         liveRefresh = true;
                     }
-                    if ( ImGui::IsItemDeactivated() )
+                }
+                if ( ImGui::IsItemDeactivated() && thisLane && m_ClipEdit.OpenExplicitly() )
+                {
+                    if ( const auto ended = m_ClipEdit.End(); !ended.IsSuccess() )
                     {
-                        needSort    = true;
-                        sortTrack   = ti;
-                        sortChannel = ch;
+                        LOG_ERROR( "[Sequencer] retime not undoable: {}", ended.GetError() );
                     }
-                    ImGui::PopID();
+                }
+                ImGui::PopID();
 
+                for ( int k = 0; k < static_cast<int>( ticks.size() ); ++k )
+                {
+                    const float  kx  = timeToX( TickToSeconds( ticks[k], tickRate ) );
+                    const bool   isS = thisLane && m_SelKey >= 0 && ticks[k] == m_SelKeyTick;
+                    const bool   hov = ImGui::IsItemHovered() && k == hover;
                     const ImVec2 c( kx, laneY + ( laneH - 2.0f ) * 0.5f );
                     const float  r    = isS ? 6.0f : ( hov ? 5.5f : 4.0f );
                     ImVec2 diamond[4] = { ImVec2( c.x, c.y - r ), ImVec2( c.x + r, c.y ), ImVec2( c.x, c.y + r ),
@@ -1036,214 +1271,232 @@ namespace Desert::Editor
         if ( liveRefresh )
             animator->SetTime( animator->GetCurrentTime() ); // show the retimed pose live while dragging
 
-        // Drag released: keep the channel sorted (the sampler needs monotonic time) and re-select the key
-        // that just moved (its index changed after the sort).
-        if ( needSort && sortTrack >= 0 )
-        {
-            auto& tr = clip->Tracks[sortTrack];
-            if ( sortChannel == 0 )
-                std::sort( tr.PositionKeys.begin(), tr.PositionKeys.end() );
-            else if ( sortChannel == 1 )
-                std::sort( tr.RotationKeys.begin(), tr.RotationKeys.end() );
-            else
-                std::sort( tr.ScaleKeys.begin(), tr.ScaleKeys.end() );
-
-            const auto nearestKey = [&]( const auto& keys )
-            {
-                int   best = 0;
-                float bd   = 1e9f;
-                for ( int i = 0; i < static_cast<int>( keys.size() ); ++i )
-                {
-                    if ( const float d = std::abs( TickToSeconds( keys[i].Tick, tickRate ) - m_DragTime ); d < bd )
-                    {
-                        bd   = d;
-                        best = i;
-                    }
-                }
-                return best;
-            };
-            m_SelTrack   = sortTrack;
-            m_SelChannel = sortChannel;
-            m_SelKey     = sortChannel == 0   ? nearestKey( tr.PositionKeys )
-                           : sortChannel == 1 ? nearestKey( tr.RotationKeys )
-                                              : nearestKey( tr.ScaleKeys );
-
-            // A TANGENT IS NOT A PROPERTY OF ITS KEY: it is computed from the neighbours, so a retime
-            // changes the curve on both sides of the key that moved. Recomputing only the edited key is
-            // the version that looks right until the second edit (report 05 §969 item 1).
-            Animation::RefreshTangents( tr, tickRate );
-            animator->SetTime( animator->GetCurrentTime() ); // refresh the pose to the edited key
-        }
-        // CLOSED AFTER THE SORT AND THE TANGENT REFRESH, not at the mouse-up: both of those are part of
-        // what the drag did to the track, and a transaction closed before them would leave an undo that
-        // puts the keys back in the dragged order.
-        if ( needSort )
-        {
-            if ( const auto ended = m_ClipEdit.End(); !ended.IsSuccess() )
-            {
-                LOG_ERROR( "[Sequencer] retime not undoable: {}", ended.GetError() );
-            }
-        }
-
         // ---- Selected-key inspector ----
         ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
-        const bool valid = m_SelTrack >= 0 && m_SelTrack < static_cast<int>( clip->Tracks.size() ) &&
+        const bool valid = m_SelTrack >= 0 && m_SelTrack < static_cast<int>( sequence.Tracks.size() ) &&
                            m_SelChannel >= 0 && m_SelChannel < 3;
-        if ( valid )
+        const std::string* bonePtr = valid ? BoneOfTrack( sequence, sequence.Tracks[m_SelTrack] ) : nullptr;
+        if ( bonePtr == nullptr )
         {
-            auto&      tr    = clip->Tracks[m_SelTrack];
-            const auto count = ( m_SelChannel == 0 )   ? tr.PositionKeys.size()
-                               : ( m_SelChannel == 1 ) ? tr.RotationKeys.size()
-                                                       : tr.ScaleKeys.size();
-            const bool keyOk = m_SelKey >= 0 && m_SelKey < static_cast<int>( count );
+            ImGui::TextDisabled( "Click a keyframe to edit it. Drag keys to retime." );
+            return;
+        }
+        const std::string             bone  = *bonePtr;
+        const Animation::TrackChannel part  = ChannelOfLane( m_SelChannel );
+        const auto                    ticks = PartTicks( sequence.Tracks[m_SelTrack], part );
+        const bool keyOk = m_SelKey >= 0 && std::ranges::find( ticks, m_SelKeyTick ) != ticks.end();
 
-            ImGui::Text( "%s  /  %s", tr.BoneName.c_str(), chName[m_SelChannel] );
-            bool changed = false;
+        ImGui::Text( "%s  /  %s", bone.c_str(), chName[m_SelChannel] );
+        bool changed = false;
 
-            // A NUMERIC FIELD'S DRAG IS AN INTERACTION LIKE THE GIZMO'S, and ImGui publishes both of its
-            // edges for the item just submitted — so unlike the gizmo this one needs no baseline and no
-            // bit passed between files. Called after each field, it makes a drag across forty frames ONE
-            // undo step. `IsItemDeactivated` rather than `...AfterEdit`: a click that changed nothing must
-            // still close the transaction (it pushes nothing, because the diff is empty), or the next edit
-            // would be swallowed into it.
-            const auto bracketField = [&]()
+        // A NUMERIC FIELD'S DRAG IS AN INTERACTION LIKE THE GIZMO'S: both of its edges are ImGui's, so a drag
+        // across forty frames is ONE undo step. `IsItemDeactivated` rather than `...AfterEdit`: a click that
+        // changed nothing must still close the transaction (it pushes nothing: the diff is empty).
+        const auto bracketField = [&]()
+        {
+            if ( ImGui::IsItemActivated() )
             {
-                if ( ImGui::IsItemActivated() )
+                if ( const auto began = m_ClipEdit.Begin( OwnerOf( clip ), animator ); !began.IsSuccess() )
                 {
-                    if ( const auto began = m_ClipEdit.Begin( animator, clip ); !began.IsSuccess() )
-                    {
-                        LOG_ERROR( "[Sequencer] key edit not undoable: {}", began.GetError() );
-                    }
+                    LOG_ERROR( "[Sequencer] key edit not undoable: {}", began.GetError() );
                 }
-                if ( ImGui::IsItemDeactivated() && m_ClipEdit.OpenExplicitly() )
+            }
+            if ( ImGui::IsItemDeactivated() && m_ClipEdit.OpenExplicitly() )
+            {
+                if ( const auto ended = m_ClipEdit.End(); !ended.IsSuccess() )
                 {
-                    if ( const auto ended = m_ClipEdit.End(); !ended.IsSuccess() )
-                    {
-                        LOG_ERROR( "[Sequencer] key edit not undoable: {}", ended.GetError() );
-                    }
+                    LOG_ERROR( "[Sequencer] key edit not undoable: {}", ended.GetError() );
                 }
-            };
+            }
+        };
 
-            // THE SHAPE OF THE SEGMENT THIS KEY ENDS. Before A6 a clip had exactly one rule — a straight
-            // line, unconditionally — so holding a pose and then easing out of it could only be faked with
-            // extra keys. A rotation lane offers two of the three: a cubic through quaternions is not a
-            // rotation (see RotationKeyFrame), and offering it here would be a control whose value the
-            // loader refuses.
-            const auto interpCombo = [&]( Animation::KeyInterp& interp, bool allowCubic )
+        if ( keyOk )
+        {
+            Animation::FrameNumber tick = m_SelKeyTick;
+
+            // ---- The key's frame: a retime is the engine's MoveBoneKey, never a write to `Tick` ----
+            Animation::FrameNumber edited = tick;
+            if ( FrameField( edited, animator->GetDurationTicks(), tickRate, displayRate ) && !( edited == tick ) )
             {
-                const char* names[3] = { "Constant", "Linear", "Cubic" };
-                int         current  = static_cast<int>( interp );
-                if ( !ImGui::Combo( "Interp", &current, names, allowCubic ? 3 : 2 ) )
+                if ( const auto moved = Animation::MoveBoneKey( sequence, bone, part, tick, edited );
+                     moved.IsSuccess() )
                 {
-                    return false;
+                    SelectKey( m_SelTrack, m_SelChannel, edited, sequence );
+                    tick    = edited;
+                    changed = true;
                 }
-                // BETWEEN THE WIDGET AND THE WRITE. `Combo` edits the local `current`, so the key still
-                // holds its old value on this line and the transaction's "before" is the true one.
-                const ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
-                interp = static_cast<Animation::KeyInterp>( current );
-                return true;
-            };
-            const auto tangentCombo = [&]( Animation::TangentMode& mode )
-            {
-                const char* names[3] = { "Auto", "User", "Break" };
-                int         current  = static_cast<int>( mode );
-                if ( !ImGui::Combo( "Tangents", &current, names, 3 ) )
+                else
                 {
-                    return false;
+                    LOG_TRACE( "[Sequencer] retime refused: {}", moved.GetError() );
                 }
-                const ScopedPoseEdit undoStep( m_ClipEdit, animator, clip ); // see interpCombo above
-                mode = static_cast<Animation::TangentMode>( current );
-                return true;
-            };
-            if ( keyOk )
+            }
+            bracketField();
+
+            TL::TransformChannel* channel = ChannelHoldingPartKey( sequence.Tracks[m_SelTrack], part, tick );
+            if ( channel != nullptr )
             {
-                if ( m_SelChannel == 0 )
+                const PartKeys keys = PartKeysAt( *channel, part, tick );
+                // THE SHAPE OF THE SEGMENT THIS KEY ENDS, one per part: every component key at this tick
+                // takes it. A rotation offers two of the three — a cubic through quaternions is not a
+                // rotation (Channel.hpp).
+                const auto interpCombo = [&]( bool allowCubic )
                 {
-                    auto& key = tr.PositionKeys[m_SelKey];
-                    changed |= FrameField( key.Tick, animator->GetDurationTicks(), tickRate, displayRate );
-                    bracketField();
-                    changed |= ImGui::DragFloat3( "Position", &key.Position.x, 0.01f );
-                    bracketField();
-                    changed |= interpCombo( key.Interp, true );
-                    changed |= tangentCombo( key.Mode );
-                    if ( key.Mode != Animation::TangentMode::Auto )
+                    const char* names[3] = { "Constant", "Linear", "Cubic" };
+                    int         current  = static_cast<int>( keys.Shape->Interp );
+                    if ( !ImGui::Combo( "Interp", &current, names, allowCubic ? 3 : 2 ) )
                     {
-                        changed |= ImGui::DragFloat3( "Arrive /s", &key.ArriveTangent.x, 0.1f );
-                        bracketField();
-                        changed |= ImGui::DragFloat3( "Leave /s", &key.LeaveTangent.x, 0.1f );
-                        bracketField();
+                        return false;
                     }
-                }
-                else if ( m_SelChannel == 1 )
+                    // BETWEEN THE WIDGET AND THE WRITE: the key still holds its old value on this line.
+                    const ScopedSequenceEdit undoStep( m_ClipEdit, OwnerOf( clip ), animator );
+                    for ( Animation::ScalarKey* key : keys.Keys )
+                    {
+                        if ( key != nullptr )
+                            key->Interp = static_cast<Animation::KeyInterp>( current );
+                    }
+                    FinishChannelEdit( sequence, *channel );
+                    return true;
+                };
+                const auto tangentCombo = [&]()
                 {
-                    auto& key = tr.RotationKeys[m_SelKey];
-                    changed |= FrameField( key.Tick, animator->GetDurationTicks(), tickRate, displayRate );
+                    const char* names[3] = { "Auto", "User", "Break" };
+                    int         current  = static_cast<int>( keys.Shape->Mode );
+                    if ( !ImGui::Combo( "Tangents", &current, names, 3 ) )
+                    {
+                        return false;
+                    }
+                    const ScopedSequenceEdit undoStep( m_ClipEdit, OwnerOf( clip ), animator );
+                    for ( Animation::ScalarKey* key : keys.Keys )
+                    {
+                        if ( key != nullptr )
+                            key->Mode = static_cast<Animation::TangentMode>( current );
+                    }
+                    FinishChannelEdit( sequence, *channel );
+                    return true;
+                };
+                const auto vectorField = [&]( const char* label, float speed, auto&& get, auto&& set )
+                {
+                    glm::vec3 value( 0.0f );
+                    for ( int i = 0; i < 3; ++i )
+                    {
+                        value[i] = get( i );
+                    }
+                    const bool edited3 = ImGui::DragFloat3( label, &value.x, speed );
+                    // The bracket comes FIRST: on the frame ImGui reports activation nothing is written yet.
                     bracketField();
-                    changed |= interpCombo( key.Interp, false );
-                    glm::vec3 euler = glm::degrees( glm::eulerAngles( key.Rotation ) );
-                    const bool eulerEdited = ImGui::DragFloat3( "Euler", &euler.x, 0.5f );
-                    // The bracket comes FIRST: on the frame ImGui reports activation the field has not
-                    // edited anything yet, so the transaction opens over a key that still holds its
-                    // original rotation.
+                    if ( edited3 )
+                    {
+                        for ( int i = 0; i < 3; ++i )
+                        {
+                            set( i, value[i] );
+                        }
+                        FinishChannelEdit( sequence, *channel );
+                        changed = true;
+                    }
+                };
+                const auto valueOf = [&]( int i )
+                { return keys.Keys[i] != nullptr ? keys.Keys[i]->Value : keys.Components[i]->Default; };
+                const auto writeValue = [&]( int i, float v )
+                { SetComponentValue( *keys.Components[i], tick, v, *keys.Shape ); };
+
+                if ( part == Animation::TrackChannel::Rotation )
+                {
+                    changed |= interpCombo( false );
+                    const glm::quat q( valueOf( 3 ), valueOf( 0 ), valueOf( 1 ), valueOf( 2 ) );
+                    glm::vec3       euler       = glm::degrees( glm::eulerAngles( glm::normalize( q ) ) );
+                    const bool      eulerEdited = ImGui::DragFloat3( "Euler", &euler.x, 0.5f );
                     bracketField();
                     if ( eulerEdited )
                     {
-                        key.Rotation = glm::quat( glm::radians( euler ) );
-                        changed      = true;
+                        const glm::quat r = glm::quat( glm::radians( euler ) );
+                        writeValue( 0, r.x );
+                        writeValue( 1, r.y );
+                        writeValue( 2, r.z );
+                        writeValue( 3, r.w );
+                        FinishChannelEdit( sequence, *channel );
+                        changed = true;
                     }
                 }
                 else
                 {
-                    auto& key = tr.ScaleKeys[m_SelKey];
-                    changed |= FrameField( key.Tick, animator->GetDurationTicks(), tickRate, displayRate );
-                    bracketField();
-                    changed |= ImGui::DragFloat3( "Scale", &key.Scale.x, 0.01f );
-                    bracketField();
-                    changed |= interpCombo( key.Interp, true );
-                    changed |= tangentCombo( key.Mode );
-                    if ( key.Mode != Animation::TangentMode::Auto )
+                    vectorField( part == Animation::TrackChannel::Position ? "Position" : "Scale", 0.01f, valueOf,
+                                 writeValue );
+                    changed |= interpCombo( true );
+                    changed |= tangentCombo();
+                    if ( keys.Shape->Mode != Animation::TangentMode::Auto )
                     {
-                        changed |= ImGui::DragFloat3( "Arrive /s", &key.ArriveTangent.x, 0.1f );
-                        bracketField();
-                        changed |= ImGui::DragFloat3( "Leave /s", &key.LeaveTangent.x, 0.1f );
-                        bracketField();
+                        vectorField(
+                             "Arrive", 0.1f,
+                             [&]( int i ) { return keys.Keys[i] != nullptr ? keys.Keys[i]->ArriveTangent : 0.0f; },
+                             [&]( int i, float v )
+                             {
+                                 if ( keys.Keys[i] != nullptr )
+                                     keys.Keys[i]->ArriveTangent = v;
+                             } );
+                        vectorField(
+                             "Leave", 0.1f,
+                             [&]( int i ) { return keys.Keys[i] != nullptr ? keys.Keys[i]->LeaveTangent : 0.0f; },
+                             [&]( int i, float v )
+                             {
+                                 if ( keys.Keys[i] != nullptr )
+                                     keys.Keys[i]->LeaveTangent = v;
+                             } );
                     }
                 }
-
-                if ( ImGui::Button( ICON_MDI_DELETE "  Delete Key" ) )
-                {
-                    const ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
-                    if ( m_SelChannel == 0 )
-                        tr.PositionKeys.erase( tr.PositionKeys.begin() + m_SelKey );
-                    else if ( m_SelChannel == 1 )
-                        tr.RotationKeys.erase( tr.RotationKeys.begin() + m_SelKey );
-                    else
-                        tr.ScaleKeys.erase( tr.ScaleKeys.begin() + m_SelKey );
-                    m_SelKey = -1;
-                    changed  = true;
-                }
-                ImGui::SameLine();
             }
 
-            if ( ImGui::Button( ICON_MDI_PLUS "  Add Key @ Playhead" ) )
+            if ( ImGui::Button( ICON_MDI_DELETE "  Delete Key" ) )
             {
-                // RECORDS WHAT THE CURVE SAYS HERE, seeded with its slope — report 05 §936. What this
-                // replaces inserted `glm::vec3( 0.0f )`: a position key AT THE ORIGIN, which yanked the
-                // bone across the scene the moment the button was pressed, and a scale key of 1 that
-                // flattened whatever the animator had built.
-                const Animation::FrameNumber t =
-                     Animation::SnapToDisplayRate( animator->GetCurrentTick(), tickRate, displayRate );
-                const Animation::TrackChannel channel = ChannelOfLane( m_SelChannel );
-                ScopedPoseEdit                undoStep( m_ClipEdit, animator, clip );
-                changed = Animation::InsertKeyFromCurve( tr, channel, t, tickRate );
+                const ScopedSequenceEdit undoStep( m_ClipEdit, OwnerOf( clip ), animator );
+                if ( const auto removed = Animation::RemoveBoneKey( sequence, bone, part, tick );
+                     !removed.IsSuccess() )
+                {
+                    ToastRefusal( "delete key", removed.GetError(), 6.0f );
+                }
+                m_SelKey = -1;
+                changed  = true;
             }
-
-            if ( changed )
-                animator->SetTime( animator->GetCurrentTime() );
+            ImGui::SameLine();
         }
-        else
+
+        if ( ImGui::Button( ICON_MDI_PLUS "  Add Key @ Playhead" ) )
         {
-            ImGui::TextDisabled( "Click a keyframe to edit it. Drag keys to retime." );
+            // RECORDS WHAT THE CURVE SAYS HERE, seeded with its slope — report 05 §936; an empty part records
+            // the pose on screen. What this replaced inserted a key AT THE ORIGIN.
+            const Animation::FrameNumber t =
+                 Animation::SnapToDisplayRate( animator->GetCurrentTick(), tickRate, displayRate );
+            {
+                const ScopedSequenceEdit undoStep( m_ClipEdit, OwnerOf( clip ), animator );
+                if ( const auto added = KeyPartAtTick( *clip, *animator, bone, part, t ); !added.IsSuccess() )
+                {
+                    ToastRefusal( "add key", added.GetError(), 6.0f );
+                }
+            }
+            SelectKey( m_SelTrack, m_SelChannel, t, sequence );
+            changed = true;
+        }
+
+        if ( changed )
+            animator->SetTime( animator->GetCurrentTime() );
+    }
+
+    void SequencerPanel::SelectKey( int track, int lane, Animation::FrameNumber tick,
+                                    const TL::Sequence& sequence )
+    {
+        m_SelTrack   = track;
+        m_SelChannel = lane;
+        m_SelKeyTick = tick;
+        m_SelKey     = -1;
+        if ( track < 0 || track >= static_cast<int>( sequence.Tracks.size() ) || lane < 0 || lane > 2 )
+        {
+            return;
+        }
+        // THE INDEX FOLLOWS THE TICK: the curve view addresses the key by its place in the part's sorted
+        // ticks, and a retime or an insert changes that place.
+        const auto ticks = PartTicks( sequence.Tracks[track], ChannelOfLane( lane ) );
+        if ( const auto it = std::ranges::find( ticks, tick ); it != ticks.end() )
+        {
+            m_SelKey = static_cast<int>( it - ticks.begin() );
         }
     }
 
@@ -1251,20 +1504,18 @@ namespace Desert::Editor
     // The skeletal editor above keys bones; this keys a UI element's Offset / Size / Opacity / Color.
     // It edits UIAnimComponent directly: lanes with draggable key diamonds, a scrubbable ruler, and a
     // transport. The playhead is a runtime-only field, so scrubbing never dirties the scene.
-    // ── SECTIONS: THE LANE, THE INSPECTOR AND THE THIRTEEN COMMANDS ──────────────────────────────────
+    // ── SECTIONS: THE LANE, THE INSPECTOR AND THE COMMANDS ───────────────────────────────────────────────
     //
-    // Before this, `kAnimationVersion` 3 could describe a section and nothing in the editor could author
-    // one: the migrator wrote "Whole clip" into every file and that was the only section any animator
-    // would ever see. What a section IS lives in Engine/Animation/ClipSection.hpp — including the two
-    // rules about its two "empty means" fields — and every edit below goes through the functions there,
-    // so the lane, the inspector and the palette cannot disagree about what a section edit is.
+    // A section belongs to a TRACK (Timeline/Track.hpp, UE's UMovieSceneTrack::Sections), not to the clip:
+    // the lane and the list show the sections of the track selected in the dope sheet, and every edit below
+    // is a Timeline/Track.hpp function inside one SequenceEditTransaction — so the lane, the inspector and
+    // the palette cannot disagree about what a section edit is.
 
     void SequencerPanel::SelectSection( int index )
     {
         m_SelSection = index;
         // THE RENAME BUFFER IS INVALIDATED HERE AND NOWHERE ELSE. It is refilled lazily by the inspector,
-        // which is the only thing that knows the section's current name; a copy made here would go stale
-        // the moment a palette command renamed the same section.
+        // which is the only thing that knows the section's current name.
         m_SectionNameFor = -1;
     }
 
@@ -1299,7 +1550,10 @@ namespace Desert::Editor
         {
             return std::nullopt;
         }
-        return SectionTarget{ animator, clip };
+        TL::Track* track = m_SelTrack >= 0 && m_SelTrack < static_cast<int>( clip->Sequence.Tracks.size() )
+                                ? &clip->Sequence.Tracks[static_cast<size_t>( m_SelTrack )]
+                                : nullptr;
+        return SectionTarget{ animator, clip, track };
     }
 
     void
@@ -1313,27 +1567,36 @@ namespace Desert::Editor
                                 6.0f );
             return;
         }
-        if ( m_SelSection < 0 || m_SelSection >= static_cast<int>( target->Clip->Sections.size() ) )
+        if ( target->Track == nullptr )
+        {
+            ToastRefusal( what, "select a track first — sections belong to a track", 6.0f );
+            return;
+        }
+        if ( m_SelSection < 0 || m_SelSection >= static_cast<int>( target->Track->Sections.size() ) )
         {
             // A COMMAND WITH NO SELECTION IS A REFUSAL IN WORDS, not a no-op. The palette runs without a
             // mouse, so "nothing happened" is the one answer that cannot be told apart from a defect.
-            ToastManager::Push( std::string( what ) + ": select a section first (the clip has " +
-                                     std::to_string( target->Clip->Sections.size() ) + ")",
+            ToastManager::Push( std::format( "{}: select a section first (the track has {})", what,
+                                             target->Track->Sections.size() ),
                                 ToastLevel::Error, 6.0f );
             return;
         }
         const auto index = static_cast<size_t>( m_SelSection );
         // ONE INTERACTION, ONE UNDO STEP. The guard opens before the edit and closes after it, so a
-        // command that changes nothing pushes nothing (PoseEditTransaction::End says why).
+        // command that changes nothing pushes nothing (SequenceEditTransaction::End compares by value).
         Common::BoolResultStr done = Common::MakeError<bool>( "the edit did not run" );
         {
-            const ScopedPoseEdit undoStep( m_ClipEdit, target->Animator, target->Clip );
+            const ScopedSequenceEdit undoStep( m_ClipEdit, OwnerOf( target->Clip ), target->Animator );
             done = edit( *target, index );
+            if ( done.IsSuccess() )
+            {
+                ++target->Clip->Sequence.Revision;
+            }
         }
         if ( !done.IsSuccess() )
         {
             LOG_ERROR( "[Sequencer] {}: {}", what, done.GetError() );
-            ToastManager::Push( std::string( what ) + ": " + done.GetError(), ToastLevel::Error, 8.0f );
+            ToastRefusal( what, done.GetError(), 8.0f );
         }
     }
 
@@ -1344,9 +1607,13 @@ namespace Desert::Editor
         {
             return;
         }
-        if ( m_SelSection >= static_cast<int>( clip->Sections.size() ) )
+        TL::Sequence& sequence = clip->Sequence;
+        TL::Track*    track    = m_SelTrack >= 0 && m_SelTrack < static_cast<int>( sequence.Tracks.size() )
+                                      ? &sequence.Tracks[static_cast<size_t>( m_SelTrack )]
+                                      : nullptr;
+        if ( track == nullptr || m_SelSection >= static_cast<int>( track->Sections.size() ) )
         {
-            SelectSection( -1 ); // the picker changed the clip under the selection
+            SelectSection( -1 ); // the picker changed the clip, or the track, under the selection
         }
 
         constexpr float kLaneH = 28.0f;
@@ -1357,18 +1624,35 @@ namespace Desert::Editor
         const Sequencer::CurveViewport axis = TimeAxis( laneX0, laneW, duration );
         const float                    y0   = origin.y;
         const float                    y1   = origin.y + kLaneH;
+        const Animation::FrameRate     rate = sequence.TickRate;
 
         dl->AddRectFilled( ImVec2( laneX0, y0 ), ImVec2( laneX0 + laneW, y1 ), IM_COL32( 20, 20, 24, 255 ) );
-        dl->AddText( ImVec2( contentX0 + 6.0f, y0 + 7.0f ), IM_COL32( 170, 170, 180, 255 ), "SECTIONS" );
-
-        for ( size_t i = 0; i < clip->Sections.size(); ++i )
+        const std::string title =
+             track != nullptr ? std::format( "SECTIONS  {}", TrackLabel( sequence, *track ) ) : "SECTIONS";
+        dl->PushClipRect( ImVec2( contentX0, y0 ), ImVec2( laneX0 - 4.0f, y1 ), true );
+        dl->AddText( ImVec2( contentX0 + 6.0f, y0 + 7.0f ), IM_COL32( 170, 170, 180, 255 ), title.c_str() );
+        dl->PopClipRect();
+        if ( track == nullptr )
         {
-            const Animation::ClipSection& section = clip->Sections[i];
-            const float                   xa      = axis.TimeToX( TickToSeconds( section.Start, clip->TickRate ) );
-            // THE END IS INCLUSIVE (ClipSection.hpp), so the bar is drawn to the end of that tick and not
-            // to its left edge — a section ending on the last frame that stopped one frame short of the
-            // ruler would read as an off-by-one in the FORMAT rather than in this line.
-            const float xb       = axis.TimeToX( TickToSeconds( section.End, clip->TickRate ) );
+            dl->AddText( ImVec2( laneX0 + 8.0f, y0 + 7.0f ), IM_COL32( 120, 120, 130, 255 ),
+                         "Select a track below: sections belong to a track." );
+            ImGui::SetCursorScreenPos( ImVec2( contentX0, y1 + 3.0f ) );
+            return;
+        }
+
+        // LOWER ROWS FIRST, so the section whose value is SEEN (highest row, then last) is drawn on top.
+        std::vector<size_t> order( track->Sections.size() );
+        for ( size_t i = 0; i < order.size(); ++i )
+            order[i] = i;
+        std::ranges::stable_sort( order, [&]( size_t a, size_t b )
+                                  { return track->Sections[a].Row < track->Sections[b].Row; } );
+
+        for ( const size_t i : order )
+        {
+            const TL::Section& section = track->Sections[i];
+            const float        xa      = axis.TimeToX( TickToSeconds( section.Start, rate ) );
+            // THE END IS INCLUSIVE (Section.hpp), so the bar is drawn to the end of that tick.
+            const float xb       = axis.TimeToX( TickToSeconds( section.End, rate ) );
             const bool  additive = section.Blend == Animation::SectionBlendType::Additive;
             const bool  selected = static_cast<int>( i ) == m_SelSection;
 
@@ -1381,24 +1665,22 @@ namespace Desert::Editor
                          selected ? IM_COL32( 255, 255, 255, 220 ) : IM_COL32( 0, 0, 0, 140 ), 3.0f, 0,
                          selected ? 2.0f : 1.0f );
 
-            // THE FADE, INSIDE THE BAR IT BELONGS TO. Drawn only when the channel HAS keys: an empty
-            // channel is full weight (ClipSection.hpp), and a flat line along the top of every migrated
-            // clip in the repository would be ink that says nothing.
+            // THE FADE, INSIDE THE BAR IT BELONGS TO. Drawn only when the weight HAS keys: an empty weight
+            // is full weight (Section.hpp), and a flat line along the top of every section would say nothing.
             if ( !section.Weight.empty() && xb > xa + 2.0f )
             {
                 const float top    = y0 + 4.0f;
                 const float bottom = y1 - 4.0f;
                 const int   steps  = std::min( 160, static_cast<int>( xb - xa ) );
+                const float s0     = TickToSeconds( section.Start, rate );
+                const float s1     = TickToSeconds( section.End, rate );
                 ImVec2      previous( 0.0f, 0.0f );
                 for ( int s = 0; s <= steps; ++s )
                 {
-                    const float t       = static_cast<float>( s ) / static_cast<float>( std::max( 1, steps ) );
-                    const float seconds = TickToSeconds( section.Start, clip->TickRate ) +
-                                          t * ( TickToSeconds( section.End, clip->TickRate ) -
-                                                TickToSeconds( section.Start, clip->TickRate ) );
-                    const auto at =
-                         Animation::SecondsToFrameTime( static_cast<double>( seconds ), clip->TickRate );
-                    const float  w = section.WeightAt( at, clip->TickRate );
+                    const float t = static_cast<float>( s ) / static_cast<float>( std::max( 1, steps ) );
+                    const auto  at =
+                         Animation::SecondsToFrameTime( static_cast<double>( s0 + t * ( s1 - s0 ) ), rate );
+                    const float  w = TL::WeightAt( section, at, rate );
                     const ImVec2 pt( xa + t * ( xb - xa ),
                                      bottom - std::clamp( w, 0.0f, 1.0f ) * ( bottom - top ) );
                     if ( s > 0 )
@@ -1409,11 +1691,10 @@ namespace Desert::Editor
                 }
             }
 
-            char label[96];
-            std::snprintf( label, sizeof( label ), "%zu  %s  %s", i, section.Name.c_str(),
-                           Animation::SectionBlendName( section.Blend ) );
+            const std::string label = std::format( "{}  {}  {}  row {}", i, section.Name,
+                                                   Animation::SectionBlendName( section.Blend ), section.Row );
             dl->PushClipRect( ImVec2( xa + 2.0f, y0 ), ImVec2( std::max( xb, xa + 2.0f ), y1 ), true );
-            dl->AddText( ImVec2( xa + 5.0f, y0 + 7.0f ), IM_COL32( 240, 240, 245, 255 ), label );
+            dl->AddText( ImVec2( xa + 5.0f, y0 + 7.0f ), IM_COL32( 240, 240, 245, 255 ), label.c_str() );
             dl->PopClipRect();
         }
 
@@ -1423,7 +1704,7 @@ namespace Desert::Editor
         const auto tickUnderMouse = [&]()
         {
             const float seconds = std::clamp( ( ImGui::GetMousePos().x - laneX0 ) / laneW, 0.0f, 1.0f ) * duration;
-            return SecondsToSnappedTick( seconds, clip->TickRate, clip->DisplayRate );
+            return SecondsToSnappedTick( seconds, rate, sequence.DisplayRate );
         };
 
         if ( ImGui::IsItemActivated() )
@@ -1431,18 +1712,18 @@ namespace Desert::Editor
             constexpr float kGrab = 5.0f; // pixels of edge that resize rather than move
             const float     mx    = ImGui::GetMousePos().x;
             m_SectionDrag         = -1;
-            // BACK TO FRONT, because the front of the list is drawn first and the LAST section is the one
-            // that wins an overlap (AnimationClip::SectionFor). Picking front-to-back would hand the
-            // animator the section whose value they are not seeing.
-            for ( size_t j = clip->Sections.size(); j-- > 0; )
+            // TOPMOST FIRST — the reverse of the draw order — so a click lands on the section the animator
+            // is looking at, not one hidden under it.
+            for ( const auto index : std::views::reverse( order ) )
             {
-                const float xa = axis.TimeToX( TickToSeconds( clip->Sections[j].Start, clip->TickRate ) );
-                const float xb = axis.TimeToX( TickToSeconds( clip->Sections[j].End, clip->TickRate ) );
+                const TL::Section& section = track->Sections[index];
+                const float        xa      = axis.TimeToX( TickToSeconds( section.Start, rate ) );
+                const float        xb      = axis.TimeToX( TickToSeconds( section.End, rate ) );
                 if ( mx < xa - kGrab || mx > xb + kGrab )
                 {
                     continue;
                 }
-                m_SectionDrag     = static_cast<int>( j );
+                m_SectionDrag     = static_cast<int>( index );
                 m_SectionDragEdge = ( mx <= xa + kGrab ) ? 1 : ( mx >= xb - kGrab ? 2 : 0 );
                 break;
             }
@@ -1450,7 +1731,7 @@ namespace Desert::Editor
             m_SectionDragTick = tickUnderMouse();
             if ( m_SectionDrag >= 0 )
             {
-                if ( const auto began = m_ClipEdit.Begin( animator, clip ); !began.IsSuccess() )
+                if ( const auto began = m_ClipEdit.Begin( OwnerOf( clip ), animator ); !began.IsSuccess() )
                 {
                     LOG_ERROR( "[Sequencer] section edit not undoable: {}", began.GetError() );
                 }
@@ -1458,34 +1739,31 @@ namespace Desert::Editor
         }
 
         if ( ImGui::IsItemActive() && m_SectionDrag >= 0 &&
-             m_SectionDrag < static_cast<int>( clip->Sections.size() ) )
+             m_SectionDrag < static_cast<int>( track->Sections.size() ) )
         {
-            const auto   now   = tickUnderMouse();
-            const auto   index = static_cast<size_t>( m_SectionDrag );
+            const auto now   = tickUnderMouse();
+            const auto index = static_cast<size_t>( m_SectionDrag );
             if ( !( now == m_SectionDragTick ) )
             {
                 Common::BoolResultStr moved = Common::MakeSuccess( true );
                 if ( m_SectionDragEdge == 0 )
                 {
-                    moved = Animation::MoveSection( clip->Sections, index, now.Value - m_SectionDragTick.Value,
-                                                    clip->DurationTicks );
+                    moved = TL::MoveSection( *track, index, now.Value - m_SectionDragTick.Value );
                 }
                 else if ( m_SectionDragEdge == 1 )
                 {
-                    moved = Animation::SetSectionRange( clip->Sections, index, now, clip->Sections[index].End,
-                                                        clip->DurationTicks );
+                    moved = TL::SetSectionRange( *track, index, now, track->Sections[index].End );
                 }
                 else
                 {
-                    moved = Animation::SetSectionRange( clip->Sections, index, clip->Sections[index].Start, now,
-                                                        clip->DurationTicks );
+                    moved = TL::SetSectionRange( *track, index, track->Sections[index].Start, now );
                 }
-                // THE ANCHOR ADVANCES ONLY ON AN ACCEPTED MOVE. A section pushed against tick 0 stops
-                // there and starts moving again the instant the mouse comes back past where it stopped —
-                // the version that advanced unconditionally teleported it as soon as the mouse reversed.
+                // THE ANCHOR ADVANCES ONLY ON AN ACCEPTED MOVE, so a section pushed against a limit starts
+                // moving again the instant the mouse comes back past where it stopped.
                 if ( moved.IsSuccess() )
                 {
                     m_SectionDragTick = now;
+                    ++sequence.Revision;
                 }
             }
         }
@@ -1514,26 +1792,32 @@ namespace Desert::Editor
         ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
         const bool open = Utils::ImGuiUtilities::SectionHeader( ICON_MDI_VIEW_SEQUENTIAL "  Sections", true );
         ImGui::SameLine();
-        // THE SENTENCE Docs/Animation/09_sections_and_weight.md COMMITS US TO, ON THE SURFACE THAT SETS
-        // THE NUMBER. Report 05 §972 warns that UE's section weight blends POSES on an Absolute section
-        // and VALUES on an Additive one — one slider, two visibly different results. We blend values in
-        // both cases, and the place that has to say so is the place an animator reads before dragging.
-        HelpMarker( "A section is a RANGE of this clip, the tracks it speaks for, how its values reach the "
-                    "pose, and how much of it arrives.\n\n"
+        // Report 05 §972: UE's section weight blends POSES on an Absolute section and VALUES on an Additive
+        // one. We blend values in both cases, and this is the place an animator reads before dragging.
+        HelpMarker( "A section is a RANGE of one track, how its values reach the pose, and how much of it "
+                    "arrives.\n\n"
                     "WEIGHT IS A PROPORTION OF THE VALUE, NOT A BLEND OF TWO POSES.\n"
-                    "At 50 % an Absolute section drives each track halfway from the rest pose to the number "
-                    "on the curve; an Additive one applies half the authored offset. Either way it is the "
-                    "NUMBER the curve shows that is halved — never the place the bones ended up, which is "
-                    "what a pose blend would give and what the curve could not predict.\n\n"
-                    "Tracks empty = every track in the clip. Weight empty = full weight, which is not the "
-                    "same as a single key of 0.\n"
-                    "Two sections over one track at one tick: the LOWER one in the list wins." );
+                    "At 50 % an Absolute section drives the track halfway from the rest pose to the number "
+                    "on the curve; an Additive one applies half the authored offset.\n\n"
+                    "Weight empty = full weight, which is not the same as a single key of 0.\n"
+                    "Two sections of one track at one tick: the one on the HIGHER row wins; on one row, the "
+                    "later one." );
         if ( !open )
         {
             return;
         }
 
-        // ---- The list, and the four operations on it ----
+        TL::Sequence& sequence = clip->Sequence;
+        if ( m_SelTrack < 0 || m_SelTrack >= static_cast<int>( sequence.Tracks.size() ) )
+        {
+            ImGui::TextDisabled( "Select a track in the dope sheet: sections belong to a track." );
+            return;
+        }
+        TL::Track&                 track = sequence.Tracks[static_cast<size_t>( m_SelTrack )];
+        const Animation::FrameRate rate  = sequence.TickRate;
+        ImGui::TextDisabled( "Track: %s", TrackLabel( sequence, track ).c_str() );
+
+        // ---- The list, and the operations on it ----
         ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.20f, 0.40f, 0.28f, 1.0f ) );
         ImGui::PushStyleColor( ImGuiCol_ButtonHovered, ImVec4( 0.26f, 0.50f, 0.36f, 1.0f ) );
         if ( ImGui::Button( ICON_MDI_PLUS " Add Section" ) )
@@ -1541,54 +1825,49 @@ namespace Desert::Editor
             AddSectionAtPlayhead();
         }
         ImGui::PopStyleColor( 2 );
-        Utils::ImGuiUtilities::Tooltip( "A new section from the playhead to the end of the clip: every "
-                                        "track, Absolute, full weight — which is what a section that has "
-                                        "not been narrowed yet MEANS." );
+        Utils::ImGuiUtilities::Tooltip( "A new section of this track from the playhead to the end of the clip, "
+                                        "on the first free row: Absolute, full weight, holding the value the "
+                                        "track shows at the playhead." );
 
-        const bool hasSelection = m_SelSection >= 0 && m_SelSection < static_cast<int>( clip->Sections.size() );
+        const bool hasSelection = m_SelSection >= 0 && m_SelSection < static_cast<int>( track.Sections.size() );
 
         ImGui::SameLine();
         ImGui::BeginDisabled( !hasSelection );
         if ( ImGui::Button( ICON_MDI_DELETE " Delete" ) )
         {
             RunSectionEdit( "delete section", []( SectionTarget& target, size_t index )
-                            { return Animation::RemoveSection( target.Clip->Sections, index ); } );
+                            { return TL::RemoveSection( *target.Track, index ); } );
             SelectSection( -1 );
         }
         ImGui::SameLine();
-        if ( ImGui::Button( ICON_MDI_ARROW_UP " Lower priority" ) )
+        if ( ImGui::Button( ICON_MDI_ARROW_DOWN " Lower row" ) )
         {
             ReorderSelectedSection( -1 );
         }
-        Utils::ImGuiUtilities::Tooltip( "Move it one place EARLIER in the list. The later of two sections "
-                                        "over the same track wins, so earlier means it loses." );
+        Utils::ImGuiUtilities::Tooltip( "One row DOWN: where it overlaps a section on a higher row, it loses." );
         ImGui::SameLine();
-        if ( ImGui::Button( ICON_MDI_ARROW_DOWN " Raise priority" ) )
+        if ( ImGui::Button( ICON_MDI_ARROW_UP " Raise row" ) )
         {
             ReorderSelectedSection( 1 );
         }
-        Utils::ImGuiUtilities::Tooltip( "Move it one place LATER in the list, where it wins an overlap." );
+        Utils::ImGuiUtilities::Tooltip( "One row UP, where it wins an overlap." );
         ImGui::EndDisabled();
 
-        if ( clip->Sections.empty() )
+        if ( track.Sections.empty() )
         {
-            ImGui::TextDisabled( "This clip states no section. Every track plays exactly as authored." );
+            ImGui::TextDisabled( "This track has no section: it has no keys yet." );
             return;
         }
 
-        // The picker. A list rather than a combo: the ORDER is the priority rule, so a control that hides
-        // all but one row hides the only thing the order does.
-        for ( size_t i = 0; i < clip->Sections.size(); ++i )
+        for ( size_t i = 0; i < track.Sections.size(); ++i )
         {
-            const Animation::ClipSection& section = clip->Sections[i];
-            char                          row[160];
-            std::snprintf( row, sizeof( row ), "%zu   %s   [%d..%d]   %s   %s##sectionRow%zu", i,
-                           section.Name.c_str(),
-                           Animation::DisplayFrameIndex( section.Start, clip->TickRate, clip->DisplayRate ),
-                           Animation::DisplayFrameIndex( section.End, clip->TickRate, clip->DisplayRate ),
-                           Animation::SectionBlendName( section.Blend ),
-                           section.Tracks.empty() ? "all tracks" : "some tracks", i );
-            if ( ImGui::Selectable( row, static_cast<int>( i ) == m_SelSection ) )
+            const TL::Section& section = track.Sections[i];
+            const std::string  row =
+                 std::format( "{}   {}   [{}..{}]   {}   row {}##sectionRow{}", i, section.Name,
+                              Animation::DisplayFrameIndex( section.Start, rate, sequence.DisplayRate ),
+                              Animation::DisplayFrameIndex( section.End, rate, sequence.DisplayRate ),
+                              Animation::SectionBlendName( section.Blend ), section.Row, i );
+            if ( ImGui::Selectable( row.c_str(), static_cast<int>( i ) == m_SelSection ) )
             {
                 SelectSection( static_cast<int>( i ) );
             }
@@ -1600,17 +1879,15 @@ namespace Desert::Editor
             return;
         }
 
-        const auto              index   = static_cast<size_t>( m_SelSection );
-        Animation::ClipSection& section = clip->Sections[index];
+        const auto   index   = static_cast<size_t>( m_SelSection );
+        TL::Section& section = track.Sections[index];
 
-        // A DRAG ACROSS FORTY FRAMES IS ONE UNDO STEP, and this is the bracket the dope-sheet fields use
-        // above — the same two ImGui edges, so a section field and a key field cannot disagree about what
-        // one interaction is.
+        // A DRAG ACROSS FORTY FRAMES IS ONE UNDO STEP — the same two ImGui edges the key fields use.
         const auto bracketField = [&]()
         {
             if ( ImGui::IsItemActivated() )
             {
-                if ( const auto began = m_ClipEdit.Begin( animator, clip ); !began.IsSuccess() )
+                if ( const auto began = m_ClipEdit.Begin( OwnerOf( clip ), animator ); !began.IsSuccess() )
                 {
                     LOG_ERROR( "[Sequencer] section edit not undoable: {}", began.GetError() );
                 }
@@ -1622,6 +1899,18 @@ namespace Desert::Editor
                     LOG_ERROR( "[Sequencer] section edit not undoable: {}", ended.GetError() );
                 }
             }
+        };
+        // Every accepted edit moves the revision, as every TrackEditing edit does.
+        const auto accepted = [&]( const Common::BoolResultStr& result, const char* what )
+        {
+            if ( result.IsSuccess() )
+            {
+                ++sequence.Revision;
+                return;
+            }
+            // LOGGED, NOT TOASTED: a drag crosses a limit on its way to a legal value and would otherwise
+            // raise one toast per frame; the field simply does not move.
+            LOG_TRACE( "[Sequencer] {} refused: {}", what, result.GetError() );
         };
 
         ImGui::Separator();
@@ -1640,11 +1929,10 @@ namespace Desert::Editor
         bracketField();
 
         // ---- Range, in the frames the ruler shows ----
-        int       first = Animation::DisplayFrameIndex( section.Start, clip->TickRate, clip->DisplayRate );
-        int       last  = Animation::DisplayFrameIndex( section.End, clip->TickRate, clip->DisplayRate );
-        const int lastFrame =
-             Animation::DisplayFrameIndex( clip->DurationTicks, clip->TickRate, clip->DisplayRate );
-        const double ticksPerFrame = clip->TickRate.AsDouble() / clip->DisplayRate.AsDouble();
+        int          first     = Animation::DisplayFrameIndex( section.Start, rate, sequence.DisplayRate );
+        int          last      = Animation::DisplayFrameIndex( section.End, rate, sequence.DisplayRate );
+        const int    lastFrame = Animation::DisplayFrameIndex( clip->DurationTicks(), rate, sequence.DisplayRate );
+        const double ticksPerFrame = rate.AsDouble() / sequence.DisplayRate.AsDouble();
         const auto   frameToTick   = [&]( int frame )
         {
             return Animation::FrameNumber{
@@ -1654,27 +1942,14 @@ namespace Desert::Editor
         ImGui::SetNextItemWidth( 120.0f );
         if ( ImGui::DragInt( "Start frame", &first, 1.0f, 0, lastFrame ) )
         {
-            // REFUSALS ARE LOGGED AND NOT TOASTED HERE. A drag crosses the clip's end on its way to a
-            // legal value and would otherwise raise one toast per frame; the field simply does not move,
-            // which is the answer a drag can read.
-            if ( const auto set = Animation::SetSectionRange( clip->Sections, index, frameToTick( first ),
-                                                              section.End, clip->DurationTicks );
-                 !set.IsSuccess() )
-            {
-                LOG_TRACE( "[Sequencer] section start refused: {}", set.GetError() );
-            }
+            accepted( TL::SetSectionRange( track, index, frameToTick( first ), section.End ), "section start" );
         }
         bracketField();
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 120.0f );
         if ( ImGui::DragInt( "End frame", &last, 1.0f, 0, lastFrame ) )
         {
-            if ( const auto set = Animation::SetSectionRange( clip->Sections, index, section.Start,
-                                                              frameToTick( last ), clip->DurationTicks );
-                 !set.IsSuccess() )
-            {
-                LOG_TRACE( "[Sequencer] section end refused: {}", set.GetError() );
-            }
+            accepted( TL::SetSectionRange( track, index, section.Start, frameToTick( last ) ), "section end" );
         }
         bracketField();
         ImGui::SameLine();
@@ -1686,8 +1961,9 @@ namespace Desert::Editor
         ImGui::SetNextItemWidth( 160.0f );
         if ( ImGui::Combo( "Blend", &blend, blendNames ) )
         {
-            const ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
+            const ScopedSequenceEdit undoStep( m_ClipEdit, OwnerOf( clip ), animator );
             section.Blend = static_cast<Animation::SectionBlendType>( blend );
+            ++sequence.Revision;
         }
         ImGui::SameLine();
         HelpMarker( "Absolute — the track's value IS the pose; weight walks each number from the rest pose "
@@ -1696,71 +1972,10 @@ namespace Desert::Editor
                     "offset, so an identity value changes nothing at any weight.\n\n"
                     "Both blend VALUES. Neither interpolates between two evaluated poses." );
 
-        // ---- Which tracks it speaks for ----
-        bool everyTrack = section.Tracks.empty();
-        if ( ImGui::Checkbox( "Speaks for every track in the clip", &everyTrack ) )
-        {
-            const ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
-            if ( everyTrack )
-            {
-                Animation::SetSectionSpeaksForEveryTrack( section );
-            }
-            else if ( !clip->Tracks.empty() )
-            {
-                // UNTICKING IT HAS TO NAME SOMETHING, and the honest something is what it already speaks
-                // for minus one — the first track. Leaving the list empty would tick the box again next
-                // frame, which reads as the control being broken.
-                std::vector<std::string> named;
-                named.reserve( clip->Tracks.size() );
-                for ( const auto& track : clip->Tracks )
-                {
-                    named.push_back( track.BoneName );
-                }
-                section.Tracks = std::move( named );
-                if ( section.Tracks.size() > 1 )
-                {
-                    section.Tracks.pop_back();
-                }
-            }
-        }
-        ImGui::SameLine();
-        HelpMarker( "An empty list IS 'every track', and that is not a shorthand: a list naming every "
-                    "track goes stale the first time the keyer adds one. Ticking the last box here puts "
-                    "the list back to empty for that reason." );
-
-        if ( !section.Tracks.empty() )
-        {
-            ImGui::Indent();
-            if ( ImGui::BeginChild( "##sectionTracks", ImVec2( 0.0f, 120.0f ), true ) )
-            {
-                std::vector<std::string> allTracks;
-                allTracks.reserve( clip->Tracks.size() );
-                for ( const auto& track : clip->Tracks )
-                {
-                    allTracks.push_back( track.BoneName );
-                }
-                for ( const auto& name : allTracks )
-                {
-                    bool on = section.Speaks( name );
-                    if ( ImGui::Checkbox( name.c_str(), &on ) )
-                    {
-                        const ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
-                        if ( const auto set = Animation::SetSectionSpeaksFor( section, name, on, allTracks );
-                             !set.IsSuccess() )
-                        {
-                            ToastManager::Push( set.GetError(), ToastLevel::Error, 6.0f );
-                        }
-                    }
-                }
-            }
-            ImGui::EndChild();
-            ImGui::Unindent();
-        }
-
         // ---- The weight channel ----
         ImGui::Separator();
         const Animation::FrameTime playhead = animator->GetCurrentTick();
-        ImGui::Text( "Weight here: %.3f", section.WeightAt( playhead, clip->TickRate ) );
+        ImGui::Text( "Weight here: %.3f", TL::WeightAt( section, playhead, rate ) );
         ImGui::SameLine();
         if ( section.Weight.empty() )
         {
@@ -1776,49 +1991,37 @@ namespace Desert::Editor
         ImGui::SameLine();
         if ( ImGui::Button( ICON_MDI_KEY_PLUS " Key weight @ playhead" ) )
         {
-            const ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
-            if ( const auto keyed = Animation::SetSectionWeightKey( section, playhead.Frame, m_SectionWeight );
-                 !keyed.IsSuccess() )
-            {
-                ToastManager::Push( keyed.GetError(), ToastLevel::Error, 6.0f );
-            }
+            RunSectionEdit( "key weight", [this, tick = playhead.Frame]( SectionTarget& target, size_t i )
+                            { return TL::SetSectionWeightKey( *target.Track, i, tick, m_SectionWeight ); } );
         }
         ImGui::SameLine();
         ImGui::BeginDisabled( section.Weight.empty() );
         if ( ImGui::Button( "Clear fade" ) )
         {
-            const ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
-            Animation::ClearSectionWeight( section );
+            RunSectionEdit( "clear fade", []( SectionTarget& target, size_t i )
+                            { return TL::ClearSectionWeight( *target.Track, i ); } );
         }
         ImGui::EndDisabled();
         Utils::ImGuiUtilities::Tooltip( "Back to no fade, which is FULL weight — not silence." );
 
-        for ( size_t k = 0; k < section.Weight.size(); ++k )
+        for ( size_t k = 0; k < track.Sections[index].Weight.size(); ++k )
         {
+            const Animation::ScalarKey key = track.Sections[index].Weight[k];
             ImGui::PushID( static_cast<int>( k ) );
-            ImGui::SetNextItemWidth( 90.0f );
-            float value = section.Weight[k].Value;
-            ImGui::Text( "f%d", Animation::DisplayFrameIndex( section.Weight[k].Tick, clip->TickRate,
-                                                              clip->DisplayRate ) );
+            float value = key.Value;
+            ImGui::Text( "f%d", Animation::DisplayFrameIndex( key.Tick, rate, sequence.DisplayRate ) );
             ImGui::SameLine();
             ImGui::SetNextItemWidth( 110.0f );
             if ( ImGui::DragFloat( "##weightKey", &value, 0.005f, 0.0f, 1.0f, "%.3f" ) )
             {
-                if ( const auto set = Animation::SetSectionWeightKey( section, section.Weight[k].Tick, value );
-                     !set.IsSuccess() )
-                {
-                    LOG_TRACE( "[Sequencer] weight key refused: {}", set.GetError() );
-                }
+                accepted( TL::SetSectionWeightKey( track, index, key.Tick, value ), "weight key" );
             }
             bracketField();
             ImGui::SameLine();
             if ( ImGui::SmallButton( ICON_MDI_CLOSE ) )
             {
-                const ScopedPoseEdit undoStep( m_ClipEdit, animator, clip );
-                if ( const auto removed = Animation::RemoveSectionWeightKey( section, k ); !removed.IsSuccess() )
-                {
-                    ToastManager::Push( removed.GetError(), ToastLevel::Error, 6.0f );
-                }
+                RunSectionEdit( "remove weight key", [k]( SectionTarget& target, size_t i )
+                                { return TL::RemoveSectionWeightKey( *target.Track, i, k ); } );
                 ImGui::PopID();
                 break;
             }
@@ -1829,56 +2032,74 @@ namespace Desert::Editor
     void SequencerPanel::AddSectionAtPlayhead()
     {
         auto target = ResolveSectionTarget();
-        if ( !target )
+        if ( !target || target->Track == nullptr )
         {
-            ToastManager::Push( "add section: no clip is open on this timeline", ToastLevel::Error, 6.0f );
+            ToastManager::Push( "add section: select a track first — sections belong to a track",
+                                ToastLevel::Error, 6.0f );
             return;
         }
-        Animation::AnimationClip* clip = target->Clip;
-        // FROM THE PLAYHEAD TO THE END, and named by its own position in the list. A range of zero length
-        // would be legal (the end is inclusive, so it is a one-tick section) and useless: the first thing
-        // the animator would do is drag it open, and a new section that has to be repaired before it says
-        // anything is a button that half-works.
+        Animation::AnimationClip* clip  = target->Clip;
+        TL::Track&                track = *target->Track;
+        if ( static_cast<uint8_t>( track.Kind ) > static_cast<uint8_t>( TL::TrackKind::Event ) )
+        {
+            ToastManager::Push( std::format( "add section: a {} track's sections are not authored on a clip",
+                                             TL::ToString( track.Kind ) ),
+                                ToastLevel::Error, 6.0f );
+            return;
+        }
+        // FROM THE PLAYHEAD TO THE END. A new section that has to be dragged open before it says anything
+        // is a button that half-works.
         const Animation::FrameNumber start = target->Animator->GetCurrentTick().Frame;
-        char                         name[48];
-        std::snprintf( name, sizeof( name ), "Section %zu", clip->Sections.size() + 1 );
-
-        const ScopedPoseEdit undoStep( m_ClipEdit, target->Animator, clip );
-        const auto     added = Animation::AddSection( clip->Sections, name, start, clip->DurationTicks,
-                                                      Animation::SectionBlendType::Absolute, clip->DurationTicks );
-        if ( !added.IsSuccess() )
+        const Animation::FrameNumber end   = clip->Sequence.End;
+        if ( end < start || start < clip->Sequence.Start )
         {
-            LOG_ERROR( "[Sequencer] add section: {}", added.GetError() );
-            ToastManager::Push( std::string( "add section: " ) + added.GetError(), ToastLevel::Error, 8.0f );
+            ToastManager::Push( "add section: the playhead is outside the clip", ToastLevel::Error, 6.0f );
             return;
         }
-        // THE NEW SECTION IS SELECTED, and it is the LAST one — which is also the one that wins an
-        // overlap. Selecting it is how the animator finds out.
-        SelectSection( static_cast<int>( clip->Sections.size() ) - 1 );
+
+        // IT HOLDS WHAT THE TRACK SHOWS AT THE PLAYHEAD (UE seeds a new section's channel defaults from the
+        // current value), so adding a section does not move the pose on the frame it is added.
+        TL::Channel content = TL::MakeChannel( static_cast<TL::ChannelKind>( track.Kind ) );
+        if ( const TL::Section* under = TopmostAt( track, start ) )
+        {
+            if ( const auto* seen = std::get_if<TL::Channel>( &under->Content ) )
+            {
+                TL::Channel source = *seen;
+                const auto  from   = FloatsOf( source );
+                const auto  to     = FloatsOf( content );
+                for ( size_t i = 0; i < to.size() && i < from.size(); ++i )
+                {
+                    to[i]->Default =
+                         TL::Evaluate( *from[i], Animation::FrameTime{ start, 0.0F }, clip->Sequence.TickRate );
+                }
+            }
+        }
+
+        {
+            const ScopedSequenceEdit undoStep( m_ClipEdit, OwnerOf( clip ), target->Animator );
+            TL::Section&             section = TL::AddSection( track, start, end );
+            section.Name                     = std::format( "Section {}", track.Sections.size() );
+            section.Blend                    = Animation::SectionBlendType::Absolute;
+            section.Content                  = std::move( content );
+            ++clip->Sequence.Revision;
+        }
+        // THE NEW SECTION IS SELECTED — selecting it is how the animator finds out where it went.
+        SelectSection( static_cast<int>( track.Sections.size() ) - 1 );
     }
 
     void SequencerPanel::ReorderSelectedSection( int delta )
     {
         auto target = ResolveSectionTarget();
-        if ( !target || m_SelSection < 0 || m_SelSection >= static_cast<int>( target->Clip->Sections.size() ) )
+        if ( !target || target->Track == nullptr || m_SelSection < 0 ||
+             m_SelSection >= static_cast<int>( target->Track->Sections.size() ) )
         {
-            ToastManager::Push( "reorder section: select a section first", ToastLevel::Error, 6.0f );
+            ToastManager::Push( "section row: select a section first", ToastLevel::Error, 6.0f );
             return;
         }
-        const auto            index = static_cast<size_t>( m_SelSection );
-        Common::BoolResultStr moved = Common::MakeError<bool>( "the edit did not run" );
-        {
-            const ScopedPoseEdit undoStep( m_ClipEdit, target->Animator, target->Clip );
-            moved = Animation::ReorderSection( target->Clip->Sections, index, delta );
-        }
-        if ( !moved.IsSuccess() )
-        {
-            ToastManager::Push( std::string( "reorder section: " ) + moved.GetError(), ToastLevel::Error, 6.0f );
-            return;
-        }
-        // THE SELECTION FOLLOWS THE SECTION, not the index. Leaving it behind would point the inspector at
-        // whichever section was swapped INTO the slot, and the next edit would land on the wrong one.
-        SelectSection( m_SelSection + delta );
+        // PRIORITY IS THE ROW (UE's RowIndex), not the place in the list: the edit moves the section one
+        // row and the selection stays on it, because the list order does not change.
+        RunSectionEdit( "section row", [delta]( SectionTarget& t, size_t index )
+                        { return TL::SetSectionRow( *t.Track, index, t.Track->Sections[index].Row + delta ); } );
     }
 
     // ── THE UI TIMELINE'S EDITS, REACHABLE WITHOUT A MOUSE ───────────────────────────────────────────
@@ -1898,13 +2119,13 @@ namespace Desert::Editor
         actions.push_back( DocumentAction{ "Select the next lane", [this]
                                            {
                                                const auto clip = ResolveUIClip();
-                                               if ( clip == nullptr || clip->Tracks.empty() )
+                                               if ( clip == nullptr || clip->Sequence.Tracks.empty() )
                                                {
                                                    ToastManager::Push( "this clip has no lane", ToastLevel::Error,
                                                                        6.0f );
                                                    return;
                                                }
-                                               const int count = static_cast<int>( clip->Tracks.size() );
+                                               const int count = static_cast<int>( clip->Sequence.Tracks.size() );
                                                m_UITrack       = ( m_UITrack + 1 ) % count;
                                                m_UIKey         = -1;
                                            } } );
@@ -1997,38 +2218,55 @@ namespace Desert::Editor
                  }
                  else
                  {
-                     ToastManager::Push( "Clip NOT saved: " + saved.GetError(), ToastLevel::Error, 8.0f );
+                     ToastRefusal( "Clip NOT saved", saved.GetError(), 8.0f );
                  }
              } } );
+        // SECTIONS BELONG TO A TRACK (UE: UMovieSceneSection lives in its UMovieSceneTrack), so the palette
+        // picks the track first; every section command below refuses in words until one is picked.
+        actions.push_back(
+             DocumentAction{ "Select the next track", [this]
+                             {
+                                 const auto target = ResolveSectionTarget();
+                                 if ( !target || target->Clip->Sequence.Tracks.empty() )
+                                 {
+                                     ToastManager::Push( "this clip has no track", ToastLevel::Error, 6.0f );
+                                     return;
+                                 }
+                                 const int count = static_cast<int>( target->Clip->Sequence.Tracks.size() );
+                                 m_SelTrack      = ( m_SelTrack + 1 ) % count;
+                                 m_SelKey        = -1;
+                                 SelectSection( -1 );
+                             } } );
         actions.push_back( DocumentAction{ "Select the next section", [this]
                                            {
                                                const auto target = ResolveSectionTarget();
-                                               if ( !target || target->Clip->Sections.empty() )
+                                               if ( !target || target->Track == nullptr ||
+                                                    target->Track->Sections.empty() )
                                                {
-                                                   ToastManager::Push( "this clip states no section",
+                                                   ToastManager::Push( "the selected track states no section",
                                                                        ToastLevel::Error, 6.0f );
                                                    return;
                                                }
-                                               const int count = static_cast<int>( target->Clip->Sections.size() );
+                                               const int count =
+                                                    static_cast<int>( target->Track->Sections.size() );
                                                SelectSection( ( m_SelSection + 1 ) % count );
                                            } } );
-        actions.push_back( DocumentAction{
-             "Delete the selected section", [this]
-             {
-                 RunSectionEdit( "delete section", []( SectionTarget& target, size_t index )
-                                 { return Animation::RemoveSection( target.Clip->Sections, index ); } );
-                 SelectSection( -1 );
-             } } );
+        actions.push_back( DocumentAction{ "Delete the selected section", [this]
+                                           {
+                                               RunSectionEdit(
+                                                    "delete section", []( SectionTarget& target, size_t index )
+                                                    { return TL::RemoveSection( *target.Track, index ); } );
+                                               SelectSection( -1 );
+                                           } } );
         actions.push_back( DocumentAction{ "Set the selected section's start to the playhead", [this]
                                            {
                                                RunSectionEdit( "section start",
                                                                []( SectionTarget& target, size_t index )
                                                                {
-                                                                   return Animation::SetSectionRange(
-                                                                        target.Clip->Sections, index,
+                                                                   return TL::SetSectionRange(
+                                                                        *target.Track, index,
                                                                         target.Animator->GetCurrentTick().Frame,
-                                                                        target.Clip->Sections[index].End,
-                                                                        target.Clip->DurationTicks );
+                                                                        target.Track->Sections[index].End );
                                                                } );
                                            } } );
         actions.push_back( DocumentAction{ "Set the selected section's end to the playhead", [this]
@@ -2036,11 +2274,10 @@ namespace Desert::Editor
                                                RunSectionEdit( "section end",
                                                                []( SectionTarget& target, size_t index )
                                                                {
-                                                                   return Animation::SetSectionRange(
-                                                                        target.Clip->Sections, index,
-                                                                        target.Clip->Sections[index].Start,
-                                                                        target.Animator->GetCurrentTick().Frame,
-                                                                        target.Clip->DurationTicks );
+                                                                   return TL::SetSectionRange(
+                                                                        *target.Track, index,
+                                                                        target.Track->Sections[index].Start,
+                                                                        target.Animator->GetCurrentTick().Frame );
                                                                } );
                                            } } );
         actions.push_back( DocumentAction{ "Set the selected section to Additive", [this]
@@ -2048,7 +2285,7 @@ namespace Desert::Editor
                                                RunSectionEdit( "section blend",
                                                                []( SectionTarget& target, size_t index )
                                                                {
-                                                                   target.Clip->Sections[index].Blend =
+                                                                   target.Track->Sections[index].Blend =
                                                                         Animation::SectionBlendType::Additive;
                                                                    return Common::MakeSuccess( true );
                                                                } );
@@ -2058,7 +2295,7 @@ namespace Desert::Editor
                                                RunSectionEdit( "section blend",
                                                                []( SectionTarget& target, size_t index )
                                                                {
-                                                                   target.Clip->Sections[index].Blend =
+                                                                   target.Track->Sections[index].Blend =
                                                                         Animation::SectionBlendType::Absolute;
                                                                    return Common::MakeSuccess( true );
                                                                } );
@@ -2066,77 +2303,29 @@ namespace Desert::Editor
         // TWO FIXED VALUES AND NOT ONE PARAMETERISED ENTRY, because a palette entry carries no argument.
         // Nought and one are also the two an animator actually authors — a fade-out and a fade-in — and
         // anything between them is the slider in the inspector.
-        actions.push_back( DocumentAction{ "Fade the selected section to 0 at the playhead", [this]
-                                           {
-                                               RunSectionEdit( "section weight",
-                                                               []( SectionTarget& target, size_t index )
-                                                               {
-                                                                   return Animation::SetSectionWeightKey(
-                                                                        target.Clip->Sections[index],
-                                                                        target.Animator->GetCurrentTick().Frame,
-                                                                        0.0f );
-                                                               } );
-                                           } } );
-        actions.push_back( DocumentAction{ "Fade the selected section to 1 at the playhead", [this]
-                                           {
-                                               RunSectionEdit( "section weight",
-                                                               []( SectionTarget& target, size_t index )
-                                                               {
-                                                                   return Animation::SetSectionWeightKey(
-                                                                        target.Clip->Sections[index],
-                                                                        target.Animator->GetCurrentTick().Frame,
-                                                                        1.0f );
-                                                               } );
-                                           } } );
+        actions.push_back( DocumentAction{
+             "Fade the selected section to 0 at the playhead", [this]
+             {
+                 RunSectionEdit( "section weight",
+                                 []( SectionTarget& target, size_t index ) {
+                                     return TL::SetSectionWeightKey(
+                                          *target.Track, index, target.Animator->GetCurrentTick().Frame, 0.0f );
+                                 } );
+             } } );
+        actions.push_back( DocumentAction{
+             "Fade the selected section to 1 at the playhead", [this]
+             {
+                 RunSectionEdit( "section weight",
+                                 []( SectionTarget& target, size_t index ) {
+                                     return TL::SetSectionWeightKey(
+                                          *target.Track, index, target.Animator->GetCurrentTick().Frame, 1.0f );
+                                 } );
+             } } );
         actions.push_back( DocumentAction{ "Clear the selected section's fade", [this]
                                            {
-                                               RunSectionEdit( "clear fade",
-                                                               []( SectionTarget& target, size_t index )
-                                                               {
-                                                                   Animation::ClearSectionWeight(
-                                                                        target.Clip->Sections[index] );
-                                                                   return Common::MakeSuccess( true );
-                                                               } );
-                                           } } );
-        actions.push_back( DocumentAction{
-             "Limit the selected section to the selected bone's track", [this]
-             {
-                 RunSectionEdit(
-                      "section tracks",
-                      []( SectionTarget& target, size_t index ) -> Common::BoolResultStr
-                      {
-                          const int bone = Core::ActiveAuthoringContext().SelectedBoneIndex();
-                          if ( bone < 0 ||
-                               bone >= static_cast<int>( target.Animator->GetSkeleton().GetBones().size() ) )
-                          {
-                              return Common::MakeError<bool>(
-                                   "no bone is selected — pick one in the lanes below" );
-                          }
-                          const std::string& name =
-                               target.Animator->GetSkeleton().GetBones()[static_cast<size_t>( bone )].Name;
-                          // The whole list is replaced rather than narrowed: "limit to
-                          // THIS one" is one statement, and doing it as a sequence of
-                          // removals would leave a different list behind on every rig.
-                          for ( const auto& track : target.Clip->Tracks )
-                          {
-                              if ( track.BoneName == name )
-                              {
-                                  target.Clip->Sections[index].Tracks = { name };
-                                  return Common::MakeSuccess( true );
-                              }
-                          }
-                          return Common::MakeFormattedError<bool>( "the clip has no track for bone '{}'", name );
-                      } );
-             } } );
-        actions.push_back( DocumentAction{ "Let the selected section speak for every track", [this]
-                                           {
-                                               RunSectionEdit( "section tracks",
-                                                               []( SectionTarget& target, size_t index )
-                                                               {
-                                                                   Animation::SetSectionSpeaksForEveryTrack(
-                                                                        target.Clip->Sections[index] );
-                                                                   return Common::MakeSuccess( true );
-                                                               } );
+                                               RunSectionEdit(
+                                                    "clear fade", []( SectionTarget& target, size_t index )
+                                                    { return TL::ClearSectionWeight( *target.Track, index ); } );
                                            } } );
         actions.push_back(
              DocumentAction{ "Raise the selected section's priority", [this] { ReorderSelectedSection( 1 ); } } );
@@ -2148,7 +2337,7 @@ namespace Desert::Editor
     void SequencerPanel::DrawCurveView( Animation::AnimationClip* clip, Animation::Animator* animator,
                                         float contentX0, float gutter, float laneW, float duration )
     {
-        if ( clip == nullptr || clip->Tracks.empty() )
+        if ( clip == nullptr || clip->Sequence.Tracks.empty() )
         {
             ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
             ImGui::TextDisabled( "This clip has no bone tracks." );
@@ -2167,20 +2356,31 @@ namespace Desert::Editor
         //
         // The fallback is LOCAL and does not write the selection: the dope sheet's own highlight is the
         // animator's, and a view that silently moved it would change what the next key edit applies to.
+        TL::Sequence& sequence    = clip->Sequence;
+        const auto    isBoneTrack = [&]( int index )
+        {
+            return index >= 0 && index < static_cast<int>( sequence.Tracks.size() ) &&
+                   BoneOfTrack( sequence, sequence.Tracks[static_cast<size_t>( index )] ) != nullptr;
+        };
         int viewTrack   = m_SelTrack;
         int viewChannel = m_SelChannel;
-        if ( viewTrack < 0 || viewTrack >= static_cast<int>( clip->Tracks.size() ) || viewChannel < 0 )
+        if ( !isBoneTrack( viewTrack ) || viewChannel < 0 )
         {
             viewTrack   = -1;
             viewChannel = 0;
-            for ( int ti = 0; ti < static_cast<int>( clip->Tracks.size() ) && viewTrack < 0; ++ti )
+            for ( int ti = 0; ti < static_cast<int>( sequence.Tracks.size() ) && viewTrack < 0; ++ti )
             {
-                if ( !clip->Tracks[ti].PositionKeys.empty() )
+                if ( !isBoneTrack( ti ) )
+                {
+                    continue;
+                }
+                const TL::Track& candidate = sequence.Tracks[static_cast<size_t>( ti )];
+                if ( !PartTicks( candidate, Animation::TrackChannel::Position ).empty() )
                 {
                     viewTrack   = ti;
                     viewChannel = 0;
                 }
-                else if ( !clip->Tracks[ti].ScaleKeys.empty() )
+                else if ( !PartTicks( candidate, Animation::TrackChannel::Scale ).empty() )
                 {
                     viewTrack   = ti;
                     viewChannel = 2;
@@ -2194,7 +2394,8 @@ namespace Desert::Editor
             }
         }
 
-        Animation::BoneTrack& track = clip->Tracks[viewTrack];
+        TL::Track&         track = sequence.Tracks[static_cast<size_t>( viewTrack )];
+        const std::string& bone  = *BoneOfTrack( sequence, track );
 
         // ROTATION IS REFUSED BY NAME rather than drawn as four meaningless lines. The same argument A6 used
         // to refuse a cubic rotation key: the four components of a quaternion are not four curves, and the
@@ -2213,17 +2414,40 @@ namespace Desert::Editor
 
         const Animation::TrackChannel channel =
              ( viewChannel == 0 ) ? Animation::TrackChannel::Position : Animation::TrackChannel::Scale;
-        const Animation::FrameRate tickRate    = clip->TickRate;
-        const Animation::FrameRate displayRate = clip->DisplayRate;
+        const Animation::FrameRate tickRate    = sequence.TickRate;
+        const Animation::FrameRate displayRate = sequence.DisplayRate;
+
+        // ONE SECTION'S CHANNEL IS ONE SET OF CURVES (UE's curve editor shows a section's channels): the
+        // selected section when it is on this track, else the section holding the selected key, else the
+        // first section with keys on this part. A view that merged sections would draw keys no edit can reach.
+        const bool            keyHere = viewTrack == m_SelTrack && m_SelKey >= 0;
+        TL::TransformChannel* shown   = nullptr;
+        if ( viewTrack == m_SelTrack && m_SelSection >= 0 &&
+             m_SelSection < static_cast<int>( track.Sections.size() ) )
+        {
+            shown = TransformOf( track.Sections[static_cast<size_t>( m_SelSection )] );
+        }
+        if ( shown == nullptr && keyHere )
+        {
+            shown = ChannelHoldingPartKey( track, channel, m_SelKeyTick );
+        }
+        for ( size_t si = 0; si < track.Sections.size() && shown == nullptr; ++si )
+        {
+            TL::TransformChannel* candidate = TransformOf( track.Sections[si] );
+            if ( candidate != nullptr && !Animation::LiftChannel( *candidate, channel, 0 ).empty() )
+            {
+                shown = candidate;
+            }
+        }
 
         // THE SAME SCALARS THE TANGENT RULES USE — see TrackEditing::LiftChannel. A view that built its own
         // would be a second statement of what a channel is.
         std::vector<Animation::ScalarKey> lifted[3];
-        for ( int component = 0; component < 3; ++component )
+        for ( int component = 0; component < 3 && shown != nullptr; ++component )
         {
-            lifted[component] = Animation::LiftChannel( track, channel, component );
+            lifted[component] = Animation::LiftChannel( *shown, channel, component );
         }
-        if ( lifted[0].empty() )
+        if ( shown == nullptr || lifted[0].empty() )
         {
             ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
             ImGui::TextDisabled( "This channel has no keys yet — add one from the dope sheet's + button." );
@@ -2277,7 +2501,7 @@ namespace Desert::Editor
         std::snprintf( label, sizeof( label ), "%.2f", m_CurveRange.x );
         dl->AddText( ImVec2( contentX0 + 6.0f, vp.Y1 - 16.0f ), IM_COL32( 170, 170, 180, 200 ), label );
         dl->AddText( ImVec2( contentX0 + 6.0f, vp.Y0 + plotH * 0.5f - 8.0f ), IM_COL32( 200, 200, 210, 220 ),
-                     track.BoneName.c_str() );
+                     bone.c_str() );
 
         // ---- the three component curves, sampled through the evaluator playback calls -------------------
         const ImU32   compCol[3] = { IM_COL32( 235, 110, 110, 255 ), IM_COL32( 130, 225, 130, 255 ),
@@ -2293,9 +2517,9 @@ namespace Desert::Editor
         {
             const double seconds = static_cast<double>( duration ) * static_cast<double>( sample ) / kSamples;
             const Animation::FrameTime at    = Animation::SecondsToFrameTime( seconds, tickRate );
-            const glm::vec3            value = ( channel == Animation::TrackChannel::Position )
-                                                    ? track.GetInterpolatedPosition( at, tickRate )
-                                                    : track.GetInterpolatedScale( at, tickRate );
+            const Animation::BoneTransform pose = TL::Evaluate( *shown, at, tickRate );
+            const glm::vec3                value =
+                 ( channel == Animation::TrackChannel::Position ) ? pose.Translation : pose.Scale;
             const float                x     = vp.TimeToX( seconds );
 
             for ( int component = 0; component < 3; ++component )
@@ -2336,7 +2560,7 @@ namespace Desert::Editor
             for ( int k = 0; k < static_cast<int>( keys.size() ); ++k )
             {
                 const ImVec2 p        = keyAt( keys[k] );
-                const bool   selected = ( k == m_SelKey );
+                const bool   selected = keyHere && keys[k].Tick == m_SelKeyTick;
                 dl->AddCircleFilled( p, selected ? 4.5f : 3.0f,
                                      selected ? IM_COL32( 255, 235, 160, 255 ) : compCol[component] );
 
@@ -2380,7 +2604,7 @@ namespace Desert::Editor
                     const ImVec2 p = keyAt( lifted[component][k] );
                     if ( std::abs( mouse.x - p.x ) < kGrab && std::abs( mouse.y - p.y ) < kGrab )
                     {
-                        m_SelKey             = k;
+                        SelectKey( viewTrack, viewChannel, lifted[component][k].Tick, sequence );
                         m_CurveDragKey       = k;
                         m_CurveDragComponent = component;
                         m_CurveDragHandle    = 0;
@@ -2393,7 +2617,7 @@ namespace Desert::Editor
         // edit below is the first thing that touches the track — so the transaction opens between them.
         if ( curveDragBefore < 0 && m_CurveDragKey >= 0 )
         {
-            if ( const auto began = m_ClipEdit.Begin( animator, clip ); !began.IsSuccess() )
+            if ( const auto began = m_ClipEdit.Begin( OwnerOf( clip ), animator ); !began.IsSuccess() )
             {
                 LOG_ERROR( "[Sequencer] curve edit not undoable: {}", began.GetError() );
             }
@@ -2471,59 +2695,29 @@ namespace Desert::Editor
         if ( edited )
         {
             const int  component = m_CurveDragComponent;
-            const bool written   = Animation::ApplyChannel( track, channel, component, lifted[component] );
+            const bool written   = Animation::ApplyChannel( *shown, channel, component, lifted[component] );
             if ( written )
             {
-                // The retime, if the drag was a retime: on the TRACK, where a key's tick lives, and after
-                // the values are in — so the two halves of one drag cannot half-apply.
-                if ( retimeKey >= 0 )
+                FinishChannelEdit( sequence, *shown );
+                // THE RETIME MOVES THE PART'S KEY IN EVERY COMPONENT (a position key is one key of three
+                // floats), through the one function the dope sheet's drag calls.
+                if ( retimeKey >= 0 && lifted[component][static_cast<size_t>( retimeKey )].Tick != retimeTo )
                 {
-                    if ( channel == Animation::TrackChannel::Position &&
-                         retimeKey < static_cast<int>( track.PositionKeys.size() ) )
+                    const Animation::FrameNumber from = lifted[component][static_cast<size_t>( retimeKey )].Tick;
+                    if ( Animation::MoveBoneKey( sequence, bone, channel, from, retimeTo ).IsSuccess() )
                     {
-                        track.PositionKeys[retimeKey].Tick = retimeTo;
-                    }
-                    else if ( channel == Animation::TrackChannel::Scale &&
-                              retimeKey < static_cast<int>( track.ScaleKeys.size() ) )
-                    {
-                        track.ScaleKeys[retimeKey].Tick = retimeTo;
-                    }
-                }
-                // A key may have crossed a neighbour: the channel is re-sorted and the whole channel's auto
-                // tangents recomputed, exactly as every other edit path does (§969 item 1).
-                if ( channel == Animation::TrackChannel::Position )
-                {
-                    std::sort( track.PositionKeys.begin(), track.PositionKeys.end() );
-                }
-                else
-                {
-                    std::sort( track.ScaleKeys.begin(), track.ScaleKeys.end() );
-                }
-                // THE SORT INVALIDATES THE INDEX THE MOUSE IS HOLDING. A key dragged past its neighbour
-                // changes place in the vector, and a drag that kept the old index would carry on moving
-                // whatever landed there instead — the key the animator is dragging would swap under the
-                // cursor. The dope sheet re-finds its key after a sort for the same reason; this one can
-                // do it by TICK exactly, because A5 put every key on one.
-                if ( retimeKey >= 0 )
-                {
-                    const auto& sorted = ( channel == Animation::TrackChannel::Position )
-                                              ? track.PositionKeys.size()
-                                              : track.ScaleKeys.size();
-                    for ( std::size_t i = 0; i < sorted; ++i )
-                    {
-                        const Animation::FrameNumber tick = ( channel == Animation::TrackChannel::Position )
-                                                                 ? track.PositionKeys[i].Tick
-                                                                 : track.ScaleKeys[i].Tick;
-                        if ( tick == retimeTo )
+                        const auto after = Animation::LiftChannel( *shown, channel, component );
+                        for ( size_t i = 0; i < after.size(); ++i )
                         {
-                            m_CurveDragKey = static_cast<int>( i );
-                            m_SelKey       = static_cast<int>( i );
-                            break;
+                            if ( after[i].Tick == retimeTo )
+                            {
+                                m_CurveDragKey = static_cast<int>( i );
+                                break;
+                            }
                         }
+                        SelectKey( viewTrack, viewChannel, retimeTo, sequence );
                     }
                 }
-
-                Animation::RefreshTangents( track, tickRate );
                 animator->SetTime( animator->GetCurrentTime() );
             }
         }
@@ -2536,68 +2730,196 @@ namespace Desert::Editor
                              "handle on a User/Break key to set its tangent." );
     }
 
+    namespace
+    {
+        // ── THE UI HOST'S KEYS, over Timeline (UE: UWidgetAnimation is a UMovieScene) ──────────────────
+        // A UI track is Float (Opacity) or Vector (Offset, Size, Color); a key of the track is a tick keyed
+        // in its components. These helpers are the only place the lanes and the inspector touch keys.
+        constexpr std::array<const char*, 4> kUIProperties = { "Offset", "Size", "Opacity", "Color" };
+
+        std::vector<Animation::FrameNumber> UIKeyTicks( TL::Track& track )
+        {
+            std::vector<Animation::FrameNumber> ticks;
+            for ( TL::Section& section : track.Sections )
+            {
+                if ( auto* channel = std::get_if<TL::Channel>( &section.Content ) )
+                {
+                    for ( const TL::FloatChannel* component : FloatsOf( *channel ) )
+                        for ( const Animation::ScalarKey& key : component->Keys )
+                            ticks.push_back( key.Tick );
+                }
+            }
+            std::ranges::sort( ticks, []( Animation::FrameNumber x, Animation::FrameNumber y ) { return x < y; } );
+            ticks.erase( std::unique( ticks.begin(), ticks.end() ), ticks.end() );
+            return ticks;
+        }
+
+        /// The section a key at @p tick belongs to: the one holding a key there, else the topmost covering it.
+        TL::Section* UISectionAt( TL::Track& track, Animation::FrameNumber tick )
+        {
+            for ( TL::Section& section : track.Sections )
+            {
+                if ( auto* channel = std::get_if<TL::Channel>( &section.Content ) )
+                    for ( const TL::FloatChannel* component : FloatsOf( *channel ) )
+                        for ( const Animation::ScalarKey& key : component->Keys )
+                            if ( key.Tick == tick )
+                                return &section;
+            }
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast) — TopmostAt only reads
+            return const_cast<TL::Section*>( TopmostAt( track, tick ) );
+        }
+
+        /// Moves the key on @p from to @p to in every component; refused when any component already has @p to.
+        bool MoveUIKey( TL::Track& track, Animation::FrameNumber from, Animation::FrameNumber to )
+        {
+            TL::Section* section = UISectionAt( track, from );
+            auto*        channel = section != nullptr ? std::get_if<TL::Channel>( &section->Content ) : nullptr;
+            if ( channel == nullptr || from == to )
+                return false;
+            const auto components = FloatsOf( *channel );
+            for ( const TL::FloatChannel* component : components )
+                for ( const Animation::ScalarKey& key : component->Keys )
+                    if ( key.Tick == to )
+                        return false;
+            for ( TL::FloatChannel* component : components )
+            {
+                for ( Animation::ScalarKey& key : component->Keys )
+                    if ( key.Tick == from )
+                        key.Tick = to;
+                std::ranges::sort( component->Keys,
+                                   []( const Animation::ScalarKey& x, const Animation::ScalarKey& y )
+                                   { return x.Tick < y.Tick; } );
+            }
+            return true;
+        }
+    } // namespace
+
     void SequencerPanel::DrawUITracks( ECS::Entity& entity )
     {
         namespace ImGui = ::ImGui;
 
-        // NO "ADD UI ANIMATION" BUTTON HERE ANY MORE. The clip IS this window's subject, so a window over
-        // an element that has none is a window over nothing — it cannot open at all (IsSubjectAlive), and
-        // it closes if the component is removed underneath it. Adding the clip is Details ▸ UI Layout ▸
-        // "Add UI Animation", which adds the component and opens this window on it in one press: the same
-        // create-then-open the terrain and cloud material rows use.
-        auto& clip = entity.GetComponent<ECS::UIAnimComponent>().Data;
+        // NO "ADD UI ANIMATION" BUTTON HERE: the clip IS this window's subject (Details ▸ UI Layout ▸
+        // "Add UI Animation" adds the component and opens this window on it).
+        auto&         clip     = entity.GetComponent<ECS::UIAnimComponent>().Data;
+        TL::Sequence& sequence = clip.Sequence;
 
-        // A TRANSACTION MUST NEVER SPAN TWO SUBJECTS. This window is a document over one element, but the
-        // component's ADDRESS moves when entt grows the pool, and a transaction opened last frame against
-        // the old address would commit a "before" that belongs to memory the registry has reused. The
-        // subject is therefore compared every frame, and a mismatch abandons the entry rather than
-        // guessing which clip it was about.
+        // A TRANSACTION MUST NEVER SPAN TWO SUBJECTS: the component's address moves when entt grows the pool.
         if ( m_UIClipEdit.Open() && m_UIClipEdit.Subject() != &clip )
         {
             m_UIClipEdit.Cancel();
         }
+        if ( !clip.Playback.has_value() )
+        {
+            clip.Playback.emplace( sequence.TickRate, sequence.Start, sequence.End );
+            clip.Playback->SetLoopMode( clip.Loop );
+        }
+        TL::Player&                  player   = *clip.Playback;
+        const Animation::FrameRate   tickRate = sequence.TickRate;
+        const Animation::FrameNumber playTick = player.Current().Frame;
 
         // --- transport -------------------------------------------------------------------------------
-        if ( ImGui::Button( clip.Playing ? ICON_MDI_PAUSE "  Pause" : ICON_MDI_PLAY "  Play" ) )
-            clip.Playing = !clip.Playing;
+        const bool playing = player.State() == TL::PlayState::Playing;
+        if ( ImGui::Button( playing ? ICON_MDI_PAUSE "  Pause" : ICON_MDI_PLAY "  Play" ) )
+        {
+            playing ? player.Pause() : player.Play();
+        }
         ImGui::SameLine();
         if ( ImGui::Button( ICON_MDI_STOP "  Rewind" ) )
-            clip.Time = 0.0f;
-        ImGui::SameLine();
-        if ( ImGui::Checkbox( "Loop", &clip.Loop ) )
         {
-            // The checkbox has ALREADY written the field, so the scope cannot bracket the write the way
-            // the other instantaneous edits do. The "before" is therefore reconstructed from the value in
-            // hand -- one bool, and the only field this edit can have touched.
-            RecordUIClipToggle( clip, !clip.Loop );
+            (void)player.JumpTo( Animation::FrameTime{ sequence.Start, 0.0f } );
         }
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 110.0f );
-        ImGui::DragFloat( "Duration", &clip.Duration, 0.05f, 0.05f, 120.0f, "%.2f s" );
+        if ( ImGui::BeginCombo( "Loop", TL::ToString( clip.Loop ) ) )
+        {
+            for ( const TL::LoopMode mode : TL::kLoopModes )
+            {
+                if ( ImGui::Selectable( TL::ToString( mode ), mode == clip.Loop ) && mode != clip.Loop )
+                {
+                    RecordUIClipToggle( clip, mode );
+                }
+            }
+            ImGui::EndCombo();
+        }
+        // THE PLAYBACK RANGE, in display frames (the sequence's End). Editing it drops the player so the next
+        // frame re-creates it on the new range (UIAnimData's contract).
+        const auto toFrame = [&]( Animation::FrameNumber tick )
+        {
+            return static_cast<int>(
+                 std::lround( Animation::FrameTimeToSeconds( Animation::FrameTime{ tick, 0.0f }, tickRate ) *
+                              sequence.DisplayRate.AsDouble() ) );
+        };
+        const auto toTick = [&]( int frame )
+        {
+            return SecondsToSnappedTick( static_cast<float>( frame / sequence.DisplayRate.AsDouble() ), tickRate,
+                                         sequence.DisplayRate );
+        };
+        int endFrame = toFrame( sequence.End );
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth( 110.0f );
+        if ( ImGui::DragInt( "End frame", &endFrame, 1.0f, toFrame( sequence.Start ) + 1, 100000 ) )
+        {
+            sequence.End = toTick( endFrame );
+            clip.Playback.reset();
+        }
         BracketUIClipEditFromItem( clip );
+        const float duration = std::max( 0.05f, static_cast<float>( Animation::FrameTimeToSeconds(
+                                                     Animation::FrameTime{ sequence.End, 0.0f }, tickRate ) ) );
+        auto        now      = static_cast<float>(
+             Animation::FrameTimeToSeconds( Animation::FrameTime{ playTick, 0.0f }, tickRate ) );
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 140.0f );
-        ImGui::SliderFloat( "Time", &clip.Time, 0.0f, std::max( 0.05f, clip.Duration ), "%.2f s" );
-        if ( ImGui::IsItemActive() )
-            clip.Playing = false; // scrubbing takes over from playback, as a timeline should
+        if ( ImGui::SliderFloat( "Time", &now, 0.0f, duration, "%.2f s" ) && clip.Playback.has_value() )
+        {
+            clip.Playback->Pause(); // scrubbing takes over from playback, as a timeline should
+            (void)clip.Playback->JumpTo( Animation::SecondsToFrameTime( now, tickRate ) );
+        }
 
-        // --- add a lane ------------------------------------------------------------------------------
-        const char* const propNames[] = { "Offset", "Size", "Opacity", "Color" };
+        // --- add a track: a Widget binding naming this element + (property, kind) ------------------------
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 120.0f );
         static int newProp = 0;
-        ImGui::Combo( "##uiprop", &newProp, propNames, 4 );
+        ImGui::Combo( "##uiprop", &newProp, kUIProperties.data(), static_cast<int>( kUIProperties.size() ) );
         ImGui::SameLine();
         if ( ImGui::Button( ICON_MDI_PLUS "  Track" ) )
         {
-            const ScopedUIClipEdit step( m_UIClipEdit, &clip );
-            ECS::UIAnimTrack       tr;
-            tr.Property = static_cast<ECS::UITweenProperty>( newProp );
-            tr.Keys.push_back( { 0.0f, glm::vec4( 0.0f ), ECS::UIEasing::CubicOut } );
-            clip.Tracks.push_back( std::move( tr ) );
+            const std::string locator  = entity.GetComponent<ECS::UUIDComponent>().UUID.ToString();
+            const char*       property = kUIProperties[static_cast<size_t>( newProp )];
+            TL::BindingGuid   guid;
+            for ( const TL::Binding& binding : sequence.Bindings )
+                if ( binding.Kind == TL::BindingKind::Widget && binding.Locator == locator )
+                    guid = binding.Guid;
+            if ( !guid.IsNull() && TL::FindTrack( sequence, guid, property ) != nullptr )
+            {
+                ToastManager::Push( std::format( "add track: this element already animates {}", property ),
+                                    ToastLevel::Error, 6.0f );
+            }
+            else
+            {
+                const ScopedSequenceEdit step( m_UIClipEdit, OwnerOf( &clip ) );
+                if ( guid.IsNull() )
+                {
+                    TL::Binding binding;
+                    binding.Guid    = TL::BindingGuid::Generate();
+                    binding.Kind    = TL::BindingKind::Widget;
+                    binding.Locator = locator;
+                    binding.Label   = entity.HasComponent<ECS::TagComponent>()
+                                           ? entity.GetComponent<ECS::TagComponent>().Tag
+                                           : locator;
+                    guid            = binding.Guid;
+                    sequence.Bindings.push_back( std::move( binding ) );
+                }
+                TL::Track track;
+                track.Binding  = guid;
+                track.Property = property;
+                track.Kind     = newProp == 2 ? TL::TrackKind::Float : TL::TrackKind::Vector;
+                sequence.Tracks.push_back( std::move( track ) );
+                (void)TL::AddSection( sequence.Tracks.back(), sequence.Start, sequence.End );
+                ++sequence.Revision;
+            }
         }
 
-        if ( clip.Tracks.empty() )
+        if ( sequence.Tracks.empty() )
         {
             ImGui::Separator();
             ImGui::TextDisabled( "No tracks. Pick a property above and press + Track." );
@@ -2605,35 +2927,44 @@ namespace Desert::Editor
         }
 
         // --- lanes -----------------------------------------------------------------------------------
-        const float duration = std::max( 0.05f, clip.Duration );
-        const float gutter   = 120.0f;
-        const float laneH    = 22.0f;
+        const float gutter = 160.0f;
+        const float laneH  = 22.0f;
 
         ImGui::Separator();
         const float contentX0 = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMin().x;
         const float laneW     = std::max( 120.0f, ImGui::GetContentRegionAvail().x - gutter - 12.0f );
         const float laneX0    = contentX0 + gutter;
-        const auto  timeToX   = [&]( float t ) { return laneX0 + ( t / duration ) * laneW; };
-        const auto  xToTime   = [&]( float x )
-        { return std::clamp( ( x - laneX0 ) / laneW * duration, 0.0f, duration ); };
+        const auto  tickToX   = [&]( Animation::FrameNumber tick )
+        {
+            const auto seconds = Animation::FrameTimeToSeconds( Animation::FrameTime{ tick, 0.0f }, tickRate );
+            return laneX0 + ( static_cast<float>( seconds ) / duration ) * laneW;
+        };
+        const auto xToTick = [&]( float x )
+        {
+            const float seconds = std::clamp( ( x - laneX0 ) / laneW * duration, 0.0f, duration );
+            return SecondsToSnappedTick( seconds, tickRate, sequence.DisplayRate );
+        };
 
-        ImGui::BeginChild( "##uiTracks",
-                           ImVec2( gutter + laneW, std::min( 260.0f, 12.0f + clip.Tracks.size() * laneH ) ),
-                           false );
+        ImGui::BeginChild(
+             "##uiTracks",
+             ImVec2( gutter + laneW,
+                     std::min( 260.0f, 12.0f + static_cast<float>( sequence.Tracks.size() ) * laneH ) ),
+             false );
         ImDrawList* dl = ImGui::GetWindowDrawList();
 
         int deleteTrack = -1;
-        for ( int ti = 0; ti < static_cast<int>( clip.Tracks.size() ); ++ti )
+        for ( int ti = 0; ti < static_cast<int>( sequence.Tracks.size() ); ++ti )
         {
-            ECS::UIAnimTrack& tr    = clip.Tracks[ti];
+            TL::Track&         track   = sequence.Tracks[static_cast<size_t>( ti )];
             const ImVec2      rp    = ImGui::GetCursorScreenPos();
             const float       laneY = rp.y;
+            const TL::Binding* binding = TL::FindBinding( sequence, track.Binding );
+            const std::string  label =
+                 std::format( "{} {}", binding != nullptr ? binding->Label : std::string( "?" ), track.Property );
             dl->AddRectFilled( ImVec2( laneX0, laneY ), ImVec2( laneX0 + laneW, laneY + laneH - 3.0f ),
-                               ( ti % 2 ) ? IM_COL32( 40, 40, 46, 255 ) : IM_COL32( 33, 33, 39, 255 ) );
-            dl->AddText( ImVec2( contentX0 + 6.0f, laneY + 3.0f ), IM_COL32( 205, 205, 215, 255 ),
-                         propNames[static_cast<int>( tr.Property )] );
+                               ( ti % 2 ) != 0 ? IM_COL32( 40, 40, 46, 255 ) : IM_COL32( 33, 33, 39, 255 ) );
+            dl->AddText( ImVec2( contentX0 + 6.0f, laneY + 3.0f ), IM_COL32( 205, 205, 215, 255 ), label.c_str() );
 
-            // per-lane: key at the playhead, and drop the lane
             ImGui::SetCursorScreenPos( ImVec2( contentX0 + gutter - 46.0f, laneY ) );
             ImGui::PushID( ti * 8192 + 7 );
             if ( ImGui::SmallButton( "+" ) )
@@ -2645,10 +2976,11 @@ namespace Desert::Editor
                 deleteTrack = ti;
             ImGui::PopID();
 
-            // keys as diamonds; drag horizontally to retime
-            for ( int ki = 0; ki < static_cast<int>( tr.Keys.size() ); ++ki )
+            // keys as diamonds; drag horizontally to retime (snapped to the display grid)
+            const auto ticks = UIKeyTicks( track );
+            for ( int ki = 0; ki < static_cast<int>( ticks.size() ); ++ki )
             {
-                const float  kx = timeToX( tr.Keys[ki].Time );
+                const float  kx = tickToX( ticks[static_cast<size_t>( ki )] );
                 const ImVec2 c( kx, laneY + ( laneH - 3.0f ) * 0.5f );
                 const bool   sel = ( ti == m_UITrack && ki == m_UIKey );
                 dl->AddNgonFilled( c, sel ? 7.0f : 5.5f,
@@ -2661,31 +2993,25 @@ namespace Desert::Editor
                 {
                     m_UITrack = ti;
                     m_UIKey   = ki;
-                    if ( const auto began = m_UIClipEdit.Begin( &clip ); !began.IsSuccess() )
+                    if ( const auto began = m_UIClipEdit.Begin( OwnerOf( &clip ) ); !began.IsSuccess() )
                     {
                         LOG_ERROR( "[UIClipUndo] this key drag will not be undoable: {}", began.GetError() );
                     }
                 }
                 if ( ImGui::IsItemActive() && ImGui::IsMouseDragging( ImGuiMouseButton_Left ) )
                 {
-                    tr.Keys[ki].Time = xToTime( ImGui::GetIO().MousePos.x );
-                    clip.Playing     = false;
-                    clip.Time        = tr.Keys[ki].Time; // the pose follows the key being moved
+                    const Animation::FrameNumber to = xToTick( ImGui::GetIO().MousePos.x );
+                    if ( MoveUIKey( track, ticks[static_cast<size_t>( ki )], to ) )
+                    {
+                        ++sequence.Revision;
+                        const auto moved = UIKeyTicks( track );
+                        m_UIKey          = static_cast<int>( std::ranges::find( moved, to ) - moved.begin() );
+                        player.Pause();
+                        (void)player.JumpTo( Animation::FrameTime{ to, 0.0f } ); // the pose follows the key
+                    }
                 }
                 if ( ImGui::IsItemDeactivated() )
                 {
-                    const float moved = tr.Keys[ki].Time;
-                    std::sort( tr.Keys.begin(), tr.Keys.end(),
-                               []( const ECS::UIAnimKey& a, const ECS::UIAnimKey& b )
-                               { return a.Time < b.Time; } );
-                    for ( int i = 0; i < static_cast<int>( tr.Keys.size() ); ++i )
-                        if ( tr.Keys[i].Time == moved )
-                        {
-                            m_UIKey = i; // keep the dragged key selected after the re-sort
-                            break;
-                        }
-                    // CLOSED AFTER THE SORT, not before it: the sort is part of what the drag did, and an
-                    // entry recorded before it would hold an ordering the lane never had.
                     EndUIClipEdit();
                 }
                 ImGui::PopID();
@@ -2695,7 +3021,7 @@ namespace Desert::Editor
         }
 
         // playhead over every lane
-        const float playX = timeToX( clip.Time );
+        const float playX = tickToX( playTick );
         dl->AddLine( ImVec2( playX, ImGui::GetWindowPos().y ),
                      ImVec2( playX, ImGui::GetWindowPos().y + ImGui::GetWindowSize().y ),
                      IM_COL32( 255, 120, 90, 220 ), 2.0f );
@@ -2703,70 +3029,95 @@ namespace Desert::Editor
 
         if ( deleteTrack >= 0 )
         {
-            const ScopedUIClipEdit step( m_UIClipEdit, &clip );
-            clip.Tracks.erase( clip.Tracks.begin() + deleteTrack );
+            const ScopedSequenceEdit step( m_UIClipEdit, OwnerOf( &clip ) );
+            sequence.Tracks.erase( sequence.Tracks.begin() + deleteTrack );
+            ++sequence.Revision;
             m_UITrack = m_UIKey = -1;
         }
 
         // --- selected key ----------------------------------------------------------------------------
-        if ( m_UITrack >= 0 && m_UITrack < static_cast<int>( clip.Tracks.size() ) )
+        if ( m_UITrack >= 0 && m_UITrack < static_cast<int>( sequence.Tracks.size() ) )
         {
-            ECS::UIAnimTrack& tr = clip.Tracks[m_UITrack];
-            if ( m_UIKey >= 0 && m_UIKey < static_cast<int>( tr.Keys.size() ) )
+            TL::Track&   track   = sequence.Tracks[static_cast<size_t>( m_UITrack )];
+            const auto   ticks   = UIKeyTicks( track );
+            TL::Section* section = m_UIKey >= 0 && m_UIKey < static_cast<int>( ticks.size() )
+                                        ? UISectionAt( track, ticks[static_cast<size_t>( m_UIKey )] )
+                                        : nullptr;
+            auto*        channel = section != nullptr ? std::get_if<TL::Channel>( &section->Content ) : nullptr;
+            if ( channel != nullptr )
             {
-                ECS::UIAnimKey& k = tr.Keys[m_UIKey];
+                const Animation::FrameNumber tick       = ticks[static_cast<size_t>( m_UIKey )];
+                const auto                   components = FloatsOf( *channel );
+                std::array<float, 4>         value{};
+                Animation::ScalarKey         shape;
+                for ( size_t i = 0; i < components.size() && i < value.size(); ++i )
+                {
+                    value[i] = TL::Evaluate( *components[i], Animation::FrameTime{ tick, 0.0f }, tickRate );
+                    for ( const Animation::ScalarKey& key : components[i]->Keys )
+                        if ( key.Tick == tick )
+                            shape = key;
+                }
                 ImGui::Separator();
-                ImGui::Text( "Key %d of %s", m_UIKey, propNames[static_cast<int>( tr.Property )] );
-                ImGui::SetNextItemWidth( 120.0f );
-                if ( ImGui::DragFloat( "Time", &k.Time, 0.01f, 0.0f, duration, "%.2f s" ) )
-                    clip.Time = k.Time;
-                BracketUIClipEditFromItem( clip );
+                ImGui::Text( "Key %d of %s", m_UIKey, track.Property.c_str() );
 
                 // The value is read per property, exactly as the renderer reads it.
-                switch ( tr.Property )
+                bool changed = false;
+                ImGui::SetNextItemWidth( 200.0f );
+                if ( track.Property == "Opacity" )
+                    changed = ImGui::SliderFloat( "Opacity", value.data(), 0.0f, 1.0f );
+                else if ( track.Property == "Color" )
+                    changed = ImGui::ColorEdit3( "Color", value.data() );
+                else
+                    changed = ImGui::DragFloat2( "Value (px)", value.data(), 1.0f );
+                if ( changed )
                 {
-                    case ECS::UITweenProperty::Offset:
-                    case ECS::UITweenProperty::Size:
-                        ImGui::SetNextItemWidth( 200.0f );
-                        ImGui::DragFloat2( "Value (px)", &k.Value.x, 1.0f );
-                        BracketUIClipEditFromItem( clip );
-                        break;
-                    case ECS::UITweenProperty::Opacity:
-                        ImGui::SetNextItemWidth( 200.0f );
-                        ImGui::SliderFloat( "Opacity", &k.Value.x, 0.0f, 1.0f );
-                        BracketUIClipEditFromItem( clip );
-                        break;
-                    case ECS::UITweenProperty::Color:
-                        ImGui::SetNextItemWidth( 200.0f );
-                        ImGui::ColorEdit3( "Color", &k.Value.x );
-                        BracketUIClipEditFromItem( clip );
-                        break;
+                    for ( size_t i = 0; i < components.size() && i < value.size(); ++i )
+                        SetComponentValue( *components[i], tick, value[i], shape );
+                    ++sequence.Revision;
                 }
+                BracketUIClipEditFromItem( clip );
 
+                // EASING SHAPES THE SEGMENT ENDING AT THIS KEY (Timeline::ApplyEasingPreset, UIEasing's one
+                // table via PresetOf) — the same preset the UI lift and UITween use.
                 const char* const easeNames[] = { "Linear",   "QuadIn",     "QuadOut", "QuadInOut",  "CubicIn",
                                                   "CubicOut", "CubicInOut", "BackOut", "ElasticOut", "BounceOut" };
-                int               ease        = static_cast<int>( k.Easing );
+                static int        ease        = 5;
                 ImGui::SetNextItemWidth( 140.0f );
-                if ( ImGui::Combo( "Ease in", &ease, easeNames, 10 ) )
+                ImGui::Combo( "##ease", &ease, easeNames, 10 );
+                ImGui::SameLine();
+                if ( ImGui::SmallButton( "Ease into this key" ) )
                 {
-                    const ScopedUIClipEdit step( m_UIClipEdit, &clip );
-                    k.Easing = static_cast<ECS::UIEasing>( ease );
+                    const ScopedSequenceEdit step( m_UIClipEdit, OwnerOf( &clip ) );
+                    for ( TL::FloatChannel* component : components )
+                    {
+                        const auto end = std::ranges::find_if(
+                             component->Keys, [&]( const Animation::ScalarKey& k ) { return k.Tick == tick; } );
+                        const auto index = static_cast<size_t>( end - component->Keys.begin() );
+                        if ( end == component->Keys.end() || index == 0 )
+                            continue;
+                        const auto eased = TL::ApplyEasingPreset(
+                             component->Keys, index, TL::PresetOf( static_cast<ECS::UIEasing>( ease ) ), tickRate,
+                             sequence.DisplayRate );
+                        if ( !eased.IsSuccess() )
+                            ToastRefusal( "ease", eased.GetError(), 6.0f );
+                    }
+                    ++sequence.Revision;
                 }
                 ImGui::SameLine();
                 if ( ImGui::SmallButton( "Delete key" ) )
                 {
-                    const ScopedUIClipEdit step( m_UIClipEdit, &clip );
-                    tr.Keys.erase( tr.Keys.begin() + m_UIKey );
+                    const ScopedSequenceEdit step( m_UIClipEdit, OwnerOf( &clip ) );
+                    for ( TL::FloatChannel* component : components )
+                        std::erase_if( component->Keys,
+                                       [&]( const Animation::ScalarKey& k ) { return k.Tick == tick; } );
+                    ++sequence.Revision;
                     m_UIKey = -1;
                 }
             }
         }
 
-        // THE SWEEP, and it is the same one PoseEditTransaction::OpenExplicitly exists for. Every opener
-        // above is a WIDGET being held, so a transaction still open while ImGui reports no active item has
-        // lost its closer -- the lane it belonged to was deleted, or the property combo changed the branch
-        // that was drawing the field. Leaving it open would swallow every later edit into one enormous
-        // undo step, which is worse than having none.
+        // THE SWEEP: every opener above is a held widget, so a transaction open while no item is active has
+        // lost its closer; leaving it open would swallow every later edit into one undo step.
         if ( m_UIClipEdit.Open() && !ImGui::IsAnyItemActive() )
         {
             EndUIClipEdit();
@@ -2775,35 +3126,46 @@ namespace Desert::Editor
 
     void SequencerPanel::AddUIKeyAtPlayhead( ECS::UIAnimData& clip, int lane )
     {
-        // ONE BODY FOR THE BUTTON AND THE COMMAND, for the reason RunSectionEdit above exists: two copies
-        // of "add a key" are two answers that drift, and the command is the ONLY one of the two that an
-        // unattended run can reach -- so a drift would be invisible in exactly the run that checks it.
-        if ( lane < 0 || lane >= static_cast<int>( clip.Tracks.size() ) )
+        // ONE BODY FOR THE BUTTON AND THE COMMAND: the command is the only one an unattended run can reach.
+        TL::Sequence& sequence = clip.Sequence;
+        if ( lane < 0 || lane >= static_cast<int>( sequence.Tracks.size() ) )
         {
             ToastManager::Push( "add UI key: no lane is selected", ToastLevel::Error, 6.0f );
             return;
         }
-        const ScopedUIClipEdit step( m_UIClipEdit, &clip );
-        ECS::UIAnimTrack&      track = clip.Tracks[lane];
-        track.Keys.push_back( { clip.Time, track.Keys.empty() ? glm::vec4( 0.0f ) : track.Keys.back().Value,
-                                ECS::UIEasing::CubicOut } );
-        std::sort( track.Keys.begin(), track.Keys.end(),
-                   []( const ECS::UIAnimKey& a, const ECS::UIAnimKey& b ) { return a.Time < b.Time; } );
+        TL::Track&                   track = sequence.Tracks[static_cast<size_t>( lane )];
+        const Animation::FrameNumber tick =
+             clip.Playback.has_value() ? clip.Playback->Current().Frame : sequence.Start;
+        const ScopedSequenceEdit step( m_UIClipEdit, OwnerOf( &clip ) );
+        TL::Section*             section = UISectionAt( track, tick );
+        if ( section == nullptr )
+        {
+            section = &TL::AddSection( track, sequence.Start, sequence.End ); // the first free row, >= 0
+        }
+        auto* channel = std::get_if<TL::Channel>( &section->Content );
+        if ( channel == nullptr )
+        {
+            return;
+        }
+        // THE KEY HOLDS WHAT THE TRACK SHOWS THERE, so keying does not move the element on this frame.
+        for ( TL::FloatChannel* component : FloatsOf( *channel ) )
+        {
+            const float here = TL::Evaluate( *component, Animation::FrameTime{ tick, 0.0f }, sequence.TickRate );
+            SetComponentValue( *component, tick, here, Animation::ScalarKey{} );
+        }
+        ++sequence.Revision;
+        m_UITrack       = lane;
+        const auto keys = UIKeyTicks( track );
+        m_UIKey         = static_cast<int>( std::ranges::find( keys, tick ) - keys.begin() );
     }
 
     void SequencerPanel::BracketUIClipEditFromItem( ECS::UIAnimData& clip )
     {
-        // ONE PLACE FOR THE TWO EDGES OF A HELD WIDGET. Written as a member rather than as a lambda at
-        // each call site because there are six of them and six copies is six chances to bracket only one
-        // end -- which produces an undo step that begins in one interaction and ends in another.
-        //
-        // IsItemDeactivated, NOT IsItemDeactivatedAfterEdit: a widget grabbed and released without a
-        // change fires only the former, and a transaction closed by the latter alone would stay open into
-        // the next interaction. The "nothing changed" case costs nothing -- End() answers 0 and pushes no
-        // entry, which is the contract that makes closing on every release safe.
+        // ONE PLACE FOR THE TWO EDGES OF A HELD WIDGET. IsItemDeactivated, NOT IsItemDeactivatedAfterEdit: a
+        // widget released without a change fires only the former; End() then answers 0 and pushes nothing.
         if ( ::ImGui::IsItemActivated() )
         {
-            if ( const auto began = m_UIClipEdit.Begin( &clip ); !began.IsSuccess() )
+            if ( const auto began = m_UIClipEdit.Begin( OwnerOf( &clip ) ); !began.IsSuccess() )
             {
                 LOG_ERROR( "[UIClipUndo] this edit will not be undoable: {}", began.GetError() );
             }
@@ -2814,13 +3176,14 @@ namespace Desert::Editor
         }
     }
 
-    void SequencerPanel::RecordUIClipToggle( ECS::UIAnimData& clip, bool loopBefore )
+    void SequencerPanel::RecordUIClipToggle( ECS::UIAnimData& clip, TL::LoopMode loop )
     {
-        const bool loopAfter = clip.Loop;
-        clip.Loop            = loopBefore;
+        // The loop mode lives beside the Sequence on UIAnimData; the step brackets the one write.
+        const ScopedSequenceEdit step( m_UIClipEdit, OwnerOf( &clip ) );
+        clip.Loop = loop;
+        if ( clip.Playback.has_value() )
         {
-            const ScopedUIClipEdit step( m_UIClipEdit, &clip );
-            clip.Loop = loopAfter;
+            clip.Playback->SetLoopMode( loop );
         }
     }
 
@@ -2985,17 +3348,22 @@ namespace Desert::Editor
              ImGui::IsKeyPressed( ImGuiKey_Delete, false ) )
         {
             const std::string& name = target.Hierarchy->Get( m_ControlKeyRow ).Name;
-            for ( Animation::BoneTrack& track : clip->Tracks )
+            // A CONTROL KEY IS A POSE: the key on this tick goes from every part that has one.
+            if ( const TL::Track* track = Animation::FindBoneTrack( clip->Sequence, name ) )
             {
-                if ( track.BoneName == name )
+                const Animation::FrameNumber tick{ m_ControlKeyTick };
+                const ScopedSequenceEdit     edit( m_ClipEdit, OwnerOf( clip ), animator );
+                uint32_t                     removed = 0;
+                for ( const Animation::TrackChannel part : kParts )
                 {
-                    const ScopedPoseEdit edit( m_ClipEdit, animator, clip );
-                    const uint32_t       removed =
-                         DeleteKeysAtTick( track, Animation::FrameNumber{ m_ControlKeyTick }, clip->TickRate );
-                    LOG_INFO( "[Sequencer] deleted {} key(s) of '{}' at tick {}", removed, name,
-                              m_ControlKeyTick );
-                    break;
+                    const auto ticks = PartTicks( *track, part );
+                    if ( std::ranges::find( ticks, tick ) != ticks.end() )
+                    {
+                        removed +=
+                             Animation::RemoveBoneKey( clip->Sequence, name, part, tick ).IsSuccess() ? 1U : 0U;
+                    }
                 }
+                LOG_INFO( "[Sequencer] deleted {} key(s) of '{}' at tick {}", removed, name, m_ControlKeyTick );
             }
             m_ControlKeyRow    = Animation::ControlHierarchy::INVALID;
             m_ControlTickShown = INT32_MIN;
@@ -3051,8 +3419,8 @@ namespace Desert::Editor
             }
         }
 
-        const Animation::FrameRate     tickRate    = clip->TickRate;
-        const Animation::FrameRate     displayRate = clip->DisplayRate;
+        const Animation::FrameRate     tickRate    = clip->Sequence.TickRate;
+        const Animation::FrameRate     displayRate = clip->Sequence.DisplayRate;
         const float                    rowH        = 18.0f;
         const float                    laneX0      = contentX0 + gutter;
         const Sequencer::CurveViewport axis        = TimeAxis( laneX0, laneW, duration );
@@ -3095,25 +3463,16 @@ namespace Desert::Editor
                 SelectControlFromTrack( c );
             }
 
-            Animation::BoneTrack* track = nullptr;
-            for ( Animation::BoneTrack& candidate : clip->Tracks )
-            {
-                if ( candidate.BoneName == element.Name )
-                {
-                    track = &candidate;
-                    break;
-                }
-            }
-            // ONE DIAMOND PER TICK: the union of the three channels, because a control key is a pose.
+            const TL::Track* track = Animation::FindBoneTrack( clip->Sequence, element.Name );
+            // ONE DIAMOND PER TICK: the union of the three parts, because a control key is a pose.
             std::vector<int32_t> ticks;
             if ( track != nullptr )
             {
-                for ( const auto& key : track->PositionKeys )
-                    ticks.push_back( key.Tick.Value );
-                for ( const auto& key : track->RotationKeys )
-                    ticks.push_back( key.Tick.Value );
-                for ( const auto& key : track->ScaleKeys )
-                    ticks.push_back( key.Tick.Value );
+                for ( const Animation::TrackChannel part : kParts )
+                {
+                    for ( const Animation::FrameNumber tick : PartTicks( *track, part ) )
+                        ticks.push_back( tick.Value );
+                }
                 std::sort( ticks.begin(), ticks.end() );
                 ticks.erase( std::unique( ticks.begin(), ticks.end() ), ticks.end() );
             }
@@ -3134,7 +3493,7 @@ namespace Desert::Editor
                     {
                         m_ControlKeyRow  = c;
                         m_ControlKeyTick = tick;
-                        if ( const auto began = m_ClipEdit.Begin( animator, clip ); !began.IsSuccess() )
+                        if ( const auto began = m_ClipEdit.Begin( OwnerOf( clip ), animator ); !began.IsSuccess() )
                         {
                             LOG_ERROR( "[Sequencer] control key move not undoable: {}", began.GetError() );
                         }
@@ -3149,9 +3508,8 @@ namespace Desert::Editor
                      static_cast<float>( axis.XToTime( ImGui::GetMousePos().x ) ), tickRate, displayRate );
                 if ( to.Value >= 0 && to.Value != m_ControlKeyTick )
                 {
-                    const auto moved =
-                         MoveKeysAtTick( *track, Animation::FrameNumber{ m_ControlKeyTick }, to, tickRate );
-                    if ( moved.IsSuccess() )
+                    if ( MoveControlKey( clip->Sequence, element.Name, Animation::FrameNumber{ m_ControlKeyTick },
+                                         to ) )
                     {
                         m_ControlKeyTick   = to.Value;
                         m_ControlTickShown = INT32_MIN;

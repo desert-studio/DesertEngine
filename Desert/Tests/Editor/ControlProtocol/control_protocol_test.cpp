@@ -23,6 +23,7 @@
 //   6. STATE SECTIONS. An unknown section is refused rather than omitted: omitted, it comes back empty,
 //      which reads exactly like a section that exists and is empty. One of those two readings is a lie.
 
+#include <Editor/Core/Control/InputInjection.hpp>
 #include <Editor/Core/Control/PointerDrag.hpp>
 #include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
@@ -171,6 +172,8 @@ TEST( ControlProtocol, EveryKnownOperationParses )
             line += R"(,"path":"/tmp/shot.png")";
         if ( spec.Operation == Op::Drag )
             line += R"(,"subject":"viewport","value":[1,2,3,4])";
+        if ( spec.Operation == Op::Input )
+            line += R"(,"kind":"click","value":[1,2])";
         line += "}";
 
         const Request request = ParseOk( line );
@@ -792,4 +795,64 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+TEST( ControlInput, TheRequestCarriesKindPanelPointKeyAndPaths )
+{
+    namespace C  = Desert::Editor::Control;
+    const auto r = C::ParseRequest(
+         R"({"id":4,"op":"input","kind":"drop","panel":"Content Browser","value":[10,20],"paths":["/a.png"]})" );
+    ASSERT_TRUE( r.IsSuccess() ) << r.GetError();
+    EXPECT_EQ( r.GetValue().Operation, C::Op::Input );
+    EXPECT_EQ( r.GetValue().Panel, "Content Browser" );
+    EXPECT_EQ( r.GetValue().Paths, std::vector<std::string>{ "/a.png" } );
+    EXPECT_TRUE( C::ParseRequest( R"({"id":4,"op":"input","kind":"key","key":"T"})" ).IsSuccess() );
+    EXPECT_FALSE( C::ParseRequest( R"({"id":4,"op":"input","kind":"key"})" ).IsSuccess() );
+    EXPECT_FALSE( C::ParseRequest( R"({"id":4,"op":"input","kind":"click","value":[1]})" ).IsSuccess() );
+    EXPECT_FALSE(
+         C::ParseRequest( R"({"id":4,"op":"input","kind":"click","value":[1,2],"button":3})" ).IsSuccess() );
+}
+
+TEST( ControlInput, AClickHoversAFrameBeforeItPressesAndReleasesAFrameAfter )
+{
+    namespace C     = Desert::Editor::Control;
+    const auto plan = C::PlanInput( "click", 5.0f, 6.0f, 0, "", {} );
+    ASSERT_TRUE( plan.IsSuccess() );
+    const auto& frames = plan.GetValue();
+    ASSERT_EQ( frames.size(), 3u );
+    ASSERT_EQ( frames[0].size(), 1u );
+    EXPECT_EQ( frames[0][0].Action, C::InputAction::Cursor );
+    EXPECT_EQ( frames[1].back().Action, C::InputAction::ButtonDown );
+    EXPECT_EQ( frames[2].back().Action, C::InputAction::ButtonUp );
+    EXPECT_EQ( frames[1].back().X, 5.0f );
+}
+
+TEST( ControlInput, ADropArrivesAtItsPointAFrameAfterTheCursorGotThere )
+{
+    namespace C     = Desert::Editor::Control;
+    const auto plan = C::PlanInput( "drop", 1.0f, 2.0f, 0, "", { "/tmp/x.png" } );
+    ASSERT_TRUE( plan.IsSuccess() );
+    ASSERT_EQ( plan.GetValue().size(), 2u );
+    EXPECT_EQ( plan.GetValue()[1].front().Action, C::InputAction::Cursor );
+    EXPECT_EQ( plan.GetValue()[1].back().Action, C::InputAction::Drop );
+    EXPECT_FALSE( C::PlanInput( "drop", 1.0f, 2.0f, 0, "", {} ).IsSuccess() );
+}
+
+TEST( ControlInput, AChordPressesModifiersFirstAndReleasesThemLast )
+{
+    namespace C     = Desert::Editor::Control;
+    const auto plan = C::PlanInput( "key", 0.0f, 0.0f, 0, "Ctrl+S", {} );
+    ASSERT_TRUE( plan.IsSuccess() );
+    const auto& frames = plan.GetValue();
+    ASSERT_EQ( frames.size(), 2u );
+    ASSERT_EQ( frames[0].size(), 2u );
+    EXPECT_EQ( frames[0][0].Code, 341 );
+    EXPECT_EQ( frames[0][1].Code, 83 );
+    EXPECT_EQ( frames[0][1].Mods, C::kModControl );
+    EXPECT_EQ( frames[1].back().Code, 341 );
+    const auto lower = C::PlanInput( "key", 0.0f, 0.0f, 0, "t", {} );
+    ASSERT_TRUE( lower.IsSuccess() );
+    EXPECT_EQ( lower.GetValue()[0][0].Code, 84 );
+    EXPECT_FALSE( C::PlanInput( "key", 0.0f, 0.0f, 0, "Hyper+T", {} ).IsSuccess() );
+    EXPECT_FALSE( C::PlanInput( "wiggle", 0.0f, 0.0f, 0, "", {} ).IsSuccess() );
 }

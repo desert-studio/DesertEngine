@@ -23,6 +23,9 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include "../ClipFixture.hpp"
+#include "../PoseGraphFixture.hpp"
+
 #include <gtest/gtest.h>
 
 #include <cmath>
@@ -436,19 +439,19 @@ TEST( BoneControlContract, TheControlStageJoinsAndLeavesWithTheListAndAlwaysRuns
     // ORDER IS A PROPERTY OF THE PIPELINE, NOT OF THE INSERTION. A layer added after a control must still
     // run BEFORE it: a control corrects the pose the animation produced, so a layer that ran afterwards
     // would overwrite exactly the bones the control just solved.
-    Desert::Animation::AnimationClip clip;
-    clip.AnimationName = "layer";
-    clip.DurationTicks = Desert::Animation::FrameNumber{ Desert::Animation::PROJECT_TICK_RATE.Numerator };
-    animator.AddLayer( clip, 1.0F );
+    const Desert::Animation::AnimationClip clip = ClipFixture::Clip(
+         "layer", Desert::Animation::FrameNumber{ Desert::Animation::PROJECT_TICK_RATE.Numerator } );
+    ASSERT_TRUE(
+         PoseGraphFixture::Drive( animator, PoseGraphFixture::FullBodyLayer( rig.GetBones()[0].Name ), clip ) );
 
     ASSERT_EQ( animator.GetStages().size(), 3U );
     EXPECT_EQ( animator.GetStages()[0], PoseStage::Source );
-    EXPECT_EQ( animator.GetStages()[1], PoseStage::Layers );
+    EXPECT_EQ( animator.GetStages()[1], PoseStage::Graph );
     EXPECT_EQ( animator.GetStages()[2], PoseStage::Controls );
 
     animator.ClearControls();
     ASSERT_EQ( animator.GetStages().size(), 2U );
-    EXPECT_EQ( animator.GetStages()[1], PoseStage::Layers );
+    EXPECT_EQ( animator.GetStages()[1], PoseStage::Graph );
 }
 
 TEST( BoneControlContract, AControlDrivesTheRigWithNoClipPlayingAtAll )

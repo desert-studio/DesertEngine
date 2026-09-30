@@ -83,6 +83,15 @@ namespace Desert::Editor::CookPaths
     // Where an imported mesh's materials live as editable content:
     // Resources/Assets/Materials/<meshRelativeId>/<materialName>.demat.
     //
+    // A FILE A SKINNED IMPORT WRITES (SkinnedAsset's three suffixes): `.skmesh`, `.skeleton`, `.anim`. Each is its
+    // own cooked form (a picture of it is filed under the file itself), unlike a static mesh, whose `.stmesh` is
+    // an extension swap of its source (MeshAsset).
+    inline bool IsSkinnedAssetFile( const std::filesystem::path& asset )
+    {
+        const std::string extension = asset.extension().string();
+        return extension == ".skmesh" || extension == ".skeleton" || extension == ".anim";
+    }
+
     // Both the writer (ImportManager::SerializeMaterialAsset) and the reader that registers them after a
     // drag-drop (MeshDnD) call THIS — they used to spell `MATERIAL_PATH / stem` separately, which is two
     // places obliged to agree with nothing checking that they do.

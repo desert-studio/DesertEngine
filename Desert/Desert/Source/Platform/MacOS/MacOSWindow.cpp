@@ -173,7 +173,8 @@ namespace Desert::Platform::MacOS
                                         auto& data = *(WindowData*)glfwGetWindowUserPointer( window );
 
                                         Common::EventWindowClose event;
-                                        data.EventCallback( event );
+                                        if ( data.Events != nullptr )
+                                            data.Events->Route( event );
                                     } );
 
         glfwSetWindowSizeCallback( m_GLFWWindow,
@@ -182,7 +183,8 @@ namespace Desert::Platform::MacOS
                                        auto& data = *( (WindowData*)glfwGetWindowUserPointer( window ) );
 
                                        Common::EventWindowResize event( (uint32_t)width, (uint32_t)height );
-                                       data.EventCallback( event );
+                                       if ( data.Events != nullptr )
+                                           data.Events->Route( event );
                                        data.Specification.Width  = width;
                                        data.Specification.Height = height;
                                    } );
@@ -197,13 +199,15 @@ namespace Desert::Platform::MacOS
                                     case GLFW_PRESS:
                                     {
                                         Common::KeyPressedEvent event( (Common::KeyCode)key, 0 );
-                                        data.EventCallback( event );
+                                        if ( data.Events != nullptr )
+                                            data.Events->Route( event );
                                         break;
                                     }
                                     case GLFW_REPEAT:
                                     {
                                         Common::KeyPressedEvent event( (Common::KeyCode)key, 1 );
-                                        data.EventCallback( event );
+                                        if ( data.Events != nullptr )
+                                            data.Events->Route( event );
                                         break;
                                     }
                                 }
@@ -214,7 +218,8 @@ namespace Desert::Platform::MacOS
                                {
                                    auto& data = *( (WindowData*)glfwGetWindowUserPointer( window ) );
                                    Common::MouseScrolledEvent event( (float)xOffset, (float)yOffset );
-                                   data.EventCallback( event );
+                                   if ( data.Events != nullptr )
+                                       data.Events->Route( event );
                                } );
 
         glfwSetCharCallback( m_GLFWWindow,
@@ -222,7 +227,8 @@ namespace Desert::Platform::MacOS
                              {
                                  auto&                 data = *( (WindowData*)glfwGetWindowUserPointer( window ) );
                                  Common::KeyTypedEvent event( codepoint );
-                                 data.EventCallback( event );
+                                 if ( data.Events != nullptr )
+                                     data.Events->Route( event );
                              } );
 
         glfwSetDropCallback( m_GLFWWindow,
@@ -235,8 +241,8 @@ namespace Desert::Platform::MacOS
                                  for ( int i = 0; i < count; ++i )
                                      dropped.emplace_back( paths[i] );
 
-                                 Common::EventWindowFileDrop event( std::move( dropped ) );
-                                 data.EventCallback( event );
+                                 if ( data.Events != nullptr )
+                                     data.Events->Defer( Common::EventWindowFileDrop( std::move( dropped ) ) );
                              } );
 
         glfwSetMouseButtonCallback( m_GLFWWindow,
@@ -250,7 +256,8 @@ namespace Desert::Platform::MacOS
                                             {
                                                 Common::MouseButtonPressedEvent event(
                                                      (Common::MouseButton)button );
-                                                data.EventCallback( event );
+                                                if ( data.Events != nullptr )
+                                                    data.Events->Route( event );
                                                 break;
                                             }
                                         }
@@ -397,20 +404,6 @@ namespace Desert::Platform::MacOS
     Common::BoolResultStr MacOSWindow::PrepareNextFrame() const
     {
         return EngineContext::GetInstance().GetRendererContext()->BeginFrame();
-    }
-
-    void MacOSWindow::OnEvent( Common::Event& e )
-    {
-        Common::EventManager eventManager( e );
-        eventManager.Notify<Common::EventWindowResize>( [this]( Common::EventWindowResize& e )
-                                                        { return this->OnEventWindowResize( e ); } );
-    }
-
-    bool MacOSWindow::OnEventWindowResize( Common::EventWindowResize& e )
-    {
-        m_SwapChain->OnResize( e.width, e.height );
-
-        return false;
     }
 
     Common::ResultStr<bool> MacOSWindow::SetupSwapChain()

@@ -39,8 +39,6 @@ project(test_name)
         defines { "DESERT_PLATFORM_WINDOWS" }
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
-        -- ThumbnailKey's DDC path reaches Common's FileSystem, whose macOS half is Objective-C (as ThumbnailPrefetch).
-        links { "Cocoa.framework", "Foundation.framework" }
     filter "system:linux"
         defines { "DESERT_PLATFORM_LINUX" }
     filter {}

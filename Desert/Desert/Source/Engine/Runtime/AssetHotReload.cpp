@@ -9,6 +9,7 @@
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
+#include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
@@ -21,6 +22,12 @@
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
+#include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
+
+#include <Common/Core/Constants.hpp>
+#include <Common/Utilities/FileSystem.hpp>
+
+#include <unordered_map>
 
 namespace Desert::Runtime
 {
@@ -70,12 +77,13 @@ namespace Desert::Runtime
         m_Accum = 0.0f;
 
         PollMaterials( assetManager, scene );
-        PollShaders( assetManager, scene );
+        PollShaders( assetManager );
         PollCloudNoiseVolumes( assetManager );
         PollCloudTypes( assetManager );
         PollCloudModellingVolumes( assetManager );
         PollUIThemes( assetManager );
         PollLandscapeLayerInfos( assetManager );
+        PollPrefabs( assetManager );
         m_ContentWatch.Poll();
         m_FirstScan = false;
     }
@@ -261,6 +269,46 @@ namespace Desert::Runtime
         }
     }
 
+    void AssetHotReload::PollPrefabs( Assets::AssetManager& assetManager )
+    {
+        for ( const auto& [handle, asset] : assetManager.FindAllByType<Assets::PrefabAsset>() )
+        {
+            if ( !asset )
+                continue;
+
+            // THE WATCH IS TOUCHED BEFORE THE READINESS TEST, so a prefab loaded later starts from the stamp
+            // its file has now rather than reporting an edit that happened before anyone read it.
+            const auto& path    = asset->GetMetadata().Filepath;
+            const bool  changed = TouchWatched( path );
+            if ( !changed || !asset->IsReadyForUse() )
+                continue;
+
+            const std::string key = path.generic_string();
+
+            // A capture from a live entity that "Save as Prefab" has not written yet: its payload is the only
+            // copy, and the file on disk (if any) is older than it.
+            if ( !asset->IsReloadableFromFile() )
+            {
+                LOG_WARN( "[HotReload] Prefab '{}' changed on disk but holds a capture not yet saved; the capture "
+                          "is kept.",
+                          key );
+                continue;
+            }
+
+            // A FAILED RE-READ KEEPS THE OLD PAYLOADS (LoadFromFile replaces them only after a parse that
+            // succeeded), for the cloud type's reason: a poll can land mid-write.
+            if ( const auto reloaded = asset->Load(); !reloaded )
+            {
+                LOG_ERROR( "[HotReload] Prefab '{}' could not be re-read: {}", key, reloaded.GetError() );
+                continue;
+            }
+
+            LOG_INFO( "[HotReload] Prefab '{}' reloaded - the next spawn, placement and Default Pawn capsule "
+                      "read it.",
+                      key );
+        }
+    }
+
     void AssetHotReload::PollMaterials( Assets::AssetManager& assetManager, Core::Scene* scene )
     {
         auto* materialService = ResourceRegistry::GetMaterialService();
@@ -352,11 +400,47 @@ namespace Desert::Runtime
         return changed;
     }
 
-    void AssetHotReload::PollShaders( Assets::AssetManager& assetManager, Core::Scene* scene )
+    void AssetHotReload::PollShaders( Assets::AssetManager& assetManager )
     {
         auto* shaderService = ResourceRegistry::GetShaderService();
         if ( !shaderService )
             return;
+
+        // THE SHADING MODELS ARE SHADER SOURCE TOO (UE: editing a shading model recompiles its dependents, no
+        // restart). A changed .shadingmodel re-scans the set; the reload rewrites the generated include, and
+        // every program that pulls it in (or whose surface template resolves a model to an index in C++) is a
+        // changed program below. A manifest that no longer parses keeps the previous set, and says so.
+        bool shadingModelsReloaded = false;
+        {
+            bool manifestChanged = false;
+            for ( const auto& file : Common::Utils::FileSystem::ListFilesRecursive(
+                       std::filesystem::path( Common::Constants::Path::SHADERDIR_PATH ) /
+                       Core::ShadingModels::kShadingModelDirectory ) )
+                if ( file.extension() == Core::ShadingModels::kShadingModelExtension )
+                    manifestChanged = TouchWatched( file ) || manifestChanged;
+            if ( manifestChanged && !m_FirstScan )
+            {
+                if ( const auto reloaded = Core::ShadingModels::ReloadShaderRootShadingModels(); !reloaded )
+                {
+                    LOG_ERROR( "[HotReload] shading models: {} — keeping the previous set", reloaded.GetError() );
+                }
+                else
+                {
+                    shadingModelsReloaded = true;
+                    LOG_INFO( "[HotReload] shading models re-read; recompiling the programs that use them" );
+                }
+            }
+        }
+
+        std::unordered_map<std::string, bool> observedThisPoll;
+        const auto changedThisPoll = [this, &observedThisPoll]( const std::filesystem::path& file )
+        {
+            const auto [it, first] =
+                 observedThisPoll.try_emplace( file.lexically_normal().generic_string(), false );
+            if ( first )
+                it->second = TouchWatched( file );
+            return it->second;
+        };
 
         for ( const auto& [handle, asset] : assetManager.FindAllByType<Assets::ShaderAsset>() )
         {
@@ -364,15 +448,22 @@ namespace Desert::Runtime
                 continue;
             const auto& path = asset->GetMetadata().Filepath;
 
-            // A shader is its .shader file AND every .glslh that file pulls in — the same closure the
-            // SPIR-V cache key hashes, so the two cannot disagree about what a shader is made of.
-            // Watching only the .shader was a real hole: a shared header could be edited and nothing
-            // recompiled until the next restart, which is the same silent staleness an under-specified
-            // cache key produces, arriving through the other door.
-            bool changed = TouchWatched( path );
-            for ( const auto& include : Core::CollectShaderIncludes( asset->GetShaderContent(), path ) )
+            // A shader is its .shader file AND every .glslh that file pulls in, transitively —
+            // Core::ShaderSourceFiles, the same closure the SPIR-V cache key hashes, walked over the FILE (an
+            // unloaded asset holds no text). Every file is asked of the watch once per poll: a header shared by
+            // forty programs is changed for all forty, not for whichever program happened to observe it first. No
+            // short-circuit — every file of every program has to be observed, or a file first seen after an edit
+            // is a baseline and the edit is lost.
+            bool changed = false;
+            for ( const auto& file : Core::ShaderSourceFiles( path ) )
+                changed = changedThisPoll( file ) || changed;
+
+            if ( shadingModelsReloaded && !changed )
             {
-                changed = TouchWatched( include ) || changed;
+                // Also a program whose surface template resolves a model to an index in C++, not in GLSL.
+                changed = Core::Preprocess::DShaderParser::MayDeclareSurface( Core::ShaderFileText( path ) );
+                for ( const auto& file : Core::ShaderSourceFiles( path ) )
+                    changed = changed || file.generic_string().ends_with( Core::ShadingModels::kGeneratedInclude );
             }
 
             if ( !changed || m_FirstScan )
@@ -437,25 +528,20 @@ namespace Desert::Runtime
                 LOG_INFO( "[HotReload] Shader '{}': {} variant(s) recompiled with it.", shader->GetName(),
                           variants );
 
-            // Renderer-owned pipelines (the batched PBR/shadow set, every compute pipeline, the
-            // fog apply) are built once at init and keep the code they were built with until
-            // a restart. That is now merely STALE and no longer unsafe: the pipeline holds strong
-            // references to the descriptor set layouts it was built from, so recompiling under it
-            // cannot leave it bound to a layout that has been destroyed (see
-            // VulkanDescriptorSetLayout.hpp). Said on every recompile, because "the shader did not
-            // change anything" is otherwise indistinguishable from "the shader did not compile".
-            LOG_INFO( "[HotReload] Shader '{}' recompiled. Graph pipelines pick it up next frame; "
-                      "renderer-owned pipelines (compute, batched PBR/shadow, fog apply) keep "
-                      "the previous code until the editor is restarted.",
-                      shader->GetName() );
+            LOG_INFO( "[HotReload] Shader '{}' recompiled.", shader->GetName() );
+        }
 
-            // Rebuild cached pipelines against the new modules.
-            if ( scene )
-                if ( auto* sceneRenderer = scene->GetSceneRenderer() )
-                {
-                    Graphic::Renderer::GetInstance().WaitDeviceIdle();
-                    sceneRenderer->GetPipelineCache().InvalidateByShader( shader.get() );
-                }
+        // EVERY PIPELINE BUILT FROM THE OLD CODE FOLLOWS — the scene's cached material pipelines and the ones a
+        // renderer built once and holds (DeferredLighting, every compute pass, the fog apply), and the variants'
+        // too: each records its shader's code generation, and the ones behind are rebuilt in place, so their
+        // owners draw the new code next frame (UE: a recompiled shader map invalidates the PSOs built from it).
+        // Asked on every poll, so a recompile from anywhere else (the material editor) is followed as well.
+        if ( Graphic::AnyPipelineBehindItsShader() )
+        {
+            Graphic::PipelineBuilds::Get().WaitIdle();
+            Graphic::Renderer::GetInstance().WaitDeviceIdle();
+            LOG_INFO( "[HotReload] {} pipeline(s) rebuilt against the recompiled shaders.",
+                      Graphic::RebuildPipelinesBehindTheirShader() );
         }
     }
 } // namespace Desert::Runtime

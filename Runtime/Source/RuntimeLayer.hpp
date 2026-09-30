@@ -50,7 +50,9 @@ namespace Desert::Player
         [[nodiscard]] Common::BoolResultStr OnDetach() override;
         [[nodiscard]] Common::BoolResultStr OnUpdate( const Common::Timestep& ts ) override;
         [[nodiscard]] Common::BoolResultStr OnUIRender() override;
-        void                                OnEvent( Common::Event& event ) override;
+        bool                                OnMouseScrolled( Common::MouseScrolledEvent& scroll );
+        bool                                OnKeyTyped( Common::KeyTypedEvent& typed );
+        bool                                OnKeyPressed( Common::KeyPressedEvent& key );
         /// The frame is out. It counts presented frames in every build; in a development build it is also
         /// the half of the unattended capture that COLLECTS — see RuntimeShot.hpp.
         void OnFramePresented() override;

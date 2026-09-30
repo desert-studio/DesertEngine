@@ -76,23 +76,48 @@ vec3 ComposeAmbient(vec3 ibl, vec3 albedo, float ao, vec3 indirect)
 // Both cube fetches go through the sky's look (Common/SkyLook.glslh): the cubes are the file as
 // authored, and the scene's rotation and gain turn and scale the lookup — the same two calls the skybox
 // pass draws the backdrop with, so a chrome ball reflects what is visible behind it.
+// The two environment lookups a shading model may call for any direction (ShadingModelContract.glslh), and the
+// ones the split sum below makes: the sky cubes through the sky look's rotation and gain.
+vec3 DesertAmbientIrradiance(vec3 worldDirection)
+{
+	return ApplySkyGain(texture(u_EnvIrradianceTex, SkyLookDirection(worldDirection, skyLook.YawCosSin.xy)).rgb,
+	                    skyLook.Gain.rgb);
+}
+
+vec3 DesertAmbientSpecular(vec3 worldDirection, float roughness)
+{
+	const int levels = textureQueryLevels(u_EnvSpecularTex);
+	return ApplySkyGain(
+	     textureLod(u_EnvSpecularTex, SkyLookDirection(worldDirection, skyLook.YawCosSin.xy), roughness * levels).rgb,
+	     skyLook.Gain.rgb);
+}
+
 vec3 AmbientIBL(vec3 view, vec3 N, vec3 F0, float metalness, float roughness, vec3 albedo)
 {
-	vec2  yaw        = skyLook.YawCosSin.xy;
-	vec3  gain       = skyLook.Gain.rgb;
-	vec3  irradiance = ApplySkyGain(texture(u_EnvIrradianceTex, SkyLookDirection(N, yaw)).rgb, gain);
+	vec3  irradiance = DesertAmbientIrradiance(N);
 	float cosLo      = max(0.0, dot(N, view));
 
 	// reflect(-view, N) = 2*dot(N,view)*N - view (unclamped, correct specular reflection)
-	vec3 Lr = reflect(-view, N);
-
-	int  specularTextureLevels = textureQueryLevels(u_EnvSpecularTex);
-	vec3 specularIrradiance    = ApplySkyGain(
-	     textureLod(u_EnvSpecularTex, SkyLookDirection(Lr, yaw), roughness * specularTextureLevels).rgb, gain);
+	vec3 specularIrradiance = DesertAmbientSpecular(reflect(-view, N), roughness);
 
 	vec2 specularBRDF = texture(u_BRDFLUTTexture, vec2(cosLo, roughness)).rg;
 
 	return EvaluateAmbientIBL(irradiance, specularIrradiance, specularBRDF, F0, albedo, metalness, cosLo);
+}
+
+// The environment at a shaded point as a shading model receives it (DesertAmbient): the same three samples
+// AmbientIBL takes, plus the pass's indirect bounce and occlusion. Both lighting passes build it here.
+#include <ShadingModels/ShadingModelContract.glslh>
+
+DesertAmbient DesertSampleAmbient(DesertSurface S, vec3 indirect, float occlusion)
+{
+	DesertAmbient A;
+	A.Irradiance   = DesertAmbientIrradiance(S.N);
+	A.Prefiltered  = DesertAmbientSpecular(reflect(-S.V, S.N), S.Roughness);
+	A.SpecularBRDF = texture(u_BRDFLUTTexture, vec2(max(0.0, dot(S.N, S.V)), S.Roughness)).rg;
+	A.Indirect     = indirect;
+	A.Occlusion    = occlusion;
+	return A;
 }
 
 #endif // AMBIENT_IBL_NO_SAMPLERS

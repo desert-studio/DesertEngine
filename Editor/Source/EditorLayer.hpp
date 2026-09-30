@@ -14,6 +14,7 @@
 #include "Editor/Widgets/UIHelper/ImGuiUI.hpp"
 #include "Editor/Panels/IPanel.hpp"
 #include "Editor/Core/CommandPalette.hpp"
+#include "Editor/Core/PlayWorldCommands.hpp"
 #include "Editor/Core/Control/ControlPipeline.hpp"
 #include "Editor/Core/Control/ControlProtocol.hpp"
 #include "Editor/Core/Control/ControlSocket.hpp"
@@ -27,6 +28,7 @@
 #include "Editor/Core/FlightRules.hpp"
 #include "Editor/Core/PanelRegistry.hpp"
 #include "Editor/RenderSystems/RenderRigistry.hpp"
+#include "Editor/Widgets/ToolbarLayout.hpp"
 #include "Editor/Widgets/WindowChrome.hpp"
 #include "Editor/Splash/RevealGate.hpp"
 #include "Editor/Splash/SplashScreen.hpp"
@@ -63,7 +65,6 @@ namespace Desert::Editor
         [[nodiscard]] Common::BoolResultStr OnDetach() override;
         [[nodiscard]] Common::BoolResultStr OnUpdate( const Common::Timestep& ts ) override;
         [[nodiscard]] Common::BoolResultStr OnUIRender() override;
-        void                                OnEvent( Common::Event& event ) override;
 
         // The frame is out. This is where the control channel keeps its promise: a reply leaves only
         // after a frame that already reflects the command it answers, and a `shot.window` reads that very
@@ -93,8 +94,8 @@ namespace Desert::Editor
         // ===== Top Bar Sections =====
         void DrawProjectSection();
         void DrawSceneRenameSection();
-        void DrawPlayButton( const ImVec2& size = ImVec2( 0.0f, 0.0f ) );
-        void DrawPauseButton( const ImVec2& size = ImVec2( 0.0f, 0.0f ) );
+        // The segmented Play | Options | Pause | Stop group at the slots `group` laid out, on row `y`.
+        void DrawPlaybackGroup( const ::Desert::Editor::ToolbarLayout::PlaybackGroup& group, float y );
 
         // UE5-style toolbar strip below the menu bar. Left: save + undo/redo, editor modes, transform
         // tools, the two snap steps. Centre: playback. Right: package, profiler, preferences. Drawn inside
@@ -226,7 +227,10 @@ namespace Desert::Editor
         // @p playerStartTag: the tagged PlayerStart to use (Core::PlayRequest::PlayerStartTag); empty = the rule.
         void OnScenePlay( bool fromHere = false, const std::string& playerStartTag = {} );
         void OnSceneStop();
-        void OnScenePauseToggle();
+        // The ONE executor of the play-session commands (Editor/Core/PlayWorldCommands.hpp): the toolbar's
+        // playback group, its Play-options menu and the palette / control channel all call this. The
+        // result says whether the world moved, and why not when it did not.
+        [[nodiscard]] Common::BoolResultStr RunPlayWorldCommand( Editor::PlayWorldCommand command );
 
         // Builds a ready-to-Play demo: a WASD character (Jolt CharacterVirtual) with a 3rd-person child
         // camera, a ground floor, a sun light, and obstacles. (Remove the call in OnAttach for a blank scene.)
@@ -259,6 +263,7 @@ namespace Desert::Editor
         void DrawNewScenePopup();
         void DrawReloadScenePopup();
         void DrawProjectPopup();
+        void FollowImGuiWithEvents();
 
         void PrepareScenePopup();
         // Every .desce under the project's scenes root, recursively, sorted by the label the UI shows.

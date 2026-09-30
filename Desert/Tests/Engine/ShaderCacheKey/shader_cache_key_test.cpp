@@ -24,6 +24,7 @@
 
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
+#include <Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderMapCache.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.hpp>
@@ -37,6 +38,7 @@
 #include <Engine/Graphic/Clouds/CloudSkyOcclusionPayload.hpp>
 #include <Engine/Graphic/SkyPayload.hpp>
 #include <Engine/Graphic/Systems/Scene/Particles/ParticleGpuLayout.hpp>
+#include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 
 #include <Common/Core/Constants.hpp>
 
@@ -686,6 +688,32 @@ TEST_F( ShaderRootFixture, TheClosureFollowsAHeaderThatIncludesAnother )
 
     EXPECT_TRUE( contains( "UIVertex.glslh" ) );
     EXPECT_TRUE( contains( "MaterialTransport.glslh" ) );
+}
+
+TEST_F( ShaderRootFixture, AProgramIsMadeOfItsFileAndTheClosureOfItsTextOnDisk )
+{
+    // THE HOT-RELOAD DEPENDENCY RULE (SHM1-hr). Editing DefaultLit.shadingmodel rewrote the generated include and
+    // recompiled nothing: the reloader walked the ShaderAsset's in-memory text, which an unloaded asset no longer
+    // holds. ShaderSourceFiles reads the file — so DeferredLighting (which includes the generated dispatch) and a
+    // program that reaches a header only through another header both name it, with no asset loaded at all.
+    const auto has = []( const std::vector<std::filesystem::path>& files, std::string_view suffix )
+    {
+        return std::any_of( files.begin(), files.end(),
+                            [&]( const auto& f ) { return f.generic_string().ends_with( suffix ); } );
+    };
+
+    const auto lighting = ShaderPath( "Deferred/DeferredLighting.shader" );
+    const auto files    = Desert::Core::ShaderSourceFiles( lighting );
+    ASSERT_FALSE( files.empty() );
+    EXPECT_EQ( files.front(), lighting ) << "the program's own file comes first";
+    EXPECT_TRUE( has( files, Desert::Core::ShadingModels::kGeneratedInclude ) );
+    EXPECT_TRUE( has( files, "Mesh/DirectLighting.glslh" ) );
+
+    const auto ui = Desert::Core::ShaderSourceFiles( ShaderPath( "UI/UIMatError.shader" ) );
+    EXPECT_TRUE( has( ui, "Common/MaterialTransport.glslh" ) ) << "transitive: only UIVertex.glslh names it";
+
+    const auto missing = Desert::Core::ShaderSourceFiles( ShaderPath( "NoSuch/Missing.shader" ) );
+    EXPECT_EQ( missing.size(), 1u ) << "a missing file is just itself; the reload reports it";
 }
 
 TEST_F( ShaderRootFixture, TheClosureListsEachFileOnce )
@@ -1420,29 +1448,43 @@ TEST_F( ShaderRootFixture, TwoSmallParametersInARowStillLandOnTheirOwnSlots )
     }
 }
 
-TEST_F( ShaderRootFixture, AnUnlitGraphSurfaceReceivesNoneOfIt )
+TEST_F( ShaderRootFixture, AnUnlitGraphSurfaceIsShadedThroughTheSamePassesAsEveryModel )
 {
-    // The boundary is real and not a matter of degree: an unlit graph shader is a DIFFERENT domain of
-    // shading, it declares no lighting resource at all, and the change that gave the lit branch the
-    // engine's model must not have quietly given the unlit branch a lighting descriptor it will never
-    // read. (The Metallic/Roughness/Occlusion pins are likewise not evaluated for an unlit graph — the
-    // nodes behind them would otherwise be emitted into a shader that discards the result.)
-    const auto includes = FragmentIncludes( ShaderPath( "Graph/MatConst.shader" ) );
-    for ( const auto& include : includes )
-        EXPECT_FALSE( IsSharedShadingText( include ) )
-             << "an unlit graph surface compiles " << include.filename().string();
-
-    const auto bindings = GraphicsSetZero( ShaderPath( "Graph/MatConst.shader" ) );
-    EXPECT_FALSE( HasBinding( bindings, 20, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
-    EXPECT_FALSE( HasBinding( bindings, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
+    // SHM1 moved this boundary. It used to be that an unlit graph was a different DOMAIN, compiled with no
+    // lighting text and no lighting descriptor; that pinned the pre-registry design, where "unlit" was a pass
+    // of its own. Now Unlit is a shading model (ShadingModels/Unlit.shadingmodel) like DefaultLit and Toon —
+    // UE's MSM_Unlit, a model id and not a separate pipeline — so a graph that says `ShadingModel Unlit` is
+    // expanded into the same cells as every surface, compiles the same forward pass and the generated
+    // dispatch, and is flat because the dispatch sends its index to Unlit's zero-returning functions.
+    const auto path        = ShaderPath( "Graph/MatConst.shader" );
+    bool       forwardPass = false;
+    bool       dispatch    = false;
+    bool       sharedText  = false;
+    for ( const auto& include : FragmentIncludes( path, "Static.Forward" ) )
+    {
+        forwardPass = forwardPass || include.filename() == "Pass_Forward.glslh";
+        dispatch =
+             dispatch || include.filename() ==
+                              std::filesystem::path( Desert::Core::ShadingModels::kGeneratedInclude ).filename();
+        sharedText = sharedText || IsSharedShadingText( include );
+        EXPECT_EQ( include.filename().string().find( "Unlit" ), std::string::npos )
+             << "the unlit graph compiles a model's own header, " << include.filename().string();
+    }
+    EXPECT_TRUE( forwardPass ) << "the unlit graph's forward cell is not built on Mesh/Surface/Pass_Forward.glslh";
+    EXPECT_TRUE( dispatch )
+         << "the unlit graph's forward cell does not compile the generated shading-model dispatch";
+    EXPECT_TRUE( sharedText ) << "the unlit graph's forward cell compiles none of the shared shading text";
+    EXPECT_FALSE( GraphicsSetZero( path, "Static.Forward" ).empty() )
+         << "the unlit graph's forward cell does not compile";
 }
 
-TEST_F( ShaderRootFixture, TheUnlitTemplateIsASurfaceWhoseCellsReadNoLight )
+TEST_F( ShaderRootFixture, TheUnlitTemplateIsLitThroughTheSamePassesAsEveryModel )
 {
-    // SURF1f-4: Unlit.shader stopped being a hand-written program and became a surface template with
-    // ShadingModel Unlit, so it exists the one way a surface material exists — as cells. The relation held
-    // here is between its cells and the lit template's: every cell compiles, and not one of them compiles a
-    // shared shading text or binds anything but the material row, the camera and its own albedo slot.
+    // SHM1: Unlit is a shading model FILE (ShadingModels/Unlit.shadingmodel) whose two functions return zero, not
+    // a pass of its own. So its cells are the passes every template's are — the forward cell compiles the forward
+    // lighting pass and the generated dispatch, and no cell compiles a header named for a model — and what makes
+    // the texel flat is the dispatch, not a missing descriptor. It still binds its albedo on the material layout's
+    // albedo slot.
     const auto path   = ShaderPath( "Unlit/Unlit.shader" );
     const auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( path ) );
     ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
@@ -1453,22 +1495,27 @@ TEST_F( ShaderRootFixture, TheUnlitTemplateIsASurfaceWhoseCellsReadNoLight )
          << "the Unlit template expanded into no Static.Forward cell";
 
     for ( const auto& cell : cells )
-    {
         for ( const auto& include : FragmentIncludes( path, cell.Name ) )
-            EXPECT_FALSE( IsSharedShadingText( include ) )
-                 << "the Unlit cell " << cell.Name << " compiles " << include.filename().string();
+            EXPECT_EQ( include.filename().string().find( "Unlit" ), std::string::npos )
+                 << "the Unlit cell " << cell.Name << " compiles a model's own header, "
+                 << include.filename().string();
+
+    bool forwardPass = false;
+    bool dispatch    = false;
+    for ( const auto& include : FragmentIncludes( path, "Static.Forward" ) )
+    {
+        forwardPass = forwardPass || include.filename() == "Pass_Forward.glslh";
+        dispatch =
+             dispatch || include.filename() ==
+                              std::filesystem::path( Desert::Core::ShadingModels::kGeneratedInclude ).filename();
     }
+    EXPECT_TRUE( forwardPass ) << "the Unlit forward cell is not built on Mesh/Surface/Pass_Forward.glslh";
+    EXPECT_TRUE( dispatch ) << "the Unlit forward cell does not compile the generated shading-model dispatch";
 
     const auto forward = GraphicsSetZero( path, "Static.Forward" );
     ASSERT_FALSE( forward.empty() ) << "the Unlit forward cell does not compile";
     EXPECT_TRUE( HasBinding( forward, 11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) )
          << "the albedo map is not on the material layout's albedo slot: " << DescribeBindings( forward );
-    for ( const auto& b : forward )
-        EXPECT_TRUE( b.binding == 11 || b.descriptorType != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER )
-             << "the Unlit forward cell samples binding " << b.binding
-             << " (a shadow cascade, IBL or another lighting texture): " << DescribeBindings( forward );
-    EXPECT_LE( forward.size(), 3u ) << "an unlit surface binds more than camera + material row + albedo: "
-                                    << DescribeBindings( forward );
 }
 
 // ---- The terrain's per-draw data rides beside the draw, not in the shared block --------------------
@@ -2532,7 +2579,9 @@ TEST_F( ShaderRootFixture, EveryShippedProgramsMetadataIsTheSameAfterTheShaderMa
         for ( const auto& pass : passes )
         {
             Desert::Core::ShaderMap map;
-            map.Meta = PP::ShaderPreprocess::ParseProgramMetaForPass( text, pass );
+            const auto meta = PP::ShaderPreprocess::ParseProgramMetaForPass( text, entry.path(), pass );
+            ASSERT_TRUE( meta.IsSuccess() ) << meta.GetError();
+            map.Meta = meta.GetValue();
             map.Stages.push_back( { Desert::Core::Formats::ShaderStage::Compute, { 0x07230203u, 7u, 9u } } );
             const std::string bytes = Desert::Core::SerializeShaderMap( map );
             const auto        back  = Desert::Core::DeserializeShaderMap( bytes );
@@ -2687,12 +2736,15 @@ TEST_F( ShaderRootFixture, EveryShippedShaderStageCompilesAndReflects )
             continue;
         }
         std::vector<std::string> passes = { "" };
-        const auto               meta   = Preprocess::ShaderPreprocess::ParseProgramMetaForPass( content, "" );
-        passes.insert( passes.end(), meta.PassNames.begin(), meta.PassNames.end() );
+        const auto meta = Preprocess::ShaderPreprocess::ParseProgramMetaForPass( content, entry.path(), "" );
+        ASSERT_TRUE( meta.IsSuccess() ) << meta.GetError();
+        passes.insert( passes.end(), meta.GetValue().PassNames.begin(), meta.GetValue().PassNames.end() );
         for ( const std::string& pass : passes )
         {
-            for ( const auto& [stage, source] :
-                  Preprocess::ShaderPreprocess::PreProcessProgramPass( content, entry.path(), pass ) )
+            const auto passStages =
+                 Preprocess::ShaderPreprocess::PreProcessProgramPass( content, entry.path(), pass );
+            ASSERT_TRUE( passStages.IsSuccess() ) << passStages.GetError();
+            for ( const auto& [stage, source] : passStages.GetValue() )
             {
                 ++stages;
                 const shaderc_shader_kind kind  = stage == ShaderStage::Vertex     ? shaderc_glsl_vertex_shader
@@ -2742,18 +2794,63 @@ TEST( ShaderMapProducerFingerprint, LineEndingsWhitespaceAndCommentsDoNotCount )
     EXPECT_NE( ProducerCodeOnly( unixText ), ProducerCodeOnly( "int a = 2; // one\nint b;\n" ) );
 }
 
-TEST_F( ShaderRootFixture, TheShadingModelIdsAreOneTableInCppAndGlsl )
+TEST_F( ShaderRootFixture, OnlyTheGeneratedDispatchBranchesOnAShadingModel )
 {
-    // THE RELATION: the id a G-buffer writer stores (GBufferC.w, low four bits) and the id the deferred
-    // composite branches on are the SAME table — SurfaceShadingModel's values on the C++ side, the
-    // SHADING_MODEL_ID_<GlslName> defines of Mesh/Surface/ShadingModels.glslh on the shader side. A row that
-    // differs lights an Unlit surface or blacks out a lit one, and nothing else would notice.
-    namespace PP      = Desert::Core::Preprocess;
-    const auto header = std::filesystem::path( "Resources/Shaders" ) / PP::kShadingModelsInclude;
-    const auto text   = ReadFile( header );
-    ASSERT_FALSE( text.empty() ) << header.string();
+    // THE RELATION (SHM1): the index a G-buffer writer stores (GBufferC.w, low four bits) and the index the
+    // lighting passes dispatch on come from ONE place — the registry's generated header, which numbers the
+    // ShadingModels/*.shadingmodel files. Writers store the template's index (DESERT_SHADING_MODEL_INDEX, set by
+    // the parser) or, for the hand-written terrain, DefaultLit's generated define; both lighting passes call the
+    // two dispatchers; and no shipped pass names Unlit's index or keeps the old hand-written table.
+    namespace SM = Desert::Core::ShadingModels;
+    EXPECT_FALSE( std::filesystem::exists( "Resources/Shaders/Mesh/Surface/ShadingModels.glslh" ) )
+         << "the hand-written shading-model table is back beside the generated one";
 
-    std::map<std::string, int> defined; // every SHADING_MODEL_ID_* the header defines, by name
+    struct User
+    {
+        const char*              File;
+        std::vector<const char*> Names; // what the file must name
+    };
+    const User users[] = {
+         { "Resources/Shaders/Mesh/Surface/Pass_GBuffer.glslh",
+           { "DESERT_SHADING_MODEL_INDEX", "DesertPackShadingWord", "DesertMarkSunShadowReceive" } },
+         { "Resources/Shaders/Programs/Terrain/TerrainGBuffer.shader",
+           { "SHADING_MODEL_INDEX_DEFAULT_LIT", "DesertPackShadingWord" } },
+         { "Resources/Shaders/Mesh/Surface/Pass_Forward.glslh",
+           { "DESERT_SHADING_MODEL_INDEX", "DesertEvaluateShadingModel(", "DesertEvaluateShadingModelAmbient(" } },
+         { "Resources/Shaders/Programs/Deferred/DeferredLighting.shader",
+           { "DesertShadingModelIndex(", "DesertReceivesSunShadows(", "DesertEvaluateShadingModel(",
+             "DesertEvaluateShadingModelAmbient(" } },
+    };
+    for ( const User& user : users )
+    {
+        const auto source = ReadFile( user.File );
+        ASSERT_FALSE( source.empty() ) << user.File;
+        EXPECT_NE( source.find( std::format( "<{}>", SM::kGeneratedInclude ) ), std::string::npos )
+             << user.File << " does not include the generated shading-model dispatch";
+        for ( const char* name : user.Names )
+            EXPECT_NE( source.find( name ), std::string::npos ) << user.File << " does not name " << name;
+        EXPECT_EQ( source.find( "SHADING_MODEL_INDEX_UNLIT" ), std::string::npos )
+             << user.File << " branches on Unlit outside the dispatch";
+        EXPECT_EQ( source.find( "SHADING_MODEL_ID_" ), std::string::npos )
+             << user.File << " still names the removed hand-written table";
+    }
+}
+
+TEST_F( ShaderRootFixture, TheGeneratedShadingModelIndicesAreTheRegistrys )
+{
+    // THE RELATION: the index a G-buffer writer packs and the index the dispatch switches on are the SAME number —
+    // the registry's (Unlit 0, the rest by Guid), written by the registry into SHADING_MODEL_INDEX_<NAME> of the
+    // generated include every lighting pass compiles. A define that differed would light a surface with another
+    // model's formula, and nothing else would notice.
+    namespace SM       = Desert::Core::ShadingModels;
+    const auto  held   = SM::ShaderRootShadingModels();
+    const auto& models = *held;
+    ASSERT_TRUE( models.IsSuccess() ) << models.GetError();
+    const auto header = std::filesystem::path( "Resources/Shaders" ) / SM::kGeneratedInclude;
+    const auto text   = ReadFile( header );
+    EXPECT_EQ( text, models.GetValue().GeneratedGlsl ) << header.string() << " is not the loaded set's text";
+
+    std::map<std::string, int> defined; // every SHADING_MODEL_INDEX_* the header defines, by name
     std::istringstream         lines( text );
     for ( std::string line; std::getline( lines, line ); )
     {
@@ -2762,38 +2859,16 @@ TEST_F( ShaderRootFixture, TheShadingModelIdsAreOneTableInCppAndGlsl )
         std::string        name;
         int                value = -1;
         if ( words >> directive >> name >> value && directive == "#define" &&
-             name.starts_with( "SHADING_MODEL_ID_" ) )
+             name.starts_with( "SHADING_MODEL_INDEX_" ) )
             defined[name] = value;
     }
-
-    ASSERT_EQ( defined.size(), PP::kSurfaceShadingModels.size() )
-         << header.string() << " defines " << defined.size() << " shading-model ids, the C++ table has "
-         << PP::kSurfaceShadingModels.size() << " rows";
-    std::set<int> ids;
-    for ( const PP::SurfaceShadingModelRow& row : PP::kSurfaceShadingModels )
+    const auto entries = models.GetValue().Registry.Entries();
+    ASSERT_EQ( defined.size(), entries.size() ) << header.string();
+    for ( const SM::ShadingModelEntry& e : entries )
     {
-        const std::string name = std::format( "SHADING_MODEL_ID_{}", row.GlslName );
-        const int         id   = static_cast<int>( row.Model );
+        const std::string name = SM::ShadingModelIndexDefine( e.Manifest.Name );
         ASSERT_TRUE( defined.contains( name ) ) << header.string() << " does not define " << name;
-        EXPECT_EQ( defined[name], id ) << name << " in " << header.string() << " is not the C++ id";
-        EXPECT_LT( id, 16 ) << "the G-buffer carries four bits of shading-model id";
-        EXPECT_TRUE( ids.insert( id ).second ) << "two shading models share id " << id;
+        EXPECT_EQ( defined[name], e.Index ) << name;
     }
-    // UE's numbering, which the "a writer that forgets the id reads as Unlit" argument rests on.
-    EXPECT_EQ( static_cast<int>( PP::SurfaceShadingModel::Unlit ), 0 );
-
-    // And each writer stores its own model's id, the reader branches on Unlit: the table is USED at both ends.
-    const std::pair<const char*, const char*> users[] = {
-         { "Resources/Shaders/Mesh/Surface/Pass_GBuffer.glslh", "SHADING_MODEL_ID_DEFAULT_LIT" },
-         { "Resources/Shaders/Mesh/Surface/Pass_GBuffer_Unlit.glslh", "SHADING_MODEL_ID_UNLIT" },
-         { "Resources/Shaders/Programs/Terrain/TerrainGBuffer.shader", "SHADING_MODEL_ID_DEFAULT_LIT" },
-         { "Resources/Shaders/Programs/Deferred/DeferredLighting.shader", "SHADING_MODEL_ID_UNLIT" },
-    };
-    for ( const auto& [file, id] : users )
-    {
-        const auto source = ReadFile( file );
-        EXPECT_NE( source.find( std::format( "<{}>", PP::kShadingModelsInclude ) ), std::string::npos )
-             << file << " does not include the shading-model table";
-        EXPECT_NE( source.find( id ), std::string::npos ) << file << " does not name " << id;
-    }
+    EXPECT_EQ( defined["SHADING_MODEL_INDEX_UNLIT"], 0 ) << "a writer that forgets the index must read as Unlit";
 }

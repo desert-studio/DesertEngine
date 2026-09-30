@@ -51,12 +51,6 @@ project(test_name)
 
     links { "Common", "Optick" }
 
-    -- Compiling EngineRegistration.cpp pulls Common::Utils::FileSystem in, and on macOS that object
-    -- carries the Cocoa file panels with it. The suite opens no dialog; it just has to satisfy the
-    -- linker for symbols it will never call.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
-
     filter {}
 
     filter "configurations:Debug"

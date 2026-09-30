@@ -37,6 +37,9 @@ project "GamePackager"
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/Includer/ShaderIncluder.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelRegistry.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Text/FontBaker.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Text/Msdf.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Text/FontCache.cpp",
@@ -84,8 +87,6 @@ project "GamePackager"
 
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
-        -- Common contains Objective-C (the file dialog); linking it needs AppKit + the ObjC runtime.
-        links { "Cocoa.framework", "Foundation.framework" }
 
     filter "system:linux"
         defines { "DESERT_PLATFORM_LINUX" }

@@ -18,6 +18,8 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstdint>
+#include <mutex>
+#include <optional>
 #include <utility>
 
 namespace Desert::Graphic
@@ -59,5 +61,65 @@ namespace Desert::Graphic
                  "the swapchain was out of date again immediately after it was rebuilt; no image was acquired "
                  "for this frame." );
         return second;
+    }
+
+    struct SwapchainExtent
+    {
+        uint32_t Width  = 0;
+        uint32_t Height = 0;
+    };
+
+    class SwapchainRebuildRequest
+    {
+    public:
+        void Request( const SwapchainExtent extent )
+        {
+            const std::scoped_lock lock( m_Mutex );
+            m_Pending = extent;
+        }
+
+        void RequestUnlessPending( const SwapchainExtent extent )
+        {
+            const std::scoped_lock lock( m_Mutex );
+            if ( !m_Pending )
+                m_Pending = extent;
+        }
+
+        [[nodiscard]] bool IsPending() const
+        {
+            const std::scoped_lock lock( m_Mutex );
+            return m_Pending.has_value();
+        }
+
+        [[nodiscard]] std::optional<SwapchainExtent> Peek() const
+        {
+            const std::scoped_lock lock( m_Mutex );
+            return m_Pending;
+        }
+
+        void Settle( const SwapchainExtent served )
+        {
+            const std::scoped_lock lock( m_Mutex );
+            if ( m_Pending && m_Pending->Width == served.Width && m_Pending->Height == served.Height )
+                m_Pending.reset();
+        }
+
+    private:
+        mutable std::mutex             m_Mutex;
+        std::optional<SwapchainExtent> m_Pending;
+    };
+
+    template <typename Rebuild>
+    [[nodiscard]] Common::ResultStr<bool> RebuildAtFrameBoundary( SwapchainRebuildRequest& request,
+                                                                  Rebuild&&                rebuild )
+    {
+        const std::optional<SwapchainExtent> pending = request.Peek();
+        if ( !pending )
+            return Common::MakeSuccess( false );
+
+        auto rebuilt = std::forward<Rebuild>( rebuild )( *pending );
+        if ( !rebuilt.IsSuccess() || rebuilt.GetValue() )
+            request.Settle( *pending );
+        return rebuilt;
     }
 } // namespace Desert::Graphic

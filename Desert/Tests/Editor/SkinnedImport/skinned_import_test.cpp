@@ -13,7 +13,9 @@
 //  - the rig and its clip are written before the mesh that names them (ImportManager.cpp
 //    CreateAssetsFromImport, by the registry's write journal), and the record states Kind = SkinnedMesh.
 
+#include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/ImportManager.hpp>
+#include <Editor/Import/ImportedAssetSource.hpp>
 #include <Editor/Import/MaterialAdoption.hpp>
 #include <Editor/Import/MaterialImportContract.hpp>
 
@@ -23,7 +25,10 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/SkeletonReferenceAssets.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
+#include <Engine/Animation/AnimationClip.hpp>
+#include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
+#include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
@@ -176,6 +181,10 @@ namespace
         // seam the registry uses (read from the repository root, before the sandbox moves the process).
         static void SetUpTestSuite()
         {
+            // Parsing a template resolves its `ShadingModel` through the engine's shader root, found against
+            // the working directory: the reads below work from the engine resources, as the editor does.
+            const TestSupport::EngineResourcesWorkingDirectory engineResources;
+            ASSERT_TRUE( engineResources.Error().empty() ) << engineResources.Error();
             std::vector<Editor::ImportTemplate> shipped;
             for ( const char* file : { "Editor/Resources/Shaders/Programs/PBR/StandardSurface.shader",
                                        "Editor/Resources/Shaders/Programs/Unlit/Unlit.shader" } )
@@ -220,6 +229,48 @@ namespace
         uint64_t                        m_Before = 0;
         uint64_t                        m_After  = 0;
     };
+
+    namespace Timeline = Animation::Timeline;
+
+    /// The clip as the ENGINE reads it: the asset's TMLN block through BuildClipFromAssetData, never the file's
+    /// JSON restated (AnimationAsset::Load takes the same step).
+    Animation::AnimationClip ClipOf( const Ser::AnimationAssetData& data )
+    {
+        auto clip = Ser::BuildClipFromAssetData( data );
+        EXPECT_TRUE( clip.IsSuccess() ) << clip.GetError();
+        return clip.IsSuccess() ? clip.ExtractValue() : Animation::AnimationClip{};
+    }
+
+    /// @p bone's keys: the one section's Transform channel of the track its Bone binding (locator = bone) drives.
+    const Timeline::TransformChannel* BoneChannel( const Animation::AnimationClip& clip, const std::string& bone )
+    {
+        for ( const Timeline::Binding& binding : clip.Sequence.Bindings )
+        {
+            if ( binding.Kind != Timeline::BindingKind::Bone || binding.Locator != bone )
+                continue;
+            for ( const Timeline::Track& track : clip.Sequence.Tracks )
+                if ( track.Binding == binding.Guid && track.Kind == Timeline::TrackKind::Transform &&
+                     track.Sections.size() == 1 )
+                    return std::get_if<Timeline::TransformChannel>(
+                         &std::get<Timeline::Channel>( track.Sections.front().Content ) );
+        }
+        return nullptr;
+    }
+
+    std::vector<std::string> BoneLocators( const Animation::AnimationClip& clip )
+    {
+        std::vector<std::string> out;
+        for ( const Timeline::Binding& binding : clip.Sequence.Bindings )
+            if ( binding.Kind == Timeline::BindingKind::Bone )
+                out.push_back( binding.Locator );
+        return out;
+    }
+
+    glm::quat RotationKey( const Timeline::TransformChannel& channel, std::size_t k )
+    {
+        const Timeline::RotationChannel& r = channel.Rotation;
+        return { r.W.Keys[k].Value, r.X.Keys[k].Value, r.Y.Keys[k].Value, r.Z.Keys[k].Value };
+    }
 } // namespace
 
 TEST_F( SkinnedImport, TheStoredRestShapeStandsAlongYAsTheNodeAboveTheRigTurnsIt )
@@ -243,8 +294,9 @@ TEST_F( SkinnedImport, TheClipsFirstFramePutsTheRootBoneWhereItsBindDoes )
 {
     const auto rig = Ser::ReadSkeletonJson( Read( m_Outcome.WrittenSkeletons.front() ) );
     ASSERT_TRUE( rig.IsSuccess() ) << rig.GetError();
-    const auto clip = Ser::ReadAnimationJson( Read( m_Outcome.WrittenClips.front() ) );
-    ASSERT_TRUE( clip.IsSuccess() ) << clip.GetError();
+    const auto data = Ser::ReadAnimationJson( Read( m_Outcome.WrittenClips.front() ) );
+    ASSERT_TRUE( data.IsSuccess() ) << data.GetError();
+    const Animation::AnimationClip clip = ClipOf( data.GetValue() );
 
     const Animation::BoneInfo* root = nullptr;
     for ( const auto& bone : rig.GetValue().Bones )
@@ -252,16 +304,13 @@ TEST_F( SkinnedImport, TheClipsFirstFramePutsTheRootBoneWhereItsBindDoes )
             root = &bone;
     ASSERT_NE( root, nullptr );
 
-    const Ser::ChannelData* channel = nullptr;
-    for ( const auto& c : clip.GetValue().Channels )
-        if ( c.BoneName == "Root" )
-            channel = &c;
-    ASSERT_NE( channel, nullptr );
-    ASSERT_FALSE( channel->Rotations.empty() );
+    const Timeline::TransformChannel* channel = BoneChannel( clip, "Root" );
+    ASSERT_NE( channel, nullptr ) << "the clip binds no bone 'Root'";
+    ASSERT_FALSE( channel->Rotation.W.Keys.empty() );
 
     // The bind states the Z_UP turn (folded into the root's local bind); frame 0 must state the same turn.
     const glm::quat bind  = glm::normalize( glm::quat_cast( glm::mat3( root->LocalBindTransform ) ) );
-    const glm::quat first = glm::normalize( channel->Rotations.front().Value );
+    const glm::quat first = glm::normalize( RotationKey( *channel, 0 ) );
     EXPECT_NEAR( std::abs( glm::dot( bind, first ) ), 1.0f, 1e-4f )
          << "bind " << bind.w << " " << bind.x << " " << bind.y << " " << bind.z << " / frame 0 " << first.w << " "
          << first.x << " " << first.y << " " << first.z;
@@ -302,6 +351,29 @@ TEST_F( SkinnedImport, TheClipNamesTheSourceItWasImportedFrom )
     const auto hash = Assets::HashMeshSourceFile( m_Source );
     ASSERT_TRUE( hash.IsSuccess() ) << hash.GetError();
     EXPECT_EQ( stated.SourceHash, hash.GetValue() );
+}
+
+// SKEL 3 dropped the rig's `Import`: which source wrote a `.skmesh` / `.skeleton` is the import record beside it
+// (ImportedAssetSource::SkinnedAssetSource), and a real import is traced back to its source through every file it
+// wrote. Live after SKEL-TREE: the Editor no longer compiled (the lookup read the rig's `Import`).
+TEST_F( SkinnedImport, EveryFileTheImportWroteTracesBackToItsSource )
+{
+    namespace IAS                              = Desert::Editor::ImportedAssetSource;
+    std::vector<std::filesystem::path> written = {
+         Desert::Editor::CookPaths::SkinnedAsset( m_Source, ".skmesh" ) };
+    written.insert( written.end(), m_Outcome.WrittenSkeletons.begin(), m_Outcome.WrittenSkeletons.end() );
+    written.insert( written.end(), m_Outcome.WrittenClips.begin(), m_Outcome.WrittenClips.end() );
+    ASSERT_FALSE( m_Outcome.WrittenSkeletons.empty() ) << "the first import of the file writes its own rig";
+    ASSERT_FALSE( m_Outcome.WrittenClips.empty() );
+    for ( const auto& file : written )
+    {
+        const auto source = IAS::SkinnedAssetSource( file );
+        ASSERT_TRUE( source.IsSuccess() ) << file.generic_string() << ": " << source.GetError();
+        const std::optional<std::filesystem::path>& traced = source.GetValue();
+        ASSERT_TRUE( traced.has_value() ) << file.generic_string() << " traces to no source";
+        EXPECT_EQ( traced.value_or( std::filesystem::path{} ).lexically_normal(), m_Source.lexically_normal() )
+             << file.generic_string();
+    }
 }
 
 // THM1l-b19: the texture EMBEDDED in the file ("*0" to assimp, a data-URI image here, a bufferView image in a
@@ -436,17 +508,32 @@ TEST_F( SkinnedImport, AReimportAtTenTimesTheScaleScalesMeshRigAndClipTogether )
     }
 
     // The clip: rotations are scale-free, translations x10.
-    ASSERT_EQ( after.Clip.Channels.size(), before.Clip.Channels.size() );
-    for ( std::size_t c = 0; c < after.Clip.Channels.size(); ++c )
+    const Animation::AnimationClip was   = ClipOf( before.Clip );
+    const Animation::AnimationClip now   = ClipOf( after.Clip );
+    const std::vector<std::string> bones = BoneLocators( now );
+    ASSERT_FALSE( bones.empty() );
+    ASSERT_EQ( bones, BoneLocators( was ) );
+    for ( const std::string& bone : bones )
     {
-        const auto& was = before.Clip.Channels[c];
-        const auto& now = after.Clip.Channels[c];
-        ASSERT_EQ( now.Rotations.size(), was.Rotations.size() );
-        for ( std::size_t k = 0; k < now.Rotations.size(); ++k )
-            EXPECT_NEAR( std::abs( glm::dot( now.Rotations[k].Value, was.Rotations[k].Value ) ), 1.0f, 1e-4f );
-        ASSERT_EQ( now.Positions.size(), was.Positions.size() );
-        for ( std::size_t k = 0; k < now.Positions.size(); ++k )
-            EXPECT_NEAR( glm::length( now.Positions[k].Value - 10.0f * was.Positions[k].Value ), 0.0f, 1e-3f );
+        const Timeline::TransformChannel* a = BoneChannel( was, bone );
+        const Timeline::TransformChannel* b = BoneChannel( now, bone );
+        ASSERT_NE( a, nullptr ) << bone;
+        ASSERT_NE( b, nullptr ) << bone;
+        ASSERT_EQ( b->Rotation.W.Keys.size(), a->Rotation.W.Keys.size() ) << bone;
+        for ( std::size_t k = 0; k < b->Rotation.W.Keys.size(); ++k )
+            EXPECT_NEAR( std::abs( glm::dot( RotationKey( *b, k ), RotationKey( *a, k ) ) ), 1.0f, 1e-4f ) << bone;
+        const std::array<const Timeline::FloatChannel*, 3> t0{ &a->Translation.X, &a->Translation.Y,
+                                                               &a->Translation.Z };
+        const std::array<const Timeline::FloatChannel*, 3> t1{ &b->Translation.X, &b->Translation.Y,
+                                                               &b->Translation.Z };
+        for ( std::size_t axis = 0; axis < 3; ++axis )
+        {
+            ASSERT_EQ( t1[axis]->Keys.size(), t0[axis]->Keys.size() ) << bone << " axis " << axis;
+            for ( std::size_t k = 0; k < t1[axis]->Keys.size(); ++k )
+                EXPECT_NEAR( t1[axis]->Keys[k].Value, 10.0f * t0[axis]->Keys[k].Value, 1e-3f )
+                     << bone << " axis " << axis << " key " << k;
+            EXPECT_NEAR( t1[axis]->Default, 10.0f * t0[axis]->Default, 1e-3f ) << bone << " axis " << axis;
+        }
     }
 }
 
@@ -677,6 +764,85 @@ TEST( SkinnedImportCorpus, TheCommittedTwoJointProbeIsCurrentAndItsImportWritesN
         EXPECT_TRUE( found->second == bytes ) << name << " was rewritten";
     }
     Assets::ContentRegistry::ResetForTest();
+}
+
+// A posed picture's orbit lives in the record of the source that WROTE the skinned file (MeshThumbnailHome,
+// ImportOptions::ImportSourceOfAsset via ImportedAssetSource::SkinnedAssetSource), never the one its name
+// suggests: `Fox_Extra_Walk.anim` is clip "Extra_Walk" of Fox.glb here although Fox_Extra.glb, the longer matching
+// stem, sits beside it (MCP-CMD2's "longest stem wins" filed it under Fox_Extra.glb). A clip states its source; a
+// mesh and a rig state none (SKEL 3: the rig is a shared asset), so the import record beside them that wrote them
+// answers - by its Kind, not by the first record with the stem (Fox.fbx, a static import beside, wrote no
+// `.skmesh`).
+TEST( ThumbnailOrbitKinds, ASkinnedFileIsFiledUnderTheSourceThatWroteIt )
+{
+    namespace IAS        = Desert::Editor::ImportedAssetSource;
+    namespace Ser        = Desert::Assets::Serialization;
+    using Kind           = Common::Content::ContentKind;
+    const auto      root = std::filesystem::temp_directory_path() / "SkinnedImport_SkinnedAssetSource";
+    std::error_code ec;
+    std::filesystem::remove_all( root, ec );
+    std::filesystem::create_directories( root );
+    const auto write = [&]( const std::filesystem::path& path, const std::string& text )
+    { std::ofstream( path, std::ios::binary ) << text; };
+    const auto clip = [&]( const std::string& name, const std::string& source )
+    {
+        Ser::AnimationAssetData data;
+        data.Name   = name;
+        data.Import = Ser::ImportSourceInfo{ source, 1 };
+        write( root / std::format( "{}.anim", name ), Ser::WriteAnimationJson( data ) );
+    };
+    const auto record = [&]( const std::string& source, const Kind kind )
+    {
+        Ser::ImportRecordData data;
+        data.Source = source;
+        // A record that imports a mesh states its box (DIMP 2); a skeleton import has no mesh and states none.
+        if ( kind == Kind::StaticMesh || kind == Kind::SkinnedMesh )
+            data.Bounds = Ser::ImportRecordData::Box{ { -1.0f, -1.0f, -1.0f }, { 1.0f, 1.0f, 1.0f } };
+        const auto recorded = Ser::WriteImportRecord( data, kind );
+        ASSERT_TRUE( recorded ) << recorded.GetError();
+        write( Common::Content::ImportRecordPathFor( root / source ), recorded.GetValue() );
+    };
+    clip( "Fox_Extra_Walk", "Fox.glb" );
+    clip( "Fox_Extra_Idle", "Fox_Extra.glb" );
+    write( root / "Fox.skeleton", Ser::WriteSkeletonJson( Ser::SkeletonAssetData{} ) );
+    write( root / "Fox.skmesh", "mesh" );
+    record( "Fox.glb", Kind::SkinnedMesh );
+    record( "Fox.fbx", Kind::StaticMesh );
+    write( root / "Rig.skeleton", Ser::WriteSkeletonJson( Ser::SkeletonAssetData{} ) );
+    write( root / "Rig.skmesh", "mesh" );
+    record( "Rig.gltf", Kind::Skeleton );
+    write( root / "Wolf.skmesh", "mesh" );
+    write( root / "Twice.skeleton", Ser::WriteSkeletonJson( Ser::SkeletonAssetData{} ) );
+    record( "Twice.glb", Kind::SkinnedMesh );
+    record( "Twice.fbx", Kind::Skeleton );
+    Ser::AnimationAssetData authored;
+    authored.Name = "Hand";
+    write( root / "Hand.anim", Ser::WriteAnimationJson( authored ) );
+
+    const auto source = [&]( const std::string& name ) { return IAS::SkinnedAssetSource( root / name ); };
+    // The source each file came from; the error text when it cannot be read for one.
+    const auto stated = [&]( const std::string& name ) -> std::string
+    {
+        const auto found = source( name );
+        if ( !found )
+            return std::format( "error: {}", found.GetError() );
+        return found.GetValue() ? found.GetValue()->generic_string() : std::string( "none" );
+    };
+    const std::string fox = ( root / "Fox.glb" ).generic_string();
+    EXPECT_EQ( stated( "Fox_Extra_Walk.anim" ), fox ) << "the clip's own Import, not the longer stem";
+    EXPECT_EQ( stated( "Fox_Extra_Idle.anim" ), ( root / "Fox_Extra.glb" ).generic_string() );
+    EXPECT_EQ( stated( "Fox.skeleton" ), fox ) << "the skinned record wrote the rig; the static Fox.fbx did not";
+    EXPECT_EQ( stated( "Fox.skmesh" ), fox ) << "the skinned record wrote the mesh; the static Fox.fbx did not";
+    EXPECT_EQ( stated( "Rig.skeleton" ), ( root / "Rig.gltf" ).generic_string() ) << "a rig-only import";
+    EXPECT_EQ( stated( "Rig.skmesh" ), "none" ) << "a Skeleton import writes no mesh";
+    EXPECT_EQ( stated( "Wolf.skmesh" ), "none" ) << "no record beside it wrote it";
+    EXPECT_EQ( stated( "Hand.anim" ), "none" ) << "a hand-authored clip states no source";
+    EXPECT_FALSE( source( "Twice.skeleton" ) ) << "two records claiming one file are an error, not the first";
+    EXPECT_FALSE( source( "Missing.anim" ) ) << "a missing file is an error naming it, not a guess";
+    EXPECT_FALSE( source( "Missing.skmesh" ) ) << "a missing file is an error naming it, not a guess";
+    EXPECT_FALSE( source( "Fox.stmesh" ) ) << "not a skinned import's file";
+
+    std::filesystem::remove_all( root, ec );
 }
 
 int main( int argc, char** argv )

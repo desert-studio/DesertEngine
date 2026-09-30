@@ -11,6 +11,7 @@
 -- reloads from the clip afterwards are the state this transaction has to be able to put back, and a
 -- double of either would be a second opinion about what that state is.
 local test_name = path.getname(_SCRIPT_DIR)
+-- notify_tracks_test.cpp tests AnimationNotifyTracks.hpp, which ANIM-I10d moves onto the Sequence; it rejoins then.
 local test_files = os.matchfiles("*.cpp")
 
 project(test_name)
@@ -23,6 +24,10 @@ project(test_name)
     files {
         test_files,
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/PoseEditTransaction.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/SequenceEdit.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
 
         -- The keying half of the round trip (same list as Desert/Tests/Engine/ControlKeying).
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Rig/ControlKeyer.cpp",
@@ -39,8 +44,20 @@ project(test_name)
         -- explicitly, so a real-but-unlisted edge fails as an undefined symbol naming a file that is
         -- sitting right there, which reads as a defect in the merge.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/AnimationClip.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/ClipSection.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/LayeredBlendPerBone.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/PoseGraphInstance.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/PoseGraph.cpp",
+        -- PoseGraphInstance builds the state machine's Evaluator (AnimGraphEvaluator.cpp).
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphEvaluator.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphValidation.cpp",
+        -- A clip IS its Timeline::Sequence (ANIM-I8b): the Animator binds its bone tracks, evaluates the pose,
+        -- fires its Event keys and reads its Float tracks through the Timeline layer, so that layer links here.
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Channel.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Player.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Binding.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Track.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Sequence.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Evaluator.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Retarget/ModelPose.cpp",
@@ -56,10 +73,16 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
     }
 
+
+
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source",
+    }
+    externalincludedirs {
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",       -- SequenceEdit.cpp reads UIAnimData (Components.hpp)
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -73,6 +96,13 @@ project(test_name)
     for _, define in ipairs(deps.TestSpecific.Defines) do
         defines { define }
     end
+
+    -- A clip's bindings carry GUIDs (Timeline::BindingGuid::Generate -> Common's AssetGuid); Common's
+    -- JobSystem needs Optick and its file dialog is Objective-C (the link TimelineContract states).
+    links { "Common", "Optick" }
+    filter "system:macosx"
+        links { "Cocoa.framework", "Foundation.framework" }
+    filter {}
 
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do

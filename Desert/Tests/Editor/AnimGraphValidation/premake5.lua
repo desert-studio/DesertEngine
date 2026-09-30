@@ -16,8 +16,13 @@ project(test_name)
         -- was split out of it and the WIRING is asserted by a census over the panel's source text.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphValidation.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphEvaluator.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/PoseGraph.cpp",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/GraphCanvas/GraphCanvas.cpp",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Animation/AnimGraphCanvasPlan.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Animation/PoseGraphEdit.cpp",
+        -- ANIM-UI2: the graph's undo transaction, and the serializer that is its "did anything change".
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/AnimGraphEdit.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp",
     }
 
     includedirs {
@@ -28,8 +33,6 @@ project(test_name)
 
     links { "Common", "Optick" } -- Common's JobSystem registers worker threads with Optick
 
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     for name, path in pairs(deps.Common.IncludeDir) do

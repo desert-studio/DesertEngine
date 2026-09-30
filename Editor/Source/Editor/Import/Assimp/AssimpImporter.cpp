@@ -32,8 +32,10 @@
 
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Animation/TimeModel.hpp>
+#include <Engine/Animation/TrackEditing.hpp>
 
 #include <cmath>
+#include <format>
 
 #include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/ImportManager.hpp>
@@ -366,22 +368,36 @@ namespace Desert::Editor
     // folds the non-bone nodes between the bone and its parent bone into it. The keys must be stated in the
     // same frame, or a clip drops those nodes the moment it plays (CesiumMan's root turn). Rigid transforms
     // with a uniform scale — what a node chain above a rig is — keep TRS keys TRS.
-    static void FoldNonBoneAncestors( const glm::mat4& pre, ChannelData& channel )
+    static void FoldNonBoneAncestors( const glm::mat4& pre, Animation::Timeline::TransformChannel& channel )
     {
         if ( pre == glm::mat4( 1.0f ) )
             return;
         const float     scale = glm::length( glm::vec3( pre[0] ) );
         const glm::quat turn  = glm::quat_cast( glm::mat3( pre ) / ( scale > 0.0f ? scale : 1.0f ) );
-        for ( auto& key : channel.Positions )
+        // The importer keys the components of one source key together (the channel loop below), so key i of X, Y
+        // and Z (and W for rotation) is one vector.
+        auto& t = channel.Translation;
+        for ( std::size_t k = 0; k < t.X.Keys.size(); ++k )
         {
-            key.Value         = glm::vec3( pre * glm::vec4( key.Value, 1.0f ) );
-            key.ArriveTangent = glm::vec3( pre * glm::vec4( key.ArriveTangent, 0.0f ) );
-            key.LeaveTangent  = glm::vec3( pre * glm::vec4( key.LeaveTangent, 0.0f ) );
+            const glm::vec3 v =
+                 glm::vec3( pre * glm::vec4( t.X.Keys[k].Value, t.Y.Keys[k].Value, t.Z.Keys[k].Value, 1.0f ) );
+            t.X.Keys[k].Value = v.x;
+            t.Y.Keys[k].Value = v.y;
+            t.Z.Keys[k].Value = v.z;
         }
-        for ( auto& key : channel.Rotations )
-            key.Value = turn * key.Value;
-        for ( auto& key : channel.Scales )
-            key.Value *= scale;
+        auto& r = channel.Rotation;
+        for ( std::size_t k = 0; k < r.X.Keys.size(); ++k )
+        {
+            const glm::quat q =
+                 turn * glm::quat( r.W.Keys[k].Value, r.X.Keys[k].Value, r.Y.Keys[k].Value, r.Z.Keys[k].Value );
+            r.X.Keys[k].Value = q.x;
+            r.Y.Keys[k].Value = q.y;
+            r.Z.Keys[k].Value = q.z;
+            r.W.Keys[k].Value = q.w;
+        }
+        for ( auto* component : { &channel.Scale.X, &channel.Scale.Y, &channel.Scale.Z } )
+            for ( auto& key : component->Keys )
+                key.Value *= scale;
     }
 
     static glm::vec4 GetColor( aiMaterial* mat, const char* key, unsigned type, unsigned idx, glm::vec4 def )
@@ -894,8 +910,13 @@ namespace Desert::Editor
         {
             aiAnimation* anim = scene->mAnimations[i];
 
-            AnimationAssetData animData;
-            animData.Name = anim->mName.length > 0 ? anim->mName.C_Str() : "Animation_" + std::to_string( i );
+            // THE CLIP IS BUILT AS THE ENGINE BUILDS ONE (ANIM 6): one Timeline::Sequence, a Bone binding and one
+            // whole-clip Absolute Transform section per animated bone (TrackEditing's AddBoneTrack /
+            // ChannelForKey, the path an edit takes), so the import writes through the same BuildAssetDataFromClip
+            // every other producer does and has no clip format of its own.
+            Animation::AnimationClip clip;
+            clip.AnimationName =
+                 anim->mName.length > 0 ? std::string( anim->mName.C_Str() ) : std::format( "Animation_{}", i );
 
             // ---- the tick grid, and what crossing it costs ------------------------------------------
             //
@@ -913,16 +934,15 @@ namespace Desert::Editor
             // 1000 is a unit, not the cadence the clip was authored on, so the display grid comes from the keys.
             const bool timeIsContinuous = SourceFormatOf( sourcePath ) == "gltf";
 
-            animData.TickRate = { Animation::PROJECT_TICK_RATE.Numerator,
-                                  Animation::PROJECT_TICK_RATE.Denominator };
+            clip.Sequence.TickRate = Animation::PROJECT_TICK_RATE;
             // The file's own rate becomes the DISPLAY grid: it is the cadence the animation was authored
             // on, which is exactly what an artist should see on the ruler and snap to.
             const Animation::FrameRate displayRate = timeIsContinuous ? CadenceOfKeys( *anim ) : sourceRate;
-            animData.DisplayRate                   = { displayRate.Numerator, displayRate.Denominator };
+            clip.Sequence.DisplayRate              = displayRate;
             if ( timeIsContinuous )
                 LOG_INFO(
                      "[Import] clip '{}': key times in seconds (glTF); authored cadence from the keys: {}/{} fps",
-                     animData.Name, displayRate.Numerator, displayRate.Denominator );
+                     clip.AnimationName, displayRate.Numerator, displayRate.Denominator );
 
             std::size_t roundedKeys   = 0;
             int64_t     worstMicro    = 0;
@@ -959,47 +979,62 @@ namespace Desert::Editor
 
             // The clip's Skeleton reference is the import's to set (ImportManager::Import): the parser knows the
             // rig's bones, not which registered .skeleton they are.
-            animData.DurationTicks = toProjectTick( anim->mDuration );
+            clip.Sequence.Start = Animation::FrameNumber{ 0 };
+            clip.Sequence.End   = Animation::FrameNumber{ toProjectTick( anim->mDuration ) };
 
             for ( uint32_t c = 0; c < anim->mNumChannels; ++c )
             {
                 aiNodeAnim* channel = anim->mChannels[c];
 
-                ChannelData ch;
-                ch.BoneName = channel->mNodeName.C_Str();
+                const std::string bone = channel->mNodeName.C_Str();
                 // The bone must exist in the rig this file also produced, otherwise the channel names a bone
                 // no skeleton here has and its keys are unreachable — BuildClipFromAssetData refuses those.
-                if ( !boneMapping.contains( channel->mNodeName.C_Str() ) )
+                if ( !boneMapping.contains( bone ) )
                     continue;
+
+                Animation::Timeline::Track&            track = Animation::AddBoneTrack( clip.Sequence, bone );
+                Animation::Timeline::TransformChannel& ch =
+                     Animation::ChannelForKey( clip.Sequence, track, clip.Sequence.Start );
+                const auto key = []( int32_t tick, float value )
+                {
+                    Animation::ScalarKey out;
+                    out.Tick  = Animation::FrameNumber{ tick };
+                    out.Value = value;
+                    return out;
+                };
 
                 for ( uint32_t p = 0; p < channel->mNumPositionKeys; ++p )
                 {
-                    ch.Positions.push_back(
-                         { toProjectTick( channel->mPositionKeys[p].mTime ),
-                           { channel->mPositionKeys[p].mValue.x, channel->mPositionKeys[p].mValue.y,
-                             channel->mPositionKeys[p].mValue.z } } );
+                    const int32_t tick = toProjectTick( channel->mPositionKeys[p].mTime );
+                    const auto&   v    = channel->mPositionKeys[p].mValue;
+                    ch.Translation.X.Keys.push_back( key( tick, v.x ) );
+                    ch.Translation.Y.Keys.push_back( key( tick, v.y ) );
+                    ch.Translation.Z.Keys.push_back( key( tick, v.z ) );
                 }
 
                 for ( uint32_t r = 0; r < channel->mNumRotationKeys; ++r )
                 {
-                    auto& q = channel->mRotationKeys[r].mValue;
-
-                    ch.Rotations.push_back(
-                         { toProjectTick( channel->mRotationKeys[r].mTime ), glm::quat( q.w, q.x, q.y, q.z ) } );
+                    const int32_t tick = toProjectTick( channel->mRotationKeys[r].mTime );
+                    const auto&   q    = channel->mRotationKeys[r].mValue;
+                    ch.Rotation.X.Keys.push_back( key( tick, q.x ) );
+                    ch.Rotation.Y.Keys.push_back( key( tick, q.y ) );
+                    ch.Rotation.Z.Keys.push_back( key( tick, q.z ) );
+                    ch.Rotation.W.Keys.push_back( key( tick, q.w ) );
                 }
 
-                for ( uint32_t s = 0; s < channel->mNumScalingKeys; ++s )
+                for ( uint32_t k = 0; k < channel->mNumScalingKeys; ++k )
                 {
-                    ch.Scales.push_back( { toProjectTick( channel->mScalingKeys[s].mTime ),
-                                           { channel->mScalingKeys[s].mValue.x, channel->mScalingKeys[s].mValue.y,
-                                             channel->mScalingKeys[s].mValue.z } } );
+                    const int32_t tick = toProjectTick( channel->mScalingKeys[k].mTime );
+                    const auto&   v    = channel->mScalingKeys[k].mValue;
+                    ch.Scale.X.Keys.push_back( key( tick, v.x ) );
+                    ch.Scale.Y.Keys.push_back( key( tick, v.y ) );
+                    ch.Scale.Z.Keys.push_back( key( tick, v.z ) );
                 }
 
-                if ( aiNode* node = FindNodeRecursive( scene->mRootNode, ch.BoneName ) )
+                if ( aiNode* node = FindNodeRecursive( scene->mRootNode, bone ) )
                     FoldNonBoneAncestors( GetFullLocalTransform( node, boneMapping ) *
                                                glm::inverse( ConvertMatrix( node->mTransformation ) ),
                                           ch );
-                animData.Channels.push_back( ch );
             }
 
             // SAID OUT LOUD OR NOT SAID AT ALL. A clip whose rate divides 24000 reports nothing; one that
@@ -1010,16 +1045,12 @@ namespace Desert::Editor
                 LOG_WARN( "[Import] clip '{}' is authored at {}/{} ticks per second, which does not divide "
                           "the project's {} — {} key time(s) were rounded onto the project grid, the worst "
                           "by {} millionths of a tick ({} ns).",
-                          animData.Name, sourceRate.Numerator, sourceRate.Denominator,
+                          clip.AnimationName, sourceRate.Numerator, sourceRate.Denominator,
                           Animation::PROJECT_TICK_RATE.Numerator, roundedKeys, worstMicro,
                           worstMicro * 1000 / 24 / 1000 );
             }
 
-            // The one producer of the section a clip behaves as (Serialization/Animation.hpp). An importer
-            // that stamped its own would be the third copy of a default, and the third copy is the one
-            // that disagrees.
-            Assets::Serialization::EnsureStatedSections( animData );
-            result.Animations.push_back( animData );
+            result.Animations.push_back( std::move( clip ) );
         }
 
         // Only the materials a mesh draws with. assimp appends its own default material to a glTF whose

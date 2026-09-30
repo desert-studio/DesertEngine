@@ -4,7 +4,7 @@
 
 #include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Editor/Core/Commands/PoseEditTransaction.hpp>
-#include <Editor/Core/Commands/UIClipEdit.hpp>
+#include <Editor/Core/Commands/SequenceEdit.hpp>
 
 #include <Engine/Animation/Rig/ControlKeyer.hpp>
 
@@ -14,8 +14,9 @@
 
 #include <glm/glm.hpp>
 
-#include <Engine/Animation/ClipSection.hpp>
 #include <Engine/Animation/ClipSkeletonMatch.hpp>
+#include <Engine/Animation/TimeModel.hpp>
+#include <Engine/Animation/Timeline/Sequence.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -246,6 +247,9 @@ namespace Desert::Editor
         {
             Animation::Animator*      Animator = nullptr;
             Animation::AnimationClip* Clip     = nullptr;
+            /// The track the dope sheet selected — whose sections the lane shows (sections belong to a
+            /// track, as in UE); null when none is selected.
+            Animation::Timeline::Track* Track = nullptr;
         };
         [[nodiscard]] std::optional<SectionTarget> ResolveSectionTarget() const;
 
@@ -260,6 +264,10 @@ namespace Desert::Editor
         // points at, so every path that changes the selection has to go through the line that invalidates
         // it. Assigning m_SelSection directly is how the field came to show the previous section's name.
         void SelectSection( int index );
+        /// Select the key on @p tick of lane @p lane of track @p track (an index into the sequence's tracks),
+        /// keeping m_SelKey the key's index among the part's sorted ticks.
+        void SelectKey( int track, int lane, Animation::FrameNumber tick,
+                        const Animation::Timeline::Sequence& sequence );
 
         // The two edits a button and a palette command BOTH offer, written once. "Add" needs the playhead
         // and the clip's length; "reorder" needs the selection and the rule that the list order is the
@@ -283,7 +291,7 @@ namespace Desert::Editor
         void BracketUIClipEditFromItem( ECS::UIAnimData& clip );
         // The Loop checkbox, which has already written the field by the time it answers true: the value is
         // put back for the length of one transaction so the entry's "before" is the state that was there.
-        void RecordUIClipToggle( ECS::UIAnimData& clip, bool loopBefore );
+        void RecordUIClipToggle( ECS::UIAnimData& clip, Animation::Timeline::LoopMode loop );
         // Close the open UI-clip transaction and say so if it refuses. A refusal here is a real defect (an
         // end with no begin) and the one thing a silent close would hide.
         void EndUIClipEdit();
@@ -341,7 +349,7 @@ namespace Desert::Editor
         // `CommandHistory` once: posing a bone and keying it were the only edits in the editor that could
         // not be taken back. ONE PER WINDOW, for the keyer's reason — an interaction is about the
         // character this document is over.
-        PoseEditTransaction m_ClipEdit;
+        SequenceEditTransaction m_ClipEdit;
 
         // ── THE CONTROL RIG'S TRACKS (ANV2b) ───────────────────────────────────────────────────────────
         // A keyer OF ITS OWN for control gestures: `ControlKeyer::Observe` keeps last frame's pointer bit,
@@ -378,7 +386,7 @@ namespace Desert::Editor
         // -- no animator, no authoring pose, no BoneTrack -- so neither half of a ClipPoseCommand is about
         // it. See UIClipEdit.hpp. ONE PER WINDOW, for the reason the keyer is: an interaction is about the
         // element this document is over.
-        UIClipEditTransaction m_UIClipEdit;
+        SequenceEditTransaction m_UIClipEdit; // opened with OwnerOf( UIAnimData* )
         // The last-seen posed transform of the selected bone, which is how this window decides a gizmo drag
         // moved something. It stays here because it is about THIS document's bone selection.
         int       m_RecordBone = -1;
@@ -388,6 +396,8 @@ namespace Desert::Editor
         int   m_SelTrack   = -1;
         int   m_SelChannel = -1;
         int   m_SelKey     = -1;
+        Animation::FrameNumber
+              m_SelKeyTick;        ///< the selected key's tick; m_SelKey is its index in the part's ticks
         float m_DragTime   = 0.0f; // time being written while dragging a key (for re-selection after re-sort)
 
         // UI-clip editing state (which lane/key is selected in UI mode).
@@ -417,9 +427,5 @@ namespace Desert::Editor
         Animation::FrameNumber m_SectionDragTick;
 
         // Layer-preview authoring state (transient — previews on the live Animator).
-        int   m_LayerClip         = -1;
-        float m_LayerWeight       = 1.0f;
-        bool  m_LayerAdditive     = false;
-        char  m_LayerMaskBone[64] = {};
     };
 } // namespace Desert::Editor

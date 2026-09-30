@@ -49,6 +49,11 @@ namespace Desert::Animation::Graph
                   kAnimGraphVersion, AnimGraphTextSubsystems() );
              !header )
             return Common::MakeError<AnimGraph>( std::format( "anim graph {}", header.GetError() ) );
+
+        // A graph that cannot be evaluated is refused where it is read, like a shader that does not compile:
+        // a cycle, a wire to nothing or nothing at Output Pose is a file error, not a character that stands.
+        if ( auto plan = PlanPoseGraph( parsed.GetValue() ); !plan )
+            return Common::MakeError<AnimGraph>( std::format( "bad .danimgraph: {}", plan.GetError() ) );
         return Common::MakeSuccess( parsed.GetValue() );
     }
 } // namespace Desert::Animation::Graph

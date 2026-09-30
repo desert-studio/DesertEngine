@@ -117,6 +117,10 @@ namespace Desert::Core
         for ( const auto entity : registry.view<ECS::FoliageComponent>() )
             roots.Mark( registry.get<ECS::FoliageComponent>( entity ).FoliageType,
                         "a foliage field is painted with it" );
+        // A level sequence actor plays its `.dseq` (UE: ALevelSequenceActor::LevelSequenceAsset).
+        for ( const auto entity : registry.view<ECS::LevelSequenceComponent>() )
+            roots.Mark( registry.get<ECS::LevelSequenceComponent>( entity ).Sequence,
+                        "a level sequence actor plays it" );
 
         for ( const auto entity : registry.view<ECS::RetargetComponent>() )
         {
@@ -132,8 +136,10 @@ namespace Desert::Core
         // rig would have hit; it is cheaper to write the row than to debug the symptom a fourth time.
         for ( const auto entity : registry.view<ECS::AnimationComponent>() )
         {
-            roots.Mark( registry.get<ECS::AnimationComponent>( entity ).GraphAsset,
-                        "an entity is animated by it" );
+            const auto& anim = registry.get<ECS::AnimationComponent>( entity );
+            roots.Mark( anim.GraphAsset, "an entity is animated by it" );
+            for ( const Assets::AssetHandle linked : anim.LinkedLayerGraphs )
+                roots.Mark( linked, "its layers are linked on an animated entity" );
         }
 
         // ── THE INTERFACE ─────────────────────────────────────────────────────────────────────────────

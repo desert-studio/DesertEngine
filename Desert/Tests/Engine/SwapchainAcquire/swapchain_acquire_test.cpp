@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <deque>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -137,6 +138,122 @@ TEST_F( SwapchainAcquire, OutOfDateTwiceInARowIsANamedFailure )
          AcquireForFrame( [&] { return swapchain.Acquire( 0 ); }, [&] { return swapchain.Rebuild(); } );
     ASSERT_FALSE( result.IsSuccess() );
     EXPECT_NE( result.GetError().find( "out of date again" ), std::string::npos );
+}
+
+namespace
+{
+    using Desert::Graphic::RebuildAtFrameBoundary;
+    using Desert::Graphic::SwapchainExtent;
+    using Desert::Graphic::SwapchainRebuildRequest;
+
+    struct BoundaryRebuilds
+    {
+        std::vector<SwapchainExtent> Served;
+        bool                         HasArea = true;
+        bool                         Fails   = false;
+
+        Common::ResultStr<bool> operator()( const SwapchainExtent extent )
+        {
+            if ( Fails )
+                return Common::MakeError<bool>( "refused" );
+            if ( !HasArea )
+                return Common::MakeSuccess( false );
+            Served.push_back( extent );
+            return Common::MakeSuccess( true );
+        }
+    };
+
+    Common::ResultStr<bool> Boundary( SwapchainRebuildRequest& request, BoundaryRebuilds& rebuilds )
+    {
+        return RebuildAtFrameBoundary( request,
+                                       [&]( const SwapchainExtent extent ) { return rebuilds( extent ); } );
+    }
+} // namespace
+
+TEST( SwapchainRebuildRequest, AResizeRequestRebuildsNothingUntilTheFrameBoundary )
+{
+    SwapchainRebuildRequest request;
+    BoundaryRebuilds        rebuilds;
+
+    request.Request( { 1920, 1080 } );
+    EXPECT_TRUE( rebuilds.Served.empty() );
+    EXPECT_TRUE( request.IsPending() );
+
+    const auto rebuilt = Boundary( request, rebuilds );
+    ASSERT_TRUE( rebuilt.IsSuccess() );
+    EXPECT_TRUE( rebuilt.GetValue() );
+    ASSERT_EQ( rebuilds.Served.size(), 1u );
+    EXPECT_EQ( rebuilds.Served[0].Width, 1920u );
+    EXPECT_EQ( rebuilds.Served[0].Height, 1080u );
+    EXPECT_FALSE( request.IsPending() );
+}
+
+TEST( SwapchainRebuildRequest, ManyResizesInOneFrameAreOneRebuildAtTheLastExtent )
+{
+    SwapchainRebuildRequest request;
+    BoundaryRebuilds        rebuilds;
+
+    request.Request( { 800, 600 } );
+    request.Request( { 1024, 768 } );
+    request.Request( { 2560, 1440 } );
+    ASSERT_TRUE( Boundary( request, rebuilds ).IsSuccess() );
+    ASSERT_EQ( rebuilds.Served.size(), 1u );
+    EXPECT_EQ( rebuilds.Served[0].Width, 2560u );
+
+    ASSERT_TRUE( Boundary( request, rebuilds ).IsSuccess() );
+    EXPECT_EQ( rebuilds.Served.size(), 1u );
+}
+
+TEST( SwapchainRebuildRequest, AnOutOfDatePresentDoesNotOverrideAPendingResize )
+{
+    SwapchainRebuildRequest request;
+    BoundaryRebuilds        rebuilds;
+
+    request.Request( { 4112, 2580 } );
+    request.RequestUnlessPending( { 3288, 2064 } );
+    ASSERT_TRUE( Boundary( request, rebuilds ).IsSuccess() );
+    ASSERT_EQ( rebuilds.Served.size(), 1u );
+    EXPECT_EQ( rebuilds.Served[0].Width, 4112u );
+}
+
+TEST( SwapchainRebuildRequest, AMinimisedWindowKeepsTheRequestForALaterFrame )
+{
+    SwapchainRebuildRequest request;
+    BoundaryRebuilds        rebuilds;
+    rebuilds.HasArea = false;
+
+    request.Request( { 1280, 720 } );
+    const auto deferred = Boundary( request, rebuilds );
+    ASSERT_TRUE( deferred.IsSuccess() );
+    EXPECT_FALSE( deferred.GetValue() );
+    EXPECT_TRUE( request.IsPending() );
+
+    rebuilds.HasArea = true;
+    ASSERT_TRUE( Boundary( request, rebuilds ).IsSuccess() );
+    ASSERT_EQ( rebuilds.Served.size(), 1u );
+    EXPECT_FALSE( request.IsPending() );
+}
+
+TEST( SwapchainRebuildRequest, AFailedRebuildIsReportedOnceAndNotRetriedEveryFrame )
+{
+    SwapchainRebuildRequest request;
+    BoundaryRebuilds        rebuilds;
+    rebuilds.Fails = true;
+
+    request.Request( { 1280, 720 } );
+    EXPECT_FALSE( Boundary( request, rebuilds ).IsSuccess() );
+    EXPECT_FALSE( request.IsPending() );
+}
+
+TEST( SwapchainRebuildRequest, NoRequestNoRebuild )
+{
+    SwapchainRebuildRequest request;
+    BoundaryRebuilds        rebuilds;
+
+    const auto idle = Boundary( request, rebuilds );
+    ASSERT_TRUE( idle.IsSuccess() );
+    EXPECT_FALSE( idle.GetValue() );
+    EXPECT_TRUE( rebuilds.Served.empty() );
 }
 
 int main( int argc, char** argv )

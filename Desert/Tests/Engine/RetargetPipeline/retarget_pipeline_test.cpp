@@ -32,6 +32,7 @@
 #include <Engine/Animation/Retarget/RetargetPose.hpp>
 #include <Engine/Animation/Retarget/Retargeter.hpp>
 #include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Animation/Timeline/Evaluator.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
@@ -192,15 +193,11 @@ namespace
     LocalPose PoseAt( const Skeleton& rig, const Desert::Animation::AnimationClip& clip, double ticks )
     {
         LocalPose       local = BindPose( rig );
-        const FrameTime at{ Desert::Animation::FrameNumber{ static_cast<int32_t>( ticks ) }, 0.0F };
-        for ( const auto& track : clip.Tracks )
-        {
-            if ( !track.HasKeys() )
-                continue;
-            const auto idx = rig.FindBoneIndex( track.BoneName );
-            if ( idx )
-                local[*idx] = track.Sample( at, clip.TickRate );
-        }
+        const FrameTime at{
+             Desert::Animation::FrameNumber{ clip.Sequence.Start.Value + static_cast<int32_t>( ticks ) }, 0.0F };
+        const auto table   = Desert::Animation::Timeline::BindBones( clip.Sequence, rig );
+        const auto sampled = Desert::Animation::Timeline::EvaluatePose( clip.Sequence, table, at, local );
+        EXPECT_TRUE( sampled.IsSuccess() ) << ( sampled.IsSuccess() ? "" : sampled.GetError() );
         return local;
     }
 
@@ -209,7 +206,7 @@ namespace
     std::vector<double> SampleTicks( const Desert::Animation::AnimationClip& clip )
     {
         std::vector<double> out;
-        const auto          duration = static_cast<double>( clip.DurationTicks.Value );
+        const auto          duration = static_cast<double>( clip.DurationTicks().Value );
         for ( int i = 0; i <= 10; ++i )
             out.push_back( duration * i / 10.0 );
         return out;

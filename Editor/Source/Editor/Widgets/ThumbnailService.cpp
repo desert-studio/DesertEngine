@@ -284,19 +284,30 @@ namespace Desert::Editor
         return EnqueueMeshLike( std::move( req ) );
     }
 
-    ThumbnailFreshness::Verdict ThumbnailService::JudgeMeshPicture( const std::string& cookedPath )
+    ThumbnailService::PictureKey ThumbnailService::MeshPictureKey( const std::string& cookedPath )
     {
         const Request req = MeshRequestOf( Kind::Pose, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
                                            cookedPath, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
-        return NeedsCapture( req.Png, SourceHash( req.Type, req.Source ) ) ? ThumbnailFreshness::Verdict::Capture
-                                                                           : ThumbnailFreshness::Verdict::Show;
+        return { req.Png, SourceHash( req.Type, req.Source ) };
+    }
+
+    ThumbnailService::PictureKey ThumbnailService::MaterialPictureKey( const std::string& assetPath )
+    {
+        return { ThumbnailKey::DiskPath( assetPath ), ThumbnailFreshness::ContentHash( assetPath ) };
+    }
+
+    ThumbnailFreshness::Verdict ThumbnailService::JudgeMeshPicture( const std::string& cookedPath )
+    {
+        const PictureKey key = MeshPictureKey( cookedPath );
+        return NeedsCapture( key.Png, key.Hash ) ? ThumbnailFreshness::Verdict::Capture
+                                                 : ThumbnailFreshness::Verdict::Show;
     }
 
     ThumbnailFreshness::Verdict ThumbnailService::JudgeMaterialPicture( const std::string& assetPath )
     {
-        return NeedsCapture( ThumbnailKey::DiskPath( assetPath ), ThumbnailFreshness::ContentHash( assetPath ) )
-                    ? ThumbnailFreshness::Verdict::Capture
-                    : ThumbnailFreshness::Verdict::Show;
+        const PictureKey key = MaterialPictureKey( assetPath );
+        return NeedsCapture( key.Png, key.Hash ) ? ThumbnailFreshness::Verdict::Capture
+                                                 : ThumbnailFreshness::Verdict::Show;
     }
 
     std::string ThumbnailService::RequestSkybox( const Assets::AssetHandle& skybox, const std::string& assetPath )

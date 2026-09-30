@@ -15,6 +15,7 @@ project(test_name)
         -- ONE object that several entities share, and the thing that consumes that object is an evaluator.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/AnimGraphAsset.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/PoseGraph.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphEvaluator.cpp",
         -- The evaluator delegates its structure check to the validator (ONE spelling of "which
         -- conditions name an undeclared parameter"), so the two units link together everywhere.
@@ -32,8 +33,6 @@ project(test_name)
     -- two frameworks come with it — FileSystemWrite's premake makes the same pair for the same reason.
     links { "Common", "Optick" }
 
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     for name, path in pairs(deps.Common.IncludeDir) do

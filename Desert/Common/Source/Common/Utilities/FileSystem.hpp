@@ -195,10 +195,5 @@ namespace Common::Utils
 
         // Absolute path of the running executable — for locating content (a .dpak) packaged next to it.
         [[nodiscard]] static std::filesystem::path ExecutablePath();
-
-    public:
-        static std::filesystem::path OpenFileDialog( const char* filter = "All\0*.*\0" );
-        static std::filesystem::path OpenFolderDialog( const char* initialFolder = "" );
-        static std::filesystem::path SaveFileDialog( const char* filter = "All\0*.*\0" );
     };
 } // namespace Common::Utils

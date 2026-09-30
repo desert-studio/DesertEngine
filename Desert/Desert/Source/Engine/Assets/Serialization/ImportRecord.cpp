@@ -78,8 +78,14 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<ImportRecordData>( "import record {}", header.GetError() );
         if ( data.Source.empty() )
             return Common::MakeFormattedError<ImportRecordData>( "import record names no Source" );
-        if ( !data.Bounds )
-            return Common::MakeFormattedError<ImportRecordData>( "import record states no Bounds" );
+        // The box is the imported MESH's (DIMP 2): required of a record whose source imports as a mesh, not of
+        // one that imports a skeleton or clips only (RecordImport writes those with no box - there is no mesh).
+        const Common::Content::ContentKind kind = stated.value_or( Common::Content::ContentKind::StaticMesh );
+        const bool                         importsMesh =
+             kind == Common::Content::ContentKind::StaticMesh || kind == Common::Content::ContentKind::SkinnedMesh;
+        if ( importsMesh && !data.Bounds )
+            return Common::MakeFormattedError<ImportRecordData>( "import record of a {} states no Bounds",
+                                                                 Common::Content::KindName( kind ) );
         if ( data.Thumbnail )
         {
             if ( data.Thumbnail->empty() )

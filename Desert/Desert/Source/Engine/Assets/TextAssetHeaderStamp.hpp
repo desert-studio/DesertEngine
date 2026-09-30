@@ -60,7 +60,9 @@ namespace Desert::Assets
     // A .danimgraph: the anim graph file layout, stated in the header since v1 (T7d). The files before it
     // stated no version at all - that generation is 0, and a file of it is refused by name.
     inline constexpr uint32_t kAnimGraphSchemaTag     = Common::Content::FourCC( "ANGR" );
-    inline constexpr uint32_t kAnimGraphSchemaVersion = 1;
+    // v2 (ANIM-I12): the graph is a pose graph (Nodes + OutputPose); v1's lone Entry/States became one
+    // StateMachine node wired to Output Pose, in the files.
+    inline constexpr uint32_t kAnimGraphSchemaVersion = 2;
     // A .skeleton: the rig file layout, stated in the header since v1 (T7e). The files before it stated no
     // version at all - that generation is 0, and a file of it is refused by name. v2 (SKEL-TREE): PreviewMesh
     // and CompatibleSkeletons, as GUID references. v3 (SKEL-eng2): the dead `Import` provenance is gone (the
@@ -72,8 +74,15 @@ namespace Desert::Assets
     // v5 (SKEL-TREE): the clip names its skeleton by GUID (`Skeleton`, an AssetGuidRef, also the header's one
     // Dependency); the bone-hash `SkeletonSignature` is gone. Tools/SceneMigrator raises v4 through
     // Animation::MigrateSkeletonReference (exactly one .skeleton with that signature, else a refusal).
+    // v6 (ANIM-I8a/I8b-6, ANIM-SKEL): the body is the TMLN block (a key's mode shapes the segment LEAVING it,
+    // UE's rule) beside the Skeleton GUID; SceneMigrator lifts v5's per-bone Channels, proved per tick.
     inline constexpr uint32_t kAnimationSchemaTag     = Common::Content::FourCC( "ANIM" );
-    inline constexpr uint32_t kAnimationSchemaVersion = 5;
+    inline constexpr uint32_t kAnimationSchemaVersion = 6;
+    // A timeline block (Animation/Timeline/Sequence.hpp): the Sequence every host (.anim, a UI clip, .dseq)
+    // carries, stated since v1 under this tag; its version is Timeline::kTimelineFormatVersion, which the
+    // contract header owns. v2 (ANIM-FMT): a key's mode shapes the segment LEAVING it; v1 is read by
+    // SceneMigrator only.
+    inline constexpr uint32_t kTimelineSchemaTag = Common::Content::FourCC( "TMLN" );
     // A .shader: stated since v1 (T7j) on the source's first line (ShaderAssetHeader.hpp). The files before it
     // stated nothing - that generation is 0, and a file of it is refused by name.
     inline constexpr uint32_t kShaderSchemaTag     = Common::Content::FourCC( "SHDR" );

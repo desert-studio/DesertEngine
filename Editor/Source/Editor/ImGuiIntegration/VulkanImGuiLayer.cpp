@@ -1,3 +1,4 @@
+#include <Editor/Core/Control/InputInjection.hpp>
 #include <Editor/Core/Control/PointerDrag.hpp>
 #include <Editor/ImGuiIntegration/VulkanImGuiLayer.hpp>
 
@@ -19,6 +20,59 @@
 #include <ImGui/backends/imgui_impl_vulkan.h>
 
 #include <Engine/Core/Glfw.hpp>
+
+namespace
+{
+    template <typename Callback>
+    Callback CurrentGlfwCallback( GLFWwindow* window, Callback ( *install )( GLFWwindow*, Callback ) )
+    {
+        const Callback current = install( window, nullptr );
+        install( window, current );
+        return current;
+    }
+
+    void PlayThroughGlfw( const ::Desert::Editor::Control::InputFrame& frame )
+    {
+        using ::Desert::Editor::Control::InputAction;
+        auto* window = static_cast<GLFWwindow*>( ::ImGui::GetMainViewport()->PlatformHandle );
+        if ( window == nullptr )
+            return;
+        for ( const auto& step : frame )
+        {
+            switch ( step.Action )
+            {
+                case InputAction::Cursor:
+                    if ( const auto enter = CurrentGlfwCallback( window, &glfwSetCursorEnterCallback ) )
+                        enter( window, GLFW_TRUE );
+                    if ( const auto move = CurrentGlfwCallback( window, &glfwSetCursorPosCallback ) )
+                        move( window, step.X, step.Y );
+                    break;
+                case InputAction::ButtonDown:
+                case InputAction::ButtonUp:
+                    if ( const auto button = CurrentGlfwCallback( window, &glfwSetMouseButtonCallback ) )
+                        button( window, step.Code,
+                                step.Action == InputAction::ButtonDown ? GLFW_PRESS : GLFW_RELEASE, step.Mods );
+                    break;
+                case InputAction::KeyDown:
+                case InputAction::KeyUp:
+                    if ( const auto key = CurrentGlfwCallback( window, &glfwSetKeyCallback ) )
+                        key( window, step.Code, glfwGetKeyScancode( step.Code ),
+                             step.Action == InputAction::KeyDown ? GLFW_PRESS : GLFW_RELEASE, step.Mods );
+                    break;
+                case InputAction::Drop:
+                    if ( const auto drop = CurrentGlfwCallback( window, &glfwSetDropCallback ) )
+                    {
+                        std::vector<const char*> paths;
+                        paths.reserve( step.Paths.size() );
+                        for ( const std::string& path : step.Paths )
+                            paths.push_back( path.c_str() );
+                        drop( window, static_cast<int>( paths.size() ), paths.data() );
+                    }
+                    break;
+            }
+        }
+    }
+} // namespace
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -155,14 +209,12 @@ namespace Desert::Graphic::API::Vulkan
         return BOOLSUCCESS;
     }
 
-    void VulkanImGui::OnEvent( Common::Event& /*event*/ )
-    {
-    }
-
     void VulkanImGui::Begin()
     {
         ImGui_ImplVulkan_NewFrame();
         ImGui_ImplGlfw_NewFrame();
+        if ( auto frame = ::Desert::Editor::Control::InputInjection::NextFrame() )
+            PlayThroughGlfw( *frame );
         // A control-channel drag: after the backend's own cursor event, so it is this frame's last word.
         if ( const auto step = ::Desert::Editor::Control::PointerInjection::NextStep() )
         {
@@ -178,7 +230,7 @@ namespace Desert::Graphic::API::Vulkan
             if ( step->Press )
             {
                 Common::MouseButtonPressedEvent press( Common::MouseButton::Left );
-                EngineContext::GetInstance().GetWindow()->DispatchEvent( press );
+                EngineContext::GetInstance().GetWindow()->Route( press );
             }
         }
         ::ImGui::NewFrame();

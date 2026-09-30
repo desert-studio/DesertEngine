@@ -1,10 +1,12 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
 #include <Engine/World/Landscape/LandscapeData.hpp>
+#include <Editor/Core/Control/InputInjection.hpp>
 #include <Editor/Core/Control/PointerDrag.hpp>
 #include <Engine/Core/Glfw.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include <Editor/Core/SaveShortcut.hpp>
+#include <Editor/Core/ContentCreateCommands.hpp>
 #include <Editor/Core/DetailsNavigation.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Graphic/Environment/EnvironmentBake.hpp>
@@ -37,6 +39,7 @@
 
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Editor/Widgets/ThumbnailWarmup.hpp>
+#include <Editor/Widgets/ToolbarLayout.hpp>
 #include <Engine/Core/SceneAssetRoots.hpp>
 #include <Common/Core/Core.hpp>
 #include <Common/Core/CrashHandler.hpp>
@@ -177,7 +180,6 @@
 #include "Editor/Panels/TextureViewer/TextureViewerDocument.hpp"
 #include "Editor/Panels/Clouds/CloudTypePanel.hpp"
 #include "Editor/Panels/Clouds/CloudsPanel.hpp"
-#include "Editor/Panels/Animation/AnimLayersPanel.hpp"
 #include "Editor/Panels/Animation/ControlRigPanel.hpp"
 #include "Editor/Core/Selection/AuthoringContext.hpp"
 #include "Editor/Core/ToastManager.hpp"
@@ -218,6 +220,7 @@
 #include <Engine/ECS/System/AnimationECSSystem.hpp>
 #include <Engine/ECS/System/AttachmentSystem.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
+#include <Engine/ECS/System/LevelSequenceSystem.hpp>
 #include <Engine/ECS/System/LocomotionSystem.hpp>
 #include <Engine/ECS/System/ScriptSystem.hpp>
 #include <Engine/ECS/System/AudioECSSystem.hpp>
@@ -723,6 +726,9 @@ namespace Desert::Editor
 
     [[nodiscard]] Common::BoolResultStr EditorLayer::OnAttach()
     {
+        if ( Common::EventTree* events = Events() )
+            m_Panels.JoinEvents( *events, EventNode() );
+
         // THE CONTROL CHANNEL, IF ONE WAS ASKED FOR. Before anything else, so a client that started this
         // editor can connect and watch the boot rather than guessing how long to wait for the socket.
         //
@@ -942,7 +948,6 @@ namespace Desert::Editor
         m_Panels.Add<Editor::PhotogrammetryPanel>( m_MainScene, m_AssetManager.get() );
         m_Panels.Add<Editor::AssetReferencesPanel>( m_MainScene, m_AssetManager );
         m_Panels.Add<Editor::LuaConsolePanel>( m_MainScene.get(), m_AssetManager.get() );
-        m_Panels.Add<Editor::AnimLayersPanel>( m_MainScene, m_AnimationLibrary.get() );
         m_Panels.Add<Editor::ControlRigPanel>( m_MainScene );
         m_Panels.Add<Editor::BuildSettingsPanel>();
         m_Panels.Add<Editor::ContentChunksPanel>();
@@ -2268,7 +2273,8 @@ namespace Desert::Editor
         // whole subject of the sequence this document exists to prove.
         const bool waitsForAFrame =
              response.Ok() && ( request.Operation == Control::Op::Run || request.Operation == Control::Op::Set ||
-                                request.Operation == Control::Op::Drag || Control::IsShot( request.Operation ) );
+                                request.Operation == Control::Op::Drag ||
+                                request.Operation == Control::Op::Input || Control::IsShot( request.Operation ) );
 
         if ( !waitsForAFrame )
         {
@@ -2344,7 +2350,8 @@ namespace Desert::Editor
         // frame AFTER it is performed, because the frame that performs a nudge is not the frame that
         // draws it -- see Editor/Core/ControlNudgeRequest.hpp.
         quiescence.Set( Control::PendingWork::ControlNudge, Core::ControlNudgeRequests::HasPending() );
-        quiescence.Set( Control::PendingWork::PointerDrag, Control::PointerInjection::Playing() );
+        quiescence.Set( Control::PendingWork::PointerDrag,
+                        Control::PointerInjection::Playing() || Control::InputInjection::Playing() );
         // Asked of the run itself: it stays running until FinishCreateLandscape has applied it. Background work:
         // Create answers "started" at once and a client polls `state` until idle before photographing it.
         quiescence.Set( Control::BackgroundWork::LandscapeGenerate, Commands::IsCreatingLandscape() );
@@ -2659,6 +2666,42 @@ namespace Desert::Editor
                 if ( !plan.IsSuccess() )
                     return Control::Response::Failure( request.Id, plan.GetError() );
                 if ( const auto armed = Control::PointerInjection::Arm( plan.GetValue() ); !armed.IsSuccess() )
+                    return Control::Response::Failure( request.Id, armed.GetError() );
+                return Control::Response::Success( request.Id );
+            }
+
+            case Control::Op::Input:
+            {
+                const ImGuiViewport* mainViewport = ::ImGui::GetMainViewport();
+                ImVec2               origin( 0.0f, 0.0f );
+                if ( !request.Panel.empty() )
+                {
+                    const ImGuiWindow* window = nullptr;
+                    for ( const auto& panel : m_Panels )
+                    {
+                        if ( panel->GetVisibility() && ( panel->GetName() == request.Panel ||
+                                                         PanelShownName( panel->GetName() ) == request.Panel ) )
+                            window = ::ImGui::FindWindowByName( PanelDisplayTitle( panel->GetName() ).c_str() );
+                    }
+                    if ( window == nullptr || !window->WasActive )
+                        return Control::Response::Failure(
+                             request.Id, std::format( "no open panel named '{}' was drawn in the last frame.",
+                                                      request.Panel ) );
+                    if ( request.InputKind != "key" &&
+                         ( request.Value[0] < 0.0f || request.Value[1] < 0.0f ||
+                           request.Value[0] >= window->Size.x || request.Value[1] >= window->Size.y ) )
+                        return Control::Response::Failure(
+                             request.Id,
+                             std::format( "({}, {}) lies outside '{}', which is {}x{} points.", request.Value[0],
+                                          request.Value[1], request.Panel, window->Size.x, window->Size.y ) );
+                    origin = ImVec2( window->Pos.x - mainViewport->Pos.x, window->Pos.y - mainViewport->Pos.y );
+                }
+                auto plan =
+                     Control::PlanInput( request.InputKind, origin.x + request.Value[0],
+                                         origin.y + request.Value[1], request.Button, request.Key, request.Paths );
+                if ( !plan.IsSuccess() )
+                    return Control::Response::Failure( request.Id, plan.GetError() );
+                if ( const auto armed = Control::InputInjection::Arm( plan.ExtractValue() ); !armed.IsSuccess() )
                     return Control::Response::Failure( request.Id, armed.GetError() );
                 return Control::Response::Success( request.Id );
             }
@@ -3021,6 +3064,9 @@ namespace Desert::Editor
         // (mechanism vs behaviour); runs after it so it reads this frame's state.
         scene.AddSystem<ECS::LocomotionSystem>( &scene );
         scene.AddSystem<ECS::AudioECSSystem>( &scene );
+        // Level sequences play last: a keyed Transform wins over this frame's physics and locomotion (UE
+        // evaluates sequences after the actors' own tick).
+        scene.AddSystem<ECS::LevelSequenceSystem>( &scene, m_AssetManager.get() );
     }
 
     Common::BoolResultStr EditorLayer::UpdateSceneFrame( Desert::Core::Scene&    scene,
@@ -4422,8 +4468,10 @@ namespace Desert::Editor
                 DESERT_PROFILE_SCOPE_DYNAMIC( panel->GetName().c_str() );
                 panel->OnUIRender();
             }
+            panel->TrackWindowInteraction();
             ImGui::End();
         }
+        FollowImGuiWithEvents();
 
         // The well BEFORE the documents: it reads back the dock node id the documents are about to be
         // docked into, and a document opened this frame would otherwise float once and settle next frame.
@@ -4683,17 +4731,28 @@ namespace Desert::Editor
             }
             // UE "Edit Thumbnail" in steps, for the selected models and materials (the tile's drag is the free
             // form). The file name addresses the entry: the selection lives in one folder, so it is unique.
-            for ( const std::string& path : m_FileExplorerPanel->SelectedThumbnailSubjects() )
+            for ( const auto& subject : m_FileExplorerPanel->SelectedThumbnailSubjects() )
             {
-                const std::string file = std::filesystem::path( path ).filename().string();
+                const std::string file = std::filesystem::path( subject.Asset ).filename().string();
                 for ( const Editor::ThumbnailEdit::OrbitStep step : Editor::ThumbnailEdit::kOrbitSteps )
                     commands.push_back( { "Assets",
                                           std::format( "Edit Thumbnail: {} {}", file,
                                                        Editor::ThumbnailEdit::OrbitStepName( step ) ),
                                           std::bind_front( &Editor::ThumbnailEdit::EditOrbitStep,
-                                                           std::filesystem::path( path ), step ) } );
+                                                           std::filesystem::path( subject.OrbitFile ), step ) } );
             }
         }
+
+        // Asset creation, the Assets window's context menu as commands (UE "Add Level Sequence"). Offered
+        // whether or not the window exists: the refusal says why, where a missing entry would not.
+        for ( PaletteCommand& command : ContentCreatePaletteCommands(
+                   [this]
+                   {
+                       if ( m_FileExplorerPanel == nullptr )
+                           return Common::MakeError( "New Level Sequence: the Assets window does not exist" );
+                       return m_FileExplorerPanel->CreateNewLevelSequence();
+                   } ) )
+            commands.push_back( std::move( command ) );
 
         // Maximize any panel that sits in a dock now; restore the maximized one.
         {
@@ -6340,11 +6399,29 @@ namespace Desert::Editor
                     outcome = Common::MakeError<bool>( std::format( "'{}': {}", asset, done.GetError() ) );
             return outcome;
         };
-        commands.push_back( { "Assets", "Reimport selected", [overSelectedAssets]
-                              {
-                                  return overSelectedAssets( []( const std::filesystem::path& asset )
-                                                             { return ImportOptions::Reimport( asset ); } );
-                              } } );
+        // The Content Browser's commands — the item context menu's rows, the same executor (UE's
+        // FContentBrowserCommands). Reimport over the selection is "Content Browser / Reimport".
+        if ( m_FileExplorerPanel != nullptr )
+            for ( const Editor::ContentBrowserCommand command : Editor::kContentBrowserCommandOrder )
+                commands.push_back( { std::string( Editor::CommandInfo( command ).Context ),
+                                      std::string( Editor::CommandInfo( command ).Label ),
+                                      std::bind_front( &FileExplorerPanel::RunCommand,
+                                                       std::to_address( m_FileExplorerPanel ), command ) } );
+        // UE's SyncBrowserToFolders / SyncBrowserToAssets: the label carries the path (as "Select asset <path>"
+        // does), one entry per folder / file under the browser's root, so a client reaches any asset.
+        if ( m_FileExplorerPanel != nullptr )
+        {
+            for ( const std::string& folder : m_FileExplorerPanel->ContentFolders() )
+                commands.push_back( { std::string( Editor::kContentBrowserContext ),
+                                      Editor::ContentBrowserPathLabel( Editor::kGoToFolderLabel, folder ),
+                                      std::bind_front( &FileExplorerPanel::GoToFolder,
+                                                       std::to_address( m_FileExplorerPanel ), folder ) } );
+            for ( const std::string& file : m_FileExplorerPanel->ContentFiles() )
+                commands.push_back( { std::string( Editor::kContentBrowserContext ),
+                                      Editor::ContentBrowserPathLabel( Editor::kSyncToAssetLabel, file ),
+                                      std::bind_front( &FileExplorerPanel::SyncToAsset,
+                                                       std::to_address( m_FileExplorerPanel ), file ) } );
+        }
         for ( const float scale : { 0.01f, 0.1f, 1.0f, 10.0f, 100.0f } )
             commands.push_back( { "Assets", std::format( "Import Settings: Uniform Scale {}", scale ),
                                   [overSelectedAssets, scale]
@@ -6723,6 +6800,11 @@ namespace Desert::Editor
         //
         // Sets the same deferred flag the menu item does rather than calling AddSceneView(): it allocates a
         // renderer slot and GPU resources, which must not happen inside the ImGui pass.
+        // The Level Viewport commands the F / Esc keys run, on the viewport the user works in.
+        for ( const Editor::ViewportCommand command : Editor::kViewportCommandOrder )
+            commands.push_back( { std::string( Editor::CommandInfo( command ).Context ),
+                                  std::string( Editor::CommandInfo( command ).Label ),
+                                  std::bind_front( &Editor::ViewportPanel::RequestCommand, command ) } );
         commands.push_back( { "Scene", "New Scene View", [this]
                               {
                                   m_AddSceneViewRequested = true;
@@ -6984,35 +7066,16 @@ namespace Desert::Editor
                                                         "why, and the unsaved-changes mark is still set." );
                               } } );
 
-        // PLAY AND STOP, the toolbar button's two halves. Without them a Stop restore could not be timed
-        // or exercised from the control channel at all - only a mouse could reach it - and the restore is
-        // the second of the two paths a 50 000-record world pays a full load on. Two entries rather than
-        // one toggle, so a script that asks for Stop is told when there was nothing playing instead of
-        // starting a session it did not want. Stop is deferred to OnUpdate exactly as the button defers it.
-        commands.push_back( { "Action", "Play", [this]
-                              {
-                                  using SceneState   = ::Desert::Core::Scene::SceneState;
-                                  const bool editing = m_MainScene->GetState() == SceneState::Edit;
-                                  if ( editing )
-                                      OnScenePlay();
-                                  return PaletteCommandOutcome( editing &&
-                                                                     m_MainScene->GetState() != SceneState::Edit,
-                                                                "the scene is not playing; either it was "
-                                                                "already playing or Play refused (the log "
-                                                                "says why)." );
-                              } } );
-        commands.push_back( { "Action", "Play from Here", [this]
-                              {
-                                  using SceneState   = ::Desert::Core::Scene::SceneState;
-                                  const bool editing = m_MainScene->GetState() == SceneState::Edit;
-                                  if ( editing )
-                                      OnScenePlay( /*fromHere=*/true );
-                                  return PaletteCommandOutcome( editing &&
-                                                                     m_MainScene->GetState() != SceneState::Edit,
-                                                                "the scene is not playing; either it was "
-                                                                "already playing or Play refused (the log "
-                                                                "says why)." );
-                              } } );
+        // THE PLAY SESSION, the toolbar group's slots (UE FPlayWorldCommands): Play, Play from Here, Pause,
+        // Resume, Next Frame (Frame Skip) and Stop. Without them a Stop restore could not be timed or
+        // exercised from the control channel at all - only a mouse could reach it - and the restore is the
+        // second of the two paths a 50 000-record world pays a full load on. Separate entries rather than
+        // toggles, so a script that asks for Stop (or Pause) is told when there was nothing playing
+        // instead of starting a session it did not want. The toolbar calls the same executor.
+        for ( const Editor::PlayWorldCommand command : Editor::kPlayWorldCommandOrder )
+            commands.push_back( { std::string( Editor::CommandInfo( command ).Context ),
+                                  std::string( Editor::CommandInfo( command ).Label ),
+                                  [this, command] { return RunPlayWorldCommand( command ); } } );
         // Play at one TAGGED start - the control channel's spelling of `--player-start <tag>`: a command's
         // label carries its argument (as "Select asset <path>" does), one entry per tag the level states, so
         // `desertctl run Action "Play at Player Start 'Red'"` names a start the scene really has.
@@ -7042,15 +7105,6 @@ namespace Desert::Editor
                             "refused (the log says why)." );
                    } } );
         }
-        commands.push_back( { "Action", "Stop", [this]
-                              {
-                                  using SceneState   = ::Desert::Core::Scene::SceneState;
-                                  const bool playing = m_MainScene->GetState() != SceneState::Edit;
-                                  if ( playing )
-                                      m_PendingSceneStop = true;
-                                  return PaletteCommandOutcome( playing, "nothing is playing, so there is "
-                                                                         "nothing to stop." );
-                              } } );
 
         // UNDO AND REDO ALREADY ANSWERED "was there anything to undo" and the answer went nowhere.
         // Nothing to undo is not a failure of the editor, but it IS the difference between a script that
@@ -8834,16 +8888,55 @@ namespace Desert::Editor
     // One toolbar button: an icon, an optional label, and an "armed" state that is drawn as a tinted fill
     // plus a 2px underline. The underline matters — a tint alone is ambiguous against a hover, and the
     // question "which mode am I in" has to be answerable from across the room.
+    namespace
+    {
+        // The one spelling of a toolbar button's text: ToolbarButton draws it and ToolbarButtonWidth
+        // measures it, so the width the layout reserves is the width the button takes.
+        struct ToolbarButtonText
+        {
+            std::string Text;
+
+            ToolbarButtonText( const char* icon, const char* label )
+                 : Text( label != nullptr && label[0] != '\0' ? std::format( "{}  {}", icon, label )
+                                                              : std::string( icon ) )
+            {
+            }
+        };
+
+        // Must be called under the toolbar's own FramePadding (DrawToolbar pushes it).
+        float ToolbarButtonWidth( const char* icon, const char* label )
+        {
+            const ToolbarButtonText text( icon, label );
+            return ::ImGui::CalcTextSize( text.Text.c_str() ).x + ::ImGui::GetStyle().FramePadding.x * 2.0f;
+        }
+
+        // A snap control's face: the step it reports and its icon. One spelling, read by DrawSnapControl to
+        // draw the button and by DrawToolbar to measure the left groups before drawing them.
+        struct SnapButtonFace
+        {
+            const char* Icon;
+            std::string Label;
+        };
+
+        SnapButtonFace SnapFace( const bool rotation )
+        {
+            using Gz = ::Desert::Editor::Core::GizmoState;
+            if ( rotation )
+                return { ICON_MDI_ANGLE_ACUTE, std::format( "{:.0f}\xC2\xB0", Gz::RotateSnapDegrees() ) };
+            const char* icon = Gz::PersistentSnap() ? ICON_MDI_MAGNET_ON : ICON_MDI_MAGNET;
+            if ( Gz::TranslateSnap() >= 100.0f )
+                return { icon, std::format( "{:.0f} m", Gz::TranslateSnap() / 100.0f ) };
+            return { icon, std::format( "{:.0f} cm", Gz::TranslateSnap() ) };
+        }
+    } // namespace
+
     bool EditorLayer::ToolbarButton( const char* icon, const char* label, bool active, const char* tooltip,
                                      bool enabled )
     {
         namespace ImGui = ::ImGui;
 
-        char text[192];
-        if ( label && *label )
-            std::snprintf( text, sizeof( text ), "%s  %s", icon, label );
-        else
-            std::snprintf( text, sizeof( text ), "%s", icon );
+        const ToolbarButtonText button( icon, label );
+        const char*             text = button.Text.c_str();
 
         const ImVec4 accent = ThemeManager::GetSelectedColor();
         ImGui::PushStyleColor( ImGuiCol_Button, active ? ImVec4( accent.x, accent.y, accent.z, 0.30f )
@@ -8916,9 +9009,70 @@ namespace Desert::Editor
 
         const bool editMode = m_MainScene->GetState() == ::Desert::Core::Scene::SceneState::Edit;
 
+        // ---- Measure before drawing: the playback group sits on the bar's MIDDLE in every window ------
+        // The left groups are measured both labelled and icon-only (the same text measure ToolbarButton
+        // draws with); when their labels would push the playback group off the middle, the labels collapse
+        // to icons (UE's toolbar entries drop labels before the bar clips) and the tooltips name each button.
+        // THIS LIST IS THE LEFT GROUPS' DRAW ORDER BELOW, button for button: the drift check after the snap
+        // controls compares it with the row the buttons really took.
+        namespace Layout = ::Desert::Editor::ToolbarLayout;
+        struct RightButton
+        {
+            const char* Icon;
+            const char* Label;
+        };
+        const std::array<RightButton, 3> right   = { { { ICON_MDI_PACKAGE_VARIANT_CLOSED, "Package" },
+                                                       { ICON_MDI_MONITOR_DASHBOARD, "Profiler" },
+                                                       { ICON_MDI_COG, "Settings" } } };
+        const float                      spacing = ImGui::GetStyle().ItemSpacing.x;
+        float                            rightW  = spacing * static_cast<float>( right.size() - 1 );
+        for ( const RightButton& button : right )
+            rightW += ToolbarButtonWidth( button.Icon, button.Label );
+
+        const float                 frameH      = ImGui::GetFrameHeight();
+        const Layout::PlaybackGroup probe       = Layout::LayoutPlaybackGroup( frameH );
+        const ImVec2                origin      = ImGui::GetWindowPos();
+        const float                 contentMinX = origin.x + ImGui::GetWindowContentRegionMin().x;
+        const float                 contentMaxX = origin.x + ImGui::GetWindowContentRegionMax().x;
+
+        const bool           spaceLocal = Gz::EffectiveSpace( Gz::Get() ) == Gz::Space::Local;
+        const SnapButtonFace gridFace   = SnapFace( /*rotation=*/false );
+        const SnapButtonFace angleFace  = SnapFace( /*rotation=*/true );
+        const auto measure = []( const char* icon, const char* text, bool afterSeparator, bool collapsible )
+        {
+            const float labelled = ToolbarButtonWidth( icon, text );
+            return Layout::LeftButton{ labelled, collapsible ? ToolbarButtonWidth( icon, "" ) : labelled,
+                                       afterSeparator };
+        };
+        const std::array<Layout::LeftButton, 13> leftButtons = { {
+             measure( ICON_MDI_CONTENT_SAVE, "Save", false, true ),
+             measure( ICON_MDI_UNDO, "", false, false ),
+             measure( ICON_MDI_REDO, "", false, false ),
+             measure( ICON_MDI_CURSOR_DEFAULT_OUTLINE, "Select", true, true ),
+             measure( ICON_MDI_CUBE_OUTLINE, "Modeling", false, true ),
+             measure( ICON_MDI_GRASS, "Foliage", false, true ),
+             measure( ICON_MDI_TERRAIN, "Landscape", false, true ),
+             measure( ICON_MDI_CURSOR_MOVE, "", true, false ),
+             measure( ICON_MDI_ROTATE_ORBIT, "", false, false ),
+             measure( ICON_MDI_ARROW_EXPAND_ALL, "", false, false ),
+             measure( spaceLocal ? ICON_MDI_AXIS_ARROW : ICON_MDI_EARTH, spaceLocal ? "Local" : "World", false,
+                      true ),
+             measure( gridFace.Icon, gridFace.Label.c_str(), true, false ),
+             measure( angleFace.Icon, angleFace.Label.c_str(), false, false ),
+        } };
+        const bool                               compact =
+             Layout::ChooseLeftLabels( Layout::Row{
+                  .ContentMinX = contentMinX,
+                  .ContentMaxX = contentMaxX,
+                  .LeftEnd     = contentMinX + Layout::LeftGroupsWidth( leftButtons, spacing, /*compact=*/false ),
+                  .CentreWidth = probe.Width,
+                  .RightWidth  = rightW,
+             } ) == Layout::LeftLabels::IconsOnly;
+        const auto label = [compact]( const char* text ) { return compact ? "" : text; };
+
         // ---- Left: the file/history group -------------------------------------------------------
         const bool dirty = CommandHistory::Get().Revision() != s_SavedRevision;
-        if ( ToolbarButton( ICON_MDI_CONTENT_SAVE, "Save", false,
+        if ( ToolbarButton( ICON_MDI_CONTENT_SAVE, label( "Save" ), false,
                             dirty ? "Save the scene (Ctrl+S) — there are unsaved changes"
                                   : "Save the scene (Ctrl+S)" ) )
         {
@@ -8948,19 +9102,20 @@ namespace Desert::Editor
         // (L1-L8, LS-10..15); the stale "three modes" comment hid it from the rail while the mode was
         // reachable only through the palette. Paint is not a mode (it is the Landscape Paint tab).
         const EMode mode = Mode::Get();
-        if ( ToolbarButton( ICON_MDI_CURSOR_DEFAULT_OUTLINE, "Select", mode == EMode::Select,
-                            "Selection and transform tools" ) )
+        if ( ToolbarButton( ICON_MDI_CURSOR_DEFAULT_OUTLINE, label( "Select" ), mode == EMode::Select,
+                            "Select — selection and transform tools" ) )
             Mode::Set( EMode::Select );
         ImGui::SameLine();
-        if ( ToolbarButton( ICON_MDI_CUBE_OUTLINE, "Modeling", mode == EMode::Modeling,
-                            "Geometry tools (CubeGrid blockout)" ) )
+        if ( ToolbarButton( ICON_MDI_CUBE_OUTLINE, label( "Modeling" ), mode == EMode::Modeling,
+                            "Modeling — geometry tools (CubeGrid blockout)" ) )
             Mode::Set( EMode::Modeling );
         ImGui::SameLine();
-        if ( ToolbarButton( ICON_MDI_GRASS, "Foliage", mode == EMode::Foliage, "Paint instanced vegetation" ) )
+        if ( ToolbarButton( ICON_MDI_GRASS, label( "Foliage" ), mode == EMode::Foliage,
+                            "Foliage — paint instanced vegetation" ) )
             Mode::Set( EMode::Foliage );
         ImGui::SameLine();
-        if ( ToolbarButton( ICON_MDI_TERRAIN, "Landscape", mode == EMode::Landscape,
-                            "Create, sculpt and paint landscapes" ) )
+        if ( ToolbarButton( ICON_MDI_TERRAIN, label( "Landscape" ), mode == EMode::Landscape,
+                            "Landscape — create, sculpt and paint landscapes" ) )
             Mode::Set( EMode::Landscape );
         ToolbarSeparator();
 
@@ -8968,7 +9123,7 @@ namespace Desert::Editor
         //
         // THE KEYS NAMED HERE ARE THE KEYS THAT WORK. These three tooltips read "(W)", "(E)" and "(R)"
         // — UE's bindings — while the only handler in the editor binds T, R and C
-        // (ViewportPanel::OnKeyPressedEvent). So the rail advertised three shortcuts that did nothing,
+        // (ViewportPanel::OnKeyPressed). So the rail advertised three shortcuts that did nothing,
         // and the viewport strip's own tooltips (Move (T) / Rotate (R) / Scale (C)) said the true thing
         // eight inches away. A UI string is a promise about the tree, and this one was not kept.
         //
@@ -9003,8 +9158,8 @@ namespace Desert::Editor
                                    ? "Transform space: Local — drag along the object's own axes (click for World)"
                                    : "Transform space: World — drag along the world axes (click for Local)";
 
-            if ( ToolbarButton( isLocal ? ICON_MDI_AXIS_ARROW : ICON_MDI_EARTH, isLocal ? "Local" : "World",
-                                isLocal, tip, /*enabled=*/!forced ) )
+            if ( ToolbarButton( isLocal ? ICON_MDI_AXIS_ARROW : ICON_MDI_EARTH,
+                                label( isLocal ? "Local" : "World" ), isLocal, tip, /*enabled=*/!forced ) )
                 Gz::SetSpace( isLocal ? Gz::Space::World : Gz::Space::Local );
         }
         ToolbarSeparator();
@@ -9017,57 +9172,45 @@ namespace Desert::Editor
         ImGui::SameLine();
         DrawSnapControl( /*rotation=*/true );
 
-        // ---- Centre: playback -------------------------------------------------------------------
-        // Centred, deliberately. Playback is the only control here that says what the WORLD is doing
-        // rather than what the editor is doing, and in the right-hand corner it read as one more tool.
-        // Clamped so it never lands on the mode rail on a narrow window — it slides right instead of
-        // overlapping, because a Play button under another button is worse than an off-centre one.
+        // ---- Centre: playback; Right: the things you leave the editor through ---------------------
+        // ONE placement for both groups (ToolbarLayout::PlaceRow), from widths that are measured rather
+        // than assumed: the playback group's width depends on the frame height alone (its slots grey out,
+        // they never disappear), and the right group's is the sum of its buttons' own labels. The centre
+        // group sits on the bar's middle whatever the scene state and whatever the left groups read
+        // (their labels collapse first, above), and slides only when even their icons would be under it.
         {
-            const float  leftEnd = ImGui::GetItemRectMax().x;
-            const float  btnH    = ImGui::GetFrameHeight();
-            const ImVec2 btnSize( btnH * 1.6f, btnH );
-            const float  playW     = 84.0f;
-            const float  groupW    = playW + ( btnSize.x + 2.0f ) * 2.0f;
-            const float  windowMid = ImGui::GetWindowPos().x + ImGui::GetWindowSize().x * 0.5f;
-            const float  startX    = std::max( windowMid - groupW * 0.5f, leftEnd + 24.0f );
+            const float rowY    = ImGui::GetItemRectMin().y;
+            const float leftEnd = ImGui::GetItemRectMax().x;
 
-            ImGui::SameLine();
-            ImGui::SetCursorScreenPos( ImVec2( startX, ImGui::GetCursorScreenPos().y ) );
+            // The measured list above must be the row the buttons really took, or the middle is a guess.
+            if ( const float measured = contentMinX + Layout::LeftGroupsWidth( leftButtons, spacing, compact );
+                 std::abs( measured - leftEnd ) > 1.0f )
+            {
+                static bool reported = false;
+                if ( !std::exchange( reported, true ) )
+                    LOG_ERROR( "[Toolbar] the left groups' measure ({:.1f}) is not the row they drew ({:.1f}); "
+                               "DrawToolbar's leftButtons list has drifted from its buttons",
+                               measured, leftEnd );
+            }
 
-            // Play is the bar's PRIMARY action and gets the accent; Pause is a modifier of a state that
-            // is already running and stays neutral. Undifferentiated, the pair reads as two equal
-            // buttons and the eye has to read the glyphs to find the one it wants.
-            const ImVec4 accent = ThemeManager::GetSelectedColor();
-            ImGui::PushStyleColor( ImGuiCol_Button, accent );
-            ImGui::PushStyleColor( ImGuiCol_ButtonHovered,
-                                   ImVec4( accent.x + 0.10f, accent.y + 0.08f, accent.z + 0.06f, 1.0f ) );
-            ImGui::PushStyleColor( ImGuiCol_ButtonActive,
-                                   ImVec4( accent.x * 0.8f, accent.y * 0.8f, accent.z * 0.8f, 1.0f ) );
-            ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 1.0f, 1.0f, 1.0f, 1.0f ) );
-            DrawPlayButton( ImVec2( playW, btnH ) );
-            ImGui::PopStyleColor( 4 );
+            const Layout::RowPlacement row = Layout::PlaceRow( Layout::Row{
+                 .ContentMinX = contentMinX,
+                 .ContentMaxX = contentMaxX,
+                 .LeftEnd     = leftEnd,
+                 .CentreWidth = probe.Width,
+                 .RightWidth  = rightW,
+            } );
 
-            ImGui::SameLine();
-            DrawPauseButton( btnSize );
-        }
+            DrawPlaybackGroup( Layout::LayoutPlaybackGroup( frameH, row.CentreX ), rowY );
 
-        // ---- Right: the things you leave the editor through --------------------------------------
-        {
-            ImGui::SameLine();
-            const float rightGroupW = 330.0f;
-            const float x           = std::max( ImGui::GetItemRectMax().x + 24.0f,
-                                                ImGui::GetWindowPos().x + ImGui::GetWindowSize().x - rightGroupW );
-            ImGui::SetCursorScreenPos( ImVec2( x, ImGui::GetCursorScreenPos().y ) );
-
-            if ( ToolbarButton( ICON_MDI_PACKAGE_VARIANT_CLOSED, "Package", false,
-                                "Build and package the project" ) )
+            ImGui::SetCursorScreenPos( ImVec2( row.RightX, rowY ) );
+            if ( ToolbarButton( right[0].Icon, right[0].Label, false, "Build and package the project" ) )
                 Core::PanelRequests::Open( "Build Settings" );
             ImGui::SameLine();
-            if ( ToolbarButton( ICON_MDI_MONITOR_DASHBOARD, "Profiler", m_ShowProfiler,
-                                "Per-pass CPU and GPU timings" ) )
+            if ( ToolbarButton( right[1].Icon, right[1].Label, m_ShowProfiler, "Per-pass CPU and GPU timings" ) )
                 m_ShowProfiler = !m_ShowProfiler;
             ImGui::SameLine();
-            if ( ToolbarButton( ICON_MDI_COG, "Settings", s_ShowPreferences, "Editor preferences" ) )
+            if ( ToolbarButton( right[2].Icon, right[2].Label, s_ShowPreferences, "Editor preferences" ) )
                 s_ShowPreferences = !s_ShowPreferences;
         }
 
@@ -9084,18 +9227,10 @@ namespace Desert::Editor
         // The steps are declared once at the top of this file, because the command palette offers exactly
         // these and a second copy here is how the two lists would drift apart.
 
-        char label[64];
-        if ( rotation )
-            std::snprintf( label, sizeof( label ), "%.0f\xC2\xB0", Gz::RotateSnapDegrees() );
-        else if ( Gz::TranslateSnap() >= 100.0f )
-            std::snprintf( label, sizeof( label ), "%.0f m", Gz::TranslateSnap() / 100.0f );
-        else
-            std::snprintf( label, sizeof( label ), "%.0f cm", Gz::TranslateSnap() );
-
-        const char* icon = Gz::PersistentSnap() ? ICON_MDI_MAGNET_ON : ICON_MDI_MAGNET;
-        const char* tip  = rotation ? "Angle snap — click to change the step or toggle snapping"
-                                    : "Grid snap — click to change the step or toggle snapping";
-        if ( ToolbarButton( rotation ? ICON_MDI_ANGLE_ACUTE : icon, label, Gz::PersistentSnap(), tip ) )
+        const SnapButtonFace face = SnapFace( rotation );
+        const char*          tip  = rotation ? "Angle snap — click to change the step or toggle snapping"
+                                             : "Grid snap — click to change the step or toggle snapping";
+        if ( ToolbarButton( face.Icon, face.Label.c_str(), Gz::PersistentSnap(), tip ) )
             ImGui::OpenPopup( rotation ? "##AngleSnapPopup" : "##GridSnapPopup" );
 
         if ( ImGui::BeginPopup( rotation ? "##AngleSnapPopup" : "##GridSnapPopup" ) )
@@ -10381,67 +10516,125 @@ namespace Desert::Editor
         ImGui::EndMenu();
     }
 
-    void EditorLayer::DrawPlayButton( const ImVec2& size )
+    namespace
     {
-        namespace ImGui    = ::ImGui;
-        using SceneState   = ::Desert::Core::Scene::SceneState;
-        const bool playing = m_MainScene->GetState() != SceneState::Edit;
-
-        if ( playing )
-            ImGui::PushStyleColor( ImGuiCol_Text, ThemeManager::GetSelectedColor() );
-
-        // One toggle: Play when editing, Stop (restore the snapshot) when playing/paused.
-        if ( ImGui::Button( playing ? ICON_MDI_STOP : ICON_MDI_PLAY, size ) )
+        // One slot of the segmented playback group. Drawn by hand rather than with ImGui::Button because
+        // a segmented group rounds only its OUTER corners, which a Button cannot, and because a disabled
+        // slot must keep its place and its fill (dimmed) — the group's shape is the same in every state.
+        bool PlaybackSlotButton( const char* id, const char* glyph, const ImVec2& pos, const ImVec2& size,
+                                 ImDrawFlags corners, const ImVec4& fill, const ImVec4& glyphColour, bool enabled,
+                                 const char* tooltip )
         {
-            if ( playing )
-                m_PendingSceneStop = true; // deferred to OnUpdate (between frames) — see m_PendingSceneStop
-            else
-                OnScenePlay();
+            namespace ImGui = ::ImGui;
+
+            ImGui::SetCursorScreenPos( pos );
+            if ( !enabled )
+                ImGui::BeginDisabled();
+            const bool clicked = ImGui::InvisibleButton( id, size );
+            const bool hovered = enabled && ImGui::IsItemHovered();
+            const bool held    = enabled && ImGui::IsItemActive();
+            if ( tooltip != nullptr && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+                ImGui::SetTooltip( "%s", tooltip );
+            if ( !enabled )
+                ImGui::EndDisabled();
+
+            // pressed darkens, hover lifts, rest is the fill as authored
+            float lift = 0.0f;
+            if ( held )
+                lift = -0.06f;
+            else if ( hovered )
+                lift = 0.08f;
+            const float  alpha = enabled ? 1.0f : 0.45f;
+            const auto   shade = [&]( float c ) { return std::clamp( c + lift, 0.0f, 1.0f ); };
+            ImDrawList*  draw  = ImGui::GetWindowDrawList();
+            const ImVec2 max( pos.x + size.x, pos.y + size.y );
+            draw->AddRectFilled(
+                 pos, max,
+                 ImGui::GetColorU32( ImVec4( shade( fill.x ), shade( fill.y ), shade( fill.z ), fill.w * alpha ) ),
+                 ImGui::GetStyle().FrameRounding, corners );
+
+            const ImVec2 textSize = ImGui::CalcTextSize( glyph );
+            draw->AddText(
+                 ImVec2( pos.x + ( size.x - textSize.x ) * 0.5f, pos.y + ( size.y - textSize.y ) * 0.5f ),
+                 ImGui::GetColorU32(
+                      ImVec4( glyphColour.x, glyphColour.y, glyphColour.z, glyphColour.w * alpha ) ),
+                 glyph );
+            return clicked && enabled;
         }
-        if ( ImGui::IsItemHovered() )
-            ImGui::SetTooltip( playing ? "Stop" : "Play (the pawn spawns at the PlayerStart)" );
+    } // namespace
 
-        // UE's Play dropdown, reduced to the one choice that changes WHERE the player begins.
-        if ( !playing )
-        {
-            ImGui::SameLine( 0.0f, 0.0f );
-            if ( ImGui::Button( ICON_MDI_CHEVRON_DOWN "##PlayModes", ImVec2( size.y * 0.6f, size.y ) ) )
-                ImGui::OpenPopup( "PlayModes" );
-            if ( ImGui::BeginPopup( "PlayModes" ) )
-            {
-                if ( ImGui::MenuItem( ICON_MDI_PLAY " Play", nullptr, false ) )
-                    OnScenePlay();
-                if ( ImGui::MenuItem( ICON_MDI_CAMERA " Play from Here", nullptr, false ) )
-                    OnScenePlay( /*fromHere=*/true );
-                ImGui::EndPopup();
-            }
-        }
-
-        if ( playing )
-            ImGui::PopStyleColor();
-    }
-
-    void EditorLayer::DrawPauseButton( const ImVec2& size )
+    void EditorLayer::DrawPlaybackGroup( const ::Desert::Editor::ToolbarLayout::PlaybackGroup& group, float y )
     {
-        namespace ImGui   = ::ImGui;
-        using SceneState  = ::Desert::Core::Scene::SceneState;
-        const bool paused = m_MainScene->GetState() == SceneState::Paused;
-        const bool active = m_MainScene->GetState() != SceneState::Edit; // pause only matters while playing
+        namespace ImGui  = ::ImGui;
+        using SceneState = ::Desert::Core::Scene::SceneState;
+        using Slot       = ::Desert::Editor::ToolbarLayout::PlaybackSlot;
 
-        if ( !active )
-            ImGui::BeginDisabled();
-        if ( paused )
-            ImGui::PushStyleColor( ImGuiCol_Text, ThemeManager::GetSelectedColor() );
+        // UE's Level Editor group: Play | Options | Pause | Next Frame | Stop. Every slot is present in every
+        // state and the ones that do not apply are greyed out, so the group never changes shape or position when
+        // the world starts, pauses or stops. Play (with its options) is the bar's PRIMARY action and gets
+        // the accent while it can be pressed; Pause turns into Resume, armed, while the world is paused.
+        const SceneState state   = m_MainScene->GetState();
+        const bool       editing = state == SceneState::Edit;
+        const bool       paused  = state == SceneState::Paused;
 
-        if ( ImGui::Button( ICON_MDI_PAUSE, size ) )
-            OnScenePauseToggle();
-        if ( ImGui::IsItemHovered() )
-            ImGui::SetTooltip( paused ? "Resume" : "Pause" );
+        const float  h       = ImGui::GetFrameHeight();
+        const ImVec4 accent  = ThemeManager::GetSelectedColor();
+        const ImVec4 neutral = ImGui::GetStyleColorVec4( ImGuiCol_Button );
+        const ImVec4 white( 1.0f, 1.0f, 1.0f, 1.0f );
+        const ImVec4 icon = ThemeManager::GetIconColor();
 
-        if ( paused )
-            ImGui::PopStyleColor();
-        if ( !active )
-            ImGui::EndDisabled();
+        const auto at   = [&]( Slot slot ) { return ImVec2( group[slot].X, y ); };
+        const auto size = [&]( Slot slot ) { return ImVec2( group[slot].Width, h ); };
+
+        using Command  = Editor::PlayWorldCommand;
+        const auto run = [this]( const Command command )
+        {
+            // The button is one more caller of the command; a refusal it could not have offered (the
+            // slot is disabled in every state that refuses) is still logged, never swallowed.
+            if ( const auto outcome = RunPlayWorldCommand( command ); !outcome )
+                LOG_ERROR( "[Toolbar] {}: {}", Editor::CommandInfo( command ).Label, outcome.GetError() );
+        };
+
+        if ( PlaybackSlotButton( "##Play", ICON_MDI_PLAY, at( Slot::Play ), size( Slot::Play ),
+                                 ImDrawFlags_RoundCornersLeft, editing ? accent : neutral, editing ? white : icon,
+                                 editing, editing ? "Play (the pawn spawns at the PlayerStart)" : "Playing" ) )
+            run( Command::Play );
+
+        if ( PlaybackSlotButton( "##PlayOptions", ICON_MDI_CHEVRON_DOWN, at( Slot::Options ),
+                                 size( Slot::Options ), ImDrawFlags_RoundCornersNone, editing ? accent : neutral,
+                                 editing ? white : icon, editing, "Play options" ) )
+            ImGui::OpenPopup( "PlayModes" );
+        ImGui::SetNextWindowPos( ImVec2( group[Slot::Play].X, y + h ) );
+        if ( ImGui::BeginPopup( "PlayModes" ) )
+        {
+            if ( ImGui::MenuItem( ICON_MDI_PLAY " Play", nullptr, false ) )
+                run( Command::Play );
+            if ( ImGui::MenuItem( ICON_MDI_CAMERA " Play from Here", nullptr, false ) )
+                run( Command::PlayFromHere );
+            ImGui::EndPopup();
+        }
+
+        // One slot, two commands (UE shows Pause while running and Resume while paused).
+        const Command pauseOrResume = paused ? Command::Resume : Command::Pause;
+        if ( PlaybackSlotButton( "##Pause", paused ? ICON_MDI_PLAY : ICON_MDI_PAUSE, at( Slot::Pause ),
+                                 size( Slot::Pause ), ImDrawFlags_RoundCornersNone, paused ? accent : neutral,
+                                 paused ? white : icon, !editing,
+                                 std::string( Editor::CommandInfo( pauseOrResume ).Label ).c_str() ) )
+            run( pauseOrResume );
+
+        if ( PlaybackSlotButton( "##NextFrame", ICON_MDI_STEP_FORWARD, at( Slot::NextFrame ),
+                                 size( Slot::NextFrame ), ImDrawFlags_RoundCornersNone, neutral, icon, paused,
+                                 paused ? "Next Frame (advance the paused world by one frame)"
+                                        : "Next Frame (pause the world first)" ) )
+            run( Command::NextFrame );
+
+        if ( PlaybackSlotButton( "##Stop", ICON_MDI_STOP, at( Slot::Stop ), size( Slot::Stop ),
+                                 ImDrawFlags_RoundCornersRight, neutral,
+                                 editing ? icon : ThemeManager::GetErrorColor(), !editing, "Stop" ) )
+            run( Command::Stop );
+
+        // Leave the cursor on the group's row, after its last slot, as a SameLine chain would.
+        ImGui::SetCursorScreenPos( ImVec2( group[Slot::Stop].X + group[Slot::Stop].Width, y ) );
     }
 
     namespace
@@ -10711,13 +10904,45 @@ namespace Desert::Editor
         m_MainScene->SetState( SceneState::Edit );
     }
 
-    void EditorLayer::OnScenePauseToggle()
+    Common::BoolResultStr EditorLayer::RunPlayWorldCommand( const Editor::PlayWorldCommand command )
     {
-        using SceneState = ::Desert::Core::Scene::SceneState;
-        if ( m_MainScene->GetState() == SceneState::Play )
-            m_MainScene->SetState( SceneState::Paused );
-        else if ( m_MainScene->GetState() == SceneState::Paused )
-            m_MainScene->SetState( SceneState::Play );
+        using SceneState       = ::Desert::Core::Scene::SceneState;
+        using Command          = Editor::PlayWorldCommand;
+        const SceneState state = m_MainScene->GetState();
+        switch ( command )
+        {
+            case Command::Play:
+            case Command::PlayFromHere:
+                if ( state == SceneState::Edit )
+                    OnScenePlay( /*fromHere=*/command == Command::PlayFromHere );
+                return PaletteCommandOutcome( state == SceneState::Edit &&
+                                                   m_MainScene->GetState() != SceneState::Edit,
+                                              "the scene is not playing; either it was already playing or "
+                                              "Play refused (the log says why)." );
+            case Command::Pause:
+                if ( state == SceneState::Play )
+                    m_MainScene->SetState( SceneState::Paused );
+                return PaletteCommandOutcome( state == SceneState::Play, state == SceneState::Paused
+                                                                              ? "the world is already paused."
+                                                                              : "nothing is playing, so there is "
+                                                                                "nothing to pause." );
+            case Command::Resume:
+                if ( state == SceneState::Paused )
+                    m_MainScene->SetState( SceneState::Play );
+                return PaletteCommandOutcome( state == SceneState::Paused, "the world is not paused, so there "
+                                                                           "is nothing to resume." );
+            case Command::NextFrame:
+                // Consumed by the next Scene::OnUpdate: the world advances one frame and holds again.
+                return PaletteCommandOutcome( m_MainScene->RequestSingleFrame(),
+                                              "the world is not paused; Next Frame steps a PAUSED world." );
+            case Command::Stop:
+                // Deferred to OnUpdate (between frames) — see m_PendingSceneStop.
+                if ( state != SceneState::Edit )
+                    m_PendingSceneStop = true;
+                return PaletteCommandOutcome( state != SceneState::Edit, "nothing is playing, so there is "
+                                                                         "nothing to stop." );
+        }
+        return Common::MakeError( "unknown play-world command" );
     }
 
     void EditorLayer::DrawOpenScenePopup()
@@ -10938,20 +11163,22 @@ namespace Desert::Editor
         // the asset manager, cooked caches and panels — relaunch through the Project Hub instead.
     }
 
-    void EditorLayer::OnEvent( Common::Event& event )
+    void EditorLayer::FollowImGuiWithEvents()
     {
-        for ( auto& panel : m_Panels )
+        Common::EventTree* events = Events();
+        if ( events == nullptr )
+            return;
+        Common::EventNodeId focus   = EventNode();
+        Common::EventNodeId pointer = EventNode();
+        for ( const auto& panel : m_Panels )
         {
-            if ( event.m_Handled )
-                break;
-            panel->OnEvent( event );
+            if ( panel->HoldsKeyboardFocus() )
+                focus = panel->EventNode();
+            if ( panel->IsUnderPointer() )
+                pointer = panel->EventNode();
         }
-        for ( auto& document : m_OpenDocuments )
-        {
-            if ( event.m_Handled )
-                break;
-            document->OnEvent( event );
-        }
+        events->SetFocus( focus );
+        events->SetHovered( pointer );
     }
 
     Common::BoolResultStr EditorLayer::OnDetach()

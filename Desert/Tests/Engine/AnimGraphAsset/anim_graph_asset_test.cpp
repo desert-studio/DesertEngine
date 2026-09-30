@@ -9,6 +9,7 @@
 
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
@@ -32,13 +33,13 @@ namespace
 {
     AnimGraph Locomotion()
     {
-        AnimGraph g;
+        AnimGraph g = ::Desert::Animation::Graph::MakeStateMachineGraph();
         g.Name = "Locomotion";
         State idle;
         idle.Name = "Idle";
         idle.Clip = "Anim_Idle";
-        g.States.push_back( idle );
-        g.Entry = "Idle";
+        OutputMachine( g )->States.push_back( idle );
+        OutputMachine( g )->Entry = "Idle";
         return g;
     }
 
@@ -89,9 +90,9 @@ TEST( AnimGraphAsset, SaveThenLoadIsTheSameGraph )
     ASSERT_NE( asset.GetGraph(), nullptr );
 
     EXPECT_EQ( asset.GetGraph()->Name, "Locomotion" );
-    EXPECT_EQ( asset.GetGraph()->Entry, "Idle" );
-    ASSERT_EQ( asset.GetGraph()->States.size(), 1u );
-    EXPECT_EQ( asset.GetGraph()->States[0].Clip, "Anim_Idle" );
+    EXPECT_EQ( OutputMachine( *asset.GetGraph() )->Entry, "Idle" );
+    ASSERT_EQ( OutputMachine( *asset.GetGraph() )->States.size(), 1u );
+    EXPECT_EQ( OutputMachine( *asset.GetGraph() )->States[0].Clip, "Anim_Idle" );
 
     // The DISPLAY name is the graph's own, not the file's stem — the file here is called something else
     // entirely, so a slot showing "desert_animgraph_roundtrip" would mean the wrong half won.
@@ -118,8 +119,8 @@ TEST( AnimGraphAsset, THE_RELATION_OneFileIsOneObjectAndNotACopyPerCaller )
     // And an edit through one of them is visible through the other, which is the property a copy breaks.
     State extra;
     extra.Name = "Run";
-    first->States.push_back( extra );
-    EXPECT_EQ( second->States.size(), 2u );
+    OutputMachine( *first )->States.push_back( extra );
+    EXPECT_EQ( OutputMachine( *second )->States.size(), 2u );
 }
 
 TEST( AnimGraphAsset, AnEditBumpsTheRevisionSoEveryEntitySharingItResyncs )
@@ -161,14 +162,14 @@ TEST( AnimGraphAsset, AReloadReplacesTheObjectRatherThanRewritingItUnderARunning
     AnimGraph edited = Locomotion();
     State     run;
     run.Name = "Run";
-    edited.States.push_back( run );
+    OutputMachine( edited )->States.push_back( run );
     ASSERT_TRUE( AnimGraphAsset::Save( file.Path(), edited ).IsSuccess() );
     ASSERT_TRUE( asset.Load().IsSuccess() );
 
     EXPECT_NE( asset.GetGraph().get(), held.get() ) << "the reload wrote into the object a live evaluator "
                                                        "was holding";
-    EXPECT_EQ( held->States.size(), 1u ) << "the old object changed under its holder";
-    EXPECT_EQ( asset.GetGraph()->States.size(), 2u );
+    EXPECT_EQ( OutputMachine( *held )->States.size(), 1u ) << "the old object changed under its holder";
+    EXPECT_EQ( OutputMachine( *asset.GetGraph() )->States.size(), 2u );
 }
 
 TEST( AnimGraphAsset, TheObjectItHandsOutIsWhatAnEvaluatorCanBeBuiltFrom )
@@ -320,7 +321,9 @@ TEST( AnimGraphAsset, ASaveStatesTheHeaderAndAResaveKeepsItsGuid )
     EXPECT_EQ( first.GetValue().Kind, Common::Content::ContentKind::AnimGraph );
     ASSERT_FALSE( first.GetValue().Guid.IsNull() );
     ASSERT_EQ( first.GetValue().Subsystems.size(), 1u );
-    EXPECT_EQ( first.GetValue().Subsystems[0].Version, 1u );
+    EXPECT_EQ( first.GetValue().Subsystems[0].Tag, Desert::Assets::kAnimGraphSchemaTag );
+    EXPECT_EQ( first.GetValue().Subsystems[0].Version, Desert::Assets::kAnimGraphSchemaVersion )
+         << "a save states the layout this build writes";
 
     AnimGraphAsset asset( file.Path() );
     EXPECT_EQ( static_cast<uint64_t>( asset.GetMetadata().Handle ),
@@ -351,4 +354,31 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// The linked-layer half of a graph (ANIM-I14) survives the file; a file without it is a graph without layers.
+TEST( AnimGraphAsset, LayerInterfacesAndImplementedLayersRoundTrip )
+{
+    namespace PG       = Desert::Animation::Graph;
+    AnimGraph    graph = PG::MakeStateMachineGraph( "Rifle" );
+    PG::PoseNode input;
+    input.Name   = "In";
+    input.Kind   = static_cast<int>( PG::PoseNodeKind::LinkedInputPose );
+    graph.Layers = PG::AnimGraphLayers{ { PG::AnimLayerInterface{ "Weapon", { "UpperBody" } } },
+                                        { PG::AnimLayerGraph{ "Weapon", "UpperBody", { input }, "In" } } };
+
+    const auto read = PG::Deserialize( PG::Serialize( graph ) );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    const auto& layers = read.GetValue().Layers;
+    if ( !layers )
+    {
+        FAIL() << "the layers did not survive the round trip";
+    }
+    ASSERT_EQ( layers->Implemented.size(), 1u );
+    EXPECT_EQ( layers->Interfaces[0].Layers, std::vector<std::string>{ "UpperBody" } );
+    EXPECT_EQ( layers->Implemented[0].Nodes[0].Kind, input.Kind );
+
+    const auto plain = PG::Deserialize( PG::Serialize( PG::MakeStateMachineGraph( "Plain" ) ) );
+    ASSERT_TRUE( plain.IsSuccess() ) << plain.GetError();
+    EXPECT_FALSE( plain.GetValue().Layers.has_value() );
 }

@@ -115,9 +115,9 @@ namespace Desert::Editor
         SerializeSkeletonAsset( const Desert::Assets::Serialization::SkeletonAssetData& data,
                                 const std::filesystem::path&                            sourcePath );
 
-        [[nodiscard]] Common::BoolResultStr
-        SerializeAnimationAsset( const Desert::Assets::Serialization::AnimationAssetData& data,
-                                 const std::filesystem::path&                             sourcePath );
+        [[nodiscard]] static Common::BoolResultStr
+        SerializeAnimationAsset( const Desert::Animation::AnimationClip& clip,
+                                 const std::filesystem::path&            sourcePath );
 
     private:
         std::unordered_map<std::string, std::unique_ptr<IAssetImporter>> m_Importers;

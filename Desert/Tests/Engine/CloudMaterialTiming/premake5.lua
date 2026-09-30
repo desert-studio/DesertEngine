@@ -22,6 +22,9 @@ project(test_name)
     files {
         test_files,
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelRegistry.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudProceduralVolume.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudLayout.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
@@ -57,10 +60,6 @@ project(test_name)
     -- Optick: Common's JobSystem registers its worker threads with the profiler.
     links { "Common", "Optick" }
 
-    -- CloudProceduralVolume.cpp keys its bake in the DDC, whose file store is Common's FileSystem, which
-    -- carries Objective-C (MacOSFileSystem's dialogs): the ObjC runtime + AppKit link too.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

@@ -59,10 +59,6 @@ project(test_name)
 
     links { "Common", "Optick" } -- Common's JobSystem registers its worker threads with Optick
 
-    -- Common contains Objective-C (the macOS file dialog), pulled in because EditorPreferences writes
-    -- through Common::Utils::FileSystem, so the ObjC runtime + AppKit must link too.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

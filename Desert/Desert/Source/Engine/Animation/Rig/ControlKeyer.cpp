@@ -1,9 +1,12 @@
 #include "ControlKeyer.hpp"
 
 #include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Animation/Timeline/Evaluator.hpp>
 #include <Engine/Animation/TrackEditing.hpp>
 
 #include <algorithm>
+#include <utility>
+#include <variant>
 
 namespace Desert::Animation
 {
@@ -64,7 +67,7 @@ namespace Desert::Animation
                          subject.Index, target.AuthoredPose->Size() );
                 }
             }
-            if ( target.Tick.Value < 0 || target.Tick > target.Clip->DurationTicks )
+            if ( target.Tick < target.Clip->Sequence.Start || target.Clip->Sequence.End < target.Tick )
             {
                 // A KEY OUTSIDE THE CLIP IS A KEY NOTHING SAMPLES. Extending the clip instead would be the
                 // helpful-looking answer and it is the wrong one: the length is what the Sequencer's ruler,
@@ -74,7 +77,7 @@ namespace Desert::Animation
                 return Common::MakeFormattedError<bool>(
                      "tick {} is outside clip '{}', which is {} ticks long — a key there would never be "
                      "sampled, and lengthening the clip is a separate edit",
-                     target.Tick.Value, target.Clip->AnimationName, target.Clip->DurationTicks.Value );
+                     target.Tick.Value, target.Clip->AnimationName, target.Clip->DurationTicks().Value );
             }
 
             if ( subject.Kind == KeySubjectKind::Bone )
@@ -87,8 +90,8 @@ namespace Desert::Animation
             const std::string& name = target.Hierarchy->Get( subject.Index ).Name;
             if ( const auto bone = target.Skeleton->FindBoneIndex( name ) )
             {
-                // See the file note: a track name is the only binding key there is, so this control's keys
-                // would be bound onto that bone by `Animator::ResolveTrack` and drive it with a value that
+                // See the file note: a binding locator is the only key playback binds on, so this control's keys
+                // would be bound onto that bone by `Timeline::BindBones` and drive it with a value that
                 // means "offset from this control's parent space".
                 return Common::MakeFormattedError<bool>(
                      "control '{}' has the name of bone {}, and a track name is the only thing playback "
@@ -96,27 +99,6 @@ namespace Desert::Animation
                      name, *bone );
             }
             return Common::MakeSuccess( true );
-        }
-
-        /// The clip's track for this control, created empty if the clip has none yet.
-        [[nodiscard]] BoneTrack& TrackFor( AnimationClip& clip, const std::string& name )
-        {
-            for ( BoneTrack& track : clip.Tracks )
-            {
-                if ( track.BoneName == name )
-                {
-                    return track;
-                }
-            }
-            // NO `TrackRevision` BUMP, and that is checked rather than assumed: `Animator::ResolveTrack`
-            // rebuilds its binding when EITHER the revision or `Tracks.size()` changed (Animator.cpp:433),
-            // and an append changes the size. The revision exists for the case the size cannot see — a
-            // whole list replaced by one of equal length — and it has exactly one writer, `AnimationAsset`,
-            // which says so at its declaration. A second writer here would be a second answer.
-            BoneTrack track;
-            track.BoneName = name;
-            clip.Tracks.push_back( std::move( track ) );
-            return clip.Tracks.back();
         }
 
         /// The clip track name and the pose a subject would be keyed with, in one place. Two callers —
@@ -132,18 +114,6 @@ namespace Desert::Animation
         {
             return subject.Kind == KeySubjectKind::Bone ? ( *target.AuthoredPose )[subject.Index]
                                                         : target.Hierarchy->Get( subject.Index ).Pose;
-        }
-
-        [[nodiscard]] BoneTrack* FindTrack( AnimationClip& clip, const std::string& name )
-        {
-            for ( BoneTrack& track : clip.Tracks )
-            {
-                if ( track.BoneName == name )
-                {
-                    return &track;
-                }
-            }
-            return nullptr;
         }
     } // namespace
 
@@ -162,7 +132,10 @@ namespace Desert::Animation
         // an interaction or call this function while auto-key is off — the branch was unreachable, which
         // makes it a rule with no reader rather than a safety net. One decider, and it is `Observe`.
 
-        BoneTrack* existing = FindTrack( *target.Clip, name );
+        // The subject's keys are the Transform track of its Bone binding in the clip's sequence (locator = the
+        // subject's name; TrackEditing.hpp) — UE's controller writing into the data model, no second list.
+        Timeline::Sequence& sequence = target.Clip->Sequence;
+        Timeline::Track*    existing = FindBoneTrack( sequence, name );
         if ( existing == nullptr && change == AutoChangeMode::AutoKey )
         {
             // "Key what is already animated." A subject with no track is not part of this take yet, and
@@ -170,13 +143,13 @@ namespace Desert::Animation
             return Common::MakeSuccess( 0U );
         }
 
-        BoneTrack& track = ( existing != nullptr ) ? *existing : TrackFor( *target.Clip, name );
+        const Timeline::Track& track = ( existing != nullptr ) ? *existing : AddBoneTrack( sequence, name );
         if ( change == AutoChangeMode::AutoTrack )
         {
             return Common::MakeSuccess( 0U ); // the track now exists; the key is what this mode withholds
         }
 
-        if ( pending.Automatic && m_Modes.KeyGroup == KeyGroupMode::Changed && track.HasKeys() )
+        if ( pending.Automatic && m_Modes.KeyGroup == KeyGroupMode::Changed && HasKeys( track ) )
         {
             // AUTOMATIC ONLY, for the same reason `AutoChangeMode` is: a Key button that silently writes
             // nothing because the curve happens to agree is a button with no way to find out why. An
@@ -186,19 +159,26 @@ namespace Desert::Animation
             // against a key sitting on it: a subject held still between two keys is agreed with by the
             // curve, and keying it there would pin an interpolated value an animator never authored —
             // which is the one edit that makes a curve stop being editable.
-            const BoneTransform sampled = track.Sample( FrameTime{ target.Tick, 0.0F }, target.Clip->TickRate );
-            if ( sampled.Translation == pose.Translation && sampled.Rotation == pose.Rotation &&
-                 sampled.Scale == pose.Scale )
+            // The FOLDED track value — every section covering the tick, as playback sees it.
+            Timeline::EvaluatedValue value;
+            if ( Timeline::EvaluateTrack( track, FrameTime{ target.Tick, 0.0F }, sequence.TickRate, value ) )
             {
-                return Common::MakeSuccess( 0U );
+                const BoneTransform& sampled = std::get<BoneTransform>( value );
+                if ( sampled.Translation == pose.Translation && sampled.Rotation == pose.Rotation &&
+                     sampled.Scale == pose.Scale )
+                {
+                    return Common::MakeSuccess( 0U );
+                }
             }
         }
 
-        if ( !SetTransformKey( track, target.Tick, pose, target.Clip->TickRate ) )
+        const auto keyed = SetBoneKey( sequence, name, target.Tick, pose );
+        if ( !keyed.IsSuccess() )
         {
             return Common::MakeFormattedError<uint32_t>(
-                 "{} '{}': its pose could not be written as a key at tick {}",
-                 subject.Kind == KeySubjectKind::Bone ? "bone" : "control", name, target.Tick.Value );
+                 "{} '{}': its pose could not be written as a key at tick {}: {}",
+                 subject.Kind == KeySubjectKind::Bone ? "bone" : "control", name, target.Tick.Value,
+                 keyed.GetError() );
         }
         return Common::MakeSuccess( 1U );
     }
@@ -439,16 +419,8 @@ namespace Desert::Animation
         for ( uint32_t control = 0; control < static_cast<uint32_t>( target.Hierarchy->Size() ); ++control )
         {
             const std::string& name  = target.Hierarchy->Get( control ).Name;
-            const BoneTrack*   found = nullptr;
-            for ( const BoneTrack& track : target.Clip->Tracks )
-            {
-                if ( track.BoneName == name )
-                {
-                    found = &track;
-                    break;
-                }
-            }
-            if ( found == nullptr || !found->HasKeys() )
+            const Timeline::Track* found = FindBoneTrack( std::as_const( target.Clip->Sequence ), name );
+            if ( found == nullptr || !HasKeys( *found ) )
             {
                 // LEFT WHERE IT IS. An unkeyed control has no animation, and "no animation" is not "at the
                 // origin" — sampling an empty track would hand back a zero translation and an identity
@@ -456,7 +428,13 @@ namespace Desert::Animation
                 continue;
             }
 
-            const BoneTransform sampled = found->Sample( FrameTime{ target.Tick, 0.0F }, target.Clip->TickRate );
+            Timeline::EvaluatedValue value;
+            if ( !Timeline::EvaluateTrack( *found, FrameTime{ target.Tick, 0.0F }, target.Clip->Sequence.TickRate,
+                                           value ) )
+            {
+                continue; // muted, or no section covers the tick: the clip says nothing here — left where it is
+            }
+            const BoneTransform sampled = std::get<BoneTransform>( value );
             const auto          written = keyer.Write( target, control, sampled, ControlWriteSource::Playback );
             if ( !written.IsSuccess() )
             {

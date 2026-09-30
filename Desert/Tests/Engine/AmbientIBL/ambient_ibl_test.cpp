@@ -242,8 +242,12 @@ TEST( AmbientIBL, TheCompositionCarriesNoConstantTermOfItsOwn )
 }
 
 // THE relation the owner's experiment measured, and the only form in which it can be stated: not that
-// two numbers agree, but that there is only ONE number. Both render paths reach their ambient through
-// ComposeAmbient in Mesh/AmbientIBL.glslh, and neither adds a term beside it.
+// two numbers agree, but that there is only ONE number. Since SHM1 the ambient belongs to the SHADING MODEL
+// (UE: the shading model decides how a surface answers the environment): both render paths sample the
+// environment once (DesertSampleAmbient) and hand it to the model's dispatch
+// (DesertEvaluateShadingModelAmbient); DefaultLit — the model every PBR surface uses — composes it through
+// ComposeAmbient in Mesh/AmbientIBL.glslh. The test used to demand ComposeAmbient in the PASSES; that pinned
+// the pre-registry design, where each pass was DefaultLit's only author.
 //
 // A numeric comparison here would be theatre — it would compute the same C++ function twice and call
 // the agreement evidence. What can actually regress is a shader growing its own ambient again, which is
@@ -276,9 +280,21 @@ TEST( AmbientIBL, BothRenderPathsReachTheirAmbientThroughTheOneSharedComposition
 
         EXPECT_NE( source.find( "#include <Mesh/AmbientIBL.glslh>" ), std::string::npos )
              << relative << " does not compile the shared ambient";
-        EXPECT_NE( source.find( "ComposeAmbient(" ), std::string::npos )
-             << relative << " does not assemble its ambient through the shared composition";
+        EXPECT_NE( source.find( "DesertSampleAmbient(" ), std::string::npos )
+             << relative << " does not sample its environment through the shared DesertSampleAmbient";
+        EXPECT_NE( source.find( "DesertEvaluateShadingModelAmbient(" ), std::string::npos )
+             << relative << " does not hand its ambient to the shading model";
     }
+
+    // The lit model — the one the owner's 0.08 experiment was about — assembles through the one composition.
+    const std::filesystem::path lit =
+         root / "Editor" / "Resources" / "Shaders" / "ShadingModels" / "DefaultLit.shadingmodel";
+    ASSERT_TRUE( std::filesystem::exists( lit ) ) << lit.string();
+    const std::ifstream litIn( lit, std::ios::binary );
+    std::ostringstream  litBuffer;
+    litBuffer << litIn.rdbuf();
+    EXPECT_NE( litBuffer.str().find( "ComposeAmbient(" ), std::string::npos )
+         << "ShadingModels/DefaultLit.shadingmodel does not assemble its ambient through the shared composition";
 }
 
 TEST( AmbientIBL, OcclusionAttenuatesTheWholeAmbientAndNotOnlyTheFloor )

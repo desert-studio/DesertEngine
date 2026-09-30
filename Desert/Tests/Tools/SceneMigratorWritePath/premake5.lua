@@ -25,6 +25,27 @@ project(test_name)
         -- The anim graph's JSON round trip: schema step 21 moves the state machine out of the entity and
         -- reads it with the engine's own parser, so every suite that compiles the migration links it too.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/PoseGraph.cpp",
+        -- ANIM-I9: scene v41 lifts the v40 UIAnim block through LiftUIAnimation (Source/UILift.cpp).
+        "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/UILift.cpp",
+        -- The loop raises `.anim` too: ANIM v4 -> v5 (generation 3 lift, VerifyLift) and v5 -> v6 (the
+        -- UE interpolation rule, ClipInterpShift) — the tool's own steps, plus the engine's clip writer
+        -- and the evaluator the lift is proved with.
+        "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipMigration.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipGeneration3.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipLift.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/ClipInterpShift.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Evaluator.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Channel.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Binding.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Track.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Sequence.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/SequenceFormat.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/EditMesh.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/EditMeshAttributes.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/EditMeshConversion.cpp",
@@ -98,10 +119,6 @@ project(test_name)
     -- Optick: Common's JobSystem registers its worker threads with the profiler.
     links { "Common", "Optick" }
 
-    -- Common contains Objective-C (MacOSFileSystem file dialog) — referencing FileSystem pulls it in,
-    -- so the ObjC runtime + AppKit must link too.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

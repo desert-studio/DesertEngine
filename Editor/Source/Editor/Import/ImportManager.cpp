@@ -13,6 +13,8 @@
 
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
+#include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
+#include <Engine/Animation/Timeline/Binding.hpp>
 #include <Engine/Animation/SkeletonReference.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -114,8 +116,8 @@ namespace Desert::Editor
         // from. nullopt = the rig is a new skeleton - the import writes its .skeleton and references that.
         Common::ResultStr<std::optional<Common::Content::AssetGuid>>
         ExistingSkeletonFor( const Assets::Serialization::SkeletonAssetData& rig, const bool skinnedMesh,
-                             const std::vector<Assets::Serialization::AnimationAssetData>& clips,
-                             const std::optional<Common::Content::AssetGuid>&              chosenSkeleton,
+                             const std::vector<Animation::AnimationClip>&     clips,
+                             const std::optional<Common::Content::AssetGuid>& chosenSkeleton,
                              const std::filesystem::path& ownSkeleton, const std::filesystem::path& source )
         {
             using Result = std::optional<Common::Content::AssetGuid>;
@@ -189,9 +191,9 @@ namespace Desert::Editor
                 }
             }
             for ( const auto& clip : clips )
-                for ( const auto& channel : clip.Channels )
-                    if ( !channel.BoneName.empty() )
-                        required.push_back( Animation::RequiredBone{ channel.BoneName, std::nullopt } );
+                for ( const auto& binding : clip.Sequence.Bindings )
+                    if ( binding.Kind == Animation::Timeline::BindingKind::Bone && !binding.Locator.empty() )
+                        required.push_back( Animation::RequiredBone{ binding.Locator, std::nullopt } );
 
             const auto&               chosen = candidates[pick];
             const Animation::Skeleton existing( std::move( rigs[pick].Bones ) );
@@ -437,12 +439,11 @@ namespace Desert::Editor
 
         for ( auto& anim : resolved.Animations )
         {
-            if ( !skeleton.IsNull() )
-                anim.Skeleton = Assets::ContentRegistry::ReferenceTo( skeleton );
+            anim.Skeleton         = skeleton;
             const auto serialized = SerializeAnimationAsset( anim, sourcePath );
             if ( serialized )
                 written.WrittenClips.push_back(
-                     SkinnedAssetPath( sourcePath, std::format( "_{}.anim", anim.Name ) ) );
+                     SkinnedAssetPath( sourcePath, std::format( "_{}.anim", anim.AnimationName ) ) );
             record( serialized );
         }
 
@@ -553,14 +554,21 @@ namespace Desert::Editor
         return Common::Content::AssetGuidFromText( stamped.Header->Guid );
     }
 
-    Common::BoolResultStr
-    ImportManager::SerializeAnimationAsset( const Desert::Assets::Serialization::AnimationAssetData& data,
-                                            const std::filesystem::path&                             sourcePath )
+    Common::BoolResultStr ImportManager::SerializeAnimationAsset( const Animation::AnimationClip& clip,
+                                                                  const std::filesystem::path&    sourcePath )
     {
-        auto cookedPath = SkinnedAssetPath( sourcePath, "_" + data.Name + ".anim" );
+        auto cookedPath = SkinnedAssetPath( sourcePath, std::format( "_{}.anim", clip.AnimationName ) );
+        // THE ONE CLIP WRITER'S BODY (BuildAssetDataFromClip, as SaveClipToFile): the import adds only what a
+        // save keeps from the file it replaces — the header GUID — and the source it came from.
+        auto built = Assets::Serialization::BuildAssetDataFromClip( clip );
+        if ( !built )
+            return Common::MakeError<bool>( built.GetError() );
+        const Assets::Serialization::AnimationAssetData data = built.ExtractValue();
         // A RE-IMPORT KEEPS THE CLIP'S IDENTITY (T7e, ANIM 4), as the rig's above: sequencer tracks and anim
         // graphs name the clip, and a fresh GUID would orphan them.
-        auto stamped   = data;
+        auto stamped = data;
+        if ( !clip.Skeleton.IsNull() )
+            stamped.Skeleton = Assets::ContentRegistry::ReferenceTo( clip.Skeleton );
         stamped.Header = Assets::HeaderKeepingFileGuid( cookedPath, Common::Content::ContentKind::Animation,
                                                         Assets::Serialization::AnimationTextSubsystems() );
         // THE CLIP NAMES ITS SOURCE (THM-FIXJ; UE: UAnimSequence::AssetImportData): Reimport of
