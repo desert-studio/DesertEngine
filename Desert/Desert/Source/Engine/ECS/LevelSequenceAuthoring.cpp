@@ -104,8 +104,57 @@ namespace Desert::ECS
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr AddAnimationSection( T::Sequence& sequence, const T::BindingGuid& binding,
+                                               const Common::Content::AssetGuid& clip,
+                                               const Animation::FrameNumber start, const Animation::FrameNumber end,
+                                               const bool loop )
+    {
+        const T::Binding* bound = T::FindBinding( sequence, binding );
+        if ( bound == nullptr || bound->Kind != T::BindingKind::Entity )
+            return Common::MakeError( "Animation track: the binding is not an actor (Entity) binding" );
+
+        T::Sequence edited = sequence;
+        T::Track*   track  = nullptr;
+        for ( T::Track& candidate : edited.Tracks )
+            if ( candidate.Binding == binding && candidate.Kind == T::TrackKind::Animation )
+                track = &candidate;
+        if ( track == nullptr )
+        {
+            T::Track created;
+            created.Binding  = binding;
+            created.Property = kLevelSequenceAnimationProperty;
+            created.Kind     = T::TrackKind::Animation;
+            edited.Tracks.push_back( std::move( created ) );
+            track = &edited.Tracks.back();
+        }
+        // UE stacks an overlapping skeletal section on the next row; the first row whose sections all miss
+        // [start, end] takes it.
+        int32_t row = 0;
+        for ( bool clash = true; clash; )
+        {
+            clash = std::any_of( track->Sections.begin(), track->Sections.end(),
+                                 [&]( const T::Section& other )
+                                 { return other.Row == row && !( other.End < start ) && !( end < other.Start ); } );
+            if ( clash )
+                ++row;
+        }
+        T::Section section;
+        section.Start   = start;
+        section.End     = end;
+        section.Row     = row;
+        section.Content = T::AnimationSectionContent{ clip, Animation::FrameNumber{ 0 }, 1.0, loop };
+        track->Sections.push_back( std::move( section ) );
+
+        if ( const auto valid = T::Validate( edited ); !valid )
+            return Common::MakeFormattedError<bool>( "Animation track: {}", valid.GetError() );
+        edited.Revision = sequence.Revision + 1;
+        sequence        = std::move( edited );
+        return Common::MakeSuccess( true );
+    }
+
     LevelSequenceStep LevelSequencePreview::Scrub( entt::registry& registry, const T::Sequence& sequence,
-                                                   const Animation::FrameNumber tick )
+                                                   const Animation::FrameNumber tick,
+                                                   const LevelSequenceClipSource& clips )
     {
         LevelSequenceEntityHost host( registry, m_NoOverrides );
 
@@ -128,12 +177,21 @@ namespace Desert::ECS
             saved.HadVisibility = registry.has<VisibilityComponent>( entity );
             if ( saved.HadVisibility )
                 saved.Visible = registry.get<VisibilityComponent>( entity ).Visible;
+            if ( const auto* animation = registry.try_get<AnimationComponent>( entity );
+                 animation != nullptr && animation->Animator )
+            {
+                saved.HadAnimator = true;
+                saved.Clip        = animation->Animator->GetCurrentClip();
+                saved.Tick        = animation->Animator->GetCurrentTick();
+                saved.Loop        = animation->Loop;
+                saved.Playing     = animation->Playing;
+            }
             m_Saved.push_back( saved );
         }
 
         LevelSequencePlayback      playback( sequence );
         const Animation::FrameTime at{ tick, 0.0F };
-        return StepLevelSequence( registry, m_NoOverrides, playback, T::TimeStep{ at, at } );
+        return StepLevelSequence( registry, m_NoOverrides, playback, T::TimeStep{ at, at }, clips );
     }
 
     void LevelSequencePreview::Restore( entt::registry& registry )
@@ -148,6 +206,20 @@ namespace Desert::ECS
                 registry.get<VisibilityComponent>( saved.Entity ).Visible = saved.Visible;
             else if ( !saved.HadVisibility && registry.has<VisibilityComponent>( saved.Entity ) )
                 registry.remove<VisibilityComponent>( saved.Entity );
+            if ( auto* animation = registry.try_get<AnimationComponent>( saved.Entity );
+                 saved.HadAnimator && animation != nullptr && animation->Animator )
+            {
+                // The clip the entity played before the preview, at the tick it stood on; an entity that had
+                // none keeps the sequence's (the Animator cannot be emptied back — Stop keeps the clip too).
+                if ( saved.Clip != nullptr && animation->Animator->GetCurrentClip() != saved.Clip )
+                {
+                    animation->Animator->Play( *saved.Clip, saved.Loop );
+                    animation->CurrentClip = saved.Clip->AnimationName;
+                }
+                if ( saved.Clip != nullptr )
+                    animation->Animator->SetTick( saved.Tick );
+                animation->Playing = saved.Playing;
+            }
         }
         m_Saved.clear();
     }

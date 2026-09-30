@@ -6,14 +6,29 @@
 
 #include <entt/entt.hpp>
 
+#include <functional>
 #include <optional>
 #include <set>
 #include <string>
 #include <vector>
 
+namespace Desert::Animation
+{
+    class AnimationClip;
+}
+
 namespace Desert::ECS
 {
     struct LevelSequenceComponent;
+
+    /**
+     * @brief Where the host finds the clip an Animation section names (UE: the section's UAnimSequence
+     * reference, loaded by the asset system). Returns nullptr when no such clip is resident; the host then
+     * refuses the section by name. The ECS system and the editor preview inject one over AssetManager
+     * (ByGuid → AnimationAsset::GetClip); the suite injects its own clips. The clip must outlive the step.
+     */
+    using LevelSequenceClipSource =
+         std::function<const Animation::AnimationClip*( const Common::Content::AssetGuid& clip )>;
 
     /**
      * @brief The LevelSequence host of the Timeline seam (Evaluator.hpp `ITimelineHost`): the entities of ONE
@@ -33,11 +48,19 @@ namespace Desert::ECS
      *   "Visible"     bool → VisibilityComponent::Visible
      * Any other property, or a value of the wrong kind, is REFUSED by name into `Refusals()` — never skipped
      * in silence.
+     *
+     * ANIMATION (UE: the Skeletal Animation track on an actor binding): the section's clip, found through the
+     * injected `LevelSequenceClipSource`, poses the bound entity's `AnimationComponent::Animator` at the
+     * section's clip time — the SAME path the Sequencer's Skeletal timeline scrubs through: `Playing` off
+     * (the sequence owns the playhead), `Play(clip, loop)` when another clip is current, `SetTick(time)`,
+     * which wraps a looping clip and clamps a finished one. An entity with no Animator, a clip the source
+     * does not have, or a section blended below full weight / additively is REFUSED by name.
      */
     class LevelSequenceEntityHost final : public Animation::Timeline::ITimelineHost
     {
     public:
-        LevelSequenceEntityHost( entt::registry& registry, const LevelSequenceComponent& component );
+        LevelSequenceEntityHost( entt::registry& registry, const LevelSequenceComponent& component,
+                                 LevelSequenceClipSource clips = {} );
 
         [[nodiscard]] std::optional<Animation::Timeline::ResolvedBinding>
              Resolve( const Animation::Timeline::Binding& binding ) override;
@@ -65,6 +88,7 @@ namespace Desert::ECS
     private:
         entt::registry&               m_Registry;
         const LevelSequenceComponent& m_Component;
+        LevelSequenceClipSource       m_Clips;
         std::optional<entt::entity>   m_CameraCut;
         std::vector<std::string>      m_Refusals;
         std::vector<std::string>      m_Fired;
@@ -93,7 +117,8 @@ namespace Desert::ECS
     [[nodiscard]] LevelSequenceStep StepLevelSequence( entt::registry&                      registry,
                                                        const LevelSequenceComponent&        component,
                                                        LevelSequencePlayback&               playback,
-                                                       const Animation::Timeline::TimeStep& step );
+                                                       const Animation::Timeline::TimeStep& step,
+                                                       const LevelSequenceClipSource&       clips = {} );
 
     /**
      * @brief What an actor remembers between steps for the Scene half: which errors it already reported

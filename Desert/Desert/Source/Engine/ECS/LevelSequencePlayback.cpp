@@ -27,8 +27,9 @@ namespace Desert::ECS
     } // namespace
 
     LevelSequenceEntityHost::LevelSequenceEntityHost( entt::registry&               registry,
-                                                      const LevelSequenceComponent& component )
-         : m_Registry( registry ), m_Component( component )
+                                                      const LevelSequenceComponent& component,
+                                                      LevelSequenceClipSource       clips )
+         : m_Registry( registry ), m_Component( component ), m_Clips( std::move( clips ) )
     {
     }
 
@@ -154,13 +155,51 @@ namespace Desert::ECS
         m_CameraCut = entity;
     }
 
-    void LevelSequenceEntityHost::PlayAnimation( const T::ResolvedBinding&, const T::AnimationSample& sample )
+    void LevelSequenceEntityHost::PlayAnimation( const T::ResolvedBinding& target, const T::AnimationSample& sample )
     {
-        // Driving an entity's Animator from a sequence section is the Animator host's seam (Animator.hpp is
-        // outside this change); until it lands the section is REFUSED by name, not dropped.
-        m_Refusals.push_back( std::format( "Animation section of clip {}: an entity's Animator is not driven by a "
-                                           "LevelSequence yet",
-                                           Common::Content::AssetGuidToText( sample.Clip ) ) );
+        const std::string clipText = Common::Content::AssetGuidToText( sample.Clip );
+        const entt::entity entity   = EntityOf( target );
+        if ( !m_Registry.valid( entity ) || !m_Registry.has<AnimationComponent>( entity ) ||
+             !m_Registry.get<AnimationComponent>( entity ).Animator )
+        {
+            m_Refusals.push_back( std::format( "Animation section of clip {}: the bound entity has no Animator "
+                                               "(a Skinned Mesh with an Animation component)",
+                                               clipText ) );
+            return;
+        }
+        if ( sample.Blend != T::SectionBlendType::Absolute || sample.Weight < 1.0F )
+        {
+            // UE blends overlapping skeletal sections by weight; this host poses ONE clip at full weight, so a
+            // blended section is named rather than played as if it were absolute.
+            m_Refusals.push_back( std::format( "Animation section of clip {}: only an absolute section at full "
+                                               "weight poses the skeleton (weight {})",
+                                               clipText, sample.Weight ) );
+            return;
+        }
+        const Animation::AnimationClip* clip = m_Clips ? m_Clips( sample.Clip ) : nullptr;
+        if ( clip == nullptr )
+        {
+            m_Refusals.push_back(
+                 std::format( "Animation section of clip {}: no such clip is loaded", clipText ) );
+            return;
+        }
+
+        // THE SKELETAL TIMELINE'S PATH (SequencerPanel's clip picker + scrub): pause the component so the ECS
+        // Animation system does not advance the playhead the sequence set, make the clip current, move to the
+        // tick. SetTick recomputes the pose now and wraps / clamps by the section's Loop.
+        AnimationComponent& animation = m_Registry.get<AnimationComponent>( entity );
+        Animation::Animator& animator = *animation.Animator;
+        animation.Playing             = false;
+        if ( animator.GetCurrentClip() != clip )
+        {
+            animator.Play( *clip, sample.Loop );
+            animation.CurrentClip = clip->AnimationName;
+        }
+        else
+        {
+            animator.SetLoop( sample.Loop );
+        }
+        animator.SetTick( sample.ClipTime );
     }
 
     LevelSequencePlayback::LevelSequencePlayback( const T::Sequence& sequence )
@@ -169,10 +208,11 @@ namespace Desert::ECS
     }
 
     LevelSequenceStep StepLevelSequence( entt::registry& registry, const LevelSequenceComponent& component,
-                                         LevelSequencePlayback& playback, const T::TimeStep& step )
+                                         LevelSequencePlayback& playback, const T::TimeStep& step,
+                                         const LevelSequenceClipSource& clips )
     {
         playback.Evaluator.Evaluate( step, playback.Frame );
-        LevelSequenceEntityHost host( registry, component );
+        LevelSequenceEntityHost host( registry, component, clips );
         LevelSequenceStep       out;
         out.Report      = playback.Evaluator.Apply( playback.Frame, host );
         out.CameraCut   = host.CameraCut();

@@ -14,6 +14,12 @@
 
 #include <Common/Json/Document.hpp>
 
+#include "../ClipFixture.hpp"
+
+#include <glm/gtc/matrix_transform.hpp>
+
+#include <cmath>
+
 #include <gtest/gtest.h>
 
 #include <string>
@@ -389,4 +395,62 @@ TEST( LevelSequenceDocument, AnOverlappingCameraCutLeavesTheSequenceAsItWas )
                        .IsSuccess() );
     EXPECT_EQ( sequence.Tracks.size(), tracks );
     EXPECT_EQ( sequence.Tracks.back().Sections.size(), 1U );
+}
+
+TEST( LevelSequenceDocument, AnAnimationTrackPosesTheBoundEntitysSkeleton )
+{
+    // A two-bone chain; the clip holds "child" at +5 on Y for one second.
+    std::vector<A::BoneInfo> bones( 2 );
+    bones[0].Name               = "root";
+    bones[0].LocalBindTransform = glm::mat4( 1.0F );
+    bones[1].Name               = "child";
+    bones[1].ParentBoneID       = 0U;
+    bones[1].LocalBindTransform = glm::translate( glm::mat4( 1.0F ), glm::vec3( 0.0F, 1.0F, 0.0F ) );
+    A::Skeleton skeleton( std::move( bones ) );
+    skeleton.RecomputeOffsetMatrices();
+    const A::AnimationClip walk = ClipFixture::StaticBoneClip(
+         "Walk", A::FrameNumber{ A::PROJECT_TICK_RATE.Numerator }, "child", glm::vec3( 0.0F, 5.0F, 0.0F ) );
+    const AssetGuid walkGuid{ 0xA11, 0xCE };
+
+    World world;
+    auto& animation = world.registry.emplace<ECS::AnimationComponent>( world.door,
+                                                                       std::make_unique<A::Animator>( skeleton ) );
+    ASSERT_TRUE( animation.Playing );
+
+    T::Sequence sequence;
+    sequence.Host  = T::SequenceHost::LevelSequence;
+    sequence.Start = A::FrameNumber{ 0 };
+    sequence.End   = A::FrameNumber{ 100 };
+    const auto door = ECS::AddEntityBinding( sequence, Common::UUID( kDoorUuid ), "Door" );
+    ASSERT_TRUE( door.IsSuccess() );
+    const auto added = ECS::AddAnimationSection( sequence, door.GetValue(), walkGuid, A::FrameNumber{ 0 },
+                                                 A::FrameNumber{ 100 }, true );
+    ASSERT_TRUE( added.IsSuccess() ) << added.GetError();
+
+    const ECS::LevelSequenceClipSource clips = [&]( const AssetGuid& guid ) -> const A::AnimationClip*
+    { return guid == walkGuid ? &walk : nullptr; };
+
+    ECS::LevelSequencePreview preview;
+    const auto step = preview.Scrub( world.registry, sequence, A::FrameNumber{ 10 }, clips );
+    EXPECT_TRUE( step.Refusals.empty() ) << step.Refusals.front();
+
+    // The Skeletal timeline's path, by hand: the same clip at the same tick.
+    A::Animator reference( skeleton );
+    reference.Play( walk );
+    reference.SetTick( A::FrameTime{ A::FrameNumber{ 10 }, 0.0F } );
+
+    EXPECT_EQ( animation.Animator->GetCurrentClip(), &walk );
+    EXPECT_FALSE( animation.Playing ) << "the sequence owns the playhead while it poses the entity";
+    const glm::mat4 posed = animation.Animator->GetPose().Matrices[1];
+    EXPECT_NEAR( posed[3].y, reference.GetPose().Matrices[1][3].y, 1e-4F );
+    EXPECT_GT( std::abs( posed[3].y ), 1.0F ) << "the child is at the clip's +5, not at its bind +1";
+
+    // No clip source: the section is refused by name, never skipped in silence.
+    ECS::LevelSequencePreview blind;
+    const auto refused = blind.Scrub( world.registry, sequence, A::FrameNumber{ 10 } );
+    ASSERT_EQ( refused.Refusals.size(), 1U );
+    EXPECT_NE( refused.Refusals.front().find( "no such clip" ), std::string::npos ) << refused.Refusals.front();
+
+    preview.Restore( world.registry );
+    EXPECT_TRUE( animation.Playing ) << "closing the preview gives the Animation component its playback back";
 }

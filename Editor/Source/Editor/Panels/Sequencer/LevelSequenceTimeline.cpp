@@ -20,6 +20,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/LevelSequenceAuthoring.hpp>
+#include <Engine/ECS/System/LevelSequenceSystem.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -116,7 +117,9 @@ namespace Desert::Editor
         const auto scene = m_Scene.lock();
         if ( !scene )
             return;
-        const auto step = m_LevelPreview.Scrub( scene->GetRegistry(), sequence, m_LevelTick );
+        const auto step = m_LevelPreview.Scrub(
+             scene->GetRegistry(), sequence, m_LevelTick,
+             m_AssetManager != nullptr ? ECS::LevelSequenceClips( *m_AssetManager ) : ECS::LevelSequenceClipSource{} );
         for ( const auto& refusal : step.Refusals )
             LOG_WARN( "[Sequencer] level preview: {}", refusal );
         m_LevelTickShown     = m_LevelTick.Value;

@@ -31,6 +31,8 @@ namespace Desert::ECS
     inline constexpr const char* kLevelSequenceTransformProperty = "Transform";
     /// The property name of the sequence-level Camera Cut track.
     inline constexpr const char* kLevelSequenceCameraCutProperty = "CameraCut";
+    /// The Property of the Animation track an actor binding carries (UE: the Skeletal Animation track).
+    inline constexpr const char* kLevelSequenceAnimationProperty = "Animation";
 
     /**
      * @brief "+ Track → Actor" (UE: a Possessable): the Entity binding naming @p entity, created when missing.
@@ -67,11 +69,24 @@ namespace Desert::ECS
                                                       Animation::FrameNumber start, Animation::FrameNumber end );
 
     /**
+     * @brief An Animation section playing @p clip over [@p start, @p end] on the Animation track of the Entity
+     * binding @p binding (the track created when missing; a new section goes on the first row free over the
+     * range). UE: "+ Track ▸ Animation ▸ <clip>" on an actor with a skeletal mesh. Refuses a binding that is
+     * missing or not an Entity; whatever `Validate` refuses leaves the sequence exactly as it was.
+     */
+    [[nodiscard]] Common::BoolResultStr AddAnimationSection( Animation::Timeline::Sequence&          sequence,
+                                                             const Animation::Timeline::BindingGuid& binding,
+                                                             const Common::Content::AssetGuid&       clip,
+                                                             Animation::FrameNumber start, Animation::FrameNumber end,
+                                                             bool loop );
+
+    /**
      * @brief The Sequencer's preview of a level sequence over a scene's registry (UE: the editor's sequence
      * player with "Restore State" on close).
      *
      * `Scrub` poses the registry at a tick through `LevelSequenceEntityHost`, having first RECORDED the state of
-     * every entity it is about to write (its Transform, and whether it had a VisibilityComponent and its value).
+     * every entity it is about to write (its Transform, whether it had a VisibilityComponent and its value, and
+     * its Animator's clip, playhead, loop and the component's Playing — an Animation section repoints them).
      * `Restore` writes every recorded state back — the component the preview added is removed again — and
      * forgets it. An entity destroyed while previewed is skipped. The destructor does NOT restore: it has no
      * registry, and a registry that died first has nothing to give back to.
@@ -80,7 +95,7 @@ namespace Desert::ECS
     {
     public:
         LevelSequenceStep Scrub( entt::registry& registry, const Animation::Timeline::Sequence& sequence,
-                                 Animation::FrameNumber tick );
+                                 Animation::FrameNumber tick, const LevelSequenceClipSource& clips = {} );
         void              Restore( entt::registry& registry );
 
         [[nodiscard]] bool Active() const
@@ -96,6 +111,11 @@ namespace Desert::ECS
             bool               HadTransform  = false;
             bool               HadVisibility = false;
             bool               Visible       = true;
+            bool                            HadAnimator = false;
+            const Animation::AnimationClip* Clip        = nullptr;
+            Animation::FrameTime            Tick;
+            bool                            Loop    = true;
+            bool                            Playing = true;
         };
         std::vector<Saved> m_Saved;
         /// No overrides: the document is about the ASSET, not about one placed actor's re-pointing of it.
