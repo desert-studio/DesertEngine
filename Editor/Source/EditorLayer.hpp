@@ -27,6 +27,7 @@
 #include "Editor/Core/FlightRules.hpp"
 #include "Editor/Core/PanelRegistry.hpp"
 #include "Editor/RenderSystems/RenderRigistry.hpp"
+#include "Editor/Widgets/ToolbarLayout.hpp"
 #include "Editor/Widgets/WindowChrome.hpp"
 #include "Editor/Splash/RevealGate.hpp"
 #include "Editor/Splash/SplashScreen.hpp"
@@ -93,8 +94,8 @@ namespace Desert::Editor
         // ===== Top Bar Sections =====
         void DrawProjectSection();
         void DrawSceneRenameSection();
-        void DrawPlayButton( const ImVec2& size = ImVec2( 0.0f, 0.0f ) );
-        void DrawPauseButton( const ImVec2& size = ImVec2( 0.0f, 0.0f ) );
+        // The segmented Play | Options | Pause | Stop group at the slots `group` laid out, on row `y`.
+        void DrawPlaybackGroup( const ::Desert::Editor::ToolbarLayout::PlaybackGroup& group, float y );
 
         // UE5-style toolbar strip below the menu bar. Left: save + undo/redo, editor modes, transform
         // tools, the two snap steps. Centre: playback. Right: package, profiler, preferences. Drawn inside
