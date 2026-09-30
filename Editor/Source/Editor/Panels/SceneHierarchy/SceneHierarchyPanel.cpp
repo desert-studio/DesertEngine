@@ -877,10 +877,12 @@ namespace Desert::Editor
             // (This comment said "FOUR columns" while the call below asked for three, from the time the eye
             // was split out. It is four now for real; the count is written once, below, and read from there.)
             //
-            // Resizable stays: the user can still widen Name at the Type column's expense. What changed is
-            // the DEFAULT, which is what every fresh layout gets.
-            constexpr ImGuiTableFlags tableFlags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
-                                                   ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable;
+            // UE's Outliner: Name FILLS and keeps a minimum, Type and the gutters are fixed and not resizable
+            // (OutlinerColumns). A resizable Type column kept whatever width it was dragged or saved at, and a
+            // fixed column that is not resizable is the only kind ImGui re-sizes every frame from the width
+            // given here — so the split is recomputed per frame and Name never collapses to one character.
+            constexpr ImGuiTableFlags tableFlags =
+                 ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp;
 
             // A toggle gutter: one glyph plus the cell padding it is drawn inside. Measured on the WIDEST
             // glyph either gutter can show, so neither clips when its icon changes with the row's state.
@@ -891,11 +893,25 @@ namespace Desert::Editor
             const float typeWidth =
                  TypeColumnWidth( []( const char* s ) { return ImGui::CalcTextSize( s ).x; }, 12.0f );
 
-            ImGui::PushStyleVar( ImGuiStyleVar_CellPadding, ImVec2( 4.0f, 2.0f ) );
-            if ( ImGui::BeginTable( "##outliner", 4, tableFlags ) )
+            constexpr float kCellPadX = 4.0f;
+            constexpr int   kColumns  = 4;
+            // Each column's cell padding on both sides, and the three inner borders between four columns.
+            constexpr float            kChrome = ( kColumns * 2.0f * kCellPadX ) + ( kColumns - 1 );
+            const OutlinerColumnWidths split =
+                 OutlinerColumns( ImGui::GetContentRegionAvail().x - kChrome - ( 2.0f * gutterWidth ), typeWidth,
+                                  kOutlinerNameMinEm * ImGui::GetFontSize() );
+
+            ImGui::PushStyleVar( ImGuiStyleVar_CellPadding, ImVec2( kCellPadX, 2.0f ) );
+            if ( ImGui::BeginTable( "##outliner", kColumns, tableFlags ) )
             {
                 ImGui::TableSetupColumn( "Name", ImGuiTableColumnFlags_WidthStretch );
-                ImGui::TableSetupColumn( "Type", ImGuiTableColumnFlags_WidthFixed, typeWidth );
+                // A zero width drops the column for the frame (Disabled), never an ImGui auto-fit to content:
+                // a fixed column given no width measures its cells, which is the width Name had no room for.
+                ImGui::TableSetupColumn(
+                     "Type",
+                     ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize |
+                          ( split.Type > 0.0f ? ImGuiTableColumnFlags_None : ImGuiTableColumnFlags_Disabled ),
+                     split.Type );
                 // NoResize on the gutters: each holds one glyph, and a user who drags one to nothing loses
                 // the only control the outliner has for that state.
                 ImGui::TableSetupColumn( "##visible",

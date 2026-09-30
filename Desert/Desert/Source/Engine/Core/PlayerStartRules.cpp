@@ -1,13 +1,77 @@
-// The two pure rules of Engine/Core/PlayerStart.hpp, in their own translation unit so a test compiles them
-// without the scene, the asset manager and the renderer behind SpawnDefaultPawn.
+// The pure rules of Engine/Core/PlayerStart.hpp and PawnBodyRules.hpp, in their own translation unit so a test
+// compiles them without the scene, the asset manager and the renderer behind SpawnDefaultPawn.
+#include "PawnBodyRules.hpp"
 #include "PlayerStart.hpp"
 
+#include <Engine/Assets/Prefab/PrefabOverrides.hpp>
+
+#include <algorithm>
+#include <format>
+#include <span>
 #include <vector>
 
 namespace Desert::Core
 {
     namespace
     {
+        // An override not yet applied, with the part of its path still to walk from the records being read.
+        struct PendingOverride
+        {
+            const Assets::PrefabOverrideData* Over;
+            std::span<const Common::UUID>     Rest;
+        };
+
+        using PawnBlock = std::optional<Common::Json::Value>;
+
+        Common::ResultStr<PawnBlock> FindPawnBlock( const std::vector<Assets::EntityData>& records,
+                                                    const std::vector<PendingOverride>&    pending,
+                                                    const NestedPrefabRecords&             nested,
+                                                    std::vector<std::string>&              stack )
+        {
+            for ( const Assets::EntityData& record : records )
+            {
+                if ( record.PrefabPath )
+                {
+                    // A link, not an entity (PrefabRecordPolicy::InstantiatedLater): the nested file's body
+                    // stands here, under the overrides addressed into it - its own first, the outer ones after.
+                    const std::string& path = *record.PrefabPath;
+                    if ( std::find( stack.begin(), stack.end(), path ) != stack.end() )
+                        return Common::MakeFormattedError<PawnBlock>( "the prefab '{}' nests itself", path );
+                    const auto body = nested( path );
+                    if ( !body )
+                        return Common::MakeFormattedError<PawnBlock>( "the nested prefab '{}': {}", path,
+                                                                      body.GetError() );
+                    std::vector<PendingOverride> inner;
+                    if ( record.PrefabOverrides )
+                        for ( const Assets::PrefabOverrideData& over : *record.PrefabOverrides )
+                            inner.push_back( { &over, over.Path } );
+                    for ( const PendingOverride& outer : pending )
+                        if ( record.id && outer.Rest.size() > 1 && outer.Rest.front() == *record.id )
+                            inner.push_back( { outer.Over, outer.Rest.subspan( 1 ) } );
+                    stack.push_back( path );
+                    auto found = FindPawnBlock( *body.GetValue(), inner, nested, stack );
+                    stack.pop_back();
+                    if ( !found || found.GetValue() )
+                        return found;
+                    continue;
+                }
+                PawnBlock block;
+                if ( const auto own = record.Components.get( "CharacterController" ); own.has_value() )
+                    block = own.value();
+                for ( const PendingOverride& over : pending )
+                {
+                    if ( !record.id || over.Rest.size() != 1 || over.Rest.front() != *record.id )
+                        continue;
+                    const auto fields = over.Over->Components.get( "CharacterController" );
+                    if ( !fields.has_value() )
+                        continue;
+                    block = block ? Assets::MergePayload( *block, fields.value() ) : fields.value();
+                }
+                if ( block )
+                    return Common::MakeSuccess( std::move( block ) );
+            }
+            return Common::MakeSuccess( PawnBlock{} );
+        }
         std::string NameList( std::span<const PlayerStartCandidate> starts,
                               const std::vector<std::size_t>&       picked )
         {
@@ -115,5 +179,12 @@ namespace Desert::Core
             stated                 = true;
         }
         return Common::MakeSuccess( std::move( request ) );
+    }
+
+    Common::ResultStr<std::optional<Common::Json::Value>>
+    PawnControllerBlock( const std::vector<Assets::EntityData>& records, const NestedPrefabRecords& nested )
+    {
+        std::vector<std::string> stack;
+        return FindPawnBlock( records, {}, nested, stack );
     }
 } // namespace Desert::Core

@@ -157,6 +157,28 @@ TEST( ThumbnailOrbitKinds, EveryRenderedPictureHasAnOrbitAndNoOtherDoes )
         EXPECT_FALSE( TP::HasThumbnailOrbit( type ) ) << static_cast<int>( type );
 }
 
+// UI-FIX2c: UE's Capture Thumbnail takes the viewport's view for any asset whose picture is shot through a camera.
+// The live check was refused on Fox.skmesh as "only a model or a material has a rendered thumbnail". The kinds are
+// exactly Edit Thumbnail's, and each is filed where its tile reads: a model on its import's cooked mesh, a skinned
+// file on itself, a material on itself.
+TEST( ThumbnailCaptureKinds, EveryKindWithAnOrbitIsCapturedAndFiledWhereItsTileReads )
+{
+    namespace TP = Desert::Editor::ThumbnailProducers;
+    using Key    = TP::CaptureKey;
+    for ( const TP::Row& row : TP::kTable )
+        EXPECT_EQ( TP::CaptureKeyOf( row.Type ).has_value(), TP::HasThumbnailOrbit( row.Type ) )
+             << static_cast<int>( row.Type ) << ": Capture Thumbnail and Edit Thumbnail disagree";
+    using Desert::Editor::FileType;
+    EXPECT_EQ( TP::CaptureKeyOf( FileType::SkinnedMesh ), Key::PosedFile );
+    EXPECT_EQ( TP::CaptureKeyOf( FileType::Skeleton ), Key::PosedFile );
+    EXPECT_EQ( TP::CaptureKeyOf( FileType::Animation ), Key::PosedFile );
+    EXPECT_EQ( TP::CaptureKeyOf( FileType::Model ), Key::ImportedMesh );
+    EXPECT_EQ( TP::CaptureKeyOf( FileType::FoliageType ), Key::ImportedMesh );
+    EXPECT_EQ( TP::CaptureKeyOf( FileType::Material ), Key::MaterialFile );
+    EXPECT_FALSE( TP::CaptureKeyOf( FileType::Texture ) ) << "a decoded picture is the file itself";
+    EXPECT_FALSE( TP::CaptureKeyOf( FileType::Skybox ) ) << "drawn under the dome camera, not the viewport's";
+}
+
 // A posed picture's orbit lives in the record of the source the skinned file STATES (MeshThumbnailHome via
 // ImportedAssetSource::SkinnedAssetSource), never the one its name suggests: `Fox_Extra_Walk.anim` is clip
 // "Extra_Walk" of Fox.glb here although Fox_Extra.glb, the longer matching stem, sits beside it (MCP-CMD2's

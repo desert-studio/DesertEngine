@@ -2,15 +2,18 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
+#include <Engine/Core/PawnBodyRules.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
+#include <Engine/Runtime/Factory/PrefabFactory.hpp>
 #include <Common/Json/Document.hpp>
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/matrix_decompose.hpp>
 
+#include <format>
 #include <vector>
 
 namespace Desert::Core
@@ -36,6 +39,19 @@ namespace Desert::Core
         {
             const auto* tag = registry.try_get<ECS::TagComponent>( entity );
             return tag != nullptr ? tag->Tag : std::string( "<unnamed>" );
+        }
+
+        // The level's Default Pawn prefab, loaded: the ONE statement of "is not a loaded prefab", for Play
+        // and for the PlayerStart's capsule alike.
+        Common::ResultStr<Assets::Asset<Assets::PrefabAsset>>
+        DefaultPawnPrefab( const Scene& scene, const Assets::AssetManager& assets, Assets::AssetHandle pawnHandle )
+        {
+            auto prefab = assets.FindByHandle<Assets::PrefabAsset>( pawnHandle );
+            if ( !prefab || !prefab->IsReadyForUse() )
+                return Common::MakeFormattedError<Assets::Asset<Assets::PrefabAsset>>(
+                     "level '{}': its Default Pawn (asset handle {}) is not a loaded prefab", scene.GetSceneName(),
+                     static_cast<uint64_t>( pawnHandle ) );
+            return Common::MakeSuccess( std::move( prefab ) );
         }
     } // namespace
 
@@ -71,11 +87,10 @@ namespace Desert::Core
             spawnAt = WorldTransformOf( reg, entities[chosen.GetValue()] );
         }
 
-        const auto prefab = assets.FindByHandle<Assets::PrefabAsset>( pawnHandle );
-        if ( !prefab )
-            return Common::MakeError<ECS::Entity>( level + ": its Default Pawn (asset handle " +
-                                                   std::to_string( static_cast<uint64_t>( pawnHandle ) ) +
-                                                   ") is not a loaded prefab" );
+        const auto found = DefaultPawnPrefab( scene, assets, pawnHandle );
+        if ( !found )
+            return Common::MakeError<ECS::Entity>( found.GetError() );
+        const Assets::Asset<Assets::PrefabAsset>& prefab = found.GetValue();
 
         glm::vec3 scale;
         glm::vec3 translation;
@@ -108,33 +123,38 @@ namespace Desert::Core
         if ( pawnHandle == 0 )
             return Common::MakeSuccess( std::optional<PawnCapsule>{} );
 
-        const auto prefab = assets.FindByHandle<Assets::PrefabAsset>( pawnHandle );
-        if ( !prefab || !prefab->IsReadyForUse() )
+        const auto prefab = DefaultPawnPrefab( scene, assets, pawnHandle );
+        if ( !prefab )
+            return Common::MakeError<std::optional<PawnCapsule>>( prefab.GetError() );
+
+        const auto block = PawnControllerBlock(
+             prefab.GetValue()->GetEntities(),
+             [&assets]( const std::string& path ) -> Common::ResultStr<const std::vector<Assets::EntityData>*>
+             {
+                 const auto resolved = Runtime::Factory::PrefabFactory::ResolveNested( assets, path );
+                 if ( !resolved )
+                     return Common::MakeError<const std::vector<Assets::EntityData>*>( resolved.GetError() );
+                 return Common::MakeSuccess( &resolved.GetValue()->GetEntities() );
+             } );
+        if ( !block )
             return Common::MakeFormattedError<std::optional<PawnCapsule>>(
-                 "level '{}': its Default Pawn (asset handle {}) is not a loaded prefab", scene.GetSceneName(),
-                 static_cast<uint64_t>( pawnHandle ) );
+                 "level '{}': its Default Pawn: {}", scene.GetSceneName(), block.GetError() );
+        if ( !block.GetValue() )
+            return Common::MakeSuccess( std::optional<PawnCapsule>{} );
 
         const auto* type = Reflection::ReflectionRegistry::Get().Find( "CharacterControllerData" );
         if ( type == nullptr )
             return Common::MakeError<std::optional<PawnCapsule>>( "CharacterControllerData is not reflected" );
-
-        for ( const auto& record : prefab->GetEntities() )
-        {
-            const auto block = record.Components.get( "CharacterController" );
-            if ( !block.has_value() )
-                continue;
-            ECS::CharacterControllerData data{};
-            Common::Json::Issues         issues;
-            Reflection::DeserializeReflected(
-                 *type, &data,
-                 Common::Json::Root( block.value(), Common::Json::Path().Key( "CharacterController" ) ), issues );
-            if ( !issues.empty() )
-                return Common::MakeFormattedError<std::optional<PawnCapsule>>(
-                     "level '{}': its Default Pawn's CharacterController block is malformed ({} issue(s))",
-                     scene.GetSceneName(), issues.size() );
-            return Common::MakeSuccess( std::optional<PawnCapsule>( PawnCapsule{ data.Radius, data.Height } ) );
-        }
-        return Common::MakeSuccess( std::optional<PawnCapsule>{} );
+        ECS::CharacterControllerData data{};
+        Common::Json::Issues         issues;
+        Reflection::DeserializeReflected(
+             *type, &data,
+             Common::Json::Root( *block.GetValue(), Common::Json::Path().Key( "CharacterController" ) ), issues );
+        if ( !issues.empty() )
+            return Common::MakeFormattedError<std::optional<PawnCapsule>>(
+                 "level '{}': its Default Pawn's CharacterController block is malformed ({} issue(s))",
+                 scene.GetSceneName(), issues.size() );
+        return Common::MakeSuccess( std::optional<PawnCapsule>( PawnCapsule{ data.Radius, data.Height } ) );
     }
 
     Common::BoolResultStr BeginPlay( Scene& scene, const Assets::AssetManager& assets, const PlayRequest& request )

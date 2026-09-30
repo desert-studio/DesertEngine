@@ -2437,8 +2437,7 @@ namespace Desert::Editor
             }
 
             // UE-style: use the current viewport view as this asset's thumbnail (frame it in the scene first).
-            if ( ( entry.Type == FileType::Model || entry.Type == FileType::Material ) &&
-                 !m_ViewportScene.expired() )
+            if ( ThumbnailProducers::CaptureKeyOf( entry.Type ) && !m_ViewportScene.expired() )
             {
                 ImGui::Separator();
                 CommandMenuItem( ContentBrowserCommand::CaptureThumbnail );
@@ -2733,14 +2732,42 @@ namespace Desert::Editor
         QueueRefresh();
     }
 
-    void FileExplorerPanel::CaptureThumbnailFromViewport( const std::string& assetPath )
+    Common::BoolResultStr FileExplorerPanel::CaptureThumbnailFromViewport( const DirectoryInformation& entry )
     {
+        // WHERE THE PICTURE IS FILED: the key the asset's tile reads and the hash its judge compares. A PNG
+        // written under the asset path alone was not what a model's tile reads (its cooked mesh's key), and a
+        // PNG with no recorded hash is Capture to the judge, so the service shot over it.
+        const std::optional<ThumbnailProducers::CaptureKey> how =
+             entry.IsFile ? ThumbnailProducers::CaptureKeyOf( entry.Type ) : std::nullopt;
+        if ( !how )
+            return Common::MakeError<bool>( "its picture is not shot through a camera (a model, skeletal mesh, "
+                                            "skeleton, animation or material has one)" );
+        ThumbnailService::PictureKey key;
+        switch ( *how )
+        {
+            case ThumbnailProducers::CaptureKey::ImportedMesh:
+            {
+                const std::optional<MeshPicture> picture = MeshPictureFor( entry.AssetPath, entry.Type );
+                if ( !picture )
+                    return Common::MakeError<bool>(
+                         "not imported: there is no cooked mesh to file a picture under" );
+                key = ThumbnailService::MeshPictureKey( picture->Cooked );
+                break;
+            }
+            case ThumbnailProducers::CaptureKey::PosedFile:
+                key = ThumbnailService::MeshPictureKey( entry.AssetPath );
+                break;
+            case ThumbnailProducers::CaptureKey::MaterialFile:
+                key = ThumbnailService::MaterialPictureKey( entry.AssetPath );
+                break;
+        }
+
         const auto scene = m_ViewportScene.lock();
         if ( !scene )
-            return;
+            return Common::MakeError<bool>( "there is no viewport scene to capture" );
         const auto img = scene->GetFinalImage(); // the main viewport's post-processed render
         if ( !img )
-            return;
+            return Common::MakeError<bool>( "the viewport has not rendered a frame yet" );
 
         Graphic::Renderer::GetInstance().WaitDeviceIdle(); // readback after the GPU finished the frame
         // THE REFUSAL IS NOW DISTINGUISHABLE FROM AN EMPTY PICTURE. The size check below was the only
@@ -2749,21 +2776,14 @@ namespace Desert::Editor
         // user had not asked for.
         const auto read = img->ReadPixelsRGBA8();
         if ( !read.IsSuccess() )
-        {
-            LOG_ERROR( "[ContentBrowser] the folder thumbnail was not captured: {}", read.GetError() );
-            return;
-        }
+            return Common::MakeFormattedError<bool>( "the viewport readback failed: {}", read.GetError() );
 
         const std::vector<uint8_t>& src = read.GetValue();
         const uint32_t              W   = img->GetWidth();
         const uint32_t              H   = img->GetHeight();
         if ( W == 0 || H == 0 || src.size() != static_cast<size_t>( W ) * H * 4 )
-        {
-            LOG_ERROR( "[ContentBrowser] the folder thumbnail was not captured: the readback returned {} "
-                       "byte(s) for a {}x{} image",
-                       src.size(), W, H );
-            return;
-        }
+            return Common::MakeFormattedError<bool>( "the viewport readback returned {} byte(s) for a {}x{} image",
+                                                     src.size(), W, H );
 
         // Center-crop to a square, then downscale (nearest) to a square thumbnail — frame the asset in the
         // viewport so the centered square captures it.
@@ -2781,14 +2801,22 @@ namespace Desert::Editor
                     out[( ( y * kOut + x ) * 4 ) + c] = src[( ( sy * W + sx ) * 4 ) + c];
             }
 
-        const std::string png = ThumbnailKey::DiskPath( assetPath ); // same key the grid reads
-        std::error_code   ec;
+        const std::string& png = key.Png;
+        std::error_code    ec;
         std::filesystem::create_directories( std::filesystem::path( png ).parent_path(), ec );
         stbi_flip_vertically_on_write( 0 ); // viewport readback is already upright (same as the offscreen path)
-        stbi_write_png( png.c_str(), kOut, kOut, 4, out.data(), kOut * 4 );
+        if ( stbi_write_png( png.c_str(), kOut, kOut, 4, out.data(), kOut * 4 ) == 0 )
+            return Common::MakeFormattedError<bool>( "the picture could not be written to '{}'", png );
+        if ( key.Hash )
+        {
+            if ( const Common::BoolResultStr recorded = ThumbnailFreshness::Record( png, *key.Hash ); !recorded )
+                return recorded;
+        }
         if ( m_Thumbnails )
             m_Thumbnails->Invalidate( png ); // drop the cached decode so the grid reloads the new image
+        m_FailedThumbs.erase( entry.AssetPath ); // a tile that was refused before shows the captured picture
         LOG_INFO( "[Thumbnail] Captured from viewport -> {}", png );
+        return Common::MakeSuccess( true );
     }
 
     std::vector<DirectoryInformation*> FileExplorerPanel::SelectedEntries() const
@@ -2835,8 +2863,6 @@ namespace Desert::Editor
                      "'{}' acts on one asset, and {} are selected", label, entries.size() );
             return Common::MakeSuccess( entries.front() );
         };
-        const auto thumbnailSubject = []( const DirectoryInformation& entry )
-        { return entry.IsFile && ( entry.Type == FileType::Model || entry.Type == FileType::Material ); };
         // One body over every selected entry; the first refusal is the command's answer, the others still run.
         const auto overEntries = [&]( const std::function<Common::BoolResultStr( DirectoryInformation& )>& body )
              -> Common::BoolResultStr
@@ -2896,15 +2922,8 @@ namespace Desert::Editor
                 if ( m_ViewportScene.expired() )
                     return Common::MakeFormattedError<bool>( "'{}': there is no viewport scene to capture",
                                                              label );
-                return overEntries(
-                     [&]( DirectoryInformation& entry ) -> Common::BoolResultStr
-                     {
-                         if ( !thumbnailSubject( entry ) )
-                             return Common::MakeError<bool>(
-                                  "only a model or a material has a rendered thumbnail" );
-                         CaptureThumbnailFromViewport( entry.AssetPath );
-                         return Common::MakeSuccess( true );
-                     } );
+                return overEntries( [&]( DirectoryInformation& entry ) -> Common::BoolResultStr
+                                    { return CaptureThumbnailFromViewport( entry ); } );
             case ContentBrowserCommand::EditThumbnail:
             {
                 const auto target = one();

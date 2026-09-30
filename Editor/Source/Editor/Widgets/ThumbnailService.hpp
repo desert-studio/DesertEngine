@@ -137,6 +137,18 @@ namespace Desert::Editor
         /// The same for a material picture: RequestMaterial's key (the asset path) and hash (its content).
         [[nodiscard]] static ThumbnailFreshness::Verdict JudgeMaterialPicture( const std::string& assetPath );
 
+        /// WHERE A PICTURE IS FILED AND WHAT IT IS JUDGED AGAINST — the PNG key its showers read and the hash
+        /// the judge compares. JudgeMeshPicture/JudgeMaterialPicture ask exactly this, and so does a picture made
+        /// outside the service (UE "Capture Thumbnail": the viewport's view saved as the asset's thumbnail), so a
+        /// captured PNG recorded with this hash is Show to every judge and never re-shot over.
+        struct PictureKey
+        {
+            std::string             Png;
+            std::optional<uint64_t> Hash; ///< empty: the source could not be read
+        };
+        [[nodiscard]] static PictureKey MeshPictureKey( const std::string& cookedPath );
+        [[nodiscard]] static PictureKey MaterialPictureKey( const std::string& assetPath );
+
         /**
          * @brief Queue a picture that is PAINTED ON THE CPU from the file's own bytes — the four cloud
          *        formats (Editor/Widgets/CloudThumbnail.hpp).
