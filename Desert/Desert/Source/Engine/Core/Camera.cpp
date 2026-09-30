@@ -80,6 +80,7 @@ namespace Desert::Core
         const auto width  = window ? window->GetWidth() : 1280;
         const auto height = window ? window->GetHeight() : 720;
 
+        m_FOV = kEditorViewportFovXDegrees;
         UpdateProjectionMatrix( width, height );
 
         // THE EDITOR OPENS LOOKING AT THE HORIZON, NOT AT THE FLOOR.
@@ -140,7 +141,7 @@ namespace Desert::Core
         if ( m_ExactLens )
         {
             // A piloted camera entity: the lens is the component's, so the projection is the one a
-            // GameplayCamera builds and FOV is not rescaled by the viewport's height.
+            // GameplayCamera builds, with the component's vertical FOV.
             Camera::UpdateProjectionMatrix( width, height );
             return;
         }
@@ -149,24 +150,17 @@ namespace Desert::Core
         m_ViewportHeight = height;
 
         const float hpx    = static_cast<float>( height == 0 ? 1u : height );
-        const float aspect = static_cast<float>( width ) / hpx;
-
-        // Anchor apparent object SIZE to a reference height: world-per-pixel stays constant as the viewport
-        // resizes, so growing/shrinking the window shows MORE/less of the scene instead of zooming objects
-        // (UE/Unity editor feel, and it kills the "objects move closer/farther on resize" complaint). FOV and
-        // OrthoSize are authored at kReferenceHeight; at other heights the effective extent scales with hpx.
-        constexpr float kReferenceHeight = 1080.0f;
-        const float     heightScale      = hpx / kReferenceHeight;
+        const float aspect = static_cast<float>( width == 0 ? 1u : width ) / hpx;
 
         if ( m_ProjectionType == ProjectionType::Orthographic )
         {
-            const float halfH  = m_OrthoSize * heightScale;
-            const float halfW  = halfH * aspect;
+            const float halfW  = m_OrthoSize;
+            const float halfH  = halfW / aspect;
             m_ProjectionMatrix = MakeOrthographic( -halfW, halfW, -halfH, halfH, m_NearPlane, m_FarPlane );
         }
         else
         {
-            const float fovY = 2.0f * glm::atan( glm::tan( glm::radians( m_FOV ) * 0.5f ) * heightScale );
+            const float fovY   = VerticalFovKeepingHorizontal( glm::radians( m_FOV ), aspect );
             m_ProjectionMatrix = MakePerspective( fovY, aspect, m_NearPlane, m_FarPlane );
         }
     }

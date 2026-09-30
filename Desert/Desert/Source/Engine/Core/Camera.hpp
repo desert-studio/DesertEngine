@@ -93,9 +93,8 @@ namespace Desert::Core
 
         void OnUpdate( const Common::Timestep& timestep ) override;
 
-        // Editor projection anchors the apparent object SIZE to a reference height, so resizing the
-        // viewport shows MORE of the scene instead of zooming objects in/out (UE/Unity editor feel).
-        // Gameplay keeps the base (standard vertical-FOV) behaviour.
+        // FOV and OrthoSize are HORIZONTAL here (UE Maintain X FOV): a narrower viewport keeps the same
+        // width of scene and crops top and bottom. Gameplay keeps the base vertical-FOV projection.
         void UpdateProjectionMatrix( const uint32_t width, const uint32_t height ) override;
 
         [[nodiscard]] const auto& GetDirection() const { return m_Direction; }
