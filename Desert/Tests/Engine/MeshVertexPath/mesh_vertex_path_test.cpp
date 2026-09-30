@@ -131,16 +131,19 @@ namespace
     // The (path x pass) shader of the default template (of the glass template for Glass), or nullptr for a hole.
     const char* TableShader( MeshVertexPath path, Desert::Graphic::MeshPass pass )
     {
-        static std::map<std::pair<int, int>, std::optional<std::string>> cache;
-        auto& slot = cache[{ static_cast<int>( path ), static_cast<int>( pass ) }];
-        if ( !slot )
+        // An empty name is a hole of the table, remembered as one.
+        static std::map<std::pair<int, int>, std::string> cache;
+        const std::pair<int, int> key{ static_cast<int>( path ), static_cast<int>( pass ) };
+        auto                      slot = cache.find( key );
+        if ( slot == cache.end() )
             // The translucency pass is drawn by a TRANSLUCENT template's own cell; the shipped one is the glass.
-            slot = Desert::Graphic::MeshShaderFor( pass == Desert::Graphic::MeshPass::Glass
-                                                        ? std::string( "StaticMeshGlass" )
-                                                        : DefaultTemplate(),
-                                                   path, pass )
-                        .value_or( std::string() );
-        return slot->empty() ? nullptr : slot->c_str();
+            slot = cache.emplace( key, Desert::Graphic::MeshShaderFor( pass == Desert::Graphic::MeshPass::Glass
+                                                                            ? std::string( "StaticMeshGlass" )
+                                                                            : DefaultTemplate(),
+                                                                       path, pass )
+                                            .value_or( std::string() ) )
+                        .first;
+        return slot->second.empty() ? nullptr : slot->second.c_str();
     }
 
     // The stages of the program the table names: the default program, or the named cell/pass.
@@ -341,7 +344,7 @@ TEST_F( ShaderRootFixture, EveryVertexPathThatCanBeDrawnCanAlsoCastAShadow )
 {
     for ( const auto path : kAllPaths )
     {
-        if ( !TableShader( path, MeshPass::Forward ) )
+        if ( TableShader( path, MeshPass::Forward ) == nullptr )
             continue;
         EXPECT_NE( TableShader( path, MeshPass::ShadowDepth ), nullptr )
              << "the " << MeshVertexPathName( path )
@@ -970,8 +973,8 @@ TEST( TemplateCellShader, ASurfaceTemplateHasEveryCellAPlainTemplateOnlyItsStati
 {
     constexpr std::string_view kSurface = "SomeSurface"; // registers every "<SomeSurface>/<Cell>"
     constexpr std::string_view kPlain   = "TextSDF";     // no Surface block: registers only "TextSDF"
-    const auto registered = [&]( std::string_view name )
-    { return name == kPlain || name.starts_with( std::string( kSurface ) + "/" ); };
+    const auto                 registered = [&]( std::string_view name )
+    { return name == kPlain || name.starts_with( std::format( "{}/", kSurface ) ); };
 
     uint32_t surfaceCells = 0;
     for ( uint32_t p = 0; p < Desert::Graphic::kMeshVertexPathCount; ++p )
@@ -1024,16 +1027,16 @@ TEST( ShadowCaster, MaskedCastsThroughItsOwnTemplateCellOpaqueThroughTheSharedOn
         const auto masked =
              Desert::Graphic::ShadowCasterShaderFor( kFoliage, kDefault, SurfaceBlendMode::Masked, path );
         ASSERT_TRUE( masked.has_value() ) << MeshVertexPathName( path );
-        EXPECT_NE( *masked, *shared ) << "a masked caster on " << MeshVertexPathName( path )
-                                      << " draws through the shared program and casts its whole quad";
-        EXPECT_EQ( *masked, Desert::Graphic::MeshShaderFor( kFoliage, path, MeshPass::ShadowDepth ) );
+        EXPECT_NE( masked, shared ) << "a masked caster on " << MeshVertexPathName( path )
+                                    << " draws through the shared program and casts its whole quad";
+        EXPECT_EQ( masked, Desert::Graphic::MeshShaderFor( kFoliage, path, MeshPass::ShadowDepth ) );
 
         for ( const auto blend : { SurfaceBlendMode::Opaque, SurfaceBlendMode::Translucent } )
         {
             const auto caster = Desert::Graphic::ShadowCasterShaderFor( kFoliage, kDefault, blend, path );
             ASSERT_TRUE( caster.has_value() );
-            EXPECT_EQ( *caster, *shared ) << "a non-masked caster on " << MeshVertexPathName( path )
-                                          << " must share the one position-only program and batch by mesh";
+            EXPECT_EQ( caster, shared ) << "a non-masked caster on " << MeshVertexPathName( path )
+                                        << " must share the one position-only program and batch by mesh";
         }
     }
 }
@@ -1072,8 +1075,9 @@ TEST_F( ShaderRootFixture, AnUnlitMaterialGetsTheUnlitCells )
         for ( const auto pass : { MeshPass::Forward, MeshPass::GBuffer, MeshPass::ShadowDepth } )
         {
             const auto shader = Desert::Graphic::MeshShaderFor( "Unlit", path, pass );
-            ASSERT_TRUE( shader.has_value() ) << MeshVertexPathName( path );
-            EXPECT_EQ( *shader, std::string( "Unlit/" ) + Desert::Graphic::MeshCellFor( path, pass ) );
+            if ( !shader.has_value() )
+                FAIL() << "Unlit has no cell on " << MeshVertexPathName( path );
+            EXPECT_EQ( *shader, std::format( "Unlit/{}", Desert::Graphic::MeshCellFor( path, pass ) ) );
             EXPECT_NE( std::find( passes.begin(), passes.end(), CellOf( shader->c_str() ) ), passes.end() )
                  << file.string() << " expands into no cell '" << CellOf( shader->c_str() ) << "'";
         }

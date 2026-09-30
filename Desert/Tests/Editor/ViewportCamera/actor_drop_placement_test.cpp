@@ -81,7 +81,8 @@ TEST( ActorDropPlacement, ARayThatMeetsASurfaceNamesItsPointAndNormal )
 {
     const auto target = ActorDrop::TargetFor( glm::vec3( 3.0f, 0.0f, 4.0f ), glm::vec3( 0.0f, 2.0f, 0.0f ),
                                               glm::vec3( 0.0f, 100.0f, 0.0f ), glm::vec3( 0.0f, -1.0f, 0.0f ) );
-    ASSERT_TRUE( target.SurfaceNormal.has_value() );
+    if ( !target.SurfaceNormal.has_value() )
+        FAIL() << "a ray that meets the surface named no normal";
     EXPECT_EQ( target.Point, glm::vec3( 3.0f, 0.0f, 4.0f ) );
     EXPECT_FLOAT_EQ( glm::length( *target.SurfaceNormal ), 1.0f );
 }

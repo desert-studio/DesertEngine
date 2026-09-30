@@ -25,6 +25,7 @@
 
 #include <gtest/gtest.h>
 
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -361,7 +362,8 @@ int main( int argc, char** argv )
 // per capture, before the subject is staged — and the staging itself is once per capture, not per frame.
 TEST_F( MaterialPreviewRoute, EveryCaptureStartsFromTheBaseScene )
 {
-    const std::string src = ReadFile( RepoRoot() + "Editor/Source/Editor/Widgets/AssetThumbnailRenderer.cpp" );
+    const std::string src =
+         ReadFile( std::format( "{}Editor/Source/Editor/Widgets/AssetThumbnailRenderer.cpp", RepoRoot() ) );
     ASSERT_FALSE( src.empty() );
     const auto staged = src.find( "if ( !m_Staged )" );
     ASSERT_NE( staged, std::string::npos );
