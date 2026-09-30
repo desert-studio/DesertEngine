@@ -522,6 +522,18 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialCopy.hpp",
           "MaterialCopy", "m_Input", Guard::OwnedByThisObject,
           kWhyMaterialProperty },
+        { "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialDepthExpand.hpp",
+          "MaterialDepthExpand", "m_Depth", Guard::OwnedByThisObject,
+          kWhyMaterialProperty },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp",
+          "MaterialSceneDepthResolve", "m_Depth", Guard::OwnedByThisObject,
+          kWhyMaterialProperty },
+        { "Desert/Desert/Source/Engine/Graphic/SceneRendererFrame.hpp",
+          "FrameTextures", "m_Externals", Guard::OwnedByThisObject,
+          "RDG-INT: every value is the address of an ExternalTexture that Import emplaced into the sibling "
+          "member m_Storage (SceneRendererFrame.hpp:67-73), a vector<unique_ptr<ExternalTexture>> that is never "
+          "erased from; growing the vector moves the unique_ptrs, not their pointees, so each address is stable "
+          "for the FrameTextures' whole life and dies with it" },
         { "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialDeferredLighting.hpp",
           "DeferredShadowInput", "CascadeVP", Guard::CallScoped,
           kWhyArgumentPack },

@@ -1470,14 +1470,23 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
             }
             else if ( first == compute )
             {
-                const size_t semi = text.find( ';', compute );
-                ASSERT_NE( semi, std::string::npos );
-                std::string            call   = squeeze( text.substr( compute, semi - compute ) );
+                // The call ends at ITS matching ')', not at the statement's ';': a caller may wrap it, as
+                // SettleShadowMapNodes( AddComputeNodes( ... ) ) does.
+                size_t close = text.find( '(', compute );
+                ASSERT_NE( close, std::string::npos );
+                for ( int depth = 0; close < text.size(); ++close )
+                {
+                    depth += text[close] == '(' ? 1 : text[close] == ')' ? -1 : 0;
+                    if ( depth == 0 )
+                        break;
+                }
+                ASSERT_LT( close, text.size() ) << "unbalanced AddComputeNodes call";
+                std::string            call   = squeeze( text.substr( compute, close + 1 - compute ) );
                 const std::string_view prefix = "AddComputeNodes(graph,textures,";
                 ASSERT_EQ( call.rfind( prefix, 0 ), 0u ) << call;
                 added.push_back(
                      std::format( "compute[{}]", call.substr( prefix.size(), call.size() - prefix.size() - 1 ) ) );
-                at = semi + 1;
+                at = close + 1;
             }
             else if ( first == pass || first == raster || first == node )
             {
