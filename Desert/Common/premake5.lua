@@ -113,20 +113,11 @@ endif
         -- host for the same reason reflect-cpp is declared here: the reference lives in Common, and a
         -- tool that links Common must not have to know what Common needs underneath it.
         links { "dbghelp" }
-        files {
-            "Source/Common/Platform/Windows/**.cpp",
-            "Source/Common/Platform/Windows/**.hpp",
-        }
-
-    -- The Source/Common/** glob above already picks the Windows platform sources
-    -- up on every OS — drop them when not targeting Windows.
-    filter { "system:not windows" }
-        removefiles {
-            "Source/Common/Platform/Windows/**",
-        }
 
     filter { "system:macosx" }
         defines { "DESERT_PLATFORM_MACOS" }
+        -- Common has no system file dialog on any platform: those are the editor's
+        -- (Editor/Platform/DesktopPlatform.hpp), so a tool that links Common links no AppKit for them.
         files {
             "Source/Common/Platform/MacOS/**.cpp",
             "Source/Common/Platform/MacOS/**.hpp",

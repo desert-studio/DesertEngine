@@ -3,6 +3,7 @@
 #include "CloudDocumentOpen.hpp"
 
 #include <Common/Core/Math/Rounding.hpp>
+#include <Editor/Platform/DesktopPlatform.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/SubjectTitle.hpp>
@@ -437,7 +438,7 @@ namespace Desert::Editor
             return;
         }
 
-        std::filesystem::path target = Common::Utils::FileSystem::SaveFileDialog( "PNG image\0*.png\0" );
+        std::filesystem::path target = DesktopPlatform::SaveFileDialog( "PNG image\0*.png\0" );
         if ( target.empty() )
             return;
 
@@ -535,7 +536,7 @@ namespace Desert::Editor
         if ( ImGui::Button( "Pattern image...", ImVec2( 150.0f, 0.0f ) ) )
         {
             const std::filesystem::path picked =
-                 Common::Utils::FileSystem::OpenFileDialog( "Image\0*.png;*.jpg;*.jpeg;*.tga;*.bmp\0" );
+                 DesktopPlatform::OpenFileDialog( "Image\0*.png;*.jpg;*.jpeg;*.tga;*.bmp\0" );
             if ( !picked.empty() )
                 LoadSourceImage( picked, Table::Pattern );
         }
@@ -578,7 +579,7 @@ namespace Desert::Editor
         if ( ImGui::Button( "Mask image...", ImVec2( 150.0f, 0.0f ) ) )
         {
             const std::filesystem::path picked =
-                 Common::Utils::FileSystem::OpenFileDialog( "Image\0*.png;*.jpg;*.jpeg;*.tga;*.bmp\0" );
+                 DesktopPlatform::OpenFileDialog( "Image\0*.png;*.jpg;*.jpeg;*.tga;*.bmp\0" );
             if ( !picked.empty() )
                 LoadSourceImage( picked, Table::Mask );
         }
@@ -1679,7 +1680,7 @@ namespace Desert::Editor
         }
         else if ( bakeAs )
         {
-            target = Common::Utils::FileSystem::SaveFileDialog( "Cloud Layout\0*.dclayout\0" );
+            target = DesktopPlatform::SaveFileDialog( "Cloud Layout\0*.dclayout\0" );
             if ( !target.empty() && target.extension() != Assets::kCloudLayoutExtension )
                 target.replace_extension( Assets::kCloudLayoutExtension );
         }

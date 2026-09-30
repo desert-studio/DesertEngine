@@ -2,6 +2,7 @@
 
 #include "CloudDocumentOpen.hpp"
 
+#include <Editor/Platform/DesktopPlatform.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/SubjectTitle.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
@@ -746,7 +747,7 @@ namespace Desert::Editor
         }
         else if ( bakeAs )
         {
-            chosen = Common::Utils::FileSystem::SaveFileDialog( "Cloud Modelling Volume\0*.dcmv\0" );
+            chosen = DesktopPlatform::SaveFileDialog( "Cloud Modelling Volume\0*.dcmv\0" );
             if ( !chosen.empty() && chosen.extension() != Assets::kCloudModellingVolumeExtension )
                 chosen.replace_extension( Assets::kCloudModellingVolumeExtension );
         }

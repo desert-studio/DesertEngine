@@ -1,4 +1,4 @@
-#include "WindowsFileSystem.hpp"
+#include <Editor/Platform/DesktopPlatform.hpp>
 
 #include <Windows.h>
 #include <algorithm>
@@ -7,9 +7,9 @@
 #include <commdlg.h>
 #include <shlobj.h>
 
-namespace Common::Utils
+namespace Desert::Editor
 {
-    std::filesystem::path WindowsFileSystem::OpenFileDialog( const char* filter )
+    std::filesystem::path DesktopPlatform::OpenFileDialog( const char* filter )
     {
         OPENFILENAMEA ofn;
         CHAR          szFile[260] = { 0 };
@@ -32,7 +32,7 @@ namespace Common::Utils
         return std::filesystem::path();
     }
 
-    std::filesystem::path WindowsFileSystem::OpenFolderDialog( const char* initialFolder )
+    std::filesystem::path DesktopPlatform::OpenFolderDialog( const char* initialFolder )
     {
         (void)initialFolder;
 
@@ -59,7 +59,7 @@ namespace Common::Utils
         return std::filesystem::path();
     }
 
-    std::filesystem::path WindowsFileSystem::SaveFileDialog( const char* filter )
+    std::filesystem::path DesktopPlatform::SaveFileDialog( const char* filter )
     {
         OPENFILENAMEA ofn;
         CHAR          szFile[260] = { 0 };
@@ -81,4 +81,4 @@ namespace Common::Utils
 
         return std::filesystem::path();
     }
-} // namespace Common::Utils
+} // namespace Desert::Editor
