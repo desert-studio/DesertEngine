@@ -63,10 +63,11 @@ namespace Desert::Editor
         Common::BoolResultStr SaveLastUsed( const Assets::SourceImportSettings& settings );
         std::filesystem::path LastUsedPath();
 
-        // The raw source a mesh asset was imported from: the source beside a combined static mesh or a skinned
-        // mesh (`base.stmesh` / `base.skmesh` -> `base.fbx`), or the file a static node mesh's IMPT names
-        // (`base_TuftA.stmesh`). nullopt for a mesh with no source (hand-authored, recovered).
-        std::optional<std::filesystem::path> ImportSourceOfMeshAsset( const std::filesystem::path& assetPath );
+        // The raw source an imported asset came from (UE: its AssetImportData): the source beside a combined
+        // static mesh, a skinned mesh or a rig (`base.stmesh` / `base.skmesh` / `base.skeleton` -> `base.fbx`),
+        // the file a static node mesh's IMPT names (`base_TuftA.stmesh`), or the file a clip's `Import` names
+        // (`base_Walk.anim`, THM-FIXJ). nullopt for an asset with no source (hand-authored, recovered).
+        std::optional<std::filesystem::path> ImportSourceOfAsset( const std::filesystem::path& assetPath );
 
         // What @p source's import record says it imports as (the header's Kind: StaticMesh, SkinnedMesh ->
         // SkeletalMesh, Skeleton / Animation -> Animation) - which fields its Import Settings show. An error

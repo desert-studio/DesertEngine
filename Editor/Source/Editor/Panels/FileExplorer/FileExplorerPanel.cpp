@@ -2411,7 +2411,7 @@ namespace Desert::Editor
 
             // UE's Asset Actions > Reimport / Reimport with New File, for a mesh asset with an import source: the
             // ImportOptions bodies the asset editor's Import Settings button and the palette run - no second home.
-            if ( ImportOptions::ImportSourceOfMeshAsset( entry.AssetPath ) )
+            if ( ImportOptions::ImportSourceOfAsset( entry.AssetPath ) )
             {
                 ImGui::Separator();
                 if ( ImGui::MenuItem( "Reimport" ) )
