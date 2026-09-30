@@ -295,7 +295,8 @@ namespace Desert::Geometry
 
     std::filesystem::path ProceduralCharacterFactory::HumanoidSkeletonFile()
     {
-        return Common::Constants::Path::RESOURCE_PATH / "Assets/Meshes/Skinned/Humanoid.skeleton";
+        // Engine content: found in every project through the engine mount (ScanRootsOf).
+        return Common::Constants::Path::ENGINE_CONTENT_PATH / "Meshes/Skinned/Humanoid.skeleton";
     }
 
     const Animation::Skeleton* ProceduralCharacterFactory::GetHumanoidSkeleton()
