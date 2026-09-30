@@ -36,6 +36,10 @@ namespace Desert::Assets
         /// SkinnedMeshAsset::GetSkeleton(); GetSkeletonSignature goes away.
         [[nodiscard]] Common::Content::AssetGuid GetSkeleton() const;
 
+        /// Authoring (Details slot, after CheckSkeletonAssignment). The GUID lives in the clip
+        /// (AnimationClip::Skeleton), so SaveClipToFile writes it and never loses it.
+        void SetSkeleton( Common::Content::AssetGuid skeleton );
+
         uint64_t GetSkeletonSignature() const
         {
             return m_SkeletonSignature;
