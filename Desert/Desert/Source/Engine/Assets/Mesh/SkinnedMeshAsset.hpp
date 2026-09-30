@@ -6,6 +6,8 @@
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
+
 #include <optional>
 #include <vector>
 
@@ -135,6 +137,11 @@ namespace Desert::Assets
         }
 
         // The rig this mesh was cooked against, as stored in the .skmesh. Zero until the file is parsed.
+        /// THE MESH'S SKELETON, BY GUID (SKEL-TREE; contract: Engine/Animation/SkeletonReference.hpp). UE
+        /// USkeletalMesh::Skeleton. Null = the mesh names no skeleton and plays no clip. Replaces the signature
+        /// as identity: ResolveDependencies binds HandleForGuid of this, GetSkeletonSignature goes away.
+        [[nodiscard]] Common::Content::AssetGuid GetSkeleton() const;
+
         uint64_t GetSkeletonSignature() const
         {
             return m_SkeletonSignature;

@@ -6,6 +6,10 @@
 
 #include <Engine/Animation/Skeleton.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
+
+#include <span>
+
 namespace Desert::Assets
 {
     class SkeletonAsset : public AssetBase
@@ -60,6 +64,14 @@ namespace Desert::Assets
         {
             return m_Signature;
         }
+
+        /// The skinned mesh the Skeleton Editor previews this rig on (UE USkeleton::PreviewSkeletalMesh). Null =
+        /// bones only. Contract: Engine/Animation/SkeletonReference.hpp.
+        [[nodiscard]] Common::Content::AssetGuid GetPreviewMesh() const;
+
+        /// Skeletons whose clips play on meshes of THIS skeleton (UE USkeleton::CompatibleSkeletons): one
+        /// direction, not transitive. The third argument of Animation::ClipPlaysOnMesh.
+        [[nodiscard]] std::span<const Common::Content::AssetGuid> GetCompatibleSkeletons() const;
 
         static AssetTypeID GetTypeID()
         {
