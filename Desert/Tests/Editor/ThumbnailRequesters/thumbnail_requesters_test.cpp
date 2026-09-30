@@ -726,7 +726,8 @@ TEST( ThumbnailRequesters, NoCensusedFileHidesAnUndeclaredDrawingSite )
 // frame re-asked the worker for the .skmesh PNG (417 decodes in 90 s, FPS 111 -> 59, both pictures on icons).
 // THM-FIXE moved the other showers (Details static row, CB mesh tile and warm sweep, Collections card, Foliage
 // palette) onto the same verdict. Mutations: put `ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(` /
-// `MeshThumbnailFreshness(` back in any shower -> the first test reds; put `ThumbnailCache m_Thumbnails;` back in SkinnedMeshComponentWidget.hpp -> the second reds.
+// `MeshThumbnailFreshness(` back in any shower -> the first test reds; put `ThumbnailCache m_Thumbnails;` back in
+// SkinnedMeshComponentWidget.hpp -> the second reds.
 // ---------------------------------------------------------------------------------------------------
 TEST( ThumbnailRequesters, MeshPictureShowersAskTheServicesOneJudgement )
 {

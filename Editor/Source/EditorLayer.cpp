@@ -6230,7 +6230,8 @@ namespace Desert::Editor
                 return Common::MakeError<std::vector<std::string>>( "the Content Browser is not open" );
             std::vector<std::string> selected = m_FileExplorerPanel->SelectionPaths();
             if ( selected.empty() )
-                return Common::MakeError<std::vector<std::string>>( "no asset is selected in the Content Browser" );
+                return Common::MakeError<std::vector<std::string>>(
+                     "no asset is selected in the Content Browser" );
             return Common::MakeSuccess( std::move( selected ) );
         };
         // One body over every selected asset; the first refusal is the command's answer, the others still run.
@@ -6248,8 +6249,10 @@ namespace Desert::Editor
             return outcome;
         };
         commands.push_back( { "Assets", "Reimport selected", [overSelectedAssets]
-                              { return overSelectedAssets( []( const std::filesystem::path& asset )
-                                                           { return ImportOptions::Reimport( asset ); } ); } } );
+                              {
+                                  return overSelectedAssets( []( const std::filesystem::path& asset )
+                                                             { return ImportOptions::Reimport( asset ); } );
+                              } } );
         for ( const float scale : { 0.01f, 0.1f, 1.0f, 10.0f, 100.0f } )
             commands.push_back( { "Assets", std::format( "Import Settings: Uniform Scale {}", scale ),
                                   [overSelectedAssets, scale]
@@ -6261,13 +6264,12 @@ namespace Desert::Editor
         for ( const auto& [label, axis] :
               { std::pair{ "From File", Assets::MeshSourceUpAxis::FromFile },
                 std::pair{ "Y", Assets::MeshSourceUpAxis::Y }, std::pair{ "Z", Assets::MeshSourceUpAxis::Z } } )
-            commands.push_back( { "Assets", std::format( "Import Settings: Up Axis {}", label ),
-                                  [overSelectedAssets, axis]
-                                  {
-                                      return overSelectedAssets(
-                                           [axis]( const std::filesystem::path& asset )
-                                           { return ImportOptions::SetSectionUpAxis( asset, axis ); } );
-                                  } } );
+            commands.push_back(
+                 { "Assets", std::format( "Import Settings: Up Axis {}", label ), [overSelectedAssets, axis]
+                   {
+                       return overSelectedAssets( [axis]( const std::filesystem::path& asset )
+                                                  { return ImportOptions::SetSectionUpAxis( asset, axis ); } );
+                   } } );
         // THE FOLIAGE PALETTE WITHOUT A MOUSE: the mode, and one entry per collection running the palette's own
         // collection drop (FO-2), so a frame can show types that came from a collection unattended.
         commands.push_back( { "Foliage", "Foliage mode", []

@@ -2027,7 +2027,8 @@ namespace Desert::Editor
         const std::string pngPath = ThumbnailKey::DiskPath( cookedStr );
 
         // The one verdict of a mesh picture (ThumbnailService::JudgeMeshPicture): the enqueue gate's key and hash.
-        const bool haveFresh = ThumbnailService::JudgeMeshPicture( cookedStr ) == ThumbnailFreshness::Verdict::Show;
+        const bool haveFresh =
+             ThumbnailService::JudgeMeshPicture( cookedStr ) == ThumbnailFreshness::Verdict::Show;
         if ( !haveFresh )
             m_Thumbnails->Invalidate( pngPath );
         if ( haveFresh )
@@ -2820,8 +2821,8 @@ namespace Desert::Editor
                 m_EditThumbnailPath.clear();
                 return;
             }
-            // The preview is keyed where the tile's picture is (MeshPictureFor): a skinned source's is its .skmesh,
-            // not the .stmesh an extension swap would name.
+            // The preview is keyed where the tile's picture is (MeshPictureFor): a skinned source's is its
+            // .skmesh, not the .stmesh an extension swap would name.
             std::string previewKey = entry.AssetPath;
             if ( entry.Type == FileType::Model )
             {
