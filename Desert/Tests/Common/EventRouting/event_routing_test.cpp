@@ -351,7 +351,8 @@ namespace
         RemovesANodeOnKey( EventTree& tree, Log& log ) : Tree( &tree ), Journal( &log )
         {
         }
-        bool OnKeyPressed( KeyPressedEvent& )
+        bool OnKeyPressed( KeyPressedEvent& ) // NOLINT(readability-make-member-function-const): the tree
+                                              // calls bool On<Event>( <Event>& ) as a member
         {
             Journal->emplace_back( "remover.key" );
             Tree->Remove( Victim );
