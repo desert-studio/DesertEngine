@@ -44,6 +44,7 @@
 #include "Systems/Scene/Deferred/DeferredLightingRenderer.hpp"
 #include "Systems/Scene/Deferred/SSAORenderer.hpp"
 #include "Systems/Scene/Deferred/CopyRenderer.hpp"
+#include "Systems/Scene/Deferred/DepthExpandRenderer.hpp"
 #include "Systems/Scene/Deferred/SSRRenderer.hpp"
 #include "Systems/Scene/Deferred/GIResolveRenderer.hpp"
 #include "Systems/Scene/Particles/ParticleRenderer.hpp"

@@ -41,46 +41,6 @@ namespace Desert::Graphic
 {
     namespace
     {
-        // The whole of a framebuffer as graph names: every colour attachment by slot, and the depth.
-        struct RasterTargets
-        {
-            std::vector<RDG::TextureRef> Colors;
-            RDG::TextureRef              Depth;
-            std::vector<RDG::TextureRef> Resolves; // multisampled framebuffer: what each colour resolves into
-        };
-
-        // A target the graph cannot declare whole is refused with its pass, never half-declared: a render pass
-        // missing an attachment is not the one the pass's pipelines were built against. That covers a colour
-        // image outside SHADER_READ_ONLY. A multisampled framebuffer is declared as its engine render pass is: the
-        // multisampled colours and depth, plus the single-sample image each colour resolves into.
-        std::optional<RasterTargets> TargetsOf( LegacyFrameTextures&                textures,
-                                                const std::shared_ptr<Framebuffer>& framebuffer,
-                                                std::string_view name, std::string_view pass )
-        {
-            if ( !framebuffer )
-                return std::nullopt;
-            const uint32_t samples      = framebuffer->GetSpecification().Samples;
-            const bool     multisampled = samples > 1;
-            RasterTargets  targets;
-            targets.Colors = multisampled ? textures.MultisampleColors( framebuffer, name )
-                                          : textures.Colors( framebuffer, name );
-            targets.Depth  = textures.Depth( framebuffer, name );
-            if ( multisampled )
-                targets.Resolves = textures.Colors( framebuffer, name );
-            const uint32_t colours  = framebuffer->GetColorAttachmentCount();
-            const bool     hasDepth = framebuffer->GetDepthAttachmentCount() != 0;
-            if ( targets.Colors.size() != colours || hasDepth != targets.Depth.IsValid() ||
-                 targets.Resolves.size() != ( multisampled ? colours : 0u ) )
-            {
-                LOG_ERROR( "[SceneRenderer] '{}' is not recorded: the graph can declare {} of the {} colour "
-                           "attachment(s) of '{}' ({} sample(s), {} resolve(s)), depth {}",
-                           pass, targets.Colors.size(), colours, name, samples, targets.Resolves.size(),
-                           targets.Depth.IsValid() ? "declared" : ( hasDepth ? "NOT declared" : "absent" ) );
-                return std::nullopt;
-            }
-            return targets;
-        }
-
         // One raster node: the graph opens the render pass on @p targets (every colour with @p color, the depth
         // with @p depth, all stored), @p sampled are read by its fragment shaders, and @p body records the draws.
         // NeverCull: the bodies also write per-frame material state later passes of the frame rely on.

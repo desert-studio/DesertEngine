@@ -72,6 +72,7 @@ namespace Desert::Graphic
                  imported )
             {
                 ref = m_Graph.RegisterExternal( external, name );
+                m_Externals.emplace( image.get(), &external );
                 if ( final )
                     m_Graph.Extract( ref, external, *final );
             }
@@ -80,6 +81,21 @@ namespace Desert::Graphic
             m_Refs.emplace( image.get(), ref );
             return ref;
         }
+        // The state the graph leaves @p image in at its end, for a reader outside this graph that samples it --
+        // the scene's final image, which the editor viewport (ImGui) and the runtime blit sample after the
+        // frame. The image must already be imported by a node of this graph (Import); an image no node
+        // imported is not produced this frame, and that is the error returned.
+        Common::BoolResultStr ExtractImported( const std::shared_ptr<Image>& image, std::string_view name,
+                                               RDG::Access final )
+        {
+            const auto it = image ? m_Externals.find( image.get() ) : m_Externals.end();
+            if ( it == m_Externals.end() )
+                return Common::MakeError<bool>(
+                     std::format( "'{}' is not imported by any node of this frame graph", name ) );
+            m_Graph.Extract( m_Refs.at( image.get() ), *it->second, final );
+            return BOOLSUCCESS;
+        }
+
         // Import of every attachment of @p framebuffer (colour i as "<name>.Color<i>", depth as "<name>.Depth").
         RDG::ImportedFramebuffer ImportFramebuffer( const std::shared_ptr<Framebuffer>& framebuffer,
                                                     std::string_view                    name )
@@ -153,7 +169,45 @@ namespace Desert::Graphic
         RDG::Builder&                                      m_Graph;
         std::vector<std::unique_ptr<RDG::ExternalTexture>> m_Storage; // outlive Execute: the graph points at them
         std::map<const Image*, RDG::TextureRef>            m_Refs;
+        std::map<const Image*, RDG::ExternalTexture*>      m_Externals; // Import's registrations, for Extract
     };
+
+    // Shared by every raster node on an engine framebuffer (SceneRendererFrameMesh.cpp,
+    // SceneRendererFrameDeferred.cpp). The whole of a framebuffer as graph names: every colour attachment by slot,
+    // and the depth.
+    using RasterTargets = RDG::ImportedFramebuffer;
+
+    // A target the graph cannot declare whole is refused with its pass, never half-declared: a render pass
+    // missing an attachment is not the one the pass's pipelines were built against. That covers a colour
+    // image outside SHADER_READ_ONLY. A multisampled framebuffer is declared as its engine render pass is: the
+    // multisampled colours and depth, plus the single-sample image each colour resolves into.
+    inline std::optional<RasterTargets> TargetsOf( LegacyFrameTextures&                textures,
+                                                   const std::shared_ptr<Framebuffer>& framebuffer,
+                                                   std::string_view name, std::string_view pass )
+    {
+        if ( !framebuffer )
+            return std::nullopt;
+        const uint32_t samples      = framebuffer->GetSpecification().Samples;
+        const bool     multisampled = samples > 1;
+        RasterTargets  targets;
+        targets.Colors =
+             multisampled ? textures.MultisampleColors( framebuffer, name ) : textures.Colors( framebuffer, name );
+        targets.Depth = textures.Depth( framebuffer, name );
+        if ( multisampled )
+            targets.Resolves = textures.Colors( framebuffer, name );
+        const uint32_t colours  = framebuffer->GetColorAttachmentCount();
+        const bool     hasDepth = framebuffer->GetDepthAttachmentCount() != 0;
+        if ( targets.Colors.size() != colours || hasDepth != targets.Depth.IsValid() ||
+             targets.Resolves.size() != ( multisampled ? colours : 0u ) )
+        {
+            LOG_ERROR( "[SceneRenderer] '{}' is not recorded: the graph can declare {} of the {} colour "
+                       "attachment(s) of '{}' ({} sample(s), {} resolve(s)), depth {}",
+                       pass, targets.Colors.size(), colours, name, samples, targets.Resolves.size(),
+                       targets.Depth.IsValid() ? "declared" : ( hasDepth ? "NOT declared" : "absent" ) );
+            return std::nullopt;
+        }
+        return targets;
+    }
 
     // What one legacy pass hands a later one inside the same frame graph (the passes run at Execute).
     struct LegacyFrameValues

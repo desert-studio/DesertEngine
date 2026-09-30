@@ -321,6 +321,15 @@ namespace Desert::Graphic
         if ( !SP_CAST( System::SSAORenderer, m_RenderSystems["SSAOSystem"] )->Initialize() )
             LOG_WARN( "[SceneRenderer] SSAO system unavailable." );
 
+        // The G-buffer depth into a multisampled scene depth (Deferred: DepthExpand); nothing is built at MSAA 1.
+        RegisterSystem<System::DepthExpandRenderer>( "DepthExpandSystem", this, m_TargetFramebuffer,
+                                                     m_RenderGraphBuilder );
+        if ( const auto expandInit =
+                  SP_CAST( System::DepthExpandRenderer, m_RenderSystems["DepthExpandSystem"] )->Initialize();
+             !expandInit )
+            LOG_ERROR( "[SceneRenderer] DepthExpand unavailable (deferred depth at MSAA): {}",
+                       expandInit.GetError() );
+
         RegisterSystem<System::CopyRenderer>( "SceneColorCopySystem", this, m_SceneColorCopy,
                                               m_RenderGraphBuilder );
         if ( !SP_CAST( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] )->Initialize() )
@@ -918,6 +927,12 @@ namespace Desert::Graphic
         {
             AddFrameSMAA( graph, textures );
         }
+        // The final image is sampled after the graph (editor viewport, runtime blit): the graph ends it there.
+        if ( const auto extracted =
+                  textures.ExtractImported( GetFinalImage(), "final image", RDG::Access::SampledGraphics );
+             !extracted )
+            LOG_ERROR( "SceneRenderer: frame graph '{}' cannot hand over its final image: {}", graph.GetName(),
+                       extracted.GetError() );
 
         if ( const auto executed = Renderer::GetInstance().ExecuteGraph( graph ); !executed )
             LOG_ERROR( "SceneRenderer: frame graph '{}' did not execute: {}", graph.GetName(),

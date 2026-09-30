@@ -26,5 +26,32 @@ namespace Desert::Graphic::DeferredFrameNodes
             pass.ColorTarget( i, target.Colors[i], RDG::LoadOp::Load() );
         if ( target.Depth.IsValid() )
             pass.DepthTarget( target.Depth, RDG::LoadOp::Load(), /*write*/ true );
+        for ( uint32_t i = 0; i < target.Resolves.size(); ++i )
+            pass.ResolveTarget( i, target.Resolves[i] );
+    }
+
+    // G-buffer depth -> scene target depth. The same sample count: "Deferred: DepthResolve", a Copy node. A
+    // multisampled scene target over the single-sample G-buffer: a copy between sample counts does not exist, so
+    // "Deferred: DepthExpand" is a Raster node whose only target is the scene depth (every sample written by a
+    // full-screen gl_FragDepth, so its old contents are DontCare) and which samples the G-buffer depth.
+    template <typename CopyExec, typename ExpandExec>
+    void AddDepthToScene( RDG::Builder& graph, uint32_t targetSamples, RDG::TextureRef source,
+                          RDG::TextureRef target, CopyExec&& copy, ExpandExec&& expand )
+    {
+        if ( targetSamples <= 1 )
+        {
+            graph.AddPass(
+                 "Deferred: DepthResolve", RDG::PassFlags::Copy, [&]( RDG::PassBuilder& pass )
+                 { DeclareDepthResolve( pass, source, target ); }, std::forward<CopyExec>( copy ) );
+            return;
+        }
+        graph.AddPass(
+             "Deferred: DepthExpand", RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 pass.Read( source, RDG::Access::SampledGraphics );
+                 pass.DepthTarget( target, RDG::LoadOp::DontCare(), /*write*/ true );
+             },
+             std::forward<ExpandExec>( expand ) );
     }
 } // namespace Desert::Graphic::DeferredFrameNodes

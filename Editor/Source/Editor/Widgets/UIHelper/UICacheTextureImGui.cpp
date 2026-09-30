@@ -3,6 +3,8 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
+#include <Engine/Graphic/RDG/RDGAccess.hpp>
 
 #include <vulkan/vulkan.h>
 
@@ -33,7 +35,13 @@ namespace Desert::Editor::UI
                 return it->second;
             }
 
-            ImTextureID textureID = ImGui_ImplVulkan_AddTexture( res.Sampler, res.ImageView, res.Layout );
+            // ImGui samples the image in its fragment shader: the descriptor names the layout of that declared
+            // access, not the layout the image happens to record when it is first shown (a scene's final image
+            // is still a colour attachment before its first frame graph ran). Whoever renders the image leaves
+            // it in this state -- the scene's frame graph extracts its final image as SampledGraphics.
+            const VkImageLayout sampled = Graphic::API::Vulkan::RdgVulkanLayout(
+                 Graphic::RDG::GetAccessState( Graphic::RDG::Access::SampledGraphics ).Layout );
+            ImTextureID textureID = ImGui_ImplVulkan_AddTexture( res.Sampler, res.ImageView, sampled );
 
             g_TextureCache[res.ImageView] = textureID;
             return textureID;

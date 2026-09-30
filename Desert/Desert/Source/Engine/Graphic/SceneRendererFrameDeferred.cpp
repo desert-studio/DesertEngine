@@ -58,9 +58,10 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameClearMainFramebuffer( RDG::Builder& graph, LegacyFrameTextures& textures )
     {
-        const RDG::ImportedFramebuffer target = textures.ImportFramebuffer( m_TargetFramebuffer, "SceneColor" );
-        if ( target.Colors.empty() && !target.Depth.IsValid() )
+        const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "ClearMainFramebuffer" );
+        if ( !targets )
             return;
+        const RDG::ImportedFramebuffer& target = *targets;
         graph.AddPass(
              "ClearMainFramebuffer", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -74,6 +75,8 @@ namespace Desert::Graphic
                                        RDG::LoadOp::ClearDepth( depthStencil.x,
                                                                 static_cast<uint32_t>( depthStencil.y ) ) );
                  }
+                 for ( uint32_t i = 0; i < target.Resolves.size(); ++i )
+                     pass.ResolveTarget( i, target.Resolves[i] );
              },
              []( RDG::PassContext& ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
     }
@@ -93,12 +96,18 @@ namespace Desert::Graphic
         const std::shared_ptr<Image2D> target = m_TargetFramebuffer->GetDepthAttachmentImage();
         const RDG::TextureRef          sourceRef =
              textures.Import( source, "GBuffer.Depth", DeferredFrameNodes::kGBufferDepthFinal );
-        const RDG::TextureRef          targetRef = textures.ImportFramebuffer( m_TargetFramebuffer, "SceneColor" ).Depth;
-        graph.AddPass(
-             "Deferred: DepthResolve", RDG::PassFlags::Copy, [&]( RDG::PassBuilder& pass )
-             { DeferredFrameNodes::DeclareDepthResolve( pass, sourceRef, targetRef ); },
+        const RDG::TextureRef targetRef = textures.Depth( m_TargetFramebuffer, "SceneColor" );
+        auto* expand = UNIQUE_GET_AS( System::DepthExpandRenderer, m_RenderSystems["DepthExpandSystem"] );
+        DeferredFrameNodes::AddDepthToScene(
+             graph, m_TargetFramebuffer->GetSpecification().Samples, sourceRef, targetRef,
              [source, target]( RDG::PassContext& ) -> Common::BoolResultStr
-             { return Renderer::GetInstance().CopyDepthImage( source.get(), target.get() ); } );
+             { return Renderer::GetInstance().CopyDepthImage( source.get(), target.get() ); },
+             [expand, source]( RDG::PassContext& ) -> Common::BoolResultStr
+             {
+                 if ( !expand )
+                     return Common::MakeError( "Deferred: DepthExpand has no DepthExpandSystem" );
+                 return expand->Record( source );
+             } );
     }
 
     void SceneRenderer::AddFrameSSAO( RDG::Builder& graph, LegacyFrameTextures& textures,
@@ -196,7 +205,10 @@ namespace Desert::Graphic
         // LOAD/STORE on every scene-target attachment. The depth is declared written because the passes after
         // this one that are not graph nodes yet (forward meshes, glass, fog, clouds, overlays) begin their own
         // render passes on it in the depth-attachment layout, and DepthResolve left it a transfer destination.
-        const RDG::ImportedFramebuffer target = textures.ImportFramebuffer( m_TargetFramebuffer, "SceneColor" );
+        const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Composite" );
+        if ( !targets )
+            return;
+        const RDG::ImportedFramebuffer& target = *targets;
         graph.AddPass(
              "Deferred: Composite", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -289,7 +301,10 @@ namespace Desert::Graphic
         const RDG::TextureRef          tiles   = textures.Import( ssr->GetTileMask(), "SSR.TileMask" );
         const RDG::TextureRef          accum   = textures.Import( ssr->GetAccumImage(), "SSR" );
         const RDG::TextureRef          history = textures.Import( ssr->GetHistoryImage(), "SSR.History" );
-        const RDG::ImportedFramebuffer target  = textures.ImportFramebuffer( m_TargetFramebuffer, "SceneColor" );
+        const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: SSRComposite" );
+        if ( !targets )
+            return;
+        const RDG::ImportedFramebuffer& target = *targets;
         graph.AddPass(
              "Deferred: SSR", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )

@@ -1403,11 +1403,11 @@ TEST( RenderGraphCompile, DepthResolveIsACopyNodeWithCopySrcCopyDstAndPlannedBar
     const size_t begin = text.find( "voidSceneRenderer::AddFrameDepthResolve(" );
     ASSERT_NE( begin, std::string::npos );
     const std::string body = text.substr( begin, text.find( "voidSceneRenderer::", begin + 1 ) - begin );
-    EXPECT_NE( body.find( "\"Deferred:DepthResolve\",RDG::PassFlags::Copy" ), std::string::npos );
-    // The declarations are DeferredFrameNodes', which
-    // DepthResolveCopyPlansTransferBarriersAndCompositeTakesTheDepthBack compiles on recorded images.
-    EXPECT_NE( body.find( "DeferredFrameNodes::DeclareDepthResolve(pass,sourceRef,targetRef)" ),
-               std::string::npos );
+    // The node is DeferredFrameNodes::AddDepthToScene's (Copy at one sample, DepthExpand at MSAA), which
+    // DepthToSceneIsACopyAtOneSampleAndARasterDepthExpandAtMsaa compiles at both sample counts.
+    EXPECT_NE(
+         body.find( "DeferredFrameNodes::AddDepthToScene(graph,m_TargetFramebuffer->GetSpecification().Samples," ),
+         std::string::npos );
     EXPECT_NE( body.find( "\"GBuffer.Depth\",DeferredFrameNodes::kGBufferDepthFinal" ), std::string::npos );
     EXPECT_EQ( body.find( "AddLegacy(" ), std::string::npos );
 }
@@ -1740,6 +1740,47 @@ TEST( RenderGraphCompile, DepthResolveCopyPlansTransferBarriersAndCompositeTakes
     // Both depth records end in the attachment layout: the target's from Composite, the source's from the extract.
     EXPECT_EQ( targetBack, std::vector<ImageLayout>{ ImageLayout::DepthStencilAttachment } );
     EXPECT_EQ( sourceBack, std::vector<ImageLayout>{ ImageLayout::DepthStencilAttachment } );
+}
+
+// A multisampled scene target over the single-sample G-buffer cannot take a copy (Vulkan has no copy between
+// sample counts): at samples > 1 the depth reaches the scene through "Deferred: DepthExpand", a Raster node whose
+// only target is the scene depth and which samples the G-buffer depth; at one sample it stays the Copy node.
+TEST( RenderGraphCompile, DepthToSceneIsACopyAtOneSampleAndARasterDepthExpandAtMsaa )
+{
+    namespace Nodes = Desert::Graphic::DeferredFrameNodes;
+    for ( const uint32_t samples : { 1u, 4u } )
+    {
+        ExternalTexture source = Recorded( ImageFormat::DEPTH32F, ImageLayout::DepthStencilAttachment, nullptr );
+        ExternalTexture target = Recorded( ImageFormat::DEPTH32F, ImageLayout::DepthStencilAttachment, nullptr );
+        target.Desc.Samples    = samples;
+        Builder          graph( "depth" );
+        const TextureRef sourceRef = graph.RegisterExternal( source, "GBuffer.Depth" );
+        const TextureRef targetRef = graph.RegisterExternal( target, "SceneColor.Depth" );
+        graph.Extract( targetRef, target, Access::DepthWrite );
+        Nodes::AddDepthToScene( graph, samples, sourceRef, targetRef, Ok, Ok );
+        const CompileResult result = CompileOrFail( graph );
+        ASSERT_EQ( result.Passes.size(), 1u ) << samples;
+        const CompiledPass* copy   = result.FindPass( "Deferred: DepthResolve" );
+        const CompiledPass* expand = result.FindPass( "Deferred: DepthExpand" );
+        if ( samples == 1 )
+        {
+            ASSERT_NE( copy, nullptr );
+            EXPECT_EQ( expand, nullptr );
+            EXPECT_TRUE( HasFlag( copy->Flags, PassFlags::Copy ) );
+            continue;
+        }
+        EXPECT_EQ( copy, nullptr ) << "a copy between sample counts is illegal";
+        ASSERT_NE( expand, nullptr );
+        EXPECT_TRUE( HasFlag( expand->Flags, PassFlags::Raster ) );
+        // The G-buffer depth is sampled (SHADER_READ_ONLY) and the scene depth is the node's depth attachment.
+        const std::vector<Barrier> intoRead = BarriersOn( expand, sourceRef.Index );
+        ASSERT_EQ( intoRead.size(), 1u );
+        EXPECT_EQ( intoRead[0].After, GetAccessState( Access::SampledGraphics ) );
+        bool depthAttachment = false;
+        for ( const AttachmentDecision& attachment : expand->Attachments )
+            depthAttachment = depthAttachment || ( attachment.IsDepth && attachment.Resource == targetRef.Index );
+        EXPECT_TRUE( depthAttachment ) << "DepthExpand does not render into the scene depth";
+    }
 }
 
 // THE MESH AND TERRAIN PASSES ARE RASTER NODES (RDG-LEG1-L1): SceneRendererFrameMesh.cpp adds no legacy pass, each
