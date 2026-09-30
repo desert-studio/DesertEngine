@@ -463,7 +463,7 @@ TEST( MaterialImportAdapter, AnEmbeddedTextureIsDerivedBesideTheSourceAndRewritt
     std::vector<std::optional<PackOutcome>> extracted;
     Assimp::Importer                        importer;
     const TemplateFill                      fill =
-         FillFromTemplate( ReadResolving( file, importer, extracted ), Template( "PBR/StaticMeshPBR.shader" ) );
+         FillFromTemplate( ReadResolving( file, importer, extracted ), Template( "PBR/StandardSurface.shader" ) );
 
     const ImportedTextureSlot* albedo = Slot( fill, "u_AlbedoTexture" );
     ASSERT_NE( albedo, nullptr ) << "the embedded base colour did not reach its slot";
@@ -485,7 +485,7 @@ TEST( MaterialImportAdapter, AnEmbeddedTextureIsDerivedBesideTheSourceAndRewritt
     extracted.clear();
     Assimp::Importer   again;
     const TemplateFill refill =
-         FillFromTemplate( ReadResolving( file, again, extracted ), Template( "PBR/StaticMeshPBR.shader" ) );
+         FillFromTemplate( ReadResolving( file, again, extracted ), Template( "PBR/StandardSurface.shader" ) );
     ASSERT_NE( Slot( refill, "u_AlbedoTexture" ), nullptr );
     EXPECT_EQ( Slot( refill, "u_AlbedoTexture" )->Parts.front().Source, derived );
     ASSERT_FALSE( extracted.empty() );
@@ -540,7 +540,7 @@ TEST( MaterialImportAdapter, AnFbxBaseColorMapIsTheAlbedoWhenNoDiffuseIsStated )
         return FillFromTemplate( ReadSourceMaterial( mat, SourceFormatOf( "chair.fbx" ), "M",
                                                      []( const std::string& ref ) { return fs::path( ref ); } )
                                       .Material,
-                                 Template( "PBR/StaticMeshPBR.shader" ) );
+                                 Template( "PBR/StandardSurface.shader" ) );
     };
     const TemplateFill onlyBase = read( false );
     ASSERT_NE( Slot( onlyBase, "u_AlbedoTexture" ), nullptr ) << "an FBX base_color_map was dropped";
@@ -570,7 +570,7 @@ TEST( MaterialImportAdapter, AGltfSamplerReachesItsSlotAndADefaultOneStatesNothi
     ASSERT_TRUE( base->second.Sampler.has_value() ) << "the source sampler was not read";
     EXPECT_EQ( base->second.Sampler, std::optional<SamplerState>( expected ) );
 
-    const std::vector<ImportTemplate> templates = { Template( "PBR/StaticMeshPBR.shader" ) };
+    const std::vector<ImportTemplate> templates = { Template( "PBR/StandardSurface.shader" ) };
     const TemplateFill                fill      = FillFromTemplate( source, templates[0] );
     const ImportedTextureSlot*        albedo    = Slot( fill, "u_AlbedoTexture" );
     ASSERT_NE( albedo, nullptr );

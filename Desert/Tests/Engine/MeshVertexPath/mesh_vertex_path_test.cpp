@@ -111,8 +111,8 @@ namespace
     }
 
     // The stages of the program the table names: the default program, or the named cell/pass.
-    std::unordered_map<ShaderStage, std::string> StagesOf( const Desert::Core::Preprocess::DShaderParseResult& parsed,
-                                                           const std::string&                                cell )
+    std::unordered_map<ShaderStage, std::string>
+    StagesOf( const Desert::Core::Preprocess::DShaderParseResult& parsed, const std::string& cell )
     {
         if ( cell.empty() )
             return parsed.Stages;
@@ -274,7 +274,7 @@ TEST_F( ShaderRootFixture, EveryCellOfTheTableNamesAShaderThatExistsAndCallsItse
         for ( const auto pass : { MeshPass::Forward, MeshPass::GBuffer, MeshPass::Glass, MeshPass::ShadowDepth } )
         {
             const char* name = MeshShaderFor( path, pass );
-            if ( !name )
+            if ( name == nullptr )
                 continue; // a deliberate hole; MeshVertexPath.hpp says why each one is one
 
             const auto file = ShaderFileFor( name );
@@ -561,7 +561,7 @@ TEST_F( ShaderRootFixture, EveryInstancedVertexStagePositionsThroughTheOneWindFu
     {
         const char* name = MeshShaderFor( MeshVertexPath::Instanced, pass );
         ASSERT_NE( name, nullptr );
-        const auto  file  = ShaderFileFor( name );
+        const auto  file   = ShaderFileFor( name );
         std::string vertex = StageSource( name, ShaderStage::Vertex );
         // A template cell's vertex stage is the path's engine header, included; what is asserted is that
         // header's text. Whitespace is dropped on both sides: the claims are about calls, not layout.
@@ -583,7 +583,7 @@ TEST_F( ShaderRootFixture, EveryInstancedVertexStagePositionsThroughTheOneWindFu
              << name << " still computes an undisplaced position beside the shared one";
 
         // Compiled from the stage as assembled — `vertex` above is a whitespace-free text for the finds.
-        const auto        spirv = CompileStage( StageSource( name, ShaderStage::Vertex ), file, shaderc_vertex_shader );
+        const auto spirv = CompileStage( StageSource( name, ShaderStage::Vertex ), file, shaderc_vertex_shader );
         const std::string words( reinterpret_cast<const char*>( spirv.data() ),
                                  spirv.size() * sizeof( uint32_t ) );
         EXPECT_NE( words.find( "FoliageWindOffset(" ), std::string::npos )
@@ -767,8 +767,9 @@ TEST_F( ShaderRootFixture, EveryMeshCellDeclaresEachPushFieldTheRendererWritesBy
     };
 
     // The fields each cell's writers name (Material::SetPushMatrix/SetMaterialIndex/SetInstancedWind,
-    // Material::SetSkinnedBoneOffset, MaterialShadowSkinned::SetBoneOffset). A cell that lost one would silently drop the
-    // write (MaterialBinder: Absent), so the cell must declare it; the layout, not C++, says where it sits.
+    // Material::SetSkinnedBoneOffset, MaterialShadowSkinned::SetBoneOffset). A cell that lost one would silently
+    // drop the write (MaterialBinder: Absent), so the cell must declare it; the layout, not C++, says where it
+    // sits.
     const Expectation expectations[] = {
          { MeshVertexPath::Static, MeshPass::Forward, { "Transform", "MaterialIndex" } },
          { MeshVertexPath::Static, MeshPass::GBuffer, { "Transform", "MaterialIndex" } },
@@ -910,9 +911,12 @@ TEST_F( ShaderRootFixture, AFieldTheCellLacksIsNotWrittenAndAWrongSizeIsRefused 
 TEST( MeshCellPath, EveryCellOfThePBRTemplateRoutesToThePathItWasAllocatedFor )
 {
     // The template heading the table: its (Static x Forward) program is "<Template>/<cell>".
-    const std::string head = MeshShaderFor( MeshVertexPath::Static, MeshPass::Forward );
-    const std::string pbrTemplate =
-         head.substr( 0, head.size() - std::string_view( Desert::Graphic::MeshCellFor( MeshVertexPath::Static, MeshPass::Forward ) ).size() - 1 );
+    const std::string head        = MeshShaderFor( MeshVertexPath::Static, MeshPass::Forward );
+    const std::string pbrTemplate = head.substr(
+         0, head.size() -
+                 std::string_view( Desert::Graphic::MeshCellFor( MeshVertexPath::Static, MeshPass::Forward ) )
+                      .size() -
+                 1 );
     for ( uint32_t p = 0; p < Desert::Graphic::kMeshVertexPathCount; ++p )
         for ( uint32_t s = 0; s < Desert::Graphic::kMeshPassCount; ++s )
         {
@@ -923,7 +927,8 @@ TEST( MeshCellPath, EveryCellOfThePBRTemplateRoutesToThePathItWasAllocatedFor )
             if ( !cell )
                 continue;
             const auto routed = Desert::Graphic::MeshCellPath( *cell );
-            ASSERT_TRUE( routed.has_value() ) << *cell << " is a cell of the table and must take the batched path";
+            if ( !routed.has_value() )
+                FAIL() << *cell << " is a cell of the table and must take the batched path";
             EXPECT_EQ( *routed, path ) << *cell << " routes to " << MeshVertexPathName( *routed )
                                        << ", allocated for " << MeshVertexPathName( path );
         }
@@ -934,7 +939,8 @@ TEST( MeshCellPath, ADSLSurfacesOwnCellIsNoCellOfTheTableAndGoesGeneric )
     // Any template that does not head the table has only its own (Static x Forward) cell, named as itself.
     const std::string dslTemplate = "TextSDF";
     const auto own = Desert::Graphic::SurfaceCellShader( dslTemplate, MeshVertexPath::Static, MeshPass::Forward );
-    ASSERT_TRUE( own.has_value() );
+    if ( !own.has_value() )
+        FAIL() << dslTemplate << " has no own (Static x Forward) cell";
     EXPECT_EQ( *own, dslTemplate );
     EXPECT_FALSE( Desert::Graphic::MeshCellPath( *own ).has_value() ) << "a DSL surface would be batched as PBR";
     EXPECT_FALSE( Desert::Graphic::SurfaceCellShader( dslTemplate, MeshVertexPath::Skinned, MeshPass::Forward ) );
@@ -962,14 +968,14 @@ TEST_F( ShaderRootFixture, EveryMeshCellsVertexInputsAreTheOneLayoutsElements )
         for ( const auto pass : { MeshPass::Forward, MeshPass::GBuffer, MeshPass::Glass, MeshPass::ShadowDepth } )
         {
             const char* name = MeshShaderFor( path, pass );
-            if ( !name )
+            if ( name == nullptr )
                 continue;
             const auto spirv = CompileStage( StageSource( name, ShaderStage::Vertex ), ShaderFileFor( name ),
                                              shaderc_vertex_shader );
             ASSERT_FALSE( spirv.empty() ) << name;
 
-            spirv_cross::Compiler reflected( spirv );
-            std::set<uint32_t>    locations;
+            const spirv_cross::Compiler reflected( spirv );
+            std::set<uint32_t>          locations;
             for ( const auto& input : reflected.get_shader_resources().stage_inputs )
             {
                 const uint32_t location = reflected.get_decoration( input.id, spv::DecorationLocation );

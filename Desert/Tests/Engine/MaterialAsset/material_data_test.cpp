@@ -321,8 +321,8 @@ TEST( MaterialData, ASlotSamplerOverridesTheTemplateAndAnUnstatedSlotKeepsTheTem
 // so a written false must read back as a stated false (an override), never as absent.
 TEST( MaterialData, TwoSidedRoundTripsAndAnUnstatedOneStaysUnstated )
 {
-    for ( const std::optional<bool> stated : { std::optional<bool>{ true }, std::optional<bool>{ false },
-                                               std::optional<bool>{} } )
+    for ( const std::optional<bool> stated :
+          { std::optional<bool>{ true }, std::optional<bool>{ false }, std::optional<bool>{} } )
     {
         Desert::Assets::MaterialData m;
         m.TwoSided      = stated;

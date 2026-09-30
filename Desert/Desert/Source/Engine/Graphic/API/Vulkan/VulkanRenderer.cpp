@@ -327,9 +327,9 @@ namespace Desert::Graphic::API::Vulkan
         // per-frame deletion queue, so a command buffer still in flight keeps reading valid memory.
         if ( m_DefaultVertexStreams == nullptr || capacity > m_DefaultVertexStreamsCapacity )
         {
-            const std::vector<MeshVertexStreams> defaults( capacity );
+            std::vector<MeshVertexStreams> defaults( capacity );
             m_DefaultVertexStreams = VertexBuffer::Create(
-                 (void*)defaults.data(), static_cast<uint32_t>( defaults.size() * sizeof( MeshVertexStreams ) ) );
+                 defaults.data(), static_cast<uint32_t>( defaults.size() * sizeof( MeshVertexStreams ) ) );
             const auto uploaded = m_DefaultVertexStreams->RT_Invalidate();
             DESERT_VERIFY( uploaded.IsSuccess(), "the default vertex-streams buffer could not be uploaded" );
             m_DefaultVertexStreamsCapacity = capacity;
@@ -376,17 +376,18 @@ namespace Desert::Graphic::API::Vulkan
         vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 0, 1, &vbuffer, offsets );
         // Binding 1, the optional streams (MeshVertexLayout): the mesh's own, or the shared default holding at
         // least as many vertices as this mesh — one pipeline, one stride either way.
-        if ( vulkanPipeline->HasVertexStreams() )
+        // HasVertexStreams is read off the pipeline's vertex layout (VulkanPipeline), so it implies one.
+        if ( const auto& layout = pipeline->GetSpecification().Layout;
+             vulkanPipeline->HasVertexStreams() && layout.has_value() )
         {
             const auto& own = mesh->GetStreamBuffer();
-            auto        sbuffer =
+            auto*       sbuffer =
                  sp_cast<API::Vulkan::VulkanVertexBuffer>(
-                      own != nullptr
-                           ? own
-                           : DefaultVertexStreams( DefaultVertexStreamsFor( *pipeline->GetSpecification().Layout,
-                                                                            mesh->GetVertexBuffer()->GetSize(),
-                                                                            m_DefaultVertexStreamsCapacity )
-                                                        .Capacity ) )
+                      own != nullptr ? own
+                                     : DefaultVertexStreams(
+                                            DefaultVertexStreamsFor( *layout, mesh->GetVertexBuffer()->GetSize(),
+                                                                     m_DefaultVertexStreamsCapacity )
+                                                 .Capacity ) )
                       ->GetVulkanBuffer();
             vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 1, 1, &sbuffer, offsets );
         }

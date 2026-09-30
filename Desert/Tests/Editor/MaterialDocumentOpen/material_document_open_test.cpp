@@ -257,8 +257,10 @@ TEST( MaterialDocumentOpen, SavingAnEditedMaterialKeepsTheGuidItsFileStates )
     ASSERT_TRUE( saved.IsSuccess() ) << saved.GetError();
     const auto reparsed = Assets::ParseMaterialJson( tmp.File.generic_string(), saved.GetValue() );
     ASSERT_TRUE( reparsed.IsSuccess() ) << reparsed.GetError();
-    ASSERT_TRUE( reparsed.GetValue().Header.has_value() );
-    EXPECT_EQ( reparsed.GetValue().Header->Guid, Common::Content::AssetGuidToText( fileGuid ) );
+    const auto& header = reparsed.GetValue().Header;
+    if ( !header.has_value() )
+        FAIL() << "the saved material lost its header";
+    EXPECT_EQ( header->Guid, Common::Content::AssetGuidToText( fileGuid ) );
 }
 
 // The other half: an EVICTED material holds no authored values and no header, so it refuses to write rather than

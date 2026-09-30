@@ -54,7 +54,7 @@ namespace Desert
         void CreateStreamBuffer( const std::vector<MeshVertexStreams>& streams )
         {
             if ( !streams.empty() )
-                m_StreamBuffer = Graphic::VertexBuffer::Create( (void*)streams.data(),
+                m_StreamBuffer = Graphic::VertexBuffer::Create( const_cast<MeshVertexStreams*>( streams.data() ),
                                                                 streams.size() * sizeof( MeshVertexStreams ) );
         }
         [[nodiscard]] Common::BoolResultWithCodes<MeshError> InvalidateStreamBuffer() const

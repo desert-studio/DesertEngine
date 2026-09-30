@@ -54,9 +54,9 @@ namespace Desert::Graphic
         WritePushField( "WindB", &wind.B, sizeof( glm::vec4 ) );
     }
 
-    void Material::UploadSkinnedBones( const glm::mat4* matrices, size_t count )
+    void Material::UploadSkinnedBones( const glm::mat4* matrices, size_t count ) const
     {
-        if ( !matrices || count == 0 )
+        if ( matrices == nullptr || count == 0 )
             return;
         auto* bones = Get<StorageBufferProperty>( ShaderProtocols::SkinnedUB::Name );
         DESERT_VERIFY( bones, "UploadSkinnedBones on a cell with no skinned vertex stage (no Bones buffer)" );

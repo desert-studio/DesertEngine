@@ -379,6 +379,11 @@ namespace
                "\"DefaultSurfaceFallback\"", Verdict::Shipped,
                "the engine stand-in pipeline every mesh draws with until its own material's pipeline "
                "finishes compiling; the product needs it every frame a material hasn't loaded yet" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "\"_TwoSided\"",
+               Verdict::Shipped,
+               "MeshRenderer::CullPermutation — the CullMode None twin of a mesh pipeline, built the first time a "
+               "material or instance with TwoSided draws on it (foliage, glass panes); authored content reaches "
+               "it" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "\"SkinnedMesh_Load\"",
                Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "\"StaticMeshGeometry\"",

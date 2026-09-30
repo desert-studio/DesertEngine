@@ -156,7 +156,7 @@ namespace Desert::Graphic
         // A mesh without it binds one shared default buffer at the same stride, as long as the largest mesh
         // (VulkanRendererAPI::RenderMesh, MeshVertexLayout.hpp DefaultVertexStreamsFor) — one vertex-input
         // state, one pipeline. Empty = no binding 1 at all.
-        VertexBufferLayout& WithStreams( const uint32_t firstLocation,
+        VertexBufferLayout& WithStreams( const uint32_t                                    firstLocation,
                                          const std::initializer_list<VertexBufferElement>& elements )
         {
             m_StreamElements      = elements;

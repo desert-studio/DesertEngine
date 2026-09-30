@@ -441,7 +441,7 @@ Shader "OnlyNamed"
     }
 }
 )";
-    auto res = DShaderParser::Parse( kOnlyNamed );
+    auto        res        = DShaderParser::Parse( kOnlyNamed );
     ASSERT_TRUE( res.IsSuccess() ) << res.GetError();
     const auto& p = res.GetValue();
     ASSERT_NE( p.FindPass( "A" ), nullptr );

@@ -951,10 +951,10 @@ TEST( CloudShadowReceiver, EverySunLitShaderReachesTheOneSharedFactor )
     // shader a cloud must be able to stand in front of. The G-buffer pass is here for a different reason
     // and is asserted separately below.
     const char* kConsumers[] = {
-         "Programs/Deferred/DeferredLighting.shader",   // the deferred composite
-         "Mesh/Surface/Pass_Forward.glslh",             // every forward surface cell: static, instanced, skinned
-         "Programs/PBR/StaticMeshGlass.shader",         // drawn FORWARD over the composite
-         "Programs/Terrain/Terrain.shader",             // drawn by neither mesh path
+         "Programs/Deferred/DeferredLighting.shader", // the deferred composite
+         "Mesh/Surface/Pass_Forward.glslh",           // every forward surface cell: static, instanced, skinned
+         "Programs/PBR/StaticMeshGlass.shader",       // drawn FORWARD over the composite
+         "Programs/Terrain/Terrain.shader",           // drawn by neither mesh path
          // Programs/Grass/Grass.shader was the seventh row until Г25. It shaded the PROCEDURAL grass
          // blades, which had to take the same cloud shadow as the ground beneath them or a field became
          // bright fuzz over dark soil. The generator is gone - grass is a mesh asset now, so it is drawn

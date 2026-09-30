@@ -99,7 +99,7 @@ namespace Desert::Graphic
         {
             m_TwoSidedOverride = twoSided;
         }
-        [[nodiscard]] bool IsTwoSided() const;
+        [[nodiscard]] bool  IsTwoSided() const;
         MaterialInstancePtr GetParentInstance() const
         {
             return m_ParentInstance.lock();

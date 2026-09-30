@@ -52,7 +52,7 @@ namespace Desert::Assets
 
         // Blendshapes (empty when the mesh has none). Deltas are index-aligned with GetVertices().
         // Colors / UV1 packed for the mesh's optional stream buffer; empty when the asset has neither.
-        const std::vector<MeshVertexStreams>& GetVertexStreams() const
+        [[nodiscard]] const std::vector<MeshVertexStreams>& GetVertexStreams() const
         {
             return m_VertexStreams;
         }

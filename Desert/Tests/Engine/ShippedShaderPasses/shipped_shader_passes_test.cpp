@@ -175,9 +175,10 @@ TEST( ShippedShaderPasses, NoShippedShaderDeclaresAPassNothingCanAddress )
                                 parsed.Surface.Cells.end();
             if ( isCell )
             {
-                if ( CellsTheMeshPassesDrawWith().count( passName ) != 0 )
+                if ( CellsTheMeshPassesDrawWith().contains( passName ) )
                     continue;
-                if ( passName.ends_with( std::string( ".") + std::string( Desert::Core::Preprocess::kSurfaceDepthPass ) ) )
+                if ( passName.ends_with( std::string( "." ) +
+                                         std::string( Desert::Core::Preprocess::kSurfaceDepthPass ) ) )
                     continue; // SURF1d: the cascade pass is not on the template yet
                 ADD_FAILURE() << shader.File.string() << ": surface cell \"" << passName
                               << "\" is not named by MeshShaderFor, so no mesh pass ever draws with it";
@@ -286,10 +287,11 @@ TEST( ShippedShaderPasses, EveryShaderThatReadsMaterialParametersReadsThemFromTh
          << "a shipped shader reads u_Material without declaring the Materials[] buffer it comes from, so "
             "it is carrying its parameters some third way.";
 
-    // The five that migrated (NewShaderGraph, an orphan no .dgraph produced, was deleted in SURF1f), named so this test fails if one of them silently stops carrying parameters
-    // at all — which is how a transport change quietly turns into a shader that renders its defaults.
-    for ( const char* migrated : { "MatProbe.shader", "MatProbeUnlit.shader", "Terrain.shader", "TextSDF.shader",
-                                   "Unlit.shader" } )
+    // The five that migrated (NewShaderGraph, an orphan no .dgraph produced, was deleted in SURF1f), named so this
+    // test fails if one of them silently stops carrying parameters at all — which is how a transport change
+    // quietly turns into a shader that renders its defaults.
+    for ( const char* migrated :
+          { "MatProbe.shader", "MatProbeUnlit.shader", "Terrain.shader", "TextSDF.shader", "Unlit.shader" } )
     {
         EXPECT_NE( std::find( onTheSharedBuffer.begin(), onTheSharedBuffer.end(), migrated ),
                    onTheSharedBuffer.end() )
@@ -548,7 +550,7 @@ TEST( ShippedShaderPasses, EveryShaderThatReadsANormalMapGoesThroughTheSharedRec
         // A surface template includes nothing itself: every cell is built around the engine's
         // SurfaceTypes header, so for a template the shared reconstruction must come in through THAT file.
         ASSERT_TRUE( shader.Parsed.IsSuccess() ) << shader.File.string();
-        const bool isTemplate = !shader.Parsed.GetValue().Surface.Cells.empty();
+        const bool        isTemplate = !shader.Parsed.GetValue().Surface.Cells.empty();
         const std::string includer =
              isTemplate ? ReadFile( shader.File.parent_path().parent_path().parent_path() /
                                     std::string( Desert::Core::Preprocess::kSurfaceTypesInclude ) )

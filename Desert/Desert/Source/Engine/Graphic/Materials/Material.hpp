@@ -87,7 +87,7 @@ namespace Desert::Graphic
         // the push block like the index: Vulkan snapshots it at record time, so the next draw's offset
         // cannot clobber this one before the GPU runs it. A cell without the buffer or the field (static,
         // instanced) is a caller bug and says so — a pose uploaded there would vanish without a trace.
-        void UploadSkinnedBones( const glm::mat4* matrices, size_t count );
+        void UploadSkinnedBones( const glm::mat4* matrices, size_t count ) const;
         void SetSkinnedBoneOffset( uint32_t firstBone );
 
         // The cell's reconciled layout (Graphic::Shader::GetMaterialLayout) — what the row, the textures and

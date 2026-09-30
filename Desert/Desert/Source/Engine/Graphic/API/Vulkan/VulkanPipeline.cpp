@@ -109,7 +109,8 @@ namespace Desert::Graphic::API::Vulkan
                 case ShaderDataType::Int3:   return VK_FORMAT_R32G32B32_SINT;
                 case ShaderDataType::Int4:   return VK_FORMAT_R32G32B32A32_SINT;
                 case ShaderDataType::Bool:   return VK_FORMAT_R8_UINT;
-                case ShaderDataType::UNorm8x4: return VK_FORMAT_R8G8B8A8_UNORM;
+                case ShaderDataType::UNorm8x4:
+                    return VK_FORMAT_R8G8B8A8_UNORM;
                 default:
                 {
                     DESERT_VERIFY( false, "Unknown ShaderDataType!" );
@@ -284,10 +285,9 @@ namespace Desert::Graphic::API::Vulkan
             return;
         }
 
-        const auto& layout = m_Specification.Layout.value();
-        m_VertexInputBindings[0] = VkVertexInputBindingDescription{ .binding   = 0,
-                                                                    .stride    = layout.GetStride(),
-                                                                    .inputRate = VK_VERTEX_INPUT_RATE_VERTEX };
+        const auto& layout       = m_Specification.Layout.value();
+        m_VertexInputBindings[0] = VkVertexInputBindingDescription{
+             .binding = 0, .stride = layout.GetStride(), .inputRate = VK_VERTEX_INPUT_RATE_VERTEX };
 
         m_VertexAttributes.clear();
         for ( uint32_t location = 0; const auto& element : layout )
@@ -309,7 +309,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             m_VertexInputBindings[1] = VkVertexInputBindingDescription{
                  .binding = 1, .stride = layout.GetStreamStride(), .inputRate = VK_VERTEX_INPUT_RATE_VERTEX };
-            for ( uint32_t location = layout.GetStreamFirstLocation(); const auto& element : layout.GetStreamElements() )
+            for ( uint32_t    location = layout.GetStreamFirstLocation();
+                  const auto& element : layout.GetStreamElements() )
             {
                 m_VertexAttributes.push_back(
                      VkVertexInputAttributeDescription{ .location = location,

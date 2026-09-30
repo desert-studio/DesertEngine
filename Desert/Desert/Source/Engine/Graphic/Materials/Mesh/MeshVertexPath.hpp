@@ -33,9 +33,9 @@ namespace Desert::Graphic
     //   | scene binding  | PBRSceneFrame + SceneLightingBinding| 1, already shared |
     //
     // `MaterialGlass` and `MaterialRSM` are gone entirely: they were a shader name and nothing else, so
-    // they are the renderer's own cell materials for (Static, Glass) and (Static, GBuffer). And glass was never chosen
-    // by a class in the first place — `MeshRenderer::DrawStaticMeshes` splits it out by the material's
-    // own `Transmission` value, i.e. by DATA, which is what makes deleting the class safe.
+    // they are the renderer's own cell materials for (Static, Glass) and (Static, GBuffer). And glass was never
+    // chosen by a class in the first place — `MeshRenderer::DrawStaticMeshes` splits it out by the material's own
+    // `Transmission` value, i.e. by DATA, which is what makes deleting the class safe.
     //
     // THERE IS NO C++ SPLIT LEFT. Every surface material — a `.demat` of any template, and the renderer's
     // own glass / RSM / instanced cells — is a DataDrivenMaterial of one cell: the shader of that cell, its
@@ -187,7 +187,8 @@ namespace Desert::Graphic
     // heads the table above has the table's row of cells; any other template is drawn by its own default
     // program only, on the generic path. Empty = no such cell; the caller
     // names the material it refuses. One rule for every template — no class, no role check.
-    std::optional<std::string> SurfaceCellShader( std::string_view templateName, MeshVertexPath path, MeshPass pass );
+    std::optional<std::string> SurfaceCellShader( std::string_view templateName, MeshVertexPath path,
+                                                  MeshPass pass );
 
     // The inverse of MeshShaderFor: which vertex path a compiled cell shader belongs to, or nothing for a
     // shader that is no cell of the table (a DSL surface's own Static x Forward cell). This is the vertex

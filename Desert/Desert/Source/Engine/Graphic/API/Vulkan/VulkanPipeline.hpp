@@ -70,7 +70,8 @@ namespace Desert::Graphic::API::Vulkan
         // The layout carries the optional streams binding (binding 1): the draw must bind a buffer there.
         [[nodiscard]] bool HasVertexStreams() const
         {
-            return !m_Specification.PullingConfig && m_Specification.Layout && m_Specification.Layout->HasStreams();
+            return !m_Specification.PullingConfig && m_Specification.Layout &&
+                   m_Specification.Layout->HasStreams();
         }
 
         VkPipelineLayout GetVkPipelineLayout() const

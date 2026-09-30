@@ -235,7 +235,8 @@ namespace Desert::Assets
 
         /// THE SAMPLER THE `name` SLOT DRAWS WITH: this material's own `Sampler` on the slot when it states
         /// one, else @p templateDefault (the shader's `Sampler(...)`, ShaderParam::Sampler). The one reader of
-        /// MaterialAssetRef::Sampler; ApplySurfaceAsset (MaterialService) hands its answer to the slot's Texture2DProperty.
+        /// MaterialAssetRef::Sampler; ApplySurfaceAsset (MaterialService) hands its answer to the slot's
+        /// Texture2DProperty.
         [[nodiscard]] Core::Formats::SamplerState
         SlotSampler( std::string_view name, const Core::Formats::SamplerState& templateDefault ) const
         {
