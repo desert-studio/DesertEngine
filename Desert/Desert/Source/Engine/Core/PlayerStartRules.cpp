@@ -24,9 +24,9 @@ namespace Desert::Core
         using PawnBlock = std::optional<Common::Json::Value>;
 
         Common::ResultStr<PawnBlock> FindPawnBlock( const std::vector<Assets::EntityData>& records,
-                                                                const std::vector<PendingOverride>&    pending,
-                                                                const NestedPrefabRecords&             nested,
-                                                                std::vector<std::string>&              stack )
+                                                    const std::vector<PendingOverride>&    pending,
+                                                    const NestedPrefabRecords&             nested,
+                                                    std::vector<std::string>&              stack )
         {
             for ( const Assets::EntityData& record : records )
             {
@@ -40,7 +40,7 @@ namespace Desert::Core
                     const auto body = nested( path );
                     if ( !body )
                         return Common::MakeFormattedError<PawnBlock>( "the nested prefab '{}': {}", path,
-                                                                            body.GetError() );
+                                                                      body.GetError() );
                     std::vector<PendingOverride> inner;
                     if ( record.PrefabOverrides )
                         for ( const Assets::PrefabOverrideData& over : *record.PrefabOverrides )
@@ -185,6 +185,6 @@ namespace Desert::Core
     PawnControllerBlock( const std::vector<Assets::EntityData>& records, const NestedPrefabRecords& nested )
     {
         std::vector<std::string> stack;
-        return FindControllerBlock( records, {}, nested, stack );
+        return FindPawnBlock( records, {}, nested, stack );
     }
 } // namespace Desert::Core

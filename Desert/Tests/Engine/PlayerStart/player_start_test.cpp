@@ -207,8 +207,8 @@ TEST( PlayerStartCapsule, TheGizmoDrawsTheLevelsDefaultPawnNotTheStructsDefaults
          << "a PlayerStart must wear its own icon (UE S_Player), not the generic spawn-point pin";
 }
 
-// UI-FIX2b: the pawn's body is the CDO's (UE), nested prefabs included: a pawn prefab that nests the prefab holding
-// its CharacterController (PrefabPath) drew no capsule.
+// UI-FIX2b: the pawn's body is the CDO's (UE), nested prefabs included: a pawn prefab that nests the prefab
+// holding its CharacterController (PrefabPath) drew no capsule.
 namespace
 {
     using Desert::Assets::EntityData;
@@ -231,11 +231,12 @@ namespace
     struct Library
     {
         std::vector<EntityData> Body; // "Body.deprefab": its root holds the controller
-        NestedPrefabRecords     Nested = [this]( const std::string& path )
-             -> Common::ResultStr<const std::vector<EntityData>*>
+        NestedPrefabRecords     Nested =
+             [this]( const std::string& path ) -> Common::ResultStr<const std::vector<EntityData>*>
         {
+            const std::vector<EntityData>* body = &Body;
             if ( path == "Body.deprefab" )
-                return Common::MakeSuccess( &Body );
+                return Common::MakeSuccess( body );
             return Common::MakeFormattedError<const std::vector<EntityData>*>( "'{}' is not a prefab", path );
         };
     };
@@ -244,7 +245,7 @@ namespace
 TEST( PawnBody, TheControllerOfANestedPrefabIsThePawns )
 {
     Library lib;
-    lib.Body.emplace_back().id                 = Common::UUID( 2 );
+    lib.Body.emplace_back().id                        = Common::UUID( 2 );
     lib.Body.back().Components["CharacterController"] = Controller( 80.0, 300.0 );
 
     std::vector<EntityData> pawn( 2 );
@@ -261,26 +262,28 @@ TEST( PawnBody, TheControllerOfANestedPrefabIsThePawns )
 TEST( PawnBody, AnOverrideOnTheNestingRecordIsMergedOntoTheNestedBlock )
 {
     Library lib;
-    lib.Body.emplace_back().id                 = Common::UUID( 2 );
+    lib.Body.emplace_back().id                        = Common::UUID( 2 );
     lib.Body.back().Components["CharacterController"] = Controller( 80.0, 300.0 );
 
     std::vector<EntityData> pawn( 1 );
     pawn[0].id         = Common::UUID( 3 );
     pawn[0].PrefabPath = "Body.deprefab";
     Desert::Assets::PrefabOverrideData over;
-    over.Path                            = { Common::UUID( 2 ) };
+    over.Path                              = { Common::UUID( 2 ) };
     over.Components["CharacterController"] = Controller( 45.0 );
-    pawn[0].PrefabOverrides              = std::vector{ over };
+    pawn[0].PrefabOverrides                = std::vector{ over };
 
     const auto block = PawnControllerBlock( pawn, lib.Nested );
     ASSERT_TRUE( block && block.GetValue() );
-    EXPECT_EQ( FieldOf( *block.GetValue(), "Radius" ), FieldOf( Controller( 45.0 ), "Radius" ) ) << "the instance's override was not applied";
-    EXPECT_EQ( FieldOf( *block.GetValue(), "Height" ), FieldOf( Controller( 0.0, 300.0 ), "Height" ) ) << "the merge reset a field it did not name";
+    EXPECT_EQ( FieldOf( *block.GetValue(), "Radius" ), FieldOf( Controller( 45.0 ), "Radius" ) )
+         << "the instance's override was not applied";
+    EXPECT_EQ( FieldOf( *block.GetValue(), "Height" ), FieldOf( Controller( 0.0, 300.0 ), "Height" ) )
+         << "the merge reset a field it did not name";
 }
 
 TEST( PawnBody, AMissingOrSelfNestedPrefabIsAnErrorNamingThePath )
 {
-    Library lib;
+    Library                 lib;
     std::vector<EntityData> pawn( 1 );
     pawn[0].PrefabPath = "Gone.deprefab";
     const auto missing = PawnControllerBlock( pawn, lib.Nested );
@@ -289,7 +292,7 @@ TEST( PawnBody, AMissingOrSelfNestedPrefabIsAnErrorNamingThePath )
 
     lib.Body.emplace_back().PrefabPath = "Body.deprefab";
     pawn[0].PrefabPath                 = "Body.deprefab";
-    const auto cycle = PawnControllerBlock( pawn, lib.Nested );
+    const auto cycle                   = PawnControllerBlock( pawn, lib.Nested );
     ASSERT_FALSE( cycle );
     EXPECT_NE( cycle.GetError().find( "nests itself" ), std::string::npos );
 }

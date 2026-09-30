@@ -154,7 +154,8 @@ namespace Desert::Runtime::Factory
             std::vector<Common::UUID> nestedPrefix = pathPrefix;
             nestedPrefix.push_back( data.id.value_or( Common::UUID::Null() ) );
 
-            const ECS::Entity nestedRoot = Instantiate( *nested.GetValue(), scene, assetManager, stack, nestedPrefix );
+            const ECS::Entity nestedRoot =
+                 Instantiate( *nested.GetValue(), scene, assetManager, stack, nestedPrefix );
             if ( plannedPrefab.Parent != Core::Rules::kNoSlot )
             {
                 scene.Attach( created[plannedPrefab.Parent], nestedRoot );
@@ -222,7 +223,7 @@ namespace Desert::Runtime::Factory
         {
             if ( const auto loaded = nested->Load(); !loaded )
                 return Common::MakeFormattedError<Assets::Asset<Assets::PrefabAsset>>( "it did not load: {}",
-                                                                                      loaded.GetError() );
+                                                                                       loaded.GetError() );
         }
         return Common::MakeSuccess( nested );
     }

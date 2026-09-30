@@ -43,9 +43,8 @@ namespace Desert::Core
 
         // The level's Default Pawn prefab, loaded: the ONE statement of "is not a loaded prefab", for Play
         // and for the PlayerStart's capsule alike.
-        Common::ResultStr<Assets::Asset<Assets::PrefabAsset>> DefaultPawnPrefab( const Scene&                scene,
-                                                                                 const Assets::AssetManager& assets,
-                                                                                 Assets::AssetHandle pawnHandle )
+        Common::ResultStr<Assets::Asset<Assets::PrefabAsset>>
+        DefaultPawnPrefab( const Scene& scene, const Assets::AssetManager& assets, Assets::AssetHandle pawnHandle )
         {
             auto prefab = assets.FindByHandle<Assets::PrefabAsset>( pawnHandle );
             if ( !prefab || !prefab->IsReadyForUse() )
@@ -138,8 +137,8 @@ namespace Desert::Core
                  return Common::MakeSuccess( &resolved.GetValue()->GetEntities() );
              } );
         if ( !block )
-            return Common::MakeFormattedError<std::optional<PawnCapsule>>( "level '{}': its Default Pawn: {}",
-                                                                          scene.GetSceneName(), block.GetError() );
+            return Common::MakeFormattedError<std::optional<PawnCapsule>>(
+                 "level '{}': its Default Pawn: {}", scene.GetSceneName(), block.GetError() );
         if ( !block.GetValue() )
             return Common::MakeSuccess( std::optional<PawnCapsule>{} );
 

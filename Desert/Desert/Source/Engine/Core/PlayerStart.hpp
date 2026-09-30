@@ -106,9 +106,9 @@ namespace Desert::Core
     // The level's Default Pawn's body (UE: the DefaultPawnClass CDO's capsule): PawnControllerBlock of its
     // prefab (PawnBodyRules.hpp, nested prefabs reached through PrefabFactory::ResolveNested), deserialized into
     // CharacterControllerData by its reflection - the ONE home of the size, so a field the file leaves out is
-    // that struct's value, exactly what the spawned pawn gets. nullopt = the level names no pawn, or its pawn has no controller; both
-    // legal, and there is then no capsule to draw. A handle that does not resolve to a loaded prefab is an
-    // error naming the level, in the words SpawnDefaultPawn uses (DefaultPawnPrefab, one home).
+    // that struct's value, exactly what the spawned pawn gets. nullopt = the level names no pawn, or its pawn has
+    // no controller; both legal, and there is then no capsule to draw. A handle that does not resolve to a loaded
+    // prefab is an error naming the level, in the words SpawnDefaultPawn uses (DefaultPawnPrefab, one home).
     [[nodiscard]] Common::ResultStr<std::optional<PawnCapsule>>
     DefaultPawnCapsule( const Scene& scene, const Assets::AssetManager& assets );
 
