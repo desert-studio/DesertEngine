@@ -23,7 +23,10 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/SkeletonReferenceAssets.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
+#include <Engine/Animation/AnimationClip.hpp>
+#include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
+#include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
@@ -220,6 +223,48 @@ namespace
         uint64_t                        m_Before = 0;
         uint64_t                        m_After  = 0;
     };
+
+    namespace Timeline = Animation::Timeline;
+
+    /// The clip as the ENGINE reads it: the asset's TMLN block through BuildClipFromAssetData, never the file's
+    /// JSON restated (AnimationAsset::Load takes the same step).
+    Animation::AnimationClip ClipOf( const Ser::AnimationAssetData& data )
+    {
+        auto clip = Ser::BuildClipFromAssetData( data );
+        EXPECT_TRUE( clip.IsSuccess() ) << clip.GetError();
+        return clip.IsSuccess() ? clip.ExtractValue() : Animation::AnimationClip{};
+    }
+
+    /// @p bone's keys: the one section's Transform channel of the track its Bone binding (locator = bone) drives.
+    const Timeline::TransformChannel* BoneChannel( const Animation::AnimationClip& clip, const std::string& bone )
+    {
+        for ( const Timeline::Binding& binding : clip.Sequence.Bindings )
+        {
+            if ( binding.Kind != Timeline::BindingKind::Bone || binding.Locator != bone )
+                continue;
+            for ( const Timeline::Track& track : clip.Sequence.Tracks )
+                if ( track.Binding == binding.Guid && track.Kind == Timeline::TrackKind::Transform &&
+                     track.Sections.size() == 1 )
+                    return std::get_if<Timeline::TransformChannel>(
+                         &std::get<Timeline::Channel>( track.Sections.front().Content ) );
+        }
+        return nullptr;
+    }
+
+    std::vector<std::string> BoneLocators( const Animation::AnimationClip& clip )
+    {
+        std::vector<std::string> out;
+        for ( const Timeline::Binding& binding : clip.Sequence.Bindings )
+            if ( binding.Kind == Timeline::BindingKind::Bone )
+                out.push_back( binding.Locator );
+        return out;
+    }
+
+    glm::quat RotationKey( const Timeline::TransformChannel& channel, std::size_t k )
+    {
+        const Timeline::RotationChannel& r = channel.Rotation;
+        return { r.W.Keys[k].Value, r.X.Keys[k].Value, r.Y.Keys[k].Value, r.Z.Keys[k].Value };
+    }
 } // namespace
 
 TEST_F( SkinnedImport, TheStoredRestShapeStandsAlongYAsTheNodeAboveTheRigTurnsIt )
@@ -243,8 +288,9 @@ TEST_F( SkinnedImport, TheClipsFirstFramePutsTheRootBoneWhereItsBindDoes )
 {
     const auto rig = Ser::ReadSkeletonJson( Read( m_Outcome.WrittenSkeletons.front() ) );
     ASSERT_TRUE( rig.IsSuccess() ) << rig.GetError();
-    const auto clip = Ser::ReadAnimationJson( Read( m_Outcome.WrittenClips.front() ) );
-    ASSERT_TRUE( clip.IsSuccess() ) << clip.GetError();
+    const auto data = Ser::ReadAnimationJson( Read( m_Outcome.WrittenClips.front() ) );
+    ASSERT_TRUE( data.IsSuccess() ) << data.GetError();
+    const Animation::AnimationClip clip = ClipOf( data.GetValue() );
 
     const Animation::BoneInfo* root = nullptr;
     for ( const auto& bone : rig.GetValue().Bones )
@@ -252,16 +298,13 @@ TEST_F( SkinnedImport, TheClipsFirstFramePutsTheRootBoneWhereItsBindDoes )
             root = &bone;
     ASSERT_NE( root, nullptr );
 
-    const Ser::ChannelData* channel = nullptr;
-    for ( const auto& c : clip.GetValue().Channels )
-        if ( c.BoneName == "Root" )
-            channel = &c;
-    ASSERT_NE( channel, nullptr );
-    ASSERT_FALSE( channel->Rotations.empty() );
+    const Timeline::TransformChannel* channel = BoneChannel( clip, "Root" );
+    ASSERT_NE( channel, nullptr ) << "the clip binds no bone 'Root'";
+    ASSERT_FALSE( channel->Rotation.W.Keys.empty() );
 
     // The bind states the Z_UP turn (folded into the root's local bind); frame 0 must state the same turn.
     const glm::quat bind  = glm::normalize( glm::quat_cast( glm::mat3( root->LocalBindTransform ) ) );
-    const glm::quat first = glm::normalize( channel->Rotations.front().Value );
+    const glm::quat first = glm::normalize( RotationKey( *channel, 0 ) );
     EXPECT_NEAR( std::abs( glm::dot( bind, first ) ), 1.0f, 1e-4f )
          << "bind " << bind.w << " " << bind.x << " " << bind.y << " " << bind.z << " / frame 0 " << first.w << " "
          << first.x << " " << first.y << " " << first.z;
@@ -436,17 +479,32 @@ TEST_F( SkinnedImport, AReimportAtTenTimesTheScaleScalesMeshRigAndClipTogether )
     }
 
     // The clip: rotations are scale-free, translations x10.
-    ASSERT_EQ( after.Clip.Channels.size(), before.Clip.Channels.size() );
-    for ( std::size_t c = 0; c < after.Clip.Channels.size(); ++c )
+    const Animation::AnimationClip was = ClipOf( before.Clip );
+    const Animation::AnimationClip now = ClipOf( after.Clip );
+    const std::vector<std::string> bones = BoneLocators( now );
+    ASSERT_FALSE( bones.empty() );
+    ASSERT_EQ( bones, BoneLocators( was ) );
+    for ( const std::string& bone : bones )
     {
-        const auto& was = before.Clip.Channels[c];
-        const auto& now = after.Clip.Channels[c];
-        ASSERT_EQ( now.Rotations.size(), was.Rotations.size() );
-        for ( std::size_t k = 0; k < now.Rotations.size(); ++k )
-            EXPECT_NEAR( std::abs( glm::dot( now.Rotations[k].Value, was.Rotations[k].Value ) ), 1.0f, 1e-4f );
-        ASSERT_EQ( now.Positions.size(), was.Positions.size() );
-        for ( std::size_t k = 0; k < now.Positions.size(); ++k )
-            EXPECT_NEAR( glm::length( now.Positions[k].Value - 10.0f * was.Positions[k].Value ), 0.0f, 1e-3f );
+        const Timeline::TransformChannel* a = BoneChannel( was, bone );
+        const Timeline::TransformChannel* b = BoneChannel( now, bone );
+        ASSERT_NE( a, nullptr ) << bone;
+        ASSERT_NE( b, nullptr ) << bone;
+        ASSERT_EQ( b->Rotation.W.Keys.size(), a->Rotation.W.Keys.size() ) << bone;
+        for ( std::size_t k = 0; k < b->Rotation.W.Keys.size(); ++k )
+            EXPECT_NEAR( std::abs( glm::dot( RotationKey( *b, k ), RotationKey( *a, k ) ) ), 1.0f, 1e-4f ) << bone;
+        const std::array<const Timeline::FloatChannel*, 3> t0{ &a->Translation.X, &a->Translation.Y,
+                                                               &a->Translation.Z };
+        const std::array<const Timeline::FloatChannel*, 3> t1{ &b->Translation.X, &b->Translation.Y,
+                                                               &b->Translation.Z };
+        for ( std::size_t axis = 0; axis < 3; ++axis )
+        {
+            ASSERT_EQ( t1[axis]->Keys.size(), t0[axis]->Keys.size() ) << bone << " axis " << axis;
+            for ( std::size_t k = 0; k < t1[axis]->Keys.size(); ++k )
+                EXPECT_NEAR( t1[axis]->Keys[k].Value, 10.0f * t0[axis]->Keys[k].Value, 1e-3f )
+                     << bone << " axis " << axis << " key " << k;
+            EXPECT_NEAR( t1[axis]->Default, 10.0f * t0[axis]->Default, 1e-3f ) << bone << " axis " << axis;
+        }
     }
 }
 
