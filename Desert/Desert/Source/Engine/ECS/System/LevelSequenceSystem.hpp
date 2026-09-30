@@ -11,7 +11,6 @@
 #include <Common/Core/Logger.hpp>
 
 #include <memory>
-#include <set>
 #include <string>
 #include <unordered_map>
 
@@ -52,29 +51,13 @@ namespace Desert::ECS
 
                 const Animation::Timeline::TimeStep step = actor->Playback->Player.Advance( ts.GetSeconds() );
                 const LevelSequenceStep result = StepLevelSequence( registry, component, *actor->Playback, step );
-                for ( const auto& label : result.Report.Unresolved )
-                    if ( actor->Reported.insert( "unresolved:" + label ).second )
-                        LOG_ERROR( "[LevelSequence] '{}': binding '{}' names no entity of this scene; its tracks "
-                                   "are not applied",
-                                   actor->Name, label );
-                for ( const auto& refusal : result.Refusals )
-                    if ( actor->Reported.insert( refusal ).second )
-                        LOG_ERROR( "[LevelSequence] '{}': {}", actor->Name, refusal );
+                for ( const auto& error : TakeNewLevelSequenceErrors( actor->State, result ) )
+                    LOG_ERROR( "[LevelSequence] '{}': {}", actor->Name, error );
                 for ( const auto& name : result.FiredEvents )
                     LOG_INFO( "[LevelSequence] '{}': event '{}'", actor->Name, name );
 
-                if ( result.CameraCut && !actor->CutInForce )
-                {
-                    actor->TargetBeforeCut = m_Scene->GetViewTarget();
-                    actor->CutInForce      = true;
-                }
-                if ( result.CameraCut )
-                    m_Scene->SetViewTarget( *result.CameraCut );
-                else if ( actor->CutInForce )
-                {
-                    m_Scene->SetViewTarget( actor->TargetBeforeCut );
-                    actor->CutInForce = false;
-                }
+                if ( const auto target = LevelSequenceViewTarget( actor->State, result, m_Scene->GetViewTarget() ) )
+                    m_Scene->SetViewTarget( *target );
             }
         }
 
@@ -84,9 +67,7 @@ namespace Desert::ECS
             Assets::Asset<Assets::LevelSequenceAsset> Asset;
             std::unique_ptr<LevelSequencePlayback>    Playback;
             std::string                               Name;
-            std::set<std::string>                     Reported;
-            entt::entity                              TargetBeforeCut = entt::null;
-            bool                                      CutInForce      = false;
+            LevelSequenceActorState                   State;
         };
 
         Actor* ActorFor( entt::entity entity, const LevelSequenceComponent& component )

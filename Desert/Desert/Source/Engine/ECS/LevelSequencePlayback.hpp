@@ -7,6 +7,7 @@
 #include <entt/entt.hpp>
 
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -92,4 +93,27 @@ namespace Desert::ECS
     [[nodiscard]] LevelSequenceStep StepLevelSequence( entt::registry& registry, const LevelSequenceComponent& component,
                                                        LevelSequencePlayback&                 playback,
                                                        const Animation::Timeline::TimeStep& step );
+
+    /**
+     * @brief What an actor remembers between steps for the Scene half: which errors it already reported
+     * and the view target the first Camera Cut took over. Kept here, not in the system, so the suite checks
+     * "reported once" and "the previous camera comes back" without a Scene.
+     */
+    struct LevelSequenceActorState
+    {
+        std::set<std::string> Reported;
+        entt::entity          TargetBeforeCut = entt::null;
+        bool                  CutInForce      = false;
+    };
+
+    /// The unresolved bindings and refused tracks of @p step that @p state has not reported yet, each in the
+    /// words the log carries; they are recorded as reported.
+    [[nodiscard]] std::vector<std::string> TakeNewLevelSequenceErrors( LevelSequenceActorState& state,
+                                                                       const LevelSequenceStep& step );
+
+    /// The view target after @p step, given the scene's @p current one: the cut's camera while a cut is in
+    /// force; when the cut ends, the target that was current before it began. nullopt = leave it as it is.
+    [[nodiscard]] std::optional<entt::entity> LevelSequenceViewTarget( LevelSequenceActorState& state,
+                                                                       const LevelSequenceStep& step,
+                                                                       entt::entity             current );
 } // namespace Desert::ECS

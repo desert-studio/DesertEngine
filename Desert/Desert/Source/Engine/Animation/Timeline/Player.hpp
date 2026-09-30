@@ -83,3 +83,17 @@ namespace Desert::Animation::Timeline
         PlayState   m_State     = PlayState::Stopped;
     };
 } // namespace Desert::Animation::Timeline
+
+namespace rfl::config
+{
+    template <typename T> struct enum_range;
+
+    /// LoopMode is persisted BY NAME (the scene is a text format a person reads). Its underlying type is
+    /// uint8_t, and reflect-cpp's default scan range is `int` — which does not compile against a uint8_t
+    /// enum — so its range is given in its own type.
+    template <> struct enum_range<Desert::Animation::Timeline::LoopMode>
+    {
+        static constexpr uint8_t min = 0;
+        static constexpr uint8_t max = 2;
+    };
+} // namespace rfl::config

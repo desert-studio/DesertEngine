@@ -165,4 +165,36 @@ namespace Desert::ECS
         out.FiredEvents = host.FiredEvents();
         return out;
     }
+    std::vector<std::string> TakeNewLevelSequenceErrors( LevelSequenceActorState& state, const LevelSequenceStep& step )
+    {
+        std::vector<std::string> fresh;
+        const auto               take = [&]( std::string message )
+        {
+            if ( state.Reported.insert( message ).second )
+                fresh.push_back( std::move( message ) );
+        };
+        for ( const auto& label : step.Report.Unresolved )
+            take( std::format( "binding '{}' names no entity of this scene; its tracks are not applied", label ) );
+        for ( const auto& refusal : step.Refusals )
+            take( refusal );
+        return fresh;
+    }
+
+    std::optional<entt::entity> LevelSequenceViewTarget( LevelSequenceActorState& state, const LevelSequenceStep& step,
+                                                         entt::entity current )
+    {
+        if ( step.CameraCut )
+        {
+            if ( !state.CutInForce )
+            {
+                state.TargetBeforeCut = current;
+                state.CutInForce      = true;
+            }
+            return *step.CameraCut;
+        }
+        if ( !state.CutInForce )
+            return std::nullopt;
+        state.CutInForce = false;
+        return state.TargetBeforeCut;
+    }
 } // namespace Desert::ECS

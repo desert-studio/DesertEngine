@@ -1901,8 +1901,8 @@ namespace Desert::Core::Serialize
                                "its reference is saved empty",
                                entity.GetComponent<ECS::TagComponent>().Tag, static_cast<uint64_t>( actor.Sequence ) );
                 }
-                // LoopMode is STORED AS ITS INTEGER (Player.hpp: append only), like every Timeline enum.
-                out.Set( "Loop", static_cast<int64_t>( actor.Loop ) );
+                // LoopMode is stored BY NAME ("Once" / "Loop" / "PingPong"): the scene is text a person reads.
+                out.Set( "Loop", actor.Loop );
                 out.Set( "AutoPlay", actor.AutoPlay );
                 Common::Json::Value::Array overrides;
                 for ( const auto& over : actor.BindingOverrides )
@@ -1925,13 +1925,7 @@ namespace Desert::Core::Serialize
                 g.ReadInto( "SequencePath", path, issues );
 
                 auto& actor = entity.AddComponent<ECS::LevelSequenceComponent>();
-                int64_t loop = static_cast<int64_t>( actor.Loop );
-                g.ReadInto( "Loop", loop, issues );
-                if ( loop < 0 || loop > static_cast<int64_t>( Animation::Timeline::LoopMode::PingPong ) )
-                    issues.push_back( Common::Json::Issue{ "LevelSequence.Loop", "a LoopMode (0 Once, 1 Loop, 2 PingPong)",
-                                                           std::to_string( loop ) } );
-                else
-                    actor.Loop = static_cast<Animation::Timeline::LoopMode>( loop );
+                g.ReadInto( "Loop", actor.Loop, issues ); // an unknown name is a named issue, the default kept
                 g.ReadInto( "AutoPlay", actor.AutoPlay, issues );
                 if ( const auto overrides = g.Find( "BindingOverrides" ) )
                     overrides->ForEachElement(
