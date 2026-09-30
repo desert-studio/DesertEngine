@@ -16,6 +16,7 @@
 #include <SceneMigration.hpp>
 
 #include <Engine/Animation/AnimationClip.hpp>
+#include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
@@ -31,6 +32,7 @@
 
 #include <array>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -175,13 +177,15 @@ namespace
 
 TEST( ClipTimelineMigration, AV1BlockIsShiftedToTheLeavingRuleAndProvedBitForBit )
 {
-    const std::string v1 = BlockStating( FloatSequence( Timeline::SequenceHost::LevelSequence ), 1 );
-    ASSERT_EQ( Migration::StatedTimelineVersion( v1 ).GetValue(), 1U );
+    const std::string v1       = BlockStating( FloatSequence( Timeline::SequenceHost::LevelSequence ), 1 );
+    const auto        statedV1 = Migration::StatedTimelineVersion( v1 );
+    ASSERT_TRUE( statedV1 );
+    ASSERT_EQ( statedV1.GetValue(), 1U );
 
     const auto shifted = Migration::ShiftTimelineV1( v1 );
     ASSERT_TRUE( shifted ) << shifted.GetError();
     EXPECT_EQ( Modes( shifted.GetValue().Shifted ), kLeaving ) << "a mode did not move to the leaving key";
-    EXPECT_EQ( shifted.GetValue().KeyLists, 1U );
+    EXPECT_EQ( shifted.GetValue().KeyLists, 2U ) << "the section's weight curve and its channel";
     EXPECT_GT( shifted.GetValue().SamplesProved, 24000U ) << "every tick of the keyed range must be compared";
 
     // A v2 block is not a v1 block: the step refuses it rather than shifting it a second time.
@@ -196,7 +200,7 @@ TEST( ClipTimelineMigration, ALevelSequenceFileIsShiftedKeepsItsIdentityAndASeco
     const fs::path dir = fs::temp_directory_path() / "desert_migrator_dseq_v1";
     fs::remove_all( dir );
     fs::create_directories( dir );
-    const fs::path file = dir / ( std::string( "Probe" ) + Timeline::kLevelSequenceExtension );
+    const fs::path file = dir / std::format( "Probe{}", Timeline::kLevelSequenceExtension );
     {
         std::ofstream( file, std::ios::binary )
              << BlockStating( FloatSequence( Timeline::SequenceHost::LevelSequence ), 1, "LevelSequence" );
@@ -248,7 +252,9 @@ TEST( ClipTimelineMigration, AUIAnimBlockIsShiftedOnceAndItsOtherMembersStay )
     EXPECT_TRUE( after.get( "Loop" ).value().to_bool().value() );
     EXPECT_FALSE( after.get( "AutoPlay" ).value().to_bool().value() );
     const std::string sequence = rfl::json::write( after.get( "Sequence" ).value() );
-    EXPECT_EQ( Migration::StatedTimelineVersion( sequence ).GetValue(), Timeline::kTimelineFormatVersion );
+    const auto        stated   = Migration::StatedTimelineVersion( sequence );
+    ASSERT_TRUE( stated );
+    EXPECT_EQ( stated.GetValue(), Timeline::kTimelineFormatVersion );
     EXPECT_EQ( Modes( ReadCurrent( sequence ) ), kLeaving );
 
     // Keyed on the block's own number: a second pass finds nothing to shift.
@@ -274,8 +280,8 @@ TEST( ClipTimelineMigration, AnAnimV6ClipStatingTimelineV1MovesOnlyItsNumber )
     // between those steps and TMLN v2 still stated TMLN v1. A shift here would move every shape twice.
     const std::string stale = ClipText( BlockStating( FloatSequence( Timeline::SequenceHost::AnimationClip ), 1 ),
                                         static_cast<uint32_t>( Ser::kAnimationVersion ) );
-    ASSERT_FALSE( Ser::ReadAnimationJson( stale ) &&
-                  Ser::BuildClipFromAssetData( Ser::ReadAnimationJson( stale ).GetValue() ) )
+    const auto        staleData = Ser::ReadAnimationJson( stale );
+    ASSERT_FALSE( staleData && Ser::BuildClipFromAssetData( staleData.GetValue() ) )
          << "the engine must refuse a TMLN v1 block";
 
     const auto raised = Migration::MigrateClipTimelineV1ToV2( stale );

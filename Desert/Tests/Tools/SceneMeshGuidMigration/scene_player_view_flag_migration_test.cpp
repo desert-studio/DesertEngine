@@ -45,10 +45,10 @@ namespace
     }
 } // namespace
 
-TEST( ScenePlayerViewFlagMigration, VersionIsTheHeadGeneration )
+TEST( ScenePlayerViewFlagMigration, VersionIsTheGenerationBeforeUIAnimationSequences )
 {
     EXPECT_EQ( Migration::kSceneVersionPlayerViewFlag, 40 );
-    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionPlayerViewFlag );
+    EXPECT_EQ( Migration::kSceneVersionUIAnimationSequences, Migration::kSceneVersionPlayerViewFlag + 1 );
 }
 
 TEST( ScenePlayerViewFlagMigration, TheSoleCameraKeepsTheOldDefault )
