@@ -4,10 +4,14 @@
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
+#include <Engine/Assets/MeshSourceAsset.hpp>
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Content/ImportRecord.hpp>
+#include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Core.hpp> // BOOLSUCCESS
 #include <Common/Utilities/FileSystem.hpp>
@@ -94,7 +98,6 @@ namespace Desert::Assets::Serialization
     Common::BoolResultStr SaveMeshSkeletonReference( const std::filesystem::path&     skmeshPath,
                                                      const Common::Content::AssetGuid skeleton )
     {
-        // THE COOKED FILE IS THE BASE: everything but the header's SkeletonGuid is rewritten as it reads.
         const std::filesystem::path file = ContentRegistry::FileToOpen( skmeshPath );
         if ( skeleton.IsNull() )
             return Common::MakeFormattedError<bool>(
@@ -102,6 +105,33 @@ namespace Desert::Assets::Serialization
         auto raw = Common::Utils::FileSystem::ReadFileContent( file );
         if ( !raw )
             return Common::MakeFormattedError<bool>( "mesh '{}' was not saved: {}", file.string(), raw.GetError() );
+
+        // A MESH SOURCE ASSET (an MSAS envelope, not a cooked DESTMESH): the skin's Skeleton IS the reference;
+        // the .skmesh the deriver builds from it states the same GUID.
+        if ( !std::string_view( raw.GetValue() )
+                   .starts_with( std::string_view( Common::Content::kMeshBinaryMagic,
+                                                   sizeof( Common::Content::kMeshBinaryMagic ) ) ) )
+        {
+            auto source = ReadMeshSourceAssetFile( file );
+            if ( !source )
+                return Common::MakeFormattedError<bool>( "mesh '{}' was not saved: {}", file.string(),
+                                                         source.GetError() );
+            MeshSourceAsset asset = source.ExtractValue();
+            if ( !asset.Source.Skin )
+                return Common::MakeFormattedError<bool>(
+                     "mesh '{}' was not saved: it is a static mesh, and only a skinned mesh names a skeleton",
+                     file.string() );
+            asset.Source.Skin->Skeleton = skeleton;
+            if ( const auto written = WriteMeshSourceAssetFile( file, asset ); !written )
+                return Common::MakeFormattedError<bool>( "mesh '{}' was not saved: {}", file.string(),
+                                                         written.GetError() );
+            return BOOLSUCCESS;
+        }
+
+        // AN IMPORTED MESH (cooked DESTMESH beside its raw source): everything but the header's SkeletonGuid is
+        // rewritten as it reads, AND the source's import record chooses the same skeleton (UE: the skeleton is
+        // part of the asset's import settings, and Reimport repeats them) - else a re-import would bind the rig
+        // the file matches and silently revert the artist's assignment.
         auto decoded = DecodeMeshBinary( raw.GetValue(), file.string() );
         if ( !decoded )
             return Common::MakeFormattedError<bool>( "mesh '{}' was not saved: {}", file.string(),
@@ -111,6 +141,18 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<bool>(
                  "mesh '{}' was not saved: it is a static mesh, and only a skinned mesh names a skeleton",
                  file.string() );
+        const std::optional<std::filesystem::path> rawSource = Common::Content::MeshSourceBeside( file );
+        if ( rawSource )
+        {
+            const auto record = ReadImportRecord( *rawSource );
+            if ( !record )
+                return Common::MakeFormattedError<bool>( "mesh '{}' was not saved: {}", file.string(),
+                                                         record.GetError() );
+            if ( record.GetValue() )
+                if ( const auto chosen = SetImportRecordSkeleton( *rawSource, skeleton ); !chosen )
+                    return Common::MakeFormattedError<bool>( "mesh '{}' was not saved: {}", file.string(),
+                                                             chosen.GetError() );
+        }
         data.Skeleton = skeleton;
         if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( file, EncodeMeshBinary( data ) );
              !written )

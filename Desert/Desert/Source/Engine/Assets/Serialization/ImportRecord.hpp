@@ -141,6 +141,14 @@ namespace Desert::Assets::Serialization
     /// record must exist (EnsureImportRecord runs first); written only when the hash changes.
     Common::BoolResultStr SetImportRecordSourceHash( const std::filesystem::path& source, uint64_t hash );
 
+    /// Rewrites the skeleton the record's `Settings` choose (SourceImportSettings::Skeleton; UE: the Skeleton of
+    /// the source's AssetImportData, which Reimport repeats): the artist's assignment of another skeleton to the
+    /// imported mesh, so a re-import keeps it instead of reverting to the rig the file matched. The record must
+    /// exist; its other settings are kept (UE's defaults when it states none); written only when the choice
+    /// changes. An error for a null @p skeleton.
+    Common::BoolResultStr SetImportRecordSkeleton( const std::filesystem::path& source,
+                                                   Common::Content::AssetGuid   skeleton );
+
     /// The orbit @p source's record states for the mesh asset named @p meshFile (ImportRecordData::Thumbnail);
     /// the default orbit when it states none for it. An error naming the record when it is missing or unreadable.
     Common::ResultStr<ThumbnailOrbit> ReadImportRecordThumbnail( const std::filesystem::path& source,

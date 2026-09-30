@@ -304,6 +304,43 @@ namespace Desert::Assets::Serialization
         return BOOLSUCCESS;
     }
 
+    Common::BoolResultStr SetImportRecordSkeleton( const std::filesystem::path&     source,
+                                                   const Common::Content::AssetGuid skeleton )
+    {
+        const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
+        if ( skeleton.IsNull() )
+            return Common::MakeFormattedError<bool>( "'{}': an import chooses a skeleton by GUID; the GUID is null",
+                                                     record.string() );
+        auto data = ReadImportRecord( source );
+        if ( !data )
+            return Common::MakeError<bool>( data.GetError() );
+        if ( !data.GetValue() )
+            return Common::MakeFormattedError<bool>( "'{}' does not exist, so its import's skeleton cannot be "
+                                                     "recorded",
+                                                     record.string() );
+        ImportRecordData out = *data.GetValue();
+        Assets::SourceImportSettings chosen; // UE's defaults when the record states no settings
+        if ( out.Settings )
+        {
+            const auto settings = ImportSettingsFromText( *out.Settings );
+            if ( !settings )
+                return Common::MakeFormattedError<bool>( "'{}': {}", record.string(), settings.GetError() );
+            chosen = settings.GetValue();
+        }
+        if ( out.Settings && chosen.Skeleton == skeleton )
+            return BOOLSUCCESS;
+        chosen.Skeleton = skeleton;
+        out.Settings    = ImportSettingsToText( chosen );
+        const auto kind = Common::Content::ContentKindNamed( out.Header->Kind );
+        const auto text = WriteImportRecord( out, kind.value_or( Common::Content::ContentKind::StaticMesh ) );
+        if ( !text )
+            return Common::MakeFormattedError<bool>( "'{}': {}", record.string(), text.GetError() );
+        if ( auto written = Common::Content::WriteCanonicalJsonFileAtomic( record, text.GetValue() ); !written )
+            return Common::MakeFormattedError<bool>( "'{}' could not be written: {}", record.string(),
+                                                     written.GetError() );
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr SetImportRecordThumbnail( const std::filesystem::path& source,
                                                     const std::string& meshFile, const ThumbnailOrbit& orbit )
     {

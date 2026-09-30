@@ -32,8 +32,9 @@ namespace Desert::Assets::Serialization
     /// CompatibleSkeletons are taken from the asset (SetPreviewMesh / SetCompatibleSkeletons).
     [[nodiscard]] Common::BoolResultStr SaveSkeletonAsset( const SkeletonAsset& skeleton );
 
-    /// Rewrites the `Skeleton` reference of the .skmesh at `skmeshPath` AND of its source's MeshSkin (the two
-    /// state one value; the source re-cooks into the .skmesh). Everything else in both files is kept.
+    /// Rewrites the `Skeleton` reference of the .skmesh at `skmeshPath`: a mesh source asset (MSAS) states it in
+    /// its MeshSkin; an imported (cooked) .skmesh in its header AND in its raw source's import record
+    /// (SetImportRecordSkeleton), so a re-import keeps the choice. Everything else in each file is kept.
     [[nodiscard]] Common::BoolResultStr SaveMeshSkeletonReference( const std::filesystem::path& skmeshPath,
                                                                    Common::Content::AssetGuid   skeleton );
 } // namespace Desert::Assets::Serialization

@@ -318,6 +318,14 @@ namespace Desert::Migration
     Common::ResultStr<std::string> MigrateMeshBinaryToV5( std::string_view path, std::string_view bytes,
                                                           std::span<const Animation::SkeletonCandidate> skeletons );
 
+    // MSAS SRCE 2 -> 3 (a `.stmesh` / `.skmesh` mesh source asset): the skin's bone signature (U64) becomes its
+    // skeleton's GUID (Hi, Lo; same rule as above) and the header's dependencies gain it after the materials; a
+    // static source changes its SRCE version only. Every other section and byte is kept. The result is judged
+    // by the engine's DecodeMeshSourceAsset. A source that does not state SRCE 2 is an error naming what it
+    // states. PURE.
+    Common::ResultStr<std::string> MigrateMeshSourceToV3( std::string_view path, std::string_view bytes,
+                                                          std::span<const Animation::SkeletonCandidate> skeletons );
+
     // The v3 text of a v2 `.defoliage`: every v2 number kept, CullDistance at UE's default {0, 0} (never
     // culled), the header's GUID kept. A file that does not state FOLT 2 is an error naming what it states.
     // PURE - no filesystem access.
