@@ -1,5 +1,4 @@
 local test_name = path.getname(_SCRIPT_DIR)
-local test_files = os.matchfiles("*.cpp")
 
 project(test_name)
     kind "ConsoleApp"
@@ -8,10 +7,16 @@ project(test_name)
     targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
+    -- ONE FILE PER CONTRACT GROUP, listed when its implementation lands. timeline_contract_test.cpp holds
+    -- the groups still waiting (sections/sequence I3, evaluator I6, easing I2, format I4, lift I7, layers
+    -- I13/I14) and joins this list with them: the suite links what exists, and no group is stubbed.
     files {
-        test_files,
-        -- STEP 0 OF ANIM-UNIFY: the timeline core is HEADERS ONLY here; the suite compiles against the
-        -- signatures and does not link until the implementation pieces land (see the brief's breakdown).
+        "timeline_main.cpp",
+        "timeline_channel_test.cpp",
+        "timeline_player_test.cpp",
+        "TimelineFixtures.hpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Channel.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Player.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/ClipSection.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/AnimationClip.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",

@@ -14,77 +14,17 @@
 //   7. serialization round trip;
 //   8. LiftClip: the migration is the identity, bit for bit;
 //   9. LayeredBlendPerBone and LinkedAnimLayer.
+//
+// ONE FILE PER LANDED GROUP: groups 1-2 (timeline_channel_test.cpp) and 4 (timeline_player_test.cpp) have
+// their implementation and are built; this file holds the groups whose pieces have not landed, and joins
+// the suite's `files` (premake5.lua) with them — excluded until then, never stubbed.
 
-#include <Engine/Animation/AnimationClip.hpp>
-#include <Engine/Animation/Graph/LayeredBlendPerBone.hpp>
-#include <Engine/Animation/Graph/LinkedAnimLayer.hpp>
-#include <Engine/Animation/Skeleton.hpp>
-#include <Engine/Animation/Timeline/Binding.hpp>
-#include <Engine/Animation/Timeline/Channel.hpp>
-#include <Engine/Animation/Timeline/Evaluator.hpp>
-#include <Engine/Animation/Timeline/Hosts.hpp>
-#include <Engine/Animation/Timeline/Player.hpp>
-#include <Engine/Animation/Timeline/Section.hpp>
-#include <Engine/Animation/Timeline/Sequence.hpp>
-#include <Engine/Animation/Timeline/Track.hpp>
+#include "TimelineFixtures.hpp"
 
-#define GLM_ENABLE_EXPERIMENTAL
-#include <glm/gtx/quaternion.hpp>
-
-#include <gtest/gtest.h>
-
-#include <cmath>
-#include <type_traits>
+using namespace TimelineFixtures;
 
 namespace
 {
-    using namespace Desert::Animation;
-    using namespace Desert::Animation::Timeline;
-    namespace G = Desert::Animation::Graph;
-    using Common::Content::AssetGuid;
-
-    FrameNumber Tick( int32_t value )
-    {
-        return FrameNumber{ value };
-    }
-    FrameTime At( int32_t tick, float subframe = 0.0F )
-    {
-        return FrameTime{ Tick( tick ), subframe };
-    }
-    ScalarKey Key( int32_t tick, float value, KeyInterp interp = KeyInterp::Linear )
-    {
-        ScalarKey key;
-        key.Tick   = Tick( tick );
-        key.Value  = value;
-        key.Interp = interp;
-        return key;
-    }
-    BindingGuid Guid( uint64_t lo )
-    {
-        return BindingGuid{ AssetGuid{ 1, lo } };
-    }
-
-    /// A LevelSequence with one entity and one Float track "Opacity" holding @p channel in one section.
-    Sequence OneFloatTrack( FloatChannel channel )
-    {
-        Sequence sequence;
-        sequence.Host  = SequenceHost::LevelSequence;
-        sequence.Start = Tick( 0 );
-        sequence.End   = Tick( 100 );
-        sequence.Bindings.push_back( Binding{ Guid( 1 ), BindingKind::Entity, "entity-uuid", "Door", {} } );
-        Track track;
-        track.Binding  = Guid( 1 );
-        track.Property = "Opacity";
-        track.Kind     = TrackKind::Float;
-        Section section;
-        section.Start   = Tick( 0 );
-        section.End     = Tick( 100 );
-        section.Content = Channel{ std::move( channel ) };
-        track.Sections.push_back( std::move( section ) );
-        sequence.Tracks.push_back( std::move( track ) );
-        return sequence;
-    }
-
     float EvaluateOnlyFloat( const Sequence& sequence, FrameTime at )
     {
         Evaluator      evaluator( sequence );
@@ -94,91 +34,6 @@ namespace
         return frame.Values.empty() ? NAN : std::get<float>( frame.Values[0].Value );
     }
 } // namespace
-
-// ── 1. On-disk integers ─────────────────────────────────────────────────────────────────────────────
-
-static_assert( static_cast<int>( ChannelKind::Float ) == 0 && static_cast<int>( ChannelKind::Event ) == 5 );
-static_assert( static_cast<int>( TrackKind::Transform ) == static_cast<int>( ChannelKind::Transform ) );
-static_assert( static_cast<int>( TrackKind::Event ) == static_cast<int>( ChannelKind::Event ) );
-static_assert( static_cast<int>( TrackKind::CameraCut ) == 7 );
-static_assert( static_cast<int>( BindingKind::Widget ) == 3 );
-static_assert( static_cast<int>( SequenceHost::LevelSequence ) == 2 );
-static_assert( static_cast<int>( LoopMode::PingPong ) == 2 );
-// ONE blend enum: the section's is ClipSection's, not a copy.
-static_assert( std::is_same_v<decltype( Section{}.Blend ), Desert::Animation::SectionBlendType> );
-// ONE key model: every value channel stores ScalarKey.
-static_assert( std::is_same_v<decltype( FloatChannel{}.Keys )::value_type, ScalarKey> );
-static_assert( std::is_same_v<decltype( Section{}.Weight )::value_type, ScalarKey> );
-
-// ── 2. Channels ─────────────────────────────────────────────────────────────────────────────────────
-
-TEST( TimelineChannel, KindOfMakeChannelRoundTripsEveryKind )
-{
-    for ( const ChannelKind kind : { ChannelKind::Float, ChannelKind::Vector, ChannelKind::Rotation,
-                                     ChannelKind::Transform, ChannelKind::Bool, ChannelKind::Event } )
-    {
-        EXPECT_EQ( KindOf( MakeChannel( kind ) ), kind ) << ToString( kind );
-    }
-}
-
-TEST( TimelineChannel, AnEmptyChannelIsItsDefaultNotZero )
-{
-    FloatChannel channel;
-    channel.Default = 7.0F;
-    EXPECT_EQ( Evaluate( channel, At( 10 ), FrameRate{ 60, 1 } ), 7.0F );
-
-    const TransformChannel rest;
-    const BoneTransform    value = Evaluate( rest, At( 0 ), FrameRate{ 60, 1 } );
-    EXPECT_EQ( value.Scale, glm::vec3( 1.0F ) );
-    EXPECT_EQ( value.Rotation, glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ) );
-}
-
-TEST( TimelineChannel, HeldFlatOutsideTheKeysAndLinearBetween )
-{
-    FloatChannel channel;
-    channel.Keys = { Key( 10, 2.0F ), Key( 30, 6.0F ) };
-    const FrameRate rate{ 60, 1 };
-    EXPECT_EQ( Evaluate( channel, At( 0 ), rate ), 2.0F );
-    EXPECT_EQ( Evaluate( channel, At( 50 ), rate ), 6.0F );
-    EXPECT_NEAR( Evaluate( channel, At( 20 ), rate ), 4.0F, 1e-6F );
-}
-
-TEST( TimelineChannel, RotationIsRotationKeyFramesSlerpBitForBit )
-{
-    const glm::quat a = glm::angleAxis( 0.3F, glm::vec3( 0, 1, 0 ) );
-    const glm::quat b = glm::angleAxis( 1.7F, glm::normalize( glm::vec3( 1, 1, 0 ) ) );
-
-    BoneTrack legacy;
-    legacy.BoneName     = "Spine";
-    legacy.RotationKeys = { RotationKeyFrame{ Tick( 0 ), a }, RotationKeyFrame{ Tick( 60 ), b } };
-
-    RotationChannel channel;
-    channel.X.Keys = { Key( 0, a.x ), Key( 60, b.x ) };
-    channel.Y.Keys = { Key( 0, a.y ), Key( 60, b.y ) };
-    channel.Z.Keys = { Key( 0, a.z ), Key( 60, b.z ) };
-    channel.W.Keys = { Key( 0, a.w ), Key( 60, b.w ) };
-
-    const FrameRate rate{ 60, 1 };
-    for ( const FrameTime at : { At( 0 ), At( 17, 0.25F ), At( 30 ), At( 59, 0.9F ), At( 60 ) } )
-    {
-        EXPECT_EQ( Evaluate( channel, at, rate ), legacy.Sample( at, rate ).Rotation ) << at.AsTicks();
-    }
-}
-
-TEST( TimelineChannel, EventsCrossedAreTheHalfOpenIntervalAndWrapOnce )
-{
-    EventChannel channel;
-    channel.Keys = { EventKey{ Tick( 10 ), Tick( 0 ), "Step", 0 }, EventKey{ Tick( 90 ), Tick( 0 ), "Land", 0 } };
-
-    std::vector<CrossedEvent> out;
-    CollectCrossed( channel, At( 10 ), At( 50 ), false, Tick( 0 ), Tick( 100 ), out );
-    EXPECT_TRUE( out.empty() ) << "(from, to]: an event ON `from` fired last frame";
-
-    CollectCrossed( channel, At( 80 ), At( 20 ), true, Tick( 0 ), Tick( 100 ), out );
-    ASSERT_EQ( out.size(), 2U );
-    EXPECT_EQ( out[0].Key->Name, "Land" );
-    EXPECT_EQ( out[1].Key->Name, "Step" );
-}
 
 // ── 3. Sections, tracks, the sequence ───────────────────────────────────────────────────────────────
 
@@ -294,56 +149,6 @@ TEST( TimelineSequence, TheHostRestrictsWhatASequenceMayHold )
     Sequence level = clip;
     level.Host     = SequenceHost::LevelSequence;
     EXPECT_TRUE( Validate( level ).IsSuccess() );
-}
-
-// ── 4. The Player ───────────────────────────────────────────────────────────────────────────────────
-
-TEST( TimelinePlayer, NotPlayingIsAnEmptyStep )
-{
-    Player         player( FrameRate{ 60, 1 }, Tick( 0 ), Tick( 60 ) );
-    const TimeStep step = player.Advance( 0.5 );
-    EXPECT_EQ( step.From.AsTicks(), step.To.AsTicks() );
-    EXPECT_EQ( player.State(), PlayState::Stopped );
-}
-
-TEST( TimelinePlayer, LoopWrapsOnceAndReportsIt )
-{
-    Player player( FrameRate{ 60, 1 }, Tick( 0 ), Tick( 60 ) );
-    player.SetLoopMode( LoopMode::Loop );
-    player.Play();
-    (void)player.Advance( 0.75 );                // tick 45
-    const TimeStep step = player.Advance( 0.5 ); // 45 + 30 → wraps to 15
-    EXPECT_TRUE( step.Wrapped );
-    EXPECT_NEAR( player.Current().AsTicks(), 15.0, 1e-6 );
-}
-
-TEST( TimelinePlayer, OnceClampsOnTheLastTickAndStops )
-{
-    Player player( FrameRate{ 60, 1 }, Tick( 0 ), Tick( 60 ) );
-    player.Play();
-    const TimeStep step = player.Advance( 5.0 );
-    EXPECT_TRUE( step.Finished );
-    EXPECT_FALSE( step.Wrapped );
-    EXPECT_EQ( player.Current().Frame, Tick( 60 ) );
-    EXPECT_EQ( player.State(), PlayState::Stopped );
-}
-
-TEST( TimelinePlayer, PingPongTurnsAround )
-{
-    Player player( FrameRate{ 60, 1 }, Tick( 0 ), Tick( 60 ) );
-    player.SetLoopMode( LoopMode::PingPong );
-    player.Play();
-    const TimeStep step = player.Advance( 1.25 ); // 75 → bounced back to 45
-    EXPECT_TRUE( step.Reversed );
-    EXPECT_NEAR( player.Current().AsTicks(), 45.0, 1e-6 );
-}
-
-TEST( TimelinePlayer, AJumpCrossesNothing )
-{
-    Player         player( FrameRate{ 60, 1 }, Tick( 0 ), Tick( 60 ) );
-    const TimeStep step = player.JumpTo( At( 40 ) );
-    EXPECT_EQ( step.From.AsTicks(), step.To.AsTicks() );
-    EXPECT_EQ( player.Current().Frame, Tick( 40 ) );
 }
 
 // ── 5. The Evaluator and the host seam ──────────────────────────────────────────────────────────────
@@ -660,10 +465,4 @@ TEST( LinkedAnimLayer, UnlinkedIsTheDefaultAndAHalfImplementationIsRefused )
     table.Unlink( locomotion.Guid );
     EXPECT_TRUE( table.Resolve( node ).IsNull() );
 }
-}
-
-int main( int argc, char** argv )
-{
-    testing::InitGoogleTest( &argc, argv );
-    return RUN_ALL_TESTS();
 }
