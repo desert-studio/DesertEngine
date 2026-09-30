@@ -189,16 +189,20 @@ TEST( ThumbnailOrbitKinds, ASkinnedFileIsFiledUnderTheSourceItStates )
     write( "Hand.anim", Ser::WriteAnimationJson( authored ) );
 
     const auto source = [&]( const std::string& name ) { return IAS::SkinnedAssetSource( root / name ); };
-    ASSERT_TRUE( source( "Fox_Extra_Walk.anim" ) ) << source( "Fox_Extra_Walk.anim" ).GetError();
-    EXPECT_EQ( source( "Fox_Extra_Walk.anim" ).GetValue(), root / "Fox.glb" ) << "the clip's own Import";
-    ASSERT_TRUE( source( "Fox_Extra_Idle.anim" ) );
-    EXPECT_EQ( source( "Fox_Extra_Idle.anim" ).GetValue(), root / "Fox_Extra.glb" );
-    ASSERT_TRUE( source( "Fox.skeleton" ) );
-    EXPECT_EQ( source( "Fox.skeleton" ).GetValue(), root / "Fox.glb" );
-    ASSERT_TRUE( source( "Fox.skmesh" ) ) << "the mesh reads the rig its import wrote beside it";
-    EXPECT_EQ( source( "Fox.skmesh" ).GetValue(), root / "Fox.glb" );
-    ASSERT_TRUE( source( "Hand.anim" ) );
-    EXPECT_FALSE( source( "Hand.anim" ).GetValue().has_value() ) << "a hand-authored clip states no source";
+    // The source each file states; the error text when it states none it can be read for.
+    const auto stated = [&]( const std::string& name ) -> std::string
+    {
+        const auto found = source( name );
+        if ( !found )
+            return "error: " + found.GetError();
+        return found.GetValue() ? found.GetValue()->generic_string() : std::string( "none" );
+    };
+    const std::string fox = ( root / "Fox.glb" ).generic_string();
+    EXPECT_EQ( stated( "Fox_Extra_Walk.anim" ), fox ) << "the clip's own Import, not the longer stem";
+    EXPECT_EQ( stated( "Fox_Extra_Idle.anim" ), ( root / "Fox_Extra.glb" ).generic_string() );
+    EXPECT_EQ( stated( "Fox.skeleton" ), fox );
+    EXPECT_EQ( stated( "Fox.skmesh" ), fox ) << "the mesh reads the rig its import wrote beside it";
+    EXPECT_EQ( stated( "Hand.anim" ), "none" ) << "a hand-authored clip states no source";
     EXPECT_FALSE( source( "Missing.anim" ) ) << "a missing file is an error naming it, not a guess";
     EXPECT_FALSE( source( "Wolf.skmesh" ) ) << "a mesh with no rig beside it is refused";
     EXPECT_FALSE( source( "Fox.stmesh" ) ) << "not a skinned import's file";
