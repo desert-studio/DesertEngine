@@ -738,7 +738,8 @@ namespace Desert::Assets
         }
 
         // THE ROW A FILE IS, among one kind's rows — by the path as this machine spells it, normalised.
-        inline std::optional<PickerRow> RowOfPath( Common::Content::ContentKind kind, const std::filesystem::path& file )
+        inline std::optional<PickerRow> RowOfPath( Common::Content::ContentKind kind,
+                                                   const std::filesystem::path& file )
         {
             const std::filesystem::path wanted = std::filesystem::absolute( file ).lexically_normal();
             for ( PickerRow& row : Rows( kind ) )

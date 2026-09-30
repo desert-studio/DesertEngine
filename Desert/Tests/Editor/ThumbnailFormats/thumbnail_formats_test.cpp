@@ -191,7 +191,8 @@ TEST( ThumbnailFormats, EveryContentKindHasAProducerOrANamedDebt )
         EXPECT_EQ( TP::ProducerOfPath( std::string( "Assets/Fox/Fox." ) + extension ), TP::Producer::RenderedPose )
              << extension;
     for ( const char* extension : { "demat", "detex", "stmesh" } )
-        EXPECT_NE( TP::ProducerOfPath( std::string( "Assets/Fox/Fox." ) + extension ), TP::Producer::NotYetProduced )
+        EXPECT_NE( TP::ProducerOfPath( std::string( "Assets/Fox/Fox." ) + extension ),
+                   TP::Producer::NotYetProduced )
              << extension;
 }
 

@@ -80,9 +80,8 @@ namespace Desert::Editor::ThumbnailPose
         }
 
         // The clip at @p clipPath, read — or nullptr with @p pending set while a worker reads it.
-        Common::ResultStr<std::shared_ptr<Assets::AnimationAsset>> ReadClip( Assets::AssetManager& manager,
-                                                                             const std::string&    clipPath,
-                                                                             bool&                 pending )
+        Common::ResultStr<std::shared_ptr<Assets::AnimationAsset>>
+        ReadClip( Assets::AssetManager& manager, const std::string& clipPath, bool& pending )
         {
             using ClipPtr = std::shared_ptr<Assets::AnimationAsset>;
             pending       = false;
@@ -145,9 +144,10 @@ namespace Desert::Editor::ThumbnailPose
                                                      kindName, subjectPath );
         const auto preview = Assets::ContentRegistry::PreviewMeshRow( row->RigSignature );
         if ( !preview )
-            return Common::MakeFormattedError<Mesh>( "{} '{}' has no preview mesh: no skeletal mesh in the content "
-                                                     "registry stands on its rig {:016x}",
-                                                     kindName, subjectPath, row->RigSignature );
+            return Common::MakeFormattedError<Mesh>(
+                 "{} '{}' has no preview mesh: no skeletal mesh in the content "
+                 "registry stands on its rig {:016x}",
+                 kindName, subjectPath, row->RigSignature );
 
         auto mesh = ResolveSkinnedMesh( manager, preview->Path.generic_string() );
         if ( !mesh )

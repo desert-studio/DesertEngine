@@ -34,5 +34,5 @@ namespace Desert::Editor::ThumbnailPose
     /// skeleton's and a clip's pictures never collide with their mesh's. Pending while the mesh or the clip is
     /// read; a refusal names the kind and why (no rig tag, no mesh on the rig, a clip that will not read).
     [[nodiscard]] Common::ResultStr<ThumbnailSubject::Mesh> ResolvePoseSubject( Assets::AssetManager& manager,
-                                                                                const std::string&    subjectPath );
+                                                                                const std::string& subjectPath );
 } // namespace Desert::Editor::ThumbnailPose
