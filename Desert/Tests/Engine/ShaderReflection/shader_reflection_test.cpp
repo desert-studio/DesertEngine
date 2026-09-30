@@ -181,6 +181,34 @@ void main() { o_Color = texture(u_Slices, vec3(0.5)); }
     }
 }
 
+// sampler2DMS is a combined image sampler over a 2D view of a multisampled image (the MSAA scene depth read
+// by its resolve): it lands in the Image2D bucket with no diagnostic, while image2DMS storage is refused.
+TEST( ShaderReflection, BindsSampler2DMSThroughTheImage2DBucket )
+{
+    const char* kMultisampled = R"(#version 450
+layout(binding = 1) uniform sampler2DMS u_Depth;
+void main() { gl_FragDepth = texelFetch(u_Depth, ivec2(gl_FragCoord.xy), 0).r; }
+)";
+
+    const auto spirv = Compile( kMultisampled, shaderc_glsl_fragment_shader );
+    ASSERT_FALSE( spirv.empty() );
+
+    ShaderResource::ReflectionData data;
+    const auto diagnostics = ShaderReflection::ReflectStage( spirv, ShaderStage::Fragment, data );
+
+    EXPECT_TRUE( diagnostics.empty() ) << ( diagnostics.empty() ? "" : diagnostics.front() );
+    const auto& set0 = data.ShaderDescriptorSets[0];
+    ASSERT_EQ( set0.Image2DSamplers.size(), 1u );
+    EXPECT_EQ( set0.Image2DSamplers.at( 1 ).Name, "u_Depth" );
+
+    spirv_cross::CompilerGLSL compiler( spirv );
+    const auto                resources = compiler.get_shader_resources();
+    ASSERT_EQ( resources.sampled_images.size(), 1u );
+    const auto& type = compiler.get_type( resources.sampled_images.front().base_type_id );
+    EXPECT_EQ( ShaderReflection::ClassifyImage( type ), ShaderReflection::ImageKind::Image2DMultisample );
+    EXPECT_EQ( ShaderReflection::DescribeImageType( type ), "sampler2DMS" );
+}
+
 // An ARRAY of samplers is a different thing from an arrayed image, and equally unbindable here: every
 // descriptor-set layout the engine builds hardcodes descriptorCount = 1.
 TEST( ShaderReflection, RefusesArraysOfDescriptors )

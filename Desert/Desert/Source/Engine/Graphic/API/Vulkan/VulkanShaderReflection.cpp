@@ -25,12 +25,18 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
     {
         const auto& image = type.image;
 
-        // Arrayed and multisampled images need a different view type and a different bind path, and
-        // the engine builds neither. Approximating them by their base dimension is what the old name
-        // heuristic effectively did — refuse instead.
-        if ( image.ms || image.arrayed )
+        // Arrayed images need a different view type and a different bind path, and the engine builds
+        // neither. Approximating them by their base dimension is what the old name heuristic effectively
+        // did — refuse instead.
+        if ( image.arrayed )
         {
             return ImageKind::Unsupported;
+        }
+        // A multisampled image is only ever 2D (Vulkan has no 3D or cube MS image); its view is a plain 2D
+        // view and its descriptor a combined image sampler, exactly as for sampler2D.
+        if ( image.ms )
+        {
+            return image.dim == spv::Dim2D ? ImageKind::Image2DMultisample : ImageKind::Unsupported;
         }
 
         switch ( image.dim )
@@ -222,6 +228,7 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             switch ( ClassifyImage( imageType ) )
             {
                 case ImageKind::Image2D:
+                case ImageKind::Image2DMultisample:
                     FillResource( data.ShaderDescriptorSets[set].Image2DSamplers[binding], binding, resource.name,
                                   stage );
                     break;
@@ -286,6 +293,9 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                     FillResource( data.ShaderDescriptorSets[set].StorageImage3DSamplers[binding], binding,
                                   resource.name, stage );
                     break;
+                // A multisampled storage image (image2DMS) would be written through a mip view of a
+                // single-sample image, which is all the storage path builds: refused like any other.
+                case ImageKind::Image2DMultisample:
                 case ImageKind::Unsupported:
                     diagnostics.push_back(
                          std::format( "storage image '{}' (set {}, binding {}) is a {}, which the engine "
