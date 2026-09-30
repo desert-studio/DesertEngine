@@ -2,24 +2,27 @@
 
 #include "TimelineFixtures.hpp"
 
+#include "ClipGeneration3.hpp" // generation 3 and LiftClip live in Tools/SceneMigrator since ANIM-I8a
+
 using namespace TimelineFixtures;
+namespace Gen3 = Desert::Migration::ClipGen3;
 
 // ── 8. LiftClip: the .anim migration is the identity ────────────────────────────────────────────────
 
 TEST( TimelineLiftClip, EveryBoneSamplesBitForBitAfterTheLift )
 {
-    AnimationClip clip;
+    Gen3::AnimationClip clip;
     clip.AnimationName = "Walk";
     clip.DurationTicks = Tick( 60 );
-    BoneTrack spine;
+    Gen3::BoneTrack spine;
     spine.BoneName     = "Spine";
-    spine.PositionKeys = { PositionKeyFrame{ Tick( 0 ), glm::vec3( 0, 1, 0 ) },
-                           PositionKeyFrame{ Tick( 60 ), glm::vec3( 3, 1, -2 ) } };
-    spine.RotationKeys = { RotationKeyFrame{ Tick( 0 ), glm::quat( 1, 0, 0, 0 ) },
-                           RotationKeyFrame{ Tick( 60 ), glm::angleAxis( 1.1F, glm::vec3( 0, 0, 1 ) ) } };
+    spine.PositionKeys = { Gen3::PositionKeyFrame{ Tick( 0 ), glm::vec3( 0, 1, 0 ) },
+                           Gen3::PositionKeyFrame{ Tick( 60 ), glm::vec3( 3, 1, -2 ) } };
+    spine.RotationKeys = { Gen3::RotationKeyFrame{ Tick( 0 ), glm::quat( 1, 0, 0, 0 ) },
+                           Gen3::RotationKeyFrame{ Tick( 60 ), glm::angleAxis( 1.1F, glm::vec3( 0, 0, 1 ) ) } };
     clip.Tracks.push_back( spine );
-    clip.Curves.push_back( AnimationCurve{ "Footstep", { Key( 0, 0.0F ), Key( 60, 1.0F ) } } );
-    clip.Notifies.push_back( AnimationNotify{ "Step", Tick( 30 ), 2, Tick( 0 ) } );
+    clip.Curves.push_back( Gen3::AnimationCurve{ "Footstep", { Key( 0, 0.0F ), Key( 60, 1.0F ) } } );
+    clip.Notifies.push_back( Gen3::AnimationNotify{ "Step", Tick( 30 ), 2, Tick( 0 ) } );
 
     const auto lifted = LiftClip( clip );
     ASSERT_TRUE( lifted.IsSuccess() ) << lifted.GetError();
@@ -64,9 +67,9 @@ TEST( TimelineLiftClip, EveryBoneSamplesBitForBitAfterTheLift )
 
 TEST( TimelineLiftClip, TwoTracksForOneBoneAreRefusedNotMerged )
 {
-    AnimationClip clip;
+    Gen3::AnimationClip clip;
     clip.DurationTicks = Tick( 10 );
-    BoneTrack a;
+    Gen3::BoneTrack a;
     a.BoneName = "Hand_L";
     clip.Tracks.push_back( a );
     clip.Tracks.push_back( a );
@@ -77,22 +80,22 @@ TEST( TimelineLiftClip, TwoTracksForOneBoneAreRefusedNotMerged )
 // into non-overlapping runs, so the fold applies exactly the one section SampleTrack applied, on every tick.
 TEST( TimelineLiftClip, SectionsLiftByWinnerOnEveryTick )
 {
-    AnimationClip clip;
+    Gen3::AnimationClip clip;
     clip.DurationTicks = Tick( 40 );
-    BoneTrack arm;
+    Gen3::BoneTrack arm;
     arm.BoneName     = "Arm";
-    arm.PositionKeys = { PositionKeyFrame{ Tick( 0 ), glm::vec3( 0, 1, 0 ) },
-                         PositionKeyFrame{ Tick( 40 ), glm::vec3( 3, 1, -2 ) } };
-    arm.RotationKeys = { RotationKeyFrame{ Tick( 0 ), glm::quat( 1, 0, 0, 0 ) },
-                         RotationKeyFrame{ Tick( 40 ), glm::angleAxis( 1.1F, glm::vec3( 0, 0, 1 ) ) } };
-    arm.ScaleKeys    = { ScaleKeyFrame{ Tick( 0 ), glm::vec3( 1 ) }, ScaleKeyFrame{ Tick( 40 ), glm::vec3( 2 ) } };
+    arm.PositionKeys = { Gen3::PositionKeyFrame{ Tick( 0 ), glm::vec3( 0, 1, 0 ) },
+                         Gen3::PositionKeyFrame{ Tick( 40 ), glm::vec3( 3, 1, -2 ) } };
+    arm.RotationKeys = { Gen3::RotationKeyFrame{ Tick( 0 ), glm::quat( 1, 0, 0, 0 ) },
+                         Gen3::RotationKeyFrame{ Tick( 40 ), glm::angleAxis( 1.1F, glm::vec3( 0, 0, 1 ) ) } };
+    arm.ScaleKeys    = { Gen3::ScaleKeyFrame{ Tick( 0 ), glm::vec3( 1 ) }, Gen3::ScaleKeyFrame{ Tick( 40 ), glm::vec3( 2 ) } };
     clip.Tracks.push_back( arm );
-    ClipSection half;
+    Gen3::ClipSection half;
     half.Name   = "Half";
     half.Start  = Tick( 5 );
     half.End    = Tick( 25 );
     half.Weight = { Key( 5, 0.25F ), Key( 25, 0.75F ) };
-    ClipSection add;
+    Gen3::ClipSection add;
     add.Name  = "Add";
     add.Start = Tick( 20 );
     add.End   = Tick( 30 );
@@ -124,9 +127,9 @@ TEST( TimelineLiftClip, SectionsLiftByWinnerOnEveryTick )
 
 TEST( TimelineLiftClip, AStaleBoneTableIsRefusedByName )
 {
-    AnimationClip clip;
+    Gen3::AnimationClip clip;
     clip.DurationTicks = Tick( 10 );
-    BoneTrack a;
+    Gen3::BoneTrack a;
     a.BoneName = "Hand_L";
     clip.Tracks.push_back( a );
     auto lifted = LiftClip( clip );

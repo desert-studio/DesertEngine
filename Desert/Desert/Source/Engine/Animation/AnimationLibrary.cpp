@@ -154,9 +154,10 @@ namespace Desert::Animation
         identity.Handle            = animation->GetMetadata().Handle;
         identity.ClipName          = animation->GetClip().AnimationName;
         identity.SkeletonSignature = animation->GetSkeletonSignature();
-        for ( const auto& track : animation->GetClip().Tracks )
-            if ( !track.BoneName.empty() )
-                identity.AnimatedBones.push_back( track.BoneName );
+        // The bones a clip animates are its Bone bindings (locator = bone name, Timeline/Binding.hpp).
+        for ( const auto& binding : animation->GetClip().Sequence.Bindings )
+            if ( binding.Kind == Timeline::BindingKind::Bone && !binding.Locator.empty() )
+                identity.AnimatedBones.push_back( binding.Locator );
 
         // A clip with neither a rig signature nor one named bone can never match anything — ClipDrivesRig
         // has nothing to test it on. Registering it silently is how a clip becomes invisible with no way to

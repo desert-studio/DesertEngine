@@ -138,7 +138,9 @@ TEST( TimelineEvaluator, AMutedTrackIsAbsentNotDefaulted )
 TEST( TimelineFormat, WriteReadRoundTripsAndATruncatedBlockIsRefused )
 {
     const Sequence original          = OneFloatTrack( FloatChannel{ { Key( 0, 1.0F ), Key( 40, 3.0F ) }, 0.5F } );
-    const std::vector<uint8_t> bytes = WriteSequence( original );
+    const auto written = WriteSequence( original );
+    ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
+    const std::vector<uint8_t>& bytes = written.GetValue();
     const auto                 read  = ReadSequence( bytes );
     ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
     const Sequence& back = read.GetValue();

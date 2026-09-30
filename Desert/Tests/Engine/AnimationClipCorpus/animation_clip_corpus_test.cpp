@@ -36,7 +36,8 @@
 #include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 #include <Engine/Animation/Timeline/Evaluator.hpp>
-#include <Engine/Animation/Timeline/Hosts.hpp>
+#include <Engine/Animation/Timeline/Sequence.hpp>
+#include <Common/Content/CanonicalText.hpp>
 
 #include <rflcpp/rfl.hpp>
 #include <rflcpp/rfl/json.hpp>
@@ -186,363 +187,92 @@ namespace
         return Desert::Animation::Skeleton( std::move( bones ) );
     }
 
-    Desert::Animation::ClipRigIdentity IdentityOf( const Desert::Animation::AnimationClip& clip )
-    {
-        Desert::Animation::ClipRigIdentity id;
-        id.ClipName          = clip.AnimationName;
-        id.SkeletonSignature = clip.SkeletonSignature;
-        for ( const auto& track : clip.Tracks )
-            if ( !track.BoneName.empty() )
-                id.AnimatedBones.push_back( track.BoneName );
-        return id;
-    }
-
-    const Desert::Animation::BoneTrack* TrackFor( const Desert::Animation::AnimationClip& clip,
-                                                  const std::string&                      bone )
-    {
-        const auto it =
-             std::find_if( clip.Tracks.begin(), clip.Tracks.end(),
-                           [&]( const Desert::Animation::BoneTrack& t ) { return t.BoneName == bone; } );
-        return it == clip.Tracks.end() ? nullptr : &*it;
-    }
 } // namespace
 
-// PROPERTY 1: the two probe clips claim the rig the shipped probe skeleton computes for itself. Asserted
-// as an EQUALITY BETWEEN TWO FILES rather than against a literal, because a literal typed here would
-// happily agree with a clip and disagree with the rig.
-TEST( AnimationClipCorpus, TheProbeClipsClaimTheRigTheProbeSkeletonHas )
+// ANIM v5 (ANIM-I8a): every `.anim` the repository carries is an AnimationClip-hosted TMLN block that reads
+// back through the one reader and passes `Validate` — the files, not an in-memory clip.
+TEST( AnimationClipCorpus, EveryClipInTheRepositoryIsATimelineClipThatValidates )
 {
-    ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
-
-    const auto rig = ProbeRig();
-    ASSERT_EQ( rig.GetBones().size(), 1u ) << "the probe rig is one bone; the corpus was authored for it";
-    EXPECT_EQ( rig.GetBones()[0].Name, kProbeBoneName );
-
-    for ( const char* stem : { "SkinProbe_Hover", "SkinProbe_Tilt" } )
-    {
-        const auto clip = LoadClip( stem );
-        EXPECT_EQ( clip.SkeletonSignature, rig.GetSignature() )
-             << stem
-             << " claims a different rig from SkinProbe.skeleton. Every frame taken against it would show a "
-                "bind pose and still render, which is broken evidence rather than no evidence.";
-        // A5 REPLACED THE SENTENCE THAT USED TO STAND HERE, and the old one is worth quoting because it
-        // was the fiction itself: "Key times ARE seconds when TicksPerSecond is 1, and the whole corpus is
-        // authored that way." The field was called ticks-per-second and pinned to 1 so that a tick would
-        // mean a second — and this suite defended that. A clip now states the grid its integer ticks are
-        // counted on, and two seconds is a number of them.
-        EXPECT_EQ( clip.TickRate, Desert::Animation::PROJECT_TICK_RATE )
-             << stem
-             << " is not on the project tick grid, so its key times are not comparable with any "
-                "other clip's.";
-        EXPECT_EQ( clip.DurationTicks.Value, 2 * Desert::Animation::PROJECT_TICK_RATE.Numerator )
-             << stem
-             << " is no longer the 2 s cycle the probe scene and the shot frame counts are chosen "
-                "against.";
-        ASSERT_NE( TrackFor( clip, kProbeBoneName ), nullptr )
-             << stem << " has no track for '" << kProbeBoneName
-             << "'. The bone name is the only key playback binds on, so it would animate nothing.";
-    }
-}
-
-// PROPERTY 2: THE CORPUS ACTUALLY MOVES SOMETHING. A clip whose keys never leave the bind value is the
-// exact shape of a test instrument that certifies a dead system, and it parses perfectly.
-TEST( AnimationClipCorpus, TheProbeClipsTravelFarEnoughToBeSeenInAFrame )
-{
-    ASSERT_FALSE( RepoRoot().empty() );
-
-    // Hover: the root rises and comes back. 1 world unit = 1 cm, and the probe box is 100 cm, so a peak of
-    // 200 cm is two box heights -- unmistakable in a frame rather than a subpixel argument.
-    {
-        const auto  clip  = LoadClip( "SkinProbe_Hover" );
-        const auto* track = TrackFor( clip, kProbeBoneName );
-        ASSERT_NE( track, nullptr );
-        ASSERT_GE( track->PositionKeys.size(), 5u ) << "too few position keys to describe a cycle";
-
-        float lowest = track->PositionKeys.front().Position.y;
-        float peak   = lowest;
-        for ( const auto& key : track->PositionKeys )
-        {
-            lowest = std::min( lowest, key.Position.y );
-            peak   = std::max( peak, key.Position.y );
-        }
-        EXPECT_GE( peak - lowest, 150.0f )
-             << "SkinProbe_Hover travels only " << ( peak - lowest )
-             << " cm. It is the corpus's positive control for translation and has to be visible.";
-
-        // Loopable: the endpoints agree, or a looping clip snaps every cycle and the frame at the wrap is a
-        // picture of the discontinuity rather than of the pose.
-        EXPECT_NEAR( track->PositionKeys.front().Position.y, track->PositionKeys.back().Position.y, 1e-3f );
-    }
-
-    // Tilt: one full turn about Z and no translation at all. A DIFFERENT KIND of motion on the same rig, so
-    // a frame showing both proves which clip played rather than only that something played.
-    {
-        const auto  clip  = LoadClip( "SkinProbe_Tilt" );
-        const auto* track = TrackFor( clip, kProbeBoneName );
-        ASSERT_NE( track, nullptr );
-        ASSERT_GE( track->RotationKeys.size(), 5u ) << "too few rotation keys to describe a turn";
-
-        // The largest angle between any key and the first one, which for a full turn passes through pi.
-        const glm::quat first  = track->RotationKeys.front().Rotation;
-        float           widest = 0.0f;
-        for ( const auto& key : track->RotationKeys )
-        {
-            const float dot   = std::clamp( std::fabs( glm::dot( first, key.Rotation ) ), 0.0f, 1.0f );
-            const float angle = 2.0f * std::acos( dot );
-            widest            = std::max( widest, angle );
-        }
-        EXPECT_GE( widest, 1.5f ) << "SkinProbe_Tilt turns only " << widest
-                                  << " rad away from its start. It is the corpus's positive control for "
-                                     "rotation; a cube barely turned is a cube that looks unchanged.";
-    }
-}
-
-// PROPERTY 3: THE NEGATIVE CONTROL. `Foreign_Hips` is a different rig signature animating a bone name the
-// probe does not have, so a library that offers it to this rig is wrong -- and a suite with only positive
-// controls cannot tell a working match rule from one that says yes to everything.
-TEST( AnimationClipCorpus, TheForeignClipIsRefusedForTheProbeRig )
-{
-    ASSERT_FALSE( RepoRoot().empty() );
-
-    const auto rig      = Desert::Animation::IdentifyRig( ProbeRig() );
-    const auto foreign  = LoadClip( "Foreign_Hips" );
-    const auto identity = IdentityOf( foreign );
-
-    ASSERT_FALSE( identity.AnimatedBones.empty() );
-    EXPECT_NE( identity.SkeletonSignature, rig.Signature )
-         << "Foreign_Hips claims the probe rig, so it is no longer a negative control at all.";
-    EXPECT_EQ( rig.BoneNames.count( identity.AnimatedBones.front() ), 0u )
-         << "Foreign_Hips animates '" << identity.AnimatedBones.front()
-         << "', which the probe rig HAS. ClipDrivesRig accepts a clip whose animated bones are mostly "
-            "present by name -- deliberately, see ClipSkeletonMatch.hpp -- so a foreign clip sharing bone "
-            "names is not foreign. Rename the bone in the corpus file, not the rule.";
-
-    EXPECT_FALSE( Desert::Animation::ClipDrivesRig( identity, rig ) )
-         << "the match rule offers Foreign_Hips to the probe rig.";
-
-    // And the two probe clips must still be accepted by the same rule, in the same test: a rule that
-    // refuses everything would pass the assertion above.
-    for ( const char* stem : { "SkinProbe_Hover", "SkinProbe_Tilt" } )
-        EXPECT_TRUE( Desert::Animation::ClipDrivesRig( IdentityOf( LoadClip( stem ) ), rig ) )
-             << stem << " is not offered to the rig it names.";
-}
-
-// A CENSUS OVER THE WHOLE REPOSITORY, not over the six names this suite knows. The loader refuses a
-// generation-0 `.anim`, which turns a forgotten conversion into a clip that will not load — visible, but
-// only to whoever opens the scene that plays it. This walks every `.anim` in the tree instead, so a file
-// added or restored at the old generation is caught by a test rather than by a character standing still.
-//
-// It is deliberately NOT a count: a count is satisfied by editing the count. Each file is read and its
-// stated generation checked, and the failure names the file and the tool that converts it.
-TEST( AnimationClipCorpus, EveryClipInTheRepositoryIsAtTheCurrentGeneration )
-{
-    ASSERT_FALSE( RepoRoot().empty() );
-
-    const auto clips = TrackedClips();
-    ASSERT_TRUE( clips.has_value() )
-         << "THE CENSUS COULD NOT RUN, which is a different answer from 'every clip is current'. "
-            "`git ls-files` failed or "
-         << RepoRoot() << " is not a checkout.";
-
-    std::size_t seen = 0;
-    for ( const std::string& path : *clips )
-    {
-        ++seen;
-        const auto data =
-             Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( ReadFile( path ) );
-        ASSERT_TRUE( data.IsSuccess() ) << path << " does not parse as a `.anim` at all";
-        const int stated =
-             Desert::Assets::StatedVersion( data.GetValue().Header, Desert::Assets::kAnimationSchemaTag );
-        EXPECT_EQ( stated, Desert::Assets::Serialization::kAnimationVersion )
-             << path << " is at `.anim` generation " << stated << " and this build reads "
-             << Desert::Assets::Serialization::kAnimationVersion
-             << ". Run Tools/SceneMigrator over it: the loader refuses it, so whatever plays it stands "
-                "still.";
-    }
-
-    // A sweep that found nothing is not a clean sweep — it is a sweep that ran somewhere else.
-    EXPECT_GE( seen, 6u ) << "only " << seen << " tracked `.anim` file(s) were found from " << RepoRoot()
-                          << "; this census is measuring the wrong tree.";
-}
-
-// THE CONDITION THE GENERATION-2 STEP WAS GRANTED ON, MADE CHECKABLE.
-//
-// A version that changed only the number a file states about ITSELF would be versioning for its own sake.
-// What generation 2 buys is that a key SAYS what shape its segment has, instead of inheriting one from
-// `rfl::DefaultIfMissing` — and an invented default is indistinguishable from an authored one for ever
-// after. So this reads the FILES, not the parsed structs: parsing is exactly the step that would hide a
-// missing field by filling it in.
-//
-// It asserts the PROPERTY over every key of every clip rather than one phrase in one file: the same lie
-// eleven lines further down is the failure mode a single-instance pin has.
-TEST( AnimationClipCorpus, EveryKeyInEveryClipSTATESItsShapeRatherThanInheritingOne )
-{
-    ASSERT_FALSE( RepoRoot().empty() );
-
-    const auto trackedClips = TrackedClips();
-    ASSERT_TRUE( trackedClips.has_value() )
-         << "THE CENSUS COULD NOT RUN, which is a different answer from 'every key states its shape'. "
-            "`git ls-files` failed or this is not a checkout.";
-
-    std::size_t clips = 0;
-    std::size_t keys  = 0;
-    for ( const std::string& clipPath : *trackedClips )
-    {
-        ++clips;
-        const std::string text = ReadFile( clipPath );
-        ASSERT_FALSE( text.empty() ) << clipPath;
-
-        // Every key object in the file must carry a "Shape". Counted rather than searched for once,
-        // because one key stating its shape while the other 266 stay silent is exactly the state this
-        // census exists to refuse.
-        std::size_t shapes = 0;
-        for ( std::size_t at = text.find( "\"Shape\"" ); at != std::string::npos;
-              at             = text.find( "\"Shape\"", at + 1 ) )
-        {
-            ++shapes;
-        }
-        std::size_t ticks = 0;
-        for ( std::size_t at = text.find( "\"Tick\"" ); at != std::string::npos;
-              at             = text.find( "\"Tick\"", at + 1 ) )
-        {
-            ++ticks;
-        }
-
-        EXPECT_EQ( shapes, ticks ) << clipPath << " has " << ticks << " key(s) and " << shapes
-                                   << " stated shape(s). A key whose shape is missing from the file gets "
-                                      "one invented by DefaultIfMissing, and an invented default cannot "
-                                      "afterwards be told from an authored one.";
-        keys += ticks;
-    }
-
-    EXPECT_GE( clips, 6u ) << "this census is measuring the wrong tree";
-    EXPECT_GE( keys, 200u ) << "only " << keys << " key(s) were seen across " << clips
-                            << " clip(s); the corpus is 267";
-}
-
-TEST( AnimationClipCorpus, EveryClipInTheRepositorySTATESTheSectionItsValuesAreReadUnder )
-{
-    // THE CONDITION GENERATION 3 WAS TAKEN ON, and the same one generation 2 was: a step that only
-    // changes the number a file states about ITSELF is a relabelling. A generation-3 file says something
-    // its predecessor could not — what its values MEAN — and this census reads the shipped bytes back to
-    // check that the migration actually wrote it rather than leaving `DefaultIfMissing` to invent it.
-    //
-    // A clip whose `Sections` were silent would still load, still play and still look right, because an
-    // empty list is the identity of the blend. That is exactly why it has to be checked HERE and not by
-    // a behavioural test: the failure is invisible in every frame and only visible in the file.
-    ASSERT_FALSE( RepoRoot().empty() );
-
-    const auto trackedClips = TrackedClips();
-    ASSERT_TRUE( trackedClips.has_value() )
-         << "THE CENSUS COULD NOT RUN, which is a different answer from 'every clip states its section'. "
-            "`git ls-files` failed or this is not a checkout.";
-
-    std::size_t clips = 0;
-    for ( const std::string& clipPath : *trackedClips )
-    {
-        ++clips;
-
-        const std::string raw = ReadFile( clipPath );
-        ASSERT_FALSE( raw.empty() ) << clipPath;
-        const auto parsed = Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( raw );
-        ASSERT_TRUE( parsed.IsSuccess() ) << clipPath;
-        const auto& data = parsed.GetValue();
-
-        ASSERT_FALSE( data.Sections.empty() )
-             << clipPath
-             << " states no section. It would play correctly and say nothing about why — which is the "
-                "state this step exists to end.";
-        EXPECT_EQ( data.Sections[0].StartTick, 0 ) << clipPath;
-        EXPECT_EQ( data.Sections[0].EndTick, data.DurationTicks )
-             << clipPath << " has a section that does not reach its own stated length";
-        EXPECT_EQ( data.Sections[0].Blend, 0 )
-             << clipPath
-             << " migrated to something other than Absolute. A migration states the behaviour a file "
-                "already had; it does not choose a new one.";
-    }
-
-    EXPECT_GE( clips, 6u ) << "this census is measuring the wrong tree";
-}
-
-// ANIM-I7: THE `.anim` MIGRATION IS THE IDENTITY, MEASURED ON EVERY TRACKED CLIP.
-//
-// For each clip the repository carries: LiftClip, then on EVERY tick of [0, Duration] the lifted sequence's
-// EvaluatePose equals the generation-3 sampler (`AnimationClip::SampleTrack`, sections included) bit for bit,
-// and each named curve equals `AnimationCurve::Evaluate` — except the ONE stated divergence: exactly on a key
-// whose segment is Constant, the curve reads the key's own value (the segment it starts) and the channel the
-// previous key's (the segment it ends), the bone rule. That tick is asserted to be exactly that, not skipped.
-TEST( AnimationClipCorpus, EveryClipLiftsToASequenceThatSamplesBitForBit )
-{
-    using namespace Desert::Animation;
-    using namespace Desert::Animation::Timeline;
+    using namespace Desert::Assets::Serialization;
     const auto clips = TrackedClips();
     ASSERT_TRUE( clips.has_value() ) << "git ls-files failed from " << RepoRoot();
-    std::size_t lifted = 0;
+    std::size_t read = 0;
     for ( const std::string& path : *clips )
     {
-        const auto data =
-             Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( ReadFile( path ) );
-        ASSERT_TRUE( data.IsSuccess() ) << path;
-        auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data.GetValue() );
-        ASSERT_TRUE( built.IsSuccess() ) << path << ": " << built.GetError();
-        const AnimationClip clip = built.ExtractValue();
-
-        const auto sequence = LiftClip( clip );
-        ASSERT_TRUE( sequence.IsSuccess() ) << path << ": " << sequence.GetError();
-        const Sequence& lift = sequence.GetValue();
-        ASSERT_TRUE( Validate( lift ).IsSuccess() ) << path;
-
-        std::vector<BoneInfo> bones( clip.Tracks.size() );
-        for ( std::size_t i = 0; i < bones.size(); ++i )
-            bones[i].Name = clip.Tracks[i].BoneName;
-        const Skeleton         skeleton( std::move( bones ) );
-        const BoneBindingTable table = BindBones( lift, skeleton );
-        ASSERT_EQ( table.Missing, 0u ) << path;
-
-        Evaluator      evaluator( lift );
-        EvaluatedFrame frame;
-        const BoneTransform reference; // the rest value the pose is seeded with, ApplySection's `reference`
-        for ( int32_t tick = 0; tick <= clip.DurationTicks.Value; ++tick )
-        {
-            const FrameTime at{ FrameNumber{ tick }, 0.0F };
-            LocalPose       pose( clip.Tracks.size() );
-            ASSERT_TRUE( EvaluatePose( lift, table, at, pose ).IsSuccess() ) << path;
-            for ( std::size_t b = 0; b < clip.Tracks.size(); ++b )
-            {
-                const BoneTransform expected = clip.SampleTrack( clip.Tracks[b], at, reference );
-                ASSERT_EQ( pose[b].Translation, expected.Translation ) << path << " bone " << b << " tick " << tick;
-                ASSERT_EQ( pose[b].Rotation, expected.Rotation ) << path << " bone " << b << " tick " << tick;
-                ASSERT_EQ( pose[b].Scale, expected.Scale ) << path << " bone " << b << " tick " << tick;
-            }
-
-            evaluator.Evaluate( TimeStep{ at, at }, frame );
-            for ( const EvaluatedTrack& value : frame.Values )
-            {
-                const Track& track = lift.Tracks[value.TrackIndex];
-                if ( track.Kind != TrackKind::Float )
-                    continue;
-                const AnimationCurve* curve = clip.FindCurve( track.Property );
-                ASSERT_NE( curve, nullptr ) << path << " curve " << track.Property;
-                const float got = std::get<float>( value.Value );
-                const auto  key = std::find_if( curve->Keys.begin(), curve->Keys.end(),
-                                                [&]( const ScalarKey& k ) { return k.Tick.Value == tick; } );
-                if ( key != curve->Keys.begin() && key != curve->Keys.end() && key->Interp == KeyInterp::Constant )
-                {
-                    EXPECT_EQ( got, ( key - 1 )->Value ) << path << " curve " << track.Property << " tick " << tick
-                                                         << ": the stated divergence moved";
-                    continue;
-                }
-                ASSERT_EQ( got, curve->Evaluate( at, clip.TickRate ) )
-                     << path << " curve " << track.Property << " tick " << tick;
-            }
-        }
-        ++lifted;
+        const auto data = ReadAnimationJson( ReadFile( path ) );
+        ASSERT_TRUE( data.IsSuccess() ) << path << ": " << data.GetError();
+        ASSERT_TRUE( data.GetValue().Header.has_value() ) << path;
+        EXPECT_EQ( Common::Content::TextHeaderVersion( *data.GetValue().Header, Desert::Assets::kAnimationSchemaTag ),
+                   std::optional<uint32_t>( Desert::Assets::kAnimationSchemaVersion ) )
+             << path;
+        const auto clip = BuildClipFromAssetData( data.GetValue() );
+        ASSERT_TRUE( clip.IsSuccess() ) << path << ": " << clip.GetError();
+        const auto& sequence = clip.GetValue().Sequence;
+        EXPECT_EQ( sequence.Host, Desert::Animation::Timeline::SequenceHost::AnimationClip ) << path;
+        EXPECT_TRUE( Desert::Animation::Timeline::Validate( sequence ).IsSuccess() ) << path;
+        EXPECT_FALSE( sequence.Tracks.empty() ) << path << ": a clip that animates nothing";
+        ++read;
     }
-    EXPECT_GE( lifted, 6u ) << "the lift ran over too few clips from " << RepoRoot();
+    EXPECT_GE( read, 10u ) << "too few clips read from " << RepoRoot();
+}
+
+// THE ONE WRITER IS THE FORMAT: each file is exactly what BuildAssetDataFromClip + WriteAnimationJson write
+// for the clip it holds (header and import record kept). A writer that dropped or reshaped the TMLN block
+// turns this red on every file.
+TEST( AnimationClipCorpus, EveryClipIsWhatTheOneWriterWritesForIt )
+{
+    using namespace Desert::Assets::Serialization;
+    const auto clips = TrackedClips();
+    ASSERT_TRUE( clips.has_value() );
+    for ( const std::string& path : *clips )
+    {
+        const std::string text = ReadFile( path );
+        const auto        data = ReadAnimationJson( text );
+        ASSERT_TRUE( data.IsSuccess() ) << path << ": " << data.GetError();
+        const auto clip = BuildClipFromAssetData( data.GetValue() );
+        ASSERT_TRUE( clip.IsSuccess() ) << path << ": " << clip.GetError();
+        auto written = BuildAssetDataFromClip( clip.GetValue() );
+        ASSERT_TRUE( written.IsSuccess() ) << path << ": " << written.GetError();
+        AnimationAssetData out = written.ExtractValue();
+        out.Header             = data.GetValue().Header;
+        out.Import             = data.GetValue().Import;
+        const auto canonical   = Common::Content::CanonicalJsonTextOfWriterOutput( WriteAnimationJson( out ) );
+        ASSERT_TRUE( canonical.IsSuccess() ) << path;
+        EXPECT_EQ( canonical.GetValue(), text ) << path << ": the file is not what the writer writes";
+    }
+}
+
+// GENERATION 3 IS REFUSED BY NAME, pointing at the migrator — not reported as a missing member.
+TEST( AnimationClipCorpus, Generation3IsRefusedByName )
+{
+    const std::string generation3 = R"({
+    "Header": {
+        "Kind": "Animation",
+        "Guid": "ec838680efeee3ada2b232f3cfec5d67",
+        "Versions": {
+            "ANIM": 4
+        },
+        "Dependencies": []
+    },
+    "Name": "Old",
+    "TickRate": {"Numerator": 24000, "Denominator": 1},
+    "DisplayRate": {"Numerator": 30, "Denominator": 1},
+    "DurationTicks": 0,
+    "SkeletonSignature": 0,
+    "Channels": [],
+    "Notifies": [],
+    "Sections": [],
+    "Curves": []
+})";
+    const auto read = Desert::Assets::Serialization::ReadAnimationJson( generation3 );
+    ASSERT_FALSE( read.IsSuccess() );
+    EXPECT_NE( read.GetError().find( "ANIM v4" ), std::string::npos ) << read.GetError();
+    EXPECT_NE( read.GetError().find( "generation 3" ), std::string::npos ) << read.GetError();
+    EXPECT_NE( read.GetError().find( "SceneMigrator" ), std::string::npos ) << read.GetError();
 }
 
 int main( int argc, char** argv )
 {
-    ::testing::InitGoogleTest( &argc, argv );
+    testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

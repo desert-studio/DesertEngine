@@ -6,7 +6,7 @@
  * This is the step ClipSection.hpp announced ("the step that moves `Tracks` inside a section"): a
  * `ClipSection` REFERS to tracks by name and shares the clip's one flat key list, so two sections could
  * never be two statements composited. Here a section OWNS its content, so real layering is expressible,
- * and `SectionBlendType` is REUSED from ClipSection.hpp — the enum and its on-disk integers are one home.
+ * and `SectionBlendType` lives HERE since ANIM-I8a (ClipSection.hpp went with generation 3) — one home.
  *
  * ── HOW SECTIONS OF ONE TRACK COMBINE (the only blend rule in the core) ──────────────────────────────
  *
@@ -25,7 +25,6 @@
  * wins", so a generation-3 file lifts without changing a sampled value.
  */
 
-#include <Engine/Animation/ClipSection.hpp>
 #include <Engine/Animation/KeyInterpolation.hpp>
 #include <Engine/Animation/TimeModel.hpp>
 #include <Engine/Animation/Timeline/Binding.hpp>
@@ -38,6 +37,35 @@
 #include <string>
 #include <variant>
 #include <vector>
+
+namespace Desert::Animation
+{
+    /**
+     * @brief How a section's tracks reach the pose. STORED, NEVER INFERRED.
+     *
+     * The values are written to disk as integers, so their ORDER IS PART OF THE FORMAT: append only.
+     */
+    enum class SectionBlendType : uint8_t
+    {
+        /// The track's value IS the pose. Weight blends from the rest pose towards it.
+        Absolute = 0,
+        /// The track's value is an OFFSET applied on top of the rest pose. Weight scales the offset, so
+        /// an identity value is a no-op at any weight.
+        Additive = 1,
+    };
+
+    [[nodiscard]] inline const char* SectionBlendName( SectionBlendType blend ) noexcept
+    {
+        switch ( blend )
+        {
+            case SectionBlendType::Absolute:
+                return "Absolute";
+            case SectionBlendType::Additive:
+                return "Additive";
+        }
+        return "Absolute";
+    }
+} // namespace Desert::Animation
 
 namespace Desert::Animation::Timeline
 {

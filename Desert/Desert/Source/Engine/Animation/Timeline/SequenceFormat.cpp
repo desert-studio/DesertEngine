@@ -480,7 +480,7 @@ namespace Desert::Animation::Timeline
         }
     } // namespace
 
-    std::vector<uint8_t> WriteSequence( const Sequence& sequence )
+    Common::ResultStr<std::vector<uint8_t>> WriteSequence( const Sequence& sequence )
     {
         SequenceData data;
         data.Host        = static_cast<uint8_t>( sequence.Host );
@@ -513,13 +513,15 @@ namespace Desert::Animation::Timeline
         clips.erase( std::unique( clips.begin(), clips.end() ), clips.end() );
         data.Header.Dependencies = std::move( clips );
 
-        // rfl's output is JSON by construction; the canonical layout of it cannot fail on a document this
-        // writer produced, and if it ever did the error text would be written — and refused by the reader
-        // by name — rather than an unlaid-out copy passed off as the format.
+        // A layout failure is REFUSED with its reason (lead decision 09-30): an error text written as the block
+        // would be a file that says nothing about the sequence, found only by the next reader.
         const std::string                    raw  = Common::Json::Write( data );
         const Common::ResultStr<std::string> text = Common::Content::CanonicalJsonTextOfWriterOutput( raw );
-        const std::string&                   out  = text ? text.GetValue() : text.GetError();
-        return { out.begin(), out.end() };
+        if ( !text )
+        {
+            return Common::MakeFormattedError<std::vector<uint8_t>>( "timeline block: {}", text.GetError() );
+        }
+        return Common::MakeSuccess( std::vector<uint8_t>( text.GetValue().begin(), text.GetValue().end() ) );
     }
 
     Common::ResultStr<Sequence> ReadSequence( const std::span<const uint8_t> bytes )

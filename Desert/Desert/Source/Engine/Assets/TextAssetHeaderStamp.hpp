@@ -68,7 +68,7 @@ namespace Desert::Assets
     // A .anim: the clip file layout, stated in the header since v4 (T7e; v0-v3 had a top-level `Version`,
     // absent meaning 0, and no header). The number continues the clip's own sequence (kAnimationVersion).
     inline constexpr uint32_t kAnimationSchemaTag     = Common::Content::FourCC( "ANIM" );
-    inline constexpr uint32_t kAnimationSchemaVersion = 4;
+    inline constexpr uint32_t kAnimationSchemaVersion = 5; // v5 (ANIM-I8a): the body is the TMLN block
     // A timeline block (Animation/Timeline/Sequence.hpp): the Sequence every host (.anim, a UI clip, .dseq)
     // carries, stated since v1 under this tag; its version is Timeline::kTimelineFormatVersion, which the
     // contract header owns.

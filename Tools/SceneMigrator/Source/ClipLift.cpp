@@ -1,6 +1,6 @@
-#include "Hosts.hpp"
+#include "ClipGeneration3.hpp"
 
-#include <Engine/Animation/AnimationClip.hpp>
+#include <Engine/Animation/Timeline/Binding.hpp>
 
 #include <algorithm>
 #include <format>
@@ -14,6 +14,15 @@
 
 namespace Desert::Animation::Timeline
 {
+    using Migration::ClipGen3::AnimationClip;
+    using Migration::ClipGen3::AnimationCurve;
+    using Migration::ClipGen3::AnimationNotify;
+    using Migration::ClipGen3::BoneTrack;
+    using Migration::ClipGen3::ClipSection;
+    using Migration::ClipGen3::PositionKeyFrame;
+    using Migration::ClipGen3::RotationKeyFrame;
+    using Migration::ClipGen3::ScaleKeyFrame;
+
     namespace
     {
         /// Sorted, one key per tick: the channel invariant. BoneTrack tolerated two keys on one tick (the later
