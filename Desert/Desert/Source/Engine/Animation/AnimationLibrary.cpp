@@ -194,7 +194,7 @@ namespace Desert::Animation
     {
         MeshSkeletonIdentity identity;
         identity.Skeleton = SkeletonRefOf( mesh.GetSkeleton() );
-        if ( const auto& skeleton = mesh.GetSkeletonDependency().Cached )
+        if ( const auto skeleton = mesh.GetSkeletonDependency().Cached.lock() )
         {
             const auto compatible = skeleton->GetCompatibleSkeletons();
             identity.Compatible.assign( compatible.begin(), compatible.end() );
