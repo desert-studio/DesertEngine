@@ -138,7 +138,7 @@ namespace Desert::Graphic::System
         if ( !sceneColor )
             return;
         MaskPush maskPush{ sunScreenUv, m_Params.Threshold, m_Params.MaxBrightness, kMaskWindow };
-        m_MaskPipeline->SetInput( 0, sceneColor.get() );
+        m_MaskPipeline->SetInput( 0, sceneColor.get(), RDG::Access::SampledCompute, std::nullopt );
         m_MaskPipeline->SetOutput( 1, m_PingImage.get() );
         m_MaskPipeline->SetPushConstants( &maskPush, sizeof( maskPush ) );
         Renderer::GetInstance().DispatchComputeInFrame( m_MaskPipeline.get(),
@@ -155,7 +155,7 @@ namespace Desert::Graphic::System
         for ( uint32_t i = 0; i < pass; ++i )
             reach *= kPassScale;
         BlurPush blurPush{ sunScreenUv, std::min( reach, 1.0f ), kBlurDecay };
-        m_BlurPipeline->SetInput( 0, GetBlurSource( pass ).get() );
+        m_BlurPipeline->SetInput( 0, GetBlurSource( pass ).get(), RDG::Access::SampledCompute, std::nullopt );
         m_BlurPipeline->SetOutput( 1, GetBlurTarget( pass ).get() );
         m_BlurPipeline->SetPushConstants( &blurPush, sizeof( blurPush ) );
         Renderer::GetInstance().DispatchComputeInFrame( m_BlurPipeline.get(),

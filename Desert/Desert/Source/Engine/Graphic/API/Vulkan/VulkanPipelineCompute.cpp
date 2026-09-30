@@ -6,6 +6,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanGpuBatch.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
@@ -28,7 +29,14 @@ namespace Desert::Graphic::API::Vulkan
 
     ComputePipeline& VulkanPipelineCompute::SetInput( uint32_t binding, Image* image )
     {
-        m_BoundInputs[binding] = image;
+        m_BoundInputs[binding] = { image, std::nullopt, std::nullopt };
+        return *this;
+    }
+
+    ComputePipeline& VulkanPipelineCompute::SetInput( uint32_t binding, Image* image, RDG::Access declared,
+                                                      std::optional<uint32_t> mip )
+    {
+        m_BoundInputs[binding] = { image, declared, mip };
         return *this;
     }
 
@@ -98,32 +106,56 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         // Inputs: sampled images (2D, cube and volume share the same VkDescriptorImageInfo shape, but not
-        // the same write builder — see ClassifySampledImage). Use the image's actual tracked layout: a
-        // sampled input may be SHADER_READ_ONLY (a separate source image), GENERAL (a mip of an image
-        // this same chain is writing) or, for the scene depth, whatever ComputeImageBeginRead left.
-        for ( const auto& [binding, image] : m_BoundInputs )
+        // the same write builder — see ClassifySampledImage). An input bound by a render-graph node names
+        // the view it declared (one mip, or all) in the layout its declared access guarantees; any other
+        // input uses the whole view in the image's own tracked layout (e.g. whatever ComputeImageBeginRead
+        // left for the scene depth).
+        for ( const auto& [binding, input] : m_BoundInputs )
         {
-            auto* img = dynamic_cast<IVulkanImage*>( image );
+            Image* image = input.Image;
+            auto*  img   = dynamic_cast<IVulkanImage*>( image );
             if ( !img )
                 continue;
             const auto&            r    = img->GetResource();
             const SampledImageKind kind = ClassifySampledImage( image );
 
+            VkImageView   view   = input.Mip ? img->GetMipView( *input.Mip ) : r.ImageView;
+            VkImageLayout layout = r.Layout;
+            if ( input.Declared )
+            {
+                const RDG::ImageLayout declaredLayout = RDG::GetAccessState( *input.Declared ).Layout;
+                if ( declaredLayout != RDG::ImageLayout::ShaderReadOnly &&
+                     declaredLayout != RDG::ImageLayout::General )
+                {
+                    LOG_ERROR( "ComputePipeline '{}': input at binding {} is declared as {}, which does not "
+                               "leave the image sampleable; dispatch skipped",
+                               m_Specification.DebugName, binding, RDG::GetAccessName( *input.Declared ) );
+                    return;
+                }
+                layout = RdgVulkanLayout( declaredLayout );
+            }
+            if ( input.Mip && view == VK_NULL_HANDLE )
+            {
+                LOG_ERROR( "ComputePipeline '{}': input at binding {} has no view of mip {}; dispatch skipped",
+                           m_Specification.DebugName, binding, *input.Mip );
+                return;
+            }
+
             if ( kind == SampledImageKind::Volume &&
-                 ( r.ImageView == VK_NULL_HANDLE || r.Sampler == VK_NULL_HANDLE ||
-                   r.Layout == VK_IMAGE_LAYOUT_UNDEFINED ) )
+                 ( view == VK_NULL_HANDLE || r.Sampler == VK_NULL_HANDLE ||
+                   layout == VK_IMAGE_LAYOUT_UNDEFINED ) )
             {
                 // No fallback exists for a volume, and dispatching with a stale descriptor would read
                 // whatever the previous user of this ring slot bound. Say exactly what is missing and
                 // drop the dispatch instead.
                 LOG_ERROR( "ComputePipeline '{}': volume input at binding {} is not sampleable "
                            "(view={}, sampler={}, layout={}); dispatch skipped",
-                           m_Specification.DebugName, binding, r.ImageView != VK_NULL_HANDLE,
-                           r.Sampler != VK_NULL_HANDLE, static_cast<int>( r.Layout ) );
+                           m_Specification.DebugName, binding, view != VK_NULL_HANDLE,
+                           r.Sampler != VK_NULL_HANDLE, static_cast<int>( layout ) );
                 return;
             }
 
-            infos.push_back( { r.Sampler, r.ImageView, r.Layout } );
+            infos.push_back( { r.Sampler, view, layout } );
 
             switch ( kind )
             {

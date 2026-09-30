@@ -5,7 +5,7 @@ Shader "BloomUpsample"
     {
         // Progressive bloom upsample (COD / Jimenez). Each dispatch samples a smaller mip with a 3x3 tent filter
         // and ADDS it into the next-larger mip (read-modify-write on the storage image), walking the chain back
-        // up to mip 0. u_Output is the larger (destination) mip; u_Source is sampled at the smaller mip's LOD.
+        // up to mip 0. u_Output is the larger (destination) mip; u_Source is a single-mip view of the smaller mip.
 
         Uniform(0) sampler2D u_Source;
         layout(binding = 1, rgba16f) uniform image2D u_Output;
@@ -13,7 +13,6 @@ Shader "BloomUpsample"
         PushConstant PushConstants
         {
             vec2  u_SrcTexelSize; // 1 / size(source / smaller mip)
-            int   u_SrcMip;       // LOD to sample from u_Source
             float u_FilterRadius; // tent radius in source texels
         };
 
@@ -27,14 +26,15 @@ Shader "BloomUpsample"
                 return;
 
             vec2  uv = ( vec2( dstCoord ) + 0.5 ) / vec2( dstSize );
-            float l  = float( u_SrcMip );
+            // u_Source is a view of the ONE source mip the graph node declared (in the layout its access
+            // put it in), so its only level is lod 0.
             vec2  o  = u_SrcTexelSize * u_FilterRadius;
 
             // Clamp to the source mip's valid texel-centre range: the global sampler is REPEAT, so tent taps
             // that fall outside [0,1] would wrap a bright object's glow to the opposite screen edge.
             vec2 lo = 0.5 * u_SrcTexelSize;
             vec2 hi = 1.0 - 0.5 * u_SrcTexelSize;
-        #define TAP( coord ) textureLod( u_Source, clamp( ( coord ), lo, hi ), l ).rgb
+        #define TAP( coord ) textureLod( u_Source, clamp( ( coord ), lo, hi ), 0.0 ).rgb
 
             // 3x3 tent (weights 1 2 1 / 2 4 2 / 1 2 1).
             vec3 a = TAP( uv + vec2( -o.x,  o.y ) );

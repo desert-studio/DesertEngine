@@ -111,9 +111,9 @@ namespace Desert::Graphic::System
             // backdrop, which must keep the scene's own colours.
             const DownsamplePush push{
                  glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ),
-                 static_cast<int32_t>( srcMip ), 0, 0.0f };
+                 0, 0.0f };
 
-            m_DownsamplePipeline->SetInput( 0, src );
+            m_DownsamplePipeline->SetInput( 0, src, RDG::Access::SampledCompute, srcMip );
             m_DownsamplePipeline->SetOutput( 1, m_Image.get(), mip );
             m_DownsamplePipeline->SetPushConstants( &push, sizeof( push ) );
             Renderer::GetInstance().DispatchComputeInFrame( m_DownsamplePipeline.get(),
@@ -132,7 +132,6 @@ namespace Desert::Graphic::System
         struct DownsamplePush
         {
             glm::vec2 SrcTexelSize;
-            int32_t   SrcMip;
             int32_t   FirstPass;
             float     Threshold;
         };

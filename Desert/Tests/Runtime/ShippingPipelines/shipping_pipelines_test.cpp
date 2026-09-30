@@ -786,21 +786,24 @@ TEST( ShippingPipelines, TheOutlineCompositeRunsOnEveryFrame )
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    const std::string jfa = StripComments(
-         Read( root /
-               "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/JumpFloodOutlineRenderer.cpp" ) );
-    ASSERT_FALSE( jfa.empty() ) << "JumpFloodOutlineRenderer.cpp could not be read";
+    // The outline's nodes are added to the frame graph by SceneRenderer::AddFrameJumpFlood (RDG-LEG1-L4): what
+    // runs is decided there, when the graph is built, not inside the renderer at execution.
+    const std::string postFx =
+         StripComments( Read( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFramePostFX.cpp" ) );
+    ASSERT_FALSE( postFx.empty() ) << "SceneRendererFramePostFX.cpp could not be read";
 
-    const size_t execute = jfa.find( "void JumpFloodOutlineRenderer::Execute" );
-    ASSERT_NE( execute, std::string::npos );
+    const size_t body = postFx.find( "void SceneRenderer::AddFrameJumpFlood" );
+    ASSERT_NE( body, std::string::npos );
+    const size_t bodyEnd = postFx.find( "void SceneRenderer::", body + 1 );
 
-    const size_t active = jfa.find( "m_OutlineActive", execute );
-    const size_t final  = jfa.rfind( "JFA_Final" );
-    ASSERT_NE( active, std::string::npos ) << "Execute no longer consults m_OutlineActive";
-    ASSERT_NE( final, std::string::npos ) << "Execute no longer runs the JFA_Final composite";
+    const size_t active = postFx.find( "RunsSteps()", body );
+    const size_t final  = postFx.find( "\"PostFX: JumpFloodFinal\"", body );
+    ASSERT_NE( active, std::string::npos ) << "AddFrameJumpFlood no longer consults RunsSteps()";
+    ASSERT_NE( final, std::string::npos ) << "AddFrameJumpFlood no longer adds the JumpFloodFinal composite";
+    EXPECT_LT( final, bodyEnd ) << "the JumpFloodFinal composite is no longer added by AddFrameJumpFlood";
     EXPECT_GT( final, active )
-         << "the JFA_Final composite is no longer the LAST thing Execute does. It used to run "
-            "unconditionally, after the m_OutlineActive check that skips only the propagation steps — "
+         << "the JumpFloodFinal composite is no longer the LAST node AddFrameJumpFlood adds. It is added "
+            "unconditionally, after the RunsSteps() check that skips only the propagation steps — "
             "which is why the outline pipelines are part of the product and not a developer's tool.";
 }
 

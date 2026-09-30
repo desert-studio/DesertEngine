@@ -27,7 +27,6 @@ Shader "LensFlareBrightPass"
 
         PushConstant LensFlareBrightPush
         {
-            int   u_SrcMip;        // mip of u_Source to read (ignored on the first pass)
             int   u_FirstPass;     // 1 = u_Source is the HDR scene and the threshold applies
             float u_Threshold;     // HDR luminance below this contributes nothing
             float u_MaxBrightness; // cap on extracted energy — one blown pixel must not own the flare
@@ -59,11 +58,11 @@ Shader "LensFlareBrightPass"
             vec2 o   = texel * 0.5f;
             vec2 lo  = texel * 0.5f;
             vec2 hi  = vec2(1.0f, 1.0f) - lo;
-            float m  = float(u_SrcMip);
-            vec3 colour = textureLod(u_Source, clamp(uv + vec2(-o.x, -o.y), lo, hi), m).rgb +
-                          textureLod(u_Source, clamp(uv + vec2( o.x, -o.y), lo, hi), m).rgb +
-                          textureLod(u_Source, clamp(uv + vec2(-o.x,  o.y), lo, hi), m).rgb +
-                          textureLod(u_Source, clamp(uv + vec2( o.x,  o.y), lo, hi), m).rgb;
+            // u_Source is a view of the ONE mip the graph node declared, so its only level is lod 0.
+            vec3 colour = textureLod(u_Source, clamp(uv + vec2(-o.x, -o.y), lo, hi), 0.0f).rgb +
+                          textureLod(u_Source, clamp(uv + vec2( o.x, -o.y), lo, hi), 0.0f).rgb +
+                          textureLod(u_Source, clamp(uv + vec2(-o.x,  o.y), lo, hi), 0.0f).rgb +
+                          textureLod(u_Source, clamp(uv + vec2( o.x,  o.y), lo, hi), 0.0f).rgb;
             colour *= 0.25f;
 
             if (u_FirstPass == 1)
