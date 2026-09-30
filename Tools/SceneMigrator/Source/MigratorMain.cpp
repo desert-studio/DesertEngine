@@ -579,9 +579,50 @@ namespace Desert::Migration
         // through the register of <project>/Resources/Assets; one under an assets root's Meshes/ through
         // that root's. A file that is not a cooked mesh this build reads (a JSON-era mesh, a foreign file, a
         // later version) FAILS by name and is left untouched - never "ok".
+        // THE SKELETONS the SKEL-TREE raises (ANIM 4 -> 5, MeshBinary 3/4 -> 5) resolve a bone hash against.
+        std::vector<Desert::Animation::SkeletonCandidate> skeletons;
+        for ( const auto& path : texts )
+        {
+            if ( path.extension() != ".skeleton" )
+                continue;
+            const auto rig = Desert::Migration::ReadSkeletonCandidate( path, ReadAll( path ) );
+            if ( !rig )
+            {
+                err << "FAIL   " << rig.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            skeletons.push_back( rig.GetValue() );
+        }
+
         for ( const auto& path : meshes )
         {
             const std::string bytes = ReadAll( path );
+            if ( uint32_t stated = 0; bytes.size() >= 16 &&
+                                      std::string_view( bytes ).starts_with( std::string_view(
+                                           Common::Content::kMeshBinaryMagic, sizeof( Common::Content::kMeshBinaryMagic ) ) ) &&
+                                      ( std::memcpy( &stated, bytes.data() + 12, 4 ), stated == 3u || stated == 4u ) )
+            {
+                const auto raised = Desert::Migration::MigrateMeshBinaryToV5( path.string(), bytes, skeletons );
+                if ( !raised )
+                {
+                    err << "FAIL   " << raised.GetError() << "\n";
+                    ++failed;
+                    continue;
+                }
+                out << ( check ? "would raise " : "raised " ) << path.string() << " MeshBinary " << stated << " -> "
+                    << Common::Content::kMeshBinaryVersion << "\n";
+                if ( !check )
+                {
+                    if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, raised.GetValue() );
+                         !written )
+                    {
+                        err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                        ++failed;
+                    }
+                }
+                continue;
+            }
             // THE MESH ASSET (AF4b/AF4d): a `.stmesh`/`.skmesh` that is an AF1 envelope stamped 'MSAS' carries its
             // editable source and has no step in this tool yet. It is judged by the engine's own reader - the
             // whole envelope, every section hash and the SRCE decode - so a torn file FAILS by name and only a
@@ -973,6 +1014,21 @@ namespace Desert::Migration
             {
                 err << "FAIL   " << path.string() << " — unreadable or empty\n";
                 ++failed;
+                continue;
+            }
+            // ANIM 4 -> 5 (SKEL-TREE): the bone hash becomes the skeleton's GUID.
+            if ( const auto stated = ReadStatedVersion( path, source, "ANIM" ); stated && stated.GetValue() == 4u )
+            {
+                const auto raised = Desert::Migration::MigrateAnimationV4ToV5( path.string(), source, skeletons );
+                if ( !raised )
+                {
+                    err << "FAIL   " << raised.GetError() << "\n";
+                    ++failed;
+                    continue;
+                }
+                out << ( check ? "would raise " : "raised " ) << path.string() << " ANIM 4 -> 5\n";
+                if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                    ++failed;
                 continue;
             }
             if ( !PassesTextHeaderGate( *TextHeaderGateFor( path ), path, source, err ) )

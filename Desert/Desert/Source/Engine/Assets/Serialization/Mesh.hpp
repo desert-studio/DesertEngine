@@ -78,7 +78,8 @@ namespace Desert::Assets::Serialization
         std::vector<SkinnedVertexData> SkinnedVertices;
         std::vector<IndexData>         Indices;
         std::vector<SubmeshData>       Submeshes;
-        std::optional<uint64_t>        SkeletonSignature;
+        // THE MESH'S SKELETON (MeshBinary v5, SKEL-TREE): the .skeleton's header GUID; null for a static mesh.
+        Common::Content::AssetGuid     Skeleton;
         // Blendshapes (empty for meshes without morph targets). New field — meshes cooked before this exists
         // are read with rfl::DefaultIfMissing so they simply come back with an empty list.
         std::vector<MorphTargetData>   MorphTargets;

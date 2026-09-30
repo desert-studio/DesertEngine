@@ -40,11 +40,6 @@ namespace Desert::Assets
         /// (AnimationClip::Skeleton), so SaveClipToFile writes it and never loses it.
         void SetSkeleton( Common::Content::AssetGuid skeleton );
 
-        uint64_t GetSkeletonSignature() const
-        {
-            return m_SkeletonSignature;
-        }
-
         // Injects an in-memory clip (no file backing) — used for code-generated clips such as the procedural
         // character locomotion ([[procedural-character]]). Create the asset with loadAfterCreate=false, then
         // call this so it shows up in the AnimationLibrary / editor clip selector like a cooked clip.
@@ -52,7 +47,6 @@ namespace Desert::Assets
         {
             m_Clip               = clip;
             m_Clip.TrackRevision = ++m_TrackRevision;
-            m_SkeletonSignature  = clip.SkeletonSignature;
             m_HasClip            = true;
             // NO FILE EVER PRODUCED THIS ONE, so nothing can produce it again. See
             // AssetBase::IsReloadableFromFile.
@@ -62,8 +56,7 @@ namespace Desert::Assets
         // WAS A HARDCODED `return true`. That made the type both unloadable and un-re-loadable:
         // `EnsureLoaded` short-circuits on it, so a shell created with `loadAfterCreate = false` — the
         // documented path for procedural clips, two lines above — reported itself ready while holding an
-        // empty clip and an UNINITIALISED `m_SkeletonSignature`, which `GetSkeletonSignature()` then
-        // handed to the animation system.
+        // empty clip, which the animation system then played as if it were one.
         bool IsReadyForUse() const override
         {
             return m_HasClip;
@@ -92,11 +85,8 @@ namespace Desert::Assets
          * and `Tracks.size()` are both free to come back identical when the allocator reuses the block.
          */
         uint32_t m_TrackRevision = 0;
-        // WAS UNINITIALISED. `GetSkeletonSignature()` on a shell that had not been loaded returned whatever
-        // was on the heap, and the animation system matches rigs on that number.
-        uint64_t m_SkeletonSignature = 0;
-        bool     m_HasClip           = false;
-        bool     m_FromMemory        = false;
+        bool m_HasClip    = false;
+        bool m_FromMemory = false;
     };
 
 } // namespace Desert::Assets

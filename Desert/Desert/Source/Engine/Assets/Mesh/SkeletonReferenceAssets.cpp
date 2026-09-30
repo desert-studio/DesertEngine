@@ -4,6 +4,7 @@
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
+#include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 
 #include <Common/Content/CanonicalText.hpp>
@@ -95,6 +96,34 @@ namespace Desert::Assets::Serialization
                   Common::Utils::FileSystem::WriteContentToFileAtomic( file, canonical.GetValue() );
              !written )
             return Common::MakeFormattedError<bool>( "skeleton '{}' was not saved: {}", file.string(),
+                                                     written.GetError() );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr SaveMeshSkeletonReference( const std::filesystem::path&     skmeshPath,
+                                                     const Common::Content::AssetGuid skeleton )
+    {
+        // THE COOKED FILE IS THE BASE: everything but the header's SkeletonGuid is rewritten as it reads.
+        const std::filesystem::path file = ContentRegistry::FileToOpen( skmeshPath );
+        if ( skeleton.IsNull() )
+            return Common::MakeFormattedError<bool>(
+                 "mesh '{}' was not saved: a skinned mesh must name a skeleton (the GUID is null)", file.string() );
+        auto raw = Common::Utils::FileSystem::ReadFileContent( file );
+        if ( !raw )
+            return Common::MakeFormattedError<bool>( "mesh '{}' was not saved: {}", file.string(), raw.GetError() );
+        auto decoded = DecodeMeshBinary( raw.GetValue(), file.string() );
+        if ( !decoded )
+            return Common::MakeFormattedError<bool>( "mesh '{}' was not saved: {}", file.string(),
+                                                     decoded.GetError() );
+        MeshAssetData data = decoded.ExtractValue();
+        if ( !data.IsSkinned )
+            return Common::MakeFormattedError<bool>(
+                 "mesh '{}' was not saved: it is a static mesh, and only a skinned mesh names a skeleton",
+                 file.string() );
+        data.Skeleton = skeleton;
+        if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( file, EncodeMeshBinary( data ) );
+             !written )
+            return Common::MakeFormattedError<bool>( "mesh '{}' was not saved: {}", file.string(),
                                                      written.GetError() );
         return BOOLSUCCESS;
     }

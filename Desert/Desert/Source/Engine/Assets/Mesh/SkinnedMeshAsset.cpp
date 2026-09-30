@@ -2,6 +2,8 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
+#include <Engine/Assets/RegistryDiscovery.hpp>
+#include <Common/Core/Logger.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -116,12 +118,14 @@ namespace Desert::Assets
             m_Submeshes.emplace_back( std::move( submesh ) );
         }
 
-        if ( !data.SkeletonSignature.has_value() )
+        if ( data.Skeleton.IsNull() )
         {
-            return Common::MakeError( "SkinnedMeshAsset requires SkeletonUUID." );
+            return Common::MakeFormattedError( "skinned mesh '{}' names no skeleton (MeshBinary v5 "
+                                                     "SkeletonGuid is null) - it cannot be skinned",
+                                                     m_Metadata.Filepath.string() );
         }
 
-        m_SkeletonSignature = data.SkeletonSignature.value();
+        m_Skeleton = data.Skeleton;
 
         m_MorphTargets.clear();
         m_MorphTargets.reserve( data.MorphTargets.size() );
@@ -153,12 +157,12 @@ namespace Desert::Assets
         m_VertexStreams.shrink_to_fit();
         m_MaterialAssetHandles.shrink_to_fit();
 
-        // THE RIG SIGNATURE AND ITS DEPENDENCY GO WITH THE PAYLOAD. `ResolveDependencies` matches a
-        // SkeletonAsset by `GetSignature() == m_SkeletonSignature`, and `GetSkeletonDependency().IsValid()`
+        // THE SKELETON REFERENCE AND ITS DEPENDENCY GO WITH THE PAYLOAD. `ResolveDependencies` binds the
+        // SkeletonAsset of `m_Skeleton`, and `GetSkeletonDependency().IsValid()`
         // is what callers ask before using the rig — an unloaded mesh answering both as if it were loaded
         // is the same contradiction between a readiness flag and a getter that the cloud type had. The
         // resolve re-runs on the next EnsureLoaded, which is written to be re-runnable.
-        m_SkeletonSignature  = 0U;
+        m_Skeleton           = {};
         m_SkeletonDependency = AssetDependency<SkeletonAsset>{};
 
         // The flag is what EnsureLoaded asks before deciding to parse, so an emptied asset that still
@@ -166,5 +170,51 @@ namespace Desert::Assets
         // dependency this file just stopped losing.
         m_IsReadyForUse = false;
         return BOOLSUCCESS;
+    }
+    void SkinnedMeshAsset::ResolveDependencies( AssetManager& manager )
+    {
+        m_SkeletonDependency.Handle = Common::AssetHandle::Null();
+        m_SkeletonDependency.Cached.reset();
+
+        // A NULL GUID IS "NOT PARSED YET" (or a mesh naming no skeleton, which Load refuses): nothing is bound.
+        // AssetBase::EnsureLoaded runs this again once the parse fills the reference in.
+        if ( m_Skeleton.IsNull() )
+            return;
+
+        // BY GUID, the rig's identity (SkeletonAsset adopts HandleForGuid of its header GUID), as
+        // RetargetAsset::ResolveDependencies: a rig re-cooked, renamed or moved still resolves.
+        auto skeleton = manager.FindByHandle<SkeletonAsset>(
+             Common::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( m_Skeleton ) ) ) );
+        if ( !skeleton )
+            skeleton = CreateFromRegistryGuid<SkeletonAsset>( manager, m_Skeleton,
+                                                              Common::Content::ContentKind::Skeleton );
+        if ( !skeleton )
+        {
+            LOG_WARN( "SkinnedMeshAsset '{}': skeleton {} is not a skeleton this project has scanned.",
+                      m_Metadata.Filepath.string(), Common::Content::AssetGuidToText( m_Skeleton ) );
+            return;
+        }
+
+        // THE RIG'S BONES MUST BE RESIDENT BEFORE THIS COUNTS AS RESOLVED: MeshFactory::CreateSkinned reads
+        // them and refuses the mesh without them, and eviction leaves a rig cold whenever no scene holds it.
+        if ( const auto loaded = skeleton->EnsureLoaded( manager ); !loaded )
+        {
+            LOG_ERROR( "SkinnedMeshAsset '{}': skeleton '{}' could not be read: {}", m_Metadata.Filepath.string(),
+                       skeleton->GetMetadata().Filepath.string(), loaded.GetError() );
+            return;
+        }
+
+        m_SkeletonDependency.Handle = skeleton->GetMetadata().Handle;
+        m_SkeletonDependency.Cached = skeleton;
+    }
+
+    Common::Content::AssetGuid SkinnedMeshAsset::GetSkeleton() const
+    {
+        return m_Skeleton;
+    }
+
+    void SkinnedMeshAsset::SetSkeleton( const Common::Content::AssetGuid skeleton )
+    {
+        m_Skeleton = skeleton;
     }
 } // namespace Desert::Assets
