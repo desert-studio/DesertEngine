@@ -94,38 +94,35 @@ namespace Desert::Project
     // an ancestor. A second place to look is a second rule, and two rules disagree eventually.
     [[nodiscard]] Common::ResultStr<std::string> ProjectBesideExecutable( const std::filesystem::path& directory );
 
-    // ── 3. WHERE `Resources/` IS ─────────────────────────────────────────────────────────────────
+    // ── 3. THE ENGINE DIRECTORY (UE: FPaths::EngineDir) ────────────────────────────────────────────
 
-    struct ResourceRootLookup
+    struct EngineDirLookup
     {
-        // A directory to change to before anything reads content, or "" to leave the working
-        // directory exactly as it is.
-        std::string WorkingDirectory;
-        // True when WorkingDirectory is the Editor/ of the checkout this binary was BUILT in
-        // (`<checkout>/build/Bin/<config>/`) - an IDE that starts the binary where it lies, which
-        // Visual Studio does whenever its per-user debugger settings are not the generated ones.
-        // Its project then sits in that directory too.
+        // Absolute, lexically normal path of the directory holding the engine's `Resources/`, or empty
+        // exactly when Explanation is not.
+        std::filesystem::path Dir;
+        // True when Dir is the Editor/ of the checkout this binary was BUILT in
+        // (`<checkout>/build/Bin/<config>/`). Its development project then sits in Dir too.
         bool FromCheckout = false;
-        // Non-empty when NEITHER candidate holds the engine resources: names the tree and both
-        // places that were looked at. The caller stops on this.
+        // Non-empty when no engine directory was found: names every place looked at. The caller stops.
         std::string Explanation;
     };
 
-    // The engine resolves every engine resource as a path RELATIVE TO THE WORKING DIRECTORY —
-    // `Resources/Shaders/`, `Resources/Fonts/`, `Resources/Icons/` are literals in
-    // Common/Core/Constants.hpp and are never remapped by opening a project. So "where are the
-    // resources" is answered by naming a directory to work FROM.
+    // Where the engine's resources are, answered from the executable's OWN POSITION — never from the
+    // working directory. The process no longer changes directory to reach its resources: the answer is
+    // handed to Common::Constants::Path::SetEngineDir, which makes every engine resource path absolute,
+    // so an editor started from /tmp, from an IDE or from a double-click all read the same files.
     //
-    // THE WORKING DIRECTORY WINS WHEN IT HAS THEM, and that ordering is what keeps every existing
-    // launch byte-identical: `scripts/*/RunEditor.*` change into `Editor/`, which holds
-    // `Resources/Shaders`, so this returns "" and nothing moves. The executable's own directory is
-    // the FALLBACK, and it is only ever taken in a situation that used to be a failure — a working
-    // directory with no engine resources under it could not render a frame. Nothing that worked
-    // before changes; something that could not start now can.
+    // THE ORDER, and each step is final (a step that applies and fails is a refusal, not a fall-through):
+    //   1. `--engine-dir <dir>` (overrideDir non-empty) — it must hold `Resources/Shaders`, else refused
+    //      naming it. An explicit instruction that is wrong is not silently replaced by a guess.
+    //   2. the executable's own directory holds `Resources/Shaders` — a packaged drop.
+    //   3. the executable is at `<checkout>/build/Bin/<config>/` and `<checkout>/Editor/Resources/Shaders`
+    //      exists — a development build, whoever started it and from wherever.
     //
     // `Resources/Shaders` rather than `Resources` is the marker on purpose: an empty `Resources`
     // directory would satisfy the weaker test and then fail 43 shaders later, with a message about
     // a shader rather than about a layout.
-    [[nodiscard]] ResourceRootLookup ResolveResourceRoot( const std::filesystem::path& workingDirectory,
-                                                          const std::filesystem::path& executableDirectory );
+    [[nodiscard]] EngineDirLookup ResolveEngineDir( const std::filesystem::path& executableDirectory,
+                                                    const std::filesystem::path& overrideDir );
 } // namespace Desert::Project

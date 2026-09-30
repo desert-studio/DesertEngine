@@ -17,6 +17,7 @@
 #include <Editor/Splash/SplashScreen.hpp>
 #include <Common/Core/Version.hpp>
 
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -74,8 +75,8 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
         Desert::Editor::RefuseToStart( 2, parsed.GetError() );
     }
 
-    // NOT const: the project is RESOLVED below -- made absolute before the working directory can
-    // move, and filled in from the descriptor beside the executable when the caller named none.
+    // NOT const: the project is RESOLVED below -- made absolute against where the caller stood, and
+    // filled in from the descriptor beside the executable when the caller named none.
     // The parse itself stays pure; this is the one place its result is completed from the disk.
     Desert::Editor::CommandLineOptions options = parsed.ExtractValue();
 
@@ -123,50 +124,43 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
 
     bool startedInCheckout = false;
 
-    // 1. THE ENGINE RESOURCES, BEFORE ANYTHING READS ONE. Every engine resource is a path relative
-    //    to the WORKING DIRECTORY (Common::Constants::Path), so this either leaves the working
-    //    directory alone — which is what every `scripts/*/RunEditor.*` launch gets, because it has
-    //    already changed into `Editor/` — or moves to the executable's own folder, which is the drop.
+    // 1. THE ENGINE DIRECTORY, BEFORE ANYTHING READS ONE (UE: FPaths::EngineDir). Derived from the
+    //    executable's own position, or named by `--engine-dir`, and handed to Common::Constants::Path,
+    //    which makes every engine resource path absolute. The process does NOT change directory: it
+    //    reads the same files whether it was started from Editor/, from /tmp, from an IDE or by a
+    //    double-click, and every path the caller spelled relatively keeps meaning what it meant.
     {
-        std::error_code                           cwdError;
-        const std::filesystem::path               here = std::filesystem::current_path( cwdError );
-        const Desert::Project::ResourceRootLookup resources =
-             Desert::Project::ResolveResourceRoot( cwdError ? std::filesystem::path{} : here, executableIn );
-        if ( !resources.Explanation.empty() )
+        const Desert::Project::EngineDirLookup engine =
+             Desert::Project::ResolveEngineDir( executableIn, options.EngineDir );
+        if ( !engine.Explanation.empty() )
         {
             // A REFUSAL, not a half-start. An editor that opens a window it cannot draw into costs
             // whoever downloaded it an afternoon of looking at the wrong thing.
-            Desert::Editor::RefuseToStart( 1, "[Engine] " + resources.Explanation );
+            Desert::Editor::RefuseToStart( 1, "[Engine] " + engine.Explanation );
         }
-        startedInCheckout = resources.FromCheckout;
-        if ( !resources.WorkingDirectory.empty() )
+        Common::Constants::Path::SetEngineDir( engine.Dir );
+        startedInCheckout = engine.FromCheckout;
+        // The log lives in the engine directory wherever the process was started (a no-op for the
+        // run scripts, which start in it) — the one place a developer looks for engine_log.txt.
+        Common::Logger::RelocateLogFile( engine.Dir );
+
+        // A binary started where it was built: an IDE passes the run scripts' `--project Desert.deproj`
+        // but starts in the solution root, where no such file is. The name then means the one in the
+        // checkout's Editor/, which is where the scripts pass it from.
+        if ( startedInCheckout && !options.Project.empty() &&
+             std::filesystem::path( options.Project ).is_relative() )
         {
-            // Absolute FIRST. The caller's `--project` (and anything else spelled relatively) was
-            // written against the directory this process started in, and moving out from under it
-            // would silently reinterpret those paths against a different folder.
-            if ( !options.Project.empty() )
-            {
-                std::error_code             absError;
-                std::filesystem::path       resolved = std::filesystem::absolute( options.Project, absError );
-                // ...EXCEPT a binary started where it was built: an IDE passes the run scripts'
-                // `--project Desert.deproj` but starts in the solution root, where no such file is. The
-                // name then means the one in the checkout's Editor/, which is where the scripts start.
-                std::error_code existsError;
-                if ( resources.FromCheckout && std::filesystem::path( options.Project ).is_relative() &&
-                     !std::filesystem::exists( resolved, existsError ) )
-                    resolved = std::filesystem::path( resources.WorkingDirectory ) / options.Project;
-                if ( !absError )
-                    options.Project = resolved.string();
-            }
-            std::error_code moveError;
-            std::filesystem::current_path( resources.WorkingDirectory, moveError );
-            if ( moveError )
-            {
-                Desert::Editor::RefuseToStart(
-                     1, "[Engine] the engine resources are in '" + resources.WorkingDirectory +
-                             "' but this process could not work from there: " + moveError.message() );
-            }
-            Common::Logger::RelocateLogFile( resources.WorkingDirectory );
+            std::error_code existsError;
+            if ( !std::filesystem::exists( options.Project, existsError ) )
+                options.Project = ( engine.Dir / options.Project ).string();
+        }
+        // Absolute once, here: every project-derived path (Constants::Path::SetProjectRoot) hangs off
+        // this folder, and none of them may depend on the working directory afterwards.
+        if ( !options.Project.empty() )
+        {
+            std::error_code absError;
+            if ( const auto resolved = std::filesystem::absolute( options.Project, absError ); !absError )
+                options.Project = resolved.lexically_normal().string();
         }
     }
 
@@ -180,14 +174,13 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     if ( options.Project.empty() )
     {
         auto beside = Desert::Project::ProjectBesideExecutable( executableIn );
-        // A binary started where it was built (an IDE's F5) has already moved into its checkout's
-        // Editor/, and the development project lives there - the same one the run scripts pass.
+        // A binary started where it was built (an IDE's F5): the development project lives in its
+        // checkout's Editor/ (the engine directory) - the same one the run scripts pass.
         if ( !beside.IsSuccess() && startedInCheckout )
         {
-            std::error_code cwdError;
-            if ( const auto here = std::filesystem::current_path( cwdError ); !cwdError )
-                if ( auto inEditor = Desert::Project::ProjectBesideExecutable( here ); inEditor.IsSuccess() )
-                    beside = std::move( inEditor );
+            if ( auto inEditor = Desert::Project::ProjectBesideExecutable( Common::Constants::Path::EngineDir() );
+                 inEditor.IsSuccess() )
+                beside = std::move( inEditor );
         }
         if ( !beside.IsSuccess() )
         {

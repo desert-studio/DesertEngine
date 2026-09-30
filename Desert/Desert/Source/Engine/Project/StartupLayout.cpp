@@ -147,47 +147,60 @@ namespace Desert::Project
              directory.string(), descriptors.size(), names );
     }
 
-    ResourceRootLookup ResolveResourceRoot( const fs::path& workingDirectory, const fs::path& executableDirectory )
+    EngineDirLookup ResolveEngineDir( const fs::path& executableDirectory, const fs::path& overrideDir )
     {
-        ResourceRootLookup lookup;
-
+        EngineDirLookup lookup;
         std::error_code ec;
         const fs::path  marker = fs::path( "Resources" ) / "Shaders";
 
-        if ( fs::is_directory( workingDirectory / marker, ec ) )
-            return lookup; // nothing moves - this is every existing launch
-
-        if ( !executableDirectory.empty() && fs::is_directory( executableDirectory / marker, ec ) )
+        const auto Accept = [&lookup]( const fs::path& directory, bool fromCheckout )
         {
-            lookup.WorkingDirectory = executableDirectory.string();
+            std::error_code absError;
+            const fs::path  absolute = fs::absolute( directory, absError );
+            lookup.Dir               = ( absError ? directory : absolute ).lexically_normal();
+            lookup.FromCheckout      = fromCheckout;
+            return lookup;
+        };
+
+        if ( !overrideDir.empty() )
+        {
+            if ( fs::is_directory( overrideDir / marker, ec ) )
+                return Accept( overrideDir, false );
+            lookup.Explanation = fmt::format( "--engine-dir '{}' does not hold the engine resources: there is no "
+                                              "'Resources/Shaders' under it. Name the folder that contains "
+                                              "Resources/ (Editor/ in a checkout, the folder beside the binaries "
+                                              "in a packaged build), or leave the flag out to derive it.",
+                                              overrideDir.string() );
             return lookup;
         }
+
+        if ( !executableDirectory.empty() && fs::is_directory( executableDirectory / marker, ec ) )
+            return Accept( executableDirectory, false );
 
         // THE CHECKOUT THIS BINARY WAS BUILT IN, by the same shape DeriveEngineRoot demands - `Bin/<config>`
         // directly under `build/` - and nothing looser: a binary merely three directories under some
         // Editor/ is not that editor's build.
+        fs::path checkoutEditor;
         if ( !executableDirectory.empty() )
         {
             const fs::path binDirectory   = executableDirectory.parent_path();
             const fs::path buildDirectory = binDirectory.parent_path();
-            const fs::path checkoutEditor = buildDirectory.parent_path() / "Editor";
-            if ( binDirectory.filename() == "Bin" && buildDirectory.filename() == "build" &&
-                 fs::is_directory( checkoutEditor / marker, ec ) )
+            if ( binDirectory.filename() == "Bin" && buildDirectory.filename() == "build" )
             {
-                lookup.WorkingDirectory = checkoutEditor.string();
-                lookup.FromCheckout     = true;
-                return lookup;
+                checkoutEditor = buildDirectory.parent_path() / "Editor";
+                if ( fs::is_directory( checkoutEditor / marker, ec ) )
+                    return Accept( checkoutEditor, true );
             }
         }
 
-        lookup.Explanation =
-             fmt::format( "the engine resources are missing: no 'Resources/Shaders' under the working "
-                          "directory '{}', and none beside the executable ('{}'). A packaged build keeps "
-                          "Resources/ next to its binaries and a checkout keeps it in Editor/; without it "
-                          "there are no shaders, no fonts and no icons, so this stops here rather than "
-                          "opening a window that can draw nothing.",
-                          workingDirectory.string(),
-                          executableDirectory.empty() ? std::string( "unknown" ) : executableDirectory.string() );
+        lookup.Explanation = fmt::format(
+             "the engine resources are missing: no 'Resources/Shaders' beside the executable ('{}'){}. A "
+             "packaged build keeps Resources/ next to its binaries and a checkout keeps it in Editor/ (pass "
+             "--engine-dir <folder> for any other layout); without it there are no shaders, no fonts and no "
+             "icons, so this stops here rather than opening a window that can draw nothing.",
+             executableDirectory.empty() ? std::string( "unknown" ) : executableDirectory.string(),
+             checkoutEditor.empty() ? std::string()
+                                    : fmt::format( " nor in its checkout's '{}'", checkoutEditor.string() ) );
         return lookup;
     }
 } // namespace Desert::Project

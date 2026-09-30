@@ -18,10 +18,11 @@ namespace Common::Logger
     // without `--console` stdout goes nowhere and "logs are not written" is what a developer sees).
     void AddPlatformDebuggerSink();
 
-    // THE LOG FILE FOLLOWS THE WORKING DIRECTORY. It is opened here, before the startup has decided where
-    // to work from; a binary started where it was built (Visual Studio's F5) then moves into the checkout's
-    // Editor/, and the file stayed behind in the solution root where nobody looks. The startup calls this
-    // after the move: the lines written so far are carried over and the file is reopened in `directory`.
+    // THE LOG FILE LIVES IN THE ENGINE DIRECTORY. It is opened here, in the working directory, before the
+    // startup has found the engine directory (Common::Constants::Path::EngineDir); a process started
+    // anywhere else — Visual Studio's F5 in the solution root, a shell in /tmp — would leave it where
+    // nobody looks. The startup calls this once the engine directory is known: the lines written so far
+    // are carried over and the file is reopened in `directory`.
     void RelocateLogFile( const std::filesystem::path& directory );
 
     inline void LogInit()

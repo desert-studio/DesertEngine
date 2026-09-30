@@ -33,12 +33,64 @@ namespace Common::Constants
         // REVISIT CONDITION: the day a project genuinely needs to rename or relocate one of these
         // folders, that folder's census row grows a .deproj override — not before.
 
-        // --- Engine / editor resources (SHARED, never remapped) ---
-        inline const std::filesystem::path RESOURCE_PATH  = "Resources/";
-        inline const std::filesystem::path SHADERDIR_PATH = "Resources/Shaders/";
-        inline const std::filesystem::path FONTS_PATH     = "Resources/Fonts/";
+        // --- Engine / editor resources (SHARED, never remapped by a project) ---
+        //
+        // THE ENGINE DIRECTORY (UE: FPaths::EngineDir) — the folder that holds `Resources/`: `Editor/` in a
+        // checkout, the directory beside the binaries in a packaged drop. It is found ONCE at process start
+        // from the executable's own position or `--engine-dir` (Desert::Project::ResolveEngineDir) and set
+        // here with SetEngineDir; it is never read from the working directory and never from a config file
+        // (the config would itself have to be found first). Every engine resource path below is DERIVED
+        // from it, so once it is set they are all absolute and the process can stand in any directory.
+        //
+        // Empty until SetEngineDir — and then the derived paths are the historical working-directory-
+        // relative spellings (`Resources/Shaders/`), which is what the test suites still run against
+        // (they chdir into Editor/). That state is transitional: the ENG-ROOT series moves every test to
+        // an explicit engine dir, after which an unset engine dir becomes an error, not a spelling.
+        namespace Detail
+        {
+            struct EngineResourcePaths
+            {
+                std::filesystem::path Resources;
+                std::filesystem::path Shaders;
+                std::filesystem::path Fonts;
+                std::filesystem::path Icons;
+                std::filesystem::path EngineContent;
+            };
+
+            // THE one place the engine's resource layout is spelled. Trailing separators are part of the
+            // historical values (`Resources/Shaders/`) and consumers compare `generic_string()`s built on them.
+            inline EngineResourcePaths DeriveEngineResources( const std::filesystem::path& engineDir )
+            {
+                const std::filesystem::path resources = engineDir / "Resources";
+                return EngineResourcePaths{ resources / "", resources / "Shaders" / "", resources / "Fonts" / "",
+                                            resources / "Icons" / "", resources / "Engine" / "" };
+            }
+
+            inline std::filesystem::path s_EngineDir;
+            inline EngineResourcePaths   s_Engine = DeriveEngineResources( s_EngineDir );
+        } // namespace Detail
+
+        // Named views into the derived storage, exactly like the project census below: the reference is
+        // stable across SetEngineDir, so tables holding `&SHADERDIR_PATH` follow it for free.
+        inline const std::filesystem::path& RESOURCE_PATH  = Detail::s_Engine.Resources;
+        inline const std::filesystem::path& SHADERDIR_PATH = Detail::s_Engine.Shaders;
+        inline const std::filesystem::path& FONTS_PATH     = Detail::s_Engine.Fonts;
         // Built-in vector icons (.svg, imported into SDF at first use — see Runtime::IconService).
-        inline const std::filesystem::path ICONS_PATH = "Resources/Icons/";
+        inline const std::filesystem::path& ICONS_PATH = Detail::s_Engine.Icons;
+
+        // The service's function spellings (UE: FPaths::EngineDir / EngineContentDir / ShaderWorkingDir).
+        inline const std::filesystem::path& EngineDir() noexcept
+        {
+            return Detail::s_EngineDir;
+        }
+        inline const std::filesystem::path& ShaderDir() noexcept
+        {
+            return Detail::s_Engine.Shaders;
+        }
+        inline const std::filesystem::path& EngineContentDir() noexcept
+        {
+            return Detail::s_Engine.EngineContent;
+        }
 
         // --- The census of project-derived directories ---
 
@@ -245,9 +297,9 @@ namespace Common::Constants
         // tree; the sandbox's own content (scenes, clouds, samples under SANDBOX_ASSETS_ROOT) is project
         // content and never reaches a user's project. The content scan walks this tree BESIDE the project's
         // assets root in every project, the sandbox included (Content::ScanRootsOf is the one home of that
-        // list). Engine-shared like SHADERDIR_PATH: never remapped, resolved against the host's working
-        // directory, and under RESOURCE_PATH, so its keys are `engine:Engine/...` in every project.
-        inline const std::filesystem::path ENGINE_CONTENT_PATH = std::filesystem::path( "Resources/Engine" ) / "";
+        // list). Engine-shared like SHADERDIR_PATH: never remapped by a project, derived from EngineDir(),
+        // and under RESOURCE_PATH, so its keys are `engine:Engine/...` in every project.
+        inline const std::filesystem::path& ENGINE_CONTENT_PATH = Detail::s_Engine.EngineContent;
 
         namespace Detail
         {
@@ -255,8 +307,10 @@ namespace Common::Constants
             // per-row assignment (the old shape, and the old defect surface) is not expressible.
             inline std::array<std::filesystem::path, CONTENT_DIR_COUNT> Derive( const ProjectRootState& state )
             {
-                const std::filesystem::path assets = ( state.ProjectDir / state.AssetsRoot ).lexically_normal();
-                const std::filesystem::path cooked = ( state.ProjectDir / COOKED_DIR_NAME ).lexically_normal();
+                // The built-in sandbox (no project) IS engine content: it lives in the engine directory.
+                const std::filesystem::path& base   = state.ProjectDir.empty() ? s_EngineDir : state.ProjectDir;
+                const std::filesystem::path  assets = ( base / state.AssetsRoot ).lexically_normal();
+                const std::filesystem::path  cooked = ( base / COOKED_DIR_NAME ).lexically_normal();
 
                 std::array<std::filesystem::path, CONTENT_DIR_COUNT> dirs;
                 for ( std::size_t i = 0; i < CONTENT_DIR_COUNT; ++i )
@@ -362,6 +416,24 @@ namespace Common::Constants
         {
             Detail::s_ProjectRoot = ProjectRootState{ projectDir, assetsRoot };
             Detail::s_Dirs        = Detail::Derive( Detail::s_ProjectRoot );
+        }
+
+        // Sets the engine directory (see the top of this namespace) and re-derives every path that hangs
+        // off it — the engine resources, and the sandbox's content census when no project is open. Called
+        // once, at process start, with the absolute directory Desert::Project::ResolveEngineDir returned.
+        inline void SetEngineDir( const std::filesystem::path& engineDir )
+        {
+            Detail::s_EngineDir = engineDir.lexically_normal();
+            Detail::s_Engine    = Detail::DeriveEngineResources( Detail::s_EngineDir );
+            Detail::s_Dirs      = Detail::Derive( Detail::s_ProjectRoot );
+        }
+
+        // The directory project content derives from: the open project's folder, or — for the built-in
+        // sandbox — the engine directory. (UE: FPaths::ProjectDir.)
+        inline const std::filesystem::path& ProjectDir() noexcept
+        {
+            return Detail::s_ProjectRoot.ProjectDir.empty() ? Detail::s_EngineDir
+                                                            : Detail::s_ProjectRoot.ProjectDir;
         }
 
         // Back to the no-project sandbox. Exists for tests, which used to restore the globals one

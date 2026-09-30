@@ -15,6 +15,8 @@
 
 #include <Engine/Project/StartupLayout.hpp>
 
+#include <Common/Core/Constants.hpp>
+
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -25,7 +27,7 @@ namespace fs = std::filesystem;
 
 using Desert::Project::DeriveEngineRoot;
 using Desert::Project::ProjectBesideExecutable;
-using Desert::Project::ResolveResourceRoot;
+using Desert::Project::ResolveEngineDir;
 
 namespace
 {
@@ -279,37 +281,74 @@ TEST( StartupLayout, ADirectoryNamedLikeADescriptorIsNotADescriptor )
 
 // ── 3. WHERE `Resources/` IS ────────────────────────────────────────────────────────────────────
 
-TEST( StartupLayout, AWorkingDirectoryThatAlreadyHoldsTheResourcesIsLeftAlone )
-{
-    // THE NEGATIVE CONTROL FOR EVERY EXISTING LAUNCH. `scripts/*/RunEditor.*` change into
-    // `Editor/`, which holds `Resources/Shaders`; this must answer "do not move", or the change
-    // would silently rebase every relative path a developer passes on the command line.
-    //
-    // THE SCENARIO IS DELIBERATELY THE HARD ONE. With resources in only one of the two places, the
-    // ORDER of the two checks cannot be observed at all: swapping them was measured to leave this
-    // test green, which makes it a test of nothing. So BOTH candidates hold `Resources/Shaders`
-    // here, which is a real layout — a drop's Editor run from inside a checkout — and the answer
-    // "do not move" can then only come from the working directory being asked FIRST.
-    const fs::path  root = MakeCheckout( "cwd_has_resources" );
-    std::error_code ec;
-    fs::create_directories( root / "Editor" / "Resources" / "Shaders", ec );
-    fs::create_directories( root / "build" / "Bin" / "Release" / "Resources" / "Shaders", ec );
+// ── 3. THE ENGINE DIRECTORY ─────────────────────────────────────────────────────────────────────
+//
+// No test here takes a working directory: ResolveEngineDir has no such parameter, which is the point —
+// the answer is the same wherever the process was started (ENG-ROOT-1).
 
-    const auto lookup = ResolveResourceRoot( root / "Editor", root / "build" / "Bin" / "Release" );
-    EXPECT_TRUE( lookup.WorkingDirectory.empty() )
-         << "a launch that already had its resources was moved to " << lookup.WorkingDirectory;
-    EXPECT_TRUE( lookup.Explanation.empty() ) << lookup.Explanation;
+namespace
+{
+    fs::path Canonical( const fs::path& p )
+    {
+        std::error_code ec;
+        return fs::weakly_canonical( p, ec );
+    }
+} // namespace
+
+TEST( StartupLayout, ADevelopmentBinaryFindsItsCheckoutsEditorFromItsOwnPosition )
+{
+    const fs::path root = MakeCheckout( "engine_dir_build_layout" );
+    fs::create_directories( root / "Editor" / "Resources" / "Shaders" );
+    const fs::path bin = root / "build" / "Bin" / "Release";
+
+    const auto lookup = ResolveEngineDir( bin, {} );
+    ASSERT_TRUE( lookup.Explanation.empty() ) << lookup.Explanation;
+    EXPECT_TRUE( lookup.FromCheckout );
+    EXPECT_TRUE( lookup.Dir.is_absolute() ) << lookup.Dir;
+    EXPECT_EQ( Canonical( lookup.Dir ), Canonical( root / "Editor" ) );
+
+    // ...and only by that shape: Bin/<config> outside build/ is not the checkout's build output.
+    const fs::path notBuild = root / "dist" / "Bin" / "Debug";
+    fs::create_directories( notBuild );
+    fs::create_directories( root / "dist" / "Editor" / "Resources" / "Shaders" );
+    EXPECT_FALSE( ResolveEngineDir( notBuild, {} ).Explanation.empty() )
+         << "a Bin/<config> outside build/ was taken for a checkout's build output";
 }
 
-TEST( StartupLayout, ADropStartedFromSomewhereElseWorksFromBesideItsOwnBinaries )
+TEST( StartupLayout, APackagedDropIsItsOwnEngineDirectory )
 {
-    const fs::path drop      = MakeDrop( "drop_resources" );
-    const fs::path elsewhere = FreshDirectory( "elsewhere" );
-
-    const auto lookup = ResolveResourceRoot( elsewhere, drop );
+    const fs::path drop   = MakeDrop( "engine_dir_drop" );
+    const auto     lookup = ResolveEngineDir( drop, {} );
     ASSERT_TRUE( lookup.Explanation.empty() ) << lookup.Explanation;
-    std::error_code ec;
-    EXPECT_EQ( fs::weakly_canonical( lookup.WorkingDirectory, ec ), fs::weakly_canonical( drop, ec ) );
+    EXPECT_FALSE( lookup.FromCheckout );
+    EXPECT_TRUE( lookup.Dir.is_absolute() ) << lookup.Dir;
+    EXPECT_EQ( Canonical( lookup.Dir ), Canonical( drop ) );
+}
+
+TEST( StartupLayout, EngineDirFlagWinsOverTheExecutablesOwnLayout )
+{
+    // BOTH candidates are valid engine directories, so the answer can only come from the flag being
+    // asked FIRST — with one valid candidate the order would be unobservable.
+    const fs::path drop  = MakeDrop( "engine_dir_flag_exe" );
+    const fs::path other = MakeDrop( "engine_dir_flag_named" );
+
+    const auto lookup = ResolveEngineDir( drop, other );
+    ASSERT_TRUE( lookup.Explanation.empty() ) << lookup.Explanation;
+    EXPECT_EQ( Canonical( lookup.Dir ), Canonical( other ) );
+}
+
+TEST( StartupLayout, AWrongEngineDirFlagIsRefusedByNameNotReplacedByTheDerivation )
+{
+    // The executable's own directory is a perfectly good engine; the flag names one that is not. Falling
+    // back would run a different engine than the one asked for, with nothing said.
+    const fs::path drop  = MakeDrop( "engine_dir_bad_flag_exe" );
+    const fs::path wrong = FreshDirectory( "engine_dir_bad_flag" );
+
+    const auto lookup = ResolveEngineDir( drop, wrong );
+    EXPECT_TRUE( lookup.Dir.empty() ) << lookup.Dir;
+    ASSERT_FALSE( lookup.Explanation.empty() );
+    EXPECT_NE( lookup.Explanation.find( wrong.string() ), std::string::npos ) << lookup.Explanation;
+    EXPECT_NE( lookup.Explanation.find( "Resources/Shaders" ), std::string::npos ) << lookup.Explanation;
 }
 
 TEST( StartupLayout, AnEmptyResourcesFolderIsNotTheEngineResources )
@@ -320,22 +359,62 @@ TEST( StartupLayout, AnEmptyResourcesFolderIsNotTheEngineResources )
     std::error_code ec;
     fs::create_directories( hollow / "Resources", ec );
 
-    const auto lookup = ResolveResourceRoot( hollow, hollow );
-    EXPECT_TRUE( lookup.WorkingDirectory.empty() );
+    const auto lookup = ResolveEngineDir( hollow, {} );
+    EXPECT_TRUE( lookup.Dir.empty() );
     ASSERT_FALSE( lookup.Explanation.empty() ) << "an empty Resources/ folder was accepted";
     EXPECT_NE( lookup.Explanation.find( "Resources/Shaders" ), std::string::npos ) << lookup.Explanation;
 }
 
-TEST( StartupLayout, WithNoResourcesAnywhereTheRefusalNamesBothPlacesItLooked )
+TEST( StartupLayout, WithNoMarkerAnywhereTheRefusalNamesEveryPlaceItLooked )
 {
-    const fs::path nothing   = FreshDirectory( "no_resources_cwd" );
-    const fs::path alsoEmpty = FreshDirectory( "no_resources_exe" );
+    const fs::path root = MakeCheckout( "engine_dir_nothing" ); // a checkout whose Editor/ has no shaders
+    const fs::path bin  = root / "build" / "Bin" / "Release";
 
-    const auto lookup = ResolveResourceRoot( nothing, alsoEmpty );
-    EXPECT_TRUE( lookup.WorkingDirectory.empty() );
+    const auto lookup = ResolveEngineDir( bin, {} );
+    EXPECT_TRUE( lookup.Dir.empty() );
     ASSERT_FALSE( lookup.Explanation.empty() );
-    EXPECT_NE( lookup.Explanation.find( nothing.filename().string() ), std::string::npos ) << lookup.Explanation;
-    EXPECT_NE( lookup.Explanation.find( alsoEmpty.filename().string() ), std::string::npos ) << lookup.Explanation;
+    EXPECT_NE( lookup.Explanation.find( bin.string() ), std::string::npos ) << lookup.Explanation;
+    EXPECT_NE( lookup.Explanation.find( ( root / "Editor" ).string() ), std::string::npos ) << lookup.Explanation;
+}
+
+// THE SERVICE HALF: what ResolveEngineDir answers is handed to Constants::Path::SetEngineDir, and every
+// engine resource spelling must follow it — absolute, under that directory, at the SAME address (tables
+// hold `&SHADERDIR_PATH` and must follow for free), with the no-project sandbox following too.
+TEST( StartupLayout, SettingTheEngineDirMakesEveryEngineResourcePathAbsoluteAtStableAddresses )
+{
+    namespace P = Common::Constants::Path;
+    P::ResetToSandbox();
+    const fs::path* shadersAddress = &P::SHADERDIR_PATH;
+    ASSERT_EQ( P::SHADERDIR_PATH, fs::path( "Resources/Shaders/" ) ) << "the unset state changed spelling";
+
+    const fs::path engine = FreshDirectory( "engine_dir_service" ) / "Editor";
+    P::SetEngineDir( engine );
+
+    EXPECT_EQ( &P::SHADERDIR_PATH, shadersAddress );
+    EXPECT_EQ( P::EngineDir(), engine.lexically_normal() );
+    EXPECT_EQ( P::SHADERDIR_PATH, engine / "Resources" / "Shaders" / "" );
+    EXPECT_EQ( P::ShaderDir(), P::SHADERDIR_PATH );
+    EXPECT_EQ( P::RESOURCE_PATH, engine / "Resources" / "" );
+    EXPECT_EQ( P::FONTS_PATH, engine / "Resources" / "Fonts" / "" );
+    EXPECT_EQ( P::ICONS_PATH, engine / "Resources" / "Icons" / "" );
+    EXPECT_EQ( P::ENGINE_CONTENT_PATH, engine / "Resources" / "Engine" / "" );
+    EXPECT_EQ( P::EngineContentDir(), P::ENGINE_CONTENT_PATH );
+    EXPECT_TRUE( P::SHADERDIR_PATH.is_absolute() );
+
+    // The sandbox (no project) is engine content, so it follows the engine directory...
+    EXPECT_EQ( P::ProjectDir(), P::EngineDir() );
+    EXPECT_EQ( fs::path( P::ASSETS_PATH ).lexically_normal(),
+               ( engine / P::SANDBOX_ASSETS_ROOT / "" ).lexically_normal() );
+
+    // ...and an opened project does not move the engine resources.
+    const fs::path project = FreshDirectory( "engine_dir_service_project" );
+    P::SetProjectRoot( project, "Content" );
+    EXPECT_EQ( P::ProjectDir(), project );
+    EXPECT_EQ( P::SHADERDIR_PATH, engine / "Resources" / "Shaders" / "" );
+
+    P::SetEngineDir( {} );
+    P::ResetToSandbox();
+    EXPECT_EQ( P::SHADERDIR_PATH, fs::path( "Resources/Shaders/" ) );
 }
 
 // ── 4. THE RELATION BETWEEN THE PACKAGER AND THE DERIVATIONS ────────────────────────────────────
@@ -358,7 +437,7 @@ namespace
         EXPECT_NE( text.find( "Desert.deproj" ), std::string::npos )
              << what << " no longer names the project descriptor, so a drop has nothing to open";
 
-        // The resource trees, under `Resources/` in the output root — ResolveResourceRoot() looks
+        // The resource trees, under `Resources/` in the output root — ResolveEngineDir() looks
         // for `Resources/Shaders` beside the executable.
         EXPECT_NE( text.find( "Shaders Fonts Icons" ), std::string::npos )
              << what << " no longer copies the three engine resource trees the drop needs";
@@ -397,26 +476,4 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
-}
-
-TEST( StartupLayout, ABinaryStartedWhereItWasBuiltWorksFromItsCheckoutsEditor )
-{
-    // Visual Studio's F5 with per-user debugger settings that are not the generated ones: the working
-    // directory is the solution root, the binary is in build/Bin/<config>. Measured on Windows
-    // 2026-09-24 - the editor refused with "no Resources/Shaders" and nothing on screen said why.
-    const fs::path root = MakeCheckout( "started_where_built" );
-    fs::create_directories( root / "Editor" / "Resources" / "Shaders" );
-    const fs::path bin = root / "build" / "Bin" / "Debug";
-    fs::create_directories( bin );
-
-    const auto lookup = ResolveResourceRoot( root, bin );
-    EXPECT_TRUE( lookup.Explanation.empty() ) << lookup.Explanation;
-    EXPECT_TRUE( lookup.FromCheckout );
-    EXPECT_EQ( fs::path( lookup.WorkingDirectory ), root / "Editor" );
-
-    // ...and only by that shape: Bin/<config> outside build/ is not the checkout's build output.
-    const fs::path notBuild = root / "dist" / "Bin" / "Debug";
-    fs::create_directories( notBuild );
-    fs::create_directories( root / "dist" / "Editor" / "Resources" / "Shaders" );
-    EXPECT_FALSE( ResolveResourceRoot( root / "dist", notBuild ).FromCheckout );
 }
