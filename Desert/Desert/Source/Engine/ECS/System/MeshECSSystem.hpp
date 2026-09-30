@@ -16,7 +16,6 @@
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Animation/Skeleton.hpp>
-#include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 
 #include <Engine/Runtime/SelectionContext.hpp>
@@ -305,7 +304,7 @@ namespace Desert::ECS
                              // A material allocated from a mesh-table cell is drawn by the batched path;
                              // any other (a DSL surface's own cell) goes per slot through the generic one.
                              if ( const auto* surface = dynamic_cast<const Graphic::DataDrivenMaterial*>( parent );
-                                  !surface || Graphic::MeshCellPath( surface->GetShaderName() ) )
+                                  surface == nullptr || Graphic::MeshCellPath( surface->GetShaderName() ) )
                                  continue;
 
                              customMask |= ( 1ull << si );
@@ -418,10 +417,10 @@ namespace Desert::ECS
                          Graphic::MaterialInstancePtr ismInstancePtr;
                          for ( const auto& inst : ism.RuntimeMaterialInstances )
                          {
-                             const auto* surface =
-                                  inst ? dynamic_cast<const Graphic::DataDrivenMaterial*>( inst->GetParentMaterial() )
-                                       : nullptr;
-                             if ( surface && Graphic::MeshCellPath( surface->GetShaderName() ) )
+                             const auto* surface = inst ? dynamic_cast<const Graphic::DataDrivenMaterial*>(
+                                                               inst->GetParentMaterial() )
+                                                        : nullptr;
+                             if ( surface != nullptr && Graphic::MeshCellPath( surface->GetShaderName() ) )
                              {
                                  ismInstancePtr = inst;
                                  break;

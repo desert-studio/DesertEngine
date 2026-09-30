@@ -91,6 +91,12 @@ namespace Desert::Assets
         // handle is that GUID through the one fold (Handle()). MATL v1 carried a u64 MaterialId beside the
         // GUID - two statements of one identity - and Tools/SceneMigrator removes it (MATL 1 -> 2).
         std::optional<std::string> Parent;
+        // THE MATERIAL IS TWO-SIDED (UE UMaterial::TwoSided, glTF `doubleSided`): its draws rasterize with no
+        // face culling. A property of the MATERIAL and a pipeline permutation (Cull None) — never a shader
+        // parameter, a shader cannot un-cull a face. On a base material an absent value is one-sided; on an
+        // instance an absent value INHERITS the parent's and a present one overrides it (UE's
+        // bOverride_TwoSided), which is why it is optional and not a bool with a default.
+        std::optional<bool> TwoSided;
 
         bool IsInstance() const
         {
@@ -229,7 +235,8 @@ namespace Desert::Assets
 
         /// THE SAMPLER THE `name` SLOT DRAWS WITH: this material's own `Sampler` on the slot when it states
         /// one, else @p templateDefault (the shader's `Sampler(...)`, ShaderParam::Sampler). The one reader of
-        /// MaterialAssetRef::Sampler; ApplySurfaceAsset (MaterialService) hands its answer to the slot's Texture2DProperty.
+        /// MaterialAssetRef::Sampler; ApplySurfaceAsset (MaterialService) hands its answer to the slot's
+        /// Texture2DProperty.
         [[nodiscard]] Core::Formats::SamplerState
         SlotSampler( std::string_view name, const Core::Formats::SamplerState& templateDefault ) const
         {

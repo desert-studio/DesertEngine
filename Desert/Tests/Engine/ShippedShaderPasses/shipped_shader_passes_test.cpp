@@ -176,9 +176,10 @@ TEST( ShippedShaderPasses, NoShippedShaderDeclaresAPassNothingCanAddress )
                                 parsed.Surface.Cells.end();
             if ( isCell )
             {
-                if ( CellsTheMeshPassesDrawWith().count( passName ) != 0 )
+                if ( CellsTheMeshPassesDrawWith().contains( passName ) )
                     continue;
-                if ( passName.ends_with( std::string( ".") + std::string( Desert::Core::Preprocess::kSurfaceDepthPass ) ) )
+                if ( passName.ends_with( std::string( "." ) +
+                                         std::string( Desert::Core::Preprocess::kSurfaceDepthPass ) ) )
                     continue; // SURF1d: the cascade pass is not on the template yet
                 ADD_FAILURE() << shader.File.string() << ": surface cell \"" << passName
                               << "\" is not named by MeshShaderFor, so no mesh pass ever draws with it";
@@ -287,10 +288,11 @@ TEST( ShippedShaderPasses, EveryShaderThatReadsMaterialParametersReadsThemFromTh
          << "a shipped shader reads u_Material without declaring the Materials[] buffer it comes from, so "
             "it is carrying its parameters some third way.";
 
-    // The five that migrated (NewShaderGraph, an orphan no .dgraph produced, was deleted in SURF1f), named so this test fails if one of them silently stops carrying parameters
-    // at all — which is how a transport change quietly turns into a shader that renders its defaults.
-    for ( const char* migrated : { "MatProbe.shader", "MatProbeUnlit.shader", "Terrain.shader", "TextSDF.shader",
-                                   "Unlit.shader" } )
+    // The five that migrated (NewShaderGraph, an orphan no .dgraph produced, was deleted in SURF1f), named so this
+    // test fails if one of them silently stops carrying parameters at all — which is how a transport change
+    // quietly turns into a shader that renders its defaults.
+    for ( const char* migrated :
+          { "MatProbe.shader", "MatProbeUnlit.shader", "Terrain.shader", "TextSDF.shader", "Unlit.shader" } )
     {
         EXPECT_NE( std::find( onTheSharedBuffer.begin(), onTheSharedBuffer.end(), migrated ),
                    onTheSharedBuffer.end() )
@@ -549,7 +551,7 @@ TEST( ShippedShaderPasses, EveryShaderThatReadsANormalMapGoesThroughTheSharedRec
         // A surface template includes nothing itself: every cell is built around the engine's
         // SurfaceTypes header, so for a template the shared reconstruction must come in through THAT file.
         ASSERT_TRUE( shader.Parsed.IsSuccess() ) << shader.File.string();
-        const bool isTemplate = !shader.Parsed.GetValue().Surface.Cells.empty();
+        const bool        isTemplate = !shader.Parsed.GetValue().Surface.Cells.empty();
         const std::string includer =
              isTemplate ? ReadFile( shader.File.parent_path().parent_path().parent_path() /
                                     std::string( Desert::Core::Preprocess::kSurfaceTypesInclude ) )
@@ -690,6 +692,29 @@ TEST( ShippedShaderPasses, SomeShippedSceneActuallyDrawsABoundNormalMap )
 
     for ( const std::string& row : drawn )
         std::cout << "[  CENSUS  ] a shipped scene draws " << row << "\n";
+}
+
+// Every vertex-path header of a surface cell (Mesh/Surface/Vertex_<Path>.glslh — one per MeshVertexPath)
+// declares the two optional streams at the locations MeshVertexLayout.hpp feeds them from, and hands them
+// to the pass through the varyings: a new path written without them would give its materials no
+// VertexColor / UV1 while the pipeline still binds the buffer. The reflected relation, location by location,
+// is Desert/Tests/Engine/MeshVertexPath's EveryMeshCellsVertexInputsAreTheOneLayoutsElements.
+TEST( ShippedShaderPasses, EverySurfaceVertexPathDeclaresTheColourAndUV1Streams )
+{
+    size_t vertexHeaders = 0;
+    for ( const auto& file : ShippedIncludes() )
+    {
+        if ( file.parent_path().filename() != "Surface" || !file.filename().string().starts_with( "Vertex_" ) )
+            continue;
+        ++vertexHeaders;
+        const std::string source = ReadFile( file );
+        EXPECT_NE( source.find( "layout( location = 7 ) in vec4 a_Color;" ), std::string::npos ) << file;
+        EXPECT_NE( source.find( "layout( location = 8 ) in vec2 a_TexCoord1;" ), std::string::npos ) << file;
+        EXPECT_NE( source.find( "v_Surface.VertexColor" ), std::string::npos ) << file;
+        EXPECT_NE( source.find( "v_Surface.UV1" ), std::string::npos ) << file;
+    }
+    EXPECT_EQ( vertexHeaders, Desert::Graphic::kMeshVertexPathCount )
+         << "one Mesh/Surface/Vertex_<Path>.glslh per MeshVertexPath";
 }
 
 TEST( ShippedShaderPasses, NoShippedShaderTranslatesItsOwnProse )

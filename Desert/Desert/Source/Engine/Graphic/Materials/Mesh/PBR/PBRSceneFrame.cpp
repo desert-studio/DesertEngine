@@ -31,7 +31,8 @@ namespace Desert::Graphic
                  std::chrono::duration<float>( std::chrono::steady_clock::now() - s_TimeOrigin ).count() );
         }
 
-        if ( Reads( groups, SceneRead::Lights ) && PointLights && SpotLights && DirectionLights )
+        if ( Reads( groups, SceneRead::Lights ) && PointLights != nullptr && SpotLights != nullptr &&
+             DirectionLights != nullptr )
             SceneLightsBind( material, *PointLights, *SpotLights, *DirectionLights );
 
         // The map array is handed over as-is (`Image2D* const*`) rather than copied into a local: a copy
@@ -43,7 +44,7 @@ namespace Desert::Graphic
         // preview that binds one map and would otherwise ask the shader to walk four.
         if ( Reads( groups, SceneRead::Shadow ) )
             SceneShadowBind( material, CascadeViewProj, CascadeMaps, CascadeCount, ShadowBias, ShadowsEnabled,
-                         ShadowDebugMode, ShowNormals, CascadeTexelWorld, LightingDebug );
+                             ShadowDebugMode, ShowNormals, CascadeTexelWorld, LightingDebug );
 
         if ( Reads( groups, SceneRead::Environment ) )
             SceneEnvironmentBind( material, IrradianceMap, PrefilteredMap, BrdfLut, EnvironmentLook );

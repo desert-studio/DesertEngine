@@ -107,7 +107,8 @@ namespace
     // The assembled GLSL of one stage, straight out of the engine's own DSL parser — the same string
     // the compiler hashes and hands to shaderc.
     // @p cell names a surface template's cell ("Static.GBuffer"); empty = the default program.
-    std::string StageSource( const std::filesystem::path& shaderFile, ShaderStage stage, const std::string& cell = {} )
+    std::string StageSource( const std::filesystem::path& shaderFile, ShaderStage stage,
+                             const std::string& cell = {} )
     {
         auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( shaderFile ) );
         EXPECT_TRUE( parsed.IsSuccess() ) << shaderFile.string();
@@ -117,8 +118,8 @@ namespace
         if ( !cell.empty() )
         {
             const auto& passes = parsed.GetValue().Passes;
-            const auto  pass   = std::find_if( passes.begin(), passes.end(),
-                                               [&]( const auto& p ) { return p.Name == cell; } );
+            const auto  pass =
+                 std::find_if( passes.begin(), passes.end(), [&]( const auto& p ) { return p.Name == cell; } );
             EXPECT_NE( pass, passes.end() ) << shaderFile.string() << " has no cell " << cell;
             if ( pass == passes.end() )
                 return {};
@@ -229,8 +230,8 @@ namespace
     {
         const auto vertexSpirv   = CompileStage( StageSource( shaderFile, ShaderStage::Vertex, cell ), shaderFile,
                                                  shaderc_vertex_shader );
-        const auto fragmentSpirv = CompileStage( StageSource( shaderFile, ShaderStage::Fragment, cell ), shaderFile,
-                                                 shaderc_fragment_shader );
+        const auto fragmentSpirv = CompileStage( StageSource( shaderFile, ShaderStage::Fragment, cell ),
+                                                 shaderFile, shaderc_fragment_shader );
         if ( vertexSpirv.empty() || fragmentSpirv.empty() )
             return {};
 
@@ -1201,8 +1202,9 @@ TEST_F( ShaderRootFixture, TheLitGraphSurfaceIsHANDEDTheSceneITSHADESWITH )
     EXPECT_TRUE( HasBinding( bindings, 16, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // SpotLightsUB
     EXPECT_TRUE( HasBinding( bindings, 3, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );          // DirectionLightsUB
 
-    // The five cascade bindings. Since SURF1f a graph surface's forward cell is lit by Mesh/Surface/Pass_Forward.glslh,
-    // so these are the mesh forward layout's numbers (StandardSurface's), not a shader-graph layout of its own.
+    // The five cascade bindings. Since SURF1f a graph surface's forward cell is lit by
+    // Mesh/Surface/Pass_Forward.glslh, so these are the mesh forward layout's numbers (StandardSurface's), not a
+    // shader-graph layout of its own.
     EXPECT_TRUE( HasBinding( bindings, 7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );          // ShadowUB
     EXPECT_TRUE( HasBinding( bindings, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // u_ShadowMap0
     EXPECT_TRUE( HasBinding( bindings, 13, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ShadowMap1
@@ -2756,7 +2758,8 @@ TEST_F( ShaderRootFixture, TheShadingModelIdsAreOneTableInCppAndGlsl )
     for ( std::string line; std::getline( lines, line ); )
     {
         std::istringstream words( line );
-        std::string        directive, name;
+        std::string        directive;
+        std::string        name;
         int                value = -1;
         if ( words >> directive >> name >> value && directive == "#define" &&
              name.starts_with( "SHADING_MODEL_ID_" ) )

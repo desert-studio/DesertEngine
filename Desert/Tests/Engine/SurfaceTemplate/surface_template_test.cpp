@@ -102,8 +102,8 @@ TEST_F( SurfaceTemplateFixture, TheSurfaceBlockExpandsIntoTheNineNamedCells )
         const auto* cell = result.FindPass( name );
         ASSERT_NE( cell, nullptr ) << name;
         EXPECT_EQ( cell->Stages.size(), 2u ) << name << ": a cell is one vertex and one fragment stage";
-        ASSERT_TRUE( cell->State.Cull.has_value() ) << name;
-        EXPECT_EQ( *cell->State.Cull, Desert::Core::Formats::StateCull::None ) << name << ": TwoSided lost";
+        EXPECT_EQ( cell->State.Cull, std::optional( Desert::Core::Formats::StateCull::None ) )
+             << name << ": TwoSided lost";
 
         const auto& fragment = cell->Stages.at( Desert::Core::Formats::ShaderStage::Fragment );
         const auto  pass     = name.substr( name.find( '.' ) + 1 );
@@ -185,9 +185,9 @@ TEST_F( SurfaceTemplateFixture, TheTemplateSettingsAreRefusedWhereTheyCannotAppl
                std::string::npos )
          << "a stage block beside the cells is a program no mesh pass selects";
 
-    EXPECT_FALSE( ParseError( R"(Shader "M" { Domain Surface
+    EXPECT_TRUE( ParseError( R"(Shader "M" { Domain Surface
         Surface { SurfaceOutput EvaluateSurface( SurfaceInput i ) { return DefaultSurfaceOutput(); } } })" )
-                       .size() )
+                      .empty() )
          << "an opaque one-sided template is the plain case";
 }
 
@@ -243,8 +243,9 @@ namespace
     // program is the shadow-depth cells, whose Shadow* programs are still drawn with (SURF1d).
     std::string StandardSurfaceText()
     {
-        std::ifstream in( s_EditorDir / "Resources/Shaders/Programs/PBR/StandardSurface.shader", std::ios::binary );
-        return std::string( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+        std::ifstream in( s_EditorDir / "Resources/Shaders/Programs/PBR/StandardSurface.shader",
+                          std::ios::binary );
+        return { std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() };
     }
 
     // What a pipeline built from a program has to agree with: every descriptor (set, binding, type, count,
@@ -258,10 +259,10 @@ namespace
         for ( const auto& stage : stages )
         {
             for ( const auto& refused : Refl::ReflectStage( stage.Spirv, stage.Stage, data ) )
-                lines.push_back( "refused: " + refused );
-            const char*           name = Desert::Core::Formats::MaterialLayoutStageName( stage.Stage );
-            spirv_cross::Compiler compiler( stage.Spirv );
-            const auto            resources = compiler.get_shader_resources();
+                lines.push_back( std::format( "refused: {}", refused ) );
+            const char*                 name = Desert::Core::Formats::MaterialLayoutStageName( stage.Stage );
+            const spirv_cross::Compiler compiler( stage.Spirv );
+            const auto                  resources = compiler.get_shader_resources();
             for ( const auto& input : resources.stage_inputs )
                 lines.push_back( std::format( "{} in location {}", name,
                                               compiler.get_decoration( input.id, spv::DecorationLocation ) ) );
@@ -311,9 +312,12 @@ TEST_F( SurfaceTemplateFixture, EveryStandardSurfaceCellLoadsAndTheDepthCellsBin
     };
     for ( const std::string& cell : ExpectedCells() )
     {
-        const auto builtCell = Desert::Core::BuildShaderMap(
-             { text, "Resources/Shaders/Programs/PBR/StandardSurface.shader", cell, {},
-               std::format( "StandardSurface/{}", cell ) } );
+        const auto builtCell =
+             Desert::Core::BuildShaderMap( { text,
+                                             "Resources/Shaders/Programs/PBR/StandardSurface.shader",
+                                             cell,
+                                             {},
+                                             std::format( "StandardSurface/{}", cell ) } );
         ASSERT_TRUE( builtCell.IsSuccess() ) << "cell '" << cell << "': " << builtCell.GetError();
 
         // THE LOAD PATH: VulkanShader refuses a cell on any reconcile error.

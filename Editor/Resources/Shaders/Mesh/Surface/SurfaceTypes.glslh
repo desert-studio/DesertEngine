@@ -21,6 +21,8 @@ struct SurfaceInput
     vec3 Normal; // world space, normalized: the geometric normal
     vec2 UV0;
     mat3 TBN; // tangent -> world; SurfaceOutput.Normal goes through it
+    vec2 UV1;         // the mesh's second UV set; (0,0) when it has none
+    vec4 VertexColor; // linear RGBA; white when the mesh has none (UE's VertexColor node)
 };
 
 struct SurfaceOutput
@@ -65,7 +67,7 @@ SurfaceOutput DefaultSurfaceOutput()
 #endif
 
 // The one interface between a cell's two stages; `q` is `out` in the vertex header, `in` in the pass header.
-// The same five members, in the same order, as the PBR shaders' `Vertex` block — so a cell's fragment
+// The PBR shaders' five `Vertex` members first, in the same order, then UV1 and VertexColor — so a cell's fragment
 // inputs sit at the locations the shader it replaces read them from.
 #define DESERT_SURFACE_VARYINGS( q ) \
     layout( location = 0 ) q SurfaceVaryings \
@@ -75,15 +77,19 @@ SurfaceOutput DefaultSurfaceOutput()
         vec2 UV0; \
         mat3 TBN; \
         vec3 CameraPosition; \
+        vec2 UV1; \
+        vec4 VertexColor; \
     } v_Surface;
 
-SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3 tbn )
+SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3 tbn, vec2 uv1, vec4 vertexColor )
 {
     SurfaceInput i;
     i.WorldPosition = worldPosition;
     i.Normal        = normalize( normal );
     i.UV0           = uv0;
     i.TBN           = tbn;
+    i.UV1           = uv1;
+    i.VertexColor   = vertexColor;
     return i;
 }
 

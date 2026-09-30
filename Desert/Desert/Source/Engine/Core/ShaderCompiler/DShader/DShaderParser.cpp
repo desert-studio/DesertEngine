@@ -1391,7 +1391,7 @@ namespace Desert::Core::Preprocess
             if ( matched != keyword.size() )
                 continue;
             size_t next = i + matched;
-            while ( next < source.size() && std::isspace( static_cast<unsigned char>( source[next] ) ) )
+            while ( next < source.size() && std::isspace( static_cast<unsigned char>( source[next] ) ) != 0 )
                 ++next;
             if ( next < source.size() && source[next] == '{' )
                 return true;
@@ -1659,7 +1659,7 @@ namespace Desert::Core::Preprocess
             else if ( lower == "twosided" )
             {
                 result.Surface.TwoSided = true;
-                surfaceSettingLine      = surfaceSettingLine ? surfaceSettingLine : line;
+                surfaceSettingLine      = surfaceSettingLine != 0 ? surfaceSettingLine : line;
             }
             else if ( lower == "blendmode" )
             {
@@ -1675,7 +1675,7 @@ namespace Desert::Core::Preprocess
                     err = { line, std::format( "unknown BlendMode '{}' (Opaque | Masked | Translucent)", v ) };
                     return fail();
                 }
-                surfaceSettingLine = surfaceSettingLine ? surfaceSettingLine : line;
+                surfaceSettingLine = surfaceSettingLine != 0 ? surfaceSettingLine : line;
             }
             else if ( lower == "shadingmodel" )
             {
@@ -1689,7 +1689,7 @@ namespace Desert::Core::Preprocess
                     err = { line, std::format( "unknown ShadingModel '{}' (DefaultLit | Unlit)", v ) };
                     return fail();
                 }
-                surfaceSettingLine = surfaceSettingLine ? surfaceSettingLine : line;
+                surfaceSettingLine = surfaceSettingLine != 0 ? surfaceSettingLine : line;
             }
             else if ( lower == "pass" )
             {
@@ -1789,7 +1789,7 @@ namespace Desert::Core::Preprocess
                 return fail();
             }
         }
-        else if ( surfaceSettingLine )
+        else if ( surfaceSettingLine != 0 )
         {
             err = { surfaceSettingLine,
                     "TwoSided, BlendMode and ShadingModel shape a Surface block, and this shader has none" };

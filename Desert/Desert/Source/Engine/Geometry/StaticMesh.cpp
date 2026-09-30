@@ -7,7 +7,7 @@
 namespace Desert
 {
     StaticMesh::StaticMesh( const std::vector<Vertex>& vertices, const std::vector<Index>& indices,
-                            const std::vector<Submesh>& submeshes )
+                            const std::vector<Submesh>& submeshes, const std::vector<MeshVertexStreams>& streams )
     {
         // Build the GPU index buffer with a per-submesh LOD chain (base indices + appended LODs). The
         // CPU base indices stay untouched; only the GPU buffer + per-submesh LOD ranges carry the LODs.
@@ -17,6 +17,7 @@ namespace Desert
 
         m_VertexBuffer =
              Graphic::VertexBuffer::Create( (void*)vertices.data(), vertices.size() * sizeof( Vertex ) );
+        CreateStreamBuffer( streams );
         m_IndexBuffer =
              Graphic::IndexBuffer::Create( gpuIndices.data(), gpuIndices.size() * sizeof( Index ) );
     }
@@ -33,7 +34,7 @@ namespace Desert
             return Common::MakeErrorWithCodes<bool, MeshError>( { MeshError::GpuUploadFailed },
                                                                 indices.GetError() );
 
-        return Common::MakeSuccessWithCodes<bool, MeshError>( true );
+        return InvalidateStreamBuffer();
     }
 
 } // namespace Desert

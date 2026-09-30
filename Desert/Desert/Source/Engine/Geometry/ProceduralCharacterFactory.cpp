@@ -282,7 +282,7 @@ namespace Desert::Geometry
             sub.BoundingBox  = { glm::vec3( -30.0f, 0.0f, -20.0f ), glm::vec3( 30.0f, 190.0f, 20.0f ) };
 
             auto mesh = std::make_shared<SkinnedMesh>( verts, indices, std::vector<Submesh>{ sub },
-                                                       s_Skeleton.get() );
+                                                       s_Skeleton.get(), std::vector<MeshVertexStreams>{} );
             s_Handle = Runtime::ResourceRegistry::GetMeshService()->RegisterProcedural( mesh );
             s_Built   = true;
         }

@@ -144,7 +144,7 @@ namespace Desert::Graphic
         // an assertion a private copy here would quietly stop covering.
         constexpr uint32_t kMaxCascades = SceneResources::kMaxCascades;
 
-        SceneResources::ShadowUBData data;
+        SceneResources::ShadowUBData data{};
 
         const uint32_t n = numCascades < kMaxCascades ? numCascades : kMaxCascades;
         for ( uint32_t i = 0; i < kMaxCascades; ++i )

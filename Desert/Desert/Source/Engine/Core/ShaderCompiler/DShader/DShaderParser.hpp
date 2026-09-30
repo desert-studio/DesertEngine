@@ -171,10 +171,10 @@ namespace Desert::Core::Preprocess
         // first pass", so the default program and its lookup are the same cell by construction.
         const DShaderPass* FindPass( const std::string& name ) const
         {
-            if ( name.empty() && !Surface.Cells.empty() )
-                return FindPass( std::string( kSurfaceDefaultCell ) );
+            const std::string_view wanted =
+                 name.empty() && !Surface.Cells.empty() ? kSurfaceDefaultCell : std::string_view( name );
             for ( const auto& p : Passes )
-                if ( p.Name == name )
+                if ( p.Name == wanted )
                     return &p;
             return nullptr;
         }

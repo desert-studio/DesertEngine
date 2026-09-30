@@ -1,14 +1,14 @@
 // One scene, one lighting payload — asserted as a RELATION between the skinned path and the static one.
 //
-// The defect this suite was written for: the old skinned surface class's Bind() named the four things a skinned mesh
-// was thought to need (camera, lights, bones, cloud shadow) and the scene had six. The two it did not
-// name — the shadow cascades and the IBL environment — were written by the static path only, so a
-// skinned mesh was the one class of geometry in the engine that received neither. Nothing crashed and no
-// validation layer said anything, because an unwritten descriptor here is not undefined memory: the
-// backend seeds every binding first (VulkanMaterialBackend::WriteFallbacks), so `ShadowUB` kept
-// the zero-filled dummy buffer — `u_ShadowParams.y == 0`, cascades silently OFF — while the environment
-// trio kept its fallback images, which sample black, so the split-sum ambient was zero and a skinned
-// surface was lit by the sun and the anti-black floor alone no matter what the sky was doing.
+// The defect this suite was written for: the old skinned surface class's Bind() named the four things a skinned
+// mesh was thought to need (camera, lights, bones, cloud shadow) and the scene had six. The two it did not name —
+// the shadow cascades and the IBL environment — were written by the static path only, so a skinned mesh was the
+// one class of geometry in the engine that received neither. Nothing crashed and no validation layer said
+// anything, because an unwritten descriptor here is not undefined memory: the backend seeds every binding first
+// (VulkanMaterialBackend::WriteFallbacks), so `ShadowUB` kept the zero-filled dummy buffer — `u_ShadowParams.y ==
+// 0`, cascades silently OFF — while the environment trio kept its fallback images, which sample black, so the
+// split-sum ambient was zero and a skinned surface was lit by the sun and the anti-black floor alone no matter
+// what the sky was doing.
 //
 // Two wrong answers, both silent, both invisible to a unit test of either side. So the assertions here
 // are about the two sides AGREEING:
@@ -99,7 +99,8 @@ namespace
 
     // The assembled GLSL of one stage, straight out of the engine's own DSL parser.
     // @p cell names a surface template's cell ("Skinned.Forward"); empty = the default program.
-    std::string StageSource( const std::filesystem::path& shaderFile, ShaderStage stage, const std::string& cell = {} )
+    std::string StageSource( const std::filesystem::path& shaderFile, ShaderStage stage,
+                             const std::string& cell = {} )
     {
         auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( shaderFile ) );
         EXPECT_TRUE( parsed.IsSuccess() ) << shaderFile.string();
@@ -109,8 +110,8 @@ namespace
         if ( !cell.empty() )
         {
             const auto& passes = parsed.GetValue().Passes;
-            const auto  pass   = std::find_if( passes.begin(), passes.end(),
-                                               [&]( const auto& p ) { return p.Name == cell; } );
+            const auto  pass =
+                 std::find_if( passes.begin(), passes.end(), [&]( const auto& p ) { return p.Name == cell; } );
             EXPECT_NE( pass, passes.end() ) << shaderFile.string() << " has no cell " << cell;
             if ( pass == passes.end() )
                 return {};
@@ -180,8 +181,8 @@ namespace
     {
         const auto vertexSpirv   = CompileStage( StageSource( shaderFile, ShaderStage::Vertex, cell ), shaderFile,
                                                  shaderc_vertex_shader );
-        const auto fragmentSpirv = CompileStage( StageSource( shaderFile, ShaderStage::Fragment, cell ), shaderFile,
-                                                 shaderc_fragment_shader );
+        const auto fragmentSpirv = CompileStage( StageSource( shaderFile, ShaderStage::Fragment, cell ),
+                                                 shaderFile, shaderc_fragment_shader );
         if ( vertexSpirv.empty() || fragmentSpirv.empty() )
             return {};
 
@@ -245,8 +246,8 @@ namespace
              // The look the two environment cubes are read with; SceneEnvironmentBind writes it with them.
              Desert::Graphic::kSkyLookBlockName,
         };
-        for ( uint32_t c = 0; c < SceneResources::kMaxCascades; ++c )
-            names.emplace_back( SceneResources::kShadowMapNames[c] );
+        for ( const char* shadowMap : SceneResources::kShadowMapNames )
+            names.emplace_back( shadowMap );
         return names;
     }
 
@@ -393,7 +394,8 @@ TEST_F( ShaderRootFixture, TheThreeMeshPBRShadersDeclareOneSceneContractAndDiffe
 
     for ( const auto& shader : kMeshShaders )
     {
-        std::set<std::string> declared = DeclaredNames( GraphicsSetZero( ShaderPath( shader.Path ), shader.Cell ) );
+        std::set<std::string> declared =
+             DeclaredNames( GraphicsSetZero( ShaderPath( shader.Path ), shader.Cell ) );
         ASSERT_FALSE( declared.empty() ) << shader.Path;
 
         if ( shader.PerObjectVertexBuffer )
@@ -483,8 +485,8 @@ namespace
     std::vector<std::string> CascadeBindingNames()
     {
         std::vector<std::string> names{ SceneResources::kShadowBlockName };
-        for ( uint32_t c = 0; c < SceneResources::kMaxCascades; ++c )
-            names.emplace_back( SceneResources::kShadowMapNames[c] );
+        for ( const char* shadowMap : SceneResources::kShadowMapNames )
+            names.emplace_back( shadowMap );
         return names;
     }
 } // namespace
@@ -544,7 +546,7 @@ namespace
     // A surface template that is NOT the shipped lit surface and has no C++ class of its own: it samples the
     // shadow cascades and the IBL environment, and reads nothing else of the scene. Raw GLSL, so the test
     // does not depend on any shipped template's text.
-    constexpr const char* kMockVertex = R"(#version 450
+    constexpr const char* kMockVertex   = R"(#version 450
 void main() { gl_Position = vec4( 0.0 ); }
 )";
     constexpr const char* kMockFragment = R"(#version 450
@@ -583,7 +585,7 @@ TEST( SceneFrameCapability, ANonPBRTemplateReadingShadowAndIBLIsHandedThem )
     ASSERT_FALSE( stages[0].Spirv.empty() );
     ASSERT_FALSE( stages[1].Spirv.empty() );
 
-    const auto cell = ShaderReflection::ReconcileCellLayout( {}, stages, "MockSurface", "" );
+    const auto      cell   = ShaderReflection::ReconcileCellLayout( {}, stages, "MockSurface", "" );
     const SceneRead groups = PBRSceneFrame::Groups( cell.Layout );
 
     EXPECT_TRUE( Desert::Core::Formats::Reads( groups, SceneRead::Shadow ) )
@@ -591,14 +593,15 @@ TEST( SceneFrameCapability, ANonPBRTemplateReadingShadowAndIBLIsHandedThem )
     EXPECT_TRUE( Desert::Core::Formats::Reads( groups, SceneRead::Environment ) )
          << "a template sampling the IBL cubes and the BRDF LUT was not handed the environment";
     EXPECT_EQ( groups, SceneRead::Shadow | SceneRead::Environment )
-         << "the template reads the shadow and the environment only; any other group is a write it does not ask for";
+         << "the template reads the shadow and the environment only; any other group is a write it does not ask "
+            "for";
 }
 
 // And every scene resource it declares is one the applier FILLS: a resource classified as nobody's would
 // keep its fallback descriptor (the zero ShadowUB, the black cube) with nothing in the log.
 TEST( SceneFrameCapability, EverySceneResourceTheMockDeclaresHasAWriter )
 {
-    const auto stages = MockStages();
+    const auto                     stages = MockStages();
     ShaderResource::ReflectionData data;
     for ( const auto& stage : stages )
         EXPECT_TRUE( ShaderReflection::ReflectStage( stage.Spirv, stage.Stage, data ).empty() );

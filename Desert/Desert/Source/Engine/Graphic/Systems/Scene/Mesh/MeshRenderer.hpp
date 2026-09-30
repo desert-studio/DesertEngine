@@ -269,6 +269,13 @@ namespace Desert::Graphic::System
 #endif
         }
 
+        // A TWO-SIDED MATERIAL'S PIPELINE (UE: TwoSided is a PSO permutation, not a shader input): the pass's
+        // pipeline with CullMode None, from the shared cache, remembered per source pipeline. A one-sided draw, or
+        // a pipeline that already culls nothing, answers @p pipeline itself. Null = the permutation was refused
+        // (logged once per pipeline); the caller does not draw that object culled instead.
+        [[nodiscard]] GraphicsPipeline* CullPermutation( GraphicsPipeline* pipeline, bool twoSided );
+        std::unordered_map<const GraphicsPipeline*, std::shared_ptr<GraphicsPipeline>> m_TwoSidedPipelines;
+
         [[nodiscard]] GraphicsPipeline* WireframePipelineOr( GraphicsPipeline* fallback ) const
         {
 #if DESERT_DEV_INSTRUMENTS
@@ -462,7 +469,7 @@ namespace Desert::Graphic::System
         // from cascade 1 in UpdateCascades(), so the pass draws through a STANDARD-Z matrix and needs its
         // own pipeline (m_RSMPipeline) rather than the reversed-Z G-buffer one — see SetupDeferredPass.
         // (Static x GBuffer) — the RSM is literally a G-buffer rasterized from the sun.
-        std::shared_ptr<DataDrivenMaterial>       m_RSMMaterial;
+        std::shared_ptr<DataDrivenMaterial> m_RSMMaterial;
         MaterialInstancePtr                m_RSMInstance;
         std::shared_ptr<GraphicsPipeline>  m_RSMPipeline;
         glm::mat4                          m_RSMViewProj = glm::mat4( 1.0f );
@@ -671,7 +678,7 @@ namespace Desert::Graphic::System
         // only the last write (VulkanMaterialBackend::ApplyTexture2D reports the swallowed rebind).
         struct InstancedBatchSet
         {
-            Graphic::DataDrivenMaterial*       Mat  = nullptr;
+            Graphic::DataDrivenMaterial* Mat  = nullptr;
             MaterialInstance*           Inst = nullptr;
             std::vector<glm::mat4>      Transforms;
             std::vector<glm::vec4>      Materials; // Materials[] rows, end to end

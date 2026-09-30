@@ -433,7 +433,8 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             out.Samplers.push_back(
                  { resource.name, compiler.get_decoration( resource.id, spv::DecorationBinding ), 0 } );
 
-        for ( const auto* list : { &resources.uniform_buffers, &resources.storage_buffers, &resources.sampled_images } )
+        for ( const auto* list :
+              { &resources.uniform_buffers, &resources.storage_buffers, &resources.sampled_images } )
             for ( const auto& resource : *list )
                 out.ResourceNames.push_back( resource.name );
 

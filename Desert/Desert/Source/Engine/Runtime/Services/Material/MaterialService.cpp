@@ -104,6 +104,13 @@ namespace Desert::Runtime
         const auto& data = asset.Data();
         for ( const auto& p : data.Params )
             material.SetParamRaw( p.Name, p.Value );
+        // The template's `Surface { TwoSided }` is the material's DEFAULT (UE: the parent material's TwoSided);
+        // the asset states it only to override. The parser publishes it as the default cell's Cull None
+        // (DShaderParser: Meta.State = the default cell's state), so every draw path — including the batched
+        // static one, whose pipeline is built from the pass shader and not from the template's cells — reaches
+        // it through the same CullPermutation.
+        const bool templateTwoSided = material.GetSchema().State.Cull == Core::Formats::StateCull::None;
+        material.SetTwoSided( data.TwoSided.value_or( templateTwoSided ) );
 
         // `MaterialData::Textures` holds the sampler slots only since MATL 3 (the cloud material's asset
         // slots have a list of their own), but the SHADER SCHEMA still says what each name is: a `Texture2D`
@@ -130,7 +137,7 @@ namespace Desert::Runtime
         {
             for ( const auto& t : data.Textures )
             {
-                if ( t.Guid.empty() || paramFor( t.Name ) )
+                if ( t.Guid.empty() || paramFor( t.Name ) != nullptr )
                     continue;
 
                 LOG_WARN( "[Materials] '{0}' carries a value for '{1}', which the shader '{2}' does not "
@@ -142,10 +149,10 @@ namespace Desert::Runtime
     }
 
     std::shared_ptr<Graphic::DataDrivenMaterial> CreateSurfaceMaterial( const Assets::MaterialAsset* asset,
-                                                                       Graphic::MeshVertexPath      path,
-                                                                       Graphic::MeshPass            pass )
+                                                                        Graphic::MeshVertexPath      path,
+                                                                        Graphic::MeshPass            pass )
     {
-        if ( !asset )
+        if ( asset == nullptr )
             return nullptr;
 
         // ROUTED BY THE TEMPLATE'S HANDLE (its GUID identity), never by its name: the name is display text
@@ -217,8 +224,8 @@ namespace Desert::Runtime
         // that asks for them: a scene with no skinned geometry must not pay for a skinned descriptor set
         // per material, a forward scene must not pay for a G-buffer one, and a cell built eagerly for an
         // asset nobody draws that way is a resource with no reader.
-        auto material = CreateSurfaceMaterial(
-             materialAsset.get(), Graphic::MeshVertexPath::Static, Graphic::MeshPass::Forward );
+        auto material = CreateSurfaceMaterial( materialAsset.get(), Graphic::MeshVertexPath::Static,
+                                               Graphic::MeshPass::Forward );
 
         // The same file re-registering (RefuseOnCollision lets that through deliberately) replaces the
         // cell, so the material this overwrites stops existing. Its address would otherwise stay in the
@@ -482,7 +489,8 @@ namespace Desert::Runtime
     }
 
     Graphic::DataDrivenMaterial* MaterialService::GetVariant( const Graphic::Material* built,
-                                                              Graphic::MeshVertexPath path, Graphic::MeshPass pass ) const
+                                                              Graphic::MeshVertexPath  path,
+                                                              Graphic::MeshPass        pass ) const
     {
         if ( !built )
             return nullptr;
@@ -495,8 +503,16 @@ namespace Desert::Runtime
         // the renderer owns whether this draw is instanced. What is NOT the caller's is the asset, and
         // that is the one thing this function supplies — the sibling is the same `.demat`, so it carries
         // the same parameters and the same textures by construction.
-        // Every material the service builds is a DataDrivenMaterial (CreateSurfaceMaterial), so the sibling is one.
-        return static_cast<Graphic::DataDrivenMaterial*>( Get( it->second, path, pass ) );
+        // Every material the service builds is a DataDrivenMaterial (CreateSurfaceMaterial); a sibling that is
+        // not one was not built here, and is refused by its cell rather than drawn as the wrong class.
+        Graphic::Material* sibling = Get( it->second, path, pass );
+        auto*              surface = dynamic_cast<Graphic::DataDrivenMaterial*>( sibling );
+        if ( sibling != nullptr && surface == nullptr )
+            LOG_ERROR(
+                 "[MaterialService] the ({} x {}) sibling of a service material is not a DataDrivenMaterial; "
+                 "refusing it",
+                 Graphic::MeshVertexPathName( path ), Graphic::MeshPassName( pass ) );
+        return surface;
     }
 
     bool MaterialService::Owns( const Graphic::Material* material ) const
@@ -554,8 +570,13 @@ namespace Desert::Runtime
 
         auto instance = base->CreateInstance();
         for ( auto it = chain.rbegin(); it != chain.rend(); ++it )
+        {
             for ( const auto& p : ( *it )->Data().Params )
                 instance->SetParamFromVec4( p.Name, p.Value );
+            // The childmost instance that states TwoSided wins, as its parameters do.
+            if ( ( *it )->Data().TwoSided.has_value() )
+                instance->SetTwoSidedOverride( ( *it )->Data().TwoSided );
+        }
         return instance;
     }
 

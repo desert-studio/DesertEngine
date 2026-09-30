@@ -31,8 +31,8 @@ namespace Desert::Runtime
     // a DataDrivenMaterial of that cell, its row and textures applied from the asset. Null when the asset
     // has no template or the template has no such cell — logged with the material's name.
     std::shared_ptr<Graphic::DataDrivenMaterial> CreateSurfaceMaterial( const Assets::MaterialAsset* asset,
-                                                                       Graphic::MeshVertexPath      path,
-                                                                       Graphic::MeshPass            pass );
+                                                                        Graphic::MeshVertexPath      path,
+                                                                        Graphic::MeshPass            pass );
 
     // (Re)apply a surface asset's parameters and textures onto a live runtime material built from it —
     // CreateSurfaceMaterial's own body, and what the editor and hot reload call on an edit.

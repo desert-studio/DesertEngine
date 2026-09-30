@@ -603,7 +603,7 @@ TEST( ShaderGraphCompiler, EveryOutputPinOfALitGraphLandsInItsSurfaceOutputField
     SG::Document doc    = LitSurfaceDoc();
     auto*        output = &doc.Nodes.back();
     ASSERT_EQ( output->Kind, "SurfaceOutput" );
-    const int outputId = output->Id;
+    const auto outputId = output->Id;
 
     // pin index -> (parameter name, the SurfaceOutput assignment it must reach)
     const std::vector<std::tuple<int, std::string, std::string>> routes = {
@@ -651,8 +651,10 @@ TEST( ShaderGraphCompiler, TheGraphsParameterBlockIsOnNoBindingAVertexPathOwns )
     ASSERT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
     auto parsed = DShaderParser::Parse( compiled.GetValue() );
     ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
-    ASSERT_TRUE( parsed.GetValue().Layout.RowBinding.has_value() );
-    const uint32_t row = *parsed.GetValue().Layout.RowBinding;
+    const auto& rowBinding = parsed.GetValue().Layout.RowBinding;
+    if ( !rowBinding.has_value() )
+        FAIL() << "the graph's parameter block has no row binding";
+    const uint32_t row = *rowBinding;
 
     for ( const std::string_view path : Desert::Core::Preprocess::kSurfaceVertexPaths )
     {
@@ -910,7 +912,7 @@ TEST( ShaderGraphCompiler, EveryCommittedGraphShaderIsWhatItsGraphCompilesToNow 
         const auto compiled = SG::CompileToDShader( loaded.GetValue().Doc );
         ASSERT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
 
-        const std::filesystem::path shader = shaders / ( entry.path().stem().string() + ".shader" );
+        const std::filesystem::path shader = shaders / std::format( "{}.shader", entry.path().stem().string() );
         const std::string           file   = Desert::Tests::ShaderGraph::ReadAll( shader );
         ASSERT_FALSE( file.empty() ) << shader;
         const size_t body = file.find( '\n' ) + 1;

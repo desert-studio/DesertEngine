@@ -13,8 +13,8 @@ namespace Desert::Graphic
     //
     // WHAT THIS EXISTS TO STOP, MEASURED. MeshRenderer used to record every auto-batched group and every
     // Instanced Static Mesh with ONE material it built for itself (`m_StaticInstancedMaterial` /
-    // `m_InstancedGBufferMaterial`). That material has no `.demat` behind it, so Runtime::CreateSurfaceMaterial never
-    // ran over it, so nothing ever called `SetImage` on any of its samplers — and what they keep is what
+    // `m_InstancedGBufferMaterial`). That material has no `.demat` behind it, so Runtime::CreateSurfaceMaterial
+    // never ran over it, so nothing ever called `SetImage` on any of its samplers — and what they keep is what
     // `VulkanMaterialBackend::WriteFallbacks` wrote into them at creation:
     // `VulkanFallbackTextures::CreateFallbackTexture2D`'s 1x1 image of {1,1,1,1}. Not the schema default
     // (`Material::BindSchemaDefaultTexture` is reached only from Runtime::ApplySurfaceAsset, which never ran) —
@@ -43,8 +43,8 @@ namespace Desert::Graphic
     // The answer is therefore a PROPERTY OF THE GROUP, not of the renderer, and it is this enum.
     enum class InstancedRecorder : uint8_t
     {
-        // The (Instanced x pass) sibling of the group's own `.demat`, built by Runtime::CreateSurfaceMaterial from the
-        // same asset — same parameters, same textures, by construction rather than by anyone copying.
+        // The (Instanced x pass) sibling of the group's own `.demat`, built by Runtime::CreateSurfaceMaterial from
+        // the same asset — same parameters, same textures, by construction rather than by anyone copying.
         AssetVariant,
 
         // The renderer's own spare. Correct for a group whose material came from NO asset — in practice

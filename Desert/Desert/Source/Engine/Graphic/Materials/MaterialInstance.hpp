@@ -2,6 +2,7 @@
 
 #include "MaterialProperty.hpp"
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -92,6 +93,13 @@ namespace Desert::Graphic
         {
             return m_ParentMaterial;
         }
+        // TwoSided of this instance: its own override (a `.demat` instance that sets MaterialData::TwoSided), else
+        // its parent instance's, else the base material's. Nothing = inherit.
+        void SetTwoSidedOverride( const std::optional<bool> twoSided )
+        {
+            m_TwoSidedOverride = twoSided;
+        }
+        [[nodiscard]] bool  IsTwoSided() const;
         MaterialInstancePtr GetParentInstance() const
         {
             return m_ParentInstance.lock();
@@ -149,6 +157,7 @@ namespace Desert::Graphic
         std::string                      m_Name;
         MaterialPropertySet              m_Properties;
         std::weak_ptr<MaterialInstance>  m_ParentInstance;
+        std::optional<bool>              m_TwoSidedOverride;
         std::vector<MaterialInstancePtr> m_ChildInstances;
         bool                             m_bNeedsApply = true;
     };

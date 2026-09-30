@@ -402,6 +402,8 @@ namespace Desert::Editor
 
         Assets::MaterialData data;
         data.Shader = Assets::AssetGuidRef{ chosen.Guid, chosen.Locator };
+        if ( fill.TwoSided )
+            data.TwoSided = true;
         for ( const ImportedParam& param : fill.Params )
             data.Params.push_back( { param.Name, param.Value } );
         for ( const ImportedTextureSlot& slot : fill.Textures )

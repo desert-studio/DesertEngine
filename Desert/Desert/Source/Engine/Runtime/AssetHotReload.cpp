@@ -281,9 +281,9 @@ namespace Desert::Runtime
 
             // Only the shader NAME is snapshotted before the re-parse. A `wasCustom` flag was taken here
             // too and then never read: whether the asset crossed between PBR and data-driven is already
-            // answered below by `classMatches`, which asks whether every built variant is still the one runtime type a `.demat` builds, against the C++
-            // class of each live runtime material — a stronger question, because it also catches a variant
-            // built as the wrong class for a reason other than an edit.
+            // answered below by `classMatches`, which asks whether every built variant is still the one runtime
+            // type a `.demat` builds, against the C++ class of each live runtime material — a stronger question,
+            // because it also catches a variant built as the wrong class for a reason other than an edit.
             const auto oldShader = asset->GetShaderHandle();
 
             if ( const auto res = asset->Load(); !res )
@@ -316,15 +316,18 @@ namespace Desert::Runtime
 
             // Every runtime material a `.demat` builds is a DataDrivenMaterial of its template's cell
             // (Runtime::CreateSurfaceMaterial); a variant that is not one was not built from this asset.
-            bool classMatches = !variants.empty();
+            std::vector<Graphic::DataDrivenMaterial*> surfaces;
+            surfaces.reserve( variants.size() );
             for ( auto* runtime : variants )
-                classMatches = classMatches && dynamic_cast<Graphic::DataDrivenMaterial*>( runtime ) != nullptr;
-            const bool sameShader = classMatches && asset->GetShaderHandle() == oldShader;
+                if ( auto* surface = dynamic_cast<Graphic::DataDrivenMaterial*>( runtime ) )
+                    surfaces.push_back( surface );
+            const bool classMatches = !variants.empty() && surfaces.size() == variants.size();
+            const bool sameShader   = classMatches && asset->GetShaderHandle() == oldShader;
 
             if ( sameShader )
             {
-                for ( auto* runtime : variants )
-                    Runtime::ApplySurfaceAsset( *static_cast<Graphic::DataDrivenMaterial*>( runtime ), *asset );
+                for ( auto* surface : surfaces )
+                    Runtime::ApplySurfaceAsset( *surface, *asset );
             }
             else
             {
