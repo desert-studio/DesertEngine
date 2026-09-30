@@ -125,13 +125,14 @@ compile each engine source -- run exactly those after touching it, and add a new
 
 ## Common — `Desert/Common/Source/Common`
 - `Content` — 26 files, 5,650 lines: AssetEnvelope, AssetFolderMoveRecord, AssetGuid, AssetHeader, AssetHeaderReadContext, AssetMoveRecord, AssetRedirector, ChunkFolderRow, ChunkPlan, ChunkRule, ChunkScheme, ChunkSchemeSession, … (+21)
-- `Core` — 47 files, 6,481 lines: AssetHandle, AutoRegistry, ContentDirSpec, Entry, Error, EventHandler, FieldDescriptor, FieldMeta, GpuIdentity, GpuScopedTimer, Handle, HandlePool, … (+20)
+- `Core` — 47 files, 6,543 lines: AssetHandle, AutoRegistry, ContentDirSpec, Entry, Error, EventHandler, FieldDescriptor, FieldMeta, GpuIdentity, GpuScopedTimer, Handle, HandlePool, … (+20)
 - `Core/Algorithms` — 1 files, 55 lines: ScopeExit, ScopeExitTag
 - `Core/Events` — 4 files, 287 lines: Event, EventWindowClose, EventWindowFileDrop, EventWindowResize, KeyEvent, KeyPressedEvent, KeyTypedEvent, MouseButtonEvent, MouseButtonPressedEvent, MouseMovedEvent, MouseScrolledEvent
 - `Core/Math` — 6 files, 330 lines: AABB, Pcg32, Ray
 - `Core/Memory` — 3 files, 253 lines: Buffer, CommandBuffer
 - `Core/Serialization` — 2 files, 244 lines: ReflType, SerializationProvider
 - `Json` — 9 files, 3,263 lines: CarryRule, FormatInfo, HasNoRawPointerMember, Issue, Node, ObjectBuilder, Path, Segment, Template, TemplateSet, TextDocument
+- `Platform` — 1 files, 76 lines
 - `Platform/MacOS` — 1 files, 20 lines
 - `Project` — 2 files, 23 lines
 - `Settings` — 5 files, 589 lines: MachineSettings
