@@ -111,10 +111,11 @@ namespace Desert::Core::ShadingModels
          { "PAYLOAD1", 16, 8 } // CustomData1, unorm8
     } };
 
-    // The word's fifth field is NOT a magnitude field, so it is not a row of kShadingWordFields (whose rows all sit
-    // below kShadingWordExactBits): the float's sign bit, set = the surface does not receive the sun's cascaded
-    // shadows (SurfaceOutput.ReceiveSunShadows < 0.5). The G-buffer writer marks it after packing; the deferred
-    // reader takes the magnitude before unpacking. DESERT_SHADING_WORD_RECEIVE_SUN_SHADOWS_BIT is its GLSL half.
+    // The word's fifth field is NOT a magnitude field, so it is not a row of kShadingWordFields (whose rows all
+    // sit below kShadingWordExactBits): the float's sign bit, set = the surface does not receive the sun's
+    // cascaded shadows (SurfaceOutput.ReceiveSunShadows < 0.5). The G-buffer writer marks it after packing; the
+    // deferred reader takes the magnitude before unpacking. DESERT_SHADING_WORD_RECEIVE_SUN_SHADOWS_BIT is its
+    // GLSL half.
     inline constexpr ShadingWordField kShadingWordSignField{ "RECEIVE_SUN_SHADOWS", 31, 1 };
 
     // ------------------------------------------------------------------------------------------------------------

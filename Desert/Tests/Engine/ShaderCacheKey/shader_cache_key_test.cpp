@@ -1465,8 +1465,9 @@ TEST_F( ShaderRootFixture, TheUnlitTemplateIsLitThroughTheSamePassesAsEveryModel
     for ( const auto& include : FragmentIncludes( path, "Static.Forward" ) )
     {
         forwardPass = forwardPass || include.filename() == "Pass_Forward.glslh";
-        dispatch    = dispatch || include.filename() ==
-                                        std::filesystem::path( Desert::Core::ShadingModels::kGeneratedInclude ).filename();
+        dispatch =
+             dispatch || include.filename() ==
+                              std::filesystem::path( Desert::Core::ShadingModels::kGeneratedInclude ).filename();
     }
     EXPECT_TRUE( forwardPass ) << "the Unlit forward cell is not built on Mesh/Surface/Pass_Forward.glslh";
     EXPECT_TRUE( dispatch ) << "the Unlit forward cell does not compile the generated shading-model dispatch";
