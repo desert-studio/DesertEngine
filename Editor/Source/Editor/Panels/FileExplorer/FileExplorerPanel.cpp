@@ -603,7 +603,7 @@ namespace Desert::Editor
                        {
                            const bool         pose = item.Kind == ThumbnailWarmup::WarmKind::Pose;
                            const std::string& path = item.Path;
-                           const auto subject = pose ? ThumbnailPose::ResolveSkinnedMesh( *m_AssetManager, path )
+                           const auto subject = pose ? ThumbnailPose::ResolvePoseSubject( *m_AssetManager, path )
                                                      : ThumbnailSubject::ResolveMesh( *m_AssetManager, path );
                            if ( !subject )
                            {
@@ -2074,7 +2074,7 @@ namespace Desert::Editor
             return true;
         }
 
-        const auto subject = ThumbnailPose::ResolveSkinnedMesh( *m_AssetManager, entry->AssetPath );
+        const auto subject = ThumbnailPose::ResolvePoseSubject( *m_AssetManager, entry->AssetPath );
         if ( !subject )
         {
             LOG_WARN( "[Thumbnail] '{}': {}", entry->AssetPath, subject.GetError() );
@@ -2083,7 +2083,7 @@ namespace Desert::Editor
         }
         if ( subject.GetValue().Pending )
             return false; // read in flight: asked again next frame
-        ThumbnailService::Get().RequestPose( subject.GetValue().Handle, subject.GetValue().CookedPath );
+        ThumbnailService::Get().RequestPose( subject.GetValue() );
         return false;
     }
 

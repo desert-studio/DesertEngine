@@ -47,9 +47,10 @@ TEST( ThumbnailProducers, ThePicturedKindsKeepTheirProducers )
     EXPECT_EQ( ThumbnailProducers::ProducerOfPath( "Assets/Foliage/Grass.defoliage" ), Producer::RenderedMesh );
     // A skinned mesh is posed and photographed (THM1n-6): its bind pose.
     EXPECT_EQ( ThumbnailProducers::ProducerOfPath( "Assets/Hero/Hero.skmesh" ), Producer::RenderedPose );
-    // Typed (THM1n-4) and still owed a picture: pinned through the whole chain from the extension.
+    // THM-FIXB: a skeleton is its preview mesh in the bind pose, a clip that mesh at the clip's middle frame —
+    // the pose producer, through the whole chain from the extension.
     for ( const char* path : { "Assets/Hero/Hero.skeleton", "Assets/Hero/Run.anim" } )
-        EXPECT_EQ( ThumbnailProducers::ProducerOfPath( path ), Producer::NotYetProduced ) << path;
+        EXPECT_EQ( ThumbnailProducers::ProducerOfPath( path ), Producer::RenderedPose ) << path;
 }
 
 // The documents UE draws with their class icon are rows too — "no renderer" is an answer, never a gap.

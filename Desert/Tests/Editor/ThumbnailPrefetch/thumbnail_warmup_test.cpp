@@ -219,15 +219,25 @@ TEST( ThumbnailWarmup, TheProjectListIsEveryRegistryRowWithAPictureProducer )
          { "/p/Assets/Clouds/V.dcmv", WarmKind::Painted },
          { "/p/Assets/Foliage/Fern.defoliage", WarmKind::Mesh },
          { "/p/Assets/Materials/Bark.demat", WarmKind::Material },
+         { "/p/Assets/Meshes/Fox.skeleton", WarmKind::Pose }, // THM-FIXB: its preview mesh, bind pose
          { "/p/Assets/Meshes/Fox.skmesh", WarmKind::Pose },
+         { "/p/Assets/Meshes/Fox_Walk.anim", WarmKind::Pose }, // THM-FIXB: the preview mesh at mid-clip
          { "/p/Assets/Meshes/Rock.stmesh", WarmKind::Mesh },
          { "/p/Assets/Skybox/Dusk.detex", WarmKind::Decoded },
          { "/p/Assets/Textures/Bark.detex", WarmKind::Decoded },
          { "/p/Assets/UI/Dark.detheme", WarmKind::Painted },
     };
     EXPECT_EQ( Warmup::ProjectWarmList( filesOf ), expected )
-         << "every registry row whose type has a picture, sorted by path; skeletons, clips, shaders, scenes "
-            "and redirector stubs have none";
+         << "every registry row whose type has a picture, sorted by path; shaders, scenes and redirector "
+            "stubs have none";
+
+    // THM-FIXB: what has no producer is SAID, by kind — the scene here (NotYetProduced); the shader is an icon
+    // by decision and the redirector a stub, so neither is listed.
+    const std::vector<Warmup::Unproduced> gaps = Warmup::UnproducedKinds( filesOf );
+    ASSERT_EQ( gaps.size(), 1U );
+    EXPECT_EQ( gaps.front().Kind, ContentKind::Scene );
+    EXPECT_EQ( gaps.front().Files, 1U );
+    EXPECT_FALSE( gaps.front().Why.empty() );
 
     // A texture is its own picture: in the project list, never a capture.
     const std::vector<WarmItem> captures =

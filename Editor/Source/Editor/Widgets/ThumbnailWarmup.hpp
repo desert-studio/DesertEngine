@@ -113,6 +113,45 @@ namespace Desert::Editor::ThumbnailWarmup
         return out;
     }
 
+    /// A CONTENT KIND WITH FILES AND NO PICTURE PRODUCER (THM-FIXB): what ProjectWarmList passed over, by kind,
+    /// so the splash SAYS it (one line per kind, with the producer table's reason) instead of skipping silently.
+    /// TypeIcon kinds are icons by design and not listed; NotYetProduced kinds are the debt the register names.
+    struct Unproduced
+    {
+        Common::Content::ContentKind Kind  = Common::Content::ContentKind::Scene;
+        std::size_t                  Files = 0;
+        std::string_view             Why;
+    };
+
+    [[nodiscard]] inline std::vector<Unproduced> UnproducedKinds(
+         const std::function<std::vector<std::filesystem::path>( Common::Content::ContentKind )>& filesOf )
+    {
+        using Common::Content::ContentKind;
+        std::vector<Unproduced> out;
+        for ( std::size_t index = 0; index < Common::Content::CONTENT_KIND_COUNT; ++index )
+        {
+            const auto kind = static_cast<ContentKind>( index );
+            if ( kind == ContentKind::Redirector )
+                continue;
+            for ( const std::filesystem::path& file : filesOf( kind ) )
+            {
+                const FileType type = FileTypeOfPath( file );
+                if ( ThumbnailProducers::ProducerOf( type ) != ThumbnailProducers::Producer::NotYetProduced )
+                    continue;
+                if ( out.empty() || out.back().Kind != kind )
+                {
+                    std::string_view why;
+                    for ( const ThumbnailProducers::Row& row : ThumbnailProducers::kTable )
+                        if ( row.Type == type )
+                            why = row.Why;
+                    out.push_back( { kind, 0, why } );
+                }
+                ++out.back().Files;
+            }
+        }
+        return out;
+    }
+
     /// Whether a scene root is a capture the splash warms, and which kind. THM1m: meshes too — resolving
     /// one no longer builds it on the main thread (ThumbnailSubject::ResolveMesh answers PENDING and reads a
     /// cold mesh on a worker, AL1-5c/THM1f), so a mesh costs the splash one capture, as a material does.

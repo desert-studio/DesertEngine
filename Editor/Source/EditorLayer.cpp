@@ -8278,6 +8278,11 @@ namespace Desert::Editor
         // folder the browser opens on — so no folder entered after the hand-over waits for a picture.
         const std::vector<ThumbnailWarmup::WarmItem> project =
              ThumbnailWarmup::ProjectWarmList( &Assets::ContentRegistry::FilesOfKind );
+        for ( const ThumbnailWarmup::Unproduced& gap :
+              ThumbnailWarmup::UnproducedKinds( &Assets::ContentRegistry::FilesOfKind ) )
+            LOG_WARN( "[Thumbnails] {} {} file(s) get no picture on the splash: the kind has no thumbnail producer "
+                      "yet ({})",
+                      gap.Files, Common::Content::KindName( gap.Kind ), gap.Why );
         m_SplashWarmTotal = m_FileExplorerPanel->WarmProjectThumbnails( scene, project );
         LOG_INFO( "[Thumbnails] the scene uses {} subject(s) of {} root(s), the project has {} picture(s); {} "
                   "picture(s) to capture before the hand-over, the rest decode from the disk cache",

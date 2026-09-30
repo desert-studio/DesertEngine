@@ -169,6 +169,7 @@ namespace Desert::Editor
     {
         auto req = MeshRequestOf( Kind::Pose, mesh.Handle, mesh.CookedPath,
                                   Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
+        req.Clip = mesh.Clip;
         if ( ReadMeshOrbit( req ) )
             Warm( std::move( req ) );
     }
@@ -252,10 +253,12 @@ namespace Desert::Editor
         return EnqueueMeshLike( MeshRequestOf( Kind::Mesh, mesh, assetPath, material ) );
     }
 
-    std::string ThumbnailService::RequestPose( const Assets::AssetHandle& mesh, const std::string& assetPath )
+    std::string ThumbnailService::RequestPose( const ThumbnailSubject::Mesh& pose )
     {
-        return EnqueueMeshLike(
-             MeshRequestOf( Kind::Pose, mesh, assetPath, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) ) );
+        auto req = MeshRequestOf( Kind::Pose, pose.Handle, pose.CookedPath,
+                                  Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
+        req.Clip = pose.Clip;
+        return EnqueueMeshLike( std::move( req ) );
     }
 
     std::string ThumbnailService::EnqueueMeshLike( Request req )
@@ -472,7 +475,7 @@ namespace Desert::Editor
         if ( req.Type == Kind::Mesh )
             return m_Renderer->RequestMesh( req.Handle, req.Png, req.Thumbnail.Orbit, req.Material );
         if ( req.Type == Kind::Pose )
-            return m_Renderer->RequestPose( req.Handle, nullptr, req.Png, req.Thumbnail.Orbit ); // the bind pose
+            return m_Renderer->RequestPose( req.Handle, req.Clip, req.Png, req.Thumbnail.Orbit ); // null: bind pose
         if ( req.How != ThumbnailSubject::Preview::Mesh )
             return m_Renderer->RequestMaterial( req.Handle, req.Png, req.How, req.Thumbnail );
         if ( static_cast<uint64_t>( req.PreviewMesh ) == 0 )
