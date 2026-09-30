@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/Subsystems/SubsystemCollection.hpp>
 #include <Editor/Core/PanelMaximize.hpp>
 #include <Editor/Import/BackgroundCook.hpp>
 #include <Engine/Assets/ContentGate.hpp>
@@ -52,9 +53,19 @@ namespace Desert::Editor
     class WorldPartitionPanel;
     class ViewportPanel;
 
+    class EditorLayer;
+
+    void CreateSubsystems( Common::SubsystemCollection<EditorLayer>& collection );
+
     class EditorLayer : public Common::Layer
     {
     public:
+        template <typename T>
+        [[nodiscard]] T* GetSubsystem() const
+        {
+            return m_Subsystems ? m_Subsystems->template Get<T>() : nullptr;
+        }
+
         // @p splash is the start-up splash CreateApplication put up before the renderer existed; this
         // layer reports its steps to it and takes it down on the first real frame (RevealWhenReady).
         EditorLayer( Engine::Application* application, const std::string& layerName,
@@ -710,6 +721,7 @@ namespace Desert::Editor
         // what makes "the View menu lists exactly the tools" true by construction rather than by a predicate
         // the menu, the command palette and --open-panel would each have had to remember.
         PanelRegistry m_Panels;
+        std::optional<Common::SubsystemCollection<EditorLayer>> m_Subsystems;
 
         // `m_ContextualShown` STOOD HERE — a set of raw panel pointers, inserted and erased in five
         // places and QUERIED IN NONE. Its own comment claimed it was what stopped a panel the user opened

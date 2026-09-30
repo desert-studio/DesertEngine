@@ -14,6 +14,7 @@
 #include <type_traits>
 #include <Common/Core/Events/EventTree.hpp>
 #include <Common/Core/Events/WindowEvents.hpp>
+#include <Common/Core/Subsystems/SubsystemCollection.hpp>
 #include <Common/Core/Core.hpp>
 
 #include "EngineStats.hpp"
@@ -51,6 +52,10 @@ namespace Desert::Engine
         // editor does, from behind its splash; see WindowSpecification::Visible.
         bool Visible = true;
     };
+
+    class Application;
+
+    void CreateSubsystems( Common::SubsystemCollection<Application>& collection );
 
     class Application
     {
@@ -92,6 +97,12 @@ namespace Desert::Engine
         [[nodiscard]] Common::EventTree& Events()
         {
             return m_Events;
+        }
+
+        template <typename T>
+        [[nodiscard]] T* GetSubsystem() const
+        {
+            return m_EngineSubsystems ? m_EngineSubsystems->template Get<T>() : nullptr;
         }
 
         bool OnWindowClosed( Common::EventWindowClose& close );
@@ -169,8 +180,9 @@ namespace Desert::Engine
         // process-lifetime thumbnail caches, which are not released deterministically yet.
     private:
         Common::EventTree   m_Events;
-        Common::EventNodeId m_ApplicationEventNode = m_Events.Attach( m_Events.Root(), *this );
+        Common::EventNodeId m_ApplicationEventNode = m_Events.Attach<Application>( m_Events.Root(), *this );
         Common::EventNodeId m_WindowEventNode{};
+        std::optional<Common::SubsystemCollection<Application>> m_EngineSubsystems;
 
         ApplicationInfo m_ApplicationInfo;
 
