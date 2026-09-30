@@ -47,7 +47,7 @@ namespace Desert::Graphic
         // previous graph's write of the persistent state. The simulation reads its buffers only through that
         // read-modify-write, so StorageWrite is every access it makes. The billboard draw that reads the result
         // (ParticlePass, a Transparency raster node) declares Read(particles, StorageRead), so the graph places
-        // the compute -> vertex barrier; DispatchComputeCull records none of its own. NeverCull stays: the node
+        // the compute -> vertex barrier; DispatchComputeInFrame records none of its own. NeverCull stays: the node
         // also advances the particle clock on a frame with no emitter, a write the graph cannot see. The graph
         // executes before OnUpdate returns, so the frame's UpdateInfo, and the imports held by the renderer's
         // frame emitters, outlive this pass.

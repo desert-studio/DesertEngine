@@ -125,6 +125,22 @@ namespace Desert::Graphic::System
         return true;
     }
 
+    RDG::BufferRef AutoExposureRenderer::ImportHistogram( RDG::Builder& graph )
+    {
+        if ( !m_Histogram )
+            return {};
+        if ( const Common::BoolResultStr imported =
+                  Renderer::GetInstance().ImportBuffer( m_Histogram, m_HistogramImport );
+             !imported )
+        {
+            LOG_ERROR(
+                 "[AutoExposure] the histogram is not in the frame graph, auto exposure sits out this frame: {}",
+                 imported.GetError() );
+            return {};
+        }
+        return graph.RegisterExternal( m_HistogramImport, "AutoExposure.Histogram" );
+    }
+
     void AutoExposureRenderer::RecordClear()
     {
         m_ClearPipeline->SetStorageBuffer( 1, m_Histogram.get() );

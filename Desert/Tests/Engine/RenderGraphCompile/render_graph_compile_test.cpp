@@ -4,8 +4,15 @@
 // compiles the RDG sources directly with no Vulkan include path, and the census below proves the sources
 // never ask for one.
 
+#include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/DeferredFrameNodes.hpp>
+
+// `#if DESERT_DEV_INSTRUMENTS` on a macro nobody defined is `#if 0`: without DevInstruments.hpp above, every
+// instrument-gated test here was skipped in Debug too. Refuse to compile rather than skip silently again.
+#if !defined( DESERT_DEV_INSTRUMENTS )
+#error "DevInstruments.hpp must define DESERT_DEV_INSTRUMENTS before the instrument-gated tests"
+#endif
 
 #include <gtest/gtest.h>
 
@@ -850,6 +857,7 @@ TEST( RenderGraphCompile, PassContextRefusesAnUndeclaredResourceNamingPassAndRes
     EXPECT_NE( executed.GetError().find( "Sneaky" ), std::string::npos ) << executed.GetError();
     EXPECT_NE( wrongAccess.find( "StorageRead" ), std::string::npos ) << wrongAccess;
 #else
+    // Shipping only (DESERT_CONFIG_SHIPPING): Debug and Release define DESERT_DEV_INSTRUMENTS 1 and run the test.
     GTEST_SKIP() << "the declaration check is a development instrument, compiled out of Shipping";
 #endif
 }
@@ -1944,8 +1952,8 @@ namespace
 // targets are its framebuffer whole (ColorTarget / DepthTarget / ResolveTarget), whose reads are what the system
 // names in RenderGraphBuilder::PassConfig::Declare, and whose render pass the graph opens and merges. Each system
 // declares its own reads where it registers the pass, the editor's external passes through
-// ExternalPassSpecification::Declare, and DispatchComputeCull records no barrier of its own any more (the particle
-// draw declares its StorageRead).
+// ExternalPassSpecification::Declare, and DispatchComputeInFrame records no barrier of its own any more (the
+// particle draw declares its StorageRead).
 TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
 {
     const fs::path root = RepoRoot();
@@ -2001,13 +2009,16 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
               .find( "declared.Read(ctx.Renderer->GetBackdropBlurImage(),Graphic::RDG::Access::SampledGraphics" ),
          std::string::npos );
 
-    // The particle simulation's dispatch records no barrier: the graph places it between the declared write and
-    // read.
-    const std::string cull =
-         SqueezedBody( source( "API/Vulkan/VulkanRenderer.cpp" ), "voidVulkanRendererAPI::DispatchComputeCull(",
-                       "voidVulkanRendererAPI::" );
-    ASSERT_FALSE( cull.empty() );
-    EXPECT_EQ( cull.find( "vkCmdPipelineBarrier" ), std::string::npos ) << "DispatchComputeCull still barriers";
+    // The one compute dispatch records no barrier: every caller is a graph node, and the graph places the barrier
+    // between the declared write and read (RDG-TAILS merged the particle-only DispatchComputeCull into it).
+    const std::string vulkan = source( "API/Vulkan/VulkanRenderer.cpp" );
+    const std::string dispatch =
+         SqueezedBody( vulkan, "voidVulkanRendererAPI::DispatchComputeInFrame(", "voidVulkanRendererAPI::" );
+    ASSERT_FALSE( dispatch.empty() );
+    EXPECT_EQ( dispatch.find( "vkCmdPipelineBarrier" ), std::string::npos )
+         << "DispatchComputeInFrame still barriers";
+    EXPECT_EQ( vulkan.find( "DispatchComputeCull" ), std::string::npos )
+         << "a second dispatch entry point is back";
 }
 
 // THE ATMOSPHERE PASSES ARE REAL GRAPH NODES WITH DECLARED ACCESS (RDG-LEG1-L5a). SceneRendererFrameAtmosphere.cpp
@@ -2115,4 +2126,33 @@ TEST( RenderGraphCompile, NoLegacyConstructRemainsInTheEngine )
         std::format_to( std::back_inserter( list ), "
   {}", hit );
     EXPECT_TRUE( found.empty() ) << found.size() << " legacy construct(s) remain:" << list;
+}
+
+// THE AUTO-EXPOSURE HISTOGRAM IS AN IMPORTED BUFFER THE GRAPH ORDERS (RDG-TAILS 1). Before, the histogram was a
+// storage buffer the graph never saw: Clear and Histogram were NeverCull roots, and the dispatch's own memory
+// barrier ordered clear -> accumulate -> average. Now the renderer imports it (Renderer::ImportBuffer), Clear and
+// Histogram declare Write(StorageWrite), Average declares Read(StorageRead), and no node needs NeverCull.
+TEST( RenderGraphCompile, AutoExposureHistogramIsAnImportedBufferTheGraphOrders )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const std::string frame =
+         SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/SceneRendererFramePostFX.cpp" );
+    const std::string body =
+         SqueezedBody( frame, "voidSceneRenderer::AddFrameAutoExposure(", "voidSceneRenderer::" );
+    ASSERT_FALSE( body.empty() );
+    const size_t imported = body.find( "autoExp->ImportHistogram(graph)" );
+    ASSERT_NE( imported, std::string::npos );
+    EXPECT_LT( imported, body.find( "autoExp->Prepare()" ) ) << "a refused import must not advance the ping-pong";
+    size_t writes = 0;
+    for ( size_t at = body.find( "pass.Write(histogram,RDG::Access::StorageWrite)" ); at != std::string::npos;
+          at        = body.find( "pass.Write(histogram,RDG::Access::StorageWrite)", at + 1 ) )
+        ++writes;
+    EXPECT_EQ( writes, 2u ) << "Clear and Histogram both write the histogram";
+    EXPECT_NE( body.find( "pass.Read(histogram,RDG::Access::StorageRead)" ), std::string::npos );
+    EXPECT_EQ( body.find( "NeverCull" ), std::string::npos );
+
+    const std::string renderer = SqueezedSource(
+         root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/AutoExposureRenderer.cpp" );
+    EXPECT_NE( renderer.find( "ImportBuffer(m_Histogram,m_HistogramImport)" ), std::string::npos );
 }

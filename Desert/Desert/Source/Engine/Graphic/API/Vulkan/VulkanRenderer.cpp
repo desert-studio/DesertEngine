@@ -606,40 +606,17 @@ namespace Desert::Graphic::API::Vulkan
         DrawCounted( vertexCount, 1, 0, 0 );
     }
 
-    void VulkanRendererAPI::DispatchComputeCull( const ComputePipeline* pipeline, uint32_t groupCountX,
-                                                 uint32_t groupCountY, uint32_t groupCountZ )
-    {
-        if ( !IsRecording() || pipeline == nullptr )
-            return;
-
-        const_cast<VulkanPipelineCompute*>( static_cast<const VulkanPipelineCompute*>( pipeline ) )
-             ->RecordInFrame( m_CurrentCommandBuffer, groupCountX, groupCountY, groupCountZ );
-
-        // No barrier here. Its one caller is the particle simulation, a graph node ("Particles: Simulate") that
-        // declares its buffers StorageWrite, and the billboard draw (ParticlePass) declares them StorageRead: the
-        // frame graph places the compute -> vertex barrier between the two, and the one back before the next
-        // write.
-    }
-
     void VulkanRendererAPI::DispatchComputeInFrame( const ComputePipeline* pipeline, uint32_t groupCountX,
                                                     uint32_t groupCountY, uint32_t groupCountZ )
     {
         if ( !IsRecording() || pipeline == nullptr )
             return;
 
-        // Records bind + a fresh ring descriptor set + dispatch (no layout transitions, no submit).
+        // Records bind + a fresh ring descriptor set + dispatch: no barrier, no layout transition, no submit.
+        // Every caller runs inside a frame-graph node that declares what the dispatch reads and writes, so the
+        // graph places each barrier from the declared accesses (see RendererAPI::DispatchComputeInFrame).
         const_cast<VulkanPipelineCompute*>( static_cast<const VulkanPipelineCompute*>( pipeline ) )
              ->RecordInFrame( m_CurrentCommandBuffer, groupCountX, groupCountY, groupCountZ );
-
-        // Make this dispatch's storage writes available + visible to the next dispatch's sampler/storage
-        // reads-and-writes (e.g. a histogram clear before atomic accumulation) and to a later fragment
-        // sample (e.g. tonemap reading the bloom result).
-        VkMemoryBarrier barrier{ .sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-                                 .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-                                 .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT };
-        vkCmdPipelineBarrier( m_CurrentCommandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                              VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
-                              1, &barrier, 0, nullptr, 0, nullptr );
     }
 
     void VulkanRendererAPI::ComputeImageBeginWrite( Image* image )

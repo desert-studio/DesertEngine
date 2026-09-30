@@ -75,9 +75,6 @@ namespace Desert::Graphic
 
         // Compute dispatch whose writes are made visible to the VERTEX + DRAW_INDIRECT stages (GPU cull
         // feeding an indirect instanced draw).
-        void DispatchComputeCull( const ComputePipeline* pipeline, uint32_t groupCountX, uint32_t groupCountY,
-                                  uint32_t groupCountZ );
-
         // Layout helpers for compute storage targets used in the frame command buffer (see RendererAPI).
         void ComputeImageBeginWrite( Image* image );
         void ComputeImageEndWrite( Image* image );

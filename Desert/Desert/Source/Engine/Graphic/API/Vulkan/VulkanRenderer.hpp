@@ -60,9 +60,6 @@ namespace Desert::Graphic::API::Vulkan
         virtual void DispatchComputeInFrame( const ComputePipeline* pipeline, uint32_t groupCountX,
                                              uint32_t groupCountY, uint32_t groupCountZ ) override;
 
-        virtual void DispatchComputeCull( const ComputePipeline* pipeline, uint32_t groupCountX,
-                                          uint32_t groupCountY, uint32_t groupCountZ ) override;
-
         virtual void ComputeImageBeginWrite( Image* image ) override;
         virtual void ComputeImageEndWrite( Image* image ) override;
         virtual void ComputeImageBeginRead( Image* image ) override;

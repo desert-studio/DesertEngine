@@ -121,7 +121,13 @@ namespace Desert::Graphic
                                               const std::vector<RDG::TextureRef>& sceneColor )
     {
         auto* autoExp = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] );
-        if ( !autoExp || !autoExp->Prepare() )
+        if ( !autoExp )
+            return;
+        // Build-time decisions, both legitimately so: the histogram import is what the nodes declare, and Prepare
+        // picks which 1x1 image this frame writes, which the graph must know to import it and the tonemap to
+        // sample it. The import goes first so a refused import does not advance the ping-pong.
+        const RDG::BufferRef histogram = autoExp->ImportHistogram( graph );
+        if ( !histogram.IsValid() || !autoExp->Prepare() )
             return;
         // The tonemap samples the luminance this frame writes; that image is known when the graph is built.
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
@@ -131,19 +137,23 @@ namespace Desert::Graphic
         const RDG::TextureRef adapted =
              textures.Import( autoExp->GetAdaptedLuminanceImage(), "AutoExposure.Adapted" );
 
-        // The histogram is a storage buffer the graph does not track (no buffer import yet): Clear and Histogram
-        // write only it, so they are culling roots.
+        // Clear and Histogram write the imported histogram, Average reads it: the graph orders the three and
+        // places their barriers, and Average's write of the adapted image keeps all three alive.
         graph.AddPass(
-             "PostFX: AutoExposureClear", RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
-             []( RDG::PassBuilder& ) {},
+             "PostFX: AutoExposureClear", RDG::PassFlags::Compute,
+             [histogram]( RDG::PassBuilder& pass ) { pass.Write( histogram, RDG::Access::StorageWrite ); },
              [autoExp]( RDG::PassContext& ) -> Common::BoolResultStr
              {
                  autoExp->RecordClear();
                  return BOOLSUCCESS;
              } );
         graph.AddPass(
-             "PostFX: AutoExposureHistogram", RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
-             [&]( RDG::PassBuilder& pass ) { ReadEach( pass, sceneColor, RDG::Access::SampledCompute ); },
+             "PostFX: AutoExposureHistogram", RDG::PassFlags::Compute,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 ReadEach( pass, sceneColor, RDG::Access::SampledCompute );
+                 pass.Write( histogram, RDG::Access::StorageWrite );
+             },
              [autoExp]( RDG::PassContext& ) -> Common::BoolResultStr
              {
                  autoExp->RecordHistogram();
@@ -153,6 +163,7 @@ namespace Desert::Graphic
              "PostFX: AutoExposureAverage", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
+                 pass.Read( histogram, RDG::Access::StorageRead );
                  pass.Read( previous, RDG::Access::SampledCompute );
                  pass.Write( adapted, RDG::Access::StorageWrite );
              },

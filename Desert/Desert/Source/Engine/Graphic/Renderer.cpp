@@ -175,12 +175,6 @@ namespace Desert::Graphic
         s_RendererAPI->DispatchComputeInFrame( pipeline, groupCountX, groupCountY, groupCountZ );
     }
 
-    void Renderer::DispatchComputeCull( const ComputePipeline* pipeline, uint32_t groupCountX,
-                                        uint32_t groupCountY, uint32_t groupCountZ )
-    {
-        s_RendererAPI->DispatchComputeCull( pipeline, groupCountX, groupCountY, groupCountZ );
-    }
-
     void Renderer::ComputeImageBeginWrite( Image* image )
     {
         s_RendererAPI->ComputeImageBeginWrite( image );

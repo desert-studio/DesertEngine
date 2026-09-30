@@ -313,8 +313,8 @@ namespace Desert::Graphic::System
             // The graph node that runs this ("Particles: Simulate") declares both buffers StorageWrite, and the
             // billboard draw (ParticlePass) declares the state StorageRead, so the graph places the compute ->
             // vertex barrier between them and the vertex -> compute one before the next frame's write.
-            // DispatchComputeCull records the dispatch alone: no barrier of its own.
-            renderer.DispatchComputeCull( m_SimPipeline.get(), groups, 1, 1 );
+            // DispatchComputeInFrame records the dispatch alone: no barrier of its own.
+            renderer.DispatchComputeInFrame( m_SimPipeline.get(), groups, 1, 1 );
         }
     }
 

@@ -4,6 +4,7 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <array>
@@ -32,8 +33,13 @@ namespace Desert::Graphic::System
         // this frame's RecordAverage writes and GetPreviousLuminanceImage() the one it adapts from. False:
         // nothing to record (no scene colour, histogram or pipelines), and the ping-pong does not move.
         bool Prepare();
-        // 1) Zero the histogram (a storage buffer the graph does not track yet: the dispatch's own memory
-        //    barrier orders it against the next dispatch).
+        // Imports the histogram storage buffer into @p graph (Renderer::ImportBuffer), so the Clear and Histogram
+        // nodes declare Write(StorageWrite) on it and the Average node Read(StorageRead): the graph places every
+        // barrier between the three dispatches and against the previous frame's read. An invalid ref (logged):
+        // the buffer is not in the graph, and auto exposure sits out the frame. Called at graph-build time,
+        // before Prepare, so a refused import leaves the ping-pong where it was.
+        RDG::BufferRef ImportHistogram( RDG::Builder& graph );
+        // 1) Zero the histogram (the node declares Write(histogram, StorageWrite)).
         void RecordClear();
         // 2) Histogram of GetSceneColorImage() (sampled), atomic adds into the histogram.
         void RecordHistogram();
@@ -97,6 +103,8 @@ namespace Desert::Graphic::System
         bool CreateResources();
 
         std::shared_ptr<ShaderResources::StorageBuffer> m_Histogram;
+        // The graph's handle on m_Histogram for the frame being built; the graph points at it until it executes.
+        RDG::ExternalBuffer                             m_HistogramImport;
         std::array<std::shared_ptr<Image2D>, 2>         m_LumImage; // ping-pong 1x1
 
         std::shared_ptr<ComputePipeline> m_ClearPipeline;
