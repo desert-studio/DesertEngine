@@ -108,7 +108,7 @@
             "Scale": [60.0, 0.20000000298023224, 16.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
+                "MaterialGuids": ["443da08f9e394860b5c2bd3bb619e9cd"],
                 "Primitive": "Cube"
             }
         },
@@ -123,7 +123,7 @@
                 "MeshPath": "Resources/Assets/Meshes/Skinned/SkinProbe.skmesh",
                 "MeshGuid": "047623816f024edf9fd7a557f6501f7e",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
+                "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
             },
             "Animation": {
                 "CurrentClip": "",
@@ -145,7 +145,7 @@
                 "MeshPath": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
                 "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
+                "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
             },
             "Animation": {
                 "CurrentClip": "",
@@ -167,7 +167,7 @@
                 "MeshPath": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
                 "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
+                "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
             },
             "Animation": {
                 "CurrentClip": "TwoBoneProbe_Wave",
@@ -188,7 +188,7 @@
                 "MeshPath": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
                 "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
+                "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
             },
             "Animation": {
                 "CurrentClip": "TwoBoneProbe_Twist",
