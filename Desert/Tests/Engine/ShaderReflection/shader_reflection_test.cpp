@@ -479,7 +479,7 @@ namespace
 layout(location = 0) in vec3 a_Position;
 void main() { gl_Position = vec4(a_Position, 1.0); }
 )";
-    const char* kStreamsVertex = R"(#version 450
+    const char* kStreamsVertex      = R"(#version 450
 layout(location = 0) in vec3 a_Position;
 layout(location = 4) in vec2 a_TextureCoord;
 layout(location = 7) in vec4 a_Color;
@@ -501,8 +501,9 @@ TEST( ShaderReflection, VertexStageRecordsItsInputLocations )
 TEST( ShaderReflection, VertexInputDropsStreamsTheStageDoesNotRead )
 {
     const auto layout = Desert::Graphic::MeshVertexLayout( Desert::Graphic::MeshVertexPath::Static );
-    const auto state  = ShaderReflection::BuildVertexInput(
-         layout, ShaderReflection::ReflectVertexInputLocations( Compile( kPositionOnlyVertex, shaderc_glsl_vertex_shader ) ) );
+    const auto state =
+         ShaderReflection::BuildVertexInput( layout, ShaderReflection::ReflectVertexInputLocations( Compile(
+                                                          kPositionOnlyVertex, shaderc_glsl_vertex_shader ) ) );
 
     EXPECT_TRUE( state.Errors.empty() ) << state.Errors.front();
     ASSERT_EQ( state.Attributes.size(), 1u );
@@ -517,7 +518,8 @@ TEST( ShaderReflection, VertexInputKeepsStreamsTheStageReads )
 {
     const auto layout = Desert::Graphic::MeshVertexLayout( Desert::Graphic::MeshVertexPath::Static );
     const auto state  = ShaderReflection::BuildVertexInput(
-         layout, ShaderReflection::ReflectVertexInputLocations( Compile( kStreamsVertex, shaderc_glsl_vertex_shader ) ) );
+         layout,
+         ShaderReflection::ReflectVertexInputLocations( Compile( kStreamsVertex, shaderc_glsl_vertex_shader ) ) );
 
     EXPECT_TRUE( state.Errors.empty() ) << state.Errors.front();
     ASSERT_EQ( state.Attributes.size(), 4u );
@@ -526,7 +528,8 @@ TEST( ShaderReflection, VertexInputKeepsStreamsTheStageReads )
     ASSERT_TRUE( state.HasBinding( 1 ) );
     for ( const auto& attribute : state.Attributes )
     {
-        EXPECT_EQ( attribute.binding, attribute.location >= Desert::Graphic::kMeshVertexStreamFirstLocation ? 1u : 0u )
+        EXPECT_EQ( attribute.binding,
+                   attribute.location >= Desert::Graphic::kMeshVertexStreamFirstLocation ? 1u : 0u )
              << "location " << attribute.location;
     }
     for ( const auto& binding : state.Bindings )
@@ -541,9 +544,10 @@ TEST( ShaderReflection, VertexInputNamesALocationTheLayoutDoesNotFeed )
 layout(location = 5) in vec4 a_Unfed;
 void main() { gl_Position = a_Unfed; }
 )";
-    const auto layout = Desert::Graphic::MeshVertexLayout( Desert::Graphic::MeshVertexPath::Static );
-    const auto state  = ShaderReflection::BuildVertexInput(
-         layout, ShaderReflection::ReflectVertexInputLocations( Compile( kReadsFive, shaderc_glsl_vertex_shader ) ) );
+    const auto  layout     = Desert::Graphic::MeshVertexLayout( Desert::Graphic::MeshVertexPath::Static );
+    const auto  state      = ShaderReflection::BuildVertexInput(
+         layout,
+         ShaderReflection::ReflectVertexInputLocations( Compile( kReadsFive, shaderc_glsl_vertex_shader ) ) );
 
     ASSERT_EQ( state.Errors.size(), 1u );
     EXPECT_NE( state.Errors.front().find( "location 5" ), std::string::npos ) << state.Errors.front();
