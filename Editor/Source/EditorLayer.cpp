@@ -37,6 +37,7 @@
 
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Editor/Widgets/ThumbnailWarmup.hpp>
+#include <Editor/Widgets/ToolbarLayout.hpp>
 #include <Engine/Core/SceneAssetRoots.hpp>
 #include <Common/Core/Core.hpp>
 #include <Common/Core/CrashHandler.hpp>
@@ -8759,16 +8760,38 @@ namespace Desert::Editor
     // One toolbar button: an icon, an optional label, and an "armed" state that is drawn as a tinted fill
     // plus a 2px underline. The underline matters — a tint alone is ambiguous against a hover, and the
     // question "which mode am I in" has to be answerable from across the room.
+    namespace
+    {
+        // The one spelling of a toolbar button's text: ToolbarButton draws it and ToolbarButtonWidth
+        // measures it, so the width the layout reserves is the width the button takes.
+        struct ToolbarButtonText
+        {
+            char Text[192];
+
+            ToolbarButtonText( const char* icon, const char* label )
+            {
+                if ( label && *label )
+                    std::snprintf( Text, sizeof( Text ), "%s  %s", icon, label );
+                else
+                    std::snprintf( Text, sizeof( Text ), "%s", icon );
+            }
+        };
+
+        // Must be called under the toolbar's own FramePadding (DrawToolbar pushes it).
+        float ToolbarButtonWidth( const char* icon, const char* label )
+        {
+            const ToolbarButtonText text( icon, label );
+            return ::ImGui::CalcTextSize( text.Text ).x + ::ImGui::GetStyle().FramePadding.x * 2.0f;
+        }
+    } // namespace
+
     bool EditorLayer::ToolbarButton( const char* icon, const char* label, bool active, const char* tooltip,
                                      bool enabled )
     {
         namespace ImGui = ::ImGui;
 
-        char text[192];
-        if ( label && *label )
-            std::snprintf( text, sizeof( text ), "%s  %s", icon, label );
-        else
-            std::snprintf( text, sizeof( text ), "%s", icon );
+        const ToolbarButtonText button( icon, label );
+        const char*             text = button.Text;
 
         const ImVec4 accent = ThemeManager::GetSelectedColor();
         ImGui::PushStyleColor( ImGuiCol_Button, active ? ImVec4( accent.x, accent.y, accent.z, 0.30f )
@@ -8942,57 +8965,49 @@ namespace Desert::Editor
         ImGui::SameLine();
         DrawSnapControl( /*rotation=*/true );
 
-        // ---- Centre: playback -------------------------------------------------------------------
-        // Centred, deliberately. Playback is the only control here that says what the WORLD is doing
-        // rather than what the editor is doing, and in the right-hand corner it read as one more tool.
-        // Clamped so it never lands on the mode rail on a narrow window — it slides right instead of
-        // overlapping, because a Play button under another button is worse than an off-centre one.
+        // ---- Centre: playback; Right: the things you leave the editor through ---------------------
+        // ONE placement for both groups (ToolbarLayout::PlaceRow), from widths that are measured rather
+        // than assumed: the playback group's width depends on the frame height alone (its slots grey out,
+        // they never disappear), and the right group's is the sum of its buttons' own labels. The centre
+        // group sits on the bar's middle whatever the scene state and whatever the left groups read,
+        // and slides only when a neighbour would otherwise be under it.
         {
-            const float  leftEnd = ImGui::GetItemRectMax().x;
-            const float  btnH    = ImGui::GetFrameHeight();
-            const ImVec2 btnSize( btnH * 1.6f, btnH );
-            const float  playW     = 84.0f;
-            const float  groupW    = playW + ( btnSize.x + 2.0f ) * 2.0f;
-            const float  windowMid = ImGui::GetWindowPos().x + ImGui::GetWindowSize().x * 0.5f;
-            const float  startX    = std::max( windowMid - groupW * 0.5f, leftEnd + 24.0f );
+            namespace Layout = ::Desert::Editor::ToolbarLayout;
 
-            ImGui::SameLine();
-            ImGui::SetCursorScreenPos( ImVec2( startX, ImGui::GetCursorScreenPos().y ) );
+            struct RightButton
+            {
+                const char* Icon;
+                const char* Label;
+            };
+            const std::array<RightButton, 3> right = { { { ICON_MDI_PACKAGE_VARIANT_CLOSED, "Package" },
+                                                         { ICON_MDI_MONITOR_DASHBOARD, "Profiler" },
+                                                         { ICON_MDI_COG, "Settings" } } };
+            float rightW = ImGui::GetStyle().ItemSpacing.x * static_cast<float>( right.size() - 1 );
+            for ( const RightButton& button : right )
+                rightW += ToolbarButtonWidth( button.Icon, button.Label );
 
-            // Play is the bar's PRIMARY action and gets the accent; Pause is a modifier of a state that
-            // is already running and stays neutral. Undifferentiated, the pair reads as two equal
-            // buttons and the eye has to read the glyphs to find the one it wants.
-            const ImVec4 accent = ThemeManager::GetSelectedColor();
-            ImGui::PushStyleColor( ImGuiCol_Button, accent );
-            ImGui::PushStyleColor( ImGuiCol_ButtonHovered,
-                                   ImVec4( accent.x + 0.10f, accent.y + 0.08f, accent.z + 0.06f, 1.0f ) );
-            ImGui::PushStyleColor( ImGuiCol_ButtonActive,
-                                   ImVec4( accent.x * 0.8f, accent.y * 0.8f, accent.z * 0.8f, 1.0f ) );
-            ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 1.0f, 1.0f, 1.0f, 1.0f ) );
-            DrawPlayButton( ImVec2( playW, btnH ) );
-            ImGui::PopStyleColor( 4 );
+            const float                 frameH = ImGui::GetFrameHeight();
+            const float                 rowY   = ImGui::GetItemRectMin().y;
+            const Layout::PlaybackGroup probe  = Layout::LayoutPlaybackGroup( frameH );
+            const ImVec2                origin = ImGui::GetWindowPos();
+            const Layout::RowPlacement  row    = Layout::PlaceRow( Layout::Row{
+                     .ContentMinX = origin.x + ImGui::GetWindowContentRegionMin().x,
+                     .ContentMaxX = origin.x + ImGui::GetWindowContentRegionMax().x,
+                     .LeftEnd     = ImGui::GetItemRectMax().x,
+                     .CentreWidth = probe.Width,
+                     .RightWidth  = rightW,
+            } );
 
-            ImGui::SameLine();
-            DrawPauseButton( btnSize );
-        }
+            DrawPlaybackGroup( Layout::LayoutPlaybackGroup( frameH, row.CentreX ), rowY );
 
-        // ---- Right: the things you leave the editor through --------------------------------------
-        {
-            ImGui::SameLine();
-            const float rightGroupW = 330.0f;
-            const float x           = std::max( ImGui::GetItemRectMax().x + 24.0f,
-                                                ImGui::GetWindowPos().x + ImGui::GetWindowSize().x - rightGroupW );
-            ImGui::SetCursorScreenPos( ImVec2( x, ImGui::GetCursorScreenPos().y ) );
-
-            if ( ToolbarButton( ICON_MDI_PACKAGE_VARIANT_CLOSED, "Package", false,
-                                "Build and package the project" ) )
+            ImGui::SetCursorScreenPos( ImVec2( row.RightX, rowY ) );
+            if ( ToolbarButton( right[0].Icon, right[0].Label, false, "Build and package the project" ) )
                 Core::PanelRequests::Open( "Build Settings" );
             ImGui::SameLine();
-            if ( ToolbarButton( ICON_MDI_MONITOR_DASHBOARD, "Profiler", m_ShowProfiler,
-                                "Per-pass CPU and GPU timings" ) )
+            if ( ToolbarButton( right[1].Icon, right[1].Label, m_ShowProfiler, "Per-pass CPU and GPU timings" ) )
                 m_ShowProfiler = !m_ShowProfiler;
             ImGui::SameLine();
-            if ( ToolbarButton( ICON_MDI_COG, "Settings", s_ShowPreferences, "Editor preferences" ) )
+            if ( ToolbarButton( right[2].Icon, right[2].Label, s_ShowPreferences, "Editor preferences" ) )
                 s_ShowPreferences = !s_ShowPreferences;
         }
 
@@ -10306,67 +10321,102 @@ namespace Desert::Editor
         ImGui::EndMenu();
     }
 
-    void EditorLayer::DrawPlayButton( const ImVec2& size )
+    namespace
     {
-        namespace ImGui    = ::ImGui;
-        using SceneState   = ::Desert::Core::Scene::SceneState;
-        const bool playing = m_MainScene->GetState() != SceneState::Edit;
-
-        if ( playing )
-            ImGui::PushStyleColor( ImGuiCol_Text, ThemeManager::GetSelectedColor() );
-
-        // One toggle: Play when editing, Stop (restore the snapshot) when playing/paused.
-        if ( ImGui::Button( playing ? ICON_MDI_STOP : ICON_MDI_PLAY, size ) )
+        // One slot of the segmented playback group. Drawn by hand rather than with ImGui::Button because
+        // a segmented group rounds only its OUTER corners, which a Button cannot, and because a disabled
+        // slot must keep its place and its fill (dimmed) — the group's shape is the same in every state.
+        bool PlaybackSlotButton( const char* id, const char* glyph, const ImVec2& pos, const ImVec2& size,
+                                 ImDrawFlags corners, const ImVec4& fill, const ImVec4& glyphColour, bool enabled,
+                                 const char* tooltip )
         {
-            if ( playing )
-                m_PendingSceneStop = true; // deferred to OnUpdate (between frames) — see m_PendingSceneStop
-            else
+            namespace ImGui = ::ImGui;
+
+            ImGui::SetCursorScreenPos( pos );
+            if ( !enabled )
+                ImGui::BeginDisabled();
+            const bool clicked = ImGui::InvisibleButton( id, size );
+            const bool hovered = enabled && ImGui::IsItemHovered();
+            const bool held    = enabled && ImGui::IsItemActive();
+            if ( tooltip && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+                ImGui::SetTooltip( "%s", tooltip );
+            if ( !enabled )
+                ImGui::EndDisabled();
+
+            const float  lift  = held ? -0.06f : hovered ? 0.08f : 0.0f;
+            const float  alpha = enabled ? 1.0f : 0.45f;
+            const auto   shade = [&]( float c ) { return std::clamp( c + lift, 0.0f, 1.0f ); };
+            ImDrawList*  draw  = ImGui::GetWindowDrawList();
+            const ImVec2 max( pos.x + size.x, pos.y + size.y );
+            draw->AddRectFilled(
+                 pos, max,
+                 ImGui::GetColorU32( ImVec4( shade( fill.x ), shade( fill.y ), shade( fill.z ), fill.w * alpha ) ),
+                 ImGui::GetStyle().FrameRounding, corners );
+
+            const ImVec2 textSize = ImGui::CalcTextSize( glyph );
+            draw->AddText(
+                 ImVec2( pos.x + ( size.x - textSize.x ) * 0.5f, pos.y + ( size.y - textSize.y ) * 0.5f ),
+                 ImGui::GetColorU32(
+                      ImVec4( glyphColour.x, glyphColour.y, glyphColour.z, glyphColour.w * alpha ) ),
+                 glyph );
+            return clicked && enabled;
+        }
+    } // namespace
+
+    void EditorLayer::DrawPlaybackGroup( const ::Desert::Editor::ToolbarLayout::PlaybackGroup& group, float y )
+    {
+        namespace ImGui  = ::ImGui;
+        using SceneState = ::Desert::Core::Scene::SceneState;
+        using Slot       = ::Desert::Editor::ToolbarLayout::PlaybackSlot;
+
+        // UE's Level Editor group: Play | Options | Pause | Stop. Every slot is present in every state and
+        // the ones that do not apply are greyed out, so the group never changes shape or position when
+        // the world starts, pauses or stops. Play (with its options) is the bar's PRIMARY action and gets
+        // the accent while it can be pressed; Pause turns into Resume, armed, while the world is paused.
+        const SceneState state   = m_MainScene->GetState();
+        const bool       editing = state == SceneState::Edit;
+        const bool       paused  = state == SceneState::Paused;
+
+        const float  h       = ImGui::GetFrameHeight();
+        const ImVec4 accent  = ThemeManager::GetSelectedColor();
+        const ImVec4 neutral = ImGui::GetStyleColorVec4( ImGuiCol_Button );
+        const ImVec4 white( 1.0f, 1.0f, 1.0f, 1.0f );
+        const ImVec4 icon = ThemeManager::GetIconColor();
+
+        const auto at   = [&]( Slot slot ) { return ImVec2( group[slot].X, y ); };
+        const auto size = [&]( Slot slot ) { return ImVec2( group[slot].Width, h ); };
+
+        if ( PlaybackSlotButton( "##Play", ICON_MDI_PLAY, at( Slot::Play ), size( Slot::Play ),
+                                 ImDrawFlags_RoundCornersLeft, editing ? accent : neutral, editing ? white : icon,
+                                 editing, editing ? "Play (the pawn spawns at the PlayerStart)" : "Playing" ) )
+            OnScenePlay();
+
+        if ( PlaybackSlotButton( "##PlayOptions", ICON_MDI_CHEVRON_DOWN, at( Slot::Options ),
+                                 size( Slot::Options ), ImDrawFlags_RoundCornersNone, editing ? accent : neutral,
+                                 editing ? white : icon, editing, "Play options" ) )
+            ImGui::OpenPopup( "PlayModes" );
+        ImGui::SetNextWindowPos( ImVec2( group[Slot::Play].X, y + h ) );
+        if ( ImGui::BeginPopup( "PlayModes" ) )
+        {
+            if ( ImGui::MenuItem( ICON_MDI_PLAY " Play", nullptr, false ) )
                 OnScenePlay();
-        }
-        if ( ImGui::IsItemHovered() )
-            ImGui::SetTooltip( playing ? "Stop" : "Play (the pawn spawns at the PlayerStart)" );
-
-        // UE's Play dropdown, reduced to the one choice that changes WHERE the player begins.
-        if ( !playing )
-        {
-            ImGui::SameLine( 0.0f, 0.0f );
-            if ( ImGui::Button( ICON_MDI_CHEVRON_DOWN "##PlayModes", ImVec2( size.y * 0.6f, size.y ) ) )
-                ImGui::OpenPopup( "PlayModes" );
-            if ( ImGui::BeginPopup( "PlayModes" ) )
-            {
-                if ( ImGui::MenuItem( ICON_MDI_PLAY " Play", nullptr, false ) )
-                    OnScenePlay();
-                if ( ImGui::MenuItem( ICON_MDI_CAMERA " Play from Here", nullptr, false ) )
-                    OnScenePlay( /*fromHere=*/true );
-                ImGui::EndPopup();
-            }
+            if ( ImGui::MenuItem( ICON_MDI_CAMERA " Play from Here", nullptr, false ) )
+                OnScenePlay( /*fromHere=*/true );
+            ImGui::EndPopup();
         }
 
-        if ( playing )
-            ImGui::PopStyleColor();
-    }
-
-    void EditorLayer::DrawPauseButton( const ImVec2& size )
-    {
-        namespace ImGui   = ::ImGui;
-        using SceneState  = ::Desert::Core::Scene::SceneState;
-        const bool paused = m_MainScene->GetState() == SceneState::Paused;
-        const bool active = m_MainScene->GetState() != SceneState::Edit; // pause only matters while playing
-
-        if ( !active )
-            ImGui::BeginDisabled();
-        if ( paused )
-            ImGui::PushStyleColor( ImGuiCol_Text, ThemeManager::GetSelectedColor() );
-
-        if ( ImGui::Button( ICON_MDI_PAUSE, size ) )
+        if ( PlaybackSlotButton( "##Pause", paused ? ICON_MDI_PLAY : ICON_MDI_PAUSE, at( Slot::Pause ),
+                                 size( Slot::Pause ), ImDrawFlags_RoundCornersNone, paused ? accent : neutral,
+                                 paused ? white : icon, !editing, paused ? "Resume" : "Pause" ) )
             OnScenePauseToggle();
-        if ( ImGui::IsItemHovered() )
-            ImGui::SetTooltip( paused ? "Resume" : "Pause" );
 
-        if ( paused )
-            ImGui::PopStyleColor();
-        if ( !active )
-            ImGui::EndDisabled();
+        if ( PlaybackSlotButton( "##Stop", ICON_MDI_STOP, at( Slot::Stop ), size( Slot::Stop ),
+                                 ImDrawFlags_RoundCornersRight, neutral,
+                                 editing ? icon : ThemeManager::GetErrorColor(), !editing, "Stop" ) )
+            m_PendingSceneStop = true; // deferred to OnUpdate (between frames) — see m_PendingSceneStop
+
+        // Leave the cursor on the group's row, after its last slot, as a SameLine chain would.
+        ImGui::SetCursorScreenPos( ImVec2( group[Slot::Stop].X + group[Slot::Stop].Width, y ) );
     }
 
     namespace
