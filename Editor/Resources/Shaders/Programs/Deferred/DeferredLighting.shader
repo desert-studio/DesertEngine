@@ -86,8 +86,8 @@ Shader "DeferredLighting"
         // with a comment recording that the raw albedo*NdotL*intensity Lambert made the sun ~PI× too bright
         // and washed out the point/spot lights. The forward mesh shaders had shipped exactly that raw form
         // for as long, so the comment described a defect that was live one file away. The copy is gone: the
-        // sun is now EvaluateDirectionalLight from Mesh/DirectLighting.glslh, which the forward path and the
-        // point/spot headers compile too. Included at the top with Mesh/PointLight.glslh, which pulls it in.
+        // sun, like every point and spot light, is a DesertLight (Mesh/LightSources.glslh) handed to the
+        // surface's shading model, whose DefaultLit body is EvaluateDirectLight from Mesh/DirectLighting.glslh.
 
         Uniform(0) DeferredUB
         {

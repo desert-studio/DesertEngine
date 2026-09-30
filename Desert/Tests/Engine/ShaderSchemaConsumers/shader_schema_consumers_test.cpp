@@ -814,7 +814,7 @@ namespace
                 continue;
             }
             // `<path>` names a file under the Shaders directory; `"path"` is looked up next to the including
-            // file first (Mesh/PointLight.glslh includes "DirectLighting.glslh"), as a relative include is.
+            // file first (Mesh/PointLight.glslh includes "LightSources.glslh"), as a relative include is.
             const std::string target   = line.substr( open + 1, close - open - 1 );
             fs::path          included = shadersDir / target;
             if ( line[open] == '"' && fs::exists( file.parent_path() / target ) )

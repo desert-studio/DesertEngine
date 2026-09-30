@@ -4,7 +4,7 @@
 //
 // Not a port and not a paraphrase — the same text, the same file, that StaticMeshPBR.shader,
 // StaticMeshPBR_Instanced.shader, SkinnedMeshPBR.shader, Deferred/DeferredLighting.shader,
-// Mesh/PointLight.glslh and Mesh/Spotlight.glslh compile as GLSL. A hand-written CPU copy could only
+// ShadingModels/DefaultLit.shadingmodel compile as GLSL. A hand-written CPU copy could only
 // ever prove that the copy agrees with itself, and this is precisely the quantity where that failed:
 // there were FOUR copies of this BRDF in the shaders and the forward mesh shaders' copy had lost the
 // /PI of the Lambert diffuse, so the sun was PI times too bright there — both against the deferred

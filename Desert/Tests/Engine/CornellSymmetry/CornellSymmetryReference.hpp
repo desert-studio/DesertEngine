@@ -1,6 +1,8 @@
 #pragma once
 
-// Compiles Editor/Resources/Shaders/Mesh/PBRFunctions.glslh and Mesh/DirectLighting.glslh AS C++.
+// Compiles Editor/Resources/Shaders/Mesh/PBRFunctions.glslh, Mesh/DirectLighting.glslh and Mesh/LightSources.glslh
+// (with the ShadingModels/ShadingModelContract.glslh it includes) AS C++: a point light reaches a surface as
+// DesertPointLightAt's DesertLight, and DefaultLit's Evaluate is EvaluateDirectLight on it times its Shadow.
 //
 // Not a port and not a paraphrase — the same two files the deferred composite and every forward mesh
 // shader compile as GLSL. The suite beside this header asks whether two surfaces standing symmetrically
@@ -19,7 +21,9 @@
 
 #include <glm/glm.hpp>
 
+#include <bit>
 #include <cmath>
+#include <cstdint>
 #include <Common/Core/GlslAsCpp.hpp>
 
 namespace Desert::Tests::CornellSymmetryRef
@@ -80,6 +84,19 @@ namespace Desert::Tests::CornellSymmetryRef
 // fresnelSchlick, exactly as it says at the top of itself and exactly as every shader includes them.
 #include <Mesh/PBRFunctions.glslh>
 #include <Mesh/DirectLighting.glslh>
+        // The contract's shading-word helpers (compiled with LightSources, unused here) name GLSL's bit built-ins.
+        using uint = std::uint32_t;
+        using glm::abs;
+        using glm::length;
+        uint floatBitsToUint( float value )
+        {
+            return std::bit_cast<uint>( value );
+        }
+        float uintBitsToFloat( uint value )
+        {
+            return std::bit_cast<float>( value );
+        }
+#include <Mesh/LightSources.glslh>
         DESERT_GLSL_AS_CPP_END
 
     } // namespace

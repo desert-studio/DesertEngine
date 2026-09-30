@@ -4,8 +4,44 @@
 // Every analytic source as a shading model receives it (DesertLight, ShadingModels/ShadingModelContract.glslh):
 // what is specific to the SOURCE — its direction, colour * intensity, falloff and cone — is resolved here, and
 // the model's Evaluate does the rest. The deferred composite and the forward pass build their lights here, so the
-// two paths hand a model the same light. Requires Mesh/PointLight.glslh and Mesh/Spotlight.glslh first.
+// two paths hand a model the same light. It declares no binding (the scene's buffers of these sources are
+// Mesh/PointLight.glslh and Mesh/Spotlight.glslh, which include this file), so it also compiles as C++: the
+// CornellSymmetry suite lights its walls through THIS text.
+#include <Mesh/PBRFunctions.glslh> // LightFalloffFactor, the one distance model
 #include <ShadingModels/ShadingModelContract.glslh>
+
+// std430 layout — must match ShaderProtocols::PointLightPayload (48 bytes).
+struct PointLight {
+    vec3  color;
+    float intensity;
+    vec3  position;
+    float radius;
+    float minRadius;
+    int   falloff;     // LightFalloff: 0=Linear, 1=Quadratic, 2=InverseSquare
+    vec2  _pad;
+};
+
+// std430 layout — must match ShaderProtocols::SpotLightPayload (64 bytes).
+struct SpotLight {
+    vec3  color;
+    float intensity;
+    vec3  position;
+    float range;
+    vec3  direction;   // normalized, pointing OUT of the cone apex
+    float cosInner;    // cos(inner half-angle) — full intensity inside this
+    float cosOuter;    // cos(outer half-angle) — zero intensity outside this
+    int   falloff;     // LightFalloff: 0=Linear, 1=Quadratic, 2=InverseSquare
+    vec2  _pad;
+};
+
+// Cone angular falloff: 1 inside the inner cone, smooth to 0 between inner and outer, 0 outside.
+float SpotConeFactor(SpotLight light, vec3 L)
+{
+    // L points from the surface TOWARD the light; the cone opens along -direction from the light.
+    float cosTheta = dot(-L, light.direction);
+    return clamp((cosTheta - light.cosOuter) / max(light.cosInner - light.cosOuter, 1e-4), 0.0, 1.0);
+}
+
 
 // The sun. `lightTravel` is the direction the light travels (away from the sun), as both paths' uniform
 // blocks carry it; `shadow` is the cascades (unless the surface does not receive them) times the cloud layer.
