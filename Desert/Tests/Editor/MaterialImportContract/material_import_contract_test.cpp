@@ -2,6 +2,9 @@
 
 #include <Editor/Import/MaterialImportContract.hpp>
 
+#include "../../TestSupport/scratch_dir.hpp"
+
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <utility>
@@ -97,8 +100,9 @@ TEST( MaterialImportContract, TheShippedTemplatesChooseByTheirOwnContracts )
     std::vector<ImportTemplate> shipped;
     for ( const auto& [name, file] : files )
     {
-        const std::ifstream in( file );
-        ASSERT_TRUE( in ) << file << " (run from the tree root)";
+        const std::filesystem::path path = Desert::TestSupport::RepositoryRoot() / file;
+        const std::ifstream         in( path );
+        ASSERT_TRUE( in ) << path.string();
         std::stringstream text;
         text << in.rdbuf();
         auto manifest = ReadShaderManifest( text.str() );

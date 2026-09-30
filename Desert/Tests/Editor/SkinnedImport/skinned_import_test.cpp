@@ -29,6 +29,7 @@
 
 #include "../../TestSupport/assets_sandbox.hpp"
 #include "../../TestSupport/derived_data_sandbox.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -167,15 +168,16 @@ namespace
     protected:
         // The mock's material needs a template to go to, as in the editor after its shaders load: the shipped
         // StandardSurface and Unlit templates, read by the importer's own reader and published through the same
-        // seam the registry uses (run from the tree root, before the sandbox moves the process).
+        // seam the registry uses (read from the repository root, before the sandbox moves the process).
         static void SetUpTestSuite()
         {
             std::vector<Editor::ImportTemplate> shipped;
             for ( const char* file : { "Editor/Resources/Shaders/Programs/PBR/StandardSurface.shader",
                                        "Editor/Resources/Shaders/Programs/Unlit/Unlit.shader" } )
             {
-                const auto text = Common::Utils::FileSystem::ReadFileContent( file );
-                ASSERT_TRUE( text.IsSuccess() ) << file << " (run from the tree root)";
+                const auto text =
+                     Common::Utils::FileSystem::ReadFileContent( TestSupport::RepositoryRoot() / file );
+                ASSERT_TRUE( text.IsSuccess() ) << ( TestSupport::RepositoryRoot() / file ).string();
                 auto read = Editor::ReadImportTemplate( text.GetValue(), file );
                 ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
                 shipped.push_back( read.GetValue() );
