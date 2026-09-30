@@ -223,7 +223,6 @@ TEST( InstanceFold, TheStaticMeshPassDoesNotReturnBeforeItReachesTheInstancedQue
     namespace fs = std::filesystem;
 
     const fs::path root = Desert::TestSupport::RepositoryRoot();
-    root                = root.parent_path();
     ASSERT_TRUE( fs::exists( root / "Desert" / "Common" ) ) << "tree not found -- this census saw nothing";
 
     const fs::path renderer = root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "Systems" / "Scene" /
