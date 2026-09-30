@@ -251,6 +251,36 @@ namespace Desert::Graphic::RDG
         Compute   = 1u << 1,
         Copy      = 1u << 2,
         NeverCull = 1u << 3, // a culling root even if nothing reads what it writes (readbacks, debug capture)
+        // RDG-CONTRACTS B(1). UE: ERDGPassFlags::AsyncCompute. Only valid together with Compute; declaring it on a
+        // Raster or Copy pass is a declaration error Compile returns. It is a REQUEST, not a guarantee: Compile
+        // puts the pass on Pipe::AsyncCompute when PipeCapabilities::SeparateComputeFamily is true, and on
+        // Pipe::Graphics otherwise (CompileResult::DemotedAsyncPasses). The pass's exec lambda must record the
+        // same commands on either pipe - it asks PassContext::GetPipe() only for labels, never to branch its work.
+        AsyncCompute = 1u << 4,
+    };
+
+    // A hardware queue timeline the compiled graph records onto (UE: ERHIPipeline). Graphics is the queue the
+    // frame is presented from; AsyncCompute is a queue of a DIFFERENT family that runs concurrently with it.
+    enum class Pipe : uint8_t
+    {
+        Graphics,
+        AsyncCompute,
+        Count
+    };
+
+    inline constexpr uint32_t kPipeCount = static_cast<uint32_t>( Pipe::Count );
+
+    // RDG-CONTRACTS B(4). What the device offers the scheduler; the backend answers it
+    // (IBackend::GetPipeCapabilities), the suite states it. Compile never probes a device for it.
+    struct PipeCapabilities
+    {
+        // True only when the device exposes a compute-capable queue family distinct from the graphics family
+        // (VulkanDevice creates m_ComputeQueue on it). Two queues of the SAME family do not count: no ownership
+        // transfer is needed there, but no deployed driver runs them concurrently either, and one rule is
+        // simpler to test than two.
+        bool SeparateComputeFamily = false;
+
+        constexpr bool operator==( const PipeCapabilities& ) const = default;
     };
 
     constexpr PassFlags operator|( PassFlags a, PassFlags b )
