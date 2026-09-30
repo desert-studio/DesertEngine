@@ -21,6 +21,10 @@
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
+#include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
+
+#include <Common/Core/Constants.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 
 namespace Desert::Runtime
 {
@@ -358,6 +362,30 @@ namespace Desert::Runtime
         if ( !shaderService )
             return;
 
+        // THE SHADING MODELS ARE SHADER SOURCE TOO (UE: editing a shading model recompiles its dependents, no
+        // restart). A changed .shadingmodel re-scans the set; the reload rewrites the generated include, and
+        // every program that pulls it in (or whose surface template resolves a model to an index in C++) is a
+        // changed program below. A manifest that no longer parses keeps the previous set, and says so.
+        bool shadingModelsReloaded = false;
+        {
+            bool manifestChanged = false;
+            for ( const auto& file : Common::Utils::FileSystem::ListFilesRecursive(
+                       std::filesystem::path( Common::Constants::Path::SHADERDIR_PATH ) /
+                       Core::ShadingModels::kShadingModelDirectory ) )
+                if ( file.extension() == Core::ShadingModels::kShadingModelExtension )
+                    manifestChanged = TouchWatched( file ) || manifestChanged;
+            if ( manifestChanged && !m_FirstScan )
+            {
+                if ( const auto reloaded = Core::ShadingModels::ReloadShaderRootShadingModels(); !reloaded )
+                    LOG_ERROR( "[HotReload] shading models: {} — keeping the previous set", reloaded.GetError() );
+                else
+                {
+                    shadingModelsReloaded = true;
+                    LOG_INFO( "[HotReload] shading models re-read; recompiling the programs that use them" );
+                }
+            }
+        }
+
         for ( const auto& [handle, asset] : assetManager.FindAllByType<Assets::ShaderAsset>() )
         {
             if ( !asset )
@@ -373,6 +401,14 @@ namespace Desert::Runtime
             for ( const auto& include : Core::CollectShaderIncludes( asset->GetShaderContent(), path ) )
             {
                 changed = TouchWatched( include ) || changed;
+            }
+
+            if ( shadingModelsReloaded && !changed )
+            {
+                const std::string& content = asset->GetShaderContent();
+                changed = Core::Preprocess::DShaderParser::MayDeclareSurface( content );
+                for ( const auto& include : Core::CollectShaderIncludes( content, path ) )
+                    changed = changed || include.generic_string().ends_with( Core::ShadingModels::kGeneratedInclude );
             }
 
             if ( !changed || m_FirstScan )

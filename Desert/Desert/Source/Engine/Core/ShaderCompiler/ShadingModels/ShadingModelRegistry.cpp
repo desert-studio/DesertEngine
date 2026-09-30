@@ -2,11 +2,13 @@
 
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 
+#include <Common/Utilities/FileSystem.hpp>
+
 #include <algorithm>
 #include <cctype>
 #include <format>
-#include <fstream>
 #include <iterator>
+#include <optional>
 #include <sstream>
 
 namespace Desert::Core::ShadingModels
@@ -50,12 +52,11 @@ namespace Desert::Core::ShadingModels
             return m.SourcePath.generic_string();
         }
 
-        std::string ReadText( const std::filesystem::path& path )
+        // Through the VFS (FileSystem is pak-aware): the packaged game has no loose shader root, only the pak
+        // the cook staged it into. Absence is nullopt; a present file that cannot be read is the error.
+        Common::ResultStr<std::optional<std::string>> ReadText( const std::filesystem::path& path )
         {
-            std::ifstream      in( path, std::ios::binary );
-            std::ostringstream out;
-            out << in.rdbuf();
-            return out.str();
+            return Common::Utils::FileSystem::ReadFileContentIfExists( path );
         }
     } // namespace
 
@@ -115,35 +116,44 @@ namespace Desert::Core::ShadingModels
     // ------------------------------------------------------------------------------------------------------------
     Common::ResultStr<ShadingModelRegistry> ShadingModelRegistry::Scan( const std::filesystem::path& shaderRoot )
     {
-        const std::filesystem::path surfaceTypes = shaderRoot / "Mesh/Surface/SurfaceTypes.glslh";
-        if ( !std::filesystem::is_regular_file( surfaceTypes ) )
+        const std::filesystem::path surfaceTypes     = shaderRoot / "Mesh/Surface/SurfaceTypes.glslh";
+        const auto                  surfaceTypesText = ReadText( surfaceTypes );
+        if ( !surfaceTypesText.IsSuccess() )
+            return Common::MakeError<ShadingModelRegistry>( surfaceTypesText.GetError() );
+        if ( !surfaceTypesText.GetValue().has_value() )
             return Common::MakeError<ShadingModelRegistry>(
                  std::format( "{}: missing — it declares SurfaceOutput, the field list of shading-model Inputs",
                               surfaceTypes.generic_string() ) );
-        const auto fields = ReadSurfaceOutputFields( ReadText( surfaceTypes ) );
+        const auto fields = ReadSurfaceOutputFields( *surfaceTypesText.GetValue() );
         if ( !fields.IsSuccess() )
             return Common::MakeError<ShadingModelRegistry>( fields.GetError() );
 
-        const std::filesystem::path directory = shaderRoot / kShadingModelDirectory;
+        // The directory's own manifests (not its subdirectories'), from disk AND every mounted pak.
+        // Compared symlink-resolved: the pak half answers canonical paths, the disk half the root as spelled.
+        const std::filesystem::path directory = ( shaderRoot / kShadingModelDirectory ).lexically_normal();
         std::error_code             ec;
-        if ( !std::filesystem::is_directory( directory, ec ) )
-            return Common::MakeError<ShadingModelRegistry>(
-                 std::format( "{}: missing — the shading models (Unlit and DefaultLit at least) live there",
-                              directory.generic_string() ) );
-
+        const std::filesystem::path canonicalDirectory = std::filesystem::weakly_canonical( directory, ec );
         std::vector<std::filesystem::path> files;
-        for ( const auto& entry : std::filesystem::directory_iterator( directory, ec ) )
-            if ( entry.is_regular_file() && entry.path().extension() == kShadingModelExtension )
-                files.push_back( entry.path() );
-        if ( ec )
+        for ( const std::filesystem::path& file : Common::Utils::FileSystem::ListFilesRecursive( directory ) )
+            if ( file.extension() == kShadingModelExtension &&
+                 std::filesystem::weakly_canonical( file.parent_path(), ec ) == canonicalDirectory )
+                files.push_back( file );
+        if ( files.empty() )
             return Common::MakeError<ShadingModelRegistry>(
-                 std::format( "{}: cannot list ({})", directory.generic_string(), ec.message() ) );
+                 std::format( "{}: no {} files — the shading models (Unlit and DefaultLit at least) live there",
+                              directory.generic_string(), kShadingModelExtension ) );
         std::ranges::sort( files );
 
         std::vector<ShadingModelManifest> manifests;
         for ( const std::filesystem::path& file : files )
         {
-            auto manifest = ParseShadingModelManifest( ReadText( file ), file );
+            const auto text = ReadText( file );
+            if ( !text.IsSuccess() )
+                return Common::MakeError<ShadingModelRegistry>( text.GetError() );
+            if ( !text.GetValue().has_value() )
+                return Common::MakeError<ShadingModelRegistry>(
+                     std::format( "{}: listed but not readable", file.generic_string() ) );
+            auto manifest = ParseShadingModelManifest( *text.GetValue(), file );
             if ( !manifest.IsSuccess() )
                 return Common::MakeError<ShadingModelRegistry>( manifest.GetError() );
             manifests.push_back( manifest.ExtractValue() );

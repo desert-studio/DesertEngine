@@ -2540,7 +2540,9 @@ TEST_F( ShaderRootFixture, EveryShippedProgramsMetadataIsTheSameAfterTheShaderMa
         for ( const auto& pass : passes )
         {
             Desert::Core::ShaderMap map;
-            map.Meta = PP::ShaderPreprocess::ParseProgramMetaForPass( text, pass );
+            const auto meta = PP::ShaderPreprocess::ParseProgramMetaForPass( text, entry.path(), pass );
+            ASSERT_TRUE( meta.IsSuccess() ) << meta.GetError();
+            map.Meta = meta.GetValue();
             map.Stages.push_back( { Desert::Core::Formats::ShaderStage::Compute, { 0x07230203u, 7u, 9u } } );
             const std::string bytes = Desert::Core::SerializeShaderMap( map );
             const auto        back  = Desert::Core::DeserializeShaderMap( bytes );
@@ -2695,12 +2697,14 @@ TEST_F( ShaderRootFixture, EveryShippedShaderStageCompilesAndReflects )
             continue;
         }
         std::vector<std::string> passes = { "" };
-        const auto               meta   = Preprocess::ShaderPreprocess::ParseProgramMetaForPass( content, "" );
-        passes.insert( passes.end(), meta.PassNames.begin(), meta.PassNames.end() );
+        const auto meta = Preprocess::ShaderPreprocess::ParseProgramMetaForPass( content, entry.path(), "" );
+        ASSERT_TRUE( meta.IsSuccess() ) << meta.GetError();
+        passes.insert( passes.end(), meta.GetValue().PassNames.begin(), meta.GetValue().PassNames.end() );
         for ( const std::string& pass : passes )
         {
-            for ( const auto& [stage, source] :
-                  Preprocess::ShaderPreprocess::PreProcessProgramPass( content, entry.path(), pass ) )
+            const auto passStages = Preprocess::ShaderPreprocess::PreProcessProgramPass( content, entry.path(), pass );
+            ASSERT_TRUE( passStages.IsSuccess() ) << passStages.GetError();
+            for ( const auto& [stage, source] : passStages.GetValue() )
             {
                 ++stages;
                 const shaderc_shader_kind kind  = stage == ShaderStage::Vertex     ? shaderc_glsl_vertex_shader
@@ -2799,7 +2803,8 @@ TEST_F( ShaderRootFixture, TheGeneratedShadingModelIndicesAreTheRegistrys )
     // generated include every lighting pass compiles. A define that differed would light a surface with another
     // model's formula, and nothing else would notice.
     namespace SM       = Desert::Core::ShadingModels;
-    const auto& models = SM::ShaderRootShadingModels();
+    const auto  held   = SM::ShaderRootShadingModels();
+    const auto& models = *held;
     ASSERT_TRUE( models.IsSuccess() ) << models.GetError();
     const auto header = std::filesystem::path( "Resources/Shaders" ) / SM::kGeneratedInclude;
     const auto text   = ReadFile( header );

@@ -793,8 +793,10 @@ TEST( PackagedContent, TheCookCompilesWhatTheRuntimeWillAskFor )
     const std::string& content = contentRead.GetValue();
     ASSERT_FALSE( content.empty() );
 
-    const auto stages =
+    const auto preprocessed =
          Desert::Core::Preprocess::ShaderPreprocess::PreProcessProgramPass( content, shaderFile, "" );
+    ASSERT_TRUE( preprocessed.IsSuccess() ) << preprocessed.GetError();
+    const auto& stages = preprocessed.GetValue();
     ASSERT_EQ( stages.size(), 2u );
     for ( const auto& [stage, source] : stages )
     {

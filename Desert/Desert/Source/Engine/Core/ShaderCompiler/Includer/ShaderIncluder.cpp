@@ -110,7 +110,8 @@ namespace Desert::Core
             // a set that failed to load fails every program that includes it, with the scan's error.
             if ( requested == ShadingModels::kGeneratedInclude )
             {
-                const auto& models = ShadingModels::ShaderRootShadingModels();
+                const auto  held   = ShadingModels::ShaderRootShadingModels();
+                const auto& models = *held;
                 if ( !models.IsSuccess() )
                     return CreateErrorIncludeResult( models.GetError() );
                 return MakeResult( fullPath.string(),

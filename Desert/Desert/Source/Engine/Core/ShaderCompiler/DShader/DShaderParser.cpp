@@ -1871,7 +1871,8 @@ namespace Desert::Core::Preprocess
             const bool masked = result.Surface.Blend == SurfaceBlendMode::Masked;
             // THE MODEL, from the one loaded set (ShaderRootShadingModels): by name when the template names one,
             // DefaultLit when it does not. No fallback: an unknown name or a set that failed to load refuses.
-            const auto& models = ShadingModels::ShaderRootShadingModels();
+            const auto  held   = ShadingModels::ShaderRootShadingModels();
+            const auto& models = *held;
             if ( !models.IsSuccess() )
             {
                 err = { shadingModelLine != 0 ? shadingModelLine : surfaceBlock->StartLine,

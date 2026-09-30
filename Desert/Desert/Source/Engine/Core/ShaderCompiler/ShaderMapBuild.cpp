@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <unordered_map>
 
+#include <format>
+
 namespace Desert::Core
 {
     namespace
@@ -46,10 +48,19 @@ namespace Desert::Core
             std::unordered_map<Formats::ShaderStage, std::string> stages;
             {
                 const ScopedShaderPhase timer( ShaderPhase::Preprocess );
+                // A source that does not parse is THIS shader's refusal, named by its file (the preprocessor
+                // prefixes it) and by the program asked for — never a verify on a job-system worker.
                 auto preprocessed = Preprocess::ShaderPreprocess::PreProcessPass( request.Source, request.Path,
                                                                                   request.PassName );
-                built.Meta        = std::move( preprocessed.Meta );
-                stages            = std::move( preprocessed.Stages );
+                if ( !preprocessed.IsSuccess() )
+                    return Common::MakeError<ShaderMap>( std::format( "shader '{}'{}: {}", request.Name,
+                                                                      request.PassName.empty()
+                                                                           ? std::string()
+                                                                           : std::format( " pass '{}'", request.PassName ),
+                                                                      preprocessed.GetError() ) );
+                auto pass  = preprocessed.ExtractValue();
+                built.Meta = std::move( pass.Meta );
+                stages     = std::move( pass.Stages );
             }
             if ( built.Meta.HasParams() || built.Meta.State.Topology.has_value() )
                 LOG_INFO( "Shader '{}': parsed {} param(s) + render-state from shader metadata", request.Name,

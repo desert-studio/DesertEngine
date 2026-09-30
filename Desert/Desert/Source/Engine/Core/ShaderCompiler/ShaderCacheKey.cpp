@@ -211,7 +211,8 @@ namespace Desert::Core
         {
             if ( !include.generic_string().ends_with( ShadingModels::kGeneratedInclude ) )
                 return;
-            const auto& models = ShadingModels::ShaderRootShadingModels();
+            const auto  held   = ShadingModels::ShaderRootShadingModels();
+            const auto& models = *held;
             // A set that failed to load fails the compile itself (the includer serves its error); the key
             // only has to differ from every loaded layout's.
             FnvMix( key, "|shadingmodels:" );

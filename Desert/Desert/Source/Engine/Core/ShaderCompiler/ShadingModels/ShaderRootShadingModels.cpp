@@ -1,13 +1,13 @@
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 
 #include <Common/Core/Constants.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 
 #include <format>
 #include <fstream>
 #include <map>
 #include <memory>
 #include <mutex>
-#include <sstream>
 
 namespace Desert::Core::ShadingModels
 {
@@ -16,16 +16,14 @@ namespace Desert::Core::ShadingModels
         using LoadResult = Common::ResultStr<LoadedShadingModels>;
 
         // Writes the generated include only when its bytes differ, so an unchanged set never touches the file's
-        // write time (the per-process shader file cache compares it).
+        // write time (the per-process shader file cache compares it). The comparison reads through the VFS: in
+        // a packaged game the include is the cooked copy in the pak and matches, so the player's install is
+        // never written to.
         std::string WriteIfChanged( const std::filesystem::path& path, const std::string& text )
         {
-            {
-                std::ifstream      in( path, std::ios::binary );
-                std::ostringstream current;
-                current << in.rdbuf();
-                if ( in && current.str() == text )
-                    return {};
-            }
+            const auto current = Common::Utils::FileSystem::ReadFileContentIfExists( path );
+            if ( current.IsSuccess() && current.GetValue().has_value() && *current.GetValue() == text )
+                return {};
             std::ofstream out( path, std::ios::binary | std::ios::trunc );
             out << text;
             out.close();
@@ -52,19 +50,50 @@ namespace Desert::Core::ShadingModels
         }
     } // namespace
 
-    const Common::ResultStr<LoadedShadingModels>& ShaderRootShadingModels()
+    namespace
     {
+        struct RootSets
+        {
+            std::mutex                                             Mutex;
+            std::map<std::filesystem::path, ShaderRootSet> Loaded;
+        };
+
+        RootSets& Sets()
+        {
+            static RootSets s_Sets;
+            return s_Sets;
+        }
+
         // Keyed by the ABSOLUTE root: a process that changes directory (a test on a private copy of the root)
         // gets that root's set, never the first one's.
-        static std::mutex                                                   s_Mutex;
-        static std::map<std::filesystem::path, std::unique_ptr<LoadResult>> s_Loaded;
+        std::filesystem::path CurrentRoot()
+        {
+            return std::filesystem::absolute( Common::Constants::Path::SHADERDIR_PATH ).lexically_normal();
+        }
+    } // namespace
 
-        const std::filesystem::path root =
-             std::filesystem::absolute( Common::Constants::Path::SHADERDIR_PATH ).lexically_normal();
-        std::lock_guard lock( s_Mutex );
-        auto&           slot = s_Loaded[root];
+    ShaderRootSet ShaderRootShadingModels()
+    {
+        const std::filesystem::path root = CurrentRoot();
+        RootSets&                   sets = Sets();
+        std::lock_guard             lock( sets.Mutex );
+        auto&                       slot = sets.Loaded[root];
         if ( !slot )
-            slot = std::make_unique<LoadResult>( Load( root ) );
-        return *slot;
+            slot = std::make_shared<const LoadResult>( Load( root ) );
+        return slot;
+    }
+
+    Common::BoolResultStr ReloadShaderRootShadingModels()
+    {
+        const std::filesystem::path root = CurrentRoot();
+        RootSets&                   sets = Sets();
+        // Under the lock for the whole scan: two reloads (or a first load racing a reload) must not write
+        // kGeneratedInclude twice from two different sets.
+        std::lock_guard lock( sets.Mutex );
+        auto            loaded = std::make_shared<const LoadResult>( Load( root ) );
+        if ( !loaded->IsSuccess() )
+            return Common::MakeError<bool>( loaded->GetError() );
+        sets.Loaded[root] = std::move( loaded );
+        return Common::MakeSuccess( true );
     }
 } // namespace Desert::Core::ShadingModels
