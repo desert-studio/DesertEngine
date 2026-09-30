@@ -142,6 +142,10 @@ namespace Desert::Assets
         /// as identity: ResolveDependencies binds HandleForGuid of this, GetSkeletonSignature goes away.
         [[nodiscard]] Common::Content::AssetGuid GetSkeleton() const;
 
+        /// Authoring (Details slot, after CheckSkeletonAssignment): in memory, re-resolves on the next
+        /// ResolveDependencies. Serialization::SaveMeshSkeletonReference writes the .skmesh and the source.
+        void SetSkeleton( Common::Content::AssetGuid skeleton );
+
         uint64_t GetSkeletonSignature() const
         {
             return m_SkeletonSignature;
