@@ -49,7 +49,7 @@ namespace Desert::Editor
         // and not outdated. What the browser asks before handing a picture to the worker decode.
         [[nodiscard]] bool Holds( const std::string& sourcePath ) const
         {
-            return m_Cache.contains( sourcePath ) && !m_Outdated.contains( sourcePath );
+            return m_Cache.contains( sourcePath ) && !m_Outdated.Contains( sourcePath );
         }
 
         // The pictures held (entries with an image; remembered failures are not pictures).
