@@ -24,7 +24,7 @@ using Desert::Animation::RequiredBone;
 using Desert::Animation::Skeleton;
 using Desert::Animation::SkeletonAssetRef;
 using Desert::Animation::SkeletonCandidate;
-using Desert::Common::Content::AssetGuid;
+using Common::Content::AssetGuid;
 
 namespace
 {
