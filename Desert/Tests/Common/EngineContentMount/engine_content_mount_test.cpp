@@ -96,3 +96,9 @@ TEST_F( EngineContentMount, TheSandboxWalksTheMountOnce )
     const auto& skeleton = Common::Content::KindSpec( ContentKind::Skeleton );
     EXPECT_EQ( Common::Content::ScanRootsOf( skeleton ).size(), 1U );
 }
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}
