@@ -81,7 +81,7 @@ namespace PoseGraphFixture
     }
 
     /// `graph` on `animator`, `clip` in its layer / additive node, the weight (or alpha) parameter at `weight`.
-    [[nodiscard]] inline Desert::Common::BoolResultStr Drive( Desert::Animation::Animator& animator,
+    [[nodiscard]] inline Common::BoolResultStr Drive( Desert::Animation::Animator& animator,
                                                               const G::AnimGraph&          graph,
                                                               const Desert::Animation::AnimationClip& clip,
                                                               float weight = 1.0F, bool loop = true )
