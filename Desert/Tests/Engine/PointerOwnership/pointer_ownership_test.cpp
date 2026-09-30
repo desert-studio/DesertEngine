@@ -557,6 +557,36 @@ TEST( PointerOwnership, EditorLayerDeclaresItsHostsBeforeItsPanels )
     }
 }
 
+TEST( PointerOwnership, VulkanRendererDeclaresItsFrameObjectsBeforeTheGraphBackend )
+{
+    // FOUR ROWS REST ON ONE LINE ORDER: VulkanRdgBackend::m_Queues / m_Transients / m_Descriptors point at
+    // members of VulkanRendererAPI, and VulkanRdgQueueSet::Objects (inside m_RdgQueues) at m_RdgQueueObjects.
+    // Each pointee outlives its holder only because it is declared BEFORE it. Until RDG-INT3 the backend was
+    // declared first and outlived all three; asserted so the next tidy-up cannot put it back.
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    const std::string src = ReadRepoFile( "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.hpp" );
+    ASSERT_FALSE( src.empty() );
+
+    const std::size_t backend = src.find( "std::unique_ptr<VulkanRdgBackend> m_RdgBackend;" );
+    ASSERT_NE( backend, std::string::npos ) << "VulkanRendererAPI no longer declares m_RdgBackend -- the "
+                                               "Guard::HostOutlivesUs rows of VulkanRdgBackend need re-deriving.";
+    const std::size_t queues = src.find( "VulkanRdgQueueSet                            m_RdgQueues;" );
+    ASSERT_NE( queues, std::string::npos ) << "VulkanRendererAPI no longer declares m_RdgQueues.";
+
+    for ( const char* host : { "m_RdgTransients;", "m_RdgDescriptors;", "m_RdgQueueObjects;" } )
+    {
+        const std::size_t at = src.find( host );
+        ASSERT_NE( at, std::string::npos ) << host << " is no longer a member of VulkanRendererAPI.";
+        EXPECT_LT( at, backend ) << host << " is now declared AFTER m_RdgBackend, so it is destroyed BEFORE "
+                                            "the backend that holds a raw pointer to it.";
+    }
+    EXPECT_LT( queues, backend ) << "m_RdgQueues is now declared AFTER m_RdgBackend, which holds `&m_RdgQueues`.";
+    EXPECT_LT( src.find( "m_RdgQueueObjects;" ), queues )
+         << "m_RdgQueueObjects is now declared AFTER m_RdgQueues, whose Objects points at it.";
+}
+
 // ------------------------------------------------------------------------------------------------
 // A8-1: the condition a cache eviction has to respect, as an assertion rather than a comment
 // ------------------------------------------------------------------------------------------------

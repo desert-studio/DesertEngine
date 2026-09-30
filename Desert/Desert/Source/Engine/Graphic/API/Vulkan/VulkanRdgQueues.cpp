@@ -240,7 +240,7 @@ namespace Desert::Graphic::API::Vulkan
                                                                              const VulkanRdgQueueSet& queues )
     {
         using Out = VkCommandBuffer;
-        if ( !m_Open || m_Open->OnPipe != segment.OnPipe )
+        if ( m_Result == nullptr || !m_Open || m_Open->OnPipe != segment.OnPipe )
             return Common::MakeError<Out>( "segment ended without being begun" );
 
         std::vector<uint32_t> endJoins; // joins no pass waits on: the tail waits on them
@@ -271,6 +271,11 @@ namespace Desert::Graphic::API::Vulkan
             m_Open->WaitStages.push_back( VK_PIPELINE_STAGE_ALL_COMMANDS_BIT );
         }
         return Common::MakeSuccess( m_Open->CommandBuffer );
+    }
+
+    void VulkanRdgSegmentRecorder::EndGraph()
+    {
+        m_Result = nullptr;
     }
 
     void VulkanRdgSegmentRecorder::AbandonGraph()

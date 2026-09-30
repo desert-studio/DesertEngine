@@ -1492,8 +1492,8 @@ TEST( RenderGraphVulkan, ASampleCountChangeOpensTheNextRenderPassAtTheNewCount )
     const VkDevice device = gpu.Device.device;
 
     VulkanRdgPool                 pool( gpu.Rdg, 1 );
+    FrameObjects                  frameObjects( gpu, 1 ); // outlives the backend that points into it
     VulkanRdgBackend              backend( gpu.Rdg, pool );
-    FrameObjects                  frameObjects( gpu, 1 );
     std::vector<RdgRenderPassKey> opened;
     for ( const uint32_t samples : { 1u, 4u, 1u } )
     {

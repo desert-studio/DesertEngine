@@ -977,6 +977,18 @@ namespace Desert::Graphic::API::Vulkan
         Common::ResultStr<VkCommandBuffer> first = m_Segments.BeginGraph( *graph.Result, *m_Queues );
         if ( !first )
             return Common::MakeFormattedError( "graph '{}': {}", graph.Name, first.GetError() );
+        // A graph refused below is not abandoned by Builder::Execute, and its compile result dies with that call:
+        // the recorder drops it (and what this graph queued) on every refusal.
+        struct AbandonUnlessBegun
+        {
+            VulkanRdgSegmentRecorder& Segments;
+            bool                      Begun = false;
+            ~AbandonUnlessBegun()
+            {
+                if ( !Begun )
+                    Segments.AbandonGraph();
+            }
+        } segments{ m_Segments };
         SetRecording( first.GetValue() );
         m_Textures.resize( graph.Resources.size() );
         m_Buffers.resize( graph.Resources.size() );
@@ -1063,6 +1075,7 @@ namespace Desert::Graphic::API::Vulkan
                 m_Buffers[view.Resource] = acquired.GetValue();
             }
         }
+        segments.Begun = true;
         return Common::MakeSuccess( true );
     }
 
@@ -1347,6 +1360,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( !finalBarriers.empty() )
             RecordBarriers( finalBarriers );
         Release();
+        m_Segments.EndGraph();
         return Common::MakeSuccess( true );
     }
 

@@ -102,6 +102,9 @@ namespace Desert::Graphic::API::Vulkan
         // Returns the command buffer recording continues in after this segment (the open tail), or VK_NULL_HANDLE.
         Common::ResultStr<VkCommandBuffer> EndSegment( const RDG::PipeSegment&  segment,
                                                        const VulkanRdgQueueSet& queues );
+        // The graph ended (its final barriers are recorded): its compile result is let go, and its submissions
+        // and open tail stay for Take.
+        void                             EndGraph();
         // Drops what the abandoned graph queued; earlier graphs' submissions stay.
         void                             AbandonGraph();
         std::vector<VulkanRdgSubmission> Take();
@@ -111,6 +114,8 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr          Open( RDG::Pipe pipe, const VulkanRdgQueueSet& queues );
         Common::BoolResultStr          Close();
 
+        // The graph's compile result (Builder::Execute's local) between BeginGraph and EndGraph / AbandonGraph /
+        // Take; null outside it, so no segment call can read the result of a graph whose Execute has returned.
         const RDG::CompileResult*          m_Result = nullptr;
         std::vector<VkSemaphore>           m_SyncSemaphores; // by CompileResult::Syncs index, this graph only
         uint32_t                           m_NextSegment      = 0;

@@ -177,13 +177,15 @@ namespace Desert::Graphic::API::Vulkan
         // buffer on every graph.
         VulkanRdgDevice                   m_RdgDevice;
         std::unique_ptr<VulkanRdgPool>    m_RdgPool;
-        std::unique_ptr<VulkanRdgBackend> m_RdgBackend;
         // RDG-CONTRACTS A/B frame objects, per frame slot and re-begun by BeginFrame after the slot's fence:
         // transient heaps, per-pass descriptor pools, segment command pools + semaphores, and the queues.
         std::unique_ptr<VulkanRdgTransientAllocator> m_RdgTransients;
         std::unique_ptr<VulkanRdgPassDescriptors>    m_RdgDescriptors;
         std::unique_ptr<VulkanRdgQueueObjects>       m_RdgQueueObjects;
         VulkanRdgQueueSet                            m_RdgQueues;
+        // DECLARED AFTER the frame objects above: the backend holds raw pointers to m_RdgQueues, m_RdgTransients
+        // and m_RdgDescriptors (bound by BeginFrame), so it is destroyed before them.
+        std::unique_ptr<VulkanRdgBackend> m_RdgBackend;
         // The frame so far in submission order: the frame command buffer is split at every graph (what was
         // recorded before it is submitted before it), followed by that graph's segment submissions.
         std::vector<VulkanRdgSubmission> m_FrameSubmissions;
