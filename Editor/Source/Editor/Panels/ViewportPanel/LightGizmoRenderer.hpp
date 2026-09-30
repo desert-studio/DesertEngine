@@ -5,6 +5,7 @@
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
 #include <Engine/Desert.hpp>
+#include <Engine/Core/PlayerStart.hpp>
 #include <Engine/Animation/Rig/ControlManipulator.hpp>
 #include <ImGui/imgui.h>
 
@@ -22,7 +23,8 @@ namespace Desert::Editor
         // distance field and drawn as an ImGui image, and the ImTextureID for an engine image is the
         // helper's descriptor-set cache. Non-owning — the ViewportPanel owns both, and declares the
         // helper BEFORE this renderer so it is still alive while this one is destroyed.
-        LightGizmoRenderer( const std::shared_ptr<Desert::Core::Scene>& scene, Editor::UI::UIHelper* uiHelper );
+        LightGizmoRenderer( const std::shared_ptr<Desert::Core::Scene>& scene, const Assets::AssetManager* assets,
+                            Editor::UI::UIHelper* uiHelper );
         ~LightGizmoRenderer() = default;
 
         /**
@@ -100,6 +102,11 @@ namespace Desert::Editor
         // Billboard icons for entities with no rendered geometry (spawn points, audio emitters, triggers,
         // empties) so they are visible in the viewport. Hover shows a tooltip; the normal LMB pick selects them.
         void RenderSpawnIcons( const std::shared_ptr<Desert::Core::Camera>& camera, float width, float height );
+        // UE's APlayerStart body: the pawn capsule wireframe + the world-space arrow (PlayerStartGizmoMath).
+        // @p pawn is Core::DefaultPawnCapsule's answer for the level: no capsule when it names none.
+        void DrawPlayerStartBody( ImDrawList* drawList, const glm::mat4& world, const glm::mat4& mvp,
+                                  const glm::vec3& eye, float width, float height, const ImVec2& windowPos,
+                                  bool selected, const std::optional<::Desert::Core::PawnCapsule>& pawn );
         // Text entities (TextComponent): a big, click-selectable "Aa" billboard so a label is easy to find
         // and grab in the viewport even when its glyphs are small/edge-on.
         void RenderTextIcons( const std::shared_ptr<Desert::Core::Camera>& camera, float width, float height );
@@ -173,6 +180,7 @@ namespace Desert::Editor
 
     private:
         std::shared_ptr<Desert::Core::Scene> m_Scene;
+        const Assets::AssetManager*          m_Assets   = nullptr; // the Default Pawn prefab's home (PlayerStart)
         Editor::UI::UIHelper*                m_UIHelper = nullptr; // see the constructor
 
         // (boneIndex, absolute-screen head position) captured each frame RenderSkeleton draws — the source

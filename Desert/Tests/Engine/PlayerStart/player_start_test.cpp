@@ -176,6 +176,30 @@ TEST( PawnIsAStreamingSource, SpawnDefaultPawnGivesThePawnASourceUnlessItsPrefab
          << "the pawn must be a source before Play hands it on";
 }
 
+// UI-PAWN2: the PlayerStart's capsule is the pawn Play WOULD spawn (UE: APlayerStart draws the DefaultPawnClass
+// CDO's capsule), read from the level's Default Pawn prefab through the reflection of CharacterControllerData -
+// never a default-constructed struct standing in for a pawn the level did not name.
+TEST( PlayerStartCapsule, TheGizmoDrawsTheLevelsDefaultPawnNotTheStructsDefaults )
+{
+    const std::string engine = ReadSource( "Desert/Desert/Source/Engine/Core/PlayerStart.cpp" );
+    const auto        fn     = engine.find( "DefaultPawnCapsule(" );
+    ASSERT_NE( fn, std::string::npos ) << "PlayerStart.cpp no longer answers the Default Pawn's capsule";
+    EXPECT_NE( engine.find( "scene.GetSettings().DefaultPawn", fn ), std::string::npos )
+         << "the capsule must come from the level's Default Pawn";
+    EXPECT_NE( engine.find( "Components.get( \"CharacterController\" )", fn ), std::string::npos )
+         << "the capsule must be the prefab's CharacterController block";
+    EXPECT_NE( engine.find( "DeserializeReflected(", fn ), std::string::npos )
+         << "the block must be read by CharacterControllerData's reflection, its one home";
+
+    const std::string gizmo = ReadSource( "Editor/Source/Editor/Panels/ViewportPanel/LightGizmoRenderer.cpp" );
+    EXPECT_NE( gizmo.find( "::Desert::Core::DefaultPawnCapsule(" ), std::string::npos )
+         << "the PlayerStart gizmo does not ask the level for its pawn";
+    EXPECT_EQ( gizmo.find( "CharacterControllerData pawn{}" ), std::string::npos )
+         << "the PlayerStart gizmo draws the struct's defaults instead of the level's pawn";
+    EXPECT_NE( gizmo.find( "role  = GizmoIcon::PlayerStart;" ), std::string::npos )
+         << "a PlayerStart must wear its own icon (UE S_Player), not the generic spawn-point pin";
+}
+
 // WP24: in Play the residency follows the sources, never the view.
 TEST( PawnIsAStreamingSource, NoCameraDrivesResidencyInPlay )
 {
