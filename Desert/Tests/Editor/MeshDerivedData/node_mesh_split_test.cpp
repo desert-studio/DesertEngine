@@ -18,6 +18,7 @@
 
 #include <gtest/gtest.h>
 
+#include <format>
 #include <fstream>
 #include <map>
 #include <string>
@@ -76,23 +77,32 @@ namespace
             Named = { { "GrassAtlas", Material } };
         }
 
+        // Where the fixture's glTF places each tuft along x.
+        [[nodiscard]] static float TuftX( const std::string& node )
+        {
+            if ( node == "TuftA" )
+                return 0.0f;
+            if ( node == "TuftB" )
+                return 280.0f;
+            return 560.0f;
+        }
+
         // The importer's hand-over for @p order (node names, left to right in the file).
-        std::pair<Ser::MeshAssetData, std::vector<std::string>>
+        [[nodiscard]] std::pair<Ser::MeshAssetData, std::vector<std::string>>
         Import( const std::vector<std::string>& order ) const
         {
             Ser::MeshAssetData       data;
             std::vector<std::string> nodes;
             for ( const std::string& node : order )
             {
-                const float x = node == "TuftA" ? 0.0f : node == "TuftB" ? 280.0f : 560.0f;
-                AddTuft( data, node + "_Mesh", x, Material );
+                AddTuft( data, std::format( "{}_Mesh", node ), TuftX( node ), Material );
                 nodes.push_back( node );
             }
             return { data, nodes };
         }
 
         // name -> GUID of every node mesh one import of @p order writes.
-        std::map<std::string, Common::Content::AssetGuid>
+        [[nodiscard]] std::map<std::string, Common::Content::AssetGuid>
         ImportAndWrite( const std::vector<std::string>& order ) const
         {
             const auto [data, nodes] = Import( order );
@@ -129,7 +139,8 @@ TEST( NodeMeshSplit, EveryNodeIsItsOwnMeshAroundItsBottomCentre )
         ASSERT_EQ( node.Mesh.StaticVertices.size(), 4u ) << node.Node;
         ASSERT_EQ( node.Mesh.Indices.size(), 2u ) << node.Node;
         const auto box = Ser::MeshDataBounds( node.Mesh );
-        ASSERT_TRUE( box.has_value() );
+        if ( !box.has_value() )
+            FAIL() << node.Node << " has no bounds";
         EXPECT_FLOAT_EQ( box->Min.y, 0.0f ) << node.Node << " does not stand on its pivot";
         EXPECT_FLOAT_EQ( box->Min.x + box->Max.x, 0.0f ) << node.Node << " is not centred in x";
         EXPECT_FLOAT_EQ( box->Min.z + box->Max.z, 0.0f ) << node.Node << " is not centred in z";
@@ -164,7 +175,7 @@ TEST( NodeMeshSplit, CombineMeshesKeepsTheOneMesh )
     const auto [data, nodes] = project.Import( { "TuftA", "TuftB", "TuftC" } );
     const auto box           = Ser::MeshDataBounds( data );
     ASSERT_TRUE( box.has_value() );
-    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, *box,
+    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, box,
                                           Assets::SourceImportSettings{} )
                       .IsSuccess() );
     const auto combineDefault = Ser::ReadImportRecordSettings( project.Source );
@@ -216,8 +227,11 @@ TEST( NodeMeshSplit, ASplitImportWritesNoCombinedMesh )
     EXPECT_FALSE( Editor::ImportedMeshAssetIsFresh( project.Source ) ) << "a split import wrote the combined mesh";
     EXPECT_FALSE( fs::exists( Editor::CookPaths::MeshAsset( project.Source ) ) );
     const auto record = Ser::ReadImportRecord( project.Source );
-    ASSERT_TRUE( record.IsSuccess() && record.GetValue() && record.GetValue()->Nodes );
-    EXPECT_EQ( record.GetValue()->Nodes->size(), 3u );
+    ASSERT_TRUE( record.IsSuccess() ) << record.GetError();
+    const auto& recordData = record.GetValue();
+    if ( !recordData.has_value() || !recordData->Nodes.has_value() )
+        FAIL() << "a split import recorded no node list";
+    EXPECT_EQ( recordData->Nodes->size(), 3u );
     EXPECT_TRUE( Editor::ImportedMeshAssetIsCurrent( project.Source ) ) << "the node meshes are the import";
 
     fs::remove( split.GetValue()[1].second );
@@ -231,8 +245,11 @@ TEST( NodeMeshSplit, ASplitImportWritesNoCombinedMesh )
     EXPECT_TRUE( combined.GetValue().empty() );
     EXPECT_TRUE( Editor::ImportedMeshAssetIsFresh( project.Source ) );
     const auto after = Ser::ReadImportRecord( project.Source );
-    ASSERT_TRUE( after.IsSuccess() && after.GetValue() );
-    EXPECT_FALSE( after.GetValue()->Nodes.has_value() );
+    ASSERT_TRUE( after.IsSuccess() ) << after.GetError();
+    const auto& afterData = after.GetValue();
+    if ( !afterData.has_value() )
+        FAIL() << "the combined import left no record";
+    EXPECT_FALSE( afterData->Nodes.has_value() );
 }
 
 // THE ORBIT'S ONE HOME IS THE IMPORT RECORD (THM1l-c2; UE: UStaticMesh::ThumbnailInfo in the package): each mesh
@@ -255,12 +272,16 @@ TEST( NodeMeshSplit, EachImportedMeshReadsItsOrbitFromTheRecord )
     EXPECT_EQ( before.GetValue(), Assets::ThumbnailOrbit{} ) << "no entry = the default orbit";
 
     const auto record = Ser::ReadImportRecord( project.Source );
-    ASSERT_TRUE( record.IsSuccess() && record.GetValue() );
-    Ser::ImportRecordData        stated = *record.GetValue();
+    ASSERT_TRUE( record.IsSuccess() ) << record.GetError();
+    const auto& recordData = record.GetValue();
+    if ( !recordData.has_value() )
+        FAIL() << "the import left no record";
+    Ser::ImportRecordData        stated = *recordData;
     const Assets::ThumbnailOrbit yawed{ 10.0f, 180.0f, 0.25f };
     stated.Thumbnail = std::map<std::string, Assets::ThumbnailOrbitRecord>{
          { tuftB.filename().string(), Assets::ToRecord( yawed ) },
-         { project.Source.filename().string(), Assets::ThumbnailOrbitRecord{ .Yaw = 90.0f } } };
+         { project.Source.filename().string(),
+           Assets::ThumbnailOrbitRecord{ .Pitch = std::nullopt, .Yaw = 90.0f, .Zoom = std::nullopt } } };
     const fs::path recordPath = Common::Content::ImportRecordPathFor( project.Source );
     const auto     written    = Ser::WriteImportRecord( stated, Common::Content::ContentKind::StaticMesh );
     ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
@@ -284,7 +305,8 @@ TEST( NodeMeshSplit, EachImportedMeshReadsItsOrbitFromTheRecord )
     EXPECT_EQ( kept.GetValue(), yawed ) << "a re-import lost the orbit";
 
     // A stated default is refused by name.
-    stated.Thumbnail->at( tuftB.filename().string() ) = Assets::ThumbnailOrbitRecord{ .Pitch = 0.0f };
+    stated.Thumbnail->at( tuftB.filename().string() ) =
+         Assets::ThumbnailOrbitRecord{ .Pitch = 0.0f, .Yaw = std::nullopt, .Zoom = std::nullopt };
     const auto restated = Ser::WriteImportRecord( stated, Common::Content::ContentKind::StaticMesh );
     ASSERT_TRUE( restated.IsSuccess() ) << restated.GetError();
     const auto refused = Ser::ParseImportRecord( restated.GetValue() );
@@ -317,13 +339,16 @@ TEST( NodeMeshSplit, AnEditedOrbitIsWrittenToTheRecordAndStalesThePicture )
     EXPECT_EQ( read.GetValue(), yawed );
     const auto edited = Editor::MeshThumbnailFreshness( tuftB );
     ASSERT_TRUE( edited.has_value() );
-    EXPECT_NE( *edited, *untouched ) << "an edit of the orbit left the picture fresh";
+    EXPECT_NE( edited, untouched ) << "an edit of the orbit left the picture fresh";
 
     const auto reset = Editor::SetMeshThumbnailOrbit( tuftB, Assets::ThumbnailOrbit{} );
     ASSERT_TRUE( reset.IsSuccess() ) << reset.GetError();
     const auto record = Ser::ReadImportRecord( project.Source );
-    ASSERT_TRUE( record.IsSuccess() && record.GetValue() );
-    EXPECT_FALSE( record.GetValue()->Thumbnail.has_value() ) << "the default is written as no key";
+    ASSERT_TRUE( record.IsSuccess() ) << record.GetError();
+    const auto& recordData = record.GetValue();
+    if ( !recordData.has_value() )
+        FAIL() << "the reset left no record";
+    EXPECT_FALSE( recordData->Thumbnail.has_value() ) << "the default is written as no key";
     EXPECT_EQ( Editor::MeshThumbnailFreshness( tuftB ), untouched );
 
     EXPECT_FALSE(
@@ -434,14 +459,17 @@ TEST( NodeMeshSplit, ASkinnedImportIsRecordedWithItsOptions )
     ASSERT_TRUE( stored.IsSuccess() ) << stored.GetError();
     EXPECT_EQ( stored.GetValue(), chosen ) << "Reimport reads the options the window confirmed";
     const auto whole = Ser::ReadImportRecord( project.Source );
-    ASSERT_TRUE( whole.IsSuccess() && whole.GetValue() && whole.GetValue()->Bounds );
+    ASSERT_TRUE( whole.IsSuccess() ) << whole.GetError();
+    const auto& wholeData = whole.GetValue();
+    if ( !wholeData.has_value() || !wholeData->Bounds.has_value() )
+        FAIL() << "the recorded import has no box";
     // The box the placed mesh has: (x, y, z) -> (x, z, -y) for Z up, times 100.
-    EXPECT_NEAR( whole.GetValue()->Bounds->Min[1], 2000.0f, 1e-2f )
+    EXPECT_NEAR( wholeData->Bounds->Min[1], 2000.0f, 1e-2f )
          << "the box is the placed mesh's, the options applied";
-    EXPECT_NEAR( whole.GetValue()->Bounds->Min[2], -1000.0f, 1e-2f );
-    ASSERT_TRUE( whole.GetValue()->Header.has_value() );
-    EXPECT_EQ( whole.GetValue()->Header->Kind, "SkinnedMesh" )
-         << "a skinned source's record says what it imports as";
+    EXPECT_NEAR( wholeData->Bounds->Min[2], -1000.0f, 1e-2f );
+    if ( !wholeData->Header.has_value() )
+        FAIL() << "the record has no header";
+    EXPECT_EQ( wholeData->Header->Kind, "SkinnedMesh" ) << "a skinned source's record says what it imports as";
     const auto kind = Ser::ReadImportRecordKind( project.Source );
     ASSERT_TRUE( kind.IsSuccess() ) << kind.GetError();
     EXPECT_EQ( kind.GetValue(), Common::Content::ContentKind::SkinnedMesh )
@@ -450,11 +478,14 @@ TEST( NodeMeshSplit, ASkinnedImportIsRecordedWithItsOptions )
     ASSERT_TRUE( guid.IsSuccess() ) << guid.GetError();
 
     // A second import (Reimport with other options) keeps the identity; one with no mesh keeps the box.
-    Assets::SourceImportSettings again;
+    const Assets::SourceImportSettings again{};
     ASSERT_TRUE( Editor::RecordImport( project.Source, Common::Content::ContentKind::SkinnedMesh, nullptr, again )
                       .IsSuccess() );
     const auto after = Ser::ReadImportRecord( project.Source );
-    ASSERT_TRUE( after.IsSuccess() && after.GetValue() && after.GetValue()->Bounds );
+    ASSERT_TRUE( after.IsSuccess() ) << after.GetError();
+    const auto& afterData = after.GetValue();
+    if ( !afterData.has_value() || !afterData->Bounds.has_value() )
+        FAIL() << "a re-import with no mesh dropped the box";
     const auto againStored = Ser::ReadImportRecordSettings( project.Source );
     ASSERT_TRUE( againStored.IsSuccess() ) << againStored.GetError();
     EXPECT_EQ( againStored.GetValue(), again );

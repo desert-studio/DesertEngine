@@ -201,7 +201,8 @@ TEST( MaterialRequestAgreement, EveryShippedDemoMaterialStillSaysWhatItsAuthorAs
         // params with no row (SURF2). An empty Template is the Default Surface one, which the file states too.
         if ( !demo.Template.empty() )
         {
-            ASSERT_TRUE( onDisk.Shader.has_value() ) << path << " states no template";
+            if ( !onDisk.Shader.has_value() )
+                FAIL() << path << " states no template";
             EXPECT_EQ( onDisk.Shader->Guid, demo.Template )
                  << path << " is authored on a different template than DemoMaterials.hpp names";
         }

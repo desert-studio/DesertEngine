@@ -17,6 +17,7 @@
 #include <Common/Core/Constants.hpp>
 
 #include <filesystem>
+#include <format>
 
 namespace
 {
@@ -128,7 +129,7 @@ TEST_F( AnimationLibraryOnDemand, AClipAnImportWritesAfterPopulationIsOffered )
     const fs::path source = RepoRoot() / "Editor/Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim";
     const fs::path project =
          fs::temp_directory_path() /
-         ( "anim_library_import_" + std::to_string( ::testing::UnitTest::GetInstance()->random_seed() ) );
+         std::format( "anim_library_import_{}", ::testing::UnitTest::GetInstance()->random_seed() );
     fs::remove_all( project );
     const fs::path clipDir = project / "Resources/Assets/Meshes/Skinned";
     fs::create_directories( clipDir );
@@ -156,7 +157,7 @@ TEST_F( AnimationLibraryOnDemand, AClipAnImportWritesAfterPopulationIsOffered )
     std::vector<Animation::BoneInfo> bones;
     for ( const auto& track : asset->GetClip().Tracks )
         if ( !track.BoneName.empty() )
-            bones.push_back( Animation::BoneInfo{ .Name = track.BoneName } );
+            bones.push_back( Animation::BoneInfo{ .Name = track.BoneName, .ParentBoneID = std::nullopt } );
     ASSERT_FALSE( bones.empty() );
     const Animation::Skeleton rig( std::move( bones ) );
     EXPECT_EQ( library.GetForSkeleton( rig ).size(), 1U )

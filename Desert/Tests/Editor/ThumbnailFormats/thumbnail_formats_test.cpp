@@ -39,6 +39,7 @@
 #include <array>
 #include <cctype>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <set>
 #include <sstream>
@@ -132,7 +133,7 @@ TEST( ThumbnailFormats, EveryExtensionTheBrowserTypesReachesAProducer )
 {
     for ( const auto& row : kFileExtensions )
     {
-        const std::string path = "Assets/Some/File." + std::string( row.Extension );
+        const std::string path = std::format( "Assets/Some/File.{}", row.Extension );
         EXPECT_EQ( FileTypeOf( TF::ExtensionOf( path ) ), row.Type ) << path;
         const std::optional<TP::Producer> chained = TP::ProducerOfPath( path );
         ASSERT_TRUE( chained.has_value() )
@@ -161,7 +162,7 @@ TEST( ThumbnailFormats, EveryEngineAssetFormatIsTypedByTheBrowser )
              << "the engine asset kind " << spec.Name << " ('" << spec.Extension
              << "') is in no row of FileType.hpp's kFileExtensions, so the browser draws it as Unknown with "
                 "a grey glyph. Type it there (and give its kind a ThumbnailProducers row).";
-        EXPECT_TRUE( TP::ProducerOfPath( std::string( "Assets/x" ) + std::string( spec.Extension ) ).has_value() )
+        EXPECT_TRUE( TP::ProducerOfPath( std::format( "Assets/x{}", spec.Extension ) ).has_value() )
              << spec.Name << ": typed, but its kind has no producer row";
     }
 }
@@ -178,9 +179,9 @@ TEST( ThumbnailFormats, EveryContentKindHasAProducerOrANamedDebt )
     {
         if ( spec.Extension.empty() )
             continue;
-        const auto producer = TP::ProducerOfPath( std::string( "Assets/x" ) + std::string( spec.Extension ) );
+        const auto producer = TP::ProducerOfPath( std::format( "Assets/x{}", spec.Extension ) );
         ASSERT_TRUE( producer.has_value() ) << spec.Name;
-        if ( *producer != TP::Producer::NotYetProduced )
+        if ( producer != TP::Producer::NotYetProduced )
             continue;
         const FileType type = FileTypeOf( spec.Extension.substr( 1 ) );
         EXPECT_NE( std::find( TP::kNotYetProduced.begin(), TP::kNotYetProduced.end(), type ),

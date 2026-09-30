@@ -16,6 +16,7 @@
 #include <array>
 #include <chrono>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -148,7 +149,7 @@ TEST( ThumbnailPrefetch, APictureAWorkerHoldsIsNotDecodedAgainByTheDraw )
     // through Acquire (which never decodes, see the next test) and has no decoder of its own to fall back on.
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const std::string cache = ReadFile( root + "Editor/Source/Editor/Widgets/ThumbnailCache.cpp" );
+    const std::string cache = ReadFile( std::format( "{}Editor/Source/Editor/Widgets/ThumbnailCache.cpp", root ) );
     ASSERT_FALSE( cache.empty() );
     EXPECT_NE( cache.find( "ThumbnailPrefetch::Get().Acquire( sourcePath, stamp )" ), std::string::npos )
          << "Get() no longer takes its pixels through the prefetch";
@@ -294,17 +295,18 @@ TEST( ThumbnailPrefetch, NothingSweepsTheProjectForInvisibleAssets )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    EXPECT_FALSE( fs::exists( root + "Editor/Source/Editor/Widgets/ThumbnailSweep.hpp" ) )
+    EXPECT_FALSE( fs::exists( std::format( "{}Editor/Source/Editor/Widgets/ThumbnailSweep.hpp", root ) ) )
          << "the project-wide thumbnail sweep is back: it queues captures for assets nobody is looking at";
-    EXPECT_FALSE( fs::exists( root + "Editor/Source/Editor/Widgets/ThumbnailScan.cpp" ) );
+    EXPECT_FALSE( fs::exists( std::format( "{}Editor/Source/Editor/Widgets/ThumbnailScan.cpp", root ) ) );
 
-    const std::string panel = ReadFile( root + "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp" );
+    const std::string panel =
+         ReadFile( std::format( "{}Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp", root ) );
     ASSERT_FALSE( panel.empty() );
     EXPECT_EQ( panel.find( "Sweep" ), std::string::npos ) << "the Content Browser drives a sweep again";
     EXPECT_NE( panel.find( "ThumbnailPrefetch::Get().Request(" ), std::string::npos )
          << "the Content Browser no longer hands its folder's cached pictures to the worker decode";
 
-    const std::string layer = ReadFile( root + "Editor/Source/EditorLayer.cpp" );
+    const std::string layer = ReadFile( std::format( "{}Editor/Source/EditorLayer.cpp", root ) );
     ASSERT_FALSE( layer.empty() );
     EXPECT_NE(
          layer.find(
@@ -363,7 +365,8 @@ TEST( ThumbnailPrefetch, TheSplashUploadsTheFolderTheBrowserOpensOn )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    const std::string panel = ReadFile( root + "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp" );
+    const std::string panel =
+         ReadFile( std::format( "{}Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp", root ) );
     ASSERT_FALSE( panel.empty() );
     EXPECT_NE( panel.find( "m_PrefetchItems = items;\n" ), std::string::npos )
          << "the splash upload no longer reads the list the browser prefetched";
@@ -375,7 +378,7 @@ TEST( ThumbnailPrefetch, TheSplashUploadsTheFolderTheBrowserOpensOn )
     EXPECT_NE( panel.find( "(void)m_Thumbnails->Get( picture );" ), std::string::npos )
          << "the splash upload does not go through the cache the tiles draw from";
 
-    const std::string layer = ReadFile( root + "Editor/Source/EditorLayer.cpp" );
+    const std::string layer = ReadFile( std::format( "{}Editor/Source/EditorLayer.cpp", root ) );
     ASSERT_FALSE( layer.empty() );
     EXPECT_NE(
          layer.find( "            ThumbnailService::TickDiskAndDecode();\n        UploadSplashThumbnails();\n" ),
@@ -397,7 +400,8 @@ TEST( ThumbnailPrefetch, TheServiceAsksTheViewBudgetAsBackgroundWork )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const std::string code = ReadFile( root + "Editor/Source/Editor/Widgets/ThumbnailService.cpp" );
+    const std::string code =
+         ReadFile( std::format( "{}Editor/Source/Editor/Widgets/ThumbnailService.cpp", root ) );
     ASSERT_FALSE( code.empty() );
 
     EXPECT_NE( code.find( "MayCreateView(" ), std::string::npos );
@@ -445,7 +449,8 @@ TEST( ThumbnailPrefetch, ATextureAssetIsDecodedFromTheSourceItCarries )
     fs::create_directories( dir );
 
     const auto decoded = ThumbnailPixels::Decode( WriteTextureAsset( dir, true ).string() );
-    ASSERT_TRUE( decoded.has_value() ) << "a .detex with a source section produced no picture";
+    if ( !decoded.has_value() )
+        FAIL() << "a .detex with a source section produced no picture";
     EXPECT_EQ( decoded->SourceWidth, 1 );
     EXPECT_EQ( decoded->SourceHeight, 1 );
     EXPECT_EQ( decoded->Rgba.size(), 4U );
@@ -484,18 +489,20 @@ TEST( ThumbnailPrefetch, AFolderOfResidentPicturesDecodesNothingWhenEntered )
     // a resident picture (read from the source: both need a device).
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const std::string panel = ReadFile( root + "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp" );
+    const std::string panel =
+         ReadFile( std::format( "{}Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp", root ) );
     std::size_t       requests = 0;
     std::size_t       filtered = 0;
     for ( std::size_t at = panel.find( "ThumbnailPrefetch::Get().Request(" ); at != std::string::npos;
           at             = panel.find( "ThumbnailPrefetch::Get().Request(", at + 1 ) )
     {
         ++requests;
-        filtered += panel.compare( at, 64, "ThumbnailPrefetch::Get().Request( ThumbnailPrefetch::Unresident(" ) == 0;
+        if ( panel.compare( at, 64, "ThumbnailPrefetch::Get().Request( ThumbnailPrefetch::Unresident(" ) == 0 )
+            ++filtered;
     }
     EXPECT_GT( requests, 0u );
     EXPECT_EQ( requests, filtered ) << "the browser hands a resident picture to the workers again";
-    const std::string cache = ReadFile( root + "Editor/Source/Editor/Widgets/ThumbnailCache.cpp" );
+    const std::string cache = ReadFile( std::format( "{}Editor/Source/Editor/Widgets/ThumbnailCache.cpp", root ) );
     EXPECT_EQ( cache.find( "kMaxEntries" ), std::string::npos ) << "the thumbnail cache is capped again";
     EXPECT_EQ( panel.find( "m_Thumbnails->Clear()" ), std::string::npos )
          << "the browser wipes its resident pictures again (a rescan)";

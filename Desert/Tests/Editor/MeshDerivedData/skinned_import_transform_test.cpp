@@ -86,15 +86,15 @@ namespace
 
     glm::vec3 Translation( const glm::mat4& m )
     {
-        return glm::vec3( m[3] );
+        return { m[3] };
     }
 
     // The skinned position of vertex 0 in bind pose: global(child) * offset(child) * v.
     glm::vec3 BindSkinned( const SkinnedFile& file )
     {
         const auto& bones  = file.Skeleton.Bones;
-        glm::mat4   global = bones[0].LocalBindTransform * bones[1].LocalBindTransform;
-        return glm::vec3( global * bones[1].OffsetMatrix * glm::vec4( file.Mesh.SkinnedVertices[0].Position, 1 ) );
+        const glm::mat4 global = bones[0].LocalBindTransform * bones[1].LocalBindTransform;
+        return { global * bones[1].OffsetMatrix * glm::vec4( file.Mesh.SkinnedVertices[0].Position, 1 ) };
     }
 } // namespace
 
@@ -151,7 +151,7 @@ TEST( SkinnedImportTransform, LodGenerateSimplifiesSkinnedSections )
         for ( int x = 0; x <= n; ++x )
         {
             Ser::SkinnedVertexData v{};
-            v.Position    = { float( x ), float( y ), 0.0f };
+            v.Position    = { static_cast<float>( x ), static_cast<float>( y ), 0.0f };
             v.BoneWeights = { 1.0f, 0.0f, 0.0f, 0.0f };
             mesh.SkinnedVertices.push_back( v );
         }

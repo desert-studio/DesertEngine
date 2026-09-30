@@ -274,8 +274,8 @@ TEST( ThumbnailFreshness, AnEditOfTheThumbnailInfoIsCaptured )
     const auto a = ThumbnailFreshness::WithInfo( bytes, 7u );
     const auto b = ThumbnailFreshness::WithInfo( bytes, 8u );
     ASSERT_TRUE( a && b );
-    EXPECT_NE( *a, *bytes );
-    EXPECT_NE( *a, *b );
+    EXPECT_NE( a, bytes );
+    EXPECT_NE( a, b );
     EXPECT_FALSE( ThumbnailFreshness::WithInfo( std::nullopt, 7u ) ) << "an unreadable source stays unreadable";
 
     ThumbnailFreshness::Observation seen{ true, a, b };

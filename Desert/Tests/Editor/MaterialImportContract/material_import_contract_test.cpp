@@ -140,7 +140,8 @@ TEST( MaterialImportContract, AnImportedMaterialNamesNoPreviewMesh )
 
     const auto data = ImportedMaterialDocument( chosen, fill );
     EXPECT_FALSE( data.Thumbnail.has_value() ) << "an import named a thumbnail mesh; the ball is the owner's rule";
-    ASSERT_TRUE( data.Shader.has_value() );
+    if ( !data.Shader.has_value() )
+        FAIL() << "an imported material names no shader";
     EXPECT_EQ( data.Shader->Guid, chosen.Guid );
     EXPECT_EQ( data.Shader->Path, chosen.Locator );
     ASSERT_EQ( data.Params.size(), 1u );

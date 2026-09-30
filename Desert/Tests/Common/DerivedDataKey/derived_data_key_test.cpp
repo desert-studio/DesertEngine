@@ -17,6 +17,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <format>
 #include <fstream>
 #include <regex>
 #include <set>
@@ -223,6 +224,7 @@ TEST( DerivedDataKey, ConcurrentMissesOfOneKeyBuildOnce )
     constexpr int            kCallers = 6;
     std::vector<std::string> got( kCallers );
     std::vector<std::thread> callers;
+    callers.reserve( kCallers );
     for ( int i = 0; i < kCallers; ++i )
         callers.emplace_back(
              [&, i]
@@ -238,7 +240,7 @@ TEST( DerivedDataKey, ConcurrentMissesOfOneKeyBuildOnce )
                                                    std::this_thread::sleep_for( std::chrono::milliseconds( 50 ) );
                                                    return Common::MakeSuccess( std::string( "built once" ) );
                                                } );
-                 got[i] = r.IsSuccess() ? r.GetValue() : "error: " + r.GetError();
+                 got[i] = r.IsSuccess() ? r.GetValue() : std::format( "error: {}", r.GetError() );
              } );
     for ( auto& t : callers )
         t.join();

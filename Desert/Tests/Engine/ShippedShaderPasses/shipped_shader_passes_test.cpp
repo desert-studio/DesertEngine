@@ -859,7 +859,7 @@ TEST( ShippedShaderPasses, TwoTranslucentTemplatesAreTwoShadersOfTheTranslucency
          Desert::Graphic::MeshShaderFor( "StaticMeshGlass", MeshVertexPath::Static, MeshPass::Glass );
     const auto water = Desert::Graphic::MeshShaderFor( "Water", MeshVertexPath::Static, MeshPass::Glass );
     ASSERT_TRUE( glass && water );
-    EXPECT_NE( *glass, *water );
+    EXPECT_NE( glass, water );
     EXPECT_FALSE( Desert::Graphic::MeshShaderFor( "", MeshVertexPath::Static, MeshPass::Glass ).has_value() );
 
     std::filesystem::path here = std::filesystem::current_path();
