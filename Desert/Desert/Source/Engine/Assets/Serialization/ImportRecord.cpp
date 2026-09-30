@@ -199,7 +199,8 @@ namespace Desert::Assets::Serialization
             if ( !parsed )
                 return Common::MakeFormattedError<AssetGuid>( "'{}': {}", record.string(), parsed.GetError() );
             data = parsed.ExtractValue();
-            bool sameSettings = false;
+            // No Settings key IS UE's defaults (ReadImportRecordSettings), so a default import matches it.
+            bool sameSettings = !data.Settings && settings == Assets::SourceImportSettings{};
             if ( data.Settings )
                 if ( const auto stated = ImportSettingsFromText( *data.Settings ) )
                     sameSettings = stated.GetValue() == settings;
@@ -214,7 +215,12 @@ namespace Desert::Assets::Serialization
             data.Source = source.filename().string(); // no header: the stamp mints the GUID
         if ( box )
             data.Bounds = box;
-        data.Settings = ImportSettingsToText( settings );
+        // ONE SPELLING OF THE DEFAULTS: no key (as a default thumbnail orbit is no key). Stating them made every
+        // committed record that predates the Settings key a rewrite at its first import - a DDC miss on a fresh
+        // checkout rewrote base.fbx.deimport at the first editor start with nothing in it changed.
+        data.Settings = settings == Assets::SourceImportSettings{}
+                             ? std::nullopt
+                             : std::optional<SourceImportSettingsText>( ImportSettingsToText( settings ) );
         const auto text = WriteImportRecord( data, kind );
         if ( !text )
             return Common::MakeFormattedError<AssetGuid>( "'{}': {}", record.string(), text.GetError() );

@@ -136,12 +136,13 @@ TEST( CanonicalText, ChangingOneFieldOfOneEntityChangesOnlyItsLine )
     EXPECT_EQ( changed, 1u ) << "a one-field edit changed " << changed << " lines of " << lines.size();
 }
 
-// Every double reads back bit-identical, and its spelling is as short as std::to_chars' shortest form.
+// Every double reads back bit-identical, and its spelling is as short as std::to_chars' shortest form. (-0.0 is
+// the one exception, by design: NegativeZeroIsSpelledAsZero.)
 TEST( CanonicalText, NumbersRoundTripExactlyAndShortest )
 {
     const std::array<double, 12> values = { 0.1,
                                             1.0 / 3.0,
-                                            -0.0,
+                                            0.0,
                                             static_cast<double>( 0.3f ),
                                             static_cast<double>( FLT_MAX ),
                                             static_cast<double>( FLT_MIN ),
@@ -166,6 +167,18 @@ TEST( CanonicalText, NumbersRoundTripExactlyAndShortest )
         EXPECT_EQ( std::memcmp( &back, &v, sizeof v ), 0 ) << spelled << " came back as " << token;
         EXPECT_LE( token.size(), spelled.size() + 2 ) << token << " is longer than the shortest " << spelled;
     }
+}
+
+// ONE SPELLING OF ZERO (SKEL-fixa): a re-import that computed -0.0 where the committed file states 0.0 (an inverse
+// bind matrix's off-diagonal) rewrote the file at the first editor start with no change in it. The sign of a real
+// zero is dropped wherever it stands - inline, in a wrapped array, as an object member, in exponent form - and an integer zero stays an integer.
+TEST( CanonicalText, NegativeZeroIsSpelledAsZero )
+{
+    const auto text = CanonicalJsonText( R"({"a": -0.0, "b": [-0.0, 0.0, -1.5], "c": 0, "d": -0.0e0})" );
+    ASSERT_TRUE( text ) << text.GetError();
+    EXPECT_EQ( text.GetValue(), "{\n    \"a\": 0.0,\n    \"b\": [0.0, 0.0, -1.5],\n    \"c\": 0,\n    \"d\": 0.0\n}\n" );
+    EXPECT_TRUE( IsCanonicalJsonText( "[0.0]\n" ) );
+    EXPECT_FALSE( IsCanonicalJsonText( "[-0.0]\n" ) );
 }
 
 TEST( CanonicalText, LayoutRulesArePinned )

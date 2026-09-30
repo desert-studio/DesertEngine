@@ -74,7 +74,8 @@ namespace Desert::Assets::Serialization
 
         // THE SOURCE'S IMPORT OPTIONS (THM1l; UE UFbxImportUI): Combine Meshes, Uniform Scale, Up Axis, LOD
         // policy - the one home of what the Import Options window and the Details' Import Settings edit. Absent
-        // means UE's defaults (SourceImportSettings{}). Written by every import with the options it ran with.
+        // means UE's defaults (SourceImportSettings{}), and the defaults are written as no key (one spelling).
+        // Written by every import with the options it ran with.
         std::optional<SourceImportSettingsText> Settings;
 
         // THE NODE MESHES THE LAST SPLIT IMPORT WROTE (THM1j), by node name: <stem>_<node>.stmesh beside the
