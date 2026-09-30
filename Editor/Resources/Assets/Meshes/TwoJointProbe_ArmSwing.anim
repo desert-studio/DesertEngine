@@ -3,98 +3,128 @@
         "Kind": "Animation",
         "Guid": "3bf5647848b60997928f7421c81acffd",
         "Versions": {
-            "ANIM": 4
+            "ANIM": 5
         },
         "Dependencies": []
     },
     "Name": "ArmSwing",
-    "TickRate": {
-        "Numerator": 24000,
-        "Denominator": 1
-    },
-    "DisplayRate": {
-        "Numerator": 1000,
-        "Denominator": 1
-    },
-    "DurationTicks": 24000,
     "SkeletonSignature": 6545059686777644984,
-    "Channels": [
-        {
-            "BoneName": "Joint_Arm",
-            "Positions": [
-                {
-                    "Tick": 0,
-                    "Value": [0.0, 40.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    },
-                    "ArriveTangent": [0.0, 0.0, 0.0],
-                    "LeaveTangent": [0.0, 0.0, 0.0]
-                }
-            ],
-            "Rotations": [
-                {
-                    "Tick": 0,
-                    "Value": [1.0, 0.0, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
+    "Sequence": {
+        "Header": {
+            "Kind": "",
+            "Guid": "",
+            "Versions": {
+                "TMLN": 1
+            },
+            "Dependencies": []
+        },
+        "Host": 0,
+        "TickRate": [24000, 1],
+        "DisplayRate": [1000, 1],
+        "Start": 0,
+        "End": 24000,
+        "Bindings": [
+            {
+                "Guid": "4578595540657d8a48b8299e558bcdd2",
+                "Kind": 1,
+                "Locator": "Joint_Arm",
+                "Label": "Joint_Arm",
+                "Parent": ""
+            }
+        ],
+        "Tracks": [
+            {
+                "Binding": "4578595540657d8a48b8299e558bcdd2",
+                "Property": "",
+                "Kind": 3,
+                "Muted": false,
+                "Sections": [
+                    {
+                        "Start": 0,
+                        "End": 24000,
+                        "Blend": 0,
+                        "Weight": [],
+                        "Row": 0,
+                        "Name": "Whole clip",
+                        "Channel": {
+                            "Kind": 3,
+                            "Components": [
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 40.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [24000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [24000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12000, 0.7071067690849304, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [24000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12000, 0.7071067690849304, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [24000, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 1.0
+                                }
+                            ],
+                            "Events": []
+                        }
                     }
-                },
-                {
-                    "Tick": 12000,
-                    "Value": [0.7071067690849304, 0.0, 0.0, 0.7071067690849304],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 24000,
-                    "Value": [1.0, 0.0, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                }
-            ],
-            "Scales": [
-                {
-                    "Tick": 0,
-                    "Value": [1.0, 1.0, 1.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    },
-                    "ArriveTangent": [0.0, 0.0, 0.0],
-                    "LeaveTangent": [0.0, 0.0, 0.0]
-                }
-            ]
-        }
-    ],
-    "Notifies": [],
-    "Sections": [
-        {
-            "Name": "Whole clip",
-            "StartTick": 0,
-            "EndTick": 24000,
-            "Blend": 0,
-            "Tracks": [],
-            "Weight": []
-        }
-    ],
-    "Curves": [],
+                ]
+            }
+        ]
+    },
     "Import": {
         "Source": "TwoJointProbe.gltf",
         "SourceHash": 2080282809576534268
