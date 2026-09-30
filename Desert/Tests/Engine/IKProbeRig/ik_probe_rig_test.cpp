@@ -240,11 +240,20 @@ TEST( IKProbeRig, TheShippedRigIsTheChainThisSuiteDescribes )
         }
     }
 
-    // ONE identity, derived twice and written into four files no compiler reads.
+    // The bone hash is the rig's PAYLOAD fingerprint and still matches the bones the file carries.
     const std::uint64_t signature = Desert::Animation::Skeleton::ComputeSignature( data.Bones );
     EXPECT_EQ( data.Signature, signature );
-    EXPECT_EQ( LoadMeshData().SkeletonSignature.value_or( 0ULL ), signature );
-    EXPECT_EQ( LoadClip().SkeletonSignature, signature )
+
+    // ONE identity, written into three files no compiler reads: the skeleton's header GUID, which the mesh
+    // (.skmesh header SkeletonGuid) and the clip (AnimationClip::Skeleton) name it by (SKEL-TREE).
+    ASSERT_TRUE( data.Header.has_value() ) << "IKProbe.skeleton states no text header, so it has no GUID";
+    const auto rigGuid = Common::Content::AssetGuidFromText( data.Header->Guid );
+    ASSERT_TRUE( rigGuid.IsSuccess() ) << "IKProbe.skeleton's header GUID does not parse: " << data.Header->Guid;
+    ASSERT_FALSE( rigGuid.GetValue().IsNull() ) << "IKProbe.skeleton states a null GUID";
+    const std::string rigGuidText = Common::Content::AssetGuidToText( rigGuid.GetValue() );
+    EXPECT_EQ( Common::Content::AssetGuidToText( LoadMeshData().Skeleton ), rigGuidText )
+         << "IKProbe.skmesh names a different skeleton from IKProbe.skeleton; the mesh would bind no rig.";
+    EXPECT_EQ( Common::Content::AssetGuidToText( LoadClip().Skeleton ), rigGuidText )
          << "IKProbe_Swing claims a different rig from IKProbe.skeleton. Every frame taken against it would "
             "show a bind pose and still render, which is broken evidence rather than no evidence.";
 

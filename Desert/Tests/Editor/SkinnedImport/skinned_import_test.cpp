@@ -76,7 +76,8 @@ namespace
          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
     // The buffer: positions (0), joints (36), weights (48), inverse binds (96), key times (224), key turns (232).
-    std::string MockGltf()
+    // @p tipName names the rig's second bone: another name is another bone hierarchy (SKEL-TREE tests below).
+    std::string MockGltf( const std::string& tipName = "Tip" )
     {
         std::vector<unsigned char> b;
         const float                positions[9] = { -0.5f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f };
@@ -104,7 +105,8 @@ namespace
 "nodes":[
  {"name":"Z_UP","matrix":[1,0,0,0, 0,0,-1,0, 0,1,0,0, 0,0,0,1],"children":[1,3]},
  {"name":"Root","children":[2]},
- {"name":"Tip","translation":[0,0,1]},
+ {"name":")" + tipName +
+               R"(","translation":[0,0,1]},
  {"name":"Body","mesh":0,"skin":0}],
 "skins":[{"joints":[1,2],"inverseBindMatrices":3,"skeleton":1}],
 "meshes":[{"name":"Body","primitives":[{"attributes":{"POSITION":0,"JOINTS_0":1,"WEIGHTS_0":2},"material":0}]}],
@@ -430,6 +432,119 @@ TEST_F( SkinnedImport, AReimportNamesTheSkinnedMeshByTheHandleItsEntitiesHold )
     const auto kept = Editor::LoadedHandleOf( again.WrittenMeshes.front() );
     ASSERT_TRUE( kept.IsSuccess() ) << kept.GetError();
     EXPECT_EQ( static_cast<uint64_t>( kept.GetValue() ), static_cast<uint64_t>( known.GetValue() ) );
+}
+
+// ── SKEL-TREE: A SECOND FILE ON AN EXISTING SKELETON (UE's FBX import "Skeleton" field) ─────────────────────
+namespace
+{
+    // The header GUID a cooked .skeleton states - the rig's identity, what meshes and clips name it by.
+    std::string SkeletonGuidOf( const std::filesystem::path& file )
+    {
+        const auto rig = Ser::ReadSkeletonJson( Read( file ) );
+        EXPECT_TRUE( rig.IsSuccess() ) << rig.GetError();
+        if ( !rig.IsSuccess() || !rig.GetValue().Header )
+            return {};
+        return rig.GetValue().Header->Guid;
+    }
+
+    std::string MeshSkeletonGuidOf( const std::filesystem::path& file )
+    {
+        const auto mesh = Ser::ReadMeshAssetData( Read( file ), file.string() );
+        EXPECT_TRUE( mesh.IsSuccess() ) << mesh.GetError();
+        return mesh.IsSuccess() ? Common::Content::AssetGuidToText( mesh.GetValue().Skeleton ) : std::string{};
+    }
+
+    std::string ClipSkeletonGuidOf( const std::filesystem::path& file )
+    {
+        const auto clip = Ser::ReadAnimationJson( Read( file ) );
+        EXPECT_TRUE( clip.IsSuccess() ) << clip.GetError();
+        return clip.IsSuccess() && clip.GetValue().Skeleton ? clip.GetValue().Skeleton->Guid : std::string{};
+    }
+
+    size_t SkeletonRowCount()
+    {
+        return Assets::ContentRegistry::Rows( Common::Content::ContentKind::Skeleton ).size();
+    }
+
+    std::filesystem::path WriteSource( const std::filesystem::path& path, const std::string& tipName = "Tip" )
+    {
+        std::filesystem::create_directories( path.parent_path() );
+        std::ofstream( path, std::ios::binary | std::ios::trunc ) << MockGltf( tipName );
+        return path;
+    }
+} // namespace
+
+// A second source on the SAME bone hierarchy, no skeleton chosen: the one registered skeleton stating its bones is
+// the rig (FindSkeletonsBySignature + CheckSkeletonAssignment), so the import writes no .skeleton of its own and
+// its mesh and clip name the FIRST file's skeleton by GUID. UE: a second character FBX imported onto the existing
+// USkeleton instead of a duplicate one clips cannot be shared with.
+// Mutation: ImportManager.cpp ExistingSkeletonFor -> `return Common::MakeSuccess( Result{} );` => red here.
+TEST_F( SkinnedImport, ASecondFileOnTheSameBonesReferencesTheFirstSkeleton )
+{
+    const std::string first = SkeletonGuidOf( m_Outcome.WrittenSkeletons.front() );
+    ASSERT_FALSE( first.empty() ) << "the first import's .skeleton states no GUID";
+    const size_t rowsBefore = SkeletonRowCount();
+
+    const auto                  second = WriteSource( "Resources/Assets/Mock/RigTwin.gltf" );
+    const Editor::ImportOutcome twin =
+         ImportManager().ImportWithSettings( second, Assets::SourceImportSettings{} );
+    ASSERT_EQ( twin.Verdict, Editor::CookVerdict::Cooked );
+    EXPECT_TRUE( twin.WrittenSkeletons.empty() )
+         << "the second file wrote a skeleton of its own for bones the registry already states: a duplicate "
+            "rig, so clips of one file never play on the other's mesh";
+    EXPECT_EQ( SkeletonRowCount(), rowsBefore );
+    ASSERT_EQ( twin.WrittenMeshes.size(), 1u );
+    ASSERT_EQ( twin.WrittenClips.size(), 1u );
+    EXPECT_EQ( MeshSkeletonGuidOf( twin.WrittenMeshes.front() ), first )
+         << "the second file's mesh does not name the first file's skeleton";
+    EXPECT_EQ( ClipSkeletonGuidOf( twin.WrittenClips.front() ), first )
+         << "the second file's clip does not name the first file's skeleton";
+}
+
+// The Import Options' Skeleton, when chosen, IS the rig's skeleton: one missing a bone the mesh is skinned to is
+// refused by name - never replaced by a new .skeleton behind the user's choice (UE refuses an incompatible
+// USkeleton the same way).
+// Mutation: ExistingSkeletonFor's chosen-skeleton branch `return Common::MakeSuccess( Result{} );` instead of the
+// error => a new .skeleton is written and the import says Cooked => red here.
+TEST_F( SkinnedImport, AChosenSkeletonWithoutTheRigsBonesRefusesTheImportAndWritesNoSkeleton )
+{
+    const auto first = Common::Content::AssetGuidFromText( SkeletonGuidOf( m_Outcome.WrittenSkeletons.front() ) );
+    ASSERT_TRUE( first.IsSuccess() ) << first.GetError();
+    const size_t rowsBefore = SkeletonRowCount();
+
+    // Root + "Antenna": the chosen skeleton (Root + Tip) has no bone the mesh is skinned to by that name.
+    const auto                   other = WriteSource( "Resources/Assets/Mock/Antenna.gltf", "Antenna" );
+    Assets::SourceImportSettings chosen;
+    chosen.Skeleton                     = first.GetValue();
+    const Editor::ImportOutcome refused = ImportManager().ImportWithSettings( other, chosen );
+    EXPECT_EQ( refused.Verdict, Editor::CookVerdict::Failed )
+         << "a skeleton missing the rig's bones was accepted as the rig";
+    EXPECT_TRUE( refused.WrittenSkeletons.empty() ) << "a refused choice was replaced by a new .skeleton";
+    EXPECT_TRUE( refused.WrittenMeshes.empty() ) << "a mesh was written against a skeleton that lacks its bones";
+    EXPECT_EQ( SkeletonRowCount(), rowsBefore );
+}
+
+// FRESHNESS IS THE IMPORT RECORD'S SourceHash, not the import's own .skeleton: a second start re-imports nothing,
+// including a file imported onto another file's skeleton (it has no .skeleton to read a hash from); changed bytes
+// re-import. UE UAssetImportData's source hash.
+// Mutation: ImportManager.cpp SkinnedImportIsFresh reading the hash from the source's own .skeleton (or
+// `return false;`) => the shared-skeleton file re-imports at every start => red here.
+TEST_F( SkinnedImport, ARepeatedRunReimportsNothingUntilTheSourceBytesChange )
+{
+    const auto                  second = WriteSource( "Resources/Assets/Mock/RigTwin.gltf" );
+    const Editor::ImportOutcome twin =
+         ImportManager().ImportWithSettings( second, Assets::SourceImportSettings{} );
+    ASSERT_EQ( twin.Verdict, Editor::CookVerdict::Cooked );
+    ASSERT_TRUE( twin.WrittenSkeletons.empty() ) << "precondition: the second file shares the first skeleton";
+
+    EXPECT_EQ( ImportManager().Import( m_Source ), Editor::CookVerdict::UpToDate )
+         << "an unchanged source with its own skeleton was re-imported";
+    EXPECT_EQ( ImportManager().Import( second ), Editor::CookVerdict::UpToDate )
+         << "an unchanged source imported onto another file's skeleton was re-imported";
+
+    std::ofstream( m_Source, std::ios::binary | std::ios::app ) << "\n";
+    EXPECT_EQ( ImportManager().Import( m_Source ), Editor::CookVerdict::Cooked )
+         << "a source whose bytes changed was taken as up to date";
 }
 
 int main( int argc, char** argv )
