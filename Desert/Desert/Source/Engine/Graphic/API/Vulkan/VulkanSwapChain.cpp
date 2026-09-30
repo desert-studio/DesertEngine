@@ -363,23 +363,29 @@ namespace Desert::Graphic::API::Vulkan
              Graphic::ViewExtent{ surfCaps.currentExtent.width, surfCaps.currentExtent.height }, requested ) );
     }
 
-    void VulkanSwapChain::OnResize( uint32_t width, uint32_t height )
+    void VulkanSwapChain::RequestRebuild( uint32_t width, uint32_t height )
+    {
+        m_RebuildRequest.Request( Graphic::SwapchainExtent{ width, height } );
+    }
+
+    void VulkanSwapChain::RequestRebuildAtCurrentSize()
+    {
+        m_RebuildRequest.RequestUnlessPending( Graphic::SwapchainExtent{ m_Width, m_Height } );
+    }
+
+    Common::ResultStr<bool> VulkanSwapChain::ApplyRequestedRebuild()
     {
         if ( !Graphic::DeviceLost::AllowWork() )
-            return;
+            return Common::MakeError<bool>( "the device is lost; refusing to rebuild the swapchain." );
 
-        // A MINIMISED WINDOW IS WAITED OUT, AND SILENTLY. Minimising is a normal state, not a failure, so it
-        // must not log once per frame for as long as the window stays in the taskbar; Rebuild() refuses it by
-        // name for every other caller, and this is the one that would turn the refusal into a log flood.
-        if ( !HasDrawableSurfaceArea( Graphic::ViewExtent{ width, height } ) )
-            return;
-
-        // THE RESULT WAS DISCARDED HERE. A swapchain that failed to rebuild left every handle below stale
-        // and the frame loop carried on regardless — including on the device-lost path, where the rebuild
-        // is exactly what must not proceed.
-        const auto recreated = Rebuild( width, height );
-        if ( !recreated.IsSuccess() )
-            LOG_ERROR( "[SwapChain] resize to {}x{} failed: {}", width, height, recreated.GetError() );
+        return Graphic::RebuildAtFrameBoundary(
+             m_RebuildRequest,
+             [this]( const Graphic::SwapchainExtent extent ) -> Common::ResultStr<bool>
+             {
+                 if ( !HasDrawableSurfaceArea( Graphic::ViewExtent{ extent.Width, extent.Height } ) )
+                     return Common::MakeSuccess( false );
+                 return Rebuild( extent.Width, extent.Height );
+             } );
     }
 
     Common::ResultStr<bool> VulkanSwapChain::Rebuild( uint32_t width, uint32_t height )

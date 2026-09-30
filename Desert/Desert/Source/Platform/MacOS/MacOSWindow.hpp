@@ -52,7 +52,7 @@ namespace Desert::Platform::MacOS
             if ( m_SwapChain )
             {
                 m_SwapChain->SetVSync( enabled );
-                m_SwapChain->OnResize( m_Data.Specification.Width, m_Data.Specification.Height );
+                m_SwapChain->RequestRebuild( m_Data.Specification.Width, m_Data.Specification.Height );
             }
         }
         [[nodiscard]] virtual const void* GetNativeWindow() const override;

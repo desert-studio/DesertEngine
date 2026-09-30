@@ -44,7 +44,7 @@ namespace Desert::Platform::Windows
         [[nodiscard]] virtual uint32_t GetWidth() const override;
         [[nodiscard]] virtual uint32_t GetHeight() const override;
         // Runtime toggle: the swapchain picks its present mode at creation, so the new pacing only takes
-        // effect once it is rebuilt (OnResize does that). Storing the flag alone — which is all this used
+        // effect once it is rebuilt (RequestRebuild does that). Storing the flag alone — which is all this used
         // to do — left the setting inert.
         virtual void SetVSync( bool enabled ) override
         {
@@ -52,7 +52,7 @@ namespace Desert::Platform::Windows
             if ( m_SwapChain )
             {
                 m_SwapChain->SetVSync( enabled );
-                m_SwapChain->OnResize( m_Data.Specification.Width, m_Data.Specification.Height );
+                m_SwapChain->RequestRebuild( m_Data.Specification.Width, m_Data.Specification.Height );
             }
         }
         [[nodiscard]] virtual const void* GetNativeWindow() const override;

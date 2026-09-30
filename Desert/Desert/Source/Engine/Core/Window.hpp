@@ -150,7 +150,7 @@ namespace Desert
         bool OnWindowResized( Common::EventWindowResize& resize )
         {
             if ( const std::shared_ptr<Graphic::SwapChain> swapChain = GetWindowSwapChain() )
-                swapChain->OnResize( resize.width, resize.height );
+                swapChain->RequestRebuild( resize.width, resize.height );
             return false;
         }
 
