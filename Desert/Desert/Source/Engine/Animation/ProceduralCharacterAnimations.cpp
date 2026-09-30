@@ -1,5 +1,6 @@
 #include "ProceduralCharacterAnimations.hpp"
 
+#include <algorithm>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Animation/BoneInfo.hpp>
 
@@ -41,7 +42,10 @@ namespace Desert::Animation
             clip.DurationTicks     = durationTicks;
             clip.TickRate          = PROJECT_TICK_RATE;
             // clip.Skeleton is stated by the generator (ProceduralCharacterFactory::WriteEngineAssets).
-            clip.Tracks.resize( bones.size() ); // empty tracks fall back to LocalBindTransform
+            // ONE TRACK PER ANIMATED BONE, NAMED. Playback binds a track by its bone name only; a bone with no
+            // track holds its bind pose. (An index-aligned vector with unnamed filler tracks is refused by the
+            // clip reader: a channel that names no bone can never reach a skeleton.)
+            clip.Tracks.reserve( angleFns.size() );
 
             for ( const auto& [boneName, fn] : angleFns )
             {
@@ -51,7 +55,7 @@ namespace Desert::Animation
                 const uint32_t idx      = it->second;
                 const glm::vec3 bindPos = glm::vec3( bones[idx].LocalBindTransform[3] );
 
-                BoneTrack& t = clip.Tracks[idx];
+                BoneTrack& t = clip.Tracks.emplace_back();
                 t.BoneName   = boneName;
                 // constant -> keeps the bone at its bind offset
                 t.PositionKeys.push_back( { FrameNumber{ 0 }, bindPos } );
@@ -63,6 +67,10 @@ namespace Desert::Animation
                     t.RotationKeys.push_back( { tick, glm::angleAxis( fn( u ), kAxisX ) } );
                 }
             }
+            // In skeleton order, so a regeneration writes the same bytes (angleFns is unordered).
+            std::sort( clip.Tracks.begin(), clip.Tracks.end(),
+                       [&]( const BoneTrack& a, const BoneTrack& b )
+                       { return nameToIdx.at( a.BoneName ) < nameToIdx.at( b.BoneName ); } );
             return clip;
         }
 

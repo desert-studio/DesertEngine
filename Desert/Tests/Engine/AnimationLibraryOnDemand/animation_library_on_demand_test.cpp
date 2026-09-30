@@ -11,6 +11,7 @@
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
+#include <Engine/Geometry/ProceduralCharacterFactory.hpp>
 
 #include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Core/Constants.hpp>
@@ -107,6 +108,38 @@ TEST_F( AnimationLibraryOnDemand, ALookupRequestsOnlyTheNamedClipAndItBecomesPla
     EXPECT_TRUE( asset->IsReadyForUse() );
     EXPECT_EQ( asset->GetClip().AnimationName, kClip );
     EXPECT_FALSE( library.HasPending( kClip ) ) << "a read clip is still reported as pending";
+}
+
+// SKEL-hum: a spawned humanoid names its clip by kHumanoidDefaultClip and its body by kHumanoidMeshGuid; both
+// must resolve from the COMMITTED engine content, exactly as a scene load resolves them. The clip must also
+// READ: the first generation wrote index-aligned unnamed filler tracks and the reader refused the whole clip,
+// so the character stood in its bind pose with nothing in the suite noticing.
+TEST_F( AnimationLibraryOnDemand, TheSpawnedHumanoidsDefaultClipIsACommittedEngineClipThatReads )
+{
+    Animation::AnimationLibrary library( &m_Manager );
+    ASSERT_GT( library.IndexRegistryRows(), 0U );
+    const std::string clipName( Geometry::kHumanoidDefaultClip );
+    ASSERT_TRUE( library.HasPending( clipName ) )
+         << "no committed .anim states the humanoid's default clip '" << clipName << "'";
+
+    const Animation::MeshSkeletonIdentity none{};
+    EXPECT_FALSE( library.FindForMesh( none, clipName ) );
+    const auto assets = m_Manager.FindAllByType<Assets::AnimationAsset>();
+    ASSERT_EQ( assets.size(), 1U );
+    const auto asset = assets.begin()->second;
+    ASSERT_TRUE( asset );
+    EXPECT_TRUE( Assets::AsyncAssetLoader::Get().FlushOne( asset->GetMetadata().Handle ) );
+    ASSERT_TRUE( asset->IsReadyForUse() ) << "the humanoid's '" << clipName << "' clip does not read";
+    EXPECT_EQ( asset->GetClip().AnimationName, clipName );
+    EXPECT_FALSE( asset->GetClip().Skeleton.IsNull() ) << "the clip states no skeleton, so it plays on no mesh";
+    EXPECT_FALSE( asset->GetClip().Tracks.empty() );
+    for ( const auto& track : asset->GetClip().Tracks )
+        EXPECT_FALSE( track.BoneName.empty() ) << "a track names no bone";
+
+    // (HumanoidMeshFile lives in the generator's .cpp, which this suite does not link; the path is spelled.)
+    EXPECT_TRUE( fs::is_regular_file( Path::CurrentProjectRoot().ProjectDir /
+                                      "Resources/Engine/Meshes/Skinned/Humanoid.skmesh" ) )
+         << "the humanoid's body Humanoid.skmesh is not committed";
 }
 
 // THM1l-b11: UE's OnAssetAdded reaching the index. On real rigs (Fox, CesiumMan) the import wrote Fox_Walk.anim
