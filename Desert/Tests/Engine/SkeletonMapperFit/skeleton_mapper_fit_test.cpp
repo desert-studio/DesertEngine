@@ -41,6 +41,7 @@
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Animation/Timeline/Evaluator.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
@@ -246,15 +247,11 @@ namespace
     LocalPose PoseAt( const Skeleton& rig, const Desert::Animation::AnimationClip& clip, double ticks )
     {
         LocalPose       local = BindPose( rig );
-        const FrameTime at{ Desert::Animation::FrameNumber{ static_cast<int32_t>( ticks ) }, 0.0F };
-        for ( const auto& track : clip.Tracks )
-        {
-            if ( !track.HasKeys() )
-                continue;
-            const auto idx = rig.FindBoneIndex( track.BoneName );
-            if ( idx )
-                local[*idx] = track.Sample( at, clip.TickRate );
-        }
+        const FrameTime at{ Desert::Animation::FrameNumber{ clip.Sequence.Start.Value + static_cast<int32_t>( ticks ) },
+                            0.0F };
+        const auto      table   = Desert::Animation::Timeline::BindBones( clip.Sequence, rig );
+        const auto      sampled = Desert::Animation::Timeline::EvaluatePose( clip.Sequence, table, at, local );
+        EXPECT_TRUE( sampled.IsSuccess() ) << ( sampled.IsSuccess() ? "" : sampled.GetError() );
         return local;
     }
 
@@ -268,7 +265,7 @@ namespace
     std::vector<double> SampleTicks( const Desert::Animation::AnimationClip& clip )
     {
         std::vector<double> out;
-        const auto          duration = static_cast<double>( clip.DurationTicks.Value );
+        const auto          duration = static_cast<double>( clip.DurationTicks().Value );
         for ( int i = 0; i <= 10; ++i )
             out.push_back( duration * i / 10.0 );
         return out;
@@ -337,7 +334,7 @@ TEST( SkeletonMapperFit, OurClipDrivesTheMappedRig )
     const auto     bones = ProbeBones();
     const Skeleton rig{ std::vector<BoneInfo>( bones ) };
     const auto     clip = ProbeClip();
-    ASSERT_FALSE( clip.Tracks.empty() ) << "the probe clip carries no tracks";
+    ASSERT_FALSE( clip.Sequence.Tracks.empty() ) << "the probe clip carries no tracks";
     ASSERT_FALSE( clip.Skeleton.IsNull() ) << kClipPath << " names no skeleton";
     ASSERT_EQ( clip.Skeleton, SkeletonGuidOf( kRigPath ) )
          << "the clip does not claim this rig; every number below would be a picture of a bind pose";
@@ -484,7 +481,7 @@ TEST( SkeletonMapperFit, LimbLengthErrorGrowsWithTheRestPoseDifference )
     const auto     bones = ProbeBones();
     const Skeleton source{ std::vector<BoneInfo>( bones ) };
     const auto     clip = ProbeClip();
-    ASSERT_FALSE( clip.Tracks.empty() );
+    ASSERT_FALSE( clip.Sequence.Tracks.empty() );
 
     // The two rigs are the SAME rig as far as this engine is concerned, at every k: ComputeSignature is
     // over names and parents. Nothing in the clip<->rig binding stops the taller one playing this clip.
@@ -595,7 +592,7 @@ TEST( SkeletonMapperFit, ADifferentRestOrientationIsAbsorbedExactly )
 
     const uint32_t tipIdx = BoneIndex( target, kTip );
 
-    const auto srcModel = ModelSpace( source, PoseAt( source, clip, clip.DurationTicks.Value * 0.3 ) );
+    const auto srcModel = ModelSpace( source, PoseAt( source, clip, clip.DurationTicks().Value * 0.3 ) );
 
     std::vector<JPH::Mat44> out( target.GetBones().size(), JPH::Mat44::sIdentity() );
     mapper.Map( ToJoltArray( srcModel ).data(), tgtLocalJolt.data(), out.data() );
@@ -857,7 +854,7 @@ TEST( SkeletonMapperFit, AnExtraIntermediateJointBecomesAChainAndIsPlaced )
     // direct observation of the one piece of machinery §3.19 credits this class with.
     const uint32_t elbowIdx = BoneIndex( target, kMid );
 
-    const auto srcModel = ModelSpace( source, PoseAt( source, clip, clip.DurationTicks.Value * 0.3 ) );
+    const auto srcModel = ModelSpace( source, PoseAt( source, clip, clip.DurationTicks().Value * 0.3 ) );
     std::vector<JPH::Mat44> out( target.GetBones().size(), JPH::Mat44::sIdentity() );
     mapper.Map( ToJoltArray( srcModel ).data(), tgtLocalJolt.data(), out.data() );
 
@@ -909,7 +906,7 @@ TEST( SkeletonMapperFit, ConvertingTheOutputBackToALocalPoseRoundTrips )
     JPH::SkeletonMapper mapper;
     mapper.Initialize( &joltRig, bindJolt.data(), &joltRig, bindJolt.data() );
 
-    const auto model = ModelSpace( rig, PoseAt( rig, clip, clip.DurationTicks.Value * 0.25 ) );
+    const auto model = ModelSpace( rig, PoseAt( rig, clip, clip.DurationTicks().Value * 0.25 ) );
     const auto src   = ToJoltArray( model );
 
     std::vector<JPH::Mat44> out( src.size(), JPH::Mat44::sIdentity() );

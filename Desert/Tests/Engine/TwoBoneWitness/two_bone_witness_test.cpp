@@ -32,9 +32,11 @@
 
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/ClipSkeletonMatch.hpp>
+#include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Animation/SkeletonReference.hpp>
 #include <Engine/Animation/TimeModel.hpp>
+#include <Engine/Animation/Timeline/Evaluator.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
@@ -257,21 +259,25 @@ namespace
         const auto&            bones = rig.GetBones();
         std::vector<glm::mat4> local( bones.size(), glm::mat4( 1.0f ) );
         for ( std::size_t i = 0; i < bones.size(); ++i )
-        {
             local[i] = bones[i].LocalBindTransform;
-            for ( const auto& track : clip.Tracks )
-            {
-                if ( track.BoneName == bones[i].Name )
-                {
-                    // `BoneTrack::GetTransform` composed P/R/S into a mat4 and was removed by А1: every
-                    // caller decomposed it again immediately, so the matrix was a round trip with no
-                    // consumer on the animation system's hottest path. `Sample` returns the three stored
-                    // quantities and this test composes them itself, which is what it wanted anyway.
-                    const auto at =
-                         Desert::Animation::SecondsToFrameTime( static_cast<double>( seconds ), clip.TickRate );
-                    local[i] = track.Sample( at, clip.TickRate ).ToMatrix();
-                }
-            }
+
+        // The clip is sampled the way the Animator samples it: its Sequence's bone bindings resolved against
+        // this rig once, then every bone Transform track evaluated at the playhead. The pose returns the
+        // three stored quantities and this test composes them itself; a bone the clip does not drive keeps
+        // its bind matrix untouched.
+        const Desert::Animation::Timeline::BoneBindingTable table =
+             Desert::Animation::Timeline::BindBones( clip.Sequence, rig );
+        const Desert::Animation::FrameTime playhead =
+             Desert::Animation::SecondsToFrameTime( static_cast<double>( seconds ), clip.Sequence.TickRate );
+        const Desert::Animation::FrameTime at{
+             Desert::Animation::FrameNumber{ clip.Sequence.Start.Value + playhead.Frame.Value }, playhead.Subframe };
+        Desert::Animation::LocalPose sampled( bones.size() );
+        const auto evaluated = Desert::Animation::Timeline::EvaluatePose( clip.Sequence, table, at, sampled );
+        EXPECT_TRUE( evaluated.IsSuccess() ) << ( evaluated.IsSuccess() ? "" : evaluated.GetError() );
+        for ( const std::uint32_t bone : table.BoneOfTrack )
+        {
+            if ( bone < bones.size() )
+                local[bone] = sampled[bone].ToMatrix();
         }
 
         std::vector<glm::mat4> global( bones.size(), glm::mat4( 1.0f ) );
@@ -511,13 +517,17 @@ TEST( TwoBoneWitness, TheWitnessClipsMoveTheChainAndMoveItDifferently )
 
     for ( const auto* clip : { &wave, &twist } )
     {
-        EXPECT_EQ( clip->DurationTicks.Value, 2 * Desert::Animation::PROJECT_TICK_RATE.Numerator )
+        EXPECT_EQ( clip->DurationTicks().Value, 2 * Desert::Animation::PROJECT_TICK_RATE.Numerator )
              << clip->AnimationName
              << " is no longer the 2 s cycle the witness scene's exit time and shot frame counts are "
                 "chosen against.";
-        EXPECT_EQ( clip->TickRate, Desert::Animation::PROJECT_TICK_RATE )
+        EXPECT_EQ( clip->Sequence.TickRate, Desert::Animation::PROJECT_TICK_RATE )
              << clip->AnimationName << " is not on the project tick grid.";
-        ASSERT_EQ( clip->Tracks.size(), 2u ) << clip->AnimationName << " does not drive both bones.";
+        const auto driven = Desert::Animation::Timeline::BindBones( clip->Sequence, rig ).BoneOfTrack;
+        ASSERT_EQ( std::count_if( driven.begin(), driven.end(),
+                                  [&rig]( std::uint32_t bone ) { return bone < rig.GetBones().size(); } ),
+                   2 )
+             << clip->AnimationName << " does not drive both bones.";
     }
 
     // Travel of the ARM's tip, which is the end of the chain and therefore the place where a lost parent

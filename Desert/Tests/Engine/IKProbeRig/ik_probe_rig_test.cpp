@@ -396,7 +396,7 @@ TEST( IKProbeRig, TheShippedSolverReachesTheShippedGoalFromTheShippedClip )
 
     const auto rig  = RigFromFile();
     const auto clip = LoadClip();
-    ASSERT_FALSE( clip.Tracks.empty() );
+    ASSERT_FALSE( clip.Sequence.Tracks.empty() );
 
     const auto handIndex = rig.FindBoneIndex( kHand );
     const auto kerbIndex = rig.FindBoneIndex( kKerb );
