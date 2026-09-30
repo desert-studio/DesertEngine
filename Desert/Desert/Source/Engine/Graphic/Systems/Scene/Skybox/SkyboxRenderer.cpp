@@ -1,4 +1,6 @@
 #include "SkyboxRenderer.hpp"
+
+#include <utility>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/SkyGroundTransmittance.hpp>
@@ -447,6 +449,7 @@ namespace Desert::Graphic::System
         // (SampledCompute): the graph orders transmittance -> multi-scattering -> sky-view / aerial perspective /
         // distant light and places every barrier. What runs is decided here, while the frame graph is built.
         std::vector<ComputeNodeDeclaration> nodes;
+        m_LutBakePending.reset();
         if ( !m_UseProceduralSky || m_Sky.Model != ECS::SkyModel::PhysicalAtmosphere )
             return nodes;
         if ( !m_TransmittanceLutPipeline || !m_MultiScatterLutPipeline || !m_SkyParams )
@@ -481,16 +484,13 @@ namespace Desert::Graphic::System
             multiScatter.Record = [this]() { DispatchMultiScatterLut( /*inFrame=*/true ); };
             nodes.push_back( std::move( multiScatter ) );
 
-            m_LutBaked  = wanted;
-            m_LutsValid = true;
-
-            LOG_INFO( "[SkyAtmosphere] Atmosphere LUTs dispatched (transmittance {}x{}, multi-scattering "
-                      "{}x{}) — the atmosphere parameter fingerprint changed.",
-                      kTransmittanceLutWidth, kTransmittanceLutHeight, kMultiScatterLutSize,
-                      kMultiScatterLutSize );
+            // BUILD TIME: which nodes exist is decided here; the pair counts as baked once
+            // SettleAtmosphereLutNodes hears the graph accepted them.
+            m_LutBakePending = wanted;
         }
 
-        if ( m_LutsValid )
+        // BUILD TIME: the LUT handles feed the atmosphere the later nodes of this graph declare and bind.
+        if ( m_LutsValid || m_LutBakePending )
         {
             m_Atmosphere.TransmittanceLut               = m_TransmittanceLut.get();
             m_Atmosphere.TransmittanceLutBottomRadiusKm = AtmosphereBottomRadiusKm( m_Sky );
@@ -546,6 +546,25 @@ namespace Desert::Graphic::System
             m_Atmosphere.DistantSkyLight = m_DistantLight.get();
         }
         return nodes;
+    }
+
+    void SkyboxRenderer::SettleAtmosphereLutNodes( bool accepted )
+    {
+        const std::optional<AtmosphereLutFingerprint> pending = std::exchange( m_LutBakePending, std::nullopt );
+        if ( !accepted )
+        {
+            // Nothing was recorded: a pair that was about to be baked is not baked, so the next frame bakes it.
+            if ( pending )
+                m_LutsValid = false;
+            return;
+        }
+        if ( !pending )
+            return;
+        m_LutBaked  = *pending;
+        m_LutsValid = true;
+        LOG_INFO( "[SkyAtmosphere] Atmosphere LUTs dispatched (transmittance {}x{}, multi-scattering {}x{}) — the "
+                  "atmosphere parameter fingerprint changed.",
+                  kTransmittanceLutWidth, kTransmittanceLutHeight, kMultiScatterLutSize, kMultiScatterLutSize );
     }
 
     void SkyboxRenderer::DeclareAtmosphereReads( RenderPassDeclaration& declared, const RDG::Access access ) const

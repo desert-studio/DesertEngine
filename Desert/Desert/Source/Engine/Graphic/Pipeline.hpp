@@ -6,6 +6,7 @@
 #include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/RDG/RDGAccess.hpp>
+#include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <optional>
 #include <Engine/Graphic/VertexBuffer.hpp>
@@ -363,16 +364,17 @@ namespace Desert::Graphic
         /** Bind a sampled input image at @p binding (e.g. a panorama or a source cubemap). */
         virtual ComputePipeline& SetInput( uint32_t binding, Image* image ) = 0;
         /**
-         * Bind a sampled input inside a render-graph node. The descriptor names exactly what the node
-         * declared: @p mip selects ONE mip (the view holds that mip alone, so the shader samples it at
-         * lod 0), nullopt the whole image. Its layout is the one the node's @p declared access puts the
-         * image in, NOT the image's own layout record: the graph writes that record back only after it
-         * executes, so mid-graph it is stale, and one record cannot describe a chain whose mips sit in
-         * different layouts (the mip being written is GENERAL while the one read is SHADER_READ_ONLY).
-         * An access that does not leave the image sampleable drops the dispatch with an error.
+         * Bind a sampled input inside a render-graph node. The descriptor names exactly the subresource the
+         * node declared: @p range is the whole image (All), one mip over every layer (Mip: the view holds that
+         * mip alone, so the shader samples it at lod 0), or a (mip, layer) rectangle (MipLayer / Layer: a 2D
+         * view of that layer, made through the graph's handle on the imported image). Its layout is the one the
+         * node's @p declared access puts the image in, NOT the image's own layout record: the graph writes that
+         * record back only after it executes, so mid-graph it is stale, and one record cannot describe a chain
+         * whose mips sit in different layouts (the mip being written is GENERAL while the one read is
+         * SHADER_READ_ONLY). An access that does not leave the image sampleable drops the dispatch with an error.
          */
         virtual ComputePipeline& SetInput( uint32_t binding, Image* image, RDG::Access declared,
-                                           std::optional<uint32_t> mip ) = 0;
+                                           RDG::SubresourceRange range ) = 0;
         /** Bind a writable storage output image at @p binding; @p mip selects the target mip view. */
         virtual ComputePipeline& SetOutput( uint32_t binding, Image* image, uint32_t mip = 0 ) = 0;
         /** Bind a read-write storage buffer at @p binding (e.g. a luminance histogram). */

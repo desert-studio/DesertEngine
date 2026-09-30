@@ -402,6 +402,34 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( view );
     }
 
+    Common::ResultStr<VkImageView> SampledSubresourceView( const RDG::SubresourceRange& range, VkImageView whole,
+                                                           const std::function<VkImageView( uint32_t )>& mipView,
+                                                           VulkanRdgTexture* graphTexture )
+    {
+        if ( range == RDG::SubresourceRange::All() )
+        {
+            if ( whole == VK_NULL_HANDLE )
+                return Common::MakeFormattedError<VkImageView>( "the image has no view" );
+            return Common::MakeSuccess( whole );
+        }
+        if ( range.MipCount == 1 && range.BaseLayer == 0 && range.LayerCount == RDG::kAllRemaining )
+        {
+            const VkImageView view = mipView( range.BaseMip );
+            if ( view == VK_NULL_HANDLE )
+                return Common::MakeFormattedError<VkImageView>( "no view of mip {}", range.BaseMip );
+            return Common::MakeSuccess( view );
+        }
+        if ( !graphTexture )
+            return Common::MakeFormattedError<VkImageView>(
+                 "mips [{}, +{}) layers [{}, +{}) name a layer range of an image the graph did not import",
+                 range.BaseMip, range.MipCount, range.BaseLayer, range.LayerCount );
+        constexpr VkImageAspectFlags kDepthStencil = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+        if ( ( graphTexture->GetAspect() & kDepthStencil ) == kDepthStencil )
+            return Common::MakeFormattedError<VkImageView>(
+                 "a layer of a packed depth-stencil image has no single sampleable aspect" );
+        return graphTexture->GetView( range );
+    }
+
     Common::ResultStr<std::shared_ptr<VulkanRdgBuffer>> VulkanRdgBuffer::Create( const VulkanRdgDevice& device,
                                                                                  const RDG::BufferDesc& desc,
                                                                                  uint32_t               accessMask,

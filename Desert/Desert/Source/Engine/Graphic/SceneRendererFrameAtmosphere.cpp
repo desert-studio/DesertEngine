@@ -78,7 +78,7 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] );
         if ( clouds )
-            AddComputeNodes( graph, textures, clouds->DeclareShadowMapNodes() );
+            clouds->SettleShadowMapNodes( AddComputeNodes( graph, textures, clouds->DeclareShadowMapNodes() ) );
     }
 
     void SceneRenderer::AddFrameSkyAtmosphereLuts( RDG::Builder& graph, FrameTextures& textures )
@@ -86,7 +86,7 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
         if ( sky )
-            AddComputeNodes( graph, textures, sky->DeclareAtmosphereLutNodes() );
+            sky->SettleAtmosphereLutNodes( AddComputeNodes( graph, textures, sky->DeclareAtmosphereLutNodes() ) );
     }
 
     void SceneRenderer::AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures )
@@ -102,6 +102,6 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] );
         if ( clouds )
-            AddComputeNodes( graph, textures, clouds->DeclareFrameNodes() );
+            clouds->SettleFrameNodes( AddComputeNodes( graph, textures, clouds->DeclareFrameNodes() ) );
     }
 } // namespace Desert::Graphic

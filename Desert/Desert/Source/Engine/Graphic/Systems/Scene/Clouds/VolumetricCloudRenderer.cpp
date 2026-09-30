@@ -1,4 +1,6 @@
 #include "VolumetricCloudRenderer.hpp"
+
+#include <utility>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <Engine/Core/Camera.hpp>
@@ -1015,7 +1017,7 @@ namespace Desert::Graphic::System
         bake.Authored = m_AuthoredPayload;
 
         for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
-            bake.Noise[slot] = m_NoiseVolume[slot];
+            bake.Noise[slot] = m_NoiseVolume[slot].get();
 
         bake.Modelling     = m_ModellingVolume.get();
         bake.AuthoredAtlas = m_AuthoredAtlas.get();
@@ -1057,7 +1059,8 @@ namespace Desert::Graphic::System
         std::vector<ComputeNodeDeclaration> nodes;
         // Cleared FIRST and set only at the end, so every early return below leaves consumers with "no
         // cloud shadow this frame" rather than with the projection of a frame the sun has since left.
-        m_ShadowMapValid = false;
+        m_ShadowMapValid   = false;
+        m_ShadowMapPending = false;
 
         if ( !m_ShadowMapPipeline || !m_ShadowParamsBuffer )
             return nodes;
@@ -1094,6 +1097,8 @@ namespace Desert::Graphic::System
         if ( !BuildFieldPayload( payload ) )
             return nodes;
 
+        // BUILD TIME: whether the node exists depends on these uploads, and they fill this frame's slot of the
+        // buffers before the graph executes.
         const auto shadowParams =
              m_ShadowParamsBuffer->SetData( &payload, static_cast<uint32_t>( sizeof( payload ) ) );
 
@@ -1145,8 +1150,10 @@ namespace Desert::Graphic::System
             m_ShadowMapPipeline->SetOutput( kCloudShadowOutputBinding, m_ShadowMapImage.get(), 0 );
             m_ShadowMapPipeline->SetStorageBuffer( kCloudShadowParamsBinding, m_ShadowParamsBuffer.get() );
             for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
-                m_ShadowMapPipeline->SetInput( kCloudShadowNoiseBindings[slot], m_NoiseVolume[slot] );
-            m_ShadowMapPipeline->SetInput( kCloudShadowModellingBinding, m_ModellingVolume.get() );
+                m_ShadowMapPipeline->SetInput( kCloudShadowNoiseBindings[slot], m_NoiseVolume[slot].get(),
+                                               RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+            m_ShadowMapPipeline->SetInput( kCloudShadowModellingBinding, m_ModellingVolume.get(),
+                                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             m_ShadowMapPipeline->SetStorageBuffer( kCloudShadowAuthoredBinding, m_ShadowAuthoredBuffer.get() );
             // ALWAYS bound, fallback included — see the note at the march's own binding of it.
             m_ShadowMapPipeline->SetInput(
@@ -1163,8 +1170,16 @@ namespace Desert::Graphic::System
         };
         nodes.push_back( std::move( shadow ) );
 
-        m_ShadowMapValid = true;
+        m_ShadowMapPending = true;
         return nodes;
+    }
+
+    void VolumetricCloudRenderer::SettleShadowMapNodes( bool accepted )
+    {
+        // BUILD TIME: the lit passes declared after this read HasShadowMap() to decide whether they import the
+        // map.
+        m_ShadowMapValid   = m_ShadowMapPending && accepted;
+        m_ShadowMapPending = false;
     }
 
     void VolumetricCloudRenderer::SetCloudSettings( bool present, const ECS::VolumetricCloudData& data,
@@ -1729,7 +1744,7 @@ namespace Desert::Graphic::System
                 return false;
             }
 
-            m_NoiseVolume[slot] = volume.Get();
+            m_NoiseVolume[slot] = volume.Share();
         }
 
         // Cleared as soon as the volumes do resolve: the failure above is a state of the SCENE, not of this
@@ -1747,6 +1762,7 @@ namespace Desert::Graphic::System
     {
         std::vector<ComputeNodeDeclaration> nodes;
         m_HasFrameResult = false;
+        m_PendingResolve.reset();
 
         // Cleared with it, and read by the NEXT frame's environment bake rather than by anything here: a
         // frame that skipped this pass must leave "there is no sky-occlusion volume to read" behind it,
@@ -1791,6 +1807,7 @@ namespace Desert::Graphic::System
         // From here on this frame decides the sky-occlusion volume, whichever way it goes.
         m_SkyOcclusionDecided = true;
 
+        // BUILD TIME: the march exists only when these uploads land, and they fill this frame's buffer slot.
         const auto traceParams = m_ParamsBuffer->SetData( &payload, static_cast<uint32_t>( sizeof( payload ) ) );
 
         // Slot A. Rebuilt here rather than reused from the shadow map's call: the two dispatches sit on
@@ -1846,8 +1863,11 @@ namespace Desert::Graphic::System
                                                    0 );
                 m_SkyOcclusionPipeline->SetStorageBuffer( kCloudSkyOcclusionParamsBinding, m_ParamsBuffer.get() );
                 for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
-                    m_SkyOcclusionPipeline->SetInput( kCloudSkyOcclusionNoiseBindings[slot], m_NoiseVolume[slot] );
-                m_SkyOcclusionPipeline->SetInput( kCloudSkyOcclusionModellingBinding, m_ModellingVolume.get() );
+                    m_SkyOcclusionPipeline->SetInput( kCloudSkyOcclusionNoiseBindings[slot],
+                                                      m_NoiseVolume[slot].get(), RDG::Access::SampledCompute,
+                                                      RDG::SubresourceRange::All() );
+                m_SkyOcclusionPipeline->SetInput( kCloudSkyOcclusionModellingBinding, m_ModellingVolume.get(),
+                                                  RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
                 m_SkyOcclusionPipeline->SetStorageBuffer( kCloudSkyOcclusionAuthoredBinding,
                                                           m_AuthoredBuffer.get() );
                 // The same buffer the march binds, and legitimately so: this dispatch is issued inside
@@ -1928,8 +1948,10 @@ namespace Desert::Graphic::System
             // this backend answers one by skipping the dispatch. Slots past the distinct count repeat slot 0's
             // image, which is what ResolveCloudNoiseVolumes filled them with.
             for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
-                m_MarchPipeline->SetInput( kCloudNoiseBindings[slot], m_NoiseVolume[slot] );
-            m_MarchPipeline->SetInput( kCloudModellingBinding, m_ModellingVolume.get() );
+                m_MarchPipeline->SetInput( kCloudNoiseBindings[slot], m_NoiseVolume[slot].get(),
+                                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+            m_MarchPipeline->SetInput( kCloudModellingBinding, m_ModellingVolume.get(),
+                                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
 
             // ALWAYS bound, even when the payload's gate says it will not be read: a declared sampler with no
             // image is an invalid descriptor set, not an unused one, and this backend answers an invalid set
@@ -2000,6 +2022,7 @@ namespace Desert::Graphic::System
         resolve.HistoryValid          = m_HistoryValid ? 1.0f : 0.0f;
         resolve.SubPixelOffset =
              glm::ivec2( static_cast<int32_t>( subPixel.X ), static_cast<int32_t>( subPixel.Y ) );
+        // BUILD TIME, like the trace's upload: the resolve node exists only when it lands.
         const auto resolveParams =
              m_ResolveParamsBuffer->SetData( &resolve, static_cast<uint32_t>( sizeof( resolve ) ) );
         if ( !resolveParams.IsSuccess() )
@@ -2070,21 +2093,44 @@ namespace Desert::Graphic::System
         };
         nodes.push_back( std::move( temporal ) );
 
-        // Recorded AFTER the dispatch that used the previous value, so the matrix always describes the
-        // frame whose pixels are now in the history rather than the frame being drawn.
-        m_PrevViewProjection = viewProjection;
-        m_ResolvedIndex      = writeIndex;
-        m_HistoryValid       = true;
+        // BUILD TIME, deliberately: the write/read slots name the images these nodes declare, so they are fixed
+        // here. The advance itself waits for SettleFrameNodes, i.e. for the graph to accept the nodes.
+        m_PendingResolve = PendingResolve{ writeIndex, viewProjection };
+        return nodes;
+    }
 
+    void VolumetricCloudRenderer::SettleFrameNodes( bool accepted )
+    {
+        const std::optional<PendingResolve> pending = std::exchange( m_PendingResolve, std::nullopt );
+        if ( !accepted )
+        {
+            // Nothing of this frame is recorded: no occlusion volume, no resolve, and the history slot the next
+            // frame would read was not written by the frame its matrix would describe.
+            m_SkyOcclusionValid = false;
+            m_HistoryValid      = false;
+            m_HasFrameResult    = false;
+            return;
+        }
+        if ( !pending )
+            return;
+        // Applied after the resolve's parameters were uploaded with the previous value, so the matrix always
+        // describes the frame whose pixels are now in the history rather than the frame being drawn.
+        m_PrevViewProjection = pending->ViewProjection;
+        m_ResolvedIndex      = pending->WriteIndex;
+        m_HistoryValid       = true;
         ++m_FrameIndex;
         m_HasFrameResult = true;
-        return nodes;
     }
 
     void VolumetricCloudRenderer::DeclareVolumeReads( RenderPassDeclaration& declared ) const
     {
         declared.Read( m_ModellingVolume, RDG::Access::SampledCompute, "Clouds.Modelling" );
         declared.Read( m_AuthoredAtlas, RDG::Access::SampledCompute, "Clouds.AuthoredAtlas" );
+        // The noise volumes: the first m_NoiseNeeded slots are the distinct images, the rest repeat slot 0
+        // and are one graph resource already, so each image is declared once.
+        for ( uint32_t slot = 0; slot < m_NoiseNeeded && slot < kCloudSpeciesSlots; ++slot )
+            declared.Read( m_NoiseVolume[slot], RDG::Access::SampledCompute,
+                           std::format( "Clouds.Noise{}", slot ) );
     }
 
     void VolumetricCloudRenderer::RegisterPasses( RenderGraphBuilder& builder )

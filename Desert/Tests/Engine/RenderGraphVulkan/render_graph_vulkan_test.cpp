@@ -1712,3 +1712,75 @@ TEST( RenderGraphVulkan, AResizedImportedImageKeepsItsViewsUntilTheFramesUsingTh
     const std::vector<Message> messages = TakeMessages();
     EXPECT_TRUE( messages.empty() ) << messages.size() << " validation message(s):" << Join( messages );
 }
+
+// Tail 6 (RDG-TAILS): a sampled compute input bound inside a graph node names exactly the subresource the node
+// declared. SampledSubresourceView is what VulkanPipelineCompute::SetInput( binding, image, access, range ) binds:
+// All -> the image's own view, Mip -> its own mip view, a (mip, layer) rectangle -> the graph handle's 2D view of
+// that one layer; a layer range the graph cannot address is refused, not widened to the whole image.
+TEST( RenderGraphVulkan, ASampledInputViewAddressesExactlyTheMipAndLayerTheNodeDeclared )
+{
+    Gpu& gpu = GetGpu();
+    ASSERT_TRUE( gpu.Error.empty() ) << gpu.Error;
+    const VkDevice device = gpu.Device.device;
+
+    VkImageCreateInfo info{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+    info.imageType     = VK_IMAGE_TYPE_2D;
+    info.format        = VK_FORMAT_R8G8B8A8_UNORM;
+    info.extent        = { 8, 8, 1 };
+    info.mipLevels     = 2;
+    info.arrayLayers   = 2;
+    info.samples       = VK_SAMPLE_COUNT_1_BIT;
+    info.tiling        = VK_IMAGE_TILING_OPTIMAL;
+    info.usage         = VK_IMAGE_USAGE_SAMPLED_BIT;
+    info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VmaAllocationCreateInfo allocation{};
+    allocation.usage     = VMA_MEMORY_USAGE_AUTO;
+    VkImage       image  = VK_NULL_HANDLE;
+    VmaAllocation memory = nullptr;
+    ASSERT_EQ( vmaCreateImage( gpu.Allocator, &info, &allocation, &image, &memory, nullptr ), VK_SUCCESS );
+    {
+        RDG::TextureDesc desc = Target();
+        desc.Size             = { 8, 8, 1 };
+        desc.Mips             = 2;
+        desc.Layers           = 2;
+        const auto texture    = VulkanRdgTexture::Wrap( device, image, VK_FORMAT_R8G8B8A8_UNORM, desc );
+
+        // Stand-ins for the engine image's own whole / mip-1 views.
+        const auto wholeView = texture->GetView();
+        const auto mip1View  = texture->GetView( RDG::SubresourceRange::Mip( 1 ) );
+        ASSERT_TRUE( wholeView.IsSuccess() && mip1View.IsSuccess() );
+        const VkImageView whole = wholeView.GetValue();
+        const VkImageView mip1  = mip1View.GetValue();
+        const auto mipView      = [&]( uint32_t mip ) { return mip == 1 ? mip1 : VkImageView( VK_NULL_HANDLE ); };
+
+        const auto all = SampledSubresourceView( RDG::SubresourceRange::All(), whole, mipView, texture.get() );
+        ASSERT_TRUE( all.IsSuccess() ) << all.GetError();
+        EXPECT_EQ( all.GetValue(), whole );
+        const auto oneMip =
+             SampledSubresourceView( RDG::SubresourceRange::Mip( 1 ), whole, mipView, texture.get() );
+        ASSERT_TRUE( oneMip.IsSuccess() ) << oneMip.GetError();
+        EXPECT_EQ( oneMip.GetValue(), mip1 );
+
+        const auto layer1 =
+             SampledSubresourceView( RDG::SubresourceRange::MipLayer( 1, 1 ), whole, mipView, texture.get() );
+        ASSERT_TRUE( layer1.IsSuccess() ) << layer1.GetError();
+        const auto expected = texture->GetView( RDG::SubresourceRange::MipLayer( 1, 1 ) );
+        const auto layer0   = texture->GetView( RDG::SubresourceRange::MipLayer( 1, 0 ) );
+        ASSERT_TRUE( expected.IsSuccess() && layer0.IsSuccess() );
+        EXPECT_EQ( layer1.GetValue(), expected.GetValue() );
+        EXPECT_NE( layer1.GetValue(), layer0.GetValue() ) << "layer 1 must not bind layer 0's view";
+        EXPECT_NE( layer1.GetValue(), mip1 ) << "one layer must not bind the view of every layer";
+
+        EXPECT_FALSE( SampledSubresourceView( RDG::SubresourceRange::MipLayer( 0, 1 ), whole, mipView, nullptr )
+                           .IsSuccess() )
+             << "a layer of an image the graph did not import has no view to bind";
+        EXPECT_FALSE(
+             SampledSubresourceView( RDG::SubresourceRange::MipLayer( 0, 2 ), whole, mipView, texture.get() )
+                  .IsSuccess() )
+             << "a layer outside the image is refused";
+        EXPECT_FALSE(
+             SampledSubresourceView( RDG::SubresourceRange::Mip( 0 ), whole, mipView, texture.get() ).IsSuccess() )
+             << "a mip the image has no view of is refused";
+    }
+    vmaDestroyImage( gpu.Allocator, image, memory );
+}

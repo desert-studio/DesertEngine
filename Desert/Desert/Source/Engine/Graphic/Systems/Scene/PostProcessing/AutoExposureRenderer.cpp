@@ -153,7 +153,8 @@ namespace Desert::Graphic::System
         if ( !scene )
             return;
         HistogramPush hp{ kWindow.MinLogLum, 1.0f / kWindow.Range() };
-        m_HistogramPipeline->SetInput( 0, scene->GetColorAttachmentImage().get(), RDG::Access::SampledCompute, std::nullopt );
+        m_HistogramPipeline->SetInput( 0, scene->GetColorAttachmentImage().get(), RDG::Access::SampledCompute,
+                                       RDG::SubresourceRange::All() );
         m_HistogramPipeline->SetStorageBuffer( 1, m_Histogram.get() );
         m_HistogramPipeline->SetPushConstants( &hp, sizeof( hp ) );
         Renderer::GetInstance().DispatchComputeInFrame( m_HistogramPipeline.get(),
@@ -179,7 +180,8 @@ namespace Desert::Graphic::System
         AveragePush ap{ deltaSeconds,      adaptSpeed,      m_MinLuma,          m_MaxLuma,
                         kWindow.MinLogLum, kWindow.Range(), kWindow.LowPercent, kWindow.HighPercent };
         m_AveragePipeline->SetStorageBuffer( 0, m_Histogram.get() );
-        m_AveragePipeline->SetInput( 1, GetPreviousLuminanceImage().get(), RDG::Access::SampledCompute, std::nullopt );
+        m_AveragePipeline->SetInput( 1, GetPreviousLuminanceImage().get(), RDG::Access::SampledCompute,
+                                     RDG::SubresourceRange::All() );
         m_AveragePipeline->SetOutput( 2, GetAdaptedLuminanceImage().get(), 0 );
         m_AveragePipeline->SetPushConstants( &ap, sizeof( ap ) );
         Renderer::GetInstance().DispatchComputeInFrame( m_AveragePipeline.get(), 1, 1, 1 );

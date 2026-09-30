@@ -156,8 +156,9 @@ namespace Desert::Graphic::System
         const BrightPassPush brightPush{ first ? 1 : 0,
                                          m_Params.Threshold, m_Params.MaxBrightness };
 
-        m_BrightPassPipeline->SetInput( 0, first ? sceneColor.get() : m_SourceImage.get(), RDG::Access::SampledCompute,
-                                        first ? 0u : mip - 1 );
+        m_BrightPassPipeline->SetInput( 0, first ? sceneColor.get() : m_SourceImage.get(),
+                                        RDG::Access::SampledCompute,
+                                        RDG::SubresourceRange::Mip( first ? 0u : mip - 1 ) );
         m_BrightPassPipeline->SetOutput( 1, m_SourceImage.get(), mip );
         m_BrightPassPipeline->SetPushConstants( &brightPush, sizeof( brightPush ) );
         Renderer::GetInstance().DispatchComputeInFrame(
@@ -183,7 +184,8 @@ namespace Desert::Graphic::System
         featuresPush.Streak =
              glm::vec4( m_Params.StreakIntensity, m_Params.StreakLength, std::cos( angle ), std::sin( angle ) );
 
-        m_FeaturesPipeline->SetInput( 0, m_SourceImage.get(), RDG::Access::SampledCompute, std::nullopt );
+        m_FeaturesPipeline->SetInput( 0, m_SourceImage.get(), RDG::Access::SampledCompute,
+                                      RDG::SubresourceRange::All() );
         m_FeaturesPipeline->SetOutput( 1, m_FlareImage.get() );
         m_FeaturesPipeline->SetPushConstants( &featuresPush, sizeof( featuresPush ) );
         Renderer::GetInstance().DispatchComputeInFrame( m_FeaturesPipeline.get(),

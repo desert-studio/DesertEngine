@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <compare>
+#include <functional>
 #include <map>
 #include <optional>
 #include <memory>
@@ -143,6 +144,16 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t           m_AccessMask = 0;
         std::map<std::tuple<uint32_t, uint32_t, uint32_t, uint32_t>, VkImageView> m_Views;
     };
+
+    // The view a sampled input bound inside a graph node names, for exactly the subresource the node declared:
+    // All -> @p whole (the image's own view); one mip over every layer -> @p mipView of it (the image's own mip
+    // view: a cube stays a cube, a volume a volume); any narrower layer range -> @p graphTexture's view of it
+    // (the imported image's graph handle, which keeps its views alive for the frames in flight). A layer range
+    // of an image the graph has no handle on, of a packed depth-stencil image (no single sampleable aspect), or
+    // a missing view is an error naming the range.
+    Common::ResultStr<VkImageView> SampledSubresourceView( const RDG::SubresourceRange& range, VkImageView whole,
+                                                           const std::function<VkImageView( uint32_t )>& mipView,
+                                                           VulkanRdgTexture* graphTexture );
 
     class VulkanRdgBuffer final : public RDG::IPhysicalBuffer
     {

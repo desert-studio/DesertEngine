@@ -396,10 +396,11 @@ namespace Desert::Tests::PointerCensus
         // three above and guarded by the same two things.
         { "Desert/Desert/Source/Engine/Graphic/Clouds/CloudEnvironmentBake.hpp",
           "CloudEnvironmentBake", "MediumImages", Guard::FrameScoped,
-          "the medium's images are the TEXTURE service's, and this frame payload is safe for the reason "
-          "the noise volumes beside it are: VolumetricCloudRenderer::ResolveMediumValues re-resolves them "
-          "every frame from the material's handles and the bake is issued inside that same frame, so no "
-          "entry here outlives the resolve that produced it" },
+          "the medium's images are the TEXTURE service's, and this frame payload is safe because "
+          "VolumetricCloudRenderer::ResolveMediumValues re-resolves them every frame from the material's "
+          "handles and the bake is issued inside that same frame, so no entry here outlives the resolve "
+          "that produced it (the noise volumes beside it are stronger: the renderer CO-OWNS them, "
+          "m_NoiseVolume holds the CloudNoiseService handle and the frame graph imports each one)" },
         { "Desert/Desert/Source/Engine/Graphic/Clouds/CloudEnvironmentBake.hpp",
           "CloudBakeBinding", "MediumParams", Guard::CallScoped,
           kWhyArgumentPack },

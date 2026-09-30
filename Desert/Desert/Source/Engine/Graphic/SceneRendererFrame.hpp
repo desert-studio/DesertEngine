@@ -194,13 +194,15 @@ namespace Desert::Graphic
     // entry cannot be declared none is added (a later dispatch would read what the refused one did not write), and
     // the error names the node. NeverCull: the bodies also advance the system's own per-frame state (history
     // index, frame counters) the graph cannot see.
-    inline void AddComputeNodes( RDG::Builder& graph, FrameTextures& textures,
+    // Returns whether every node was added (true for none): the system's Settle*Nodes applies the per-frame state
+    // the nodes stand for only then.
+    inline bool AddComputeNodes( RDG::Builder& graph, FrameTextures& textures,
                                  std::vector<ComputeNodeDeclaration> nodes )
     {
         std::vector<std::vector<RDG::TextureRef>> images( nodes.size() );
         for ( size_t i = 0; i < nodes.size(); ++i )
             if ( !ResolveDeclared( textures, nodes[i].Access, nodes[i].Name, images[i] ) )
-                return;
+                return false;
         for ( size_t i = 0; i < nodes.size(); ++i )
         {
             ComputeNodeDeclaration& node = nodes[i];
@@ -213,5 +215,6 @@ namespace Desert::Graphic
                      return BOOLSUCCESS;
                  } );
         }
+        return true;
     }
 } // namespace Desert::Graphic

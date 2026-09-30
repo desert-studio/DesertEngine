@@ -211,6 +211,8 @@ namespace Desert::Graphic::System
         // and drops the sun lobe and the sky ambient (PackFogParams says so per term). Fog on a
         // sky-less scene is legitimate, so there is no bail-out here.
         const FogGpuPayload payload = PackFogParams( m_Data, atmosphere, m_FogHeightY );
+        // BUILD TIME: the node exists only when this upload lands; it fills this frame's slot before the graph
+        // runs.
         const auto uploaded = m_ParamsBuffer->SetData( &payload, static_cast<uint32_t>( sizeof( payload ) ) );
         if ( !uploaded.IsSuccess() )
         {

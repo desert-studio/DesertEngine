@@ -7,6 +7,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanGpuBatch.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
@@ -29,14 +30,14 @@ namespace Desert::Graphic::API::Vulkan
 
     ComputePipeline& VulkanPipelineCompute::SetInput( uint32_t binding, Image* image )
     {
-        m_BoundInputs[binding] = { image, std::nullopt, std::nullopt };
+        m_BoundInputs[binding] = { image, std::nullopt, RDG::SubresourceRange::All() };
         return *this;
     }
 
     ComputePipeline& VulkanPipelineCompute::SetInput( uint32_t binding, Image* image, RDG::Access declared,
-                                                      std::optional<uint32_t> mip )
+                                                      RDG::SubresourceRange range )
     {
-        m_BoundInputs[binding] = { image, declared, mip };
+        m_BoundInputs[binding] = { image, declared, range };
         return *this;
     }
 
@@ -119,7 +120,21 @@ namespace Desert::Graphic::API::Vulkan
             const auto&            r    = img->GetResource();
             const SampledImageKind kind = ClassifySampledImage( image );
 
-            VkImageView   view   = input.Mip ? img->GetMipView( *input.Mip ) : r.ImageView;
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes graph
+            // textures
+            auto*      graphTexture = dynamic_cast<VulkanRdgTexture*>( img->GetGraphTexture().get() );
+            const auto resolved     = SampledSubresourceView(
+                 input.Range, r.ImageView, [img]( uint32_t mip ) { return img->GetMipView( mip ); },
+                 graphTexture );
+            if ( !resolved.IsSuccess() )
+            {
+                LOG_ERROR(
+                     "ComputePipeline '{}': input at binding {} has no view of the subresource it declared: {}; "
+                     "dispatch skipped",
+                     m_Specification.DebugName, binding, resolved.GetError() );
+                return;
+            }
+            VkImageView   view   = resolved.GetValue();
             VkImageLayout layout = r.Layout;
             if ( input.Declared )
             {
@@ -133,12 +148,6 @@ namespace Desert::Graphic::API::Vulkan
                     return;
                 }
                 layout = RdgVulkanLayout( declaredLayout );
-            }
-            if ( input.Mip && view == VK_NULL_HANDLE )
-            {
-                LOG_ERROR( "ComputePipeline '{}': input at binding {} has no view of mip {}; dispatch skipped",
-                           m_Specification.DebugName, binding, *input.Mip );
-                return;
             }
 
             if ( kind == SampledImageKind::Volume &&

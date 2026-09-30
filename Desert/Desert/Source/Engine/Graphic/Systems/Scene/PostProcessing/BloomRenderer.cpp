@@ -134,7 +134,8 @@ namespace Desert::Graphic::System
         DownsamplePush push{ glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ),
                              first ? 1 : 0, m_Threshold };
 
-        m_DownsamplePipeline->SetInput( 0, src, RDG::Access::SampledCompute, srcMip );
+        m_DownsamplePipeline->SetInput( 0, src, RDG::Access::SampledCompute,
+                                        RDG::SubresourceRange::Mip( srcMip ) );
         m_DownsamplePipeline->SetOutput( 1, m_BloomImage.get(), mip );
         m_DownsamplePipeline->SetPushConstants( &push, sizeof( push ) );
         Renderer::GetInstance().DispatchComputeInFrame(
@@ -153,7 +154,8 @@ namespace Desert::Graphic::System
         UpsamplePush push{ glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ),
                            kFilterRadius };
 
-        m_UpsamplePipeline->SetInput( 0, m_BloomImage.get(), RDG::Access::SampledCompute, mip );
+        m_UpsamplePipeline->SetInput( 0, m_BloomImage.get(), RDG::Access::SampledCompute,
+                                      RDG::SubresourceRange::Mip( mip ) );
         m_UpsamplePipeline->SetOutput( 1, m_BloomImage.get(), mip - 1 );
         m_UpsamplePipeline->SetPushConstants( &push, sizeof( push ) );
         Renderer::GetInstance().DispatchComputeInFrame( m_UpsamplePipeline.get(),
