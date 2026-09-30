@@ -4,6 +4,7 @@
 
 #include <Common/Content/AssetEnvelope.hpp>
 
+#include <algorithm>
 #include <charconv>
 #include <format>
 
@@ -196,5 +197,21 @@ namespace Desert::ECS
             return std::nullopt;
         state.CutInForce = false;
         return state.TargetBeforeCut;
+    }
+    std::vector<const T::Binding*> OverridableBindings( const T::Sequence&            sequence,
+                                                        const LevelSequenceComponent& component )
+    {
+        std::vector<const T::Binding*> bindings;
+        for ( const T::Binding& binding : sequence.Bindings )
+        {
+            if ( binding.Kind != T::BindingKind::Entity )
+                continue;
+            const bool overridden = std::any_of(
+                 component.BindingOverrides.begin(), component.BindingOverrides.end(),
+                 [&]( const LevelSequenceBindingOverride& over ) { return over.Binding == binding.Guid; } );
+            if ( !overridden )
+                bindings.push_back( &binding );
+        }
+        return bindings;
     }
 } // namespace Desert::ECS

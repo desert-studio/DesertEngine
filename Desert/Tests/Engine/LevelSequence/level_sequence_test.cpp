@@ -16,6 +16,7 @@
 #include <gtest/gtest.h>
 
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -173,6 +174,26 @@ TEST( LevelSequencePlayback, ABindingOverrideWinsOverTheLocator )
     (void)ECS::StepLevelSequence( world.registry, component, playback, Step( 50 ) );
     EXPECT_NEAR( world.registry.get<ECS::TransformComponent>( world.other ).Translation.x, 50.0F, 1e-4F );
     EXPECT_EQ( world.registry.get<ECS::TransformComponent>( world.door ).Translation.x, 0.0F );
+}
+
+// The Details "+" offers the Entity bindings not overridden yet, in the sequence's order; the Sequence
+// binding (no object) is never offered, and a binding leaves the list once it has an override.
+TEST( LevelSequencePlayback, OverridableBindingsAreTheEntityBindingsWithoutAnOverride )
+{
+    const T::Sequence           sequence = DoorAndCut( std::to_string( kDoorUuid ) );
+    ECS::LevelSequenceComponent component;
+
+    const auto labels = [&]
+    {
+        std::vector<std::string> names;
+        for ( const T::Binding* binding : ECS::OverridableBindings( sequence, component ) )
+            names.push_back( binding->Label );
+        return names;
+    };
+    EXPECT_EQ( labels(), ( std::vector<std::string>{ "Door", "Camera" } ) );
+
+    component.BindingOverrides.push_back( { Guid( 1 ), Common::UUID( kOtherUuid ) } );
+    EXPECT_EQ( labels(), ( std::vector<std::string>{ "Camera" } ) );
 }
 
 TEST( LevelSequencePlayback, CameraCutTakesTheViewAndGivesThePreviousBack )

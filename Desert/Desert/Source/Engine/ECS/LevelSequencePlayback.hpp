@@ -116,4 +116,11 @@ namespace Desert::ECS
     [[nodiscard]] std::optional<entt::entity> LevelSequenceViewTarget( LevelSequenceActorState& state,
                                                                        const LevelSequenceStep& step,
                                                                        entt::entity             current );
+
+    /// The bindings of @p sequence that @p component may still override, in the sequence's order (UE: the
+    /// "+" of ALevelSequenceActor's Binding Overrides lists the object bindings): its Entity bindings with no
+    /// override yet. Only an Entity binding is resolved against this scene (`LevelSequenceEntityHost::Resolve`),
+    /// so a Bone, Widget or Sequence binding has nothing an override could re-point.
+    [[nodiscard]] std::vector<const Animation::Timeline::Binding*>
+    OverridableBindings( const Animation::Timeline::Sequence& sequence, const LevelSequenceComponent& component );
 } // namespace Desert::ECS
