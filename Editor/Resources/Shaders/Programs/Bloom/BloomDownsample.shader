@@ -6,8 +6,8 @@ Shader "BloomDownsample"
         // Progressive bloom downsample (Call of Duty: Advanced Warfare / Jimenez 2014). Each dispatch reads one
         // source mip and writes the next-smaller mip with a 13-tap filter. On the very first pass (scene HDR ->
         // bloom mip 0) a per-group Karis average is used to suppress fireflies, and the bright-pass threshold is
-        // folded in here (so no separate bright-pass is needed). u_Source is sampled with an explicit LOD so the
-        // whole bloom mip-chain can live in one image.
+        // folded in here (so no separate bright-pass is needed). u_Source is bound as a single-mip view of the
+        // source mip, so the whole bloom mip-chain can live in one image while each mip keeps its own layout.
 
         Uniform(0) sampler2D u_Source;
         layout(binding = 1, rgba16f) writeonly uniform image2D u_Output;
@@ -15,7 +15,6 @@ Shader "BloomDownsample"
         PushConstant PushConstants
         {
             vec2  u_SrcTexelSize; // 1 / size(source mip)
-            int   u_SrcMip;       // LOD to sample from u_Source
             int   u_FirstPass;    // 1 => scene -> mip0 (Karis average + threshold)
             float u_Threshold;    // bright-pass cutoff (first pass only)
         };
@@ -35,7 +34,8 @@ Shader "BloomDownsample"
                 return;
 
             vec2  uv = ( vec2( dstCoord ) + 0.5 ) / vec2( dstSize );
-            float l  = float( u_SrcMip );
+            // u_Source is a view of the ONE source mip the graph node declared (in the layout its access
+            // put it in), so its only level is lod 0.
             vec2  t  = u_SrcTexelSize;
 
             // The global sampler addresses in REPEAT mode, so taps that fall outside [0,1] would wrap to the
@@ -43,7 +43,7 @@ Shader "BloomDownsample"
             // large). Clamp each sample to the source's valid texel-centre range so bloom never wraps.
             vec2 lo = 0.5 * t;
             vec2 hi = 1.0 - 0.5 * t;
-        #define TAP( off ) textureLod( u_Source, clamp( uv + t * ( off ), lo, hi ), l ).rgb
+        #define TAP( off ) textureLod( u_Source, clamp( uv + t * ( off ), lo, hi ), 0.0 ).rgb
 
             // 13 taps around uv (in source texels).
             vec3 a = TAP( vec2( -2, -2 ) );

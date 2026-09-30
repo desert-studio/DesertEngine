@@ -18,7 +18,6 @@ namespace Desert::Graphic::System
         // Push-constant blocks — must match LensFlareBrightPass / LensFlareFeatures exactly.
         struct BrightPassPush
         {
-            int32_t SrcMip;
             int32_t FirstPass;
             float   Threshold;
             float   MaxBrightness;
@@ -154,10 +153,11 @@ namespace Desert::Graphic::System
         if ( !sceneColor )
             return;
         const bool           first = ( mip == 0 );
-        const BrightPassPush brightPush{ first ? 0 : static_cast<int32_t>( mip - 1 ), first ? 1 : 0,
+        const BrightPassPush brightPush{ first ? 1 : 0,
                                          m_Params.Threshold, m_Params.MaxBrightness };
 
-        m_BrightPassPipeline->SetInput( 0, first ? sceneColor.get() : m_SourceImage.get() );
+        m_BrightPassPipeline->SetInput( 0, first ? sceneColor.get() : m_SourceImage.get(), RDG::Access::SampledCompute,
+                                        first ? 0u : mip - 1 );
         m_BrightPassPipeline->SetOutput( 1, m_SourceImage.get(), mip );
         m_BrightPassPipeline->SetPushConstants( &brightPush, sizeof( brightPush ) );
         Renderer::GetInstance().DispatchComputeInFrame(
@@ -183,7 +183,7 @@ namespace Desert::Graphic::System
         featuresPush.Streak =
              glm::vec4( m_Params.StreakIntensity, m_Params.StreakLength, std::cos( angle ), std::sin( angle ) );
 
-        m_FeaturesPipeline->SetInput( 0, m_SourceImage.get() );
+        m_FeaturesPipeline->SetInput( 0, m_SourceImage.get(), RDG::Access::SampledCompute, std::nullopt );
         m_FeaturesPipeline->SetOutput( 1, m_FlareImage.get() );
         m_FeaturesPipeline->SetPushConstants( &featuresPush, sizeof( featuresPush ) );
         Renderer::GetInstance().DispatchComputeInFrame( m_FeaturesPipeline.get(),
