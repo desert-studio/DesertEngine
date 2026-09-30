@@ -106,8 +106,8 @@ namespace Desert::ECS
 
     Common::BoolResultStr AddAnimationSection( T::Sequence& sequence, const T::BindingGuid& binding,
                                                const Common::Content::AssetGuid& clip,
-                                               const Animation::FrameNumber start, const Animation::FrameNumber end,
-                                               const bool loop )
+                                               const Animation::FrameNumber      start,
+                                               const Animation::FrameNumber end, const bool loop )
     {
         const T::Binding* bound = T::FindBinding( sequence, binding );
         if ( bound == nullptr || bound->Kind != T::BindingKind::Entity )
@@ -132,9 +132,9 @@ namespace Desert::ECS
         int32_t row = 0;
         for ( bool clash = true; clash; )
         {
-            clash = std::any_of( track->Sections.begin(), track->Sections.end(),
-                                 [&]( const T::Section& other )
-                                 { return other.Row == row && !( other.End < start ) && !( end < other.Start ); } );
+            clash =
+                 std::any_of( track->Sections.begin(), track->Sections.end(), [&]( const T::Section& other )
+                              { return other.Row == row && !( other.End < start ) && !( end < other.Start ); } );
             if ( clash )
                 ++row;
         }
@@ -153,7 +153,7 @@ namespace Desert::ECS
     }
 
     LevelSequenceStep LevelSequencePreview::Scrub( entt::registry& registry, const T::Sequence& sequence,
-                                                   const Animation::FrameNumber tick,
+                                                   const Animation::FrameNumber   tick,
                                                    const LevelSequenceClipSource& clips )
     {
         LevelSequenceEntityHost host( registry, m_NoOverrides );

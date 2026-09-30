@@ -883,11 +883,14 @@ static int RunTool( int argc, char** argv )
     std::vector<fs::path> headers;
     for ( auto& entry : fs::recursive_directory_iterator( scanRoot ) )
     {
-        if ( !entry.is_regular_file() ) continue;
+        if ( !entry.is_regular_file() )
+            continue;
         const auto ext = entry.path().extension().string();
-        if ( ext != ".hpp" && ext != ".h" ) continue;
+        if ( ext != ".hpp" && ext != ".h" )
+            continue;
         // never parse our own generated output
-        if ( entry.path().filename().string().find( ".gen." ) != std::string::npos ) continue;
+        if ( entry.path().filename().string().find( ".gen." ) != std::string::npos )
+            continue;
         headers.push_back( entry.path() );
     }
 
@@ -914,8 +917,8 @@ static int RunTool( int argc, char** argv )
     const std::string newContent = rendered.ExtractValue();
     if ( fs::exists( outputFile ) && ReadFile( outputFile ) == newContent )
     {
-        std::cout << "[DesertHeaderTool] up to date (" << types.size() << " reflected types, "
-                  << scanned << " headers scanned)\n";
+        std::cout << "[DesertHeaderTool] up to date (" << types.size() << " reflected types, " << scanned
+                  << " headers scanned)\n";
         return 0;
     }
 
@@ -924,8 +927,8 @@ static int RunTool( int argc, char** argv )
     out << newContent;
     out.close();
 
-    std::cout << "[DesertHeaderTool] generated " << outputFile.string() << " ("
-              << types.size() << " reflected types, " << scanned << " headers scanned)\n";
+    std::cout << "[DesertHeaderTool] generated " << outputFile.string() << " (" << types.size()
+              << " reflected types, " << scanned << " headers scanned)\n";
     return 0;
 }
 

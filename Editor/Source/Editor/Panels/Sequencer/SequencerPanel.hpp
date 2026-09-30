@@ -199,9 +199,9 @@ namespace Desert::Editor
         // ── LEVEL SEQUENCE (LevelSequenceTimeline.cpp) ──────────────────────────────────────────────────
         // The asset, resolved from the subject handle per call (never stored: the manager owns it).
         [[nodiscard]] std::shared_ptr<Assets::LevelSequenceAsset> ResolveLevelAsset() const;
-        [[nodiscard]] SequenceOwner                              LevelOwner() const;
-        void                                                     DrawLevelTimeline();
-        [[nodiscard]] std::vector<DocumentAction>                LevelActions();
+        [[nodiscard]] SequenceOwner                               LevelOwner() const;
+        void                                                      DrawLevelTimeline();
+        [[nodiscard]] std::vector<DocumentAction>                 LevelActions();
         /// "+ Track → Actor": @p entity of the scene bound as a possessable (find-or-create).
         void AddLevelActor( const Common::UUID& entity, const std::string& label );
         /// Keys @p binding's entity's live Transform at the playhead (UE: "Key Transform" on the track row).
@@ -211,10 +211,10 @@ namespace Desert::Editor
         /// for the mesh's skeleton (UE: "+ Track → Animation" lists the assets compatible with the skeleton).
         /// Empty when the binding names no such entity.
         [[nodiscard]] std::vector<std::shared_ptr<Assets::AnimationAsset>>
-             LevelAnimationClips( const Animation::Timeline::BindingGuid& binding ) const;
+        LevelAnimationClips( const Animation::Timeline::BindingGuid& binding ) const;
         /// "+ Track → Animation <clip>": an Animation section of @p clip from the playhead for the clip's
         /// length, one undo step.
-        void AddLevelAnimation( const Animation::Timeline::BindingGuid&         binding,
+        void AddLevelAnimation( const Animation::Timeline::BindingGuid&        binding,
                                 const std::shared_ptr<Assets::AnimationAsset>& clip );
         void SaveLevelSequence();
         void SetLevelTimePercent( int percent );

@@ -1248,14 +1248,15 @@ namespace Desert::Editor
              Registration{ "LevelSequence", ICON_MDI_MOVIE_OPEN,
                            [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
                            {
-                               const auto* meta =
-                                    m_AssetManager ? m_AssetManager->FindMetadataByHandle(
-                                                          Assets::AssetHandle( subject.Owner ) )
-                                                   : nullptr;
+                               const auto* meta = m_AssetManager ? m_AssetManager->FindMetadataByHandle(
+                                                                        Assets::AssetHandle( subject.Owner ) )
+                                                                 : nullptr;
                                return std::make_unique<Editor::SequencerPanel>(
-                                    subject, meta ? meta->Filepath.stem().string() : std::string( "Level Sequence" ),
-                                    Editor::SequencerPanel::Timeline::Level, m_MainScene,
-                                    m_AnimationLibrary.get(), m_AssetManager.get() );
+                                    subject,
+                                    meta != nullptr ? meta->Filepath.stem().string()
+                                                    : std::string( "Level Sequence" ),
+                                    Editor::SequencerPanel::Timeline::Level, m_MainScene, m_AnimationLibrary.get(),
+                                    m_AssetManager.get() );
                            },
                            [this]( const SubjectId& subject )
                            {

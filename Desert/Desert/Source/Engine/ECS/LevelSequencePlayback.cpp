@@ -155,9 +155,10 @@ namespace Desert::ECS
         m_CameraCut = entity;
     }
 
-    void LevelSequenceEntityHost::PlayAnimation( const T::ResolvedBinding& target, const T::AnimationSample& sample )
+    void LevelSequenceEntityHost::PlayAnimation( const T::ResolvedBinding& target,
+                                                 const T::AnimationSample& sample )
     {
-        const std::string clipText = Common::Content::AssetGuidToText( sample.Clip );
+        const std::string  clipText = Common::Content::AssetGuidToText( sample.Clip );
         const entt::entity entity   = EntityOf( target );
         if ( !m_Registry.valid( entity ) || !m_Registry.has<AnimationComponent>( entity ) ||
              !m_Registry.get<AnimationComponent>( entity ).Animator )
@@ -187,9 +188,9 @@ namespace Desert::ECS
         // THE SKELETAL TIMELINE'S PATH (SequencerPanel's clip picker + scrub): pause the component so the ECS
         // Animation system does not advance the playhead the sequence set, make the clip current, move to the
         // tick. SetTick recomputes the pose now and wraps / clamps by the section's Loop.
-        AnimationComponent& animation = m_Registry.get<AnimationComponent>( entity );
-        Animation::Animator& animator = *animation.Animator;
-        animation.Playing             = false;
+        AnimationComponent&  animation = m_Registry.get<AnimationComponent>( entity );
+        Animation::Animator& animator  = *animation.Animator;
+        animation.Playing              = false;
         if ( animator.GetCurrentClip() != clip )
         {
             animator.Play( *clip, sample.Loop );

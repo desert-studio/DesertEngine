@@ -77,8 +77,8 @@ namespace Desert::ECS
     [[nodiscard]] Common::BoolResultStr AddAnimationSection( Animation::Timeline::Sequence&          sequence,
                                                              const Animation::Timeline::BindingGuid& binding,
                                                              const Common::Content::AssetGuid&       clip,
-                                                             Animation::FrameNumber start, Animation::FrameNumber end,
-                                                             bool loop );
+                                                             Animation::FrameNumber                  start,
+                                                             Animation::FrameNumber end, bool loop );
 
     /**
      * @brief The Sequencer's preview of a level sequence over a scene's registry (UE: the editor's sequence
@@ -106,13 +106,13 @@ namespace Desert::ECS
     private:
         struct Saved
         {
-            entt::entity       Entity = entt::null;
-            TransformComponent Transform;
-            bool               HadTransform  = false;
-            bool               HadVisibility = false;
-            bool               Visible       = true;
-            bool                            HadAnimator = false;
-            const Animation::AnimationClip* Clip        = nullptr;
+            entt::entity                    Entity = entt::null;
+            TransformComponent              Transform;
+            bool                            HadTransform  = false;
+            bool                            HadVisibility = false;
+            bool                            Visible       = true;
+            bool                            HadAnimator   = false;
+            const Animation::AnimationClip* Clip          = nullptr;
             Animation::FrameTime            Tick;
             bool                            Loop    = true;
             bool                            Playing = true;

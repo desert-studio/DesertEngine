@@ -358,8 +358,10 @@ TEST( LevelSequenceDocument, TheActorBindingSurvivesTheSaveAndNamesTheEntityByUu
     const ECS::LevelSequenceComponent component;
     ECS::LevelSequenceEntityHost      host( world.registry, component );
     const auto                        resolved = host.Resolve( binding );
-    ASSERT_TRUE( resolved.has_value() );
-    EXPECT_EQ( static_cast<entt::entity>( static_cast<uint32_t>( resolved->Handle ) ), world.door );
+    if ( !resolved )
+        FAIL() << "the binding resolved to nothing";
+    const auto& bound = *resolved;
+    EXPECT_EQ( static_cast<entt::entity>( static_cast<uint32_t>( bound.Handle ) ), world.door );
 }
 
 TEST( LevelSequenceDocument, PreviewPosesTheSceneAndClosingGivesItBack )
@@ -413,14 +415,14 @@ TEST( LevelSequenceDocument, AnAnimationTrackPosesTheBoundEntitysSkeleton )
     const AssetGuid walkGuid{ 0xA11, 0xCE };
 
     World world;
-    auto& animation = world.registry.emplace<ECS::AnimationComponent>( world.door,
-                                                                       std::make_unique<A::Animator>( skeleton ) );
+    auto& animation =
+         world.registry.emplace<ECS::AnimationComponent>( world.door, std::make_unique<A::Animator>( skeleton ) );
     ASSERT_TRUE( animation.Playing );
 
     T::Sequence sequence;
-    sequence.Host  = T::SequenceHost::LevelSequence;
-    sequence.Start = A::FrameNumber{ 0 };
-    sequence.End   = A::FrameNumber{ 100 };
+    sequence.Host   = T::SequenceHost::LevelSequence;
+    sequence.Start  = A::FrameNumber{ 0 };
+    sequence.End    = A::FrameNumber{ 100 };
     const auto door = ECS::AddEntityBinding( sequence, Common::UUID( kDoorUuid ), "Door" );
     ASSERT_TRUE( door.IsSuccess() );
     const auto added = ECS::AddAnimationSection( sequence, door.GetValue(), walkGuid, A::FrameNumber{ 0 },
@@ -431,7 +433,7 @@ TEST( LevelSequenceDocument, AnAnimationTrackPosesTheBoundEntitysSkeleton )
     { return guid == walkGuid ? &walk : nullptr; };
 
     ECS::LevelSequencePreview preview;
-    const auto step = preview.Scrub( world.registry, sequence, A::FrameNumber{ 10 }, clips );
+    const auto                step = preview.Scrub( world.registry, sequence, A::FrameNumber{ 10 }, clips );
     EXPECT_TRUE( step.Refusals.empty() ) << step.Refusals.front();
 
     // The Skeletal timeline's path, by hand: the same clip at the same tick.
@@ -447,7 +449,7 @@ TEST( LevelSequenceDocument, AnAnimationTrackPosesTheBoundEntitysSkeleton )
 
     // No clip source: the section is refused by name, never skipped in silence.
     ECS::LevelSequencePreview blind;
-    const auto refused = blind.Scrub( world.registry, sequence, A::FrameNumber{ 10 } );
+    const auto                refused = blind.Scrub( world.registry, sequence, A::FrameNumber{ 10 } );
     ASSERT_EQ( refused.Refusals.size(), 1U );
     EXPECT_NE( refused.Refusals.front().find( "no such clip" ), std::string::npos ) << refused.Refusals.front();
 

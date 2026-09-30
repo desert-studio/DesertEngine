@@ -96,9 +96,9 @@ namespace Desert::Editor
 
     SequenceOwner SequencerPanel::LevelOwner() const
     {
-        const auto                                asset = ResolveLevelAsset();
-        std::weak_ptr<Assets::LevelSequenceAsset> weak  = asset;
-        SequenceOwner                             owner;
+        const auto                                      asset = ResolveLevelAsset();
+        const std::weak_ptr<Assets::LevelSequenceAsset> weak  = asset;
+        SequenceOwner                                   owner;
         owner.Identity = asset.get();
         // The asset may be unloaded between the edit and its undo; the step then has nothing to restore.
         owner.Resolve = [weak]() -> LevelTL::Sequence*
@@ -122,9 +122,10 @@ namespace Desert::Editor
         const auto scene = m_Scene.lock();
         if ( !scene )
             return;
-        const auto step = m_LevelPreview.Scrub(
-             scene->GetRegistry(), sequence, m_LevelTick,
-             m_AssetManager != nullptr ? ECS::LevelSequenceClips( *m_AssetManager ) : ECS::LevelSequenceClipSource{} );
+        const auto step =
+             m_LevelPreview.Scrub( scene->GetRegistry(), sequence, m_LevelTick,
+                                   m_AssetManager != nullptr ? ECS::LevelSequenceClips( *m_AssetManager )
+                                                             : ECS::LevelSequenceClipSource{} );
         for ( const auto& refusal : step.Refusals )
             LOG_WARN( "[Sequencer] level preview: {}", refusal );
         m_LevelTickShown     = m_LevelTick.Value;
@@ -150,7 +151,7 @@ namespace Desert::Editor
             return;
         LevelTL::Sequence& sequence = asset->EditSequence();
         const auto*        bound    = LevelTL::FindBinding( sequence, binding );
-        const auto    entity   = bound != nullptr ? BoundEntity( *scene, *bound ) : std::nullopt;
+        const auto         entity   = bound != nullptr ? BoundEntity( *scene, *bound ) : std::nullopt;
         if ( !entity || !entity->HasComponent<ECS::TransformComponent>() )
         {
             ToastManager::Push( "Key Transform: the binding names no entity with a Transform in this scene",
@@ -203,20 +204,22 @@ namespace Desert::Editor
             return;
         // A section names its clip by the asset's header GUID (the section's source resolves it back through
         // HandleForGuid); a clip with no cooked registry row has no GUID a section could keep.
-        const auto guid = Assets::ContentRegistry::GuidForHandle( static_cast<uint64_t>( clip->GetMetadata().Handle ) );
+        const auto guid =
+             Assets::ContentRegistry::GuidForHandle( static_cast<uint64_t>( clip->GetMetadata().Handle ) );
         if ( !guid )
         {
-            ToastManager::Push( std::format( "+ Track → Animation refused: '{}' has no asset GUID (not in the cooked "
-                                             "registry) — a section could not name it",
-                                             clip->GetClip().AnimationName ),
-                                ToastLevel::Error, 6.0f );
+            ToastManager::Push(
+                 std::format( "+ Track → Animation refused: '{}' has no asset GUID (not in the cooked "
+                              "registry) — a section could not name it",
+                              clip->GetClip().AnimationName ),
+                 ToastLevel::Error, 6.0f );
             return;
         }
         LevelTL::Sequence& sequence = asset->EditSequence();
         // UE: the section starts at the playhead and spans the clip once, in the SEQUENCE's ticks.
         const auto& clipSequence = clip->GetClip().Sequence;
-        const auto  length = Animation::ConvertTick( clip->GetClip().DurationTicks(), clipSequence.TickRate,
-                                                     sequence.TickRate );
+        const auto  length =
+             Animation::ConvertTick( clip->GetClip().DurationTicks(), clipSequence.TickRate, sequence.TickRate );
         const Animation::FrameNumber end{ m_LevelTick.Value + std::max<int32_t>( 1, length.Ticks.Value ) };
         const ScopedSequenceEdit     undoStep( m_LevelEdit, LevelOwner() );
         if ( const auto added = ECS::AddAnimationSection( sequence, binding, *guid, m_LevelTick, end, true );
@@ -244,7 +247,7 @@ namespace Desert::Editor
         if ( !asset )
             return;
         const LevelTL::Sequence& sequence = asset->GetSequence();
-        const double        span     = static_cast<double>( sequence.End.Value - sequence.Start.Value );
+        const auto               span     = static_cast<double>( sequence.End.Value - sequence.Start.Value );
         m_LevelTick.Value = sequence.Start.Value + static_cast<int32_t>( std::llround( span * percent / 100.0 ) );
     }
 
@@ -258,7 +261,7 @@ namespace Desert::Editor
             return;
         }
         LevelTL::Sequence& sequence = asset->EditSequence();
-        m_LevelTick.Value      = std::clamp( m_LevelTick.Value, sequence.Start.Value, sequence.End.Value );
+        m_LevelTick.Value           = std::clamp( m_LevelTick.Value, sequence.Start.Value, sequence.End.Value );
 
         // ── TOOLBAR: Save, + Track, the playhead ─────────────────────────────────────────────────────
         if ( ImGui::Button( ICON_MDI_CONTENT_SAVE " Save" ) )
@@ -375,7 +378,8 @@ namespace Desert::Editor
                         if ( clip && Assets::ContentRegistry::GuidForHandle(
                                           static_cast<uint64_t>( clip->GetMetadata().Handle ) ) == anim->Clip )
                             label = clip->GetClip().AnimationName;
-                    const float x0 = xOf( section.Start.Value ), x1 = xOf( section.End.Value );
+                    const float x0 = xOf( section.Start.Value );
+                    const float x1 = xOf( section.End.Value );
                     draw->AddRectFilled( ImVec2( x0, rowY + 2 ), ImVec2( x1, rowY + ImGui::GetFrameHeight() - 2 ),
                                          IM_COL32( 80, 150, 90, 255 ), 3.0f );
                     draw->AddText( ImVec2( x0 + 4, rowY + 3 ), IM_COL32( 240, 240, 240, 255 ), label.c_str() );
@@ -398,7 +402,8 @@ namespace Desert::Editor
                 if ( cut == nullptr )
                     continue;
                 const auto* camera = LevelTL::FindBinding( sequence, cut->Camera );
-                const float x0 = xOf( section.Start.Value ), x1 = xOf( section.End.Value );
+                const float x0     = xOf( section.Start.Value );
+                const float x1     = xOf( section.End.Value );
                 draw->AddRectFilled( ImVec2( x0, rowY + 2 ), ImVec2( x1, rowY + ImGui::GetFrameHeight() - 2 ),
                                      IM_COL32( 70, 110, 170, 255 ), 3.0f );
                 draw->AddText( ImVec2( x0 + 4, rowY + 3 ), IM_COL32( 240, 240, 240, 255 ),
@@ -437,7 +442,7 @@ namespace Desert::Editor
             const Common::UUID uuid = registry.get<ECS::UUIDComponent>( handle ).UUID;
             const std::string  tag  = registry.get<ECS::TagComponent>( handle ).Tag;
             actions.push_back( DocumentAction{ std::format( "Add Actor {}", tag ),
-                                               [this, uuid, tag] { AddLevelActor( uuid, tag ); } } );
+                                               [this, uuid, label = tag] { AddLevelActor( uuid, label ); } } );
         }
         for ( const auto& binding : asset->GetSequence().Bindings )
         {
@@ -475,7 +480,8 @@ namespace Desert::Editor
             asset = assets->CreateAsset<Assets::LevelSequenceAsset>( path );
         if ( !asset )
         {
-            LOG_ERROR( "[Assets] '{}' could not be registered as a level sequence — no Sequencer was opened.", path );
+            LOG_ERROR( "[Assets] '{}' could not be registered as a level sequence — no Sequencer was opened.",
+                       path );
             return Outcome::Failed;
         }
         if ( const auto loaded = asset->EnsureLoaded( *assets ); !loaded )
