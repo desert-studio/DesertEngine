@@ -279,6 +279,16 @@ namespace Desert::Graphic::System
         [[nodiscard]] GraphicsPipeline* CullPermutation( GraphicsPipeline* pipeline, bool twoSided );
         std::unordered_map<const GraphicsPipeline*, std::shared_ptr<GraphicsPipeline>> m_TwoSidedPipelines;
 
+        // THE PIPELINE OF ONE DRAW: @p passState's fixed state (layout, target, depth, polygon mode, load) with
+        // the program of @p cell — the material whose descriptor sets the draw binds, i.e. its template's
+        // (path x pass) cell. Built on first use from the shared pipeline cache and kept per
+        // MeshCellPipelineKey; the default template's cell is served the pass's own pipeline back by the cache's
+        // dedupe, with no case for it here. Null (logged once per key) when the cell's shader is not registered
+        // or the pipeline is refused — the caller skips that draw rather than binding another template's program.
+        [[nodiscard]] GraphicsPipeline* CellPipeline( GraphicsPipeline* passState, const DataDrivenMaterial& cell );
+        std::unordered_map<MeshCellPipelineKey, std::shared_ptr<GraphicsPipeline>, MeshCellPipelineKeyHash>
+             m_CellPipelines; // null = refused
+
         [[nodiscard]] GraphicsPipeline* WireframePipelineOr( GraphicsPipeline* fallback ) const
         {
 #if DESERT_DEV_INSTRUMENTS

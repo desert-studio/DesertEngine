@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -224,6 +225,25 @@ namespace Desert::Graphic
     // Human-readable, for logs and test failure text. Never parsed.
     const char* MeshVertexPathName( MeshVertexPath path );
     const char* MeshPassName( MeshPass pass );
+
+    // THE PIPELINE A MESH DRAW BINDS (UE: a PSO is the MATERIAL's shader for the vertex factory x the pass). The pass
+    // fixes the state — vertex layout, target, depth, polygon mode, load/clear — and names it by the pass's own
+    // pipeline (@p PassState); the DRAWING material fixes the program — its template's (path x pass) cell
+    // (@p CellShader, a MeshShaderFor name). The descriptor sets a draw binds come from that same cell, so a
+    // pipeline chosen by the pass alone (the default template's cell) disagrees with every other template's
+    // sets: the object vanishes and the validation layer counts the difference. The default surface is one entry
+    // of this key like any other template, not a case of it.
+    struct MeshCellPipelineKey
+    {
+        const void* PassState = nullptr;
+        std::string CellShader;
+
+        bool operator==( const MeshCellPipelineKey& ) const = default;
+    };
+    struct MeshCellPipelineKeyHash
+    {
+        std::size_t operator()( const MeshCellPipelineKey& key ) const;
+    };
 
     // WHICH PROGRAM DRAWS A CASTER INTO THE SHADOW CASCADES, decided by the material's BLEND MODE (UE: the
     // shadow-depth pass takes an opaque material's position-only shader and a Masked material's own
