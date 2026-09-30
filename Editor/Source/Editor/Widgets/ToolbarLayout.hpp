@@ -67,8 +67,8 @@ namespace Desert::Editor::ToolbarLayout
         const std::array<float, static_cast<std::size_t>( PlaybackSlot::Count )> widths = {
              frameHeight * kPlayWidthFrames, frameHeight * kOptionsWidthFrames, frameHeight * kButtonWidthFrames,
              frameHeight * kButtonWidthFrames, frameHeight * kButtonWidthFrames };
-        PlaybackGroup              group;
-        float                      cursor = x;
+        PlaybackGroup group;
+        float         cursor = x;
         for ( std::size_t i = 0; i < widths.size(); ++i )
         {
             if ( i > 0 )

@@ -27,8 +27,9 @@ namespace Desert::Assets::Serialization
      *       No import settings yet: the importer has none that a user sets per source.
      *   2 - `Bounds`, the imported mesh's box in centimetres (Min/Max), written by every import and re-import
      *       (DIMP2). The registry reads it without loading anything - UE's asset registry serves a package's
-     *       bounds tag the same way - so a cold DDC still knows the box. Required; a version-1 record is
-     *       refused by its path and re-imported.
+     *       bounds tag the same way - so a cold DDC still knows the box. Required of a record that imports a mesh
+     *       (StaticMesh, SkinnedMesh); a skeleton or clips-only record has no mesh and states none. A version-1
+     *       record is refused by its path and re-imported.
      *
      * An unknown value is refused in both directions.
      */

@@ -60,7 +60,7 @@ namespace Desert::ECS
             using SceneState = Core::Scene::SceneState;
 
             const SceneState state   = m_Scene ? m_Scene->GetState() : SceneState::Edit;
-            const bool       playing = m_Scene && m_Scene->TicksGameplay(); // Play, or a paused frame skip
+            const bool playing = m_Scene != nullptr && m_Scene->TicksGameplay(); // Play, or a paused frame skip
             const bool       active  = ( state == SceneState::Play || state == SceneState::Paused );
 
             if ( !active )

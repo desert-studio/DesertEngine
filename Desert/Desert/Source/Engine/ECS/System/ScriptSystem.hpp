@@ -52,8 +52,8 @@ namespace Desert::ECS
             // Scripts tick in Play and on a paused world's stepped frame (Scene::TicksGameplay); the
             // cursor is CAPTURED only in Play - a frame skip is driven from the editor's toolbar, so the
             // mouse that pressed it must stay free.
-            const bool playing   = m_Scene && m_Scene->TicksGameplay();
-            const bool possessed = m_Scene && m_Scene->GetState() == SceneState::Play;
+            const bool playing   = m_Scene != nullptr && m_Scene->TicksGameplay();
+            const bool possessed = m_Scene != nullptr && m_Scene->GetState() == SceneState::Play;
 
             if ( !playing )
             {

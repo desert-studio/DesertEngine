@@ -139,7 +139,8 @@ namespace Desert::Core
         if ( !block )
             return Common::MakeFormattedError<std::optional<PawnCapsule>>(
                  "level '{}': its Default Pawn: {}", scene.GetSceneName(), block.GetError() );
-        if ( !block.GetValue() )
+        const auto& pawnBlock = block.GetValue();
+        if ( !pawnBlock.has_value() )
             return Common::MakeSuccess( std::optional<PawnCapsule>{} );
 
         const auto* type = Reflection::ReflectionRegistry::Get().Find( "CharacterControllerData" );
@@ -149,7 +150,7 @@ namespace Desert::Core
         Common::Json::Issues         issues;
         Reflection::DeserializeReflected(
              *type, &data,
-             Common::Json::Root( *block.GetValue(), Common::Json::Path().Key( "CharacterController" ) ), issues );
+             Common::Json::Root( pawnBlock.value(), Common::Json::Path().Key( "CharacterController" ) ), issues );
         if ( !issues.empty() )
             return Common::MakeFormattedError<std::optional<PawnCapsule>>(
                  "level '{}': its Default Pawn's CharacterController block is malformed ({} issue(s))",

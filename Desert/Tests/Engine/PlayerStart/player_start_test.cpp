@@ -255,8 +255,9 @@ TEST( PawnBody, TheControllerOfANestedPrefabIsThePawns )
 
     const auto block = PawnControllerBlock( pawn, lib.Nested );
     ASSERT_TRUE( block ) << block.GetError();
-    ASSERT_TRUE( block.GetValue().has_value() ) << "the nested prefab's controller was not found";
-    EXPECT_EQ( FieldOf( *block.GetValue(), "Radius" ), FieldOf( Controller( 80.0 ), "Radius" ) );
+    const auto& found = block.GetValue();
+    ASSERT_TRUE( found.has_value() ) << "the nested prefab's controller was not found";
+    EXPECT_EQ( FieldOf( found.value(), "Radius" ), FieldOf( Controller( 80.0 ), "Radius" ) );
 }
 
 TEST( PawnBody, AnOverrideOnTheNestingRecordIsMergedOntoTheNestedBlock )
@@ -274,10 +275,12 @@ TEST( PawnBody, AnOverrideOnTheNestingRecordIsMergedOntoTheNestedBlock )
     pawn[0].PrefabOverrides                = std::vector{ over };
 
     const auto block = PawnControllerBlock( pawn, lib.Nested );
-    ASSERT_TRUE( block && block.GetValue() );
-    EXPECT_EQ( FieldOf( *block.GetValue(), "Radius" ), FieldOf( Controller( 45.0 ), "Radius" ) )
+    ASSERT_TRUE( block ) << block.GetError();
+    const auto& merged = block.GetValue();
+    ASSERT_TRUE( merged.has_value() );
+    EXPECT_EQ( FieldOf( merged.value(), "Radius" ), FieldOf( Controller( 45.0 ), "Radius" ) )
          << "the instance's override was not applied";
-    EXPECT_EQ( FieldOf( *block.GetValue(), "Height" ), FieldOf( Controller( 0.0, 300.0 ), "Height" ) )
+    EXPECT_EQ( FieldOf( merged.value(), "Height" ), FieldOf( Controller( 0.0, 300.0 ), "Height" ) )
          << "the merge reset a field it did not name";
 }
 
@@ -299,9 +302,9 @@ TEST( PawnBody, AMissingOrSelfNestedPrefabIsAnErrorNamingThePath )
 
 TEST( PawnBody, NoControllerAnywhereIsASpectatorNotAnError )
 {
-    Library                 lib;
-    std::vector<EntityData> pawn( 1 );
-    const auto              block = PawnControllerBlock( pawn, lib.Nested );
+    const Library                 lib;
+    const std::vector<EntityData> pawn( 1 );
+    const auto                    block = PawnControllerBlock( pawn, lib.Nested );
     ASSERT_TRUE( block ) << block.GetError();
     EXPECT_FALSE( block.GetValue().has_value() );
 }

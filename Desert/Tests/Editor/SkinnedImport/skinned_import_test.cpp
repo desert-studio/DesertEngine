@@ -322,8 +322,10 @@ TEST_F( SkinnedImport, EveryFileTheImportWroteTracesBackToItsSource )
     {
         const auto source = IAS::SkinnedAssetSource( file );
         ASSERT_TRUE( source.IsSuccess() ) << file.generic_string() << ": " << source.GetError();
-        ASSERT_TRUE( source.GetValue().has_value() ) << file.generic_string() << " traces to no source";
-        EXPECT_EQ( source.GetValue()->lexically_normal(), m_Source.lexically_normal() ) << file.generic_string();
+        const std::optional<std::filesystem::path>& traced = source.GetValue();
+        ASSERT_TRUE( traced.has_value() ) << file.generic_string() << " traces to no source";
+        EXPECT_EQ( traced.value_or( std::filesystem::path{} ).lexically_normal(), m_Source.lexically_normal() )
+             << file.generic_string();
     }
 }
 
@@ -713,7 +715,6 @@ TEST( ThumbnailOrbitKinds, ASkinnedFileIsFiledUnderTheSourceThatWroteIt )
 {
     namespace IAS        = Desert::Editor::ImportedAssetSource;
     namespace Ser        = Desert::Assets::Serialization;
-    namespace CP         = Desert::Editor::CookPaths;
     using Kind           = Common::Content::ContentKind;
     const auto      root = std::filesystem::temp_directory_path() / "SkinnedImport_SkinnedAssetSource";
     std::error_code ec;
@@ -731,7 +732,10 @@ TEST( ThumbnailOrbitKinds, ASkinnedFileIsFiledUnderTheSourceThatWroteIt )
     const auto record = [&]( const std::string& source, const Kind kind )
     {
         Ser::ImportRecordData data;
-        data.Source         = source;
+        data.Source = source;
+        // A record that imports a mesh states its box (DIMP 2); a skeleton import has no mesh and states none.
+        if ( kind == Kind::StaticMesh || kind == Kind::SkinnedMesh )
+            data.Bounds = Ser::ImportRecordData::Box{ { -1.0f, -1.0f, -1.0f }, { 1.0f, 1.0f, 1.0f } };
         const auto recorded = Ser::WriteImportRecord( data, kind );
         ASSERT_TRUE( recorded ) << recorded.GetError();
         write( Common::Content::ImportRecordPathFor( root / source ), recorded.GetValue() );
@@ -759,7 +763,7 @@ TEST( ThumbnailOrbitKinds, ASkinnedFileIsFiledUnderTheSourceThatWroteIt )
     {
         const auto found = source( name );
         if ( !found )
-            return "error: " + found.GetError();
+            return std::format( "error: {}", found.GetError() );
         return found.GetValue() ? found.GetValue()->generic_string() : std::string( "none" );
     };
     const std::string fox = ( root / "Fox.glb" ).generic_string();

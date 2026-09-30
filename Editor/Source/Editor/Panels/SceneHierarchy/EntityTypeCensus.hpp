@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 
@@ -127,7 +128,7 @@ namespace Desert::Editor
     {
         const float room  = available > 0.0f ? available : 0.0f;
         const float spare = room - nameMin;
-        const float type  = spare <= 0.0f ? 0.0f : ( spare < typeWidth ? spare : typeWidth );
+        const float type  = spare <= 0.0f ? 0.0f : std::min( spare, typeWidth );
         return { room - type, type };
     }
 } // namespace Desert::Editor
