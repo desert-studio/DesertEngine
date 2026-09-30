@@ -767,27 +767,25 @@ namespace Desert::Graphic::API::Vulkan
         return VulkanRdgTexture::Wrap( device, resource.Image, resource.Format, desc );
     }
 
-    Common::BoolResultStr VulkanRendererAPI::ImportImage( const std::shared_ptr<Image2D>& image,
-                                                          RDG::ExternalTexture&           into )
+    Common::BoolResultStr VulkanRendererAPI::ImportImage( const std::shared_ptr<Image>& image,
+                                                          RDG::ExternalTexture&         into )
     {
-        const auto vulkanImage = std::dynamic_pointer_cast<VulkanImage2D>( image );
+        // ONE path for a 2D image, a volume and a cube: everything kind-specific is the image's own
+        // IVulkanImage::GetGraphDesc (a volume answers Tex3D, its depth and one layer, so the barriers the
+        // graph plans on it cover [mips) x layer 0 and its views are 3D).
+        const std::shared_ptr<IVulkanImage> vulkanImage = std::dynamic_pointer_cast<IVulkanImage>( image );
         if ( !vulkanImage )
-            return Common::MakeError( "ImportImage: not a Vulkan 2D image" );
+            return Common::MakeError( "ImportImage: not a Vulkan image" );
         const VulkanImageResource& resource = vulkanImage->GetResource();
+        const RDG::TextureDesc     desc     = vulkanImage->GetGraphDesc();
         if ( resource.Image == VK_NULL_HANDLE )
-            return Common::MakeError( std::format( "ImportImage: the {}x{} image has no VkImage",
-                                                   image->GetWidth(), image->GetHeight() ) );
+            return Common::MakeError( std::format( "ImportImage: the {}x{}x{} image has no VkImage",
+                                                   desc.Size.Width, desc.Size.Height, desc.Size.Depth ) );
         const std::optional<RDG::ImageLayout> layout = RdgLayoutFromVulkan( resource.Layout );
         if ( !layout )
             return Common::MakeError( std::format( "ImportImage: image layout {} has no render-graph layout",
                                                    static_cast<int>( resource.Layout ) ) );
 
-        RDG::TextureDesc desc;
-        desc.Size   = { image->GetWidth(), image->GetHeight(), 1 };
-        desc.Format  = image->GetImageSpecification().Format;
-        desc.Mips    = resource.MipLevels;
-        desc.Layers  = resource.LayerCount;
-        desc.Samples = std::max( 1u, image->GetImageSpecification().Samples );
         if ( !vulkanImage->GetGraphTexture() )
         {
             const VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
@@ -797,11 +795,11 @@ namespace Desert::Graphic::API::Vulkan
         }
         into.Desc = desc;
         into.SubresourceStates.assign( desc.SubresourceCount(), RDG::RecordedLayoutState( *layout ) );
-        into.Physical                           = vulkanImage->GetGraphTexture();
-        const std::weak_ptr<VulkanImage2D> weak = vulkanImage;
+        into.Physical                          = vulkanImage->GetGraphTexture();
+        const std::weak_ptr<IVulkanImage> weak = vulkanImage;
         into.RecordFinalStates = [weak]( const std::vector<RDG::AccessState>& states ) -> Common::BoolResultStr
         {
-            const std::shared_ptr<VulkanImage2D> target = weak.lock();
+            const std::shared_ptr<IVulkanImage> target = weak.lock();
             if ( !target )
                 return Common::MakeError( "the imported image was destroyed before its graph finished" );
             for ( const RDG::AccessState& state : states )

@@ -44,7 +44,7 @@ namespace Desert::Graphic
         void BeginDebugLabel( const char* name );
         Common::BoolResultStr                  ExecuteGraph( RDG::Builder& graph );
         std::shared_ptr<RDG::IPhysicalTexture> WrapLegacyImage( Image2D& image );
-        Common::BoolResultStr ImportImage( const std::shared_ptr<Image2D>& image, RDG::ExternalTexture& into );
+        Common::BoolResultStr ImportImage( const std::shared_ptr<Image>& image, RDG::ExternalTexture& into );
         void EndDebugLabel();
         void RenderMesh( const GraphicsPipeline* pipeline, const Mesh* mesh, const glm::mat4 transform,
                          const MaterialExecutor* materialExecutor, uint32_t instanceCount = 1,

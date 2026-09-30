@@ -71,12 +71,13 @@ namespace Desert::Graphic
         // pass: declaring it would make the graph issue barriers from a layout the image is not in.
         virtual std::shared_ptr<RDG::IPhysicalTexture> WrapLegacyImage( Image2D& image ) = 0;
 
-        // Imports @p image into @p into for one graph: its description, its physical image, the state its own
-        // layout record implies (RDG::RecordedLayoutState), and the hook through which Execute writes the
-        // final layout back into that record. Fails for an image with no memory or one in a layout the graph
-        // has no name for.
-        virtual Common::BoolResultStr ImportImage( const std::shared_ptr<Image2D>& image,
-                                                   RDG::ExternalTexture&           into ) = 0;
+        // Imports @p image into @p into for one graph: its description (a 2D image, a volume or a cube, as the
+        // image describes itself), its physical image, the state its own layout record implies
+        // (RDG::RecordedLayoutState), and the hook through which Execute writes the final layout back into
+        // that record. ONE path for every image kind. Fails for an image with no memory or one in a layout
+        // the graph has no name for.
+        virtual Common::BoolResultStr ImportImage( const std::shared_ptr<Image>& image,
+                                                   RDG::ExternalTexture&         into ) = 0;
 
         // @p instanceCount > 1 issues a hardware-instanced draw (the instanced pipeline's vertex shader
         // reads the per-instance model matrix from an InstanceTransforms SSBO by gl_InstanceIndex).

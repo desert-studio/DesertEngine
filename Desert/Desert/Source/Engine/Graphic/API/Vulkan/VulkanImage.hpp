@@ -4,12 +4,10 @@
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanFormat.hpp>
 
+#include <Engine/Graphic/RDG/RDGResources.hpp>
+
 #include <vulkan/vulkan.h>
-#include <memory>
-namespace Desert::Graphic::RDG
-{
-    class IPhysicalTexture;
-}
+#include <algorithm>
 #include <memory>
 #include <vector>
 
@@ -69,6 +67,36 @@ namespace Desert::Graphic::API::Vulkan
 
         // Destroy + recreate this image's VkSampler from the current RenderConfig filter (live filter swap).
         virtual void RecreateSampler() = 0;
+
+        // --- The render graph's import (VulkanRendererAPI::ImportImage): ONE path for every image kind ---
+        // What the graph knows of this image: its kind (2D, a volume, a cube), extent (a volume's depth),
+        // format, mips, layers and samples. Barrier ranges and views follow from it (VulkanRdgTexture).
+        [[nodiscard]] virtual RDG::TextureDesc GetGraphDesc() const = 0;
+
+        // The render graph's write-back: after a graph that imported this image, the layout it left the image
+        // in, so TransitionLayout and descriptor binds outside the graph start from the truth.
+        virtual void RecordLayout( VkImageLayout layout ) = 0;
+
+        // The graph's handle on this image, kept for the image's lifetime so the views and framebuffers the
+        // graph builds on it are made once, not every frame. Dropped with the VkImage (each kind's Release).
+        const std::shared_ptr<RDG::IPhysicalTexture>& GetGraphTexture() const
+        {
+            return m_GraphTexture;
+        }
+        void SetGraphTexture( std::shared_ptr<RDG::IPhysicalTexture> texture )
+        {
+            m_GraphTexture = std::move( texture );
+        }
+
+    protected:
+        // Its views name the VkImage the caller is about to release.
+        void DropGraphTexture()
+        {
+            m_GraphTexture.reset();
+        }
+
+    private:
+        std::shared_ptr<RDG::IPhysicalTexture> m_GraphTexture;
     };
 
     /**
@@ -114,21 +142,20 @@ namespace Desert::Graphic::API::Vulkan
         // --- Vulkan Specific ---
         NO_DISCARD Common::BoolResultStr RT_Invalidate();
 
-        // The render graph's write-back: after a graph that imported this image, the layout it left the image
-        // in, so TransitionLayout and descriptor binds outside the graph start from the truth.
-        void RecordLayout( VkImageLayout layout )
+        [[nodiscard]] RDG::TextureDesc GetGraphDesc() const override
+        {
+            RDG::TextureDesc desc;
+            desc.Size    = { m_Specification.Width, m_Specification.Height, 1 };
+            desc.Format  = m_Specification.Format;
+            desc.Mips    = m_Resource.MipLevels;
+            desc.Layers  = m_Resource.LayerCount;
+            desc.Dim     = RDG::TextureDim::Tex2D;
+            desc.Samples = std::max( 1u, m_Specification.Samples );
+            return desc;
+        }
+        void RecordLayout( VkImageLayout layout ) override
         {
             m_Resource.Layout = layout;
-        }
-        // The graph's handle on this image, kept for the image's lifetime so the views and framebuffers the
-        // graph builds on it are made once, not every frame. Dropped with the VkImage (Release).
-        const std::shared_ptr<RDG::IPhysicalTexture>& GetGraphTexture() const
-        {
-            return m_GraphTexture;
-        }
-        void SetGraphTexture( std::shared_ptr<RDG::IPhysicalTexture> texture )
-        {
-            m_GraphTexture = std::move( texture );
         }
 
     private:
@@ -143,7 +170,6 @@ namespace Desert::Graphic::API::Vulkan
         VulkanImageResource                 m_Resource;
         std::vector<VkImageView>            m_MipViews;
         bool                                m_IsLoaded = false;
-        std::shared_ptr<RDG::IPhysicalTexture> m_GraphTexture;
     };
 
     /**
@@ -187,6 +213,20 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] VkImageLayout GetDefaultLayout() const override;
         [[nodiscard]] VkImageView GetMipView( uint32_t level ) const override;
         void RecreateSampler() override;
+        [[nodiscard]] RDG::TextureDesc GetGraphDesc() const override
+        {
+            RDG::TextureDesc desc;
+            desc.Size   = { m_Specification.FaceSize, m_Specification.FaceSize, 1 };
+            desc.Format = m_Specification.Format;
+            desc.Mips   = m_Resource.MipLevels;
+            desc.Layers = m_Resource.LayerCount;
+            desc.Dim    = RDG::TextureDim::Cube;
+            return desc;
+        }
+        void RecordLayout( VkImageLayout layout ) override
+        {
+            m_Resource.Layout = layout;
+        }
 
         // --- Vulkan Specific ---
         NO_DISCARD Common::BoolResultStr RT_Invalidate();
@@ -262,6 +302,22 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] VkImageLayout GetDefaultLayout() const override;
         [[nodiscard]] VkImageView   GetMipView( uint32_t level ) const override;
         void                        RecreateSampler() override;
+        // A volume: one layer, the mip chain spans all three extents, so a barrier's subresource range is
+        // [mips) x layer 0 and the graph's view of it is VK_IMAGE_VIEW_TYPE_3D.
+        [[nodiscard]] RDG::TextureDesc GetGraphDesc() const override
+        {
+            RDG::TextureDesc desc;
+            desc.Size   = { m_Specification.Width, m_Specification.Height, m_Specification.Depth };
+            desc.Format = m_Specification.Format;
+            desc.Mips   = m_Resource.MipLevels;
+            desc.Layers = 1;
+            desc.Dim    = RDG::TextureDim::Tex3D;
+            return desc;
+        }
+        void RecordLayout( VkImageLayout layout ) override
+        {
+            m_Resource.Layout = layout;
+        }
 
         // --- Vulkan Specific ---
         NO_DISCARD Common::BoolResultStr RT_Invalidate();

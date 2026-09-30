@@ -178,7 +178,7 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanImage2D::Release()
     {
-        m_GraphTexture.reset(); // its views name the VkImage released below
+        DropGraphTexture(); // its views name the VkImage released below
         if ( !m_Resource.Image ) return BOOLSUCCESS;
         auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator().get();
         allocator->RT_DestroyImage( m_Resource.Image, m_Resource.Allocation, m_Resource.ImageView, m_Resource.Sampler, m_MipViews );
@@ -842,6 +842,7 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanImageCube::Release()
     {
+        DropGraphTexture(); // its views name the VkImage released below
         if ( !m_Resource.Image ) return BOOLSUCCESS;
         auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator().get();
         allocator->RT_DestroyImage( m_Resource.Image, m_Resource.Allocation, m_Resource.ImageView, m_Resource.Sampler, m_MipViews );
@@ -1225,6 +1226,7 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanImage3D::Release()
     {
+        DropGraphTexture(); // its views name the VkImage released below
         if ( !m_Resource.Image )
             return BOOLSUCCESS;
         auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
