@@ -52,9 +52,9 @@ namespace Desert::Core::ShadingModels
             return m.SourcePath.generic_string();
         }
 
-        // The manifest as the shader root names it (ShadingModels/<Name>.shadingmodel) — what the GENERATED include
-        // may carry: its bytes must not depend on where the root lies on this machine, or the cooked copy in a pak
-        // never equals the set the packaged game loads (and every checkout writes its own include).
+        // The manifest as the shader root names it (ShadingModels/<Name>.shadingmodel) — what the GENERATED
+        // include may carry: its bytes must not depend on where the root lies on this machine, or the cooked copy
+        // in a pak never equals the set the packaged game loads (and every checkout writes its own include).
         std::string RootRelativeName( const ShadingModelManifest& m )
         {
             return std::format( "{}/{}", kShadingModelDirectory, m.SourcePath.filename().generic_string() );
@@ -77,11 +77,12 @@ namespace Desert::Core::ShadingModels
             const auto ch = static_cast<unsigned char>( modelName[i] );
             if ( i > 0 && std::isupper( ch ) != 0 )
             {
-                const auto prev = static_cast<unsigned char>( modelName[i - 1] );
-                const bool          nextLower =
-                     i + 1 < modelName.size() && std::islower( static_cast<unsigned char>( modelName[i + 1] ) ) != 0;
+                const auto prev      = static_cast<unsigned char>( modelName[i - 1] );
+                const bool nextLower = i + 1 < modelName.size() &&
+                                       std::islower( static_cast<unsigned char>( modelName[i + 1] ) ) != 0;
                 // "DefaultLit" -> DEFAULT_LIT, "GGXCloth" -> GGX_CLOTH.
-                if ( std::islower( prev ) != 0 || std::isdigit( prev ) != 0 || ( std::isupper( prev ) != 0 && nextLower ) )
+                if ( std::islower( prev ) != 0 || std::isdigit( prev ) != 0 ||
+                     ( std::isupper( prev ) != 0 && nextLower ) )
                     snake.push_back( '_' );
             }
             snake.push_back( static_cast<char>( std::toupper( ch ) ) );
@@ -228,8 +229,8 @@ namespace Desert::Core::ShadingModels
             if ( std::ranges::none_of( manifests, [&]( const ShadingModelManifest& m )
                                        { return static_cast<std::uint64_t>( m.Guid ) == required.Guid; } ) )
                 return Common::MakeError<ShadingModelRegistry>(
-                     std::format( "no shading model carries Guid {} ({}) — the engine relies on it",
-                                  required.Guid, required.Constant ) );
+                     std::format( "no shading model carries Guid {} ({}) — the engine relies on it", required.Guid,
+                                  required.Constant ) );
 
         // Unlit first, the rest by ascending Guid: the same files give the same indices everywhere.
         std::ranges::sort( manifests,

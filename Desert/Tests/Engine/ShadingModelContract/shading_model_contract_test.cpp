@@ -70,7 +70,8 @@ namespace
         return *it;
     }
 
-    SM::ShadingModelManifest Manifest( std::uint64_t guid, const std::string& name, std::vector<std::string> inputs = {} )
+    SM::ShadingModelManifest Manifest( std::uint64_t guid, const std::string& name,
+                                       std::vector<std::string> inputs = {} )
     {
         SM::ShadingModelManifest m;
         m.Guid   = Common::UUID( guid );
@@ -164,9 +165,8 @@ TEST( ShadingWord, SunShadowReceiveIsTheSignOutsideTheMagnitude )
 
     for ( const std::uint32_t magnitude : { 0u, 1u, ( 1u << SM::kShadingWordExactBits ) - 1u } )
     {
-        const auto word = static_cast<float>( magnitude );
-        const auto marked =
-             std::bit_cast<float>( std::bit_cast<std::uint32_t>( word ) | ( 1u << sign.FirstBit ) );
+        const auto word   = static_cast<float>( magnitude );
+        const auto marked = std::bit_cast<float>( std::bit_cast<std::uint32_t>( word ) | ( 1u << sign.FirstBit ) );
         EXPECT_TRUE( std::signbit( marked ) ) << magnitude;
         EXPECT_FALSE( std::signbit( word ) ) << magnitude;
         EXPECT_EQ( static_cast<std::uint32_t>( std::fabs( marked ) ), magnitude );

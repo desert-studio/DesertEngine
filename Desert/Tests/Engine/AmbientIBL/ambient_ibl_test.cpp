@@ -287,7 +287,8 @@ TEST( AmbientIBL, BothRenderPathsReachTheirAmbientThroughTheOneSharedComposition
     }
 
     // The lit model — the one the owner's 0.08 experiment was about — assembles through the one composition.
-    const std::filesystem::path lit = root / "Editor" / "Resources" / "Shaders" / "ShadingModels" / "DefaultLit.shadingmodel";
+    const std::filesystem::path lit =
+         root / "Editor" / "Resources" / "Shaders" / "ShadingModels" / "DefaultLit.shadingmodel";
     ASSERT_TRUE( std::filesystem::exists( lit ) ) << lit.string();
     std::ifstream      litIn( lit, std::ios::binary );
     std::ostringstream litBuffer;

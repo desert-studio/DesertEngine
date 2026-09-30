@@ -1456,7 +1456,7 @@ TEST_F( ShaderRootFixture, AnUnlitGraphSurfaceIsShadedThroughTheSamePassesAsEver
     // UE's MSM_Unlit, a model id and not a separate pipeline — so a graph that says `ShadingModel Unlit` is
     // expanded into the same cells as every surface, compiles the same forward pass and the generated
     // dispatch, and is flat because the dispatch sends its index to Unlit's zero-returning functions.
-    const auto path = ShaderPath( "Graph/MatConst.shader" );
+    const auto path        = ShaderPath( "Graph/MatConst.shader" );
     bool       forwardPass = false;
     bool       dispatch    = false;
     bool       sharedText  = false;
@@ -1471,9 +1471,11 @@ TEST_F( ShaderRootFixture, AnUnlitGraphSurfaceIsShadedThroughTheSamePassesAsEver
              << "the unlit graph compiles a model's own header, " << include.filename().string();
     }
     EXPECT_TRUE( forwardPass ) << "the unlit graph's forward cell is not built on Mesh/Surface/Pass_Forward.glslh";
-    EXPECT_TRUE( dispatch ) << "the unlit graph's forward cell does not compile the generated shading-model dispatch";
+    EXPECT_TRUE( dispatch )
+         << "the unlit graph's forward cell does not compile the generated shading-model dispatch";
     EXPECT_TRUE( sharedText ) << "the unlit graph's forward cell compiles none of the shared shading text";
-    EXPECT_FALSE( GraphicsSetZero( path, "Static.Forward" ).empty() ) << "the unlit graph's forward cell does not compile";
+    EXPECT_FALSE( GraphicsSetZero( path, "Static.Forward" ).empty() )
+         << "the unlit graph's forward cell does not compile";
 }
 
 TEST_F( ShaderRootFixture, TheUnlitTemplateIsLitThroughTheSamePassesAsEveryModel )
