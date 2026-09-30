@@ -19,6 +19,27 @@
 
 namespace Desert::Graphic
 {
+    // RDG-A2. The transients of THIS frame graph that one renderer's passes produce and a LATER renderer's passes
+    // read (UE: FSceneTextures / the RDG texture fields passed between AddPass helpers). The producer's
+    // AddFrame* creates the texture with Builder::CreateTexture (desc from this frame's view) and stores the ref
+    // here; the consumer's AddFrame* declares a read of it and binds it with RDG::PassBindings. An invalid ref
+    // means the producer did not run this frame (effect off, culled input): the consumer binds the engine's
+    // black texture (an external, imported like any other) at that slot and zero intensity in its uniform
+    // values - an explicit choice at the call site (UE: GSystemTextures.BlackDummy), never a stale image.
+    // Only cross-renderer transients live here; a transient read only by its own renderer's passes (SMAA edges,
+    // JFA ping-pong, SSR trace/tiles, cloud trace/guide, the exposure histogram) stays a local of that
+    // AddFrame*. A history (read in a LATER frame) is never here: it is an external the renderer owns.
+    // The struct is rebuilt with every graph and dies with it.
+    struct FrameTransients
+    {
+        RDG::TextureRef Bloom;          // BloomRenderer chain (mip 0 read)   -> Tonemap
+        RDG::TextureRef LightShafts;    // LightShaftRenderer result          -> Tonemap
+        RDG::TextureRef LensFlare;      // LensFlareRenderer result           -> Tonemap
+        RDG::TextureRef SSAO;           // SSAO factor                        -> deferred lighting
+        RDG::TextureRef GIResolve;      // RSM-GI resolve (raw, pre-temporal) -> GI temporal / deferred lighting
+        RDG::TextureRef SceneColorCopy; // scene snapshot                     -> glass refraction
+    };
+
     // The graph's names for the engine images this frame's nodes render into, copy and sample: each image is
     // imported once per graph (Renderer::ImportImage) in the layout its own record holds, and every node naming
     // it shares that one graph texture. The graph writes the layout it leaves the image in back into the record.
@@ -28,6 +49,9 @@ namespace Desert::Graphic
         explicit FrameTextures( RDG::Builder& graph ) : m_Graph( graph )
         {
         }
+
+        // RDG-A2: the cross-renderer transients of this graph (see FrameTransients).
+        FrameTransients Transients;
 
         std::vector<RDG::TextureRef>
         Refs( std::initializer_list<std::pair<std::shared_ptr<Image2D>, std::string_view>> images )

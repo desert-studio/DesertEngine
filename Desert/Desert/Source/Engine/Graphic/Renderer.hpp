@@ -25,6 +25,7 @@ namespace Desert::Graphic
     {
         class Builder;
         class IPhysicalTexture;
+        class PassBindings;
         struct ExternalTexture;
         struct ExternalBuffer;
     } // namespace RDG
@@ -72,6 +73,26 @@ namespace Desert::Graphic
         // inserts a trailing compute->shader barrier). The compute mip-chain bloom is built on this.
         void DispatchComputeInFrame( const ComputePipeline* pipeline, uint32_t groupCountX,
                                      uint32_t groupCountY, uint32_t groupCountZ );
+
+        // RDG-A2 - the renderer-level consumers of a PassBindings (RDGPassBindings.hpp). Called only from inside
+        // the exec lambda whose PassContext built @p bindings; they record on that pass's command buffer
+        // (VulkanRdgBackend::CommandBufferOf), write one descriptor set per set of the pipeline layout for THIS
+        // exec (VulkanRdgBackend::DescriptorsOf) and bind it. Nothing they write outlives the exec.
+        // Refused, with the pass and slot named, when: @p bindings has a failed entry (GetStatus); a name is not
+        // a resource of the pipeline's shader; an entry's kind does not match the reflected descriptor type; a
+        // resource slot of the shader is filled by neither @p bindings nor @p material; or a slot is filled by
+        // both (a graph resource is bound only through @p bindings). No barrier and no layout transition is
+        // recorded here: the graph placed them from the pass's declarations.
+        // They replace DispatchComputeInFrame (and VulkanPipelineCompute::RecordInFrame with its descriptor
+        // ring) for every in-graph dispatch; that route is deleted with its last caller.
+        [[nodiscard]] Common::BoolResultStr DispatchCompute( const RDG::PassBindings& bindings,
+                                                             const ComputePipeline& pipeline, uint32_t groupCountX,
+                                                             uint32_t groupCountY, uint32_t groupCountZ );
+        // A fullscreen triangle inside the render pass the graph opened for this pass (its ColorTarget /
+        // DepthTarget declarations). @p material supplies uniform values and asset textures only; may be null.
+        [[nodiscard]] Common::BoolResultStr DrawFullscreen( const RDG::PassBindings& bindings,
+                                                            const GraphicsPipeline&  pipeline,
+                                                            const MaterialExecutor*  material );
 
         // Compute dispatch whose writes are made visible to the VERTEX + DRAW_INDIRECT stages (GPU cull
         // feeding an indirect instanced draw).
