@@ -10,11 +10,11 @@ project(test_name)
 
     files {
         test_files,
-        -- The render graph core, device-free, as in RenderGraphContracts. RDG-A2-1 adds RDGPassBindings.cpp here:
-        -- until then this suite does not link (PassBindings has declarations only), by design of the contract.
+        -- The render graph core, device-free, as in RenderGraphContracts, and the parameter block under test.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/RDG/RDGBuilder.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/RDG/RDGCompile.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/RDG/RDGAsyncFallbackLog.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/RDG/RDGPassBindings.cpp",
     }
 
     includedirs {
