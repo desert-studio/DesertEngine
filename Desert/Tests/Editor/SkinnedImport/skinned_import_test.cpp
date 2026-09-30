@@ -412,6 +412,26 @@ TEST_F( SkinnedImport, AReimportAtTenTimesTheScaleScalesMeshRigAndClipTogether )
     }
 }
 
+// THM1l-b22: the reimport refreshes the loaded mesh under the number the ENTITIES hold - the Skinned Mesh picker's
+// row handle, the GUID's fold - and a reimport keeps it. It used the path's hash, which names no `.skmesh`, so Fox
+// at Uniform Scale 10 kept its old build: Details read the old Approx Size and the skin tore.
+TEST_F( SkinnedImport, AReimportNamesTheSkinnedMeshByTheHandleItsEntitiesHold )
+{
+    const auto known = Editor::LoadedHandleOf( m_Outcome.WrittenMeshes.front() );
+    ASSERT_TRUE( known.IsSuccess() ) << known.GetError();
+    const auto rows = Assets::ContentRegistry::MeshRows( true );
+    ASSERT_EQ( rows.size(), 1u );
+    EXPECT_EQ( static_cast<uint64_t>( known.GetValue() ), static_cast<uint64_t>( rows.front().Handle ) );
+
+    Assets::SourceImportSettings tenfold;
+    tenfold.Mesh.UniformScale         = 10.0f;
+    const Editor::ImportOutcome again = ImportManager().ImportWithSettings( m_Source, tenfold );
+    ASSERT_EQ( again.WrittenMeshes.size(), 1u );
+    const auto kept = Editor::LoadedHandleOf( again.WrittenMeshes.front() );
+    ASSERT_TRUE( kept.IsSuccess() ) << kept.GetError();
+    EXPECT_EQ( static_cast<uint64_t>( kept.GetValue() ), static_cast<uint64_t>( known.GetValue() ) );
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );

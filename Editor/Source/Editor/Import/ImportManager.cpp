@@ -52,6 +52,19 @@ namespace Desert::Editor
         return result;
     }
 
+    Common::ResultStr<Assets::AssetHandle> LoadedHandleOf( const std::filesystem::path& written )
+    {
+        const auto kind = Assets::ContentRegistry::KindForFile( written );
+        if ( !kind )
+            return Common::MakeFormattedError<Assets::AssetHandle>( "'{}' is no content kind the registry keeps",
+                                                                    written.generic_string() );
+        const auto row = Assets::ContentRegistry::RowAtPath( *kind, written );
+        if ( !row )
+            return Common::MakeFormattedError<Assets::AssetHandle>(
+                 "'{}' was written and has no content-registry row", written.generic_string() );
+        return Common::MakeSuccess( row->Handle );
+    }
+
     ImportManager::ImportManager()
     {
         m_TextureImporter     = std::make_unique<TextureImporter>();

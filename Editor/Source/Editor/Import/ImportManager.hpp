@@ -33,6 +33,15 @@ namespace Desert::Editor
         std::vector<std::filesystem::path> WrittenClips;
     };
 
+    // THE NUMBER A WRITTEN FILE IS KNOWN BY, AS EVERY REFERENCE HOLDS IT: its content-registry row's handle. A
+    // file with a header GUID (a `.skmesh`, whose GUID a reimport keeps) is known by the GUID's fold, NOT by its
+    // path's hash, and a component names it by the row the picker gave it - so a reimport that refreshed the
+    // loaded mesh under `AssetHandle::FromCookedPath` missed every skinned mesh: the service kept the old build
+    // and Details read its Approx Size, the skin drew the old vertices with the rescaled binds (THM1l-b22, live
+    // on Fox.glb at Uniform Scale 10). A written file with no row is an error: the write registers it
+    // (CookedJsonWrite.hpp, ContentRegistry::NoteFile), so no row means the write did not happen.
+    Common::ResultStr<Assets::AssetHandle> LoadedHandleOf( const std::filesystem::path& written );
+
     class ImportManager
     {
     public:

@@ -141,7 +141,15 @@ namespace Desert::Editor::ImportOptions
             auto* service = Runtime::ResourceRegistry::GetMeshService();
             for ( const std::filesystem::path& path : written )
             {
-                const Assets::AssetHandle handle = Assets::AssetHandle::FromCookedPath( path );
+                // The row's handle, the number the entities hold (LoadedHandleOf: a `.skmesh` is known by its GUID).
+                const auto known = LoadedHandleOf( path );
+                if ( !known )
+                {
+                    LOG_ERROR( "[Import] '{}' was reimported and its loaded mesh cannot be named: {}",
+                               path.generic_string(), known.GetError() );
+                    continue;
+                }
+                const Assets::AssetHandle handle = known.GetValue();
                 if ( !service->HasAsset( handle ) )
                     continue;
                 if ( auto* asset = service->GetAsset( handle ) )
