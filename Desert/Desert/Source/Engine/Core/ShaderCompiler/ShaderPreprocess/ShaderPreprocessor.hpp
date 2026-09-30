@@ -43,7 +43,4 @@ namespace Desert::Core::Preprocess
                                                                    const std::filesystem::path& basePath,
                                                                    const std::string&           passName );
     };
-        static PreprocessedPass PreProcessPass( const std::string& source, const std::filesystem::path& basePath,
-                                                const std::string& passName );
-    };
 } // namespace Desert::Core::Preprocess

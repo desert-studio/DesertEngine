@@ -377,7 +377,9 @@ namespace Desert::Runtime
             if ( manifestChanged && !m_FirstScan )
             {
                 if ( const auto reloaded = Core::ShadingModels::ReloadShaderRootShadingModels(); !reloaded )
+                {
                     LOG_ERROR( "[HotReload] shading models: {} — keeping the previous set", reloaded.GetError() );
+                }
                 else
                 {
                     shadingModelsReloaded = true;
