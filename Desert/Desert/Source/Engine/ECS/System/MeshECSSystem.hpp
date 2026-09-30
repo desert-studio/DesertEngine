@@ -96,7 +96,6 @@ namespace Desert::ECS
                          if ( !targetMesh )
                              return;
 
-
                          // --- Auto-Initialize Material Slots --- (the one rule, AdoptMeshMaterialSlots)
                          AdoptMeshMaterialSlots( mesh.MaterialSlots, mesh.MeshHandle );
 
