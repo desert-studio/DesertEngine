@@ -26,7 +26,7 @@ namespace
     // is kMaterial. Only what the header reader reads is written - no vertex or index byte.
     std::string CurrentMesh( const AssetGuid& skeleton, uint32_t flags )
     {
-        const std::size_t rows   = kMeshBinaryPrefixV3;
+        const std::size_t rows   = kMeshBinaryPrefixSize;
         const std::size_t submsh = rows + kMeshBinarySectionRowSize;
         std::string       bytes( submsh + kMeshBinarySubmeshSizeV3, '\0' );
 
