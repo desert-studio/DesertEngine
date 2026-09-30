@@ -163,6 +163,7 @@
 #include "Editor/Panels/AssetReferences/AssetReferencesPanel.hpp"
 #include "Editor/Panels/LuaConsole/LuaConsolePanel.hpp"
 #include "Editor/Panels/Sequencer/SequencerPanel.hpp"
+#include <Engine/Animation/Timeline/Hosts.hpp>
 #include "Editor/Panels/Build/BuildSettingsPanel.hpp"
 #include "Editor/Panels/Build/ContentChunksPanel.hpp"
 #include "Editor/Packaging/ProjectChunkScheme.hpp"
@@ -1240,6 +1241,28 @@ namespace Desert::Editor
                            [this]( const SubjectId& subject )
                            { return EntityHasComponent<ECS::UIAnimComponent>( subject.Owner ); } } );
 
+        // THE LEVEL SEQUENCE (ANIM-LSEQ) — UE: double-clicking a Level Sequence opens the Sequencer over it.
+        // Its subject is the ASSET; the scene it previews is the main scene, given back when it closes.
+        m_SubjectEditors.Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::LevelSequence ) ),
+             Registration{ "LevelSequence", ICON_MDI_MOVIE_OPEN,
+                           [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                           {
+                               const auto* meta =
+                                    m_AssetManager ? m_AssetManager->FindMetadataByHandle(
+                                                          Assets::AssetHandle( subject.Owner ) )
+                                                   : nullptr;
+                               return std::make_unique<Editor::SequencerPanel>(
+                                    subject, meta ? meta->Filepath.stem().string() : std::string( "Level Sequence" ),
+                                    Editor::SequencerPanel::Timeline::Level, m_MainScene,
+                                    m_AnimationLibrary.get(), m_AssetManager.get() );
+                           },
+                           [this]( const SubjectId& subject )
+                           {
+                               return m_AssetManager && m_AssetManager->FindMetadataByHandle(
+                                                             Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                           } } );
+
         // ── AND HOW A PATH BECOMES ONE OF THEM ────────────────────────────────────────────────────────
         //
         // The asset browser's double-click used to carry a chain of `else if` over the file types, one arm
@@ -1293,6 +1316,9 @@ namespace Desert::Editor
                      return sky;
                  return RequestTextureDocument( m_AssetManager.get(), path, m_SubjectEditors );
              } );
+        m_SubjectEditors.RegisterPathOpener(
+             { std::string( Animation::Timeline::kLevelSequenceExtension ) }, [this]( const std::string& path )
+             { return Editor::RequestLevelSequenceDocument( m_AssetManager.get(), path, m_SubjectEditors ); } );
         m_SubjectEditors.RegisterPathOpener(
              { std::string( Common::Constants::Extensions::STATIC_MESH ) }, [this]( const std::string& path )
              { return RequestStaticMeshDocument( m_AssetManager.get(), path, m_SubjectEditors ); } );

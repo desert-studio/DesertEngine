@@ -2,6 +2,7 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
+#include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -16,6 +17,26 @@
 
 namespace Desert::ECS
 {
+    /**
+     * @brief The clip source of a level sequence's Animation sections over @p assets (UE: the section's
+     * UAnimSequence reference resolved by the asset system): the section's clip GUID → its AnimationAsset,
+     * loaded when not resident. nullptr (the host refuses the section by name) when no such asset exists or it
+     * fails to load. Shared by the play-time system and the Sequencer's preview so both play the same clip.
+     */
+    [[nodiscard]] inline LevelSequenceClipSource LevelSequenceClips( Assets::AssetManager& assets )
+    {
+        return [&assets]( const Common::Content::AssetGuid& guid ) -> const Animation::AnimationClip*
+        {
+            if ( guid.IsNull() )
+                return nullptr;
+            auto asset = assets.ProbeByHandle<Assets::AnimationAsset>(
+                 Assets::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ) );
+            if ( !asset || !asset->EnsureLoaded( assets ) )
+                return nullptr;
+            return &asset->GetClip();
+        };
+    }
+
     /**
      * @brief Plays every LevelSequenceComponent of the scene in Play (UE: ALevelSequenceActor's player,
      * ticking only in PIE/game — the editor scrubs through the Sequencer, not through this system).
@@ -51,7 +72,8 @@ namespace Desert::ECS
                     continue;
 
                 const Animation::Timeline::TimeStep step = actor->Playback->Player.Advance( ts.GetSeconds() );
-                const LevelSequenceStep result = StepLevelSequence( registry, component, *actor->Playback, step );
+                const LevelSequenceStep result =
+                     StepLevelSequence( registry, component, *actor->Playback, step, LevelSequenceClips( *m_AssetManager ) );
                 for ( const auto& error : TakeNewLevelSequenceErrors( actor->State, result ) )
                     LOG_ERROR( "[LevelSequence] '{}': {}", actor->Name, error );
                 for ( const auto& name : result.FiredEvents )
