@@ -177,7 +177,7 @@ TEST_F( ClipEditUndo, ASectionEditThroughTheTrackFunctionsIsUndoneByValueAndBump
          Animation::SetBoneKey( m_Clip.Sequence, "child", Animation::FrameNumber{ 0 }, At( 1.0f ) ).IsSuccess() );
     const Timeline::Sequence before = m_Clip.Sequence;
     {
-        ScopedSequenceEdit edit( m_Transaction, OwnerOf( &m_Clip ) );
+        const ScopedSequenceEdit edit( m_Transaction, OwnerOf( &m_Clip ) );
         Timeline::Track&   track = m_Clip.Sequence.Tracks.front();
         ASSERT_TRUE( Timeline::SetSectionRow( track, 0, 3 ).IsSuccess() );
     }
@@ -223,7 +223,7 @@ TEST_F( ClipEditUndo, AnEdgeDrivenDragTakesLastFramesPoseAsItsBefore )
 TEST_F( ClipEditUndo, DroppingAPreviewAnimatorsRecordsKeepsTheSequenceOnlyRecords )
 {
     {
-        ScopedSequenceEdit edit( m_Transaction, OwnerOf( &m_Clip ) );
+        const ScopedSequenceEdit edit( m_Transaction, OwnerOf( &m_Clip ) );
         ASSERT_TRUE( Animation::SetBoneKey( m_Clip.Sequence, "child", Animation::FrameNumber{ 0 }, At( 1.0f ) )
                           .IsSuccess() );
     }
@@ -248,7 +248,7 @@ TEST( UIAnimationUndo, ABindingAndATrackAddedToAUIAnimationAreOneStepAndUndoRese
 
     SequenceEditTransaction transaction;
     {
-        ScopedSequenceEdit edit( transaction, OwnerOf( &animation ) );
+        const ScopedSequenceEdit edit( transaction, OwnerOf( &animation ) );
         Timeline::Binding  binding;
         binding.Guid    = Timeline::BindingGuid::Generate();
         binding.Kind    = Timeline::BindingKind::Widget;
@@ -735,7 +735,7 @@ TEST_F( ClipEditUndo, AControlRowKeyMovesAndDeletesAllThreeChannelsTogetherAsOne
     EXPECT_TRUE( SameStoredValue( m_Clip.Sequence, before ) ) << "a refused move changes nothing";
 
     {
-        ScopedSequenceEdit edit( m_Transaction, OwnerOf( &m_Clip ) );
+        const ScopedSequenceEdit edit( m_Transaction, OwnerOf( &m_Clip ) );
         for ( const DA::TrackChannel part : kParts )
         {
             const auto result = DA::MoveBoneKey( m_Clip.Sequence, "hand_ctrl", part, first, moved );
@@ -745,7 +745,7 @@ TEST_F( ClipEditUndo, AControlRowKeyMovesAndDeletesAllThreeChannelsTogetherAsOne
     ASSERT_EQ( CommandHistory::Get().UndoStack().size(), 1U ) << "one drag of a row key is one undo step";
     const Timeline::Sequence afterMove = m_Clip.Sequence;
     {
-        ScopedSequenceEdit edit( m_Transaction, OwnerOf( &m_Clip ) );
+        const ScopedSequenceEdit edit( m_Transaction, OwnerOf( &m_Clip ) );
         for ( const DA::TrackChannel part : kParts )
         {
             const auto result = DA::RemoveBoneKey( m_Clip.Sequence, "hand_ctrl", part, moved );

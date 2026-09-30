@@ -205,7 +205,10 @@ TEST( LevelSequencePlayback, CameraCutTakesTheViewAndGivesThePreviousBack )
     ECS::LevelSequenceActorState      state;
 
     const auto during = ECS::StepLevelSequence( world.registry, component, playback, Step( 20 ) );
-    ASSERT_TRUE( during.CameraCut.has_value() );
+    if ( !during.CameraCut )
+    {
+        FAIL() << "the cut section names no camera at tick 20";
+    }
     EXPECT_EQ( *during.CameraCut, world.camera );
     EXPECT_EQ( ECS::LevelSequenceViewTarget( state, during, world.player ), std::optional{ world.camera } );
     // Still in the cut: the view is the cut's camera, and the target to give back stays the player's.
@@ -245,7 +248,10 @@ TEST( LevelSequenceComponent, LoopModeIsStoredByName )
     const Common::Json::Node root = Common::Json::Root( stored );
 
     const auto name = root.Find( "Loop" );
-    ASSERT_TRUE( name.has_value() );
+    if ( !name )
+    {
+        FAIL() << "the stored object has no Loop field";
+    }
     const auto text = name->AsString();
     ASSERT_TRUE( text.IsSuccess() );
     EXPECT_EQ( text.GetValue(), "PingPong" );
@@ -268,7 +274,12 @@ TEST( LevelSequenceComponent, LoopModeNamesAreTheStoredOnes )
     for ( const T::LoopMode mode : T::kLoopModes )
     {
         const Common::Json::Value stored( Common::Json::ObjectBuilder().Set( "Loop", mode ).Build() );
-        const auto                text = Common::Json::Root( stored ).Find( "Loop" )->AsString();
+        const auto                loop = Common::Json::Root( stored ).Find( "Loop" );
+        if ( !loop )
+        {
+            FAIL() << "the stored object has no Loop field";
+        }
+        const auto text = loop->AsString();
         ASSERT_TRUE( text.IsSuccess() );
         EXPECT_EQ( text.GetValue(), T::ToString( mode ) );
         EXPECT_EQ( T::LoopModeFromString( T::ToString( mode ) ), mode );

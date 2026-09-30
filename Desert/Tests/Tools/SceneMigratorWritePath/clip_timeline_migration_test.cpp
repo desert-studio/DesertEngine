@@ -47,6 +47,8 @@ namespace Timeline  = Desert::Animation::Timeline;
 namespace
 {
     const std::string kTmln = Common::Content::FourCCToString( Desert::Assets::kTimelineSchemaTag );
+    /// The GUID the restated `.dseq` states: the migrator must carry it through untouched.
+    constexpr std::string_view kSequenceGuid = "0000000000000000000000000000d5e1";
 
     // The modes as authored: key i shapes the segment ARRIVING at it under TMLN v1.
     const std::vector<Anim::KeyInterp> kAuthored = { Anim::KeyInterp::Linear, Anim::KeyInterp::Constant,
@@ -74,9 +76,11 @@ namespace
 
         Timeline::Binding binding;
         binding.Guid = Timeline::BindingGuid::Generate();
-        binding.Kind = host == Timeline::SequenceHost::AnimationClip ? Timeline::BindingKind::Sequence
-                       : host == Timeline::SequenceHost::UIAnimation ? Timeline::BindingKind::Widget
-                                                                     : Timeline::BindingKind::Entity;
+        binding.Kind = Timeline::BindingKind::Entity;
+        if ( host == Timeline::SequenceHost::AnimationClip )
+            binding.Kind = Timeline::BindingKind::Sequence;
+        else if ( host == Timeline::SequenceHost::UIAnimation )
+            binding.Kind = Timeline::BindingKind::Widget;
         if ( binding.Kind != Timeline::BindingKind::Sequence )
             binding.Locator = "Panel";
         binding.Label = "Probe";
@@ -106,16 +110,16 @@ namespace
     {
         const auto written = Timeline::WriteSequence( sequence );
         EXPECT_TRUE( written ) << written.GetError();
-        const std::vector<uint8_t>& bytes    = written.GetValue();
-        auto                        envelope = Common::Json::Read<Migration::TimelineEnvelope>(
-             std::string_view( reinterpret_cast<const char*>( bytes.data() ), bytes.size() ) );
+        const std::vector<uint8_t>& bytes = written.GetValue();
+        auto                        envelope =
+             Common::Json::Read<Migration::TimelineEnvelope>( std::string( bytes.begin(), bytes.end() ) );
         EXPECT_TRUE( envelope ) << envelope.GetError();
         Migration::TimelineEnvelope restated = envelope.ExtractValue();
         restated.Header.Versions[kTmln]      = version;
         if ( kind != nullptr )
         {
             restated.Header.Kind = kind;
-            restated.Header.Guid = std::string( 28, '0' ) + "d5e1";
+            restated.Header.Guid = std::string( kSequenceGuid );
         }
         return Common::Json::Write( restated );
     }
@@ -125,6 +129,7 @@ namespace
         std::vector<Anim::KeyInterp> modes;
         const auto&                  channel = std::get<Timeline::FloatChannel>(
              std::get<Timeline::Channel>( sequence.Tracks.at( 0 ).Sections.at( 0 ).Content ) );
+        modes.reserve( channel.Keys.size() );
         for ( const Anim::ScalarKey& key : channel.Keys )
             modes.push_back( key.Interp );
         return modes;
@@ -132,8 +137,7 @@ namespace
 
     Timeline::Sequence ReadCurrent( const std::string& block )
     {
-        auto read = Timeline::ReadSequence(
-             std::span<const uint8_t>( reinterpret_cast<const uint8_t*>( block.data() ), block.size() ) );
+        auto read = Timeline::ReadSequence( std::vector<uint8_t>( block.begin(), block.end() ) );
         EXPECT_TRUE( read ) << read.GetError();
         return read ? read.ExtractValue() : Timeline::Sequence{};
     }
@@ -151,7 +155,7 @@ namespace
 
     std::string ReadRaw( const fs::path& p )
     {
-        std::ifstream      in( p, std::ios::binary );
+        const std::ifstream in( p, std::ios::binary );
         std::ostringstream buffer;
         buffer << in.rdbuf();
         return buffer.str();
@@ -201,7 +205,7 @@ TEST( ClipTimelineMigration, ALevelSequenceFileIsShiftedKeepsItsIdentityAndASeco
     ASSERT_TRUE( header ) << header.GetError();
     EXPECT_EQ( header.GetValue().Header.Versions.at( kTmln ), Timeline::kTimelineFormatVersion );
     EXPECT_EQ( header.GetValue().Header.Kind, "LevelSequence" ) << "the .dseq lost its Kind";
-    EXPECT_EQ( header.GetValue().Header.Guid, std::string( 28, '0' ) + "d5e1" ) << "the .dseq lost its GUID";
+    EXPECT_EQ( header.GetValue().Header.Guid, kSequenceGuid ) << "the .dseq lost its GUID";
     EXPECT_EQ( Modes( ReadCurrent( written ) ), kLeaving );
 
     std::ostringstream again;
@@ -277,6 +281,7 @@ TEST( ClipTimelineMigration, AGenerationThreeClipLandsOnAnimV6UnderTheLeavingRul
     const auto& transform = std::get<Timeline::TransformChannel>(
          std::get<Timeline::Channel>( clip.Sequence.Tracks.at( 0 ).Sections.at( 0 ).Content ) );
     std::vector<Anim::KeyInterp> modes;
+    modes.reserve( transform.Translation.X.Keys.size() );
     for ( const Anim::ScalarKey& key : transform.Translation.X.Keys )
         modes.push_back( key.Interp );
     EXPECT_EQ( modes, kLeaving ) << "generation 3 must land on the leaving rule in one step";

@@ -48,6 +48,7 @@
 #include <bit>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -267,9 +268,10 @@ namespace
             {
                 // No sequence ships with the corpus yet; the least `.dseq` header (a TMLN block whose header
                 // states this kind, LevelSequenceAsset.hpp) - the header reader is all the scan consults.
-                const std::string text = "{\"Header\":{\"Kind\":\"LevelSequence\",\"Guid\":\"" +
-                                         Common::Content::AssetGuidToText( guid ) +
-                                         "\",\"Versions\":{\"TMLN\":2},\"Dependencies\":[]}}\n";
+                const std::string text = std::format(
+                     R"({{"Header":{{"Kind":"LevelSequence","Guid":"{}","Versions":{{"TMLN":2}},"Dependencies":[]}}}})"
+                     "\n",
+                     Common::Content::AssetGuidToText( guid ) );
                 return { text.begin(), text.end() };
             }
             default:

@@ -10,7 +10,7 @@ using namespace TimelineFixtures;
 
 TEST( TimelineSection, AnEmptyWeightIsOneNotZero )
 {
-    Section section;
+    const Section section;
     EXPECT_EQ( WeightAt( section, At( 5 ), FrameRate{ 60, 1 } ), 1.0F );
 }
 
@@ -37,7 +37,7 @@ TEST( TimelineSequence, ValidateRefusesEachBrokenInvariant )
     duplicate.Tracks.push_back( duplicate.Tracks[0] );
     EXPECT_FALSE( Validate( duplicate ).IsSuccess() ) << "two tracks for one property";
 
-    Sequence unsorted = OneFloatTrack( FloatChannel{ { Key( 20, 1.0F ), Key( 10, 2.0F ) }, 0.0F } );
+    const Sequence unsorted = OneFloatTrack( FloatChannel{ { Key( 20, 1.0F ), Key( 10, 2.0F ) }, 0.0F } );
     EXPECT_FALSE( Validate( unsorted ).IsSuccess() ) << "keys out of tick order";
 
     Sequence nullGuid         = good;
@@ -127,14 +127,14 @@ TEST( TimelineSequence, FindBindingAndFindTrackAnswerByGuidAndProperty )
     ASSERT_NE( FindBinding( sequence, Guid( 1 ) ), nullptr );
     EXPECT_EQ( FindBinding( sequence, Guid( 1 ) )->Label, "Door" );
     EXPECT_EQ( FindBinding( sequence, Guid( 2 ) ), nullptr );
-    EXPECT_EQ( FindTrack( sequence, Guid( 1 ), "Opacity" ), &sequence.Tracks[0] );
+    EXPECT_EQ( FindTrack( sequence, Guid( 1 ), "Opacity" ), sequence.Tracks.data() );
     EXPECT_EQ( FindTrack( sequence, Guid( 1 ), "Color" ), nullptr );
     EXPECT_EQ( FindTrack( sequence, Guid( 2 ), "Opacity" ), nullptr );
 }
 
 TEST( TimelineSequence, TheErrorNamesTheTrackAndTheSection )
 {
-    Sequence   sequence = OneFloatTrack( FloatChannel{ { Key( 20, 1.0F ), Key( 10, 2.0F ) }, 0.0F } );
+    const Sequence sequence = OneFloatTrack( FloatChannel{ { Key( 20, 1.0F ), Key( 10, 2.0F ) }, 0.0F } );
     const auto valid    = Validate( sequence );
     ASSERT_FALSE( valid.IsSuccess() );
     EXPECT_NE( valid.GetError().find( "track 'Door' / 'Opacity': section 0:" ), std::string::npos )
@@ -160,12 +160,8 @@ TEST( TimelineSequence, ACameraCutIsAMasterTrackWhoseCutsNeverOverlapOnARow )
     Track cuts;
     cuts.Binding = Guid( 3 );
     cuts.Kind    = TrackKind::CameraCut;
-    AddSection( cuts, Tick( 0 ), Tick( 40 ) );
-    AddSection( cuts, Tick( 41 ), Tick( 100 ) );
-    for ( Section& section : cuts.Sections )
-    {
-        std::get<CameraCutSectionContent>( section.Content ).Camera = Guid( 1 );
-    }
+    std::get<CameraCutSectionContent>( AddSection( cuts, Tick( 0 ), Tick( 40 ) ).Content ).Camera   = Guid( 1 );
+    std::get<CameraCutSectionContent>( AddSection( cuts, Tick( 41 ), Tick( 100 ) ).Content ).Camera = Guid( 1 );
     sequence.Tracks.push_back( cuts );
     const auto valid = Validate( sequence );
     EXPECT_TRUE( valid.IsSuccess() ) << valid.GetError();
@@ -194,11 +190,11 @@ TEST( TimelineSequence, AClipHoldsBoneTransformsCurvesAndOneNotifyTrack )
     clip.Bindings.push_back( Binding{ Guid( 1 ), BindingKind::Bone, "Hand_L", "Hand_L", {} } );
     clip.Bindings.push_back( Binding{ Guid( 2 ), BindingKind::Sequence, "", "Clip", {} } );
     Track bone{ Guid( 1 ), "", TrackKind::Transform, {}, false };
-    AddSection( bone, Tick( 0 ), Tick( 10 ) );
+    (void)AddSection( bone, Tick( 0 ), Tick( 10 ) );
     Track curve{ Guid( 2 ), "Footstep_L", TrackKind::Float, {}, false };
-    AddSection( curve, Tick( 0 ), Tick( 10 ) );
+    (void)AddSection( curve, Tick( 0 ), Tick( 10 ) );
     Track notifies{ Guid( 2 ), "", TrackKind::Event, {}, false };
-    AddSection( notifies, Tick( 0 ), Tick( 10 ) );
+    (void)AddSection( notifies, Tick( 0 ), Tick( 10 ) );
     clip.Tracks      = { bone, curve, notifies };
     const auto valid = Validate( clip );
     EXPECT_TRUE( valid.IsSuccess() ) << valid.GetError();

@@ -366,10 +366,14 @@ TEST( AnimGraphAsset, LayerInterfacesAndImplementedLayersRoundTrip )
 
     const auto read = PG::Deserialize( PG::Serialize( graph ) );
     ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
-    ASSERT_TRUE( read.GetValue().Layers.has_value() );
-    ASSERT_EQ( read.GetValue().Layers->Implemented.size(), 1u );
-    EXPECT_EQ( read.GetValue().Layers->Interfaces[0].Layers, std::vector<std::string>{ "UpperBody" } );
-    EXPECT_EQ( read.GetValue().Layers->Implemented[0].Nodes[0].Kind, input.Kind );
+    const auto& layers = read.GetValue().Layers;
+    if ( !layers )
+    {
+        FAIL() << "the layers did not survive the round trip";
+    }
+    ASSERT_EQ( layers->Implemented.size(), 1u );
+    EXPECT_EQ( layers->Interfaces[0].Layers, std::vector<std::string>{ "UpperBody" } );
+    EXPECT_EQ( layers->Implemented[0].Nodes[0].Kind, input.Kind );
 
     const auto plain = PG::Deserialize( PG::Serialize( PG::MakeStateMachineGraph( "Plain" ) ) );
     ASSERT_TRUE( plain.IsSuccess() ) << plain.GetError();

@@ -98,10 +98,13 @@ TEST( GenericBlockRead, AUIAnimBlockMissingItsAutoPlayFlagKeepsItsSequence )
 
     const auto parsed = ReadBlockOf<Assets::UIAnimComponentSer>( older );
 
-    ASSERT_TRUE( parsed.has_value() );
-    EXPECT_EQ( parsed.value().Loop, 1 );
-    EXPECT_TRUE( parsed.value().AutoPlay ) << "an absent AutoPlay must read as the authored default, true";
-    EXPECT_EQ( Common::Json::Write( parsed.value().Sequence ), R"({"Start":0})" )
+    if ( !parsed )
+    {
+        FAIL() << "the UIAnim block was refused";
+    }
+    EXPECT_EQ( parsed->Loop, 1 );
+    EXPECT_TRUE( parsed->AutoPlay ) << "an absent AutoPlay must read as the authored default, true";
+    EXPECT_EQ( Common::Json::Write( parsed->Sequence ), R"({"Start":0})" )
          << "the TMLN block is carried verbatim; the sequence reader is the one that judges it";
 }
 

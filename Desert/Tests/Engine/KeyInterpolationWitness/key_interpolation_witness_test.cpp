@@ -42,6 +42,7 @@
 #include <limits>
 #include <sstream>
 #include <string>
+#include <type_traits>
 #include <variant>
 
 namespace Ser      = Desert::Assets::Serialization;
@@ -86,8 +87,11 @@ namespace
         return built ? built.ExtractValue() : Desert::Animation::AnimationClip{};
     }
 
-    /// The keys of a clip's one bone track: the Transform channel of its one section.
-    Timeline::TransformChannel* ChannelOf( Desert::Animation::AnimationClip& clip )
+    /// The keys of a clip's one bone track: the Transform channel of its one section. One body for a clip
+    /// that is only read and one that is edited: the constness of the answer is the constness of the clip.
+    template <class Clip>
+    std::conditional_t<std::is_const_v<Clip>, const Timeline::TransformChannel*, Timeline::TransformChannel*>
+    ChannelOf( Clip& clip )
     {
         if ( clip.Sequence.Tracks.size() != 1U || clip.Sequence.Tracks[0].Sections.size() != 1U )
         {
@@ -97,11 +101,6 @@ namespace
         }
         auto* channel = std::get_if<Timeline::Channel>( &clip.Sequence.Tracks[0].Sections[0].Content );
         return channel == nullptr ? nullptr : std::get_if<Timeline::TransformChannel>( channel );
-    }
-
-    const Timeline::TransformChannel* ChannelOf( const Desert::Animation::AnimationClip& clip )
-    {
-        return ChannelOf( const_cast<Desert::Animation::AnimationClip&>( clip ) );
     }
 
     /// What playback shows on the track at @p tick — the evaluator's fold, not a key read.

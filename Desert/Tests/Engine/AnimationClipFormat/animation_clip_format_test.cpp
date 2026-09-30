@@ -59,7 +59,7 @@ namespace
 
     std::string BytesText( const std::vector<uint8_t>& bytes )
     {
-        return std::string( reinterpret_cast<const char*>( bytes.data() ), bytes.size() );
+        return { bytes.begin(), bytes.end() };
     }
 
     std::filesystem::path ClipScratch()
@@ -298,8 +298,12 @@ TEST( AnimationClipFormat, AClipWrittenToDiskReadsBackAsTheSameClipBitForBit )
 
     const auto read = Ser::ReadAnimationJson( ReadFile( path ) );
     ASSERT_TRUE( read ) << "the file this engine wrote is refused by its own reader: " << read.GetError();
-    ASSERT_TRUE( read.GetValue().Header.has_value() );
-    EXPECT_EQ( Common::Content::TextHeaderVersion( *read.GetValue().Header, Desert::Assets::kAnimationSchemaTag ),
+    const auto& header = read.GetValue().Header;
+    if ( !header )
+    {
+        FAIL() << "the file this engine wrote has no header";
+    }
+    EXPECT_EQ( Common::Content::TextHeaderVersion( *header, Desert::Assets::kAnimationSchemaTag ),
                std::optional<uint32_t>( Desert::Assets::kAnimationSchemaVersion ) );
 
     const auto rebuilt = Ser::BuildClipFromAssetData( read.GetValue() );
@@ -310,7 +314,7 @@ TEST( AnimationClipFormat, AClipWrittenToDiskReadsBackAsTheSameClipBitForBit )
     EXPECT_TRUE( back.Skeleton == clip.Skeleton ) << "the skeleton the clip names did not survive";
     // ONE REFERENCE, TWO STATEMENTS: the header's one Dependency is that skeleton.
     ASSERT_TRUE( read.GetValue().Skeleton.has_value() );
-    EXPECT_EQ( read.GetValue().Header->Dependencies,
+    EXPECT_EQ( header->Dependencies,
                ( std::vector<std::string>{ Common::Content::AssetGuidToText( clip.Skeleton ) } ) );
     EXPECT_EQ( back.Sequence.Host, Timeline::SequenceHost::AnimationClip );
     EXPECT_EQ( back.DurationTicks().Value, clip.DurationTicks().Value );
@@ -325,13 +329,23 @@ TEST( AnimationClipFormat, ResavingAClipKeepsItsGuid )
     const auto first = Ser::SaveClipToFile( path, SampleClip() );
     ASSERT_TRUE( first ) << first.GetError();
     const auto before = Ser::ReadAnimationJson( ReadFile( path ) );
-    ASSERT_TRUE( before && before.GetValue().Header ) << ( before ? "" : before.GetError() );
+    ASSERT_TRUE( before ) << before.GetError();
+    const auto& beforeHeader = before.GetValue().Header;
+    if ( !beforeHeader )
+    {
+        FAIL() << "the first save wrote no header";
+    }
 
     const auto second = Ser::SaveClipToFile( path, SampleClip() );
     ASSERT_TRUE( second ) << second.GetError();
     const auto after = Ser::ReadAnimationJson( ReadFile( path ) );
-    ASSERT_TRUE( after && after.GetValue().Header ) << ( after ? "" : after.GetError() );
-    EXPECT_EQ( after.GetValue().Header->Guid, before.GetValue().Header->Guid );
+    ASSERT_TRUE( after ) << after.GetError();
+    const auto& afterHeader = after.GetValue().Header;
+    if ( !afterHeader )
+    {
+        FAIL() << "the second save wrote no header";
+    }
+    EXPECT_EQ( afterHeader->Guid, beforeHeader->Guid );
 }
 
 TEST( AnimationClipFormat, AClipSaveThatCannotBeWrittenIsARefusalNamingTheClip )

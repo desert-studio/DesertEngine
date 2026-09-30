@@ -27,7 +27,6 @@ namespace TimelineFixtures
 {
     using namespace Desert::Animation;
     using namespace Desert::Animation::Timeline;
-    namespace G = Desert::Animation::Graph;
     using Common::Content::AssetGuid;
 
     inline FrameNumber Tick( int32_t value )

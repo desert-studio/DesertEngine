@@ -214,7 +214,7 @@ TEST( PoseGraph, NothingAtOutputPoseIsRefusedByName )
 TEST( PoseGraph, AWireTheKindHasNoPinForIsRefused )
 {
     AnimGraph graph = PG::MakeStateMachineGraph( "Hero" );
-    graph.Nodes[0].PoseInputs.push_back( "Elsewhere" );
+    graph.Nodes[0].PoseInputs.emplace_back( "Elsewhere" );
     const auto plan = PG::PlanPoseGraph( graph );
     ASSERT_FALSE( plan.IsSuccess() );
     EXPECT_NE( plan.GetError().find( "'StateMachine'" ), std::string::npos ) << plan.GetError();
@@ -257,6 +257,10 @@ TEST( PoseGraph, AnUnwiredMachineIsNotEvaluated )
     Transition always;
     always.To = "B";
     a.Transitions.push_back( always );
+    if ( !spare.Machine )
+    {
+        FAIL() << "a state-machine graph's node carries its machine";
+    }
     spare.Machine->States = { a, b };
     graph.Nodes.push_back( spare );
 
@@ -423,9 +427,14 @@ TEST( LinkedAnimLayer, ACallPlansAndAnUnknownInterfaceOrLayerIsRefusedByName )
     const auto plan  = PG::PlanPoseGraph( graph );
     ASSERT_TRUE( plan.IsSuccess() ) << plan.GetError();
     EXPECT_EQ( plan.GetValue(), ( std::vector<int>{ 0, 1 } ) );
-    EXPECT_EQ( PG::BaseSourceNode( graph ), &graph.Nodes[0] ) << "the base chain runs through the call's input";
+    EXPECT_EQ( PG::BaseSourceNode( graph ), graph.Nodes.data() ) << "the base chain runs through the call's input";
 
-    graph.Nodes[1].LinkedLayer->Layer = "Legs";
+    PG::PoseNode& call = graph.Nodes[1];
+    if ( !call.LinkedLayer )
+    {
+        FAIL() << "the calling graph's node 1 is the layer call";
+    }
+    call.LinkedLayer->Layer           = "Legs";
     const auto noLayer                = PG::PlanPoseGraph( graph );
     ASSERT_FALSE( noLayer.IsSuccess() );
     EXPECT_NE( noLayer.GetError().find( "'Legs'" ), std::string::npos ) << noLayer.GetError();
@@ -445,39 +454,42 @@ TEST( LinkedAnimLayer, ACallPlansAndAnUnknownInterfaceOrLayerIsRefusedByName )
 TEST( LinkedAnimLayer, AnImplementationIsWholeAndAnInputPoseLivesOnlyInALayerGraph )
 {
     AnimGraph graph = CallingGraph();
-    graph.Layers->Implemented.push_back( PassLayer( "UpperBody" ) );
+    if ( !graph.Layers )
+    {
+        FAIL() << "the calling graph declares its layer interface";
+    }
+    PG::AnimGraphLayers& layers = *graph.Layers;
+    layers.Implemented.push_back( PassLayer( "UpperBody" ) );
     const auto half = PG::PlanPoseGraph( graph );
     ASSERT_FALSE( half.IsSuccess() );
     EXPECT_NE( half.GetError().find( "'Hands'" ), std::string::npos ) << half.GetError();
 
-    graph.Layers->Implemented.push_back( PassLayer( "Hands" ) );
+    layers.Implemented.push_back( PassLayer( "Hands" ) );
     ASSERT_TRUE( PG::PlanPoseGraph( graph ).IsSuccess() ) << PG::PlanPoseGraph( graph ).GetError();
 
-    graph.Layers->Implemented.push_back( PassLayer( "Tail" ) );
+    layers.Implemented.push_back( PassLayer( "Tail" ) );
     const auto unknown = PG::PlanPoseGraph( graph );
     ASSERT_FALSE( unknown.IsSuccess() );
     EXPECT_NE( unknown.GetError().find( "'Tail'" ), std::string::npos ) << unknown.GetError();
-    graph.Layers->Implemented.pop_back();
+    layers.Implemented.pop_back();
 
-    graph.Layers->Implemented[0].Nodes.push_back(
-         KindNode( "Nested", PG::PoseNodeKind::LinkedAnimLayer, { "In" } ) );
-    graph.Layers->Implemented[0].Nodes.back().LinkedLayer = PG::LinkedAnimLayerNode{ "Weapon", "Hands" };
-    graph.Layers->Implemented[0].OutputPose               = "Nested";
+    layers.Implemented[0].Nodes.push_back( KindNode( "Nested", PG::PoseNodeKind::LinkedAnimLayer, { "In" } ) );
+    layers.Implemented[0].Nodes.back().LinkedLayer        = PG::LinkedAnimLayerNode{ "Weapon", "Hands" };
+    layers.Implemented[0].OutputPose                      = "Nested";
     const auto nestedPlan                                 = PG::PlanPoseGraph( graph );
     EXPECT_TRUE( nestedPlan.IsSuccess() ) << "a layer graph may call another layer: " << nestedPlan.GetError();
 
     // UpperBody calls Hands and Hands calls UpperBody: a cycle within the graph, refused with its path.
-    graph.Layers->Implemented[1].Nodes.push_back(
-         KindNode( "Back", PG::PoseNodeKind::LinkedAnimLayer, { "In" } ) );
-    graph.Layers->Implemented[1].Nodes.back().LinkedLayer = PG::LinkedAnimLayerNode{ "Weapon", "UpperBody" };
-    graph.Layers->Implemented[1].OutputPose               = "Back";
+    layers.Implemented[1].Nodes.push_back( KindNode( "Back", PG::PoseNodeKind::LinkedAnimLayer, { "In" } ) );
+    layers.Implemented[1].Nodes.back().LinkedLayer        = PG::LinkedAnimLayerNode{ "Weapon", "UpperBody" };
+    layers.Implemented[1].OutputPose                      = "Back";
     const auto cycle                                      = PG::PlanPoseGraph( graph );
     ASSERT_FALSE( cycle.IsSuccess() );
     EXPECT_NE( cycle.GetError().find( "Weapon.UpperBody -> Weapon.Hands -> Weapon.UpperBody" ), std::string::npos )
          << cycle.GetError();
-    graph.Layers->Implemented[1] = PassLayer( "Hands" );
-    graph.Layers->Implemented[0].Nodes.pop_back();
-    graph.Layers->Implemented[0].OutputPose = "In";
+    layers.Implemented[1] = PassLayer( "Hands" );
+    layers.Implemented[0].Nodes.pop_back();
+    layers.Implemented[0].OutputPose = "In";
 
     AnimGraph host = CallingGraph();
     host.Nodes.push_back( KindNode( "In", PG::PoseNodeKind::LinkedInputPose ) );

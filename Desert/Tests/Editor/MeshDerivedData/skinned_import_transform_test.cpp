@@ -85,7 +85,8 @@ namespace
         if ( track == nullptr || track->Sections.empty() )
             return {};
         const auto* content = std::get_if<Animation::Timeline::Channel>( &track->Sections.front().Content );
-        const auto* channel = content ? std::get_if<Animation::Timeline::TransformChannel>( content ) : nullptr;
+        const auto* channel =
+             content != nullptr ? std::get_if<Animation::Timeline::TransformChannel>( content ) : nullptr;
         EXPECT_NE( channel, nullptr ) << "the child's section holds no Transform channel";
         if ( channel == nullptr )
             return {};
