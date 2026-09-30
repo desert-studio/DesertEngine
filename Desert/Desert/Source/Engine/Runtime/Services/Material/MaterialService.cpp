@@ -309,7 +309,8 @@ namespace Desert::Runtime
     void MaterialService::PinDefaultSurfaceTemplate( const Common::AssetHandle& handle )
     {
         m_DefaultSurfacePin = std::make_unique<Assets::AssetRootPin>(
-             handle, "the engine's Default Surface template: every slotless mesh and every new material draws with it" );
+             handle,
+             "the engine's Default Surface template: every slotless mesh and every new material draws with it" );
     }
 
     void MaterialService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
