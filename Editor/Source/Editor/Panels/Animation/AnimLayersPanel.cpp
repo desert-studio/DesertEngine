@@ -63,7 +63,8 @@ namespace Desert::Editor
         if ( !mesh || !mesh->IsSkinned() )
             return;
         const Animation::Skeleton& skeleton = static_cast<SkinnedMesh*>( mesh )->GetSkeleton();
-        const auto                 clips    = m_Library ? m_Library->GetForSkeleton( skeleton )
+        const auto                 clips    = m_Library ? m_Library->GetForMesh( m_Library->IdentifyMeshHandle(
+                                            entity.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle ) )
                                                         : std::vector<Assets::Asset<Assets::AnimationAsset>>{};
         std::vector<const char*> clipNames;
         clipNames.reserve( clips.size() );
