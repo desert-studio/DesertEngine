@@ -376,11 +376,19 @@ TEST( AssetReferenceCensus, EveryReferenceAShippedMaterialMakesNamesAFileInThePr
     // references are asked the same question as a material's.
     std::string meshError;
     int         meshesRead     = 0;
-    const auto  meshReferences = MeshReferencesUnder( content, &meshError, &meshesRead );
+    auto        meshReferences = MeshReferencesUnder( content, &meshError, &meshesRead );
     EXPECT_TRUE( meshError.empty() ) << "a shipped mesh source asset does not read: " << meshError;
-    // The shipped StaticProbe is a mesh source asset; finding none means the sweep no longer recognises the
-    // kind, and every mesh reference would pass vacuously.
-    EXPECT_GE( meshesRead, 1 ) << "no mesh source asset was read under " << content.string();
+    // The hand-authored mesh sources (StaticProbe and the skinned probes) are suite data, a project of their own
+    // whose scenes name the engine's materials: swept too, and resolved against both trees below.
+    const fs::path suiteContent = root + "Desert/Tests/Data/Resources/Assets";
+    int            suiteMeshesRead = 0;
+    const auto     suiteMeshReferences = MeshReferencesUnder( suiteContent, &meshError, &suiteMeshesRead );
+    EXPECT_TRUE( meshError.empty() ) << "a suite-data mesh source asset does not read: " << meshError;
+    meshReferences.insert( meshReferences.end(), suiteMeshReferences.begin(), suiteMeshReferences.end() );
+    // StaticProbe is a mesh source asset; finding none means the sweep no longer recognises the kind, and every
+    // mesh reference would pass vacuously.
+    EXPECT_GE( meshesRead + suiteMeshesRead, 1 )
+         << "no mesh source asset was read under " << content.string() << " or " << suiteContent.string();
 
     // A sweep that found nothing passes vacuously, and the two ways that happens — a wrong root, and a
     // rename of the materials directory — are both silent. The floor is asserted rather than assumed.
@@ -389,7 +397,8 @@ TEST( AssetReferenceCensus, EveryReferenceAShippedMaterialMakesNamesAFileInThePr
          << " asset references were found across the shipped materials. The sweep is not looking where the "
             "materials are, so it is asserting nothing.";
 
-    const auto derived = DerivedHandlesUnder( content );
+    auto derived = DerivedHandlesUnder( content );
+    derived.merge( DerivedHandlesUnder( suiteContent ) );
 
     std::vector<AssetReference> all = references;
     all.insert( all.end(), meshReferences.begin(), meshReferences.end() );

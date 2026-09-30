@@ -177,8 +177,6 @@ TEST( PickerRegistryRows, OnTheCorpusNamesAndTheSkinnedSplitComeFromTheRegistryT
     EXPECT_EQ( nameOf( ContentKind::CloudType, "Altocumulus.decloudtype" ), "Altocumulus" );
     const auto hasKey = []( const auto& rows, std::string_view suffix )
     { return std::ranges::any_of( rows, [&]( const auto& row ) { return row.Key.ends_with( suffix ); } ); };
-    EXPECT_TRUE( hasKey( ContentRegistry::MeshRows( false ), "StaticProbe.stmesh" ) );
-    EXPECT_FALSE( hasKey( ContentRegistry::MeshRows( true ), "StaticProbe.stmesh" ) );
 
     // THE ANIMATION PROBES ARE SUITE DATA, a project of their own (Desert/Tests/Data) — not editor content.
     Path::SetProjectRoot( Desert::TestSupport::TestDataDir(), "Resources/Assets" );
@@ -196,6 +194,8 @@ TEST( PickerRegistryRows, OnTheCorpusNamesAndTheSkinnedSplitComeFromTheRegistryT
 
     const auto skinned = ContentRegistry::MeshRows( true );
     const auto statics = ContentRegistry::MeshRows( false );
+    EXPECT_TRUE( hasKey( statics, "StaticProbe.stmesh" ) );
+    EXPECT_FALSE( hasKey( skinned, "StaticProbe.stmesh" ) );
     for ( const char* mesh : { "IKProbe.skmesh", "SkinProbe.skmesh", "TwoBoneProbe.skmesh" } )
     {
         EXPECT_TRUE( hasKey( skinned, mesh ) ) << mesh << " is missing from the skinned picker";

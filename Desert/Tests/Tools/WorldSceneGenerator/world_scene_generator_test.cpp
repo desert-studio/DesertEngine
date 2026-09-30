@@ -943,15 +943,18 @@ int main( int argc, char** argv )
 
 namespace
 {
+    // The corpus is the suite data project's (Desert/Tests/Data/WorldCorpus.json - the probes); its materials
+    // are the engine's, so every corpus run also names --assets.
     std::string ProjectRoot()
     {
-        return RepoRoot() + "Editor";
+        return RepoRoot() + "Desert/Tests/Data";
     }
 
     int GenerateCorpus( const std::filesystem::path& out, std::string& bytes,
                         const std::vector<std::string>& extra = {} )
     {
-        std::vector<std::string> args{ "--preset", "corpus-smoke", "--project", ProjectRoot(), "--partition" };
+        std::vector<std::string> args{ "--preset",  "corpus-smoke", "--project", ProjectRoot(),
+                                       "--assets",  AssetsRoot(),    "--partition" };
         args.insert( args.end(), extra.begin(), extra.end() );
         return Generate( out, args, bytes );
     }
@@ -1136,16 +1139,32 @@ TEST( WorldSceneGenerator, EveryCorpusAssetResolvesByItsGuidAndTheCorpusIsReal )
 }
 
 // 8c. A missing asset is a refusal that names the file, and nothing is written - never a world with a hole in it.
+// The corpus list itself is the project's (WorldCorpus.json): a project without one is refused naming that path.
 TEST( WorldSceneGenerator, CorpusPresetRefusesAMissingAssetByPathAndWritesNothing )
 {
     const auto out = Scratch() / "corpus_missing.desce";
     std::filesystem::remove( out );
+    {
+        const std::vector<std::string> args{ "--out",    out.string(),   "--assets",  AssetsRoot(),
+                                             "--preset", "corpus-smoke", "--project", "/nonexistent-project-root" };
+        std::ostringstream             reported;
+        std::ostringstream             refused;
+        EXPECT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 3 );
+        EXPECT_NE( refused.str().find( "/nonexistent-project-root/WorldCorpus.json" ), std::string::npos )
+             << refused.str();
+        EXPECT_FALSE( std::filesystem::exists( out ) );
+    }
+    const auto project = Scratch() / "corpus_missing_project";
+    std::filesystem::create_directories( project );
+    std::ofstream( project / "WorldCorpus.json", std::ios::trunc )
+         << R"({"Props":[{"Theme":"Gone","Mesh":"Resources/Assets/Meshes/Gone.skmesh","Skinned":true,)"
+         << R"("Material":"Materials/M_CheckerFloor.demat","ScalePercent":100}]})";
     const std::vector<std::string> args{ "--out",    out.string(),   "--assets",  AssetsRoot(),
-                                         "--preset", "corpus-smoke", "--project", "/nonexistent-project-root" };
+                                         "--preset", "corpus-smoke", "--project", project.string() };
     std::ostringstream             reported;
     std::ostringstream             refused;
     EXPECT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 3 );
-    EXPECT_NE( refused.str().find( "/nonexistent-project-root/Resources/Assets/Meshes/Skinned/SkinProbe.skmesh" ),
+    EXPECT_NE( refused.str().find( ( project / "Resources/Assets/Meshes/Gone.skmesh" ).generic_string() ),
                std::string::npos )
          << refused.str();
     EXPECT_FALSE( std::filesystem::exists( out ) );
@@ -1180,7 +1199,7 @@ TEST( WorldSceneGenerator, NeighbouringCorpusDistrictsHoldDisjointMaterialsAndAR
 {
     std::string bytes;
     ASSERT_EQ( Generate( Scratch() / "corpus_districts.desce",
-                         { "--preset", "corpus", "--project", ProjectRoot() }, bytes ),
+                         { "--preset", "corpus", "--project", ProjectRoot(), "--assets", AssetsRoot() }, bytes ),
                0 )
          << bytes;
     const auto parsed = Common::Json::Parse( bytes );
@@ -1240,7 +1259,8 @@ TEST( WorldSceneGenerator, EveryCorpusPropFitsItsTileSoNothingIsPromotedOrAlways
     std::string bytes;
     ASSERT_EQ(
          Generate( Scratch() / "corpus_fit.desce",
-                   { "--preset", "corpus", "--project", ProjectRoot(), "--partition", "--loading-range", "4000" },
+                   { "--preset", "corpus", "--project", ProjectRoot(), "--assets", AssetsRoot(), "--partition",
+                     "--loading-range", "4000" },
                    bytes ),
          0 )
          << bytes;

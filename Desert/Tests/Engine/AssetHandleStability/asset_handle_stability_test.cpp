@@ -1575,7 +1575,8 @@ TEST( AssetHandleStability, ARetargetHandleIsHandleForGuidOfItsHeader )
 TEST( AssetHandleStability, AnEnvelopeMeshHandleIsHandleForGuidOfItsHeader )
 {
     const auto file =
-         CopyCorpusFile( "Editor/Resources/Assets/Meshes/StaticProbe.stmesh", "AF4fEnvelopeMeshHandle" );
+         CopyCorpusFile( Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/StaticProbe.stmesh",
+                         "AF4fEnvelopeMeshHandle" );
     ExpectHeaderGuidIdentity<Desert::Assets::StaticMeshAsset>( file, Common::Content::ContentKind::StaticMesh );
     std::filesystem::remove_all( file.parent_path() );
 }

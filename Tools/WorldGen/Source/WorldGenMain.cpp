@@ -38,7 +38,7 @@ namespace Desert::WorldGen
             int         Cells;
             int         PerCell;
             int         CellSizeCm;
-            // Furnished from the tracked corpus (kCorpusProps) instead of primitive-cube buildings, in districts
+            // Furnished from the project's corpus list (WorldCorpus.json) instead of primitive-cube buildings, in districts
             // of this many cells per side (WorldSpec::DistrictCells).
             bool Corpus;
             int  DistrictCells;
@@ -197,7 +197,7 @@ namespace Desert::WorldGen
 
         // A mesh file, read for what a scene must state about it: its header GUID (SCNE 28), its kind, and the
         // bounds it states (to seat it on the ground). Two on-disk forms are tracked and both are read here: an
-        // AF1 envelope (`DAST`, bounds in its Meta section - StaticProbe.stmesh) and a cooked render file
+        // AF1 envelope (`DAST`, bounds in its Meta section) and a cooked render file
         // (`DESTMESH` v3, bounds in its header - the Cooked/Meshes/*.skmesh probes). Kind and GUID come from
         // ReadAssetHeader, which sniffs both - the same entry point the registry cook reads identity through.
         // Every failure names the file: no asset is a refusal, never a stand-in.
@@ -268,43 +268,29 @@ namespace Desert::WorldGen
             return Common::MakeSuccess( std::move( mesh ) );
         }
 
-        // THE CORPUS THE `corpus` PRESETS ARE FURNISHED FROM - tracked files only, spelled as the tracked
-        // scenes spell them (mesh paths relative to the project root, materials to the assets root).
-        //
-        // WHY THESE AND NOT Meshes/base*.fbx. The only textured meshes in the tree are the three base*.fbx,
-        // and a scene naming one resolves through the DDC (MeshDerivedData.hpp LoadMeshSourceAsset: a DDC miss
-        // is a refusal) - so on a machine that has not imported it the world would not load. The .stmesh files
-        // beside them are pre-AF4h leftovers the loader never reads. The TEXTURES those meshes were imported
-        // with are tracked and bound by tracked materials, so the texture memory is here all the same: on the
-        // cooked skinned probes and the static probe.
+        // THE CORPUS THE `corpus` PRESETS ARE FURNISHED FROM IS THE PROJECT'S OWN LIST, <project>/WorldCorpus.json
+        // (kCorpusFileName) - the generator names no asset. The streaming-memory instrument is furnished from the
+        // suite data project (Desert/Tests/Data/WorldCorpus.json: the skinned and static probes), meshes spelled
+        // relative to the project root, materials relative to the assets root (--assets), as its scenes spell them.
         //
         // THEMES ARE CHOSEN FOR WHAT A CELL DEPARTURE CAN FREE (WP13 handover): skinned meshes and
         // custom-shader materials are HLOD-excluded, so their meshes, skeletons, materials and textures are
-        // rooted only by the cell that holds them. `Checker` is the control - a static PBR prop whose mesh and
-        // material an Instancing HLOD keeps resident after the cell leaves.
+        // rooted only by the cell that holds them. A static PBR prop is the control - its mesh and material an
+        // Instancing HLOD keeps resident after the cell leaves.
+        constexpr const char* kCorpusFileName = "WorldCorpus.json";
+
         struct CorpusProp
         {
-            const char* Theme;
-            const char* Mesh;
-            bool        Skinned;
-            const char* Material;
-            int         ScalePercent;
+            std::string Theme;
+            std::string Mesh;
+            bool        Skinned = false;
+            std::string Material;
+            int         ScalePercent = 100;
         };
 
-        constexpr CorpusProp kCorpusProps[] = {
-             { "Skinned PBR", "Resources/Assets/Meshes/Skinned/SkinProbe.skmesh", true,
-               "Materials/base_basic_pbr/model.demat", 100 },
-             { "Skinned PBR", "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh", true,
-               "Materials/base_basic_pbr/model.demat", 100 },
-             { "Skinned shaded", "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh", true,
-               "Materials/base_basic_shaded/model.demat", 100 },
-             { "Skinned shaded", "Resources/Assets/Meshes/Skinned/IKProbe.skmesh", true,
-               "Materials/base_basic_shaded/model.demat", 100 },
-             { "Witness", "Resources/Assets/Meshes/Skinned/IKProbe.skmesh", true,
-               "Materials/M_NormalWitness.demat", 100 },
-             { "Witness", "Resources/Assets/Meshes/StaticProbe.stmesh", false, "Materials/MP_Unlit.demat", 100 },
-             { "Checker", "Resources/Assets/Meshes/StaticProbe.stmesh", false, "Materials/M_CheckerFloor.demat",
-               100 },
+        struct CorpusList
+        {
+            std::vector<CorpusProp> Props;
         };
 
         // The table, resolved: one theme per distinct Theme name in first-appearance order, every file read
@@ -312,8 +298,21 @@ namespace Desert::WorldGen
         Common::ResultStr<std::vector<PropTheme>> LoadCorpusThemes( const std::filesystem::path& projectRoot,
                                                                     const std::filesystem::path& assetsRoot )
         {
+            const std::filesystem::path listPath = projectRoot / kCorpusFileName;
+            const auto                  text     = Common::Utils::FileSystem::ReadFileContent( listPath );
+            if ( !text.IsSuccess() )
+                return Common::MakeError<std::vector<PropTheme>>( "corpus list '" + listPath.generic_string() +
+                                                                  "': " + text.GetError() );
+            const auto list = Common::Json::Read<CorpusList>( text.GetValue() );
+            if ( !list )
+                return Common::MakeError<std::vector<PropTheme>>( "corpus list '" + listPath.generic_string() +
+                                                                  "': " + list.GetError() );
+            if ( list.GetValue().Props.empty() )
+                return Common::MakeError<std::vector<PropTheme>>( "corpus list '" + listPath.generic_string() +
+                                                                  "' names no prop" );
+
             std::vector<PropTheme> themes;
-            for ( const auto& row : kCorpusProps )
+            for ( const auto& row : list.GetValue().Props )
             {
                 auto mesh = LoadMesh( projectRoot, row.Mesh, row.Skinned );
                 if ( !mesh )
@@ -495,7 +494,8 @@ namespace Desert::WorldGen
         if ( projectRoot.empty() && ( assetsRoot.empty() || preset->Corpus ) )
         {
             err << "WorldGen: no --project. " << ( preset->Corpus ? "Preset '" + presetKey + "' is furnished from "
-                                                                     "the project's own meshes"
+                                                                     "the project's corpus list (<project>/WorldCorpus.json; the suite data project "
+                                                                     "Desert/Tests/Data holds one)"
                                                                    : std::string( "Without --assets the materials "
                                                                                   "come from the project" ) )
                 << ", and no project is assumed — pass --project <the folder holding the .deproj> "
