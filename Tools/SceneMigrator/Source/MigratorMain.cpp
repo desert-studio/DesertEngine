@@ -57,7 +57,11 @@
 #include "SceneMigration.hpp"
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include "SettingsCanonical.hpp"
+#include "ClipInterpShift.hpp"
+#include "ClipMigration.hpp"
 #include "ImportRecordSourceHash.hpp"
+#include <Engine/Animation/Timeline/Hosts.hpp>
+#include <Engine/Assets/Serialization/Animation.hpp>
 
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
@@ -184,7 +188,7 @@ namespace
                   std::vector<std::filesystem::path>& meshes, std::vector<std::filesystem::path>& layouts,
                   std::vector<std::filesystem::path>& noises, std::vector<std::filesystem::path>& models,
                   std::vector<std::filesystem::path>& shaders, std::vector<std::filesystem::path>& tiles,
-                  std::ostream& out )
+                  std::vector<std::filesystem::path>& sequences, std::ostream& out )
     {
         std::error_code ec;
         if ( std::filesystem::is_directory( root, ec ) )
@@ -212,6 +216,8 @@ namespace
                 {
                     clips.push_back( entry.path() );
                 }
+                else if ( entry.path().extension() == Desert::Animation::Timeline::kLevelSequenceExtension )
+                    sequences.push_back( entry.path() );
                 else if ( IsLayoutOnly( entry.path() ) )
                     texts.push_back( entry.path() );
                 else if ( IsCookedMesh( entry.path() ) )
@@ -238,6 +244,8 @@ namespace
         {
             clips.push_back( root );
         }
+        else if ( root.extension() == Desert::Animation::Timeline::kLevelSequenceExtension )
+            sequences.push_back( root );
         else if ( IsLayoutOnly( root ) )
             texts.push_back( root );
         else if ( IsCookedMesh( root ) )
@@ -554,13 +562,14 @@ namespace Desert::Migration
         std::vector<std::filesystem::path> models;
         std::vector<std::filesystem::path> shaders;
         std::vector<std::filesystem::path> tiles;
+        std::vector<std::filesystem::path> sequences;
         for ( const auto& root : roots )
             Collect( root, scenes, materials, prefabs, clips, texts, meshes, layouts, noises, models, shaders,
-                     tiles, out );
+                     tiles, sequences, out );
 
-        if ( scenes.empty() && materials.empty() && prefabs.empty() && clips.empty() && texts.empty() &&
-             meshes.empty() && layouts.empty() && noises.empty() && models.empty() && shaders.empty() &&
-             tiles.empty() )
+        if ( scenes.empty() && materials.empty() && prefabs.empty() && clips.empty() && sequences.empty() &&
+             texts.empty() && meshes.empty() && layouts.empty() && noises.empty() && models.empty() &&
+             shaders.empty() && tiles.empty() )
         {
             err << "SceneMigrator: no " << kSceneExtension << ", " << kMaterialExtension << ", "
                 << kPrefabExtension << ", " << kClipExtension
@@ -1053,19 +1062,38 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            // ANIM 4 -> 5 (SKEL-TREE): the bone hash becomes the skeleton's GUID.
-            if ( const auto stated = ReadStatedVersion( path, source, "ANIM" ); stated && stated.GetValue() == 4u )
+            // ANIM 4/5 -> 6 (SKEL-TREE, ANIM-I8a, I8b-6): generation 3 names its skeleton by GUID (ANIM 4's bone
+            // hash resolved to the one .skeleton stating it), is lifted to the TMLN body, proved, and rewritten.
+            if ( const auto stated = ReadStatedVersion( path, source, "ANIM" );
+                 stated && stated.GetValue() >= 4u &&
+                 stated.GetValue() <= Desert::Assets::Serialization::kAnimationLastChannelsVersion )
             {
-                const auto raised = Desert::Migration::MigrateAnimationV4ToV5( path.string(), source, skeletons );
-                if ( !raised )
+                const auto lifted = Desert::Migration::MigrateClipGeneration3( path.string(), source, skeletons );
+                if ( !lifted )
                 {
-                    err << "FAIL   " << raised.GetError() << "\n";
+                    err << "FAIL   " << path.string() << " — " << lifted.GetError() << "\n";
                     ++failed;
                     continue;
                 }
-                out << ( check ? "would raise " : "raised " ) << path.string() << " ANIM 4 -> 5\n";
-                if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                const auto&       o    = lifted.GetValue();
+                const std::string what = std::format(
+                     "ANIM v{} -> v{} (TMLN, Skeleton GUID): {} bone tracks, {} curves, {} notifies, {} sections, "
+                     "{} ticks proved bit for bit",
+                     stated.GetValue(), Desert::Assets::kAnimationSchemaVersion, o.BoneTracks, o.Curves,
+                     o.Notifies, o.Sections, o.TicksProved );
+                if ( check )
+                {
+                    out << "stale  " << path.string() << " — would lift " << what << "\n";
+                    ++relaid;
+                    continue;
+                }
+                if ( !WriteText( path, o.Text, err ) )
+                {
                     ++failed;
+                    continue;
+                }
+                out << "lifted " << path.string() << " — " << what << "\n";
+                ++relaid;
                 continue;
             }
             if ( !PassesTextHeaderGate( *TextHeaderGateFor( path ), path, source, err ) )
@@ -1080,6 +1108,57 @@ namespace Desert::Migration
                 continue;
             }
             out << "ok     " << path.string() << " — ANIM v" << Desert::Assets::kAnimationSchemaVersion << "\n";
+        }
+
+        // ---- THE LEVEL SEQUENCES (.dseq) -----------------------------------------------------------
+        // The file IS a TMLN document (LevelSequenceAsset.hpp). TMLN v1 -> v2 (ANIM-FMT): every key's mode
+        // moves to the segment leaving it, proved bit for bit, written by the one writer; Kind and GUID stay.
+        for ( const auto& path : sequences )
+        {
+            const std::string source = ReadAll( path );
+            const auto        stated = Desert::Migration::StatedTimelineVersion( source );
+            if ( !stated )
+            {
+                err << "FAIL   " << path.string() << " — " << stated.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            if ( stated.GetValue() == Desert::Animation::Timeline::kTimelineFormatVersion )
+            {
+                out << "ok     " << path.string() << " — TMLN v" << stated.GetValue() << "\n";
+                continue;
+            }
+            auto shifted = Desert::Migration::ShiftTimelineV1( source );
+            auto header  = Common::Json::Read<Desert::Migration::TimelineEnvelope>( source );
+            if ( !shifted || !header )
+            {
+                err << "FAIL   " << path.string() << " — " << ( !shifted ? shifted.GetError() : header.GetError() )
+                    << "\n";
+                ++failed;
+                continue;
+            }
+            auto text = Desert::Migration::WriteLevelSequence( shifted.GetValue().Shifted, header.GetValue() );
+            if ( !text )
+            {
+                err << "FAIL   " << path.string() << " — " << text.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            const std::string what =
+                 std::format( "TMLN v1 -> v{} (key modes shape the segment leaving the key): {} key lists, {} "
+                              "samples proved bit for bit",
+                              Desert::Animation::Timeline::kTimelineFormatVersion, shifted.GetValue().KeyLists,
+                              shifted.GetValue().SamplesProved );
+            if ( check )
+                out << "stale  " << path.string() << " — would shift " << what << "\n";
+            else if ( !WriteText( path, text.GetValue(), err ) )
+            {
+                ++failed;
+                continue;
+            }
+            else
+                out << "shifted " << path.string() << " — " << what << "\n";
+            ++relaid;
         }
 
         // THE PREFABS, through the SAME chain the scenes went through (И11).

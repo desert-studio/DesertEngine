@@ -1,6 +1,7 @@
 #include "SceneMigration.hpp"
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <map>
@@ -17,6 +18,9 @@
 
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/Animation/Timeline/Hosts.hpp>
+#include "UILift.hpp"
+#include "ClipInterpShift.hpp"
 #include <Engine/Geometry/EditMeshConversion.hpp>
 #include <Engine/Geometry/EditMeshSerialization.hpp>
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
@@ -40,6 +44,7 @@
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Json/Json.hpp>
 #include <Common/Core/AssetHandle.hpp>
+#include <Common/Core/ByteText.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Units.hpp>
@@ -67,6 +72,16 @@ namespace Desert::Migration
 {
     namespace
     {
+        // A step that refused entities refuses the whole scene: one line naming the scene and every refusal.
+        std::string RefusedWhole( const std::string& scene, const std::vector<std::string>& refusals )
+        {
+            std::string text = std::format( "'{}': ", scene );
+            for ( size_t i = 0; i < refusals.size(); ++i )
+                std::format_to( std::back_inserter( text ), "{}{}", i == 0 ? "" : "; ", refusals[i] );
+            text += ". Nothing was written.";
+            return text;
+        }
+
         // The offending value, spelled out. A warning that says "wrong type" without saying WHAT was in
         // the file sends the next reader back to the file anyway.
         std::string Describe( const rfl::Generic& g )
@@ -389,6 +404,131 @@ namespace Desert::Migration
                                report.OverridesDropped += dropped ? 1 : 0;
                                return dropped;
                            } );
+        }
+        return report;
+    }
+
+    UIAnimationsReport MigrateUIAnimationsV40ToV41( std::vector<Assets::EntityData>& entities )
+    {
+        namespace TL = Animation::Timeline;
+        UIAnimationsReport report;
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? entity.id->ToString() : std::string( "<record without id>" );
+            EditBlock(
+                 entity.Components, "UIAnim",
+                 [&]( rfl::Generic::Object& block )
+                 {
+                     const auto v40 =
+                          rfl::json::read<TL::UIAnimationV40, rfl::DefaultIfMissing>( rfl::json::write( block ) );
+                     if ( !v40 )
+                     {
+                         report.Refused.push_back( std::format(
+                              "entity {}: its UIAnim block is not a v40 clip: {}", who, v40.error().what() ) );
+                         return false;
+                     }
+                     auto lifted = TL::LiftUIAnimation( v40.value(), who, Animation::PROJECT_TICK_RATE,
+                                                        Animation::DEFAULT_DISPLAY_RATE );
+                     if ( !lifted )
+                     {
+                         report.Refused.push_back( std::format( "entity {}: {}", who, lifted.GetError() ) );
+                         return false;
+                     }
+                     auto written = TL::WriteSequence( lifted.GetValue().Lifted );
+                     if ( !written )
+                     {
+                         report.Refused.push_back(
+                              std::format( "entity {}: the TMLN writer refused: {}", who, written.GetError() ) );
+                         return false;
+                     }
+                     const std::vector<uint8_t> bytes = written.ExtractValue();
+                     const auto sequence = rfl::json::read<rfl::Generic>( std::string( Common::TextOf( bytes ) ) );
+                     if ( !sequence )
+                     {
+                         report.Refused.push_back(
+                              std::format( "entity {}: the TMLN writer's text does not read: {}", who,
+                                           sequence.error().what() ) );
+                         return false;
+                     }
+                     ++report.Clips;
+                     report.RoundedKeys += lifted.GetValue().Report.RoundedKeys;
+                     rfl::Generic::Object next;
+                     next["Sequence"] = sequence.value();
+                     next["Loop"]     = rfl::Generic(
+                          static_cast<int64_t>( v40.value().Loop ? TL::LoopMode::Loop : TL::LoopMode::Once ) );
+                     next["AutoPlay"] = rfl::Generic( v40.value().Playing );
+                     block            = std::move( next );
+                     return true;
+                 } );
+            if ( !entity.PrefabOverrides )
+                continue;
+            for ( const auto& override_ : *entity.PrefabOverrides )
+                if ( override_.Components.get( "UIAnim" ).has_value() )
+                    report.Refused.push_back( std::format(
+                         "entity {}: a prefab override restates UIAnim, which has no v40 whole to lift "
+                         "- move the clip onto the prefab's own record",
+                         who ) );
+        }
+        return report;
+    }
+
+    UIAnimationTimelinesReport MigrateUIAnimationTimelinesV1ToV2( std::vector<Assets::EntityData>& entities )
+    {
+        UIAnimationTimelinesReport report;
+        const auto shift = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock(
+                 components, "UIAnim",
+                 [&]( rfl::Generic::Object& block )
+                 {
+                     const auto sequence = block.get( "Sequence" );
+                     if ( !sequence )
+                         return false; // an override restating Loop/AutoPlay only
+                     const std::string text   = rfl::json::write( sequence.value() );
+                     const auto        stated = StatedTimelineVersion( text );
+                     if ( !stated )
+                     {
+                         report.Refused.push_back(
+                              std::format( "entity {}: UIAnim: {}", who, stated.GetError() ) );
+                         return false;
+                     }
+                     if ( stated.GetValue() != Animation::Timeline::kTimelineLastArrivingInterpVersion )
+                         return false;
+                     auto shifted = ShiftTimelineV1( text );
+                     if ( !shifted )
+                     {
+                         report.Refused.push_back(
+                              std::format( "entity {}: UIAnim: {}", who, shifted.GetError() ) );
+                         return false;
+                     }
+                     auto written = Animation::Timeline::WriteSequence( shifted.GetValue().Shifted );
+                     if ( !written )
+                     {
+                         report.Refused.push_back(
+                              std::format( "entity {}: the TMLN writer refused: {}", who, written.GetError() ) );
+                         return false;
+                     }
+                     const std::vector<uint8_t> bytes = written.ExtractValue();
+                     const auto next = rfl::json::read<rfl::Generic>( std::string( Common::TextOf( bytes ) ) );
+                     if ( !next )
+                     {
+                         report.Refused.push_back( std::format(
+                              "entity {}: the TMLN writer's text does not read: {}", who, next.error().what() ) );
+                         return false;
+                     }
+                     block["Sequence"] = next.value();
+                     ++report.Clips;
+                     report.SamplesProved += shifted.GetValue().SamplesProved;
+                     return true;
+                 } );
+        };
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? entity.id->ToString() : std::string( "<record without id>" );
+            shift( entity.Components, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    shift( override_.Components, std::format( "{} (prefab override)", who ) );
         }
         return report;
     }
@@ -805,51 +945,6 @@ namespace Desert::Migration
         }
         return Common::MakeSuccess(
              Animation::SkeletonCandidate{ guid.GetValue(), data.Signature, stated.generic_string() } );
-    }
-
-    namespace
-    {
-        // ANIM 4 as it stood: the live clip plus the bone hash ANIM 5 replaced.
-        struct AnimationAssetDataV4
-        {
-            uint64_t                                                SkeletonSignature = 0;
-            rfl::Flatten<Assets::Serialization::AnimationAssetData> Rest;
-        };
-    } // namespace
-
-    Common::ResultStr<std::string>
-    MigrateAnimationV4ToV5( const std::string_view path, const std::string& text,
-                            const std::span<const Animation::SkeletonCandidate> skeletons )
-    {
-        const auto v4 = Common::Json::Read<AnimationAssetDataV4>( text );
-        if ( !v4 )
-            return Common::MakeFormattedError<std::string>( "'{}': ANIM 4 body does not read: {}", path,
-                                                            v4.GetError() );
-        Assets::Serialization::AnimationAssetData data = v4.GetValue().Rest.get();
-        if ( !data.Header )
-            return Common::MakeFormattedError<std::string>( "'{}' states no header", path );
-        const auto stated = data.Header->Versions.find( "ANIM" );
-        if ( stated == data.Header->Versions.end() || stated->second != 4u )
-            return Common::MakeFormattedError<std::string>( "'{}': this step raises ANIM 4 only", path );
-
-        const auto guid = Animation::MigrateSkeletonReference( path, v4.GetValue().SkeletonSignature, skeletons );
-        if ( !guid )
-            return Common::MakeError<std::string>( guid.GetError() );
-        std::string rigPath;
-        for ( const auto& candidate : skeletons )
-            if ( candidate.Guid == guid.GetValue() )
-                rigPath = candidate.Path;
-        data.Skeleton = Assets::AssetGuidRef{ Common::Content::AssetGuidToText( guid.GetValue() ), rigPath };
-
-        const auto canonical =
-             Common::Content::CanonicalJsonTextOfWriterOutput( Assets::Serialization::WriteAnimationJson( data ) );
-        if ( !canonical )
-            return Common::MakeError<std::string>( canonical.GetError() );
-        // What the step writes, the engine's reader must read.
-        if ( auto back = Assets::Serialization::ReadAnimationJson( canonical.GetValue() ); !back )
-            return Common::MakeFormattedError<std::string>( "'{}': the raised file does not read as ANIM 5: {}",
-                                                            path, back.GetError() );
-        return Common::MakeSuccess( canonical.GetValue() );
     }
 
     Common::ResultStr<std::string>
@@ -1353,10 +1448,7 @@ namespace Desert::Migration
                 report.UndeclaredKeys       = MigrateUndeclaredKeysV38ToV39( entities );
                 if ( !report.UndeclaredKeys.Refused.empty() )
                 {
-                    std::string lines;
-                    for ( const auto& line : report.UndeclaredKeys.Refused )
-                        lines += ( lines.empty() ? "" : "; " ) + line;
-                    report.Refused = "'" + name + "': " + lines + ". Nothing was written.";
+                    report.Refused = RefusedWhole( name, report.UndeclaredKeys.Refused );
                     return;
                 }
             }
@@ -1366,6 +1458,27 @@ namespace Desert::Migration
             {
                 report.PlayerViewFlagRaised = true;
                 report.PlayerViewFlag       = MigratePlayerViewFlagV39ToV40( entities );
+            }
+
+            // UI animation is a Timeline sequence (ANIM-I9): the v40 key model is lifted once, here.
+            if ( statedSceneVersion < kSceneVersionUIAnimationSequences )
+            {
+                report.UIAnimationsRaised = true;
+                report.UIAnimations       = MigrateUIAnimationsV40ToV41( entities );
+                if ( !report.UIAnimations.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.UIAnimations.Refused );
+                    return;
+                }
+            }
+
+            // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.
+            report.UIAnimationTimelines       = MigrateUIAnimationTimelinesV1ToV2( entities );
+            report.UIAnimationTimelinesRaised = report.UIAnimationTimelines.Clips != 0;
+            if ( !report.UIAnimationTimelines.Refused.empty() )
+            {
+                report.Refused = RefusedWhole( name, report.UIAnimationTimelines.Refused );
+                return;
             }
         }
 

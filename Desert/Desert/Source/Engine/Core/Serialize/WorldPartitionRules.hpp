@@ -495,6 +495,10 @@ namespace Desert::Core::Rules
          // A source decides what streams; one inside a cell would unload the cell and with it itself, and the
          // world around it would never come back.
          { "StreamingSource", ComponentLoading::Global },
+         // A Level Sequence actor directs entities anywhere in the world and cuts the camera; in a cell it
+         // would stop mid-cinematic when the player walks away (UE: ALevelSequenceActor is not spatially
+         // loaded).
+         { "LevelSequence", ComponentLoading::Global },
          // ── By field ──
          // RenderMode 1 = WorldSpace (a nameplate, a floating panel): it lives at its entity. 0 =
          // ScreenSpace (HUD, menus), the default: it has no place in the world at all.

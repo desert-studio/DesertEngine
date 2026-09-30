@@ -15,16 +15,16 @@ project(test_name)
         -- panel and therefore could not be compiled into any test binary at all.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipWrite.cpp",
-        -- The conversion OUT of generation 0, and the tick grid it converts into (A5). Both are pure, so
-        -- the suite that owns the format also owns its migration without gaining a dependency.
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipMigrate.cpp",
+        -- ANIM v6: the body IS the clip's TMLN block, so the one Timeline reader/writer and its Validate link
+        -- here. Older generations (0-3, ANIM v5, TMLN v1) are the migrator's and are tested in
+        -- Desert/Tests/Tools/SceneMigratorWritePath; this suite only proves the engine refuses them by name.
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Channel.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Binding.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Track.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Sequence.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/SequenceFormat.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
-        -- A32: the SECTION AUTHORING operations, so the round-trip test can author a section the way the
-        -- Sequencer authors one instead of hand-filling the struct. A hand-filled section proves the
-        -- writer and the reader agree; it cannot prove that what the editor PRODUCES survives the trip,
-        -- which is the claim the section lane is making.
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/ClipSection.cpp",
     }
 
     includedirs {

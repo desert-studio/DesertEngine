@@ -6,13 +6,16 @@
 #include "AnimationClip.hpp"
 #include "BoneControl.hpp"
 #include "Pose.hpp"
+#include "Graph/PoseGraphInstance.hpp"
 #include "Rig/ControlRigStage.hpp"
 #include "Retarget/RetargetSource.hpp"
+#include "Timeline/Evaluator.hpp"
 
 #include <Common/Core/Timestep.hpp>
 
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <unordered_map>
 
@@ -27,10 +30,10 @@ namespace Desert::Animation
      * (report 05 §652: "the rig is a pose -> pose operator appended after the animation source") or an IK
      * solver could not be attached without rewriting the function.
      *
-     * Membership is DATA, not a branch: `AddLayer` puts `Layers` into the list and removing the last layer
-     * takes it out, so the list says what will run rather than the code deciding again every frame. The
-     * resolve-to-component-space and multiply-by-offset tail is NOT a stage — it is the pipeline's output
-     * and there is nothing after it to reorder against.
+     * Membership is DATA, not a branch: `SetPoseGraph` puts `Graph` into the list and
+     * `ClearPoseGraph` takes it out, so the list says what will run rather than the code deciding again every
+     * frame. The resolve-to-component-space and multiply-by-offset tail is NOT a stage — it is the pipeline's
+     * output and there is nothing after it to reorder against.
      *
      * The list is of enumerators rather than of polymorphic objects deliberately. All the shape buys is
      * ordering and membership, both of which an enum gives. `Rig` (T5.4) was the predicted arrival of "the
@@ -42,12 +45,44 @@ namespace Desert::Animation
     enum class PoseStage : uint8_t
     {
         Source,   ///< the base clip, or the crossfade of the outgoing and incoming clips
-        Layers,   ///< override / additive layers folded over the base, per masked bone
+        Graph,    ///< the AnimGraph's pose graph, node by node; the Source stage's pose is its base source's
         Controls, ///< skeletal controls (IK and friends): sparse component-space overrides, blended locally
         Rig,      ///< a control rig: the animator's controls, resolved and written onto the bones they drive
     };
 
     [[nodiscard]] const char* ToString( PoseStage stage );
+
+    /// What one notify did during a step of playback: UE's Notify (instant) / NotifyBegin / NotifyEnd.
+    enum class NotifyEventKind : uint8_t
+    {
+        Fire,
+        Begin,
+        End,
+    };
+
+    struct NotifyEvent
+    {
+        std::string     Name;
+        NotifyEventKind Kind = NotifyEventKind::Fire;
+        /// The pose-graph node whose clip reported it (UE: the notify's source player); -1 = the base clip (the
+        /// Source stage, Play/CrossFade). With `LinkedSlot` >= 0 the node is of that linked layer's graph.
+        int SourceNode = -1;
+        int LinkedSlot = -1;
+
+        bool operator==( const NotifyEvent& ) const = default;
+    };
+
+    /// A notify state (an Event key with a duration on the clip's Event track) spanning the playhead — UE's
+    /// active AnimNotifyState. BY VALUE, not a key pointer: a reload of the clip frees the key, and an edit
+    /// between two steps must End the state edited away and Begin its replacement.
+    struct ActiveNotifyState
+    {
+        std::string Name;
+        FrameNumber Tick;
+        FrameNumber Duration;
+
+        bool operator==( const ActiveNotifyState& ) const = default;
+    };
 
     class Animator
     {
@@ -97,7 +132,7 @@ namespace Desert::Animation
             return m_EvaluatedPose;
         }
 
-        /// The stages that will run, in order. Read-only — the list is maintained by the layer API, and a
+        /// The stages that will run, in order. Read-only — the list is maintained by the stage APIs, and a
         /// caller reordering it would be deciding something the Animator has to be able to guarantee.
         [[nodiscard]] const std::vector<PoseStage>& GetStages() const
         {
@@ -131,14 +166,14 @@ namespace Desert::Animation
         /// readout, the exit-time fraction. Derived, so it cannot disagree with the tick.
         [[nodiscard]] float GetCurrentTime() const
         {
-            return m_Current.Clip != nullptr
-                        ? static_cast<float>( FrameTimeToSeconds( m_Current.Time, m_Current.Clip->TickRate ) )
-                        : 0.0F;
+            return m_Current.Clip != nullptr ? static_cast<float>( FrameTimeToSeconds(
+                                                    m_Current.Time, m_Current.Clip->Sequence.TickRate ) )
+                                             : 0.0F;
         }
 
         [[nodiscard]] FrameNumber GetDurationTicks() const
         {
-            return m_Current.Clip != nullptr ? m_Current.Clip->DurationTicks : FrameNumber{};
+            return m_Current.Clip != nullptr ? m_Current.Clip->DurationTicks() : FrameNumber{};
         }
 
         [[nodiscard]] float GetDuration() const
@@ -201,10 +236,12 @@ namespace Desert::Animation
         // show the posed skeleton in the viewport.
         void ApplyLocalPose();
 
-        // Returns (and clears) the current clip's notify events since the last call — instant notifies
-        // crossed by forward playback (Fire), and notify states entered / left (Begin / End) by playback,
-        // a loop, a scrub (SetTick / SetTime) or a clip change. For the ECS to dispatch to scripts; call
-        // once per frame after Update.
+        // Returns (and clears) the notify events since the last call — instant notifies crossed by playback
+        // (Fire), and notify states entered / left (Begin / End) by playback, a loop, a scrub (SetTick /
+        // SetTime) or a clip change — of the base players (the current clip, the incoming one of a crossfade)
+        // AND of every pose-graph source (a linked layer's too) whose total weight (`PoseGraphInstance::Weight`)
+        // is above `Graph::kNotifyTriggerWeight`, as UE's notify queue takes every relevant player's; a source
+        // falling below it ends its states. For the ECS to dispatch to scripts; call once per frame after Update.
         std::vector<NotifyEvent> ConsumeNotifyEvents()
         {
             std::vector<NotifyEvent> out;
@@ -213,7 +250,7 @@ namespace Desert::Animation
         }
 
         /// The current clip's notify states active at the playhead (UE: the active AnimNotifyStates).
-        [[nodiscard]] const std::vector<AnimationNotify>& GetActiveNotifyStates() const
+        [[nodiscard]] const std::vector<ActiveNotifyState>& GetActiveNotifyStates() const
         {
             return m_ActiveStates;
         }
@@ -224,51 +261,65 @@ namespace Desert::Animation
          * During a crossfade the two clips' values are blended by the fade's alpha, a clip without the
          * curve contributing 0 — UE's curve blend. Empty when neither clip carries a keyed curve of that
          * name: "no such curve" is a different answer from 0, and a script must be able to tell.
+         *
+         * WITH A POSE GRAPH the answer is the graph's output curve (UE FBlendedCurve): every source carries
+         * its clip's curves (the base source the value above), and the nodes blend them as they blend the
+         * pose — a Layered Blend Per Bone by its CurveBlendOption, an Apply Additive by adding Alpha x it.
          */
         [[nodiscard]] std::optional<float> GetCurveValue( std::string_view name ) const;
 
-        // --- Animation layers (override / additive, with optional per-bone masks) ---
-        // A layer plays a clip ON TOP of the base clip, restricted to its masked bones (empty mask = all).
-        //   Override (default): masked bones are blended base -> layer by Weight (e.g. an upper-body reload
-        //     over a full-body run — mask the spine/arms, weight 1).
-        //   Additive: the layer's delta from the rig's BIND pose is added (scaled by Weight) on top of the
-        //     base — for aim offsets / lean / breathing.
-        // Layers run THROUGH a crossfade: the base they fold over is the blend itself. AddLayer returns the
-        // new layer index; the setters no-op on an out-of-range index.
-        int  AddLayer( const AnimationClip& clip, float weight = 1.0F, bool additive = false, bool loop = true );
+        // --- The pose graph (the AnimGraph's nodes, UE FAnimNode_Base::Evaluate) ------------------------
+        // The graph is evaluated node by node by `Graph::PoseGraphInstance`; the Animator keeps what the nodes
+        // cannot: the CLOCK of every source node (a state machine's running clip, a sequence player's clip)
+        // and the sampling (and retarget) of its clip, and the graph's parameter values. The BASE source
+        // (`Graph::BaseSourceNode`) is the Source stage — Play/CrossFade, with its crossfade, notifies, curves
+        // and root motion; every other source node has its own clock here. AnimationECSSystem drives it: which
+        // clip each source plays this tick (from Graph::Evaluator) and the parameters.
+        //
+        // `SetPoseGraph` builds the per-bone tables ONCE and refuses an unplannable graph or a filter bone
+        // the skeleton lacks, by name.
+        [[nodiscard]] Common::BoolResultStr SetPoseGraph( const Graph::AnimGraph& graph );
+        /// Source node `node`'s clip (its clock restarts when the clip changes). Ignored for the base source
+        /// (the Source stage plays it), for a node that is no source and with no graph set.
+        void SetPoseGraphSource( size_t node, const AnimationClip& clip, bool loop = true );
+        /// Deleted for `Play`'s reason: the source keeps the clip's address.
+        void SetPoseGraphSource( size_t node, AnimationClip&& clip, bool loop = true ) = delete;
+        /// The live value of a declared graph parameter (a pin bound to it reads it). Ignored for an undeclared
+        /// name: Graph::Evaluator's setters have refused it by name already.
+        void SetPoseGraphParameter( std::string_view name, float value );
+        void ClearPoseGraph();
+        /// The graph the stage runs, or nullptr when none is set.
+        [[nodiscard]] const Graph::AnimGraph* GetPoseGraph() const
+        {
+            return m_PoseGraph ? &m_PoseGraph->Instance.Graph() : nullptr;
+        }
 
-        /// Deleted for `Play`'s reason: a layer keeps the clip's address too.
-        int  AddLayer( AnimationClip&& clip, float weight = 1.0F, bool additive = false,
-                       bool loop = true ) = delete;
-        void SetLayerClip( int index, const AnimationClip& clip );
-        void SetLayerWeight( int index, float weight );
-        void SetLayerAdditive( int index, bool additive );
-        // Restrict the layer to the named bones (and, by default, their descendants — a masked shoulder also
-        // masks the whole arm, which is what "upper body" means). Unknown names are ignored.
-        void                 SetLayerMaskByNames( int index, const std::vector<std::string>& boneNames,
-                                                  bool includeChildren = true );
-        void                 ClearLayerMask( int index ); // layer affects all bones
-        void                 RemoveLayer( int index );
-        void                 ClearLayers();
-        [[nodiscard]] size_t GetLayerCount() const
+        // --- Linked anim layers (UE LinkAnimClassLayers / UnlinkAnimClassLayers) -------------------------
+        // `implementation`'s layer graphs now answer the pose graph's LinkedAnimLayer nodes of the interfaces
+        // it implements — a weapon swaps a layer without an edit to the character's graph. Refuses with no
+        // pose graph set (the host the interfaces are checked against) and every LinkedLayerTable::Link
+        // refusal, by name. A link is identified by the implementing graph's asset GUID (UE: its class), so
+        // Unlink takes the GUID. Each linked layer's sources (sequence players, its state machines' running
+        // states) have their own clocks here, fed by SetLinkedLayerSource; its machines are run by the
+        // per-link Evaluator GetLinkedLayerMachines hands out.
+        [[nodiscard]] Common::BoolResultStr LinkLayers( uint64_t                implementationId,
+                                                        const Graph::AnimGraph& implementation );
+        void                                UnlinkLayers( uint64_t implementationId );
+        /// Every link undone: each LinkedAnimLayer node is answered by the pose graph's own layer graph for
+        /// its interface (UE's default linked layer), or passes its input when the graph implements none.
+        /// UnlinkLayers returns the graph's interfaces the same way.
+        void                                         ClearLinkedLayers();
+        [[nodiscard]] const Graph::LinkedLayerTable& GetLinkedLayers() const
         {
-            return m_Layers.size();
+            return m_LinkedLayers;
         }
-        [[nodiscard]] float GetLayerWeight( int index ) const
-        {
-            return ( index >= 0 && index < static_cast<int>( m_Layers.size() ) ) ? m_Layers[index].Weight : 0.0F;
-        }
-        [[nodiscard]] bool GetLayerAdditive( int index ) const
-        {
-            return ( index >= 0 && index < static_cast<int>( m_Layers.size() ) ) && m_Layers[index].Additive;
-        }
-        [[nodiscard]] const AnimationClip* GetLayerClip( int index ) const
-        {
-            return ( index >= 0 && index < static_cast<int>( m_Layers.size() ) ) ? m_Layers[index].Playback.Clip
-                                                                                 : nullptr;
-        }
-        /// Whether bone `boneIndex` is inside layer `index`'s mask. An empty mask means every bone.
-        [[nodiscard]] bool IsBoneInLayerMask( int index, uint32_t boneIndex ) const;
+        /// The state machines of the layer graph linked in `slot`, or nullptr when it has none.
+        [[nodiscard]] Graph::Evaluator* GetLinkedLayerMachines( size_t slot );
+        /// The playback fraction [0,1] of source `node` of the layer graph in `slot` (a machine's exit time).
+        [[nodiscard]] float GetLinkedLayerSourceFraction( size_t slot, size_t node ) const;
+        /// Source node `node` of the layer graph in `slot` of GetLinkedLayers() plays `clip`.
+        void SetLinkedLayerSource( size_t slot, size_t node, const AnimationClip& clip, bool loop = true );
+        void SetLinkedLayerSource( size_t slot, size_t node, AnimationClip&& clip, bool loop = true ) = delete;
 
         // --- Skeletal controls (IK and friends) ---------------------------------------------------------
         // A control is a pose -> pose operator that writes a SPARSE set of bones and leaves the rest of the
@@ -277,7 +328,7 @@ namespace Desert::Animation
         // animation produced — running one before the clip that overwrites its bones would be writing into
         // a buffer that is about to be filled again.
         //
-        // The stage joins and leaves the pipeline with the list (SyncStages), exactly as Layers does.
+        // The stage joins and leaves the pipeline with the list (SyncStages), exactly as Graph does.
         int                  AddControl( std::unique_ptr<BoneControl> control );
         void                 RemoveControl( int index );
         void                 ClearControls();
@@ -293,7 +344,7 @@ namespace Desert::Animation
         // THE LAST STAGE, AND REPORT 05 §658 IS WHY. Sequencer does not put a Control Rig inside the
         // character's AnimGraph; it wraps the whole graph in a layer instance whose input pose IS that
         // graph's output, so the rig runs "after the AnimBP produces its pose and before the pose reaches
-        // the mesh, as a post-process stack". `Source` + `Layers` + `Controls` are our AnimBP — the clips,
+        // the mesh, as a post-process stack". `Source` + `Graph` + `Controls` are our AnimBP — the clips,
         // the layering and the skeletal-control stack UE also puts inside it — so the rig goes after all
         // three, and an animator's hand-authored control beats the procedural IK on a bone they share.
         // That is the intended reading, not an accident of push_back order: see SyncStages.
@@ -312,27 +363,19 @@ namespace Desert::Animation
         // NOT A STAGE, AND THAT IS THE DECISION. Every other optional step of this pipeline is an
         // enumerator in `m_Stages` because it has an ORDER to be decided against the others. A retarget has
         // none: it does not add a step, it changes WHICH RIG the source step samples and which rig the
-        // layer stack folds its clips on. An enumerator that could only ever sit at exactly one place is a
-        // second spelling of `m_Retarget != nullptr`, and two spellings of one fact is how they come to
+        // layered blend samples its layers' clips on. An enumerator that could only ever sit at exactly one place
+        // is a second spelling of `m_Retarget != nullptr`, and two spellings of one fact is how they come to
         // disagree.
         //
         // WHAT IT DOES TO THE PIPELINE, in full:
         //   Source   the base clip (and the crossfade's second clip) is sampled on the SOURCE rig, then
         //            retargeted onto this one. Both clips, because both come from the same library through
         //            the same component and are therefore on the same rig by construction.
-        //   Layers   each layer's clip is sampled and retargeted the same way before it is folded. Not
-        //            retargeting them would fold source-rig local transforms straight onto target bones —
+        //   Graph    each other source node's clip is sampled and retargeted the same way before it is blended.
+        //            Not retargeting them would blend source-rig local transforms straight onto target bones —
         //            exactly the proportion defect this tier exists to remove — and there is no third
         //            possibility, because one component names one source rig for the whole entity.
         //   Controls, Rig   untouched. Both operate on the target rig's own pose and always did.
-        //
-        // AND THE ADDITIVE REFERENCE MOVES WITH IT. An additive layer's delta is measured against the rest
-        // pose its clips are expressed relative to, and under a retarget that is neither the bind pose nor
-        // the target's retarget pose: it is `RetargetSource::GetRetargetedRest()`, what this PAIR emits
-        // from a source clip at rest. The second of those three was the first answer here and it is wrong
-        // by a measured 4.29 cm on this project's own corpus, because stage 3 is not the identity at rest
-        // unless the proportion difference is uniform. The test that caught it is the cheapest one
-        // available: an additive layer of a clip that drives nothing must move the character by zero.
         //
         // AT MOST ONE, for `AttachRig`'s reason: a second source rig is an ordering question nobody has
         // asked, and the component authors one handle.
@@ -350,6 +393,11 @@ namespace Desert::Animation
             /// lost a little every frame and the loss grew with the number already in the accumulator.
             FrameTime            Time;
             bool                 Loop = true;
+            /// The last Update's step of this clock (a graph source's notifies read it): where it came from,
+            /// whether it wrapped and whether it ran backward.
+            FrameTime StepFrom;
+            bool      StepWrapped  = false;
+            bool      StepBackward = false;
 
             bool IsValid() const
             {
@@ -357,16 +405,21 @@ namespace Desert::Animation
             }
         };
 
-        struct AnimationLayer
+        /// The pose graph, its source clocks (one per node; the base source's and the blend nodes' unused), the
+        /// parameter values (parallel to the graph's Parameters) and the per-frame scratch.
+        struct PoseGraphState
         {
-            ClipPlayback         Playback;         // clip + time + loop for this layer
-            float                Weight   = 1.0F;  // 0 = off, 1 = full
-            bool                 Additive = false; // additive delta vs bind, else override blend
-            std::vector<uint8_t> BoneMask;         // per skeleton bone (1 = affected); empty = all bones
+            Graph::PoseGraphInstance  Instance;
+            std::vector<ClipPlayback> Sources;
+            std::vector<float>        Parameters;
+            int                       BaseSource = -1;
+            Graph::GraphPose          Out;
+            /// Per node: the notify states its clip reported active (the base source's are m_ActiveStates).
+            std::vector<std::vector<ActiveNotifyState>> ActiveStates;
         };
 
     private:
-        // DEFINED BELOW, next to the `TrackBinding` it names. Declared here because the sampling functions
+        // DEFINED BELOW, next to the `ClipBinding` it names. Declared here because the sampling functions
         // take it by reference and a reference needs no complete type — which is what lets the definition
         // stay beside the cache it is a view of, rather than being dragged up here away from it.
         struct RigSampling;
@@ -380,9 +433,11 @@ namespace Desert::Animation
         /// retarget this samples into the source scratch and runs the retargeter, both of which are state.
         void EvaluateSource( LocalPose& pose );
 
-        /// PoseStage::Layers — folds each active layer over `pose`, in LOCAL space, per masked bone. NOT
-        /// const for EvaluateSource's reason.
-        void EvaluateLayers( LocalPose& pose );
+        /// PoseStage::Graph — evaluates the pose graph; its base source reads `pose` (the Source stage's), every
+        /// other source samples its own clip. NOT const for EvaluateSource's reason.
+        void EvaluateGraph( PoseGraphState& state, LocalPose& pose );
+        /// Sizes m_LinkedSources to m_LinkedLayers after a link or unlink.
+        void RebuildLinkedClocks();
 
         /// PoseStage::Controls — runs each control over `pose`. NOT const: a control reads the pose in
         /// component space, which is a cache fill on m_Component, and writes back through the blend.
@@ -399,31 +454,49 @@ namespace Desert::Animation
         /// pipeline's fixed order. See the definition for why this is a rebuild and not an insert.
         void SyncStages();
 
-        /// Local (parent-relative) transform of `boneIndex` driven by `clip` at `time`, or the bind-pose
-        /// local when the clip has no track for it. Straight from the clip's TRS keys — the matrix this
-        /// used to build, only to be decomposed again by the next step, is gone.
-        /// STATIC SINCE A25, for `ResolveTrack`'s reason: the rest pose an untracked bone falls back to
-        /// is `rig.Rest` now and not `m_BindPose`, so nothing here reads a member. `BlendedBaseLocal`
-        /// below is NOT static and must not become so — it reads the playheads, which are the Animator's.
-        [[nodiscard]] static BoneTransform SampleLocalTransform( const RigSampling& rig, const AnimationClip* clip,
-                                                                 uint32_t boneIndex, FrameTime time );
+        /// `clip`'s pose at `time` (ticks from the clip's Start) on `rig`: the rig's rest, then every bone
+        /// Transform track of the clip's Sequence sampled over it by `Timeline::EvaluatePose` — the
+        /// AnimationClip host's playback path (UE: the sequence samples its own data model). A bone the clip
+        /// has no track for keeps the rest. STATIC: it reads nothing but its arguments, which is what makes
+        /// two rigs safe to sample in one frame.
+        static void SampleClipPose( const RigSampling& rig, const AnimationClip* clip, FrameTime time,
+                                    LocalPose& out );
 
-        /// The base pose's local transform for one bone: the current clip, or current -> next blended by
-        /// BlendAlpha(). The ONE answer to "what is the base pose right now", shared by the source stage
-        /// and by layer composition, so the two cannot have different opinions.
-        [[nodiscard]] BoneTransform BlendedBaseLocal( const RigSampling& rig, uint32_t boneIndex ) const;
+        /// The base pose: the current clip, or current -> next blended by BlendAlpha(). The ONE answer to
+        /// "what is the base pose right now". NOT static — it reads the playheads, which are the Animator's.
+        void BlendedBasePose( const RigSampling& rig, LocalPose& out );
 
-        /// Returns the clip track that drives skeleton bone `boneIndex`, matched by bone NAME (not by the
-        /// clip's own bone index). This lets a clip authored against a differently-ordered or skinless
-        /// export of the same rig still drive the correct bones. Built lazily per clip, and rebuilt whenever
-        /// the clip's own track storage has been replaced under it — see TrackBinding.
-        /// STATIC SINCE A25, AND THAT IS THE SHAPE OF THE CHANGE RATHER THAN AN ANNOTATION. It used to
-        /// read `m_Skeleton` and `m_TrackBinding` directly; both now arrive in `rig`, so the function
-        /// touches no member and the analyser said so. Leaving it non-static would have hidden the one
-        /// property that makes two rigs safe to sample in the same frame: this lookup depends on nothing
-        /// but its arguments.
-        static const BoneTrack* ResolveTrack( const RigSampling& rig, const AnimationClip* clip,
-                                              uint32_t boneIndex );
+        /// The bone binding of `clip` on `rig`, built by `Timeline::BindBones` once per clip + rig and rebuilt
+        /// when the clip's Sequence has been replaced under it — see ClipBinding.
+        static const Timeline::BoneBindingTable& BindingFor( const RigSampling& rig, const AnimationClip& clip );
+
+        /// Moves one player's clock to `time` (ticks from its clip's Start): wrapped on a looping clip,
+        /// clamped to [0, duration] otherwise. The scrub's one rule, for every player.
+        static void ScrubTo( ClipPlayback& playback, FrameTime time );
+
+        /// The base players' notifies (the Source stage: the current clip, and the incoming one of a crossfade),
+        /// AFTER the evaluation, each by its weight as every graph player is (UE: the base is one more sequence
+        /// player in the notify queue, no player is heard "always"): the base source's graph weight (1 without a
+        /// graph, 0 with a graph that does not play it) times 1 - BlendAlpha() for the current clip and
+        /// BlendAlpha() for the incoming one; heard above Graph::kNotifyTriggerWeight. `played`: each clock's
+        /// last Update step; else a scrub (states only).
+        void StepBaseNotifies( bool played );
+        /// One player's notifies for the step that brought its playhead from `previous` to now. Played
+        /// (`played`): the Event keys the step crossed (Timeline::CollectFired) fire, and a state begun and
+        /// ended inside the step reports both. Always: states Begin / End by the difference of the active set.
+        /// `playback`'s notifies into m_NotifyEvents tagged (`node`, `slot`),
+        /// its active set `active`. Not `relevant` (below the trigger weight, or no clip): nothing fires and
+        /// every state in `active` ends.
+        void StepNotifiesOf( const ClipPlayback& playback, FrameTime previous, bool wrapped, bool played,
+                             bool backward, bool relevant, std::vector<ActiveNotifyState>& active, int node,
+                             int slot );
+        /// Every pose-graph source's notifies but the base's (StepBaseNotifies), weighted by the last evaluation
+        /// (see ConsumeNotifyEvents). `played`: the step of each clock's last Update; else a scrub (states only).
+        void StepGraphNotifies( bool played );
+        /// Ends every state in `active` (tagged `node`, `slot`) and empties it.
+        void RetireStates( std::vector<ActiveNotifyState>& active, int node, int slot );
+        /// The base clip's value of curve `name` (the crossfade's blend) — GetCurveValue without a graph.
+        [[nodiscard]] std::optional<float> BaseCurveValue( std::string_view name ) const;
 
         /// The rig the pipeline's own stages read: this Animator's skeleton, its bind pose and its clip
         /// binding cache.
@@ -432,35 +505,22 @@ namespace Desert::Animation
         /// The rig the CLIPS are on when a retarget is attached. Must not be called without one.
         [[nodiscard]] RigSampling SourceSampling() const;
 
-        /// What an additive layer's delta is measured against — the bind pose, or the target's retarget
-        /// pose when a retarget is attached. See the AttachRetarget comment above.
-        [[nodiscard]] const LocalPose& AdditiveReference() const;
-
     private:
         /**
-         * @brief The bone -> track lookup for ONE clip, together with the two facts about that clip's
-         *        storage the lookup is only valid against.
+         * @brief `Timeline::BindBones`' table for ONE clip, with the facts about the clip's Sequence it is
+         *        valid against.
          *
-         * THE CLIP'S ADDRESS IS NOT A SUFFICIENT KEY, and believing it was is a use-after-free that
-         * segfaulted the moment a file-backed clip first played in this engine. `AnimationAsset` owns its
-         * `AnimationClip` BY VALUE, so the clip keeps its address for the asset's whole life while
-         * `Unload()` frees the `Tracks` vector (`clear()` + `shrink_to_fit()`) and a later `Load()`
-         * allocates a new one. Asset eviction does exactly that to a clip an entity is still playing —
-         * deliberately, because `AnimationLibrary::Resolve` reloads on every lookup and the design accepts
-         * eviction on that basis — and the cached `BoneTrack*` then pointed into freed storage. The crash
-         * was inside `lower_bound` over a keyframe vector that no longer existed.
-         *
-         * The relation asserted here is between the cache and the container it points into: the binding is
-         * usable only while the clip's tracks still live where they lived when it was built.
+         * THE CLIP'S ADDRESS IS NOT A SUFFICIENT KEY — a use-after-free once segfaulted on exactly that:
+         * `AnimationAsset` owns its clip BY VALUE, so the clip keeps its address while `Unload()` replaces its
+         * Sequence and a later `Load()` builds a new one. The asset stamps every replacement into
+         * `Sequence::Revision`, and the track storage's address and size are kept beside it, so a table is
+         * used only against the track list it was built from.
          */
-        struct TrackBinding
+        struct ClipBinding
         {
-            static constexpr uint32_t NO_TRACK = UINT32_MAX;
-
-            const BoneTrack*      TracksData = nullptr; ///< clip->Tracks.data() at build time
-            size_t                TrackCount = 0;       ///< clip->Tracks.size() at build time
-            uint32_t              Revision   = 0;       ///< clip->TrackRevision at build time
-            std::vector<uint32_t> ByBone;               ///< skeleton bone index -> track INDEX, or NO_TRACK
+            Timeline::BoneBindingTable Table;
+            const Timeline::Track*     TracksData = nullptr; ///< clip->Sequence.Tracks.data() at build time
+            size_t                     TrackCount = 0;       ///< clip->Sequence.Tracks.size() at build time
         };
 
         /**
@@ -478,20 +538,20 @@ namespace Desert::Animation
         {
             const Skeleton&  Rig;
             const LocalPose& Rest; ///< what a bone with no track in this clip reads
-            std::unordered_map<const AnimationClip*, TrackBinding>& Binding;
+            std::unordered_map<const AnimationClip*, ClipBinding>& Binding;
         };
 
         const Skeleton& m_Skeleton;
 
-        // clip -> its binding. See ResolveTrack and TrackBinding.
-        mutable std::unordered_map<const AnimationClip*, TrackBinding> m_TrackBinding;
+        // clip -> its binding. See BindingFor and ClipBinding.
+        mutable std::unordered_map<const AnimationClip*, ClipBinding> m_TrackBinding;
 
         // The same cache, built against the SOURCE rig. A SECOND MAP AND NOT A SECOND ENTRY IN THE FIRST:
         // the key is the clip, and one clip is legally sampled on both rigs in the same frame (the base on
         // the source, an editor's authoring sample on the target), so one map would hand back a binding
         // built for the wrong rig's bone order. Cleared by Attach/DetachRetarget, because the rig it was
         // built against is exactly what those two change.
-        mutable std::unordered_map<const AnimationClip*, TrackBinding> m_SourceTrackBinding;
+        mutable std::unordered_map<const AnimationClip*, ClipBinding> m_SourceTrackBinding;
 
         ClipPlayback m_Current;
         ClipPlayback m_Next;
@@ -504,14 +564,26 @@ namespace Desert::Animation
 
         // Notify events of the current clip not yet drained by ConsumeNotifyEvents().
         std::vector<NotifyEvent> m_NotifyEvents;
-        // The current clip's notify states active at its playhead — see StepNotifyStates.
-        std::vector<AnimationNotify> m_ActiveStates;
+        // The current clip's notify states active at its playhead — see StepBaseNotifies.
+        std::vector<ActiveNotifyState> m_ActiveStates;
+        // The incoming clip's, during a crossfade; they become m_ActiveStates when it becomes the current clip.
+        std::vector<ActiveNotifyState> m_NextActiveStates;
+        // Per-step scratch of StepNotifiesOf (reused, no allocation once warm).
+        std::vector<ActiveNotifyState>    m_StatesScratch;
+        std::vector<Timeline::FiredEvent> m_Crossed;
+        // The incoming clip's pose during a crossfade (BlendedBasePose).
+        LocalPose m_BlendScratch;
 
-        /// Ends every active state: the clip they belong to stops being the current one.
+        /// Ends every active state of both base players: the clips they belong to stop playing.
         void RetireNotifyStates();
 
-        // Active animation layers, folded over the base pose by PoseStage::Layers.
-        std::vector<AnimationLayer> m_Layers;
+        // The pose graph, run by PoseStage::Graph; absent = the stage is not in the list.
+        std::optional<PoseGraphState> m_PoseGraph;
+        Graph::LinkedLayerTable       m_LinkedLayers;
+        /// Per slot of m_LinkedLayers, one clock per node of its layer graph.
+        std::vector<std::vector<ClipPlayback>> m_LinkedSources;
+        /// Per slot, per node: the notify states that linked source reported active.
+        std::vector<std::vector<std::vector<ActiveNotifyState>>> m_LinkedActiveStates;
 
         // Skeletal controls, run by PoseStage::Controls. `unique_ptr` because a control is polymorphic and
         // holds its own resolved bone indices; the Animator is its one owner and outlives it by definition.

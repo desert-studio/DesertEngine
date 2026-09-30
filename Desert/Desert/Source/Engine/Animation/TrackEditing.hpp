@@ -16,13 +16,41 @@
  *
  * It lives beside the clip rather than inside the panel because these are rules about a track, and a
  * second editor (a curve view, T4.3) must not have to restate them.
+ *
+ * ── WHERE THE KEYS LIVE (ANIM-I8b) ────────────────────────────────────────────────────────────────────
+ *
+ * UE's split: IAnimationDataModel holds the data, IAnimationDataController edits it (SetBoneTrackKeys /
+ * UpdateBoneTrackKeys). Here the model is the clip's `Timeline::Sequence`, and a bone's keys are the
+ * `TransformChannel` of a section of that bone's Transform track (Bone binding, locator = bone name,
+ * property ""). There is no second key list. Two levels:
+ *
+ *   * CHANNEL rules (`RefreshTangents` .. `MoveKey`) — what an edit does to one `TransformChannel`;
+ *   * SEQUENCE edits (`SetBoneKey`, `InsertBoneKey`, `RemoveBoneKey`, `MoveBoneKey`) — find or create the
+ *     binding, the track and the section to key, apply the channel rule, and bump `Sequence.Revision`.
+ *     The revision bump is part of the edit, never the caller's chore: the Animator's binding cache is
+ *     keyed by it (Animator.cpp, ClipBinding), and an edit that forgot it would be played from a stale
+ *     table.
+ *
+ * THE SECTION A KEY LANDS IN: the topmost section (highest `Row`, then last in the list — the one the fold
+ * evaluates last, so the one whose value is SEEN) covering the tick. No section covers it → a new Absolute
+ * full-weight section over the whole clip [Start, End] on a row BELOW every existing one, so it fills the
+ * gaps and hides no authored section. A tick outside the clip is refused: lengthening a clip is a clip edit.
  */
 
 #include <Engine/Animation/AnimationClip.hpp>
+#include <Engine/Animation/Timeline/Channel.hpp>
+#include <Engine/Animation/Timeline/Sequence.hpp>
+#include <Engine/Animation/Timeline/Track.hpp>
+
+#include <Common/Core/ResultStr.hpp>
+
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace Desert::Animation
 {
-    /// Which of a bone track's three channels an edit is about.
+    /// Which of a Transform channel's three parts an edit is about.
     enum class TrackChannel : uint8_t
     {
         Position,
@@ -30,98 +58,108 @@ namespace Desert::Animation
         Scale,
     };
 
-    /**
-     * @brief Recompute every `Auto` key's tangents across the whole track.
-     *
-     * Position and scale only: a rotation key carries no tangents, because a cubic through quaternions is
-     * not a rotation (see `RotationKeyFrame`). Each vec3 channel is three scalar passes — a tangent is a
-     * slope and a slope is a scalar.
-     */
-    void RefreshTangents( BoneTrack& track, FrameRate tickRate );
+    // ── Channel rules ────────────────────────────────────────────────────────────────────────────────
+
+    /// Any key in any component of the channel.
+    [[nodiscard]] bool HasKeys( const Timeline::TransformChannel& channel );
 
     /**
-     * @brief One vec3 channel's component, as the scalar keys the tangent maths and the curve view both use.
+     * @brief Recompute every `Auto` key's tangents across translation and scale (§969 item 1).
      *
-     * A CURVE VIEW THAT BUILT ITS OWN SCALARS WOULD BE A SECOND STATEMENT OF WHAT A CHANNEL IS. The tangent
-     * rules, the evaluator and the picture an animator drags all have to be about the same numbers, and the
-     * cheapest way to guarantee that is for there to be one function that produces them. This is the one the
-     * auto pass already used, made public rather than copied.
-     *
-     * Rotation returns EMPTY, and that is the answer rather than a gap: a rotation key is a quaternion with
-     * no tangents (see `RotationKeyFrame`), and its four components are not four curves an animator can read.
-     * Euler channels would be — and they would be a format change, so they are not smuggled in through a view.
-     *
-     * @param component 0, 1 or 2 (x, y, z). Anything else returns empty rather than reading past the vector.
+     * Rotation carries no tangents (a cubic through quaternions is not a rotation; Channel.hpp). A component
+     * with one key is a constant: its `Auto` key gets flat tangents and a `User`/`Break` key keeps its slope —
+     * the slope starts to matter the moment a second key arrives, and it must still be there then.
      */
-    [[nodiscard]] std::vector<ScalarKey> LiftChannel( const BoneTrack& track, TrackChannel channel,
+    void RefreshTangents( Timeline::TransformChannel& channel, FrameRate tickRate );
+
+    /**
+     * @brief One component's scalar keys — the numbers the tangent maths, the evaluator and the curve view
+     * all read. Rotation returns EMPTY: a quaternion's components are not curves an animator can read.
+     * @param component 0, 1 or 2 (x, y, z); anything else returns empty.
+     */
+    [[nodiscard]] std::vector<ScalarKey> LiftChannel( const Timeline::TransformChannel& channel, TrackChannel part,
                                                       int component );
 
     /**
-     * @brief Write edited scalars back into one channel component: value and both tangents, per key.
-     *
-     * REFUSES A SIZE MISMATCH instead of writing what fits. Lift-edit-apply is a chain, and the failure this
-     * project keeps meeting is the middle link quietly dropping something — here that would be a curve view
-     * that inserted a key into its working copy and wrote the first N back over the wrong ticks. The ticks are
-     * checked too, for the same reason: this operation moves VALUES, and a retime is a different one.
-     *
-     * Returns false and changes nothing when the shapes disagree.
+     * @brief Write edited scalars back into one component: value, interp, mode and both tangents per key.
+     * REFUSES (false, nothing changed) a size or tick mismatch — this moves VALUES; a retime is `MoveKey`.
      */
-    [[nodiscard]] bool ApplyChannel( BoneTrack& track, TrackChannel channel, int component,
+    [[nodiscard]] bool ApplyChannel( Timeline::TransformChannel& channel, TrackChannel part, int component,
                                      const std::vector<ScalarKey>& scalars );
 
     /**
-     * @brief Insert a key at `tick` holding what the channel ALREADY says there, seeded with its slope.
-     *
-     * Returns false when a key is already on that tick — an upsert is a different operation with a
-     * different meaning, and silently overwriting the key an animator is standing on is not what a button
-     * called "add" should do.
-     *
-     * The inserted key is `User`: its tangents were taken from the curve, and the auto pass must not
-     * immediately replace them with the ones the neighbours imply, which is what would move the pose.
+     * @brief Insert a key at `tick` holding what the part ALREADY says there, seeded with its slope (§936),
+     * as `User` so the auto pass does not reshape the curve it was read from. false when the part has no
+     * keys (there is no curve to read — `InsertFirstKeyFromPose`) or a key already sits on the tick.
      */
-    [[nodiscard]] bool InsertKeyFromCurve( BoneTrack& track, TrackChannel channel, FrameNumber tick,
-                                           FrameRate tickRate );
+    [[nodiscard]] bool InsertKeyFromCurve( Timeline::TransformChannel& channel, TrackChannel part,
+                                           FrameNumber tick, FrameRate tickRate );
 
     /**
-     * @brief The FIRST key of an EMPTY channel: record the pose the animator is already looking at.
-     *
-     * `InsertKeyFromCurve` refuses an empty channel deliberately — there is no curve to read there — but
-     * a lane's "+" button exists precisely to key a channel from scratch, and the answer it gave was
-     * `glm::vec3( 0.0f )` / an identity quaternion / a scale of 1. That is the SAME defect §936 names,
-     * eleven lines below the call site that was fixed for it: the first press of "+" on an untouched
-     * channel teleported the bone to the origin and called it a keyframe.
-     *
-     * The honest first key is the bone's CURRENT LOCAL POSE — what the animator sees on screen, so
-     * recording it moves nothing. Its tangents are flat because one key has no neighbours to imply a
-     * slope, which is also what `AutoSetTangents` gives an endpoint.
-     *
-     * Returns false when the channel is NOT empty: then the operation is `InsertKeyFromCurve`, and this
-     * function silently overwriting authored keys with a decomposed matrix is exactly what it must not do.
+     * @brief The FIRST key of an EMPTY part: the bone's current local pose, so recording it moves nothing.
+     * Flat tangents (one key has no neighbours). false when the part is not empty or the matrix does not
+     * decompose.
      */
-    [[nodiscard]] bool InsertFirstKeyFromPose( BoneTrack& track, TrackChannel channel, FrameNumber tick,
-                                               const glm::mat4& localPose );
+    [[nodiscard]] bool InsertFirstKeyFromPose( Timeline::TransformChannel& channel, TrackChannel part,
+                                               FrameNumber tick, const glm::mat4& localPose );
 
     /**
-     * @brief Make @p tick say @p pose, in all three channels. AN UPSERT, and the only one in the tree.
+     * @brief Make @p tick say @p pose in all three parts — AN UPSERT, the keying operation.
      *
-     * The two functions above each answer a button an animator presses ONCE: `InsertKeyFromCurve` refuses
-     * an occupied tick and `InsertFirstKeyFromPose` refuses a non-empty channel, and both refusals are
-     * right for "add a key here". Keying is the other operation — "the value at this tick is now THIS",
-     * repeated every time the animator nudges the thing — and a refusal on the second nudge would mean the
-     * FIRST nudge is the one that sticks, which is the worst of the three possible behaviours.
-     *
-     * AN EXISTING KEY KEEPS ITS SHAPE: interp, tangent mode and both tangents survive the write. Same
-     * reason `AutoSetTangents` leaves a `User` key alone — the slope is the animator's work, and changing a
-     * value is not permission to discard it. A NEW key gets Cubic/Auto on position and scale and Linear on
-     * rotation, which is `InsertFirstKeyFromPose`'s convention rather than a second one: "the first key"
-     * and "a key" must not differ in shape.
-     *
-     * THE WHOLE TRACK'S AUTO TANGENTS ARE REFRESHED afterwards (§969 item 1), because the inserted key is
-     * a new neighbour for the two keys around it.
-     *
-     * Refuses a non-finite pose and changes nothing: a NaN written into a clip is a NaN in every pose
-     * sampled from it afterwards, and it would be blamed on the sampler.
+     * An existing key keeps its shape (interp, tangent mode, tangents); a new key is Cubic/Auto on
+     * translation and scale and Linear on rotation (`InsertFirstKeyFromPose`'s convention). Auto tangents are
+     * refreshed afterwards. Refuses a non-finite pose and changes nothing.
      */
-    [[nodiscard]] bool SetTransformKey( BoneTrack& track, FrameNumber tick, const BoneTransform& pose,
-                                        FrameRate tickRate );
+    [[nodiscard]] bool SetTransformKey( Timeline::TransformChannel& channel, FrameNumber tick,
+                                        const BoneTransform& pose, FrameRate tickRate );
+
+    /// Delete the part's key at @p tick from every component that has one; refresh tangents. false = none.
+    [[nodiscard]] bool RemoveKey( Timeline::TransformChannel& channel, TrackChannel part, FrameNumber tick,
+                                  FrameRate tickRate );
+
+    /**
+     * @brief Retime the part's key @p from → @p to in every component that has one, keeping its shape.
+     * false (nothing changed) when no key is on @p from or any component already has a key on @p to — a
+     * move that merged two keys would silently delete one.
+     */
+    [[nodiscard]] bool MoveKey( Timeline::TransformChannel& channel, TrackChannel part, FrameNumber from,
+                                FrameNumber to, FrameRate tickRate );
+
+    // ── Sequence edits (the controller) ──────────────────────────────────────────────────────────────
+
+    /// The Transform track of the Bone binding whose locator is @p bone, or null.
+    [[nodiscard]] const Timeline::Track* FindBoneTrack( const Timeline::Sequence& sequence,
+                                                        std::string_view          bone );
+    [[nodiscard]] Timeline::Track*       FindBoneTrack( Timeline::Sequence& sequence, std::string_view bone );
+
+    /// The bone's Transform track, its binding and track created (no section) when missing — Revision++ then.
+    [[nodiscard]] Timeline::Track& AddBoneTrack( Timeline::Sequence& sequence, const std::string& bone );
+
+    /// Any key in any section of the track.
+    [[nodiscard]] bool HasKeys( const Timeline::Track& track );
+
+    /// The channel a key at @p tick lands in (see the file note), or null when no section covers the tick.
+    [[nodiscard]] Timeline::TransformChannel* KeyedChannelAt( Timeline::Track& track, FrameNumber tick );
+
+    /// `KeyedChannelAt`, or a new Absolute section over exactly the gap @p tick fell in (between the
+    /// neighbouring sections, within the playback range), on the first free row — so it overlaps and hides
+    /// nothing, and its row is >= 0. Revision++ when a section is created.
+    [[nodiscard]] Timeline::TransformChannel& ChannelForKey( Timeline::Sequence& sequence, Timeline::Track& track,
+                                                             FrameNumber tick );
+
+    /// Upsert @p pose at @p tick on @p bone's track (binding, track and section created as needed). Revision++.
+    [[nodiscard]] Common::BoolResultStr SetBoneKey( Timeline::Sequence& sequence, const std::string& bone,
+                                                    FrameNumber tick, const BoneTransform& pose );
+
+    /// `InsertKeyFromCurve` on the section keyed at @p tick; refuses a bone with no track. Revision++.
+    [[nodiscard]] Common::BoolResultStr InsertBoneKey( Timeline::Sequence& sequence, std::string_view bone,
+                                                       TrackChannel part, FrameNumber tick );
+
+    /// `RemoveKey` on the topmost section holding a @p part key on @p tick. Revision++.
+    [[nodiscard]] Common::BoolResultStr RemoveBoneKey( Timeline::Sequence& sequence, std::string_view bone,
+                                                       TrackChannel part, FrameNumber tick );
+
+    /// `MoveKey` on the topmost section holding a @p part key on @p from; @p to must lie in the clip. Revision++.
+    [[nodiscard]] Common::BoolResultStr MoveBoneKey( Timeline::Sequence& sequence, std::string_view bone,
+                                                     TrackChannel part, FrameNumber from, FrameNumber to );
 } // namespace Desert::Animation

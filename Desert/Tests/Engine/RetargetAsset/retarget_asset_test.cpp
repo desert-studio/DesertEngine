@@ -42,6 +42,9 @@
  * `TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstructs`. No measurement in this file reads them.
  */
 
+#include "../ClipFixture.hpp"
+#include "../PoseGraphFixture.hpp"
+
 #include <gtest/gtest.h>
 
 #include <Common/Core/Serialization/GlmReflection.hpp>
@@ -65,11 +68,13 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iostream>
 #include <limits>
 #include <sstream>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace
@@ -78,13 +83,15 @@ namespace
     using Desert::Animation::Animator;
     using Desert::Animation::BoneInfo;
     using Desert::Animation::FrameNumber;
+    using Desert::Animation::FrameRate;
     using Desert::Animation::FrameTime;
     using Desert::Animation::LocalPose;
     using Desert::Animation::Skeleton;
     using Desert::Animation::Retarget::ModelPose;
     using Desert::Animation::Retarget::RetargetSource;
 
-    namespace File = Desert::Assets::Serialization;
+    namespace File     = Desert::Assets::Serialization;
+    namespace Timeline = Desert::Animation::Timeline;
 
     constexpr const char* kTargetRig    = "Editor/Resources/Assets/Meshes/Skinned/IKProbe.skeleton";
     constexpr const char* kSourceRig    = "Editor/Resources/Assets/Meshes/Skinned/ForeignArm.skeleton";
@@ -242,56 +249,96 @@ namespace
         return std::sin( kTwoPi * static_cast<float>( tick ) / static_cast<float>( kClipDurationTicks ) );
     }
 
-    File::ChannelData SwingChannel( const BoneInfo& bone, const glm::vec3& axis, float degrees, float liftCm )
+    /// One bone's swing as its Transform channel: a Linear key every stride on each translation and rotation
+    /// component, the scale held by one key — the shape the lift gave the shipped `.anim`.
+    Timeline::TransformChannel SwingChannel( const BoneInfo& bone, const glm::vec3& axis, float degrees,
+                                             float liftCm )
     {
-        File::ChannelData channel;
-        channel.BoneName = bone.Name;
+        Timeline::TransformChannel channel;
 
         const glm::vec3 rest( bone.LocalBindTransform[3] );
         const glm::quat bind( glm::mat3( bone.LocalBindTransform ) );
 
         for ( int32_t tick = 0; tick <= kClipDurationTicks; tick += kClipKeyStride )
         {
-            const float swing = SwingAt( tick );
+            const float       swing = SwingAt( tick );
+            const FrameNumber at{ tick };
 
-            File::KeyPosition position;
-            position.Tick  = tick;
-            position.Value = rest + glm::vec3( 0.0F, liftCm * swing, 0.0F );
-            channel.Positions.push_back( position );
+            const glm::vec3 position = rest + glm::vec3( 0.0F, liftCm * swing, 0.0F );
+            channel.Translation.X.Keys.push_back( ClipFixture::Key( at, position.x ) );
+            channel.Translation.Y.Keys.push_back( ClipFixture::Key( at, position.y ) );
+            channel.Translation.Z.Keys.push_back( ClipFixture::Key( at, position.z ) );
 
-            File::KeyRotation rotation;
-            rotation.Tick  = tick;
-            rotation.Value = bind * glm::angleAxis( glm::radians( degrees * swing ), axis );
-            channel.Rotations.push_back( rotation );
+            const glm::quat rotation = bind * glm::angleAxis( glm::radians( degrees * swing ), axis );
+            channel.Rotation.X.Keys.push_back( ClipFixture::Key( at, rotation.x ) );
+            channel.Rotation.Y.Keys.push_back( ClipFixture::Key( at, rotation.y ) );
+            channel.Rotation.Z.Keys.push_back( ClipFixture::Key( at, rotation.z ) );
+            channel.Rotation.W.Keys.push_back( ClipFixture::Key( at, rotation.w ) );
         }
 
-        File::KeyScale scale;
-        scale.Value = glm::vec3( 1.0F );
-        channel.Scales.push_back( scale );
+        channel.Scale.X.Keys.push_back( ClipFixture::Key( FrameNumber{ 0 }, 1.0F ) );
+        channel.Scale.Y.Keys.push_back( ClipFixture::Key( FrameNumber{ 0 }, 1.0F ) );
+        channel.Scale.Z.Keys.push_back( ClipFixture::Key( FrameNumber{ 0 }, 1.0F ) );
         return channel;
     }
 
-    /// The clip as FILE DATA. Every bone of the source rig is driven and the root is lifted, so the
-    /// pelvis stage, the FK chains and the IK tip are all reached by one tick of one clip.
-    File::AnimationAssetData ForeignArmClipData()
+    /// The clip as the engine holds it: one Timeline::Sequence. Every bone of the source rig is driven and
+    /// the root is lifted, so the pelvis stage, the FK chains and the IK tip are all reached by one tick.
+    AnimationClip ForeignArmClip()
     {
         const File::SkeletonAssetData rig = ForeignArmRigData();
         EXPECT_EQ( rig.Bones.size(), 3U );
         if ( rig.Bones.size() != 3 )
             return {};
 
-        File::AnimationAssetData clip;
-        clip.Name              = "ForeignArm_Swing";
-        clip.TickRate          = File::FrameRateData{ 24000, 1 };
-        clip.DisplayRate       = File::FrameRateData{ 8, 1 };
-        clip.DurationTicks     = kClipDurationTicks;
-        clip.Skeleton          = Desert::Assets::AssetGuidRef{ kSourceRigGuid, kSourceRigRefPath };
-        clip.Channels          = {
-             SwingChannel( rig.Bones[0], glm::vec3( 0.0F, 0.0F, 1.0F ), kShoulderSwingDeg, kRootLiftCm ),
-             SwingChannel( rig.Bones[1], glm::vec3( 1.0F, 0.0F, 0.0F ), kElbowSwingDeg, 0.0F ),
-             SwingChannel( rig.Bones[2], glm::vec3( 0.0F, 1.0F, 0.0F ), kWristSwingDeg, 0.0F ),
-        };
+        AnimationClip clip        = ClipFixture::Clip( "ForeignArm_Swing", FrameNumber{ kClipDurationTicks } );
+        clip.Sequence.TickRate    = FrameRate{ 24000, 1 };
+        clip.Sequence.DisplayRate = FrameRate{ 8, 1 };
+        const auto skeleton       = Common::Content::AssetGuidFromText( kSourceRigGuid );
+        clip.Skeleton             = skeleton.GetValue();
+        (void)ClipFixture::AddBoneChannel(
+             clip, rig.Bones[0].Name,
+             SwingChannel( rig.Bones[0], glm::vec3( 0.0F, 0.0F, 1.0F ), kShoulderSwingDeg, kRootLiftCm ) );
+        (void)ClipFixture::AddBoneChannel(
+             clip, rig.Bones[1].Name,
+             SwingChannel( rig.Bones[1], glm::vec3( 1.0F, 0.0F, 0.0F ), kElbowSwingDeg, 0.0F ) );
+        (void)ClipFixture::AddBoneChannel(
+             clip, rig.Bones[2].Name,
+             SwingChannel( rig.Bones[2], glm::vec3( 0.0F, 1.0F, 0.0F ), kWristSwingDeg, 0.0F ) );
         return clip;
+    }
+
+    /// The clip as FILE DATA, through the one `.anim` writer.
+    File::AnimationAssetData ForeignArmClipData()
+    {
+        auto data = File::BuildAssetDataFromClip( ForeignArmClip() );
+        EXPECT_TRUE( data.IsSuccess() ) << ( data.IsSuccess() ? "" : data.GetError() );
+        if ( !data.IsSuccess() )
+            return File::AnimationAssetData{};
+        File::AnimationAssetData out = data.ExtractValue();
+        // The writer (SaveClipToFile) spells the GUID with the registry's path; this suite states that path.
+        out.Skeleton = Desert::Assets::AssetGuidRef{ kSourceRigGuid, kSourceRigRefPath };
+        return out;
+    }
+
+    /// The one section's Transform channel of @p bone's track, or null.
+    const Timeline::TransformChannel* BoneChannel( const AnimationClip& clip, const std::string& bone )
+    {
+        for ( const Timeline::Binding& binding : clip.Sequence.Bindings )
+        {
+            if ( binding.Kind != Timeline::BindingKind::Bone || binding.Locator != bone )
+                continue;
+            for ( const Timeline::Track& track : clip.Sequence.Tracks )
+            {
+                if ( track.Binding == binding.Guid && track.Kind == Timeline::TrackKind::Transform &&
+                     track.Sections.size() == 1 )
+                {
+                    return std::get_if<Timeline::TransformChannel>(
+                         &std::get<Timeline::Channel>( track.Sections.front().Content ) );
+                }
+            }
+        }
+        return nullptr;
     }
 
     /// THE FIXTURE GOES THROUGH JSON AND BACK, on purpose. Handing the tests a `Skeleton` built in memory
@@ -933,10 +980,8 @@ TEST( RetargetAssetTest, AClipThatDrivesNothingLeavesTheTargetInItsOwnRetargetRe
     const Skeleton source = SourceRig();
     const Skeleton target = RigFrom( kTargetRig );
 
-    AnimationClip empty;
-    empty.AnimationName = "A25_Empty";
-    empty.DurationTicks = FrameNumber{ 48000 };
-    empty.TickRate      = Desert::Animation::FrameRate{ 24000, 1 };
+    AnimationClip empty     = ClipFixture::Clip( "A25_Empty", FrameNumber{ 48000 } );
+    empty.Sequence.TickRate = FrameRate{ 24000, 1 };
 
     Animator animator( target );
     animator.Play( empty, false );
@@ -979,10 +1024,8 @@ TEST( RetargetAssetTest, AnAdditiveLayerOfNothingIsANoOpOnlyBecauseItsReferenceI
          "IK_Elbow", glm::angleAxis( glm::radians( 20.0F ), glm::vec3( 1.0F, 0.0F, 0.0F ) ) } );
     ASSERT_TRUE( File::ValidateRetargetData( posed ).IsSuccess() );
 
-    AnimationClip empty;
-    empty.AnimationName = "A25_Empty";
-    empty.DurationTicks = FrameNumber{ 48000 };
-    empty.TickRate      = Desert::Animation::FrameRate{ 24000, 1 };
+    AnimationClip empty     = ClipFixture::Clip( "A25_Empty", FrameNumber{ 48000 } );
+    empty.Sequence.TickRate = FrameRate{ 24000, 1 };
 
     // A NAMED LOCAL, not the call's own temporary: the animator keeps the clip's ADDRESS, so the clip
     // has to outlive it. This line used to read `Play( SourceClip(), false )` and left a dangling
@@ -995,7 +1038,7 @@ TEST( RetargetAssetTest, AnAdditiveLayerOfNothingIsANoOpOnlyBecauseItsReferenceI
     animator.SetTick( FrameTime{ FrameNumber{ kMovingTick } } );
     const std::vector<glm::mat4> withoutLayer = animator.GetPose().Matrices;
 
-    ASSERT_GE( animator.AddLayer( empty, 1.0F, /*additive=*/true, /*loop=*/false ), 0 );
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::AdditiveGraph(), empty, 1.0F, false ) );
     animator.SetTick( FrameTime{ FrameNumber{ kMovingTick } } );
 
     float worst = 0.0F;
@@ -1077,7 +1120,8 @@ TEST( RetargetAssetTest, ALayerIsRetargetedTooAndNotFoldedFromTheSourceRig )
     // assertion below is protecting against is measured rather than assumed.
     Animator naive( target );
     naive.Play( clip, false );
-    ASSERT_GE( naive.AddLayer( clip, 1.0F, false, false ), 0 );
+    ASSERT_TRUE( PoseGraphFixture::Drive( naive, PoseGraphFixture::FullBodyLayer( target.GetBones()[0].Name ),
+                                          clip, 1.0F, false ) );
     naive.SetTick( FrameTime{ FrameNumber{ kMovingTick } } );
     const float naiveError = WorstSegmentErrorPercent( target, naive.GetLocalPose() );
     ASSERT_GT( naiveError, 10.0F ) << "if an un-retargeted layer no longer breaks the limb lengths, this "
@@ -1089,7 +1133,8 @@ TEST( RetargetAssetTest, ALayerIsRetargetedTooAndNotFoldedFromTheSourceRig )
     animator.SetTick( FrameTime{ FrameNumber{ kMovingTick } } );
     const float baseError = WorstSegmentErrorPercent( target, animator.GetLocalPose() );
 
-    ASSERT_GE( animator.AddLayer( clip, 1.0F, /*additive=*/false, /*loop=*/false ), 0 );
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::FullBodyLayer( target.GetBones()[0].Name ),
+                                          clip, 1.0F, false ) );
     animator.SetTick( FrameTime{ FrameNumber{ kMovingTick } } );
     const float overrideError = WorstSegmentErrorPercent( target, animator.GetLocalPose() );
     EXPECT_LT( overrideError, 0.01F ) << "an override layer folded from the source rig would stretch the "
@@ -1098,13 +1143,13 @@ TEST( RetargetAssetTest, ALayerIsRetargetedTooAndNotFoldedFromTheSourceRig )
     // ADDITIVE IS THE OTHER HALF, and it is what makes the additive REFERENCE observable: an additive
     // layer measures its delta against the rest its clips are expressed relative to, and under a retarget
     // that is the target's retarget pose rather than its bind pose.
-    animator.ClearLayers();
-    ASSERT_GE( animator.AddLayer( clip, 1.0F, /*additive=*/true, /*loop=*/false ), 0 );
+    animator.ClearPoseGraph();
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::AdditiveGraph(), clip, 1.0F, false ) );
     animator.SetTick( FrameTime{ FrameNumber{ kMovingTick } } );
     const float additiveError = WorstSegmentErrorPercent( target, animator.GetLocalPose() );
     EXPECT_LT( additiveError, 0.01F );
 
-    animator.ClearLayers();
+    animator.ClearPoseGraph();
     animator.SetTick( FrameTime{ FrameNumber{ kMovingTick } } );
     EXPECT_NEAR( WorstSegmentErrorPercent( target, animator.GetLocalPose() ), baseError, 1.0e-4F )
          << "clearing the layers must leave the base exactly as it was";
@@ -1203,37 +1248,53 @@ TEST( RetargetAssetTest, TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstr
          << shippedClip.GetError() << "\n"
          << kSourceClip << " is missing or is not a clip; copy " << clipOut.string() << " over it";
 
-    const File::AnimationAssetData builtClip = ForeignArmClipData();
     SCOPED_TRACE( std::string( kSourceClip ) + " must state a header" );
     EXPECT_TRUE( shippedClip.GetValue().Header.has_value() );
-    EXPECT_EQ( shippedClip.GetValue().Name, builtClip.Name );
-    EXPECT_EQ( shippedClip.GetValue().DurationTicks, builtClip.DurationTicks );
-    EXPECT_EQ( shippedClip.GetValue().Skeleton, builtClip.Skeleton );
+    auto shippedBuilt = File::BuildClipFromAssetData( shippedClip.GetValue() );
+    ASSERT_TRUE( shippedBuilt.IsSuccess() ) << shippedBuilt.GetError();
+    const AnimationClip shipped = shippedBuilt.ExtractValue();
+    const AnimationClip built   = ForeignArmClip();
+
+    EXPECT_EQ( shipped.AnimationName, built.AnimationName );
+    EXPECT_EQ( shipped.Sequence.Start.Value, built.Sequence.Start.Value );
+    EXPECT_EQ( shipped.Sequence.End.Value, built.Sequence.End.Value );
+    EXPECT_EQ( shippedClip.GetValue().Skeleton, ForeignArmClipData().Skeleton );
     EXPECT_EQ( Common::Content::AssetGuidToText( Desert::Assets::ReadTextHeaderGuid( root + kSourceRig ) ),
                kSourceRigGuid )
          << kSourceRig << " does not state the GUID the clip references";
-    EXPECT_EQ( shippedClip.GetValue().TickRate.Numerator, builtClip.TickRate.Numerator );
-    EXPECT_EQ( shippedClip.GetValue().TickRate.Denominator, builtClip.TickRate.Denominator );
-    ASSERT_EQ( shippedClip.GetValue().Channels.size(), builtClip.Channels.size() );
-    for ( size_t c = 0; c < builtClip.Channels.size(); ++c )
+    EXPECT_EQ( shipped.Sequence.TickRate.Numerator, built.Sequence.TickRate.Numerator );
+    EXPECT_EQ( shipped.Sequence.TickRate.Denominator, built.Sequence.TickRate.Denominator );
+    ASSERT_EQ( shipped.Sequence.Tracks.size(), built.Sequence.Tracks.size() );
+
+    // Key by key, component by component: the tick and the value (the motion), not the binding GUIDs,
+    // which a fresh construction generates anew.
+    const auto sameKeys = []( const Timeline::FloatChannel& shippedKeys, const Timeline::FloatChannel& builtKeys,
+                              float tolerance, const std::string& what )
     {
-        const File::ChannelData& shipped = shippedClip.GetValue().Channels[c];
-        const File::ChannelData& built   = builtClip.Channels[c];
-        EXPECT_EQ( shipped.BoneName, built.BoneName ) << "channel " << c;
-        ASSERT_EQ( shipped.Positions.size(), built.Positions.size() ) << built.BoneName;
-        ASSERT_EQ( shipped.Rotations.size(), built.Rotations.size() ) << built.BoneName;
-        for ( size_t k = 0; k < built.Positions.size(); ++k )
+        ASSERT_EQ( shippedKeys.Keys.size(), builtKeys.Keys.size() ) << what;
+        for ( size_t k = 0; k < builtKeys.Keys.size(); ++k )
         {
-            EXPECT_EQ( shipped.Positions[k].Tick, built.Positions[k].Tick ) << built.BoneName;
-            EXPECT_LT( glm::length( shipped.Positions[k].Value - built.Positions[k].Value ), 1.0e-2F )
-                 << built.BoneName << " position key " << k;
+            EXPECT_EQ( shippedKeys.Keys[k].Tick.Value, builtKeys.Keys[k].Tick.Value ) << what << " key " << k;
+            EXPECT_NEAR( shippedKeys.Keys[k].Value, builtKeys.Keys[k].Value, tolerance ) << what << " key " << k;
         }
-        for ( size_t k = 0; k < built.Rotations.size(); ++k )
-        {
-            EXPECT_EQ( shipped.Rotations[k].Tick, built.Rotations[k].Tick ) << built.BoneName;
-            EXPECT_LT( glm::length( shipped.Rotations[k].Value - built.Rotations[k].Value ), 1.0e-3F )
-                 << built.BoneName << " rotation key " << k;
-        }
+    };
+    for ( const Timeline::Binding& binding : built.Sequence.Bindings )
+    {
+        const std::string&                bone      = binding.Locator;
+        const Timeline::TransformChannel* fromFile  = BoneChannel( shipped, bone );
+        const Timeline::TransformChannel* fromBuild = BoneChannel( built, bone );
+        ASSERT_NE( fromFile, nullptr ) << bone << " has no one-section Transform track in the shipped clip";
+        ASSERT_NE( fromBuild, nullptr ) << bone;
+        sameKeys( fromFile->Translation.X, fromBuild->Translation.X, 1.0e-2F,
+                  std::format( "{} translation X", bone ) );
+        sameKeys( fromFile->Translation.Y, fromBuild->Translation.Y, 1.0e-2F,
+                  std::format( "{} translation Y", bone ) );
+        sameKeys( fromFile->Translation.Z, fromBuild->Translation.Z, 1.0e-2F,
+                  std::format( "{} translation Z", bone ) );
+        sameKeys( fromFile->Rotation.X, fromBuild->Rotation.X, 1.0e-3F, std::format( "{} rotation X", bone ) );
+        sameKeys( fromFile->Rotation.Y, fromBuild->Rotation.Y, 1.0e-3F, std::format( "{} rotation Y", bone ) );
+        sameKeys( fromFile->Rotation.Z, fromBuild->Rotation.Z, 1.0e-3F, std::format( "{} rotation Z", bone ) );
+        sameKeys( fromFile->Rotation.W, fromBuild->Rotation.W, 1.0e-3F, std::format( "{} rotation W", bone ) );
     }
 }
 

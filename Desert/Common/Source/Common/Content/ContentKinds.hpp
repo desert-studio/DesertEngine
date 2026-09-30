@@ -76,6 +76,7 @@ namespace Common::Content
         Scene,
         Prefab,
         Redirector,
+        LevelSequence,
         COUNT,
     };
 
@@ -158,6 +159,8 @@ namespace Common::Content
              // UE's UObjectRedirector: the header-only file a move leaves at the old path, naming the moved
              // asset's GUID (Common/Content/AssetRedirector.hpp). Stated only: see ContentKindSpec::StatedOnly.
              /* Redirector           */ { "Redirector", "", nullptr },
+             // UE's ULevelSequence: a TMLN block whose header states this kind (LevelSequenceAsset.hpp).
+             /* LevelSequence        */ { "LevelSequence", ".dseq", &P::LEVEL_SEQUENCE_PATH },
         } };
     }
 

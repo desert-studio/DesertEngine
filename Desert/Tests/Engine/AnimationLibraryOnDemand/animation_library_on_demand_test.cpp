@@ -7,6 +7,7 @@
 #include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Animation/BoneInfo.hpp>
 #include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Animation/Timeline/Binding.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
@@ -140,9 +141,11 @@ TEST_F( AnimationLibraryOnDemand, TheSpawnedHumanoidsDefaultClipIsACommittedEngi
     ASSERT_TRUE( asset->IsReadyForUse() ) << "the humanoid's '" << clipName << "' clip does not read";
     EXPECT_EQ( asset->GetClip().AnimationName, clipName );
     EXPECT_FALSE( asset->GetClip().Skeleton.IsNull() ) << "the clip states no skeleton, so it plays on no mesh";
-    EXPECT_FALSE( asset->GetClip().Tracks.empty() );
-    for ( const auto& track : asset->GetClip().Tracks )
-        EXPECT_FALSE( track.BoneName.empty() ) << "a track names no bone";
+    const auto& sequence = asset->GetClip().Sequence;
+    EXPECT_FALSE( sequence.Tracks.empty() );
+    for ( const auto& binding : sequence.Bindings )
+        if ( binding.Kind == Animation::Timeline::BindingKind::Bone )
+            EXPECT_FALSE( binding.Locator.empty() ) << "a bone binding names no bone";
 
     // (HumanoidMeshFile lives in the generator's .cpp, which this suite does not link; the path is spelled.)
     EXPECT_TRUE( fs::is_regular_file( Path::CurrentProjectRoot().ProjectDir /

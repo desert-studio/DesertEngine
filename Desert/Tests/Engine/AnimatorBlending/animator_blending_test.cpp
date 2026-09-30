@@ -1,7 +1,7 @@
-// The half of the Animator that had no test at all: CrossFade, AddLayer / layer composition,
-// SetLayerMaskByNames, ResolveTrack and notify firing. `grep -rln "AddLayer\|CrossFade\|SetLayerMask"
-// Desert/Tests` returned nothing before this file, while `Animator.cpp` spent 300 of its 576 lines on
-// exactly those.
+// The half of the Animator that had no test at all: CrossFade, the pose graph's layer and additive nodes
+// (they replaced AddLayer / SetLayerMaskByNames), ResolveTrack and notify firing. `grep -rln
+// "AddLayer\|CrossFade\|SetLayerMask" Desert/Tests` returned nothing before this file, while `Animator.cpp` spent
+// 300 of its 576 lines on exactly those.
 //
 // EVERY ASSERTION HERE IS ABOUT A RELATION, not about a number this build happens to produce. The pose
 // substrate changed how all of this is computed, so a test written against the old output would only
@@ -19,6 +19,9 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
+#include "../ClipFixture.hpp"
+#include "../PoseGraphFixture.hpp"
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -27,10 +30,8 @@
 
 using Common::Timestep;
 using Desert::Animation::AnimationClip;
-using Desert::Animation::AnimationNotify;
 using Desert::Animation::Animator;
 using Desert::Animation::BoneInfo;
-using Desert::Animation::BoneTrack;
 using Desert::Animation::FrameNumber;
 using Desert::Animation::FrameTime;
 using Desert::Animation::NearestTick;
@@ -106,19 +107,9 @@ namespace
                               const glm::quat& rotation = glm::quat( 1.0F, 0.0F, 0.0F, 0.0F ),
                               float            duration = 2.0F )
     {
-        AnimationClip clip;
-        // A5: the clip states a length in TICKS on the project grid. `Duration` + `TicksPerSecond = 1`
-        // used to say "one second" by setting the rate so a tick WAS a second.
-        clip.AnimationName = name;
-        clip.DurationTicks = NearestTick( SecondsToFrameTime( duration, PROJECT_TICK_RATE ) );
-
-        BoneTrack track;
-        track.BoneName = bone;
-        track.PositionKeys.push_back( { FrameNumber{ 0 }, position } );
-        track.RotationKeys.push_back( { FrameNumber{ 0 }, rotation } );
-        track.ScaleKeys.push_back( { FrameNumber{ 0 }, glm::vec3( 1.0F ) } );
-        clip.Tracks.push_back( std::move( track ) );
-        return clip;
+        // The clip's data is its Timeline::Sequence: a Bone binding with one Transform track (ClipFixture).
+        return ClipFixture::StaticBoneClip( name, NearestTick( SecondsToFrameTime( duration, PROJECT_TICK_RATE ) ),
+                                            bone, position, rotation );
     }
 
     /// Component-space position of a bone, recovered from the skinning matrices the way every consumer
@@ -131,7 +122,7 @@ namespace
 
 // ── The pipeline is a list, and its membership is data ──────────────────────────────────────────────
 
-TEST( AnimatorBlending, TheLayerStageJoinsAndLeavesWithTheLayerStack )
+TEST( AnimatorBlending, TheGraphStageJoinsAndLeavesWithThePoseGraph )
 {
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
@@ -141,13 +132,13 @@ TEST( AnimatorBlending, TheLayerStageJoinsAndLeavesWithTheLayerStack )
     EXPECT_EQ( animator.GetStages()[0], PoseStage::Source )
          << "something has to produce a pose; Source is not optional";
 
-    animator.AddLayer( clip, 1.0F );
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::FullBodyLayer( "root" ), clip ) );
     ASSERT_EQ( animator.GetStages().size(), 2U );
-    EXPECT_EQ( animator.GetStages()[1], PoseStage::Layers )
+    EXPECT_EQ( animator.GetStages()[1], PoseStage::Graph )
          << "layers must run AFTER the source — an order this test exists to state, because the previous "
             "code expressed it only as statement order inside Update()";
 
-    animator.ClearLayers();
+    animator.ClearPoseGraph();
     EXPECT_EQ( animator.GetStages().size(), 1U )
          << "a stage with nothing to do stayed in the list, so the list stopped describing what runs";
 }
@@ -247,7 +238,7 @@ TEST( AnimatorBlending, AnOverrideLayerAtFullWeightReplacesTheBase )
     const glm::mat4 pureLayer = animator.GetPose().Matrices[1];
 
     animator.Play( base );
-    animator.AddLayer( layer, 1.0F );
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::FullBodyLayer( "root" ), layer, 1.0F ) );
     animator.Update( Timestep( 0.0F ) );
 
     EXPECT_TRUE( MatNear( animator.GetPose().Matrices[1], pureLayer ) )
@@ -266,7 +257,7 @@ TEST( AnimatorBlending, AnOverrideLayerAtZeroWeightChangesNothing )
     animator.Update( Timestep( 0.0F ) );
     const auto without = animator.GetPose().Matrices;
 
-    animator.AddLayer( layer, 0.0F );
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::FullBodyLayer( "root" ), layer, 0.0F ) );
     animator.Update( Timestep( 0.0F ) );
 
     for ( size_t i = 0; i < without.size(); ++i )
@@ -276,7 +267,7 @@ TEST( AnimatorBlending, AnOverrideLayerAtZeroWeightChangesNothing )
     }
 }
 
-TEST( AnimatorBlending, AnAdditiveLayerAddsItsDeltaFromBindAndNotItsPose )
+TEST( AnimatorBlending, AnApplyAdditiveNodeAddsItsDeltaFromBindAndNotItsPose )
 {
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
@@ -288,7 +279,7 @@ TEST( AnimatorBlending, AnAdditiveLayerAddsItsDeltaFromBindAndNotItsPose )
     AnimationClip additive = StaticClip( "Add", "spine", glm::vec3( 0.0F, 45.0F, 0.0F ) );
 
     animator.Play( base );
-    animator.AddLayer( additive, 1.0F, /*additive=*/true );
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::AdditiveGraph(), additive, 1.0F ) );
     animator.Update( Timestep( 0.0F ) );
 
     const glm::vec3 spine = BonePosition( animator, 1 );
@@ -306,7 +297,7 @@ TEST( AnimatorBlending, HalfWeightIsBetweenTheTwoAndOnTheSegment )
     AnimationClip layer = StaticClip( "Layer", "spine", glm::vec3( 0.0F, 100.0F, 0.0F ) );
 
     animator.Play( base );
-    animator.AddLayer( layer, 0.5F );
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::FullBodyLayer( "root" ), layer, 0.5F ) );
     animator.Update( Timestep( 0.0F ) );
 
     const glm::vec3 spine = BonePosition( animator, 1 );
@@ -316,76 +307,69 @@ TEST( AnimatorBlending, HalfWeightIsBetweenTheTwoAndOnTheSegment )
 
 // ── Masks ───────────────────────────────────────────────────────────────────────────────────────────
 
-TEST( AnimatorBlending, ABoneOutsideTheMaskDoesNotMoveByOneBit )
+TEST( AnimatorBlending, ABoneOutsideTheBranchDoesNotMoveByOneBit )
 {
-    const Skeleton skeleton = MakeRig();
+    const Skeleton skeleton = MakeRig(); // root -> spine -> arm
     Animator       animator( skeleton );
 
-    AnimationClip base  = StaticClip( "Base", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
+    // The layer keys the ROOT only; its branch is the spine's. The root, outside the branch, must keep the
+    // base's transform bit for bit; the spine, inside it, takes the layer's (its bind, the layer not keying it).
+    const AnimationClip base  = StaticClip( "Base", "spine", glm::vec3( 0.0F, 60.0F, 0.0F ) ); // not the bind's 30
     AnimationClip layer = StaticClip( "Layer", "root", glm::vec3( 500.0F, 0.0F, 0.0F ) );
 
     animator.Play( base );
     animator.Update( Timestep( 0.0F ) );
+    const Desert::Animation::BoneTransform rootWithout  = animator.GetLocalPose()[0];
     const Desert::Animation::BoneTransform spineWithout = animator.GetLocalPose()[1];
 
-    const int index = animator.AddLayer( layer, 1.0F );
-    animator.SetLayerMaskByNames( index, { "root" }, /*includeChildren=*/false );
+    ASSERT_TRUE(
+         PoseGraphFixture::Drive( animator, PoseGraphFixture::OneLayerGraph( { { "spine", 0 } } ), layer ) );
     animator.Update( Timestep( 0.0F ) );
 
-    EXPECT_FALSE( animator.IsBoneInLayerMask( index, 1 ) );
+    const Desert::Animation::BoneTransform rootWith = animator.GetLocalPose()[0];
+    EXPECT_EQ( rootWith.Translation, rootWithout.Translation )
+         << "a bone outside the layer's branch changed; the per-bone table is not being consulted";
+    EXPECT_EQ( rootWith.Rotation, rootWithout.Rotation );
+    EXPECT_EQ( rootWith.Scale, rootWithout.Scale );
 
-    // ASSERTED ON THE LOCAL POSE, AND THAT IS THE POINT OF THE SUBSTRATE. A mask says which bones the layer
-    // may MODIFY; it cannot say which bones move on screen, because a masked-out child is still carried by a
-    // masked-IN parent — here the layer shifts the root 500 units and the spine goes with it, correctly.
-    // Before the local pose existed there was nothing to make that statement about: the only thing the
-    // Animator kept was the skinning matrix, in which "this bone was not modified" and "this bone did not
-    // move" are indistinguishable.
-    const Desert::Animation::BoneTransform spineWith = animator.GetLocalPose()[1];
-    EXPECT_EQ( spineWith.Translation, spineWithout.Translation )
-         << "a masked-OUT bone's own transform changed; the mask is not being consulted";
-    EXPECT_EQ( spineWith.Rotation, spineWithout.Rotation );
-    EXPECT_EQ( spineWith.Scale, spineWithout.Scale );
-
-    // And the negative control: the masked-IN bone did move.
-    EXPECT_NE( animator.GetLocalPose()[0].Translation.x, 0.0F )
+    EXPECT_NE( animator.GetLocalPose()[1].Translation, spineWithout.Translation )
          << "the layer changed nothing at all, so the test above proves nothing";
 }
 
-TEST( AnimatorBlending, MaskingABoneMasksItsDescendantsByDefault )
+TEST( AnimatorBlending, ABranchFilterReachesItsDescendantsAndANegativeDepthExcludes )
 {
+    namespace G             = Desert::Animation::Graph;
     const Skeleton skeleton = MakeRig(); // root -> spine -> arm
-    Animator       animator( skeleton );
-    AnimationClip  clip = StaticClip( "Layer", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
 
-    const int index = animator.AddLayer( clip, 1.0F );
-    animator.SetLayerMaskByNames( index, { "spine" } );
+    G::LayeredBlendPerBoneNode node;
+    node.Layers.push_back( G::LayerSetup{ { { "spine", 0 } } } );
+    const auto whole = G::BuildPerBoneWeights( node, skeleton );
+    ASSERT_TRUE( whole ) << whole.GetError();
+    EXPECT_EQ( whole.GetValue()[0].Layer, -1 ) << "the PARENT was reached";
+    EXPECT_EQ( whole.GetValue()[1].Layer, 0 );
+    EXPECT_EQ( whole.GetValue()[2].Layer, 0 )
+         << "a spine branch has to take the arm, or 'upper body' is unsayable";
+    EXPECT_EQ( whole.GetValue()[2].Weight, 1.0F );
 
-    EXPECT_FALSE( animator.IsBoneInLayerMask( index, 0 ) ) << "the PARENT was masked in";
-    EXPECT_TRUE( animator.IsBoneInLayerMask( index, 1 ) );
-    EXPECT_TRUE( animator.IsBoneInLayerMask( index, 2 ) )
-         << "masking a shoulder has to mask the arm, or 'upper body' is unsayable";
-
-    animator.SetLayerMaskByNames( index, { "spine" }, /*includeChildren=*/false );
-    EXPECT_FALSE( animator.IsBoneInLayerMask( index, 2 ) );
+    node.Layers[0].Filters.push_back( { "arm", -1 } );
+    const auto excluded = G::BuildPerBoneWeights( node, skeleton );
+    ASSERT_TRUE( excluded ) << excluded.GetError();
+    EXPECT_EQ( excluded.GetValue()[2].Weight, 0.0F ) << "a negative depth did not exclude the arm";
 }
 
-TEST( AnimatorBlending, AnUnknownBoneNameMasksNothingRatherThanEverything )
+TEST( AnimatorBlending, AnUnknownFilterBoneIsRefusedByNameRatherThanReachingNothing )
 {
     const Skeleton skeleton = MakeRig();
     Animator       animator( skeleton );
-    AnimationClip  clip  = StaticClip( "Layer", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
-    const int      index = animator.AddLayer( clip, 1.0F );
+    const AnimationClip clip = StaticClip( "Layer", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
 
-    animator.SetLayerMaskByNames( index, { "no_such_bone" } );
-    for ( uint32_t bone = 0; bone < 3; ++bone )
-    {
-        EXPECT_FALSE( animator.IsBoneInLayerMask( index, bone ) )
-             << "a mask naming only bones this rig does not have came out EMPTY, and an empty mask means "
-                "every bone — so a typo turns an upper-body layer into a full-body one";
-    }
+    const auto set =
+         PoseGraphFixture::Drive( animator, PoseGraphFixture::OneLayerGraph( { { "no_such_bone", 0 } } ), clip );
+    ASSERT_FALSE( set )
+         << "a layer naming a bone the rig lacks was accepted — a typo is a layer that does nothing";
+    EXPECT_NE( set.GetError().find( "no_such_bone" ), std::string::npos ) << set.GetError();
+    EXPECT_EQ( animator.GetPoseGraph(), nullptr );
 }
-
-// ── T0.4: layers through a crossfade ────────────────────────────────────────────────────────────────
 
 TEST( AnimatorBlending, LayersKeepRunningThroughACrossFade )
 {
@@ -399,7 +383,7 @@ TEST( AnimatorBlending, LayersKeepRunningThroughACrossFade )
     AnimationClip layer = StaticClip( "Layer", "spine", glm::vec3( 0.0F, 400.0F, 0.0F ) );
 
     animator.Play( a );
-    animator.AddLayer( layer, 1.0F );
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::FullBodyLayer( "root" ), layer ) );
     animator.CrossFade( b, 1.0F );
 
     animator.Update( Timestep( 0.25F ) ); // mid-blend
@@ -458,7 +442,7 @@ TEST( AnimatorBlending, ATrackNameTheRigDoesNotHaveLeavesThatBoneAtBind )
 
 TEST( AnimatorBlending, TheTrackCacheIsRebuiltWhenTheClipsStorageMoves )
 {
-    // The clip keeps its address while its Tracks vector is freed and reallocated — which is exactly what
+    // The clip keeps its address while its Sequence's track list is freed and reallocated — which is exactly what
     // asset eviction plus reload does, and what segfaulted inside lower_bound when the cache was keyed on
     // the address alone.
     const Skeleton skeleton = MakeRig();
@@ -478,12 +462,15 @@ TEST( AnimatorBlending, TheTrackCacheIsRebuiltWhenTheClipsStorageMoves )
     // is a fact about the binding rather than about the heap.
     // Exactly what an evicted-then-reloaded asset does to the clip it owns: the AnimationClip keeps its
     // address, its track list is freed and rebuilt, and `AnimationAsset` stamps the new generation.
-    clip.Tracks.clear();
-    clip.Tracks.shrink_to_fit();
+    clip.Sequence.Bindings.clear();
+    clip.Sequence.Bindings.shrink_to_fit();
+    clip.Sequence.Tracks.clear();
+    clip.Sequence.Tracks.shrink_to_fit();
 
     AnimationClip reloaded = StaticClip( "Live", "arm", glm::vec3( 250.0F, 0.0F, 0.0F ) );
-    clip.Tracks            = std::move( reloaded.Tracks );
-    ++clip.TrackRevision;
+    clip.Sequence.Bindings = std::move( reloaded.Sequence.Bindings );
+    clip.Sequence.Tracks   = std::move( reloaded.Sequence.Tracks );
+    ++clip.Sequence.Revision;
 
     animator.Update( Timestep( 0.0F ) );
     EXPECT_NEAR( glm::length( BonePosition( animator, 2 ) - BonePosition( animator, 1 ) ), 250.0F, 1e-3F )
@@ -501,8 +488,7 @@ TEST( AnimatorBlending, ANotifyFiresExactlyOncePerPassOverItsTime )
 
     AnimationClip clip = StaticClip( "Walk", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ),
                                      /*duration=*/1.0F );
-    clip.Notifies.push_back(
-         AnimationNotify{ "Footstep", NearestTick( SecondsToFrameTime( 0.5, PROJECT_TICK_RATE ) ) } );
+    ClipFixture::AddNotify( clip, "Footstep", NearestTick( SecondsToFrameTime( 0.5, PROJECT_TICK_RATE ) ) );
 
     animator.Play( clip, /*loop=*/false );
 
@@ -522,14 +508,12 @@ TEST( AnimatorBlending, ALoopingClipFiresItsNotifyOncePerLap )
 
     AnimationClip clip = StaticClip( "Run", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ),
                                      /*duration=*/1.0F );
-    clip.Notifies.push_back(
-         AnimationNotify{ "MidStep", NearestTick( SecondsToFrameTime( 0.5, PROJECT_TICK_RATE ) ) } );
+    ClipFixture::AddNotify( clip, "MidStep", NearestTick( SecondsToFrameTime( 0.5, PROJECT_TICK_RATE ) ) );
     // A MARKER INSIDE THE WRAP STEP, and without it this test proved nothing. With 0.1 s steps over a 1 s
     // clip, the frame that wraps covers (0.9, 1.0] u [0, 0.0] — a marker at 0.5 is nowhere near it, so
     // deleting the whole wrap-around branch left the suite green. A marker at 0.95 is reachable ONLY
     // through `n.Time > prev` on the wrapping frame, which is the half that was untested.
-    clip.Notifies.push_back(
-         AnimationNotify{ "LateStep", NearestTick( SecondsToFrameTime( 0.95, PROJECT_TICK_RATE ) ) } );
+    ClipFixture::AddNotify( clip, "LateStep", NearestTick( SecondsToFrameTime( 0.95, PROJECT_TICK_RATE ) ) );
 
     animator.Play( clip, /*loop=*/true );
 
@@ -558,8 +542,7 @@ TEST( AnimatorBlending, ScrubbingDoesNotFireNotifies )
 
     AnimationClip clip = StaticClip( "Walk", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ),
                                      /*duration=*/1.0F );
-    clip.Notifies.push_back(
-         AnimationNotify{ "Footstep", NearestTick( SecondsToFrameTime( 0.5, PROJECT_TICK_RATE ) ) } );
+    ClipFixture::AddNotify( clip, "Footstep", NearestTick( SecondsToFrameTime( 0.5, PROJECT_TICK_RATE ) ) );
 
     animator.Play( clip, false );
     animator.SetTime( 0.9F ); // the Sequencer dragging the playhead past the marker
@@ -583,11 +566,11 @@ namespace
         return NearestTick( SecondsToFrameTime( seconds, PROJECT_TICK_RATE ) );
     }
 
-    AnimationNotify State( const char* name, double from, double to )
+    /// A notify state over [from, to) seconds: an Event key with a duration on the clip's Event track.
+    void AddState( AnimationClip& clip, const char* name, double from, double to )
     {
-        AnimationNotify notify{ name, At( from ), 0, Animation::FrameNumber{ 0 } };
-        notify.DurationTicks = Animation::FrameNumber{ At( to ).Value - At( from ).Value };
-        return notify;
+        ClipFixture::AddNotify( clip, name, At( from ),
+                                Animation::FrameNumber{ At( to ).Value - At( from ).Value } );
     }
 
     int Count( const std::vector<Animation::NotifyEvent>& events, const char* name,
@@ -606,7 +589,7 @@ TEST( AnimatorBlending, ANotifyStateBeginsAndEndsOnceOnAForwardPass )
     Animator       animator( skeleton );
     AnimationClip  clip =
          StaticClip( "Swing", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
-    clip.Notifies.push_back( State( "Trail", 0.25, 0.65 ) );
+    AddState( clip, "Trail", 0.25, 0.65 );
     animator.Play( clip, /*loop=*/false );
 
     std::vector<Animation::NotifyEvent> events;
@@ -633,8 +616,8 @@ TEST( AnimatorBlending, ANotifyStateBeginsAndEndsOncePerLapOfALoop )
     AnimationClip  clip =
          StaticClip( "Run", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
     // One state from the clip's first tick, one up to its last: the two halves a loop wrap touches.
-    clip.Notifies.push_back( State( "Early", 0.0, 0.2 ) );
-    clip.Notifies.push_back( State( "Late", 0.8, 1.0 ) );
+    AddState( clip, "Early", 0.0, 0.2 );
+    AddState( clip, "Late", 0.8, 1.0 );
     animator.Play( clip, /*loop=*/true );
 
     std::vector<Animation::NotifyEvent> events;
@@ -656,8 +639,8 @@ TEST( AnimatorBlending, AScrubBackwardsEndsAStateAndFiresNoInstantNotify )
     Animator       animator( skeleton );
     AnimationClip  clip =
          StaticClip( "Swing", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
-    clip.Notifies.push_back( State( "Trail", 0.3, 0.6 ) );
-    clip.Notifies.push_back( AnimationNotify{ "Hit", At( 0.45 ), 0, Animation::FrameNumber{ 0 } } );
+    AddState( clip, "Trail", 0.3, 0.6 );
+    ClipFixture::AddNotify( clip, "Hit", At( 0.45 ) );
     animator.Play( clip, /*loop=*/false );
 
     animator.SetTime( 0.5F );
@@ -678,7 +661,7 @@ TEST( AnimatorBlending, AStateShorterThanTheFrameStillBeginsAndEnds )
     Animator       animator( skeleton );
     AnimationClip  clip =
          StaticClip( "Swing", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
-    clip.Notifies.push_back( State( "Blip", 0.33, 0.36 ) );
+    AddState( clip, "Blip", 0.33, 0.36 );
     animator.Play( clip, /*loop=*/false );
 
     std::vector<Animation::NotifyEvent> events;
@@ -697,7 +680,7 @@ TEST( AnimatorBlending, PlayingAnotherClipEndsTheActiveStates )
     Animator       animator( skeleton );
     AnimationClip  clip =
          StaticClip( "Swing", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
-    clip.Notifies.push_back( State( "Trail", 0.0, 0.9 ) );
+    AddState( clip, "Trail", 0.0, 0.9 );
     const AnimationClip other = StaticClip( "Idle", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
     animator.Play( clip, false );
     animator.Update( Timestep( 0.1F ) );
@@ -714,23 +697,24 @@ TEST( AnimatorBlending, ACurveIsSampledBetweenKeysByTheLaterKeysInterpolation )
     AnimationClip  clip =
          StaticClip( "Blink", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
 
-    const auto curve = []( const char* name, Animation::KeyInterp interp )
+    const auto curve = [&clip]( const char* name, Animation::KeyInterp interp )
     {
-        Animation::AnimationCurve out{ name, {} };
-        Animation::ScalarKey      first;
+        std::vector<Animation::ScalarKey> keys;
+        Animation::ScalarKey              first;
         first.Tick  = At( 0.0 );
         first.Value = 0.0F;
         Animation::ScalarKey last;
         last.Tick   = At( 1.0 );
         last.Value  = 10.0F;
-        last.Interp = interp;
-        out.Keys    = { first, last };
-        Animation::AutoSetTangents( out.Keys, PROJECT_TICK_RATE ); // end keys are flat
-        return out;
+        first.Interp = interp; // the segment's mode is its earlier key's (UE's rule, ANIM v6)
+        last.Interp  = interp;
+        keys         = { first, last };
+        Animation::AutoSetTangents( keys, PROJECT_TICK_RATE ); // end keys are flat
+        ClipFixture::AddCurve( clip, name, std::move( keys ) );
     };
-    clip.Curves.push_back( curve( "Linear", Animation::KeyInterp::Linear ) );
-    clip.Curves.push_back( curve( "Constant", Animation::KeyInterp::Constant ) );
-    clip.Curves.push_back( curve( "Cubic", Animation::KeyInterp::Cubic ) );
+    curve( "Linear", Animation::KeyInterp::Linear );
+    curve( "Constant", Animation::KeyInterp::Constant );
+    curve( "Cubic", Animation::KeyInterp::Cubic );
     animator.Play( clip, false );
     animator.SetTime( 0.25F );
 
@@ -746,4 +730,290 @@ TEST( AnimatorBlending, ACurveIsSampledBetweenKeysByTheLaterKeysInterpolation )
 
     animator.SetTime( 1.0F );
     EXPECT_NEAR( valueOf( "Constant" ), 10.0F, 1e-6F );
+}
+
+// ── I8b-5: every graph player's notifies and curves, by its weight (UE FAnimNotifyQueue, FBlendedCurve) ─
+
+namespace
+{
+    /// Events named `name` of kind `kind` reported by the graph source `node` (-1 = the base clip).
+    int CountFrom( const std::vector<Animation::NotifyEvent>& events, const char* name, Kind kind, int node )
+    {
+        return static_cast<int>(
+             std::count_if( events.begin(), events.end(), [&]( const Animation::NotifyEvent& e )
+                            { return e.Name == name && e.Kind == kind && e.SourceNode == node; } ) );
+    }
+
+    /// A 1 s clip holding still, with a "Step" notify at 0.5 s.
+    AnimationClip SteppingClip( const char* name )
+    {
+        AnimationClip clip =
+             StaticClip( name, "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+        ClipFixture::AddNotify( clip, "Step", At( 0.5 ) );
+        return clip;
+    }
+
+    /// Every event of ten 0.1 s ticks.
+    std::vector<Animation::NotifyEvent> PlayOneSecond( Animator& animator )
+    {
+        std::vector<Animation::NotifyEvent> events;
+        for ( int step = 0; step < 10; ++step )
+        {
+            animator.Update( Timestep( 0.1F ) );
+            for ( Animation::NotifyEvent& e : animator.ConsumeNotifyEvents() )
+                events.push_back( std::move( e ) );
+        }
+        return events;
+    }
+
+    /// A curve holding `value` over the clip's first second.
+    void FlatCurve( AnimationClip& clip, const char* name, float value )
+    {
+        Animation::ScalarKey first;
+        first.Tick                = At( 0.0 );
+        first.Value               = value;
+        Animation::ScalarKey last = first;
+        last.Tick                 = At( 1.0 );
+        ClipFixture::AddCurve( clip, name, { first, last } );
+    }
+} // namespace
+
+TEST( AnimatorBlending, ALayerPlayersNotifyIsHeardAtFullWeightAndSilentAtZero )
+{
+    const Skeleton      skeleton = MakeRig();
+    const AnimationClip base =
+         StaticClip( "Base", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+    const AnimationClip layer = SteppingClip( "Layer" );
+
+    for ( const float weight : { 1.0F, 0.0F } )
+    {
+        Animator animator( skeleton );
+        animator.Play( base, false );
+        ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::FullBodyLayer( "root" ), layer, weight,
+                                              /*loop=*/false ) );
+        const auto events = PlayOneSecond( animator );
+        EXPECT_EQ( CountFrom( events, "Step", Kind::Fire, static_cast<int>( PoseGraphFixture::kLayerNode ) ),
+                   weight > 0.0F ? 1 : 0 )
+             << "weight " << weight
+             << ": UE's notify queue takes every player above NotifyTriggerWeight and no "
+                "other — a second player's notify was lost, or a blended-out one heard";
+        EXPECT_EQ( CountFrom( events, "Step", Kind::Fire, -1 ), 0 ) << "the layer's notify was blamed on the base";
+    }
+}
+
+TEST( AnimatorBlending, AnAdditivePlayerAtAlphaZeroIsSilentAndAtOneIsHeard )
+{
+    const Skeleton      skeleton = MakeRig();
+    const AnimationClip base =
+         StaticClip( "Base", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+    const AnimationClip added = SteppingClip( "Additive" );
+
+    for ( const float alpha : { 1.0F, 0.0F } )
+    {
+        Animator animator( skeleton );
+        animator.Play( base, false );
+        ASSERT_TRUE( PoseGraphFixture::Drive( animator, PoseGraphFixture::AdditiveGraph(), added, alpha,
+                                              /*loop=*/false ) );
+        EXPECT_EQ( CountFrom( PlayOneSecond( animator ), "Step", Kind::Fire,
+                              static_cast<int>( PoseGraphFixture::kLayerNode ) ),
+                   alpha > 0.0F ? 1 : 0 )
+             << "alpha " << alpha << ": the additive player's weight is the node's weight x Alpha";
+    }
+}
+
+TEST( AnimatorBlending, ALayerPlayersNotifyStateEndsWhenItsWeightFallsToZero )
+{
+    const Skeleton      skeleton = MakeRig();
+    Animator            animator( skeleton );
+    const AnimationClip base =
+         StaticClip( "Base", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+    AnimationClip layer =
+         StaticClip( "Layer", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+    AddState( layer, "Trail", 0.2, 0.8 );
+
+    animator.Play( base, false );
+    ASSERT_TRUE(
+         PoseGraphFixture::Drive( animator, PoseGraphFixture::FullBodyLayer( "root" ), layer, 1.0F, false ) );
+    const int                           node = static_cast<int>( PoseGraphFixture::kLayerNode );
+    std::vector<Animation::NotifyEvent> events;
+    for ( int step = 0; step < 4; ++step ) // to 0.4 s: inside the state
+    {
+        animator.Update( Timestep( 0.1F ) );
+        for ( Animation::NotifyEvent& e : animator.ConsumeNotifyEvents() )
+            events.push_back( std::move( e ) );
+    }
+    EXPECT_EQ( CountFrom( events, "Trail", Kind::Begin, node ), 1 );
+    EXPECT_EQ( CountFrom( events, "Trail", Kind::End, node ), 0 );
+
+    animator.SetPoseGraphParameter( "LayerWeight", 0.0F );
+    animator.Update( Timestep( 0.1F ) );
+    EXPECT_EQ( CountFrom( animator.ConsumeNotifyEvents(), "Trail", Kind::End, node ), 1 )
+         << "a player blended out while inside a notify state left it open (UE ends it: the state is no longer "
+            "in the relevant players' set)";
+}
+
+TEST( AnimatorBlending, TwoPlayersCurvesAtFullWeightNormalizeToTheirMean )
+{
+    const Skeleton skeleton = MakeRig();
+    Animator       animator( skeleton );
+    AnimationClip  base =
+         StaticClip( "Base", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+    AnimationClip layer =
+         StaticClip( "Layer", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+    FlatCurve( base, "Blink", 2.0F );
+    FlatCurve( layer, "Blink", 6.0F );
+    FlatCurve( layer, "Only", 3.0F );
+
+    auto  graph = PoseGraphFixture::FullBodyLayer( "root" );
+    auto& blend = graph.Nodes[2];
+    if ( !blend.LayeredBlend )
+    {
+        FAIL() << "the full-body layer graph's node 2 is its Layered Blend";
+    }
+    blend.LayeredBlend->CurveBlend = static_cast<int>( Animation::Graph::CurveBlendOption::NormalizeByWeight );
+    animator.Play( base, false );
+    ASSERT_TRUE( PoseGraphFixture::Drive( animator, graph, layer, 1.0F, false ) );
+    animator.Update( Timestep( 0.25F ) );
+
+    const auto blink = animator.GetCurveValue( "Blink" );
+    if ( !blink )
+    {
+        FAIL() << "the graph's curves never reached GetCurveValue";
+    }
+    EXPECT_NEAR( *blink, 4.0F, 1e-5F )
+         << "base 1 and layer 1, normalized by weight: the mean — the curves were not blended with the pose";
+    const auto only = animator.GetCurveValue( "Only" );
+    if ( !only )
+    {
+        FAIL() << "a curve only the layer has was dropped";
+    }
+    EXPECT_NEAR( *only, 3.0F, 1e-5F );
+    EXPECT_FALSE( animator.GetCurveValue( "Missing" ).has_value() );
+}
+
+// ── I8b-8: the base players are sequence players like any other — heard by their weight ────────────────
+
+namespace
+{
+    /// Output Pose = LinkedAnimLayer "Call" (Weapon.UpperBody) over the base machine "Base"; unlinked, the call
+    /// passes the base through at full weight.
+    Animation::Graph::AnimGraph CallingHost()
+    {
+        namespace G = Animation::Graph;
+        G::AnimGraph graph;
+        graph.Name = "Host";
+        graph.Nodes.push_back( PoseGraphFixture::BaseMachine() );
+        G::PoseNode call;
+        call.Name        = "Call";
+        call.Kind        = static_cast<int>( G::PoseNodeKind::LinkedAnimLayer );
+        call.PoseInputs  = { "Base" };
+        call.LinkedLayer = G::LinkedAnimLayerNode{ "Weapon", "UpperBody" };
+        graph.Nodes.push_back( std::move( call ) );
+        graph.OutputPose = "Call";
+        graph.Layers     = G::AnimGraphLayers{ { G::AnimLayerInterface{ "Weapon", { "UpperBody" } } }, {} };
+        return graph;
+    }
+
+    /// Implements Weapon.UpperBody with its own sequence player and NO LinkedInputPose: the host's base is
+    /// in no output any more, so its weight is 0.
+    Animation::Graph::AnimGraph ReplacingLayer()
+    {
+        namespace G = Animation::Graph;
+        G::AnimGraph graph;
+        graph.Name = "Rifle";
+        graph.Nodes.push_back( PoseGraphFixture::Sequence( "Main" ) );
+        graph.OutputPose = "Main";
+        graph.Layers     = G::AnimGraphLayers{
+                 { G::AnimLayerInterface{ "Weapon", { "UpperBody" } } },
+                 { G::AnimLayerGraph{ "Weapon", "UpperBody", { PoseGraphFixture::Sequence( "Own" ) }, "Own" } } };
+        return graph;
+    }
+} // namespace
+
+TEST( AnimatorBlending, ABasePlayerAtGraphWeightZeroIsSilentAndAtOneIsHeard )
+{
+    const Skeleton      skeleton = MakeRig();
+    const AnimationClip base     = SteppingClip( "Base" );
+
+    for ( const bool replaced : { false, true } )
+    {
+        Animator animator( skeleton );
+        animator.Play( base, false );
+        ASSERT_TRUE( animator.SetPoseGraph( CallingHost() ) );
+        if ( replaced )
+            ASSERT_TRUE( animator.LinkLayers( 7, ReplacingLayer() ) );
+        EXPECT_EQ( CountFrom( PlayOneSecond( animator ), "Step", Kind::Fire, -1 ), replaced ? 0 : 1 )
+             << ( replaced
+                       ? "a base clip the graph no longer plays (weight 0) was heard: the Source stage stepped "
+                         "its notifies before the evaluation, with no weight"
+                       : "the base clip at full graph weight lost its notify" );
+    }
+}
+
+TEST( AnimatorBlending, AnUnlinkReturnsTheInterfaceToTheHostsOwnLayerAndNotToPassThrough )
+{
+    namespace G                   = Animation::Graph;
+    const Skeleton      skeleton  = MakeRig();
+    const AnimationClip base      = SteppingClip( "Base" );
+    G::AnimGraph        ownsLayer = CallingHost(); // UE: the AnimBlueprint implements the interface it calls
+    if ( !ownsLayer.Layers )
+        FAIL() << "CallingHost declares its layer interfaces";
+    auto& ownLayers = *ownsLayer.Layers;
+    ownLayers.Implemented.push_back(
+         G::AnimLayerGraph{ "Weapon", "UpperBody", { PoseGraphFixture::Sequence( "Own" ) }, "Own" } );
+
+    Animator animator( skeleton );
+    animator.Play( base, false );
+    ASSERT_TRUE( animator.SetPoseGraph( ownsLayer ) );
+    ASSERT_EQ( animator.GetLinkedLayers().Layers().size(), 1U ) << "the host's own layer answers with no link";
+    EXPECT_EQ( animator.GetLinkedLayers().Layers()[0].Implementation, 0U );
+
+    ASSERT_TRUE( animator.LinkLayers( 7, ReplacingLayer() ) );
+    ASSERT_EQ( animator.GetLinkedLayers().Layers().size(), 1U );
+    EXPECT_EQ( animator.GetLinkedLayers().Layers()[0].Implementation, 7U ) << "a link replaces the default";
+
+    animator.UnlinkLayers( 7 );
+    ASSERT_EQ( animator.GetLinkedLayers().Layers().size(), 1U )
+         << "unlinked: the interface went to pass-through instead of back to the host's own layer";
+    EXPECT_EQ( animator.GetLinkedLayers().Layers()[0].Implementation, 0U );
+    EXPECT_EQ( CountFrom( PlayOneSecond( animator ), "Step", Kind::Fire, -1 ), 0 )
+         << "the default layer plays its own sequence, so the base under the call is at weight 0";
+
+    ASSERT_TRUE( animator.LinkLayers( 7, ReplacingLayer() ) );
+    animator.ClearLinkedLayers();
+    ASSERT_EQ( animator.GetLinkedLayers().Layers().size(), 1U ) << "clearing the links keeps the defaults";
+
+    ASSERT_TRUE( animator.SetPoseGraph( CallingHost() ) );
+    EXPECT_TRUE( animator.GetLinkedLayers().Layers().empty() )
+         << "a host implementing nothing has no defaults: its calls pass their input";
+}
+
+TEST( AnimatorBlending, ACrossFadesOutgoingNotifyIsHeardUntilItsWeightReachesZero )
+{
+    const Skeleton      skeleton = MakeRig();
+    const AnimationClip outgoing = SteppingClip( "Out" ); // "Step" at 0.5 s
+    AnimationClip       incoming =
+         StaticClip( "In", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
+    ClipFixture::AddNotify( incoming, "Land", At( 0.2 ) );
+    AddState( incoming, "Trail", 0.1, 0.9 );
+
+    // 1 s: at 0.5 s the outgoing clip is at weight 0.5 — heard. 0.45 s: at 0.5 s alpha is 1 — silent.
+    for ( const float duration : { 1.0F, 0.45F } )
+    {
+        Animator animator( skeleton );
+        animator.Play( outgoing, false );
+        animator.CrossFade( incoming, duration, false );
+        const auto events = PlayOneSecond( animator );
+        EXPECT_EQ( CountFrom( events, "Step", Kind::Fire, -1 ), duration > 0.5F ? 1 : 0 )
+             << "fade " << duration
+             << " s: the outgoing player is heard while (1 - alpha) is above "
+                "NotifyTriggerWeight and not after";
+        EXPECT_EQ( CountFrom( events, "Land", Kind::Fire, -1 ), 1 )
+             << "fade " << duration << " s: the incoming player's notify at alpha 0.2 was not heard";
+        EXPECT_EQ( CountFrom( events, "Trail", Kind::Begin, -1 ), 1 )
+             << "fade " << duration
+             << " s: the incoming clip's state must begin once, not again when it "
+                "becomes the current clip";
+        EXPECT_EQ( CountFrom( events, "Trail", Kind::End, -1 ), 1 ) << "fade " << duration << " s";
+    }
 }

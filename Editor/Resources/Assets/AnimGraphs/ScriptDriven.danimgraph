@@ -3,12 +3,11 @@
         "Kind": "AnimGraph",
         "Guid": "003085b663f8dac28c0a750a38cf6db8",
         "Versions": {
-            "ANGR": 1
+            "ANGR": 2
         },
         "Dependencies": []
     },
     "Name": "ScriptDriven",
-    "Entry": "Wave",
     "Parameters": [
         {
             "Name": "Go",
@@ -16,38 +15,52 @@
             "Default": 0.0
         }
     ],
-    "States": [
+    "Nodes": [
         {
-            "Name": "Wave",
-            "Clip": "TwoBoneProbe_Wave",
-            "Loop": true,
-            "Speed": 1.0,
+            "Name": "StateMachine",
+            "Kind": 0,
+            "PoseInputs": [],
+            "ParameterInputs": [],
+            "Machine": {
+                "Entry": "Wave",
+                "States": [
+                    {
+                        "Name": "Wave",
+                        "Clip": "TwoBoneProbe_Wave",
+                        "Loop": true,
+                        "Speed": 1.0,
+                        "X": 0.0,
+                        "Y": 0.0,
+                        "Transitions": [
+                            {
+                                "To": "Twist",
+                                "Blend": 0.0,
+                                "HasExitTime": false,
+                                "ExitTime": 1.0,
+                                "Conditions": [
+                                    {
+                                        "Parameter": "Go",
+                                        "Op": 6,
+                                        "Value": 0.0
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Name": "Twist",
+                        "Clip": "TwoBoneProbe_Twist",
+                        "Loop": true,
+                        "Speed": 1.0,
+                        "X": 260.0,
+                        "Y": 0.0,
+                        "Transitions": []
+                    }
+                ]
+            },
             "X": 0.0,
-            "Y": 0.0,
-            "Transitions": [
-                {
-                    "To": "Twist",
-                    "Blend": 0.0,
-                    "HasExitTime": false,
-                    "ExitTime": 1.0,
-                    "Conditions": [
-                        {
-                            "Parameter": "Go",
-                            "Op": 6,
-                            "Value": 0.0
-                        }
-                    ]
-                }
-            ]
-        },
-        {
-            "Name": "Twist",
-            "Clip": "TwoBoneProbe_Twist",
-            "Loop": true,
-            "Speed": 1.0,
-            "X": 260.0,
-            "Y": 0.0,
-            "Transitions": []
+            "Y": 0.0
         }
-    ]
+    ],
+    "OutputPose": "StateMachine"
 }

@@ -3,1746 +3,1355 @@
         "Kind": "Animation",
         "Guid": "6d3a1f0e2b8c4e579a41c7d25e0b3f23",
         "Versions": {
-            "ANIM": 5
+            "ANIM": 6
         },
         "Dependencies": ["9d3c5e0a41b84f27b6e1a7c2d4f09e53"]
     },
     "Name": "Run",
-    "TickRate": {
-        "Numerator": 24000,
-        "Denominator": 1
-    },
-    "DisplayRate": {
-        "Numerator": 30,
-        "Denominator": 1
-    },
-    "DurationTicks": 14400,
     "Skeleton": {
         "Guid": "9d3c5e0a41b84f27b6e1a7c2d4f09e53",
         "Path": "engine:Engine/Meshes/Skinned/Humanoid.skeleton"
     },
-    "Channels": [
-        {
-            "BoneName": "Spine",
-            "Positions": [
-                {
-                    "Tick": 0,
-                    "Value": [0.0, 19.999998092651367, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    },
-                    "ArriveTangent": [0.0, 0.0, 0.0],
-                    "LeaveTangent": [0.0, 0.0, 0.0]
-                }
-            ],
-            "Rotations": [
-                {
-                    "Tick": 0,
-                    "Value": [0.9950041770935059, 0.0998334214091301, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 900,
-                    "Value": [0.9950041770935059, 0.0998334214091301, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 1800,
-                    "Value": [0.9950041770935059, 0.0998334214091301, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 2700,
-                    "Value": [0.9950041770935059, 0.0998334214091301, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 3600,
-                    "Value": [0.9950041770935059, 0.0998334214091301, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 4500,
-                    "Value": [0.9950041770935059, 0.0998334214091301, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 5400,
-                    "Value": [0.9950041770935059, 0.0998334214091301, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 6300,
-                    "Value": [0.9950041770935059, 0.0998334214091301, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 7200,
-                    "Value": [0.9950041770935059, 0.0998334214091301, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 8100,
-                    "Value": [0.9950041770935059, 0.0998334214091301, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 9000,
-                    "Value": [0.9950041770935059, 0.0998334214091301, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 9900,
-                    "Value": [0.9950041770935059, 0.0998334214091301, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 10800,
-                    "Value": [0.9950041770935059, 0.0998334214091301, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 11700,
-                    "Value": [0.9950041770935059, 0.0998334214091301, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 12600,
-                    "Value": [0.9950041770935059, 0.0998334214091301, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 13500,
-                    "Value": [0.9950041770935059, 0.0998334214091301, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 14400,
-                    "Value": [0.9950041770935059, 0.0998334214091301, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                }
-            ],
-            "Scales": []
+    "Sequence": {
+        "Header": {
+            "Kind": "",
+            "Guid": "",
+            "Versions": {
+                "TMLN": 2
+            },
+            "Dependencies": []
         },
-        {
-            "BoneName": "Shoulder.L",
-            "Positions": [
-                {
-                    "Tick": 0,
-                    "Value": [18.0, 5.000007152557373, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    },
-                    "ArriveTangent": [0.0, 0.0, 0.0],
-                    "LeaveTangent": [0.0, 0.0, 0.0]
-                }
-            ],
-            "Rotations": [
-                {
-                    "Tick": 0,
-                    "Value": [1.0, -3.059797037963108e-8, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 900,
-                    "Value": [0.9910435676574707, -0.1335390955209732, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 1800,
-                    "Value": [0.9695309996604919, -0.2449686974287033, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 2700,
-                    "Value": [0.9481738209724426, -0.3177522122859955, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 3600,
-                    "Value": [0.939372718334198, -0.34289780259132385, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 4500,
-                    "Value": [0.9481738209724426, -0.3177521228790283, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 5400,
-                    "Value": [0.9695309996604919, -0.24496857821941376, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 6300,
-                    "Value": [0.9910435676574707, -0.133539080619812, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 7200,
-                    "Value": [1.0, 6.119594075926216e-8, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 8100,
-                    "Value": [0.9910435080528259, 0.13353919982910156, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 9000,
-                    "Value": [0.9695309996604919, 0.24496865272521973, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 9900,
-                    "Value": [0.9481738209724426, 0.3177521824836731, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 10800,
-                    "Value": [0.939372718334198, 0.34289780259132385, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 11700,
-                    "Value": [0.9481738209724426, 0.31775209307670593, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 12600,
-                    "Value": [0.9695310592651367, 0.2449685037136078, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 13500,
-                    "Value": [0.9910435676574707, 0.1335391253232956, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 14400,
-                    "Value": [1.0, -8.34741609168077e-9, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                }
-            ],
-            "Scales": []
-        },
-        {
-            "BoneName": "Elbow.L",
-            "Positions": [
-                {
-                    "Tick": 0,
-                    "Value": [0.0, -30.00000762939453, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    },
-                    "ArriveTangent": [0.0, 0.0, 0.0],
-                    "LeaveTangent": [0.0, 0.0, 0.0]
-                }
-            ],
-            "Rotations": [
-                {
-                    "Tick": 0,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 900,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 1800,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 2700,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 3600,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 4500,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 5400,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 6300,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 7200,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 8100,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 9000,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 9900,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 10800,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 11700,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 12600,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 13500,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 14400,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                }
-            ],
-            "Scales": []
-        },
-        {
-            "BoneName": "Shoulder.R",
-            "Positions": [
-                {
-                    "Tick": 0,
-                    "Value": [-18.0, 5.000007152557373, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    },
-                    "ArriveTangent": [0.0, 0.0, 0.0],
-                    "LeaveTangent": [0.0, 0.0, 0.0]
-                }
-            ],
-            "Rotations": [
-                {
-                    "Tick": 0,
-                    "Value": [1.0, 0.0, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 900,
-                    "Value": [0.9910435676574707, 0.1335390955209732, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 1800,
-                    "Value": [0.9695309996604919, 0.24496865272521973, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 2700,
-                    "Value": [0.9481738209724426, 0.3177521526813507, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 3600,
-                    "Value": [0.939372718334198, 0.34289780259132385, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 4500,
-                    "Value": [0.9481738209724426, 0.3177521526813507, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 5400,
-                    "Value": [0.9695309996604919, 0.24496865272521973, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 6300,
-                    "Value": [0.9910435676574707, 0.13353903591632843, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 7200,
-                    "Value": [1.0, -3.059797037963108e-8, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 8100,
-                    "Value": [0.9910435676574707, -0.1335390955209732, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 9000,
-                    "Value": [0.9695309996604919, -0.2449686974287033, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 9900,
-                    "Value": [0.9481738209724426, -0.3177522122859955, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 10800,
-                    "Value": [0.939372718334198, -0.34289780259132385, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 11700,
-                    "Value": [0.9481738209724426, -0.3177521228790283, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 12600,
-                    "Value": [0.9695309996604919, -0.24496857821941376, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 13500,
-                    "Value": [0.9910435676574707, -0.133539080619812, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 14400,
-                    "Value": [1.0, 6.119594075926216e-8, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                }
-            ],
-            "Scales": []
-        },
-        {
-            "BoneName": "Elbow.R",
-            "Positions": [
-                {
-                    "Tick": 0,
-                    "Value": [0.0, -30.00000762939453, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    },
-                    "ArriveTangent": [0.0, 0.0, 0.0],
-                    "LeaveTangent": [0.0, 0.0, 0.0]
-                }
-            ],
-            "Rotations": [
-                {
-                    "Tick": 0,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 900,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 1800,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 2700,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 3600,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 4500,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 5400,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 6300,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 7200,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 8100,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 9000,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 9900,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 10800,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 11700,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 12600,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 13500,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 14400,
-                    "Value": [0.9553365111351013, -0.29552021622657776, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                }
-            ],
-            "Scales": []
-        },
-        {
-            "BoneName": "Hip.L",
-            "Positions": [
-                {
-                    "Tick": 0,
-                    "Value": [9.0, -2.999997138977051, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    },
-                    "ArriveTangent": [0.0, 0.0, 0.0],
-                    "LeaveTangent": [0.0, 0.0, 0.0]
-                }
-            ],
-            "Rotations": [
-                {
-                    "Tick": 0,
-                    "Value": [1.0, 0.0, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 900,
-                    "Value": [0.9868031740188599, 0.16192439198493958, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 1800,
-                    "Value": [0.9551825523376465, 0.2960173189640045, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 2700,
-                    "Value": [0.9238987565040588, 0.3826369643211365, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 3600,
-                    "Value": [0.9110387563705444, 0.4123207926750183, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 4500,
-                    "Value": [0.9238987565040588, 0.3826369643211365, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 5400,
-                    "Value": [0.9551825523376465, 0.2960173189640045, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 6300,
-                    "Value": [0.9868031740188599, 0.1619243174791336, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 7200,
-                    "Value": [1.0, -3.715468110954134e-8, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 8100,
-                    "Value": [0.9868031740188599, -0.16192439198493958, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 9000,
-                    "Value": [0.9551825523376465, -0.2960173785686493, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 9900,
-                    "Value": [0.9238987565040588, -0.38263705372810364, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 10800,
-                    "Value": [0.9110387563705444, -0.4123207926750183, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 11700,
-                    "Value": [0.9238987565040588, -0.3826369643211365, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 12600,
-                    "Value": [0.9551826119422913, -0.29601719975471497, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 13500,
-                    "Value": [0.9868031740188599, -0.16192439198493958, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 14400,
-                    "Value": [1.0, 7.430936221908269e-8, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                }
-            ],
-            "Scales": []
-        },
-        {
-            "BoneName": "Knee.L",
-            "Positions": [
-                {
-                    "Tick": 0,
-                    "Value": [0.0, -42.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    },
-                    "ArriveTangent": [0.0, 0.0, 0.0],
-                    "LeaveTangent": [0.0, 0.0, 0.0]
-                }
-            ],
-            "Rotations": [
-                {
-                    "Tick": 0,
-                    "Value": [0.962425172328949, 0.2715469300746918, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 900,
-                    "Value": [0.9856249690055847, 0.16894784569740295, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 1800,
-                    "Value": [0.9967579245567322, 0.08045858144760132, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 2700,
-                    "Value": [0.9997808933258057, 0.020931607112288475, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 3600,
-                    "Value": [1.0, 0.0, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 4500,
-                    "Value": [0.9997808933258057, 0.020931607112288475, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 5400,
-                    "Value": [0.9967579245567322, 0.08045858144760132, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 6300,
-                    "Value": [0.9856249690055847, 0.16894784569740295, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 7200,
-                    "Value": [0.962425172328949, 0.2715469300746918, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 8100,
-                    "Value": [0.9285763502120972, 0.3711414635181427, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 9000,
-                    "Value": [0.8918152451515198, 0.45239976048469543, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 9900,
-                    "Value": [0.8632783889770508, 0.5047280788421631, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 10800,
-                    "Value": [0.8525245189666748, 0.5226872563362122, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 11700,
-                    "Value": [0.8632784485816956, 0.5047280192375183, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 12600,
-                    "Value": [0.8918153047561646, 0.45239970088005066, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 13500,
-                    "Value": [0.9285763502120972, 0.37114137411117554, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 14400,
-                    "Value": [0.962425172328949, 0.2715469300746918, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                }
-            ],
-            "Scales": []
-        },
-        {
-            "BoneName": "Hip.R",
-            "Positions": [
-                {
-                    "Tick": 0,
-                    "Value": [-9.0, -2.999997138977051, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    },
-                    "ArriveTangent": [0.0, 0.0, 0.0],
-                    "LeaveTangent": [0.0, 0.0, 0.0]
-                }
-            ],
-            "Rotations": [
-                {
-                    "Tick": 0,
-                    "Value": [1.0, -3.715468110954134e-8, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 900,
-                    "Value": [0.9868031740188599, -0.16192439198493958, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 1800,
-                    "Value": [0.9551825523376465, -0.2960173785686493, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 2700,
-                    "Value": [0.9238987565040588, -0.38263705372810364, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 3600,
-                    "Value": [0.9110387563705444, -0.4123207926750183, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 4500,
-                    "Value": [0.9238987565040588, -0.3826369643211365, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 5400,
-                    "Value": [0.9551826119422913, -0.29601719975471497, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 6300,
-                    "Value": [0.9868031740188599, -0.16192439198493958, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 7200,
-                    "Value": [1.0, 7.430936221908269e-8, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 8100,
-                    "Value": [0.9868031740188599, 0.16192452609539032, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 9000,
-                    "Value": [0.9551825523376465, 0.2960173189640045, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 9900,
-                    "Value": [0.9238987565040588, 0.38263702392578125, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 10800,
-                    "Value": [0.9110387563705444, 0.4123207926750183, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 11700,
-                    "Value": [0.9238988161087036, 0.3826369047164917, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 12600,
-                    "Value": [0.9551826119422913, 0.2960171103477478, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 13500,
-                    "Value": [0.9868031740188599, 0.16192443668842316, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 14400,
-                    "Value": [1.0, -1.0136148809181122e-8, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                }
-            ],
-            "Scales": []
-        },
-        {
-            "BoneName": "Knee.R",
-            "Positions": [
-                {
-                    "Tick": 0,
-                    "Value": [0.0, -42.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    },
-                    "ArriveTangent": [0.0, 0.0, 0.0],
-                    "LeaveTangent": [0.0, 0.0, 0.0]
-                }
-            ],
-            "Rotations": [
-                {
-                    "Tick": 0,
-                    "Value": [0.962425172328949, 0.2715469300746918, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 900,
-                    "Value": [0.9285763502120972, 0.3711414635181427, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 1800,
-                    "Value": [0.8918152451515198, 0.45239976048469543, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 2700,
-                    "Value": [0.8632783889770508, 0.5047280788421631, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 3600,
-                    "Value": [0.8525245189666748, 0.5226872563362122, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 4500,
-                    "Value": [0.8632784485816956, 0.5047280192375183, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 5400,
-                    "Value": [0.8918153047561646, 0.45239970088005066, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 6300,
-                    "Value": [0.9285763502120972, 0.37114137411117554, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 7200,
-                    "Value": [0.962425172328949, 0.2715469300746918, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 8100,
-                    "Value": [0.9856250286102295, 0.16894777119159698, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 9000,
-                    "Value": [0.996757984161377, 0.08045851439237595, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 9900,
-                    "Value": [0.9997808933258057, 0.020931590348482132, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 10800,
-                    "Value": [1.0, 0.0, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 11700,
-                    "Value": [0.9997808933258057, 0.02093164063990116, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 12600,
-                    "Value": [0.9967579245567322, 0.08045858144760132, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 13500,
-                    "Value": [0.9856249690055847, 0.16894787549972534, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                },
-                {
-                    "Tick": 14400,
-                    "Value": [0.962425172328949, 0.27154701948165894, 0.0, 0.0],
-                    "Shape": {
-                        "Interp": 1,
-                        "Mode": 0,
-                        "ArriveWeight": 0.0,
-                        "LeaveWeight": 0.0
-                    }
-                }
-            ],
-            "Scales": []
-        }
-    ],
-    "Notifies": [],
-    "Sections": [
-        {
-            "Name": "Whole clip",
-            "StartTick": 0,
-            "EndTick": 14400,
-            "Blend": 0,
-            "Tracks": [],
-            "Weight": []
-        }
-    ],
-    "Curves": []
+        "Host": 0,
+        "TickRate": [24000, 1],
+        "DisplayRate": [30, 1],
+        "Start": 0,
+        "End": 14400,
+        "Bindings": [
+            {
+                "Guid": "6b5ab509396a604b4cdd44906d669a22",
+                "Kind": 1,
+                "Locator": "Spine",
+                "Label": "Spine",
+                "Parent": ""
+            },
+            {
+                "Guid": "8b3ae9145b6dbf7e37b165a3dcd31339",
+                "Kind": 1,
+                "Locator": "Shoulder.L",
+                "Label": "Shoulder.L",
+                "Parent": ""
+            },
+            {
+                "Guid": "e84645a6c433ae0953e9344a7d8e9660",
+                "Kind": 1,
+                "Locator": "Elbow.L",
+                "Label": "Elbow.L",
+                "Parent": ""
+            },
+            {
+                "Guid": "8b3af3145b6dd07c37b17fa3dcd33f67",
+                "Kind": 1,
+                "Locator": "Shoulder.R",
+                "Label": "Shoulder.R",
+                "Parent": ""
+            },
+            {
+                "Guid": "e8463fa6c433a3d753e9524a7d8ec95a",
+                "Kind": 1,
+                "Locator": "Elbow.R",
+                "Label": "Elbow.R",
+                "Parent": ""
+            },
+            {
+                "Guid": "9900c2b5cf73c8bf98f3df009bd376be",
+                "Kind": 1,
+                "Locator": "Hip.L",
+                "Label": "Hip.L",
+                "Parent": ""
+            },
+            {
+                "Guid": "4856fb42b98d0d9905f471bf2cf3b676",
+                "Kind": 1,
+                "Locator": "Knee.L",
+                "Label": "Knee.L",
+                "Parent": ""
+            },
+            {
+                "Guid": "9900d8b5cf73ee2198f3e9009bd387bc",
+                "Kind": 1,
+                "Locator": "Hip.R",
+                "Label": "Hip.R",
+                "Parent": ""
+            },
+            {
+                "Guid": "48571542b98d39c705f46bbf2cf3ac44",
+                "Kind": 1,
+                "Locator": "Knee.R",
+                "Label": "Knee.R",
+                "Parent": ""
+            }
+        ],
+        "Tracks": [
+            {
+                "Binding": "6b5ab509396a604b4cdd44906d669a22",
+                "Property": "",
+                "Kind": 3,
+                "Muted": false,
+                "Sections": [
+                    {
+                        "Start": 0,
+                        "End": 14400,
+                        "Blend": 0,
+                        "Weight": [],
+                        "Row": 0,
+                        "Name": "Whole clip",
+                        "Channel": {
+                            "Kind": 3,
+                            "Components": [
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 19.999998092651367, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0998334214091301, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.0998334214091301, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.0998334214091301, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.0998334214091301, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.0998334214091301, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.0998334214091301, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.0998334214091301, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.0998334214091301, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.0998334214091301, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.0998334214091301, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.0998334214091301, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.0998334214091301, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.0998334214091301, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.0998334214091301, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.0998334214091301, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.0998334214091301, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.0998334214091301, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.9950041770935059, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.9950041770935059, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.9950041770935059, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.9950041770935059, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.9950041770935059, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.9950041770935059, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.9950041770935059, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.9950041770935059, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.9950041770935059, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.9950041770935059, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.9950041770935059, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.9950041770935059, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.9950041770935059, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.9950041770935059, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.9950041770935059, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.9950041770935059, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.9950041770935059, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                }
+                            ],
+                            "Events": []
+                        }
+                    }
+                ]
+            },
+            {
+                "Binding": "8b3ae9145b6dbf7e37b165a3dcd31339",
+                "Property": "",
+                "Kind": 3,
+                "Muted": false,
+                "Sections": [
+                    {
+                        "Start": 0,
+                        "End": 14400,
+                        "Blend": 0,
+                        "Weight": [],
+                        "Row": 0,
+                        "Name": "Whole clip",
+                        "Channel": {
+                            "Kind": 3,
+                            "Components": [
+                                {
+                                    "Keys": [
+                                        [0, 18.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 5.000007152557373, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, -3.059797037963108e-8, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, -0.1335390955209732, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, -0.2449686974287033, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, -0.3177522122859955, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, -0.34289780259132385, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, -0.3177521228790283, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, -0.24496857821941376, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, -0.133539080619812, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 6.119594075926216e-8, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.13353919982910156, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.24496865272521973, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.3177521824836731, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.34289780259132385, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.31775209307670593, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.2449685037136078, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.1335391253232956, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, -8.34741609168077e-9, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.9910435676574707, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.9695309996604919, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.9481738209724426, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.939372718334198, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.9481738209724426, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.9695309996604919, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.9910435676574707, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.9910435080528259, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.9695309996604919, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.9481738209724426, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.939372718334198, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.9481738209724426, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.9695310592651367, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.9910435676574707, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                }
+                            ],
+                            "Events": []
+                        }
+                    }
+                ]
+            },
+            {
+                "Binding": "e84645a6c433ae0953e9344a7d8e9660",
+                "Property": "",
+                "Kind": 3,
+                "Muted": false,
+                "Sections": [
+                    {
+                        "Start": 0,
+                        "End": 14400,
+                        "Blend": 0,
+                        "Weight": [],
+                        "Row": 0,
+                        "Name": "Whole clip",
+                        "Channel": {
+                            "Kind": 3,
+                            "Components": [
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, -30.00000762939453, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                }
+                            ],
+                            "Events": []
+                        }
+                    }
+                ]
+            },
+            {
+                "Binding": "8b3af3145b6dd07c37b17fa3dcd33f67",
+                "Property": "",
+                "Kind": 3,
+                "Muted": false,
+                "Sections": [
+                    {
+                        "Start": 0,
+                        "End": 14400,
+                        "Blend": 0,
+                        "Weight": [],
+                        "Row": 0,
+                        "Name": "Whole clip",
+                        "Channel": {
+                            "Kind": 3,
+                            "Components": [
+                                {
+                                    "Keys": [
+                                        [0, -18.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 5.000007152557373, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.1335390955209732, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.24496865272521973, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.3177521526813507, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.34289780259132385, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.3177521526813507, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.24496865272521973, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.13353903591632843, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, -3.059797037963108e-8, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, -0.1335390955209732, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, -0.2449686974287033, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, -0.3177522122859955, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, -0.34289780259132385, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, -0.3177521228790283, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, -0.24496857821941376, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, -0.133539080619812, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 6.119594075926216e-8, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.9910435676574707, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.9695309996604919, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.9481738209724426, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.939372718334198, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.9481738209724426, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.9695309996604919, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.9910435676574707, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.9910435676574707, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.9695309996604919, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.9481738209724426, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.939372718334198, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.9481738209724426, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.9695309996604919, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.9910435676574707, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                }
+                            ],
+                            "Events": []
+                        }
+                    }
+                ]
+            },
+            {
+                "Binding": "e8463fa6c433a3d753e9524a7d8ec95a",
+                "Property": "",
+                "Kind": 3,
+                "Muted": false,
+                "Sections": [
+                    {
+                        "Start": 0,
+                        "End": 14400,
+                        "Blend": 0,
+                        "Weight": [],
+                        "Row": 0,
+                        "Name": "Whole clip",
+                        "Channel": {
+                            "Kind": 3,
+                            "Components": [
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, -30.00000762939453, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, -0.29552021622657776, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.9553365111351013, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                }
+                            ],
+                            "Events": []
+                        }
+                    }
+                ]
+            },
+            {
+                "Binding": "9900c2b5cf73c8bf98f3df009bd376be",
+                "Property": "",
+                "Kind": 3,
+                "Muted": false,
+                "Sections": [
+                    {
+                        "Start": 0,
+                        "End": 14400,
+                        "Blend": 0,
+                        "Weight": [],
+                        "Row": 0,
+                        "Name": "Whole clip",
+                        "Channel": {
+                            "Kind": 3,
+                            "Components": [
+                                {
+                                    "Keys": [
+                                        [0, 9.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, -2.999997138977051, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.16192439198493958, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.2960173189640045, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.3826369643211365, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.4123207926750183, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.3826369643211365, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.2960173189640045, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.1619243174791336, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, -3.715468110954134e-8, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, -0.16192439198493958, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, -0.2960173785686493, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, -0.38263705372810364, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, -0.4123207926750183, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, -0.3826369643211365, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, -0.29601719975471497, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, -0.16192439198493958, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 7.430936221908269e-8, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.9868031740188599, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.9551825523376465, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.9238987565040588, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.9110387563705444, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.9238987565040588, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.9551825523376465, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.9868031740188599, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.9868031740188599, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.9551825523376465, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.9238987565040588, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.9110387563705444, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.9238987565040588, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.9551826119422913, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.9868031740188599, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                }
+                            ],
+                            "Events": []
+                        }
+                    }
+                ]
+            },
+            {
+                "Binding": "4856fb42b98d0d9905f471bf2cf3b676",
+                "Property": "",
+                "Kind": 3,
+                "Muted": false,
+                "Sections": [
+                    {
+                        "Start": 0,
+                        "End": 14400,
+                        "Blend": 0,
+                        "Weight": [],
+                        "Row": 0,
+                        "Name": "Whole clip",
+                        "Channel": {
+                            "Kind": 3,
+                            "Components": [
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, -42.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.2715469300746918, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.16894784569740295, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.08045858144760132, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.020931607112288475, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.020931607112288475, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.08045858144760132, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.16894784569740295, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.2715469300746918, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.3711414635181427, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.45239976048469543, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.5047280788421631, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.5226872563362122, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.5047280192375183, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.45239970088005066, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.37114137411117554, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.2715469300746918, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.962425172328949, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.9856249690055847, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.9967579245567322, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.9997808933258057, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.9997808933258057, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.9967579245567322, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.9856249690055847, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.962425172328949, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.9285763502120972, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.8918152451515198, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.8632783889770508, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.8525245189666748, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.8632784485816956, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.8918153047561646, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.9285763502120972, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.962425172328949, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                }
+                            ],
+                            "Events": []
+                        }
+                    }
+                ]
+            },
+            {
+                "Binding": "9900d8b5cf73ee2198f3e9009bd387bc",
+                "Property": "",
+                "Kind": 3,
+                "Muted": false,
+                "Sections": [
+                    {
+                        "Start": 0,
+                        "End": 14400,
+                        "Blend": 0,
+                        "Weight": [],
+                        "Row": 0,
+                        "Name": "Whole clip",
+                        "Channel": {
+                            "Kind": 3,
+                            "Components": [
+                                {
+                                    "Keys": [
+                                        [0, -9.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, -2.999997138977051, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, -3.715468110954134e-8, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, -0.16192439198493958, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, -0.2960173785686493, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, -0.38263705372810364, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, -0.4123207926750183, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, -0.3826369643211365, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, -0.29601719975471497, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, -0.16192439198493958, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 7.430936221908269e-8, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.16192452609539032, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.2960173189640045, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.38263702392578125, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.4123207926750183, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.3826369047164917, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.2960171103477478, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.16192443668842316, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, -1.0136148809181122e-8, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.9868031740188599, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.9551825523376465, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.9238987565040588, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.9110387563705444, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.9238987565040588, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.9551826119422913, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.9868031740188599, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.9868031740188599, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.9551825523376465, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.9238987565040588, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.9110387563705444, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.9238988161087036, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.9551826119422913, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.9868031740188599, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                }
+                            ],
+                            "Events": []
+                        }
+                    }
+                ]
+            },
+            {
+                "Binding": "48571542b98d39c705f46bbf2cf3ac44",
+                "Property": "",
+                "Kind": 3,
+                "Muted": false,
+                "Sections": [
+                    {
+                        "Start": 0,
+                        "End": 14400,
+                        "Blend": 0,
+                        "Weight": [],
+                        "Row": 0,
+                        "Name": "Whole clip",
+                        "Channel": {
+                            "Kind": 3,
+                            "Components": [
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, -42.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.2715469300746918, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.3711414635181427, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.45239976048469543, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.5047280788421631, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.5226872563362122, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.5047280192375183, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.45239970088005066, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.37114137411117554, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.2715469300746918, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.16894777119159698, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.08045851439237595, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.020931590348482132, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.02093164063990116, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.08045858144760132, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.16894787549972534, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.27154701948165894, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.0, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 0.0
+                                },
+                                {
+                                    "Keys": [
+                                        [0, 0.962425172328949, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [900, 0.9285763502120972, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [1800, 0.8918152451515198, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [2700, 0.8632783889770508, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [3600, 0.8525245189666748, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [4500, 0.8632784485816956, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [5400, 0.8918153047561646, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [6300, 0.9285763502120972, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [7200, 0.962425172328949, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [8100, 0.9856250286102295, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9000, 0.996757984161377, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [9900, 0.9997808933258057, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [10800, 1.0, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [11700, 0.9997808933258057, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [12600, 0.9967579245567322, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [13500, 0.9856249690055847, 0.0, 0.0, 0.0, 0.0, 1, 0],
+                                        [14400, 0.962425172328949, 0.0, 0.0, 0.0, 0.0, 1, 0]
+                                    ],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                },
+                                {
+                                    "Keys": [],
+                                    "Default": 1.0
+                                }
+                            ],
+                            "Events": []
+                        }
+                    }
+                ]
+            }
+        ]
+    }
 }
