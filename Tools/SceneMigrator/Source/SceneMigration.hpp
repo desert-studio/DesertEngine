@@ -295,10 +295,10 @@ namespace Desert::Migration
     // whose v1 body does not read, is an error naming why. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateFoliageTypeV1ToV2( const std::string& text );
 
-    // The SKEL 2 text of a SKEL 1 `.skeleton` (SKEL-TREE): header GUID, signature, bones and Import kept;
-    // PreviewMesh null and CompatibleSkeletons [] (v1 stated neither). A file that does not state SKEL 1 is an
-    // error naming what it states. PURE - no filesystem access.
-    Common::ResultStr<std::string> MigrateSkeletonV1ToV2( const std::string& text );
+    // The SKEL 3 text of a SKEL 1 or 2 `.skeleton`: header GUID, signature, bones, PreviewMesh and
+    // CompatibleSkeletons kept (SKEL 1 stated neither: null, []); the dead `Import` provenance dropped (SKEL 3).
+    // A file that does not state SKEL 1 or 2 is an error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateSkeletonToV3( const std::string& text );
 
     // SKEL-TREE (Engine/Animation/SkeletonReference.hpp): what the two raises below resolve a legacy bone hash
     // against - one .skeleton's header GUID, Signature and path (relative to its `Assets` root, the form an

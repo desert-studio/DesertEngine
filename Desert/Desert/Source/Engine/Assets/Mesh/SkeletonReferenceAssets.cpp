@@ -55,7 +55,7 @@ namespace Desert::Assets::Serialization
 
     Common::BoolResultStr SaveSkeletonAsset( const SkeletonAsset& skeleton )
     {
-        // THE FILE IS THE BASE, NOT THE ASSET: bones, GUID and Import are rewritten exactly as the file states
+        // THE FILE IS THE BASE, NOT THE ASSET: bones, GUID and signature are rewritten exactly as the file states
         // them, so a save from the Skeleton Editor can never drop the import record or re-mint the identity.
         const std::filesystem::path file = ContentRegistry::FileToOpen( skeleton.GetMetadata().Filepath );
         auto                        raw  = Common::Utils::FileSystem::ReadFileContent( file );

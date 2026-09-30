@@ -28,7 +28,7 @@ namespace Desert::Assets
 
 namespace Desert::Assets::Serialization
 {
-    /// Rewrites the asset's .skeleton: GUID, bones and Import are kept as the file states them; PreviewMesh and
+    /// Rewrites the asset's .skeleton: GUID, signature and bones are kept as the file states them; PreviewMesh and
     /// CompatibleSkeletons are taken from the asset (SetPreviewMesh / SetCompatibleSkeletons).
     [[nodiscard]] Common::BoolResultStr SaveSkeletonAsset( const SkeletonAsset& skeleton );
 
