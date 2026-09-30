@@ -90,7 +90,7 @@ namespace Desert::Editor
         // refusal: no source, a missing new file, a format change, a failed copy or import.
         Common::BoolResultStr ReimportWithNewFile( const std::filesystem::path& assetPath,
                                                    const std::filesystem::path& newFile );
-        // The section's Uniform Scale and Up Axis fields without a mouse (the palette's "Details / Import
+        // The section's Uniform Scale and Up Axis fields without a mouse (the palette's "Assets / Import
         // Settings: ..."): the fields' own SetUniformScale / SetUpAxis on the section's working copy of the mesh
         // asset at @p assetPath's source - the copy Reimport imports with. An error for a mesh with no source or
         // record.

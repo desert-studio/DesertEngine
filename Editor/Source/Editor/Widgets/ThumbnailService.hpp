@@ -127,6 +127,8 @@ namespace Desert::Editor
         /// the same key (MeshRequestOf) and the same hash (SourceHash), so a shower that says Capture is a
         /// service that queues, and a repeated request of a queued picture is a no-op.
         [[nodiscard]] static ThumbnailFreshness::Verdict JudgeMeshPicture( const std::string& cookedPath );
+        /// The same for a material picture: RequestMaterial's key (the asset path) and hash (its content).
+        [[nodiscard]] static ThumbnailFreshness::Verdict JudgeMaterialPicture( const std::string& assetPath );
 
         /**
          * @brief Queue a picture that is PAINTED ON THE CPU from the file's own bytes — the four cloud
@@ -192,6 +194,9 @@ namespace Desert::Editor
         std::string RequestPreviewMaterial( const ThumbnailSubject::Material& material,
                                             const std::string& assetPath, const Assets::ThumbnailOrbit& orbit );
         std::string RequestPreviewMesh( const ThumbnailSubject::Mesh& mesh, const Assets::ThumbnailOrbit& orbit );
+        /// The same for a posed picture (a skinned source's .skmesh, ThumbnailPose::ResolvePoseSubject): captured
+        /// as RequestPose captures it, keyed on @p pose.CookedPath.
+        std::string RequestPreviewPose( const ThumbnailSubject::Mesh& pose, const Assets::ThumbnailOrbit& orbit );
         /// The gesture on @p assetPath ended: a waiting preview is dropped (one in flight still lands).
         void EndPreview( const std::string& assetPath );
         /// A preview of @p assetPath has landed since its gesture began: the PreviewPath file is this gesture's.

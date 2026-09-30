@@ -269,6 +269,13 @@ namespace Desert::Editor
                                                                            : ThumbnailFreshness::Verdict::Show;
     }
 
+    ThumbnailFreshness::Verdict ThumbnailService::JudgeMaterialPicture( const std::string& assetPath )
+    {
+        return NeedsCapture( ThumbnailKey::DiskPath( assetPath ), ThumbnailFreshness::ContentHash( assetPath ) )
+                    ? ThumbnailFreshness::Verdict::Capture
+                    : ThumbnailFreshness::Verdict::Show;
+    }
+
     std::string ThumbnailService::EnqueueMeshLike( Request req )
     {
         std::string png = req.Png;
@@ -522,6 +529,24 @@ namespace Desert::Editor
                      mesh.CookedPath,
                      png,
                      ThumbnailSubject::Preview::Sphere };
+        req.Thumbnail.Orbit = orbit;
+        m_Preview.Put( identity, orbit, std::move( req ) );
+        return png;
+    }
+
+    std::string ThumbnailService::RequestPreviewPose( const ThumbnailSubject::Mesh& pose,
+                                                      const Assets::ThumbnailOrbit& orbit )
+    {
+        const std::string identity = ThumbnailKey::Identity( pose.CookedPath );
+        const std::string png      = ThumbnailKey::PreviewPath( pose.CookedPath );
+        Request           req{ Kind::Pose,
+                     pose.Handle,
+                     Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
+                     identity,
+                     pose.CookedPath,
+                     png,
+                     ThumbnailSubject::Preview::Sphere };
+        req.Clip            = pose.Clip;
         req.Thumbnail.Orbit = orbit;
         m_Preview.Put( identity, orbit, std::move( req ) );
         return png;

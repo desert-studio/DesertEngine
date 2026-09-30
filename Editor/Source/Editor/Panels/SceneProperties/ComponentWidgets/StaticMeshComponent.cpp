@@ -13,7 +13,6 @@
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Widgets/PreviewViewport.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
-#include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Editor/Widgets/ThumbnailSubject.hpp>
@@ -196,6 +195,7 @@ namespace Desert::Editor
         std::shared_ptr<Graphic::Image2D> thumb;
         std::string                       png;
         std::string                       source;
+        bool                              materialPicture = false;
         if ( m_AssetManager )
         {
             if ( staticMesh.MeshHandle )
@@ -222,17 +222,20 @@ namespace Desert::Editor
                     // copy of the cutout rule and to ask nothing at all about the domain. A refusal leaves
                     // `png` empty, which this row already reads as "no rendered thumbnail".
                     png = ThumbnailService::Get().RequestLoadedMaterial( *m_AssetManager, mat, source );
+                    materialPicture = true;
                 }
             }
 
             if ( !png.empty() )
             {
-                // Through the shared rule, not a bare exists(): a picture whose asset has moved on is not
-                // the asset's picture (Editor/Widgets/ThumbnailFreshness.hpp). When it says Capture the
-                // request above has already queued the replacement, so the decoded copy is dropped here —
-                // otherwise this cache would keep handing back the OLD render after the new one lands.
-                if ( ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
-                          png, MeshThumbnailFreshness( source ) ) ) == ThumbnailFreshness::Verdict::Show )
+                // The service's one verdict for this picture — the key and hash its enqueue gate used above,
+                // not a second judgement of our own. When it says Capture the request above has already queued
+                // the replacement, so the decoded copy is dropped here — otherwise this cache would keep
+                // handing back the OLD render after the new one lands.
+                const ThumbnailFreshness::Verdict verdict = materialPicture
+                                                                 ? ThumbnailService::JudgeMaterialPicture( source )
+                                                                 : ThumbnailService::JudgeMeshPicture( source );
+                if ( verdict == ThumbnailFreshness::Verdict::Show )
                     thumb = s_Thumbnails.Get( png );
                 else
                     s_Thumbnails.Invalidate( png );

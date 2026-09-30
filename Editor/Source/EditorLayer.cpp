@@ -6220,67 +6220,54 @@ namespace Desert::Editor
         for ( const bool on : { true, false } )
             commands.push_back( { "Assets", std::format( "Import Options: Combine Meshes {}", on ? "on" : "off" ),
                                   [on] { return ImportOptions::SetShownCombineMeshes( on ); } } );
-        // The Details' Import Settings Reimport, for the selected entity's mesh - static or skinned (UE: Reimport
-        // on a skeletal mesh actor reimports its USkeletalMesh with the skeleton and the clips): the button's own
-        // body.
-        // The selected entity's mesh asset, static or skinned: what the Details' Import Settings section shows.
-        const auto selectedMeshAsset = [this]() -> Common::ResultStr<std::filesystem::path>
+        // UE's Content Browser > Asset Actions > Reimport (and the Import Settings fields Reimport imports with):
+        // over the assets SELECTED IN THE CONTENT BROWSER, the RMB item's and the Import Settings button's own
+        // ImportOptions bodies. Without a selected asset each is unavailable and says why; an asset with no import
+        // source is refused by name by the body it reaches.
+        const auto selectedAssets = [this]() -> Common::ResultStr<std::vector<std::string>>
         {
-            const auto selected = Core::SelectionManager::GetSelected();
-            if ( !m_MainScene || !selected.has_value() )
-                return Common::MakeError<std::filesystem::path>( "no entity is selected" );
-            auto ref = m_MainScene->FindEntityByID( *selected );
-            if ( !ref )
-                return Common::MakeError<std::filesystem::path>( "the selected entity is not in the scene" );
-            Assets::AssetHandle handle;
-            if ( ref->get().HasComponent<ECS::StaticMeshComponent>() )
-                handle = ref->get().GetComponent<ECS::StaticMeshComponent>().MeshHandle;
-            else if ( ref->get().HasComponent<ECS::SkinnedMeshComponent>() )
-                handle = ref->get().GetComponent<ECS::SkinnedMeshComponent>().MeshHandle;
-            else
-                return Common::MakeError<std::filesystem::path>(
-                     "the selected entity has no static or skinned mesh" );
-            const auto asset = handle ? m_AssetManager->FindByHandle<Assets::MeshAsset>( handle ) : nullptr;
-            if ( !asset )
-                return Common::MakeError<std::filesystem::path>( "the selected entity's mesh is not loaded" );
-            return Common::MakeSuccess( asset->GetMetadata().Filepath );
+            if ( m_FileExplorerPanel == nullptr )
+                return Common::MakeError<std::vector<std::string>>( "the Content Browser is not open" );
+            std::vector<std::string> selected = m_FileExplorerPanel->SelectionPaths();
+            if ( selected.empty() )
+                return Common::MakeError<std::vector<std::string>>( "no asset is selected in the Content Browser" );
+            return Common::MakeSuccess( std::move( selected ) );
         };
-        commands.push_back( { "Assets", "Reimport selected", [selectedMeshAsset]() -> Common::BoolResultStr
-                              {
-                                  const auto asset = selectedMeshAsset();
-                                  if ( !asset )
-                                      return Common::MakeError<bool>( asset.GetError() );
-                                  return ImportOptions::Reimport( asset.GetValue() );
-                              } } );
-        // THE SECTION'S FIELDS WITHOUT A MOUSE (UE: the Import Settings category's properties): the fields' own
-        // edits on the working copy Reimport imports with, for the selected entity's mesh.
+        // One body over every selected asset; the first refusal is the command's answer, the others still run.
+        const auto overSelectedAssets =
+             [selectedAssets]( const std::function<Common::BoolResultStr( const std::filesystem::path& )>& body )
+             -> Common::BoolResultStr
+        {
+            const auto assets = selectedAssets();
+            if ( !assets )
+                return Common::MakeError<bool>( assets.GetError() );
+            Common::BoolResultStr outcome = PaletteCommandDone();
+            for ( const std::string& asset : assets.GetValue() )
+                if ( const auto done = body( asset ); !done && outcome )
+                    outcome = Common::MakeError<bool>( std::format( "'{}': {}", asset, done.GetError() ) );
+            return outcome;
+        };
+        commands.push_back( { "Assets", "Reimport selected", [overSelectedAssets]
+                              { return overSelectedAssets( []( const std::filesystem::path& asset )
+                                                           { return ImportOptions::Reimport( asset ); } ); } } );
         for ( const float scale : { 0.01f, 0.1f, 1.0f, 10.0f, 100.0f } )
-            commands.push_back( { "Details", std::format( "Import Settings: Uniform Scale {}", scale ),
-                                  [selectedMeshAsset, scale]() -> Common::BoolResultStr
+            commands.push_back( { "Assets", std::format( "Import Settings: Uniform Scale {}", scale ),
+                                  [overSelectedAssets, scale]
                                   {
-                                      const auto asset = selectedMeshAsset();
-                                      if ( !asset )
-                                          return Common::MakeError<bool>( asset.GetError() );
-                                      if ( const auto set =
-                                                ImportOptions::SetSectionUniformScale( asset.GetValue(), scale );
-                                           !set )
-                                          return set;
-                                      return PaletteCommandDone();
+                                      return overSelectedAssets(
+                                           [scale]( const std::filesystem::path& asset )
+                                           { return ImportOptions::SetSectionUniformScale( asset, scale ); } );
                                   } } );
         for ( const auto& [label, axis] :
               { std::pair{ "From File", Assets::MeshSourceUpAxis::FromFile },
                 std::pair{ "Y", Assets::MeshSourceUpAxis::Y }, std::pair{ "Z", Assets::MeshSourceUpAxis::Z } } )
-            commands.push_back(
-                 { "Details", std::format( "Import Settings: Up Axis {}", label ),
-                   [selectedMeshAsset, axis]() -> Common::BoolResultStr
-                   {
-                       const auto asset = selectedMeshAsset();
-                       if ( !asset )
-                           return Common::MakeError<bool>( asset.GetError() );
-                       if ( const auto set = ImportOptions::SetSectionUpAxis( asset.GetValue(), axis ); !set )
-                           return set;
-                       return PaletteCommandDone();
-                   } } );
+            commands.push_back( { "Assets", std::format( "Import Settings: Up Axis {}", label ),
+                                  [overSelectedAssets, axis]
+                                  {
+                                      return overSelectedAssets(
+                                           [axis]( const std::filesystem::path& asset )
+                                           { return ImportOptions::SetSectionUpAxis( asset, axis ); } );
+                                  } } );
         // THE FOLIAGE PALETTE WITHOUT A MOUSE: the mode, and one entry per collection running the palette's own
         // collection drop (FO-2), so a frame can show types that came from a collection unattended.
         commands.push_back( { "Foliage", "Foliage mode", []

@@ -510,8 +510,7 @@ namespace Desert::Editor
                 const std::optional<std::string> cooked = cookedOf( item );
                 if ( !cooked )
                     return ThumbnailFreshness::Verdict::Show; // refused and named by MeshSourceFor: no capture
-                return ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
-                     ThumbnailKey::DiskPath( *cooked ), MeshThumbnailFreshness( *cooked ) ) );
+                return ThumbnailService::JudgeMeshPicture( *cooked ); // the tile's and the enqueue gate's verdict
             }
             return ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( ThumbnailPngFor( item.Path ), item.Path ) );
         };
@@ -2027,10 +2026,8 @@ namespace Desert::Editor
 
         const std::string pngPath = ThumbnailKey::DiskPath( cookedStr );
 
-        // Same shared rule as the material grid above (Editor/Widgets/ThumbnailFreshness.hpp).
-        const bool haveFresh =
-             ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
-                  pngPath, MeshThumbnailFreshness( cookedStr ) ) ) == ThumbnailFreshness::Verdict::Show;
+        // The one verdict of a mesh picture (ThumbnailService::JudgeMeshPicture): the enqueue gate's key and hash.
+        const bool haveFresh = ThumbnailService::JudgeMeshPicture( cookedStr ) == ThumbnailFreshness::Verdict::Show;
         if ( !haveFresh )
             m_Thumbnails->Invalidate( pngPath );
         if ( haveFresh )
@@ -2787,6 +2784,16 @@ namespace Desert::Editor
                      *subject.GetValue(), entry.AssetPath, gesture.Live );
             return;
         }
+        // A skinned source's picture is the pose of the asset its import wrote (MeshPictureFor), the tile's own
+        // subject: the static route refuses a skinned mesh as "no drawable geometry".
+        if ( const std::optional<MeshPicture> picture = MeshPictureFor( entry.AssetPath, entry.Type );
+             picture && picture->Pose )
+        {
+            const auto pose = ThumbnailPose::ResolvePoseSubject( *m_AssetManager, picture->Cooked );
+            if ( pose && !pose.GetValue().Pending )
+                gesture.PreviewPng = ThumbnailService::Get().RequestPreviewPose( pose.GetValue(), gesture.Live );
+            return;
+        }
         const auto subject = ThumbnailSubject::ResolveMesh( *m_AssetManager, entry.AssetPath );
         if ( subject && !subject.GetValue().Pending )
             gesture.PreviewPng = ThumbnailService::Get().RequestPreviewMesh( subject.GetValue(), gesture.Live );
@@ -2813,10 +2820,23 @@ namespace Desert::Editor
                 m_EditThumbnailPath.clear();
                 return;
             }
-            m_ThumbnailGesture = ThumbnailGesture{ stated.GetValue(), stated.GetValue() };
-            m_ThumbnailGesture->PreviewKey = entry.Type == FileType::Model
-                                                  ? CookPaths::MeshAsset( entry.AssetPath ).generic_string()
-                                                  : entry.AssetPath;
+            // The preview is keyed where the tile's picture is (MeshPictureFor): a skinned source's is its .skmesh,
+            // not the .stmesh an extension swap would name.
+            std::string previewKey = entry.AssetPath;
+            if ( entry.Type == FileType::Model )
+            {
+                const std::optional<MeshPicture> picture = MeshPictureFor( entry.AssetPath, entry.Type );
+                if ( !picture )
+                {
+                    LOG_WARN( "[Thumbnail] Edit Thumbnail '{}': the model has no picture to edit (not imported)",
+                              entry.AssetPath );
+                    m_EditThumbnailPath.clear();
+                    return;
+                }
+                previewKey = picture->Cooked;
+            }
+            m_ThumbnailGesture             = ThumbnailGesture{ stated.GetValue(), stated.GetValue() };
+            m_ThumbnailGesture->PreviewKey = std::move( previewKey );
         }
         if ( m_ThumbnailGesture )
         {
