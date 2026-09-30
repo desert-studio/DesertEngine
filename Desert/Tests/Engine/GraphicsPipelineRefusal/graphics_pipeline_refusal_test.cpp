@@ -533,10 +533,10 @@ TEST( GraphicsPipelineRefusal, EveryBareSharedPtrFactoryIsOnTheRegister )
     // which is precisely what Г21 measured on the compute side (16 of 16 call sites unusable) and Г22 on
     // the graphics side (35 of 35).
     //
-    // NOT ALL OF THEM ARE DEFECTS, AND CLASSIFYING THEM IS A SEPARATE TASK'S WORK: MaterialPBR::Create,
-    // for one, genuinely returns nullptr and its callers' checks genuinely fire. What this register does
-    // is make a TWENTY-FOURTH impossible to add without a reviewer seeing it, and record the two that
-    // have been converted so the direction cannot silently reverse.
+    // NOT ALL OF THEM ARE DEFECTS, AND CLASSIFYING THEM IS A SEPARATE TASK'S WORK: the mesh renderer's cell
+    // materials, for one, genuinely returns nullptr and its callers' checks genuinely fire. What this register
+    // does is make a TWENTY-FOURTH impossible to add without a reviewer seeing it, and record the two that have
+    // been converted so the direction cannot silently reverse.
     //
     // It pins NAMES, not a number: a gate pinning a count can be satisfied by editing the count.
     const std::string root = RepoRoot();
@@ -551,7 +551,6 @@ TEST( GraphicsPipelineRefusal, EveryBareSharedPtrFactoryIsOnTheRegister )
          "Engine/Graphic/Framebuffer.hpp",
          "Engine/Graphic/Image.hpp",
          "Engine/Graphic/IndexBuffer.hpp",
-         "Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp",
          "Engine/Graphic/RenderPass.hpp",
          "Engine/Graphic/RendererContext.hpp",
          "Engine/Graphic/Shader.hpp",

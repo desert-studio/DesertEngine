@@ -298,7 +298,7 @@ namespace
     };
 
     constexpr const char* kParamRow  = "Desert/Desert/Source/Engine/Core/Formats/MaterialParamRow.hpp";
-    constexpr const char* kFactory   = "Desert/Desert/Source/Engine/Graphic/Materials/MaterialFactory.cpp";
+    constexpr const char* kFactory   = "Desert/Desert/Source/Engine/Runtime/Services/Material/MaterialService.cpp";
     constexpr const char* kMaterial  = "Desert/Desert/Source/Engine/Graphic/Materials/Material.cpp";
     constexpr const char* kPipeline  = "Desert/Desert/Source/Engine/Graphic/PipelineCache.hpp";
     constexpr const char* kMeshRend  = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp";
@@ -400,6 +400,11 @@ namespace
          // The generator writes the row and the samplers FROM this (BuildAutoDeclarations); MeshVertexPath
          // reconciles it with every compiled stage (Core/Formats/MaterialLayout.hpp).
          { "DShaderParseResult", "Layout", kParser, nullptr },
+         // The expanded `Surface` block (SURF1a). The parser reads its Blend and TwoSided back when it
+         // builds the cells — Masked demands the clip parameter and adds the discard, TwoSided turns the
+         // cells' cull off — and publishes the cells as named passes (Meta.PassNames), which is how
+         // ShaderService registers them; MeshShaderFor names the ones a mesh pass draws with.
+         { "DShaderParseResult", "Surface", kParser, nullptr },
 
          { "DShaderPass", "Name", kParser, nullptr },
          { "DShaderPass", "State", kPreproc, nullptr },
@@ -590,9 +595,10 @@ TEST( ShaderSchemaConsumers, TheDeadCountIsStatedSoAShrinkageIsVisible )
     // which is a program FRAGMENT rather than a program: ShaderService recognises it at registration and
     // hands its text to the cloud renderer as one virtual include. (Forty since O1 added
     // `ShaderParam::Timing`, when an edit to a parameter reaches the picture.)
+    // FORTY-FIVE since SURF1c added `DShaderParseResult::Surface` (read by the cell expansion in
+    // DShaderParser.cpp). FORTY-FOUR since MAT1s added `ShaderParam::Sampler` (read by BindManifestSamplers).
     // FORTY-THREE since MAT1h-2 added `ShaderProgramMeta::LayoutBindings` (read by BuildMaterialLayout).
-    // FORTY-FOUR since MAT1s added `ShaderParam::Sampler` (read by BindManifestSamplers).
-    EXPECT_EQ( std::size( k_Census ), 44u )
+    EXPECT_EQ( std::size( k_Census ), 45u )
          << "the shader schema gained or lost a field; the count is quoted so that is a reviewable edit";
 }
 

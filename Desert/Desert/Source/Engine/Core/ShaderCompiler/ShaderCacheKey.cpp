@@ -6,6 +6,7 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
 #include <chrono>
+#include <format>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -259,7 +260,12 @@ namespace Desert::Core
         FnvMix( key, kOptionsFingerprint );
         FnvMix( key, spirvDebugInfo ? "|debuginfo" : "|nodebuginfo" );
         FnvMix( key, "|pass:" );
-        FnvMix( key, passName );
+        // ONE KEY PER CELL: a surface template's default cell and its default program are one program
+        // (IsSurfaceDefaultCell), so asking by either name finds the same map.
+        FnvMix( key, Preprocess::IsSurfaceDefaultCell(
+                          Preprocess::DShaderParser::MayDeclareSurface( programSource ), passName )
+                          ? std::string_view()
+                          : std::string_view( passName ) );
         FnvMix( key, "|" );
         const uint64_t variantHash = variant.Hash();
         FnvMix( key, std::string_view( reinterpret_cast<const char*>( &variantHash ), sizeof variantHash ) );
@@ -270,6 +276,10 @@ namespace Desert::Core
         std::string scanned = programSource;
         for ( const std::string_view injected : Preprocess::kParserInjectedIncludes )
             scanned.append( "\n#include <" ).append( injected ).append( ">\n" );
+        // A surface template's cells compile engine headers its text never names (DShaderParser.hpp).
+        if ( Preprocess::DShaderParser::MayDeclareSurface( programSource ) )
+            for ( const std::string& header : Preprocess::SurfaceTemplateIncludes() )
+                scanned.append( std::format( "\n#include <{}>\n", header ) );
         for ( const auto& include : CollectShaderIncludes( scanned, programPath, variant ) )
         {
             FnvMix( key, include.generic_string() );

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
 
@@ -65,6 +67,12 @@ namespace Desert::Graphic::API::Vulkan
         {
             return GetBuildState() == BuildState::Built ? m_Pipeline : VK_NULL_HANDLE;
         }
+        // The layout carries the optional streams binding (binding 1): the draw must bind a buffer there.
+        [[nodiscard]] bool HasVertexStreams() const
+        {
+            return !m_Specification.PullingConfig && m_Specification.Layout &&
+                   m_Specification.Layout->HasStreams();
+        }
 
         VkPipelineLayout GetVkPipelineLayout() const
         {
@@ -103,7 +111,7 @@ namespace Desert::Graphic::API::Vulkan
         GraphicsPipelineSpecification m_Specification;
 
         VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
-        VkPipeline       m_Pipeline= VK_NULL_HANDLE;
+        VkPipeline       m_Pipeline       = VK_NULL_HANDLE;
 
         // The descriptor set layouts m_PipelineLayout was built from, held so they outlive it. A shader
         // recompile replaces the shader's references; this pipeline keeps its own until it is rebuilt.
@@ -116,8 +124,8 @@ namespace Desert::Graphic::API::Vulkan
         VkPipelineRasterizationStateCreateInfo m_Rasterizer{};
         VkPipelineMultisampleStateCreateInfo   m_Multisampling{};
         VkPipelineDepthStencilStateCreateInfo  m_DepthStencil{};
-        VkPipelineColorBlendStateCreateInfo    m_ColorBlending{};
-        VkVertexInputBindingDescription m_VertexInputBinding;
+        VkPipelineColorBlendStateCreateInfo            m_ColorBlending{};
+        std::array<VkVertexInputBindingDescription, 2> m_VertexInputBindings{};
 
         std::vector<VkVertexInputAttributeDescription>   m_VertexAttributes;
         std::vector<VkDynamicState>                      m_DynamicStates;

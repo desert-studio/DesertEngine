@@ -56,6 +56,31 @@ namespace Desert::Core::Formats
         ShaderStage Stages = ShaderStage::None;
     };
 
+    // Which groups of SCENE state a template reads — the frame's contribution to a surface, as opposed to
+    // the material's own row and textures. Filled by Graphic::ShaderReflection::ReconcileCellLayout from the
+    // resource names the compiled stages declare (Graphic::SceneResources is the one name table), and read
+    // by Graphic::PBRSceneFrame::ApplyTo, which writes exactly these groups. A capability of the TEMPLATE,
+    // so any surface — the shipped lit one or a data-driven one — that samples the shadow map is handed the
+    // cascades for that reason alone.
+    enum class SceneRead : uint32_t
+    {
+        None        = 0,
+        Camera      = 1u << 0,
+        Time        = 1u << 1,
+        Lights      = 1u << 2,
+        Shadow      = 1u << 3,
+        Environment = 1u << 4,
+        CloudShadow = 1u << 5,
+    };
+    constexpr SceneRead operator|( SceneRead a, SceneRead b )
+    {
+        return static_cast<SceneRead>( static_cast<uint32_t>( a ) | static_cast<uint32_t>( b ) );
+    }
+    constexpr bool Reads( SceneRead set, SceneRead group )
+    {
+        return ( static_cast<uint32_t>( set ) & static_cast<uint32_t>( group ) ) != 0;
+    }
+
     struct MaterialLayout
     {
         std::optional<uint32_t>          RowBinding; // empty = the template carries no row
@@ -68,6 +93,9 @@ namespace Desert::Core::Formats
         std::vector<MaterialLayoutPushField> Push;
         uint32_t                             PushSize   = 0;
         ShaderStage                          PushStages = ShaderStage::None;
+
+        // Filled with the push fields, from every stage's declared resource names; None until then.
+        SceneRead SceneReads = SceneRead::None;
 
         [[nodiscard]] const MaterialLayoutParam* FindParam( std::string_view name ) const
         {
@@ -184,6 +212,10 @@ namespace Desert::Core::Formats
 
         std::optional<uint32_t>            PushSize; // empty = the stage declares no push block
         std::vector<ReflectedLayoutMember> PushMembers;
+
+        // Every uniform block, storage buffer and sampler the stage declares, by the name Material::Get
+        // looks it up under — what SceneReads is classified from.
+        std::vector<std::string> ResourceNames;
     };
 
     constexpr const char* MaterialLayoutStageName( ShaderStage stage )

@@ -289,7 +289,7 @@ TEST( MaterialData, PreviewMeshRoundTripsAsAStatedDependency )
 }
 
 // MAT1s: a slot's sampler is the .demat's when the slot states one, the template's otherwise - through the one
-// resolver MaterialFactory hands to Texture2DProperty, after a write/read of the file.
+// resolver ApplySurfaceAsset hands to Texture2DProperty, after a write/read of the file.
 TEST( MaterialData, ASlotSamplerOverridesTheTemplateAndAnUnstatedSlotKeepsTheTemplates )
 {
     using Desert::Core::Formats::SamplerFilter;
@@ -315,4 +315,22 @@ TEST( MaterialData, ASlotSamplerOverridesTheTemplateAndAnUnstatedSlotKeepsTheTem
     EXPECT_EQ( r.SlotSampler( "u_NormalTexture", templateDefault ), templateDefault )
          << "no state: the template's";
     EXPECT_EQ( r.SlotSampler( "u_Unnamed", templateDefault ), templateDefault ) << "no slot: the template's";
+}
+
+// SURF1e: TwoSided is the MATERIAL's (UE UMaterial::TwoSided) and is optional — unstated means "the template's",
+// so a written false must read back as a stated false (an override), never as absent.
+TEST( MaterialData, TwoSidedRoundTripsAndAnUnstatedOneStaysUnstated )
+{
+    for ( const std::optional<bool> stated :
+          { std::optional<bool>{ true }, std::optional<bool>{ false }, std::optional<bool>{} } )
+    {
+        Desert::Assets::MaterialData m;
+        m.TwoSided      = stated;
+        const auto text = Desert::Assets::WriteMaterialJson( m );
+        ASSERT_TRUE( text ) << text.GetError();
+        EXPECT_EQ( text.GetValue().find( "TwoSided" ) != std::string::npos, stated.has_value() );
+        const auto back = Desert::Assets::ParseMaterialJson( "t.demat", text.GetValue() );
+        ASSERT_TRUE( back ) << back.GetError();
+        EXPECT_EQ( back.GetValue().TwoSided, stated );
+    }
 }

@@ -38,11 +38,14 @@ Shader "DeferredLighting"
 
         In(0) vec2 v_TexCoord;
 
-        Uniform(1) sampler2D u_GBufferC; // rgb = world position
+        // The G-buffer's layout and the shading-model ids it carries (C.w, Emissive.a).
+        #include <Mesh/Surface/ShadingModels.glslh>
+
+        Uniform(1) sampler2D u_GBufferC; // rgb = world position, a = ShadingModelID | texture count (packed)
         Uniform(2) sampler2D u_GBufferA; // rgb = albedo, a = metallic
         Uniform(3) sampler2D u_GBufferB; // rgb = world normal, a = roughness
         Uniform(8) sampler2D u_SSAO;     // r = ambient-occlusion factor (1 = lit)
-        Uniform(9) sampler2D u_GBufferEmissive; // rgb = HDR emissive (self-illumination, added below)
+        Uniform(9) sampler2D u_GBufferEmissive; // rgb = HDR emissive (added below), a = material AO
         // RSM GI mode only: one-bounce indirect light PRE-RESOLVED into its own buffer by the GIResolve pass
         // (already temporally denoised there). Unused — and left bound to its dummy — in the other GI modes.
         Uniform(10) sampler2D u_GI;
@@ -230,7 +233,21 @@ Shader "DeferredLighting"
         		discard;
         	}
 
-        	float ao = (u_Params.z > 0.5) ? texture(u_SSAO, v_TexCoord).r : 1.0; // z = SSAO enabled
+        	const vec4 ge           = texture(u_GBufferEmissive, v_TexCoord);
+        	const int  shadingModel = DesertShadingModelId(gc.w);
+
+        	// UE's lighting skips MSM_Unlit: the texel is its emission, nothing reflects and nothing occludes it.
+        	// Before any debug view, so an Unlit surface is never painted as a black albedo / metal / occluder.
+        	if (shadingModel == SHADING_MODEL_ID_UNLIT)
+        	{
+        		oColor = vec4(ge.rgb, 1.0);
+        		return;
+        	}
+
+        	// Ambient occlusion as UE composes it for the ambient: the MATERIAL's (GBuffer AO, from the surface's
+        	// AmbientOcclusion output — the forward path's whole AO) times the screen-space one. z = SSAO enabled.
+        	const float ssao = (u_Params.z > 0.5) ? texture(u_SSAO, v_TexCoord).r : 1.0;
+        	float       ao   = ge.a * ssao;
 
         	// --- Debug channels (shown on the geometry, over the sky) ---
         	if (dbg == 1) { oColor = vec4(albedo, 1.0); return; }                          // Albedo
@@ -258,9 +275,9 @@ Shader "DeferredLighting"
         		return;
         	}
 
-        	// Material Complexity: the G-buffer pass stashed the material's sampled-texture count in GBufferC.w
+        	// Material Complexity: the G-buffer pass stashed the material's sampled-texture count in GBufferC.w's upper bits
         	// (0..3). Heat-map it as a proxy for per-pixel shading cost (UE-style shader/material complexity).
-        	if (dbg == 9) { oColor = vec4(HeatColor(gc.w / 3.0), 1.0); return; }
+        	if (dbg == 9) { oColor = vec4(HeatColor(DesertSampledTextureCount(gc.w) / 3.0), 1.0); return; }
 
         	// --- Lit: shadow-mapped directional sun (N·L) + full PBR point/spot lights ---
         	vec3 N    = normalize(normal);
@@ -338,7 +355,7 @@ Shader "DeferredLighting"
 
         	// Self-illumination (view-independent) — added here (not lit) so HDR emissive reaches the composite
         	// and blooms, matching the forward path. GBufferEmissive is 0 where the material has none.
-        	vec3 emissive = texture(u_GBufferEmissive, v_TexCoord).rgb;
+        	vec3 emissive = ge.rgb;
 
         	oColor = vec4(result + ambient + emissive, 1.0);
         }

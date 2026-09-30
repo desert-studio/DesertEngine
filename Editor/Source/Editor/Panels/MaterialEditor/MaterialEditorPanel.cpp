@@ -29,8 +29,6 @@
 #include <Engine/Core/ShaderCompiler/ShaderGraphMedium.hpp>
 #include <Engine/Graphic/Clouds/CloudMaterialValues.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
-#include <Engine/Graphic/Materials/MaterialFactory.hpp>
-#include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -171,7 +169,7 @@ namespace Desert::Editor
                                               const std::shared_ptr<Assets::AssetManager>& assetManager )
          : ISubjectDocument( MaterialDocumentName( material, assetManager ),
                              AssetSubject( material, static_cast<uint32_t>( Assets::AssetTypeID::Material ) ) ),
-           m_AssetManager( assetManager )
+           m_AssetManager( assetManager ), m_SubjectPin( material, "open in the Material Editor" )
     {
         // Start level with the world: a rebuild that happened before this window existed left nothing here to
         // invalidate, and treating it as pending would drop pipelines that were never built.
@@ -2278,10 +2276,8 @@ namespace Desert::Editor
         {
             for ( auto* runtime : materialService->GetBuiltVariants( asset.GetMetadata().Handle ) )
             {
-                if ( auto* pbr = dynamic_cast<Graphic::MaterialPBR*>( runtime ) )
-                    Graphic::MaterialFactory::ApplyPBRAsset( *pbr, asset );
-                else if ( auto* ddm = dynamic_cast<Graphic::DataDrivenMaterial*>( runtime ) )
-                    Graphic::MaterialFactory::ApplyShaderAsset( *ddm, asset );
+                if ( auto* ddm = dynamic_cast<Graphic::DataDrivenMaterial*>( runtime ) )
+                    Runtime::ApplySurfaceAsset( *ddm, asset );
             }
         }
 
@@ -2424,7 +2420,7 @@ namespace Desert::Editor
             return false;
 
         // The publish is what makes the ball show the inherited value again, and it is the SAME publish an
-        // ordinary edit makes. For a base material MaterialFactory::ApplyShaderAsset seeds every schema
+        // ordinary edit makes. For a base material Runtime::ApplySurfaceAsset seeds every schema
         // default before overlaying what the asset stores, so a removed entry genuinely reverts on the GPU
         // rather than leaving the last written value behind; for an instance the global stamp drops the
         // cached MaterialInstances and they are rebuilt from the chain, which is where the parent's value

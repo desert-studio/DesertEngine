@@ -14,13 +14,30 @@
 #include <vector>
 #include <unordered_set>
 
+namespace Desert::Assets
+{
+    class SurfaceMaterialAsset;
+}
+
 namespace Desert::Graphic
 {
-    class MaterialPBR;
+    class DataDrivenMaterial;
 }
 
 namespace Desert::Runtime
 {
+    // THE ONE WAY A `.demat` BECOMES A RUNTIME MATERIAL, for one (vertex path x pass) cell of its template
+    // (Graphic::SurfaceCellShader). Every template, the shipped lit surface included, is built the same way:
+    // a DataDrivenMaterial of that cell, its row and textures applied from the asset. Null when the asset
+    // has no template or the template has no such cell — logged with the material's name.
+    std::shared_ptr<Graphic::DataDrivenMaterial> CreateSurfaceMaterial( const Assets::MaterialAsset* asset,
+                                                                        Graphic::MeshVertexPath      path,
+                                                                        Graphic::MeshPass            pass );
+
+    // (Re)apply a surface asset's parameters and textures onto a live runtime material built from it —
+    // CreateSurfaceMaterial's own body, and what the editor and hot reload call on an edit.
+    void ApplySurfaceAsset( Graphic::DataDrivenMaterial& material, const Assets::SurfaceMaterialAsset& asset );
+
     // Owns the runtime materials behind the `.demat` assets.
     //
     // A runtime material is identified by the TRIPLE (asset, vertex path, pass), not by the asset alone.
@@ -67,7 +84,7 @@ namespace Desert::Runtime
         // Builds-on-miss from a shell, for ONE (vertex path, pass) cell. A material-INSTANCE handle
         // resolves through its parent chain to the BASE material (an instance has no runtime Material of
         // its own). Returns null when the asset resolves to nothing, or when its shader has no variant in
-        // that cell (a custom DSL surface shader on the skinned path, say) — MaterialFactory names which.
+        // that cell (a custom DSL surface shader on the skinned path, say) — CreateSurfaceMaterial names which.
         //
         // The defaults are (Static, Forward) because most callers ask "does this asset resolve to a
         // material at all?" and any cell answers that; the mesh renderers pass the cell they are about to
@@ -100,8 +117,8 @@ namespace Desert::Runtime
         // Null when the engine has no shader for the requested cell, or when @p built is not service-owned
         // — ask Owns() first if the two need telling apart, because they need different handling and a
         // caller that treats them alike either drops geometry or draws it with the wrong textures.
-        Graphic::MaterialPBR* GetVariant( const Graphic::MaterialPBR* built, Graphic::MeshVertexPath path,
-                                          Graphic::MeshPass pass ) const;
+        Graphic::DataDrivenMaterial* GetVariant( const Graphic::Material* built, Graphic::MeshVertexPath path,
+                                                 Graphic::MeshPass pass ) const;
 
         // Whether this runtime material came from a `.demat` this service holds. FALSE for a material a
         // renderer built for itself — the glass pass, the RSM pass, the instanced batch material, and

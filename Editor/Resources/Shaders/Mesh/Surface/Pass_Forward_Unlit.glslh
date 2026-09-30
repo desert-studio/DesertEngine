@@ -1,0 +1,16 @@
+// Surface cell pass: forward, ShadingModel Unlit (UE's MSM_Unlit) — the emitted colour and nothing else. It names
+// no lighting text and declares no lighting resource: no lights, no shadow cascades, no cloud shadow, no IBL, so
+// the cell's layout is the surface's own bindings alone (ShaderCacheKey.AnUnlitGraphSurfaceReceivesNoneOfIt).
+DESERT_SURFACE_VARYINGS( in )
+
+layout( location = 0 ) out vec4 oColor;
+
+void main()
+{
+    const SurfaceInput i =
+         DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
+                              v_Surface.VertexColor );
+    const SurfaceOutput s = EvaluateSurface( i );
+    DESERT_SURFACE_CLIP( s );
+    oColor = vec4( s.Emissive, 1.0 );
+}

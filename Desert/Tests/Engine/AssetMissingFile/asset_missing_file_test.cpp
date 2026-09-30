@@ -150,7 +150,7 @@ TEST( AssetMissingFile, AParsedMaterialSavesNormally )
 {
     const fs::path path = PathWith(
          "fine.demat",
-         R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a001","Versions":{"MATL":4},"Dependencies":["4f1cac6af403a010c792d835dd6f7d44"]},"Shader":{"Guid":"4f1cac6af403a010c792d835dd6f7d44","Path":"engine:Shaders/Programs/PBR/StaticMeshPBR.shader"},"Params":[],"Textures":[],"CloudAssets":[]})" );
+         R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a001","Versions":{"MATL":4},"Dependencies":["4f1cac6af403a010c792d835dd6f7d44"]},"Shader":{"Guid":"4f1cac6af403a010c792d835dd6f7d44","Path":"engine:Shaders/Programs/PBR/StandardSurface.shader"},"Params":[],"Textures":[],"CloudAssets":[]})" );
 
     Desert::Assets::SurfaceMaterialAsset material( path );
     ASSERT_TRUE( material.Load().IsSuccess() );
@@ -178,7 +178,7 @@ TEST( AssetMissingFile, AMaterialHoldingANonNumberRefusesToSaveAndNamesTheParame
 {
     const fs::path path = PathWith(
          "not_a_number.demat",
-         R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a002","Versions":{"MATL":4},"Dependencies":["4f1cac6af403a010c792d835dd6f7d44"]},"Shader":{"Guid":"4f1cac6af403a010c792d835dd6f7d44","Path":"engine:Shaders/Programs/PBR/StaticMeshPBR.shader"},"Params":[],"Textures":[],"CloudAssets":[]})" );
+         R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a002","Versions":{"MATL":4},"Dependencies":["4f1cac6af403a010c792d835dd6f7d44"]},"Shader":{"Guid":"4f1cac6af403a010c792d835dd6f7d44","Path":"engine:Shaders/Programs/PBR/StandardSurface.shader"},"Params":[],"Textures":[],"CloudAssets":[]})" );
 
     for ( const float bad : { std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(),
                               -std::numeric_limits<float>::infinity() } )

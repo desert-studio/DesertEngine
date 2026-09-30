@@ -169,6 +169,12 @@ namespace Desert::Editor
             }
         }
         for ( const auto& [key, entry] : material.Entries )
+            if ( key.ends_with( ".doubleSided" ) )
+            {
+                read.insert( key );
+                fill.TwoSided = entry.Value.has_value() && ( *entry.Value ).x != 0.0f;
+            }
+        for ( const auto& [key, entry] : material.Entries )
             if ( !read.contains( key ) )
                 fill.UnreadKeys.push_back( key );
         return fill;

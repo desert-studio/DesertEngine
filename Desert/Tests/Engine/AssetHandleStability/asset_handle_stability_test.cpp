@@ -1013,7 +1013,7 @@ TEST( AssetHandleStability, AMaterialsIdComesFromItsFileAndSurvivesTheProjectMov
         out << R"({"Header":{"Kind":"Material","Guid":"45d579b03cc0d0a8df2e4cb025d6bea5",)"
                R"("Versions":{"MATL":4},"Dependencies":["4f1cac6af403a010c792d835dd6f7d44"]},)"
                R"("Shader":{"Guid":"4f1cac6af403a010c792d835dd6f7d44",)"
-               R"("Path":"engine:Shaders/Programs/PBR/StaticMeshPBR.shader"},)"
+               R"("Path":"engine:Shaders/Programs/PBR/StandardSurface.shader"},)"
                R"("Params":[],"Textures":[],"CloudAssets":[]})";
     }
 
@@ -1821,12 +1821,17 @@ TEST( ShaderAssetIdentity, EveryCommittedGraphShaderKeepsItsGuidOnRecompile )
     }
     ASSERT_FALSE( graphShaders.empty() )
          << "no Editor/Resources/Shaders/Programs/Graph above " << std::filesystem::current_path();
-    int seen = 0;
+    // A register, not a count: every graph shader the corpus commits, by name. A walk that found nothing
+    // (wrong root) or lost one of these fails by the missing name; a new graph adds its row here.
+    // NewShaderGraph.shader left the corpus with SURF1f-2 (graph surfaces lit through Pass_Forward).
+    static constexpr std::array<std::string_view, 4> kCommitted = { "MatConst", "MatLitConst", "MatProbe",
+                                                                    "MatProbeUnlit" };
+    std::set<std::string>                            seen;
     for ( const auto& entry : std::filesystem::directory_iterator( graphShaders ) )
     {
         if ( entry.path().extension() != ".shader" )
             continue;
-        ++seen;
+        seen.insert( entry.path().stem().string() );
         std::ifstream     in( entry.path(), std::ios::binary );
         const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
         const auto        stated = CC::ReadShaderHeader( text );
@@ -1836,7 +1841,8 @@ TEST( ShaderAssetIdentity, EveryCommittedGraphShaderKeepsItsGuidOnRecompile )
         ASSERT_FALSE( !rewritten ) << rewritten.GetError();
         EXPECT_EQ( rewritten.GetValue().Guid, stated.GetValue().Guid ) << entry.path();
     }
-    EXPECT_GE( seen, 5 );
+    for ( const auto name : kCommitted )
+        EXPECT_TRUE( seen.contains( std::string( name ) ) ) << name << ".shader is not in " << graphShaders;
 }
 
 // ─── T7k: the shader a material names, by GUID; the name the renderer binds is the file stem ───────────

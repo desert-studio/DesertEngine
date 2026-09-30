@@ -301,7 +301,7 @@ namespace
     {
         const auto guid = Common::Content::AssetGuidFromText( "4f1cac6af403a010c792d835dd6f7d44" );
         ASSERT_TRUE( guid ) << guid.GetError();
-        data.SetShader( guid.GetValue(), "engine:Shaders/Programs/PBR/StaticMeshPBR.shader" );
+        data.SetShader( guid.GetValue(), "engine:Shaders/Programs/PBR/StandardSurface.shader" );
     }
 } // namespace
 

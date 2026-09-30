@@ -11,30 +11,23 @@ Shader "MatLitConst"
         ZWrite On
     }
 
-    Vertex
+    ShadingModel DefaultLit
+
+    Surface
     {
-        #define GRAPH_LIT 1
-        #include <Common/GraphVertex.glslh>
-    }
-
-    Fragment
-    {
-        layout( location = 0 ) in vec2 v_UV;
-        layout( location = 1 ) in vec3 v_Normal;
-        layout( location = 2 ) in vec3 v_WorldPos;
-        layout( location = 3 ) in vec3 v_CameraPos;
-        layout( location = 0 ) out vec4 o_Color;
-
-        #include <Common/GraphSurfaceLighting.glslh>
-
-        void main()
+        SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
+            const vec2 v_UV = i.UV0;
             vec4 n0 = vec4( 0.95, 0.55, 0.1, 1.0 );
-            vec4 albedo = n0;
-            vec3 N = normalize( v_Normal );
-            vec3 view = normalize( v_CameraPos - v_WorldPos );
-            vec3 shaded = ShadeGraphSurface( v_WorldPos, N, view, albedo.rgb, 0.0, 0.5, 1.0 );
-            o_Color = vec4( shaded + ( vec4( 0.0 ) ).rgb, albedo.a * ( 1.0 ) );
+            const vec4 albedo = n0;
+            SurfaceOutput s = DefaultSurfaceOutput();
+            s.BaseColor = albedo.rgb;
+            s.Metallic = 0.0;
+            s.Roughness = 0.5;
+            s.AmbientOcclusion = 1.0;
+            s.Emissive = ( vec4( 0.0 ) ).rgb;
+            s.Opacity = albedo.a * ( 1.0 );
+            return s;
         }
     }
 }

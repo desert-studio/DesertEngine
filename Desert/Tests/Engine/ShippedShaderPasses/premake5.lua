@@ -18,6 +18,9 @@ project(test_name)
         -- The parser is compiled directly into the test (it only depends on Core/Formats headers +
         -- Common), so the parse asserted here is the parse the runtime performs.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp",
+        -- The (path x pass) table that names the surface cells a mesh pass draws with: a cell is
+        -- addressable exactly when this table asks for it.
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/Materials/Mesh/MeshVertexPath.cpp",
     }
 
     includedirs {

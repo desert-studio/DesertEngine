@@ -18,7 +18,7 @@ namespace Desert::Core::Formats
     // the contract between the two halves of that: DShaderParser emits the GLSL struct, and
     // Graphic/Materials/MaterialBinder.hpp places the bytes by the cell's MaterialLayout.
     //
-    // WHY THERE IS ONLY ONE TRANSPORT NOW. There used to be two. `MaterialPBR` used the storage buffer;
+    // WHY THERE IS ONLY ONE TRANSPORT NOW. There used to be two. the PBR class used the storage buffer;
     // everything born from the DSL's `Properties Binding(n)` — graph materials, the terrain and the SDF
     // text — got a per-material `uniform MaterialUB` block instead. A block IS the parameters, so a
     // material holds exactly ONE set of values, and MeshRenderer keys one material per SHADER: three
@@ -48,7 +48,7 @@ namespace Desert::Core::Formats
     inline constexpr uint32_t kMaterialParamSlotSize = 16;
 
     // The reflected name of the storage block the row is written into, shared by every block the DSL
-    // generates (MaterialPBR's included). Materials bind by NAME, so this
+    // generates (the mesh table's included). Materials bind by NAME, so this
     // string is what makes "one transport" true at the CPU as well as in the shader.
     inline constexpr const char* kMaterialRowBlockName = "Materials";
 
@@ -99,7 +99,7 @@ namespace Desert::Core::Formats
     // each with the handle the asset names for it (`handleOf(name)`; 0 when it names none, which the caller
     // binds as the slot's schema default). A cube slot (bound from the environment) and a non-texture asset
     // reference (its own service reads it) are not this walk's. The ONE walk behind DataDrivenMaterial and
-    // MaterialPBR alike, so a slot a shader adds is bound without anybody adding a line for it.
+    // every mesh cell alike, so a slot a shader adds is bound without anybody adding a line for it.
     template <class HandleOf, class Bind>
     void ForEachMaterialTextureSlot( const ShaderProgramMeta& meta, HandleOf&& handleOf, Bind&& bind )
     {

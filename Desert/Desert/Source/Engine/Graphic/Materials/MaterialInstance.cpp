@@ -272,4 +272,20 @@ namespace Desert::Graphic
             child->MarkNeedsApply();
         }
     }
+    bool MaterialInstance::IsTwoSided() const
+    {
+        // Up the instance chain to the first override; the root instance answers from its material.
+        std::shared_ptr<const MaterialInstance> held;
+        const MaterialInstance*                 at = this;
+        while ( true )
+        {
+            if ( at->m_TwoSidedOverride.has_value() )
+                return *at->m_TwoSidedOverride;
+            auto parent = at->m_ParentInstance.lock();
+            if ( parent == nullptr )
+                return at->m_ParentMaterial != nullptr && at->m_ParentMaterial->IsTwoSided();
+            held = std::move( parent );
+            at   = held.get();
+        }
+    }
 } // namespace Desert::Graphic

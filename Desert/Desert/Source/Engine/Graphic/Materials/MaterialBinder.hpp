@@ -82,7 +82,7 @@ namespace Desert::Graphic::MaterialBinder
     }
 
     // The row a material asset asks for: the layout's defaults, then every persisted `{Name, Value}` the
-    // layout knows. The ONE builder behind DataDrivenMaterial and MaterialPBR alike.
+    // layout knows. The ONE builder behind every DataDrivenMaterial.
     template <class NamedValues>
     Core::Formats::MaterialParamRow BuildRow( const Core::Formats::MaterialLayout& layout,
                                               const NamedValues&                   values )

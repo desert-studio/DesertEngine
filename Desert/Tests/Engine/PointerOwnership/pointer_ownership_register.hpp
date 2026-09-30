@@ -610,18 +610,6 @@ namespace Desert::Tests::PointerCensus
           "invalidation stamp: MeshECSSystem compares MaterialService's version and clears the "
           "component's RuntimeMaterialInstances before any use, so no instance outlives its parent. "
           "Clear() does not bump that stamp, but its only caller is Renderer::Shutdown" },
-        { "Desert/Desert/Source/Engine/Graphic/Materials/Mesh/PBR/MaterialPBRBase.hpp",
-          "MaterialPBRBase", "kShadowBlockName", Guard::StaticStorage,
-          "a shader block name, a string literal in a constexpr static" },
-        { "Desert/Desert/Source/Engine/Graphic/Materials/Mesh/PBR/MaterialPBRBase.hpp",
-          "MaterialPBRBase", "kEnvIrradianceName", Guard::StaticStorage,
-          "a shader block name, a string literal in a constexpr static" },
-        { "Desert/Desert/Source/Engine/Graphic/Materials/Mesh/PBR/MaterialPBRBase.hpp",
-          "MaterialPBRBase", "kEnvSpecularName", Guard::StaticStorage,
-          "a shader block name, a string literal in a constexpr static" },
-        { "Desert/Desert/Source/Engine/Graphic/Materials/Mesh/PBR/MaterialPBRBase.hpp",
-          "MaterialPBRBase", "kBrdfLutName", Guard::StaticStorage,
-          "a shader block name, a string literal in a constexpr static" },
         { "Desert/Desert/Source/Engine/Graphic/Materials/Mesh/PBR/PBRSceneFrame.hpp",
           "PBRSceneFrame", "Camera", Guard::CallScoped,
           "PBRSceneFrame is always a function-local consumed by ApplyTo in the same scope; every field points at a member of the SceneRenderer or MeshRenderer that built it" },

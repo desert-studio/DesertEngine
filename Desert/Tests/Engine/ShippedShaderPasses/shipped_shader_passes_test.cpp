@@ -22,12 +22,14 @@
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Graphic/Materials/MaterialBinder.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
+#include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <regex>
@@ -132,17 +134,61 @@ TEST( ShippedShaderPasses, EveryRasterPassCanWriteWhatItRendersInto )
 // WHEN THIS FAILS, THE FIX IS NOT TO RELAX IT. Either the pass has a consumer — then this test names the
 // call site that must exist, and the pass belongs in an expected set added here beside it — or it has
 // none, and the pass is the thing to delete.
+namespace
+{
+    // Every surface cell the mesh passes draw with, read off the one (path x pass) table: "<Path>.<Pass>", on
+    // whichever surface template the material names.
+    const std::set<std::string>& CellsTheMeshPassesDrawWith()
+    {
+        static const std::set<std::string> names = []
+        {
+            using namespace Desert::Graphic;
+            std::set<std::string> out;
+            for ( uint32_t path = 0; path < kMeshVertexPathCount; ++path )
+                for ( uint32_t pass = 0; pass < kMeshPassCount; ++pass )
+                    if ( const char* cell =
+                              MeshCellFor( static_cast<MeshVertexPath>( path ), static_cast<MeshPass>( pass ) ) )
+                        out.insert( cell );
+            return out;
+        }();
+        return names;
+    }
+
+} // namespace
+
 TEST( ShippedShaderPasses, NoShippedShaderDeclaresAPassNothingCanAddress )
 {
     for ( const auto& shader : ShippedShaders() )
     {
         ASSERT_TRUE( shader.Parsed.IsSuccess() ) << shader.File.string() << ": " << shader.Parsed.GetError();
 
-        for ( const auto& passName : shader.Parsed.GetValue().Meta.PassNames )
+        const DShaderParseResult& parsed = shader.Parsed.GetValue();
+        for ( const auto& passName : parsed.Meta.PassNames )
+        {
+            // A SURFACE CELL is addressed through the (path x pass) table, not a literal GetByName: the
+            // mesh passes draw MeshCellFor( path, pass ) of the material's template, "<Template>/<Path>.<Pass>",
+            // and ShaderService registers that name for every template. So a cell is reachable exactly when
+            // the table names it, whichever template declares it. The one expected exception is
+            // the depth cell: shadow depth still draws with the three Shadow* programs until SURF1d
+            // routes the cascade pass through the template's ShadowDepth cells.
+            const bool isCell = std::find( parsed.Surface.Cells.begin(), parsed.Surface.Cells.end(), passName ) !=
+                                parsed.Surface.Cells.end();
+            if ( isCell )
+            {
+                if ( CellsTheMeshPassesDrawWith().contains( passName ) )
+                    continue;
+                if ( passName.ends_with( std::string( "." ) +
+                                         std::string( Desert::Core::Preprocess::kSurfaceDepthPass ) ) )
+                    continue; // SURF1d: the cascade pass is not on the template yet
+                ADD_FAILURE() << shader.File.string() << ": surface cell \"" << passName
+                              << "\" is not named by MeshShaderFor, so no mesh pass ever draws with it";
+                continue;
+            }
             ADD_FAILURE() << shader.File.string() << ": declares Pass \"" << passName
                           << "\", which registers a program named \""
                           << shader.Parsed.GetValue().Name + "/" + passName
                           << "\" that no GetByName call in the engine ever asks for";
+        }
     }
 }
 
@@ -241,10 +287,11 @@ TEST( ShippedShaderPasses, EveryShaderThatReadsMaterialParametersReadsThemFromTh
          << "a shipped shader reads u_Material without declaring the Materials[] buffer it comes from, so "
             "it is carrying its parameters some third way.";
 
-    // The six that migrated, named so this test fails if one of them silently stops carrying parameters
-    // at all — which is how a transport change quietly turns into a shader that renders its defaults.
-    for ( const char* migrated : { "MatProbe.shader", "MatProbeUnlit.shader", "NewShaderGraph.shader",
-                                   "Terrain.shader", "TextSDF.shader", "Unlit.shader" } )
+    // The five that migrated (NewShaderGraph, an orphan no .dgraph produced, was deleted in SURF1f), named so this
+    // test fails if one of them silently stops carrying parameters at all — which is how a transport change
+    // quietly turns into a shader that renders its defaults.
+    for ( const char* migrated :
+          { "MatProbe.shader", "MatProbeUnlit.shader", "Terrain.shader", "TextSDF.shader", "Unlit.shader" } )
     {
         EXPECT_NE( std::find( onTheSharedBuffer.begin(), onTheSharedBuffer.end(), migrated ),
                    onTheSharedBuffer.end() )
@@ -296,15 +343,11 @@ TEST( ShippedShaderPasses, AGeneratedMaterialRowAlwaysArrivesWithThePushConstant
     static constexpr std::string_view kCarriesAGeneratedRow[] = {
          "MatProbe.shader",
          "MatProbeUnlit.shader",
-         "NewShaderGraph.shader",
-         // MAT1a: the six mesh PBR passes read the one generated row the renderer writes per object (their
-         // hand-written GpuMaterial block and its ReadBuffer were deleted).
-         "SkinnedMeshPBR.shader",
-         "StaticMeshGBuffer.shader",
-         "StaticMeshGBuffer_Instanced.shader",
+         // MAT1a: the mesh PBR programs read the one generated row the renderer writes per object (their
+         // hand-written GpuMaterial block and its ReadBuffer were deleted). SURF1c: StandardSurface is the
+         // template whose cells replaced the five forward/G-buffer programs.
+         "StandardSurface.shader",
          "StaticMeshGlass.shader",
-         "StaticMeshPBR.shader",
-         "StaticMeshPBR_Instanced.shader",
          "Terrain.shader",
          // LS-5: the terrain's deferred twin carries Terrain.shader's Properties block — the same row, written
          // by the TerrainRenderer into whichever of the two the render path draws with.
@@ -504,16 +547,31 @@ TEST( ShippedShaderPasses, EveryShaderThatReadsANormalMapGoesThroughTheSharedRec
             continue;
         ++readers;
 
-        EXPECT_NE( text.find( "#include <Common/TangentNormal.glslh>" ), std::string::npos )
+        // A surface template includes nothing itself: every cell is built around the engine's
+        // SurfaceTypes header, so for a template the shared reconstruction must come in through THAT file.
+        ASSERT_TRUE( shader.Parsed.IsSuccess() ) << shader.File.string();
+        const bool        isTemplate = !shader.Parsed.GetValue().Surface.Cells.empty();
+        const std::string includer =
+             isTemplate ? ReadFile( shader.File.parent_path().parent_path().parent_path() /
+                                    std::string( Desert::Core::Preprocess::kSurfaceTypesInclude ) )
+                        : text;
+        EXPECT_NE( includer.find( "#include <Common/TangentNormal.glslh>" ), std::string::npos )
              << shader.File.filename().string()
-             << " samples a normal map without including the shared reconstruction";
-        EXPECT_NE( text.find( "SampleTangentNormal(u_NormalTexture" ), std::string::npos )
+             << " samples a normal map without including the shared reconstruction"
+             << ( isTemplate ? " (through Mesh/Surface/SurfaceTypes.glslh)" : "" );
+
+        // Spelled without whitespace, so `SampleTangentNormal( u_NormalTexture` and `texture (u_NormalTexture`
+        // are held to the same rule as the compact spelling.
+        std::string compact;
+        std::copy_if( text.begin(), text.end(), std::back_inserter( compact ),
+                      []( char c ) { return c != ' ' && c != '\t'; } );
+        EXPECT_NE( compact.find( "SampleTangentNormal(u_NormalTexture" ), std::string::npos )
              << shader.File.filename().string() << " does not read its normal map through "
              << "SampleTangentNormal; a BC5 normal map decodes to a Z of -1 through any other reading";
 
         // THE OLD SPELLING, BY NAME. `.rgb` off a normal-map sampler is the defect, whatever the
         // arithmetic around it looks like, because the third channel is not there to read.
-        const std::size_t sampled = text.find( "texture(u_NormalTexture" );
+        const std::size_t sampled = compact.find( "texture(u_NormalTexture" );
         EXPECT_EQ( sampled, std::string::npos )
              << shader.File.filename().string()
              << " samples u_NormalTexture directly instead of through SampleTangentNormal";
@@ -635,6 +693,29 @@ TEST( ShippedShaderPasses, SomeShippedSceneActuallyDrawsABoundNormalMap )
         std::cout << "[  CENSUS  ] a shipped scene draws " << row << "\n";
 }
 
+// Every vertex-path header of a surface cell (Mesh/Surface/Vertex_<Path>.glslh — one per MeshVertexPath)
+// declares the two optional streams at the locations MeshVertexLayout.hpp feeds them from, and hands them
+// to the pass through the varyings: a new path written without them would give its materials no
+// VertexColor / UV1 while the pipeline still binds the buffer. The reflected relation, location by location,
+// is Desert/Tests/Engine/MeshVertexPath's EveryMeshCellsVertexInputsAreTheOneLayoutsElements.
+TEST( ShippedShaderPasses, EverySurfaceVertexPathDeclaresTheColourAndUV1Streams )
+{
+    size_t vertexHeaders = 0;
+    for ( const auto& file : ShippedIncludes() )
+    {
+        if ( file.parent_path().filename() != "Surface" || !file.filename().string().starts_with( "Vertex_" ) )
+            continue;
+        ++vertexHeaders;
+        const std::string source = ReadFile( file );
+        EXPECT_NE( source.find( "layout( location = 7 ) in vec4 a_Color;" ), std::string::npos ) << file;
+        EXPECT_NE( source.find( "layout( location = 8 ) in vec2 a_TexCoord1;" ), std::string::npos ) << file;
+        EXPECT_NE( source.find( "v_Surface.VertexColor" ), std::string::npos ) << file;
+        EXPECT_NE( source.find( "v_Surface.UV1" ), std::string::npos ) << file;
+    }
+    EXPECT_EQ( vertexHeaders, Desert::Graphic::kMeshVertexPathCount )
+         << "one Mesh/Surface/Vertex_<Path>.glslh per MeshVertexPath";
+}
+
 TEST( ShippedShaderPasses, NoShippedShaderTranslatesItsOwnProse )
 {
     int filesWithProseKeywords = 0;
@@ -697,9 +778,8 @@ int main( int argc, char** argv )
 // same numeric params in the same order, or a GBuffer draw reads roughness where the forward wrote metallic.
 namespace
 {
-    const std::vector<std::string> kPBRPasses = { "StaticMeshPBR",     "StaticMeshPBR_Instanced",
-                                                  "StaticMeshGBuffer", "StaticMeshGBuffer_Instanced",
-                                                  "SkinnedMeshPBR",    "StaticMeshGlass" };
+    // StandardSurface is one template (its cells share its one Properties block); glass is its own program.
+    const std::vector<std::string> kPBRPasses = { "StandardSurface", "StaticMeshGlass" };
 
     const DShaderParseResult* ShippedByName( const std::string& name )
     {
@@ -739,10 +819,10 @@ namespace
 
 TEST( ShippedShaderPasses, EveryPBRPassDeclaresTheOneRowLayout )
 {
-    const auto* forward = ShippedByName( "StaticMeshPBR" );
+    const auto* forward = ShippedByName( "StandardSurface" );
     ASSERT_NE( forward, nullptr );
     const auto layout = GeneratedRowMembers( *forward );
-    ASSERT_FALSE( layout.empty() ) << "StaticMeshPBR generates no Materials[] row";
+    ASSERT_FALSE( layout.empty() ) << "StandardSurface generates no Materials[] row";
     for ( const auto& name : kPBRPasses )
     {
         const auto* parsed = ShippedByName( name );
@@ -754,7 +834,7 @@ TEST( ShippedShaderPasses, EveryPBRPassDeclaresTheOneRowLayout )
 
 TEST( ShippedShaderPasses, AnAuthoredPBRParamReachesItsBytesInTheRowByManifestName )
 {
-    const auto* parsed = ShippedByName( "StaticMeshPBR" );
+    const auto* parsed = ShippedByName( "StandardSurface" );
     ASSERT_NE( parsed, nullptr );
     const auto& meta    = parsed->Meta;
     const auto  members = GeneratedRowMembers( *parsed );
@@ -791,7 +871,7 @@ TEST( ShippedShaderPasses, EveryPBRTextureSlotIsBoundByManifestNameAndAnEmptyOne
     constexpr uint64_t                    kORMHandle = 0x0123456789ABCDEFull;
     const std::map<std::string, uint64_t> demat = { { "u_ORMTexture", kORMHandle } }; // the file names one map
 
-    for ( const char* name : { "StaticMeshPBR", "StaticMeshGBuffer" } )
+    for ( const char* name : { "StandardSurface" } )
     {
         const auto* parsed = ShippedByName( name );
         ASSERT_NE( parsed, nullptr ) << name;

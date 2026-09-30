@@ -445,8 +445,9 @@ TEST( MeshLOD, EveryInstancedDrawCallNamesItsLODLevel )
     };
 
     const Row rows[] = {
-         { "renderer.RenderMesh( instancedPipeline", "d.LodLevel",
-           "the opaque instanced batch — auto-batched statics and ISM instances" },
+         { "renderer.RenderMesh( instancedDrawPipeline", "d.LodLevel",
+           "the opaque instanced batch — auto-batched statics and ISM instances (instancedPipeline, or its "
+           "CullMode None twin for a TwoSided material)" },
          { "renderer.RenderMesh( m_ShadowInstancedPipeline.get()", "b.LodLevel",
            "the cascade's instanced casters; a caster at a coarser level than the object the camera "
            "sees casts a silhouette that does not match it" },

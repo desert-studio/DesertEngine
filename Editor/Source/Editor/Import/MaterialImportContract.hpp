@@ -95,6 +95,9 @@ namespace Desert::Editor
         // Keys the source carries that no row of the chosen template reads: the importer warns with the
         // material and the key (a glTF clearcoat under a template without clearcoat is lost, and says so).
         std::vector<std::string> UnreadKeys;
+        // The source's `<format>.doubleSided`: a property of the MATERIAL (MaterialData::TwoSided), read under
+        // every template, because it is a pipeline permutation and not a template parameter.
+        bool TwoSided = false;
     };
     TemplateFill FillFromTemplate( const SourceMaterial& material, const ImportTemplate& chosen );
 

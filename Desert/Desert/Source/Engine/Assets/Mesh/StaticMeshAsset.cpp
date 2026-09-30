@@ -128,6 +128,7 @@ namespace Desert::Assets
         m_MorphTargets.reserve( data.MorphTargets.size() );
         for ( const auto& mt : data.MorphTargets )
             m_MorphTargets.push_back( MorphTarget{ mt.Name, mt.DeltaPositions, mt.DeltaNormals } );
+        m_VertexStreams = PackMeshVertexStreams( data.Colors, data.UV1, m_Vertices.size() );
 
         m_IsReadyForUse = true;
         return BOOLSUCCESS;
@@ -148,6 +149,8 @@ namespace Desert::Assets
         m_Indices.shrink_to_fit();
         m_Submeshes.shrink_to_fit();
         m_MorphTargets.shrink_to_fit();
+        m_VertexStreams.clear();
+        m_VertexStreams.shrink_to_fit();
         m_MaterialAssetHandles.shrink_to_fit();
 
         // Same reason as SkinnedMeshAsset::Unload: the flag is what EnsureLoaded asks before deciding to
