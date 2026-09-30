@@ -356,7 +356,7 @@ namespace
     {
         const std::string v3      = AsVersionThree( v4 );
         constexpr size_t kHeader = 64, kRow = 24, kSubmeshRow = 3, kRowV3 = 136, kRowV2 = 128, kShared = 120;
-        const size_t     prefix  = Common::Content::kMeshBinaryPrefixV3;
+        const size_t     prefix  = Common::Content::kMeshBinaryPrefixSize;
         uint32_t         version = 2, sections = 0;
         std::memcpy( &sections, v3.data() + 24, 4 );
         std::string table = v3.substr( prefix, sections * kRow );
@@ -405,7 +405,7 @@ namespace
     // neither stream has a v3 spelling.
     std::string AsVersionThree( const std::string& v4 )
     {
-        constexpr size_t kPrefix  = Common::Content::kMeshBinaryPrefixV3;
+        constexpr size_t kPrefix  = Common::Content::kMeshBinaryPrefixSize;
         constexpr size_t kRow     = 24;
         constexpr size_t kRowsV4  = 12;
         constexpr size_t kDropped = 2;
@@ -634,7 +634,7 @@ TEST( MeshBinaryFormat, TheHeaderEntryPointStatesTheSubmeshMaterialsAsDependenci
     std::string           bytes = Ser::EncodeMeshBinary( mesh );
     const uint64_t        huge  = 1ull << 40;
     constexpr std::size_t kSubmeshRow =
-         Common::Content::kMeshBinaryPrefixV3 +
+         Common::Content::kMeshBinaryPrefixSize +
          ( Common::Content::kMeshBinarySubmeshSectionId - 1 ) * Common::Content::kMeshBinarySectionRowSize;
     std::memcpy( bytes.data() + kSubmeshRow + 16, &huge, 8 );
     const std::filesystem::path bad = dir / "bad.stmesh";
@@ -711,12 +711,12 @@ TEST( MeshBinaryFormat, ACorruptHeaderIsRefusedByName )
     EXPECT_FALSE( Ser::DecodeMeshBinary( Mutate( good, 16, '\x00' ), "bad-size" ).IsSuccess() );
     EXPECT_FALSE( Ser::DecodeMeshBinary( Mutate( good, 24, '\x02' ), "bad-section-count" ).IsSuccess() );
     // Prefix + 4 is the first section row's ElementSize.
-    EXPECT_FALSE( Ser::DecodeMeshBinary( Mutate( good, Common::Content::kMeshBinaryPrefixV3 + 4, '\x37' ),
+    EXPECT_FALSE( Ser::DecodeMeshBinary( Mutate( good, Common::Content::kMeshBinaryPrefixSize + 4, '\x37' ),
                                          "bad-element-size" )
                        .IsSuccess() );
     // Prefix + 8 is the first section row's Offset: pushing it past the end must not be followed.
     EXPECT_FALSE(
-         Ser::DecodeMeshBinary( Mutate( good, Common::Content::kMeshBinaryPrefixV3 + 8, '\x78' ), "bad-offset" )
+         Ser::DecodeMeshBinary( Mutate( good, Common::Content::kMeshBinaryPrefixSize + 8, '\x78' ), "bad-offset" )
               .IsSuccess() );
 
     // The control: the unmutated bytes still load, so the expectations above are about the mutation
@@ -735,7 +735,7 @@ TEST( MeshBinaryFormat, ARecordPointingOutsideItsSectionIsRefusedRatherThanFollo
     // The v3 prefix (header + GUID), then three 24-byte rows, then the row's Id+ElementSize: the Submeshes
     // section's Offset field. Named rather than multiplied inline so the widening is explicit.
     const std::ptrdiff_t submeshRowOffsetField =
-         static_cast<std::ptrdiff_t>( Common::Content::kMeshBinaryPrefixV3 ) +
+         static_cast<std::ptrdiff_t>( Common::Content::kMeshBinaryPrefixSize ) +
          3 * static_cast<std::ptrdiff_t>( 24 ) + 8;
     std::memcpy( &submeshOffset, good.data() + submeshRowOffsetField, sizeof( submeshOffset ) );
 

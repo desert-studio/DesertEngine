@@ -57,16 +57,16 @@ namespace Common::Content
     inline constexpr uint32_t kMeshBinaryVersion = 5; // 5: SkeletonGuid in the header
 
     // THE MESH'S IDENTITY (version 3, AF7): the asset GUID follows the header as {Hi u64, Lo u64} - at byte 80
-    // since version 5 - and the section table follows it at byte 96 (kMeshBinaryPrefixV3, named for the
-    // version that introduced the GUID prefix). The GUID sits in the prefix, not in a section, so the content scan
-    // reads it from the first 80 bytes without the body — as it reads the box.
+    // since version 5 - and the section table follows it at byte 96: kMeshBinaryPrefixSize, the header plus the
+    // GUID. The GUID sits in the prefix, not in a section, so the content scan reads it from the prefix without
+    // the body — as it reads the box.
     inline constexpr std::size_t kMeshBinaryGuidOffset = sizeof( MeshBinaryFileHeader );
-    inline constexpr std::size_t kMeshBinaryPrefixV3   = kMeshBinaryGuidOffset + 16;
+    inline constexpr std::size_t kMeshBinaryPrefixSize = kMeshBinaryGuidOffset + 16;
 
     // The GUID the current prefix states; nullopt for a shorter buffer, a foreign file or another version.
     [[nodiscard]] inline std::optional<AssetGuid> ReadMeshHeaderGuid( const std::string_view bytes )
     {
-        if ( bytes.size() < kMeshBinaryPrefixV3 )
+        if ( bytes.size() < kMeshBinaryPrefixSize )
             return std::nullopt;
         MeshBinaryFileHeader header{};
         std::memcpy( &header, bytes.data(), sizeof( header ) );

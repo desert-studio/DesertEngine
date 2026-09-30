@@ -123,7 +123,7 @@ namespace Desert::Migration
         {
             {
                 std::ifstream in( file, std::ios::binary );
-                std::string   prefix( Common::Content::kMeshBinaryPrefixV3, '\0' );
+                std::string   prefix( Common::Content::kMeshBinaryPrefixSize, '\0' );
                 in.read( prefix.data(), static_cast<std::streamsize>( prefix.size() ) );
                 prefix.resize( static_cast<std::size_t>( in.gcount() ) );
                 const auto guid = Common::Content::ReadMeshHeaderGuid( prefix );
@@ -708,55 +708,74 @@ namespace Desert::Migration
 
     namespace
     {
-        // SKEL 1 as it was written: the v2 struct without PreviewMesh / CompatibleSkeletons.
-        struct SkeletonAssetDataV1
+        // Where SKEL 1-2 said an imported rig came from; SKEL 3 dropped it (read here, never written).
+        struct SkeletonImportInfoV2
+        {
+            std::string Source;
+            uint64_t    SourceHash = 0;
+        };
+        // SKEL 1 and 2 as they were written: SKEL 1 lacks PreviewMesh / CompatibleSkeletons, both carry Import.
+        struct SkeletonAssetDataV1V2
         {
             std::optional<Common::Content::TextAssetHeaderSerialized> Header;
             uint64_t                                                  Signature = 0;
             std::vector<Desert::Animation::BoneInfo>                  Bones;
-            std::optional<Assets::Serialization::SkeletonImportInfo>  Import;
+            std::optional<SkeletonImportInfoV2>                       Import;
+            std::optional<Assets::AssetGuidRef>                       PreviewMesh;
+            std::optional<std::vector<Assets::AssetGuidRef>>          CompatibleSkeletons;
         };
+
+        // The rig as ANY generation this tool raises states it (SKEL 1, 2 or the current one), with the
+        // version it states; an unreadable body or a missing header is an error naming why.
+        Common::ResultStr<std::pair<SkeletonAssetDataV1V2, uint32_t>> ReadAnySkeleton( const std::string& text )
+        {
+            using Out  = std::pair<SkeletonAssetDataV1V2, uint32_t>;
+            const auto read = Common::Json::Read<SkeletonAssetDataV1V2>( text );
+            if ( !read )
+                return Common::MakeFormattedError<Out>( "the skeleton body does not read: {}", read.GetError() );
+            if ( !read.GetValue().Header )
+                return Common::MakeFormattedError<Out>( "the file states no header" );
+            const auto stated = read.GetValue().Header->Versions.find( "SKEL" );
+            if ( stated == read.GetValue().Header->Versions.end() )
+                return Common::MakeFormattedError<Out>( "the header states no SKEL version" );
+            return Common::MakeSuccess( Out{ read.GetValue(), stated->second } );
+        }
     } // namespace
 
-    Common::ResultStr<std::string> MigrateSkeletonV1ToV2( const std::string& text )
+    Common::ResultStr<std::string> MigrateSkeletonToV3( const std::string& text )
     {
-        const auto v1 = Common::Json::Read<SkeletonAssetDataV1>( text );
-        if ( !v1 )
-            return Common::MakeFormattedError<std::string>( "SKEL 1 body does not read: {}", v1.GetError() );
-        const SkeletonAssetDataV1& old = v1.GetValue();
-        if ( !old.Header )
-            return Common::MakeFormattedError<std::string>( "the file states no header" );
-        const auto stated = old.Header->Versions.find( "SKEL" );
-        if ( stated == old.Header->Versions.end() || stated->second != 1u )
+        const auto any = ReadAnySkeleton( text );
+        if ( !any )
+            return Common::MakeError<std::string>( any.GetError() );
+        const auto& [old, version] = any.GetValue();
+        if ( version != 1u && version != 2u )
             return Common::MakeFormattedError<std::string>(
-                 "the header states SKEL {}, and this step raises SKEL 1 only",
-                 stated == old.Header->Versions.end() ? std::string( "nothing" )
-                                                      : std::to_string( stated->second ) );
+                 "the header states SKEL {}, and this step raises SKEL 1 and 2 only", version );
 
         Assets::Serialization::SkeletonAssetData data;
         data.Header                   = old.Header;
-        data.Header->Versions["SKEL"] = 2u;
+        data.Header->Versions["SKEL"] = Assets::kSkeletonSchemaVersion;
         data.Signature                = old.Signature;
         data.Bones                    = old.Bones;
-        data.Import                   = old.Import;
+        data.PreviewMesh              = old.PreviewMesh;
+        data.CompatibleSkeletons      = old.CompatibleSkeletons.value_or( std::vector<Assets::AssetGuidRef>{} );
         std::string written           = Common::Json::Write( data );
         // What the step writes, the engine's reader must read.
         if ( auto back = Assets::Serialization::ReadSkeletonJson( written ); !back )
-            return Common::MakeFormattedError<std::string>( "the raised file does not read as SKEL 2: {}",
-                                                            back.GetError() );
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as SKEL {}: {}",
+                                                            Assets::kSkeletonSchemaVersion, back.GetError() );
         return Common::MakeSuccess( std::move( written ) );
     }
 
     Common::ResultStr<Animation::SkeletonCandidate> ReadSkeletonCandidate( const std::filesystem::path& path,
                                                                            const std::string&           text )
     {
-        const auto read = Assets::Serialization::ReadSkeletonJson( text );
+        // Any generation this tool raises: the candidates are gathered BEFORE the rigs themselves are raised.
+        const auto read = ReadAnySkeleton( text );
         if ( !read )
             return Common::MakeFormattedError<Animation::SkeletonCandidate>( "'{}' is not a skeleton candidate: {}",
                                                                              path.string(), read.GetError() );
-        const auto& data = read.GetValue();
-        if ( !data.Header )
-            return Common::MakeFormattedError<Animation::SkeletonCandidate>( "'{}' states no header", path.string() );
+        const auto& data = read.GetValue().first;
         const auto guid = Common::Content::AssetGuidFromText( data.Header->Guid );
         if ( !guid )
             return Common::MakeFormattedError<Animation::SkeletonCandidate>( "'{}' header GUID: {}", path.string(),
@@ -864,7 +883,7 @@ namespace Desert::Migration
             skeleton = guid.GetValue();
         }
 
-        const uint64_t          delta = C::kMeshBinaryPrefixV3 + sizeof( Row ) * kRows - oldEnd;
+        const uint64_t          delta = C::kMeshBinaryPrefixSize + sizeof( Row ) * kRows - oldEnd;
         C::MeshBinaryFileHeader header{};
         std::memcpy( header.Magic, bytes.data(), 8 );
         std::memcpy( &header.ByteOrder, bytes.data() + 8, 4 );

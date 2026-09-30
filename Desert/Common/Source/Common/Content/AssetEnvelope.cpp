@@ -652,11 +652,11 @@ namespace Common::Content
 
             ResultStr<AssetHeader> ReadHeader( std::istream& in, const AssetHeaderReadContext& ) const override
             {
-                std::string prefix( kMeshBinaryPrefixV3, '\0' );
+                std::string prefix( kMeshBinaryPrefixSize, '\0' );
                 in.read( prefix.data(), static_cast<std::streamsize>( prefix.size() ) );
                 if ( static_cast<std::size_t>( in.gcount() ) != prefix.size() )
                     return MakeFormattedError<AssetHeader>( "mesh header: {} bytes where the prefix is {}",
-                                                            in.gcount(), kMeshBinaryPrefixV3 );
+                                                            in.gcount(), kMeshBinaryPrefixSize );
                 MeshBinaryFileHeader header{};
                 std::memcpy( &header, prefix.data(), sizeof( header ) );
                 // Recognises() claims every version from 3 up, so that a later mesh is REFUSED here by name

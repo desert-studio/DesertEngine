@@ -387,7 +387,7 @@ TEST( SkinnedMeshDependency, TheShippedProbeKeepsTheIdentityTheSceneWasSavedWith
     const std::filesystem::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "run from inside the checkout";
     std::ifstream in( root / kProbeMeshPath, std::ios::binary );
-    std::string   prefix( Common::Content::kMeshBinaryPrefixV3, '\0' );
+    std::string   prefix( Common::Content::kMeshBinaryPrefixSize, '\0' );
     in.read( prefix.data(), static_cast<std::streamsize>( prefix.size() ) );
     prefix.resize( static_cast<std::size_t>( in.gcount() ) );
 

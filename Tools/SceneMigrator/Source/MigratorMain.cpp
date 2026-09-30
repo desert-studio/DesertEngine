@@ -1140,18 +1140,21 @@ namespace Desert::Migration
             const std::string text = ReadAll( path );
             if ( path.extension() == ".skeleton" )
             {
-                // SKEL 1 -> 2 (SKEL-TREE): the rig gains PreviewMesh / CompatibleSkeletons.
+                // SKEL 1/2 -> 3: SKEL 2 (SKEL-TREE) gave the rig PreviewMesh / CompatibleSkeletons, SKEL 3 dropped
+                // the dead Import provenance.
                 const auto stated = ReadStatedVersion( path, text, "SKEL" );
-                if ( stated && stated.GetValue() == 1u )
+                if ( stated && ( stated.GetValue() == 1u || stated.GetValue() == 2u ) )
                 {
-                    const auto raised = Desert::Migration::MigrateSkeletonV1ToV2( text );
+                    const auto raised = Desert::Migration::MigrateSkeletonToV3( text );
                     if ( !raised )
                     {
-                        err << "FAIL   " << path.string() << " — SKEL 1 -> 2: " << raised.GetError() << "\n";
+                        err << "FAIL   " << path.string() << " — SKEL " << stated.GetValue() << " -> "
+                            << Desert::Assets::kSkeletonSchemaVersion << ": " << raised.GetError() << "\n";
                         ++failed;
                         continue;
                     }
-                    out << ( check ? "would raise " : "raised " ) << path.string() << " SKEL 1 -> 2\n";
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " SKEL " << stated.GetValue()
+                        << " -> " << Desert::Assets::kSkeletonSchemaVersion << "\n";
                     if ( !check && !WriteText( path, raised.GetValue(), err ) )
                         ++failed;
                     continue;

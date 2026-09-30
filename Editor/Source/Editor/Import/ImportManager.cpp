@@ -518,7 +518,7 @@ namespace Desert::Editor
         data.Guid = Common::Content::AssetGuid::Generate();
         // First import: no file yet, so absence is an answer here, not an error.
         if ( const auto prefix = Common::Utils::FileSystem::ReadFileContentPrefixIfExists(
-                  cookedPath, Common::Content::kMeshBinaryPrefixV3 ) )
+                  cookedPath, Common::Content::kMeshBinaryPrefixSize ) )
         {
             const auto& previous = prefix.GetValue();
             if ( previous.has_value() )
@@ -540,13 +540,6 @@ namespace Desert::Editor
         auto stamped   = data;
         stamped.Header = Assets::HeaderKeepingFileGuid( cookedPath, Common::Content::ContentKind::Skeleton,
                                                         Assets::Serialization::SkeletonTextSubsystems() );
-        // The rig states the source it was imported from (SkeletonImportInfo); the import's freshness is the
-        // record's SourceHash, not this.
-        const auto hash = Assets::HashMeshSourceFile( sourcePath );
-        if ( !hash )
-            return Common::MakeError<Common::Content::AssetGuid>( hash.GetError() );
-        stamped.Import =
-             Assets::Serialization::SkeletonImportInfo{ sourcePath.filename().generic_string(), hash.GetValue() };
         if ( const auto wrote = WriteCookedJson( stamped, cookedPath ); !wrote )
             return Common::MakeError<Common::Content::AssetGuid>( wrote.GetError() );
         return Common::Content::AssetGuidFromText( stamped.Header->Guid );

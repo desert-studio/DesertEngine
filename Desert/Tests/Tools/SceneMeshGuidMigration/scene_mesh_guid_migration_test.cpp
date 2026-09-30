@@ -47,7 +47,7 @@ namespace
             std::memcpy( header.Magic, Common::Content::kMeshBinaryMagic, 8 );
             header.ByteOrder = Common::Content::kMeshBinaryByteOrderTag;
             header.Version   = version;
-            std::string bytes( Common::Content::kMeshBinaryPrefixV3, '\0' );
+            std::string bytes( Common::Content::kMeshBinaryPrefixSize, '\0' );
             std::memcpy( bytes.data(), &header, sizeof( header ) );
             std::memcpy( bytes.data() + Common::Content::kMeshBinaryGuidOffset, &kMeshGuid.Hi, 8 );
             std::memcpy( bytes.data() + Common::Content::kMeshBinaryGuidOffset + 8, &kMeshGuid.Lo, 8 );
