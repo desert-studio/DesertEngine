@@ -3,7 +3,7 @@
         "Kind": "Skeleton",
         "Guid": "e287e4cefcdec52a99588849bcf0a0a0",
         "Versions": {
-            "SKEL": 2
+            "SKEL": 3
         },
         "Dependencies": []
     },
@@ -33,9 +33,5 @@
             "ParentBoneID": 0
         }
     ],
-    "Import": {
-        "Source": "TwoJointProbe.gltf",
-        "SourceHash": 2080282809576534268
-    },
     "CompatibleSkeletons": []
 }
