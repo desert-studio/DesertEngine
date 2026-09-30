@@ -102,9 +102,10 @@ namespace Desert::Assets::Serialization
             const auto text = Common::Utils::FileSystem::ReadFileContentIfExists( path );
             if ( !text )
                 return Common::MakeError<std::optional<ImportSourceInfo>>( text.GetError() );
-            if ( !text.GetValue() )
+            const auto& contents = text.GetValue();
+            if ( !contents.has_value() )
                 return Common::MakeSuccess( std::optional<ImportSourceInfo>{} );
-            const auto clip = ReadAnimationJson( *text.GetValue() );
+            const auto clip = ReadAnimationJson( *contents );
             if ( !clip )
                 return Common::MakeError<std::optional<ImportSourceInfo>>(
                      std::format( "'{}' is replaced by a save, but {}", path.string(), clip.GetError() ) );

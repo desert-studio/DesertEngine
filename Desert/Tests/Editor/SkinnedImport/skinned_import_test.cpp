@@ -287,11 +287,12 @@ TEST_F( SkinnedImport, TheClipNamesTheSourceItWasImportedFrom )
     ASSERT_FALSE( m_Outcome.WrittenClips.empty() );
     const auto clip = Ser::ReadAnimationJson( Read( m_Outcome.WrittenClips.front() ) );
     ASSERT_TRUE( clip.IsSuccess() ) << clip.GetError();
-    ASSERT_TRUE( clip.GetValue().Import.has_value() );
-    EXPECT_EQ( clip.GetValue().Import->Source, m_Source.filename().generic_string() );
+    const auto& import = clip.GetValue().Import;
+    ASSERT_TRUE( import.has_value() );
+    EXPECT_EQ( import->Source, m_Source.filename().generic_string() );
     const auto hash = Assets::HashMeshSourceFile( m_Source );
     ASSERT_TRUE( hash.IsSuccess() ) << hash.GetError();
-    EXPECT_EQ( clip.GetValue().Import->SourceHash, hash.GetValue() );
+    EXPECT_EQ( import->SourceHash, hash.GetValue() );
 }
 
 // THM1l-b19: the texture EMBEDDED in the file ("*0" to assimp, a data-URI image here, a bufferView image in a

@@ -8,12 +8,12 @@ namespace Desert::Editor::UI
 
     void UIHelper::Init()
     {
-        m_CacherTexture = std::make_unique<UICacheTextureImGui>();
+        m_CacherTexture = &UICacheTextureImGui::Get();
     }
 
     ImTextureID UIHelper::GetTextureID( const std::shared_ptr<Graphic::Image2D>& image )
     {
-        return ( m_CacherTexture && image ) ? m_CacherTexture->AddTextureCache( image ) : nullptr;
+        return ( m_CacherTexture != nullptr && image ) ? m_CacherTexture->AddTextureCache( image ) : nullptr;
     }
 
     void UIHelper::Image( const std::shared_ptr<Graphic::Image2D>& image, const ImVec2& size, const ImVec2& uv0,
@@ -22,7 +22,7 @@ namespace Desert::Editor::UI
         if ( !image || size.x <= 0.0f || size.y <= 0.0f )
             return;
 
-        const ImTextureID id = m_CacherTexture->AddTextureCache( image );
+        ImTextureID id = m_CacherTexture->AddTextureCache( image );
 
         ::ImGui::Image( id, size, uv0, uv1, tint_col, border_col );
     }
@@ -33,7 +33,7 @@ namespace Desert::Editor::UI
         if ( !image || size.x <= 0.0f || size.y <= 0.0f )
             return false;
 
-        const ImTextureID id = m_CacherTexture->AddTextureCache( image );
+        ImTextureID id = m_CacherTexture->AddTextureCache( image );
 
         // Borderless thumbnail button (no frame padding, transparent bg) that's still a real, draggable item.
         ::ImGui::PushStyleVar( ImGuiStyleVar_FramePadding, ImVec2( 0, 0 ) );
