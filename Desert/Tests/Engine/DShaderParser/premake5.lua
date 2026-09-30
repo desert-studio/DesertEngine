@@ -37,6 +37,11 @@ project(test_name)
 
     links { "Common", "Optick" } -- Commons JobSystem registers worker threads with Optick
 
+    -- Common::Utils::FileSystem's macOS dialogs (MacOSFileSystem.mm) need the ObjC runtime + AppKit.
+    filter "system:macosx"
+        links { "Cocoa.framework", "Foundation.framework" }
+    filter {}
+
     -- gtest comes from Dependencies.lua (prebuilt .lib on Windows, Homebrew on macOS)
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do
