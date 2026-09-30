@@ -142,8 +142,8 @@ namespace Desert::Editor
         if ( !meshPath.empty() && !m_RefusedThumbnails.contains( meshPath ) )
         {
             const std::string png = ThumbnailKey::DiskPath( meshPath );
-            if ( ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( png, MeshThumbnailFreshness( meshPath ) ) ) ==
-                 ThumbnailFreshness::Verdict::Show )
+            if ( ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
+                      png, MeshThumbnailFreshness( meshPath ) ) ) == ThumbnailFreshness::Verdict::Show )
                 thumb = m_Thumbnails.Get( png );
             else
             {
@@ -215,8 +215,9 @@ namespace Desert::Editor
             Utils::ImGuiUtilities::BeginPropertyRow( "Skeletal Mesh Asset",
                                                      "The skinned mesh asset this component renders", rowH );
 
-            DrawMeshThumbnail( *assetManager, asset ? asset->GetMetadata().Filepath.generic_string() : std::string(),
-                               kBox, !emptySlot );
+            DrawMeshThumbnail( *assetManager,
+                               asset ? asset->GetMetadata().Filepath.generic_string() : std::string(), kBox,
+                               !emptySlot );
             ImGui::SameLine();
             const bool clicked =
                  Utils::ImGuiUtilities::AssetSlot( "SkinnedMeshSlot", currentMeshName.c_str(), emptySlot );

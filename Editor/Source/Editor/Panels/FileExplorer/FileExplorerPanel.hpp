@@ -434,8 +434,10 @@ namespace Desert::Editor
         // Same, for a mesh entry (the mesh auto-framed by its bounds).
         bool DrawRenderedMeshThumbnail( DirectoryInformation* entry, const ImVec2& size );
         // Same, for a skinned mesh in its bind pose (ThumbnailPose; the .skmesh is its own cooked form).
-        // @p subject is the posed asset: the entry itself, or the .skmesh/.skeleton a skinned source's import wrote.
-        bool DrawRenderedPoseThumbnail( DirectoryInformation* entry, const ImVec2& size, const std::string& subject );
+        // @p subject is the posed asset: the entry itself, or the .skmesh/.skeleton a skinned source's import
+        // wrote.
+        bool DrawRenderedPoseThumbnail( DirectoryInformation* entry, const ImVec2& size,
+                                        const std::string& subject );
         // Same, for a file whose picture is PAINTED from its own bytes rather than rendered — the four
         // cloud formats. It asks for no handle and no renderer; see Editor/Widgets/CloudThumbnail.hpp.
         bool DrawPaintedThumbnail( DirectoryInformation* entry, const ImVec2& size );

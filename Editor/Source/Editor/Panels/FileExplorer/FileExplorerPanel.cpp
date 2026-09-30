@@ -2017,7 +2017,8 @@ namespace Desert::Editor
         if ( !picture )
             return false; // not imported, clips only, or refused and named: the type icon
         if ( picture->Pose )
-            return DrawRenderedPoseThumbnail( entry, size, picture->Cooked ); // a skinned source: its import's pose
+            return DrawRenderedPoseThumbnail( entry, size,
+                                              picture->Cooked );           // a skinned source: its import's pose
         const std::optional<std::string> source = MeshSourceFor( *entry ); // a model, or a foliage type's mesh
         if ( !source )
             return false;
@@ -2074,9 +2075,9 @@ namespace Desert::Editor
 
         // The mesh tile's rule, with the .skmesh as its own cooked form: one key, one freshness source.
         const std::string& pngPath   = ThumbnailPngFor( subject );
-        const bool         haveFresh =
-             ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
-                  pngPath, MeshThumbnailFreshness( subject ) ) ) == ThumbnailFreshness::Verdict::Show;
+        const bool         haveFresh = ThumbnailFreshness::Judge(
+                                    ThumbnailFreshness::Observe( pngPath, MeshThumbnailFreshness( subject ) ) ) ==
+                               ThumbnailFreshness::Verdict::Show;
         if ( !haveFresh )
             m_Thumbnails->Invalidate( pngPath );
         else if ( auto img = m_Thumbnails->Get( pngPath ) )
@@ -2129,7 +2130,7 @@ namespace Desert::Editor
     }
 
     std::optional<FileExplorerPanel::MeshPicture> FileExplorerPanel::MeshPictureFor( const std::string& assetPath,
-                                                                                    const FileType     type )
+                                                                                     const FileType     type )
     {
         const std::optional<std::string> source = MeshSourceFor( assetPath, type );
         if ( !source )
@@ -2166,7 +2167,8 @@ namespace Desert::Editor
                     picture = MeshPicture{ CookPaths::SkinnedAsset( *source, ".skmesh" ).generic_string(), true };
                     break;
                 case ContentKind::Skeleton:
-                    picture = MeshPicture{ CookPaths::SkinnedAsset( *source, ".skeleton" ).generic_string(), true };
+                    picture =
+                         MeshPicture{ CookPaths::SkinnedAsset( *source, ".skeleton" ).generic_string(), true };
                     break;
                 default:
                     break; // clips only: each clip has its own tile; the source keeps its type icon
