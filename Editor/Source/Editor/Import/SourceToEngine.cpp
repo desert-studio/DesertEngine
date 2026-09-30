@@ -101,9 +101,9 @@ namespace Desert::Editor
             {
                 const auto part = [&]( auto member )
                 { return glm::vec3( c.X.Keys[k].*member, c.Y.Keys[k].*member, c.Z.Keys[k].*member ); };
-                const glm::vec3 v = map( part( &Animation::ScalarKey::Value ), true );
-                const glm::vec3 a = map( part( &Animation::ScalarKey::ArriveTangent ), false );
-                const glm::vec3 l = map( part( &Animation::ScalarKey::LeaveTangent ), false );
+                const glm::vec3  v = map( part( &Animation::ScalarKey::Value ), true );
+                const glm::vec3  a = map( part( &Animation::ScalarKey::ArriveTangent ), false );
+                const glm::vec3  l = map( part( &Animation::ScalarKey::LeaveTangent ), false );
                 const std::array axes{ &c.X, &c.Y, &c.Z };
                 for ( int i = 0; i < 3; ++i )
                 {

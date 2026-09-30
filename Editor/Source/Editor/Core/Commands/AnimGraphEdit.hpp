@@ -67,8 +67,8 @@ namespace Desert::Editor
         AnimGraphEditCommand( AnimGraphOwner owner, Animation::Graph::AnimGraph before,
                               Animation::Graph::AnimGraph after );
 
-        bool Undo() override;
-        bool Redo() override;
+        bool               Undo() override;
+        bool               Redo() override;
         [[nodiscard]] bool IsVolatile() const override
         {
             return m_Owner.Volatile;

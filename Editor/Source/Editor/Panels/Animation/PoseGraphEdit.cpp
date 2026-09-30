@@ -411,8 +411,8 @@ namespace Desert::Editor::Graph
             const int   row    = cell / kPoseGridCols; // whole rows: the grid is filled row by row
             const float x      = static_cast<float>( column ) * kPoseGridStepX;
             const float y      = static_cast<float>( row ) * kPoseGridStepY;
-            const bool  taken = std::any_of( nodes.begin(), nodes.end(),
-                                             [&]( const G::PoseNode& n ) {
+            const bool  taken  = std::any_of( nodes.begin(), nodes.end(),
+                                              [&]( const G::PoseNode& n ) {
                                                 return std::abs( n.X - x ) < kPoseGridStepX * 0.5f &&
                                                        std::abs( n.Y - y ) < kPoseGridStepY * 0.5f;
                                             } );

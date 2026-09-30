@@ -1956,10 +1956,10 @@ namespace Desert::Editor
                 for ( auto h : registry.view<::Desert::ECS::UUIDComponent>() )
                 {
                     const ::Desert::ECS::Entity candidate( h, registry );
-                    const auto            uuid = candidate.GetComponent<::Desert::ECS::UUIDComponent>().UUID;
-                    const std::string     name = candidate.HasComponent<::Desert::ECS::TagComponent>()
-                                                      ? candidate.GetComponent<::Desert::ECS::TagComponent>().Tag
-                                                      : std::string( "Entity" );
+                    const auto                  uuid = candidate.GetComponent<::Desert::ECS::UUIDComponent>().UUID;
+                    const std::string           name = candidate.HasComponent<::Desert::ECS::TagComponent>()
+                                                            ? candidate.GetComponent<::Desert::ECS::TagComponent>().Tag
+                                                            : std::string( "Entity" );
                     if ( !entityFilter.PassFilter( name.c_str() ) )
                         continue;
                     ImGui::PushID( static_cast<int>( static_cast<uint32_t>( h ) ) );

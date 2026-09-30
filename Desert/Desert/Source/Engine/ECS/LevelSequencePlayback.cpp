@@ -43,7 +43,7 @@ namespace Desert::ECS
                 wanted = over.Entity;
         if ( wanted.IsNull() )
         {
-            uint64_t   value = 0;
+            uint64_t          value = 0;
             const auto* const end   = binding.Locator.data() + binding.Locator.size();
             const auto        read  = std::from_chars( binding.Locator.data(), end, value );
             if ( read.ec != std::errc() || read.ptr != end || value == 0 )

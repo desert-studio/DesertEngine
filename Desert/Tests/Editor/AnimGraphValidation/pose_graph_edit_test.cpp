@@ -36,7 +36,7 @@ namespace
         for ( int up = 0; up < 6 && !std::filesystem::exists( prefix / relative ); ++up )
             prefix /= "..";
         const std::ifstream in( prefix / relative );
-        std::ostringstream text;
+        std::ostringstream  text;
         text << in.rdbuf();
         return text.str();
     }
