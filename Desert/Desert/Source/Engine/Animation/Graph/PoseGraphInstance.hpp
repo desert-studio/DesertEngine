@@ -200,10 +200,9 @@ namespace Desert::Animation::Graph
     private:
         /// The layers `implementation` would link and the interfaces they answer, or the refusal; the table
         /// is not touched. `implementationId` is not checked here (Link refuses 0, SetDefaults uses it).
-        [[nodiscard]] Common::BoolResultStr BuildLayers( const AnimGraph& host, uint64_t implementationId,
-                                                         const AnimGraph& implementation, const Skeleton& skeleton,
-                                                         std::vector<Layer>&       layers,
-                                                         std::vector<std::string>& interfaces ) const;
+        [[nodiscard]] static Common::BoolResultStr
+        BuildLayers( const AnimGraph& host, uint64_t implementationId, const AnimGraph& implementation,
+                     const Skeleton& skeleton, std::vector<Layer>& linked, std::vector<std::string>& interfaces );
         /// Every default whose interface no layer in the table answers is put back, fresh (entry states).
         void RestoreDefaults();
 

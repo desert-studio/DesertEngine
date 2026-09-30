@@ -165,7 +165,9 @@ namespace Desert::ECS
                      anim.Graph ? Animation::Graph::BaseSourceNode( *anim.Graph ) : nullptr;
                 const Animation::Graph::StateMachine* outputMachine =
                      anim.Graph ? Animation::Graph::OutputMachine( *anim.Graph ) : nullptr;
-                const bool baseIsSequence = baseSource != nullptr && baseSource->Sequence.has_value();
+                const Animation::Graph::SequencePlayerNode* baseSequence =
+                     baseSource != nullptr && baseSource->Sequence ? &*baseSource->Sequence : nullptr;
+                const bool baseIsSequence = baseSequence != nullptr;
                 if ( baseIsSequence || ( outputMachine != nullptr && !outputMachine->States.empty() ) )
                 {
                     bool graphRebuilt = true;
@@ -236,9 +238,9 @@ namespace Desert::ECS
                             }
                             anim.Animator->SetPlaybackSpeed( anim.PlaybackSpeed * res.Current->Speed );
                         }
-                        else if ( baseIsSequence )
+                        else if ( baseSequence != nullptr )
                         {
-                            PlaySequence( anim, clipRig, *baseSource );
+                            PlaySequence( anim, clipRig, baseSource->Name, *baseSequence );
                         }
 
                         DrivePoseGraph( anim, clipRig, graphRebuilt );
@@ -388,19 +390,19 @@ namespace Desert::ECS
         /// A SequencePlayer at the base of Output Pose: its clip in the Source stage, started once (a clip
         /// already playing keeps its clock).
         void PlaySequence( ECS::AnimationComponent& anim, const Animation::MeshSkeletonIdentity& clipRig,
-                           const Animation::Graph::PoseNode& node )
+                           const std::string& nodeName, const Animation::Graph::SequencePlayerNode& sequence )
         {
-            const auto found = m_AnimationLibrary->FindForMesh( clipRig, node.Sequence->Clip );
+            const auto found = m_AnimationLibrary->FindForMesh( clipRig, sequence.Clip );
             if ( !found )
             {
-                if ( !m_AnimationLibrary->HasPending( node.Sequence->Clip ) )
-                    ReportUnplayableState( clipRig, node.Name, node.Sequence->Clip, found.GetError() );
+                if ( !m_AnimationLibrary->HasPending( sequence.Clip ) )
+                    ReportUnplayableState( clipRig, nodeName, sequence.Clip, found.GetError() );
                 return;
             }
             const auto& clip = found.GetValue()->GetClip();
             const auto* cur  = anim.Animator->GetCurrentClip();
-            if ( !cur || cur->AnimationName != clip.AnimationName )
-                anim.Animator->Play( clip, node.Sequence->Loop );
+            if ( cur == nullptr || cur->AnimationName != clip.AnimationName )
+                anim.Animator->Play( clip, sequence.Loop );
             anim.Animator->SetPlaybackSpeed( anim.PlaybackSpeed );
         }
 

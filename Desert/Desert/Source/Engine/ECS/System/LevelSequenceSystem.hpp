@@ -36,7 +36,8 @@ namespace Desert::ECS
         void Update( entt::registry&         registry, Graphic::Render::RenderCommandBuffer&,
                      const Common::Timestep& ts ) override
         {
-            if ( !m_Scene || !m_AssetManager || m_Scene->GetState() != Core::Scene::SceneState::Play )
+            if ( m_Scene == nullptr || m_AssetManager == nullptr ||
+                 m_Scene->GetState() != Core::Scene::SceneState::Play )
             {
                 m_Actors.clear(); // Stop restores the pre-Play scene; the next Play starts every actor afresh
                 return;
@@ -95,7 +96,7 @@ namespace Desert::ECS
             actor.Name   = m_Scene->GetRegistry().has<TagComponent>( entity )
                                 ? m_Scene->GetRegistry().get<TagComponent>( entity ).Tag
                                 : std::string( "LevelSequence" );
-            if ( !component.Sequence )
+            if ( component.Sequence == 0 )
             {
                 LOG_ERROR( "[LevelSequence] '{}' names no sequence; nothing plays", actor.Name );
                 return nullptr;

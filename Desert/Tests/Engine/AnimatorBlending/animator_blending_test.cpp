@@ -956,7 +956,10 @@ TEST( AnimatorBlending, AnUnlinkReturnsTheInterfaceToTheHostsOwnLayerAndNotToPas
     const Skeleton      skeleton  = MakeRig();
     const AnimationClip base      = SteppingClip( "Base" );
     G::AnimGraph        ownsLayer = CallingHost(); // UE: the AnimBlueprint implements the interface it calls
-    ownsLayer.Layers->Implemented.push_back(
+    if ( !ownsLayer.Layers )
+        FAIL() << "CallingHost declares its layer interfaces";
+    auto& ownLayers = *ownsLayer.Layers;
+    ownLayers.Implemented.push_back(
          G::AnimLayerGraph{ "Weapon", "UpperBody", { PoseGraphFixture::Sequence( "Own" ) }, "Own" } );
 
     Animator animator( skeleton );
