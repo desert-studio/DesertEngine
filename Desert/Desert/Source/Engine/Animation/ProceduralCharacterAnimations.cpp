@@ -7,6 +7,7 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Geometry/ProceduralCharacterFactory.hpp>
+#include <Engine/Geometry/ProceduralCharacterSkeleton.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -32,8 +33,10 @@ namespace Desert::Animation
         AnimationClip Build( const char* name, float duration,
                              const std::unordered_map<std::string, std::function<float( float )>>& angleFns )
         {
-            const Skeleton* skel = Geometry::ProceduralCharacterFactory::GetHumanoidSkeleton();
-            const auto&     bones = skel->GetBones();
+            // No rig (logged by the factory): a clip with no tracks, never registered (RegisterClips refuses).
+            static const std::vector<BoneInfo> kNoBones;
+            const Skeleton* skel  = Geometry::ProceduralCharacterFactory::GetHumanoidSkeleton();
+            const auto&     bones = skel ? skel->GetBones() : kNoBones;
 
             std::unordered_map<std::string, uint32_t> nameToIdx;
             for ( uint32_t i = 0; i < bones.size(); ++i )
@@ -158,13 +161,11 @@ namespace Desert::Animation
 
     size_t ProceduralCharacterAnimations::RegisterClips( Assets::AssetManager& assets, AnimationLibrary& library )
     {
-        const AnimationClip* clips[] = { &Idle(), &Walk(), &Run(), &Jump() };
-
         // THE HUMANOID'S SKELETON IS AN ASSET (engine content, Humanoid.skeleton): its identity is the GUID its
         // header states, read from the content registry's row of that file — the same GUID a picker or a
         // clip's Skeleton reference names it by. No row, or a row without a GUID, is refused by path: the
         // built-in character then has no clips rather than clips bound to an identity no file carries.
-        const std::filesystem::path skeletonFile = Geometry::ProceduralCharacterFactory::HumanoidSkeletonFile();
+        const std::filesystem::path skeletonFile = Geometry::HumanoidSkeletonFile();
         const auto skeletonRow = Assets::ContentRegistry::RowOfPath( Common::Content::ContentKind::Skeleton,
                                                                      skeletonFile );
         if ( !skeletonRow || !skeletonRow->Guid || skeletonRow->Guid->IsNull() )
@@ -176,6 +177,12 @@ namespace Desert::Animation
             return 0;
         }
         const Common::Content::AssetGuid skeleton = *skeletonRow->Guid;
+
+        // The clips are generated over the rig the file states; a rig that did not build (logged by name by the
+        // factory) leaves the humanoid with no mesh and no clips.
+        if ( Geometry::ProceduralCharacterFactory::GetHumanoidSkeleton() == nullptr )
+            return 0;
+        const AnimationClip* clips[] = { &Idle(), &Walk(), &Run(), &Jump() };
 
         // The humanoid mesh is procedural (no SkinnedMeshAsset to state its skeleton), so its skeleton reference
         // is stated here, beside the clips that reference the same GUID.

@@ -179,10 +179,9 @@ namespace Common::Content
     // THE ROOTS A KIND IS FOUND UNDER — the one home of that list (UE mounts /Engine beside /Game in every
     // project). A kind rooted in the project's assets tree is walked there AND at the same place under the
     // engine's content mount (Constants::Path::ENGINE_CONTENT_PATH), so engine assets a project never copied
-    // — the built-in humanoid's skeleton — are in every project's registry. A kind rooted elsewhere (the
-    // engine's shaders, already engine-shared) has its one root. The sandbox, whose assets root IS the
-    // mount, gets one root: the two are compared absolute, since a project's root is absolute and the
-    // mount is working-directory relative.
+    // — the built-in humanoid's skeleton — are in every project's registry, the sandbox's included. The mount
+    // is its own tree, never the sandbox's assets root, so the two roots are always distinct. A kind rooted
+    // elsewhere (the engine's shaders, already engine-shared) has its one root.
     inline std::vector<std::filesystem::path> ScanRootsOf( const ContentKindSpec& spec )
     {
         namespace fs = std::filesystem;
@@ -204,11 +203,7 @@ namespace Common::Content
 
         const fs::path engine = Trimmed( rel == "." ? fs::path( Constants::Path::ENGINE_CONTENT_PATH )
                                                     : Constants::Path::ENGINE_CONTENT_PATH / rel );
-        std::error_code ec;
-        const fs::path  absoluteEngine = fs::absolute( engine, ec ).lexically_normal();
-        const fs::path  absoluteRoot   = fs::absolute( Trimmed( *spec.Root ), ec ).lexically_normal();
-        if ( !ec && absoluteEngine != absoluteRoot )
-            roots.push_back( engine / "" );
+        roots.push_back( engine / "" );
         return roots;
     }
 } // namespace Common::Content

@@ -1,129 +1,25 @@
 #include "ProceduralCharacterFactory.hpp"
+#include "ProceduralCharacterSkeleton.hpp"
 
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Animation/Skeleton.hpp>
-#include <Engine/Animation/BoneInfo.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Common/Core/Constants.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Common/Core/Units.hpp>
 
 #include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
 
-#include <array>
 #include <cmath>
 #include <memory>
-#include <optional>
 #include <vector>
 
 namespace Desert::Geometry
 {
     namespace
     {
-        // ---- Skeleton joints (index order is the bone array order; parents reference these indices) ----
-        enum Joint : uint32_t
-        {
-            Hips = 0,
-            Spine,
-            Chest,
-            Neck,
-            Head,
-            ShoulderL,
-            ElbowL,
-            HandL,
-            ShoulderR,
-            ElbowR,
-            HandR,
-            HipL,
-            KneeL,
-            FootL,
-            HipR,
-            KneeR,
-            FootR,
-            JointCount
-        };
-
-        struct JointDef
-        {
-            const char* Name;
-            int         Parent;     // -1 = root
-            glm::vec3   BindWorld;  // T/A-pose position in mesh space (origin at feet, +Y up, meters)
-        };
-
-        // A-pose: arms hang straight down so EVERY segment box is axis-aligned (no orientation maths needed).
-        constexpr JointDef kJoints[JointCount] = {
-            { "Hips", -1, { 0.00f, 0.95f, 0.0f } },     { "Spine", Hips, { 0.00f, 1.15f, 0.0f } },
-            { "Chest", Spine, { 0.00f, 1.40f, 0.0f } }, { "Neck", Chest, { 0.00f, 1.55f, 0.0f } },
-            { "Head", Neck, { 0.00f, 1.65f, 0.0f } },
-
-            { "Shoulder.L", Chest, { 0.18f, 1.45f, 0.0f } },
-            { "Elbow.L", ShoulderL, { 0.18f, 1.15f, 0.0f } },
-            { "Hand.L", ElbowL, { 0.18f, 0.88f, 0.0f } },
-
-            { "Shoulder.R", Chest, { -0.18f, 1.45f, 0.0f } },
-            { "Elbow.R", ShoulderR, { -0.18f, 1.15f, 0.0f } },
-            { "Hand.R", ElbowR, { -0.18f, 0.88f, 0.0f } },
-
-            { "Hip.L", Hips, { 0.09f, 0.92f, 0.0f } },
-            { "Knee.L", HipL, { 0.09f, 0.50f, 0.0f } },
-            { "Foot.L", KneeL, { 0.09f, 0.06f, 0.0f } },
-
-            { "Hip.R", Hips, { -0.09f, 0.92f, 0.0f } },
-            { "Knee.R", HipR, { -0.09f, 0.50f, 0.0f } },
-            { "Foot.R", KneeR, { -0.09f, 0.06f, 0.0f } },
-        };
-
         // ---- Smooth body: TAPERED CAPSULES (limb/torso segments) + SPHERE joints, each rigid-skinned 100% to
-        // one joint. Replaces the old box mannequin so the character reads as ROUNDED, not blocky. The SKELETON
-        // is unchanged (same joints/signature), so the procedural idle/walk/run/jump clips still map onto it. ----
+        // one bone, laid over the bind pose of the rig the ASSET states (ProceduralCharacterSkeleton). ----
         constexpr float kPi = 3.14159265358979323846f;
-
-        // A tapered cylinder between two joints (endpoints = their bind positions), rigid-skinned to SkinBone.
-        struct SegmentDef
-        {
-            uint32_t JointA;   // start
-            uint32_t JointB;   // end
-            float    RadiusA;  // radius at JointA
-            float    RadiusB;  // radius at JointB
-            uint32_t SkinBone; // bone this segment skins to
-        };
-
-        constexpr std::array<SegmentDef, 12> kSegments = { {
-            { Hips, Spine, 0.15f, 0.15f, Hips },   // lower torso
-            { Spine, Chest, 0.15f, 0.18f, Chest }, // chest (widening)
-            { Chest, Neck, 0.14f, 0.055f, Chest }, // upper chest -> neck
-            { Neck, Head, 0.05f, 0.05f, Neck },    // neck
-
-            { ShoulderL, ElbowL, 0.058f, 0.05f, ShoulderL }, // upper arm L
-            { ElbowL, HandL, 0.048f, 0.04f, ElbowL },        // forearm L
-            { ShoulderR, ElbowR, 0.058f, 0.05f, ShoulderR }, // upper arm R
-            { ElbowR, HandR, 0.048f, 0.04f, ElbowR },        // forearm R
-
-            { HipL, KneeL, 0.09f, 0.07f, HipL },    // thigh L
-            { KneeL, FootL, 0.065f, 0.05f, KneeL }, // shin L
-            { HipR, KneeR, 0.09f, 0.07f, HipR },    // thigh R
-            { KneeR, FootR, 0.065f, 0.05f, KneeR }, // shin R
-        } };
-
-        // Spheres round off the joints (shoulders/elbows/knees/head/hips) so segments blend, not butt-join.
-        struct SphereDef
-        {
-            uint32_t Joint;
-            float    Radius;
-        };
-
-        constexpr std::array<SphereDef, 10> kJointSpheres = { {
-            { Hips, 0.155f }, { Chest, 0.175f }, { Head, 0.13f }, { Neck, 0.055f },
-            { ShoulderL, 0.062f }, { ElbowL, 0.05f }, { KneeL, 0.067f },
-            { ShoulderR, 0.062f }, { ElbowR, 0.05f }, { KneeR, 0.067f },
-        } };
-
-        glm::vec3 JointPos( uint32_t joint )
-        {
-            // The rig is authored in metres (a 1.8 m humanoid reads better as a table); one world unit is a
-            // centimetre, so every position — bind pose AND the segment radii below — scales up by 100.
-            return kJoints[joint].BindWorld * Common::Units::UnitsPerMetre;
-        }
 
         // A tapered cylinder (side surface) p0(radius r0) -> p1(radius r1), rigid-skinned to `bone`. Normals
         // point radially outward; triangles are wound CCW-outward (matches the mesh convention).
@@ -209,35 +105,6 @@ namespace Desert::Geometry
                 }
         }
 
-        std::vector<Animation::BoneInfo> BuildBones()
-        {
-            std::vector<Animation::BoneInfo> bones( JointCount );
-            for ( uint32_t i = 0; i < JointCount; ++i )
-            {
-                const JointDef& j = kJoints[i];
-
-                // THROUGH JointPos, like the mesh: the rig is authored in metres and a world unit is a
-                // centimetre, so the bind pose has to be scaled by exactly the same 100 the vertices are.
-                // It used to use the raw (metre) values, which left the skeleton 100x smaller than the mesh
-                // it skins. In BIND pose that cancels out — the render path multiplies chainGlobal by
-                // OffsetMatrix, which is its own inverse — so a standing character looked right. As soon as
-                // a CLIP played, each bone rotated about a pivot 100x closer to the origin than the vertices
-                // it moves, and the body flew apart. (The bone overlay and the bone gizmo, both drawn at
-                // chainGlobal, were mis-scaled for the same reason.)
-                const glm::vec3 world = JointPos( i );
-                const glm::vec3 parentWorld =
-                     ( j.Parent >= 0 ) ? JointPos( static_cast<uint32_t>( j.Parent ) ) : glm::vec3( 0.0f );
-
-                bones[i].Name      = j.Name;
-                // No rotation in the bind pose, so the local transform is just the offset from the parent.
-                bones[i].LocalBindTransform = glm::translate( glm::mat4( 1.0f ), world - parentWorld );
-                bones[i].OffsetMatrix       = glm::mat4( 1.0f ); // recomputed below
-                if ( j.Parent >= 0 )
-                    bones[i].ParentBoneID = static_cast<uint32_t>( j.Parent );
-            }
-            return bones;
-        }
-
         // Owns the humanoid skeleton for the process lifetime (SkinnedMesh only holds a const Skeleton*).
         std::unique_ptr<Animation::Skeleton> s_Skeleton;
         // NOT AN OPTIONAL, AND IT NEVER MEANT ONE. `RegisterProcedural` returns a handle, not a maybe, so
@@ -253,22 +120,63 @@ namespace Desert::Geometry
                 return;
             }
 
-            s_Skeleton = std::make_unique<Animation::Skeleton>( BuildBones() );
-            s_Skeleton->RecomputeOffsetMatrices();
+            // Whatever happens below, this runs once: a rig that does not read is reported once, by name.
+            s_Built = true;
+            s_Skeleton = LoadHumanoidSkeleton();
+            if ( !s_Skeleton )
+                return;
+
+            // The body is laid over the rig's COMPONENT-SPACE BIND: the file's LocalBindTransform chain, the
+            // same one its OffsetMatrix inverts. Positions are in world units (cm), as the file is.
+            const auto& bones = s_Skeleton->GetBones();
+            std::vector<glm::mat4> bind;
+            s_Skeleton->ResolveComponentSpace( [&]( uint32_t i ) { return bones[i].LocalBindTransform; }, bind );
+
+            // Every bone the body names must be in the rig; one that is not is refused by name, and the
+            // humanoid then has no mesh rather than a limb skinned to a wrong bone.
+            bool                  complete = true;
+            const auto            BoneOf   = [&]( const char* name ) -> uint32_t
+            {
+                if ( const auto index = s_Skeleton->FindBoneIndex( name ) )
+                    return *index;
+                LOG_ERROR( "[Geometry] the built-in humanoid's skeleton '{}' has no bone '{}'; the procedural "
+                           "humanoid has no mesh.",
+                           HumanoidSkeletonFile().generic_string(), name );
+                complete = false;
+                return 0;
+            };
+            const auto PositionOf = [&]( uint32_t bone ) { return glm::vec3( bind[bone][3] ); };
 
             std::vector<SkinnedVertex> verts;
             std::vector<Index>         indices;
-            constexpr float            M = Common::Units::UnitsPerMetre; // radii are authored in metres too
-            for ( const SegmentDef& seg : kSegments )
-                AppendCylinder( verts, indices, JointPos( seg.JointA ), JointPos( seg.JointB ), seg.RadiusA * M,
-                                seg.RadiusB * M, seg.SkinBone );
-            for ( const SphereDef& sph : kJointSpheres )
-                AppendSphere( verts, indices, JointPos( sph.Joint ), sph.Radius * M, sph.Joint );
-            // Feet: a short capsule from each ankle forward (+Z), skinned to the foot joint.
-            for ( uint32_t foot : { static_cast<uint32_t>( FootL ), static_cast<uint32_t>( FootR ) } )
-                AppendCylinder( verts, indices, JointPos( foot ),
-                                JointPos( foot ) + glm::vec3( 0.0f, -0.02f, 0.17f ) * M, 0.055f * M, 0.045f * M,
-                                foot );
+            constexpr float            M = Common::Units::UnitsPerMetre; // radii are authored in metres
+            for ( const HumanoidSegment& seg : HumanoidSegments() )
+            {
+                const uint32_t a = BoneOf( seg.BoneA ), b = BoneOf( seg.BoneB ), skin = BoneOf( seg.SkinBone );
+                if ( complete )
+                    AppendCylinder( verts, indices, PositionOf( a ), PositionOf( b ), seg.RadiusA * M,
+                                    seg.RadiusB * M, skin );
+            }
+            for ( const HumanoidSphere& sph : HumanoidSpheres() )
+            {
+                const uint32_t bone = BoneOf( sph.Bone );
+                if ( complete )
+                    AppendSphere( verts, indices, PositionOf( bone ), sph.Radius * M, bone );
+            }
+            // Feet: a short capsule from each ankle forward (+Z), skinned to the foot bone.
+            for ( const char* footName : HumanoidFeet() )
+            {
+                const uint32_t foot = BoneOf( footName );
+                if ( complete )
+                    AppendCylinder( verts, indices, PositionOf( foot ),
+                                    PositionOf( foot ) + glm::vec3( 0.0f, -0.02f, 0.17f ) * M, 0.055f * M,
+                                    0.045f * M, foot );
+            }
+            if ( !complete )
+            {
+                s_Skeleton.reset();
+                return;
+            }
 
             // Single submesh covering the whole body.
             Submesh sub{};
@@ -283,7 +191,6 @@ namespace Desert::Geometry
             auto mesh = std::make_shared<SkinnedMesh>( verts, indices, std::vector<Submesh>{ sub },
                                                        s_Skeleton.get(), std::vector<MeshVertexStreams>{} );
             s_Handle = Runtime::ResourceRegistry::GetMeshService()->RegisterProcedural( mesh );
-            s_Built   = true;
         }
     } // namespace
 
@@ -291,12 +198,6 @@ namespace Desert::Geometry
     {
         BuildOnce();
         return s_Handle;
-    }
-
-    std::filesystem::path ProceduralCharacterFactory::HumanoidSkeletonFile()
-    {
-        // Engine content: found in every project through the engine mount (ScanRootsOf).
-        return Common::Constants::Path::ENGINE_CONTENT_PATH / "Meshes/Skinned/Humanoid.skeleton";
     }
 
     const Animation::Skeleton* ProceduralCharacterFactory::GetHumanoidSkeleton()
