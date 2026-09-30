@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <compare>
+#include <functional>
 #include <map>
 #include <optional>
 #include <memory>
@@ -44,7 +45,7 @@ namespace Desert::Graphic::API::Vulkan
     };
 
     // Usage flags a transient is created with, from the graph's derived usage (bit i = 1 << Access i).
-    VkImageUsageFlags  RdgImageUsage( uint32_t accessMask, bool depthFormat );
+    VkImageUsageFlags  RdgImageUsage( uint32_t accessMask );
     VkBufferUsageFlags RdgBufferUsage( uint32_t accessMask );
 
     // The Vulkan translation of the graph's own state enums; one table each, no second copy.
@@ -144,6 +145,16 @@ namespace Desert::Graphic::API::Vulkan
         std::map<std::tuple<uint32_t, uint32_t, uint32_t, uint32_t>, VkImageView> m_Views;
     };
 
+    // The view a sampled input bound inside a graph node names, for exactly the subresource the node declared:
+    // All -> @p whole (the image's own view); one mip over every layer -> @p mipView of it (the image's own mip
+    // view: a cube stays a cube, a volume a volume); any narrower layer range -> @p graphTexture's view of it
+    // (the imported image's graph handle, which keeps its views alive for the frames in flight). A layer range
+    // of an image the graph has no handle on, of a packed depth-stencil image (no single sampleable aspect), or
+    // a missing view is an error naming the range.
+    Common::ResultStr<VkImageView> SampledSubresourceView( const RDG::SubresourceRange& range, VkImageView whole,
+                                                           const std::function<VkImageView( uint32_t )>& mipView,
+                                                           VulkanRdgTexture* graphTexture );
+
     class VulkanRdgBuffer final : public RDG::IPhysicalBuffer
     {
     public:
@@ -211,6 +222,13 @@ namespace Desert::Graphic::API::Vulkan
         // The caller has waited for @p slot's previous submission.
         void BeginFrame( uint32_t slot );
 
+        // Keeps @p texture alive until the next BeginFrame of the current slot. The caller has waited for that
+        // slot's previous submission by then, and fences are waited in submission order, so every frame that
+        // could have recorded the texture's views has completed. The engine image's graph handle goes here when
+        // the image is released or resized (IVulkanImage::DropGraphTexture), instead of destroying views a
+        // frame in flight may still reference.
+        void Retire( std::shared_ptr<RDG::IPhysicalTexture> texture );
+
         Common::ResultStr<std::shared_ptr<VulkanRdgTexture>>
         AcquireTexture( const RDG::TextureDesc& desc, uint32_t accessMask, std::string_view name );
         Common::ResultStr<std::shared_ptr<VulkanRdgBuffer>>
@@ -230,6 +248,7 @@ namespace Desert::Graphic::API::Vulkan
         {
             std::vector<Entry<VulkanRdgTexture>> Textures;
             std::vector<Entry<VulkanRdgBuffer>>  Buffers;
+            std::vector<std::shared_ptr<RDG::IPhysicalTexture>> Retired; // released at the slot's next BeginFrame
             uint64_t                             PreviousFrame = 0; // frame counter of the slot's last BeginFrame
         };
 

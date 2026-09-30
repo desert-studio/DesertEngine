@@ -43,8 +43,7 @@ namespace Desert::Graphic
 
         // Named region in the current command buffer (RenderDoc pass tree). Pair Begin/End.
         void BeginDebugLabel( const char* name );
-        Common::BoolResultStr                  ExecuteGraph( RDG::Builder& graph );
-        std::shared_ptr<RDG::IPhysicalTexture> WrapLegacyImage( Image2D& image );
+        Common::BoolResultStr ExecuteGraph( RDG::Builder& graph );
         Common::BoolResultStr ImportImage( const std::shared_ptr<Image>& image, RDG::ExternalTexture& into );
         Common::BoolResultStr ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
                                             RDG::ExternalBuffer&                                   into );
@@ -76,9 +75,6 @@ namespace Desert::Graphic
 
         // Compute dispatch whose writes are made visible to the VERTEX + DRAW_INDIRECT stages (GPU cull
         // feeding an indirect instanced draw).
-        void DispatchComputeCull( const ComputePipeline* pipeline, uint32_t groupCountX, uint32_t groupCountY,
-                                  uint32_t groupCountZ );
-
         // Layout helpers for compute storage targets used in the frame command buffer (see RendererAPI).
         void ComputeImageBeginWrite( Image* image );
         void ComputeImageEndWrite( Image* image );

@@ -28,9 +28,9 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     ComputePipeline& VulkanPipelineCompute::SetInput( uint32_t binding, Image* image, RDG::Access declared,
-                                                      std::optional<uint32_t> mip )
+                                                      RDG::SubresourceRange range )
     {
-        m_BoundInputs[binding] = { image, declared, mip };
+        m_BoundInputs[binding] = { image, declared, range };
         return *this;
     }
 
@@ -112,7 +112,21 @@ namespace Desert::Graphic::API::Vulkan
             const auto&            r    = img->GetResource();
             const SampledImageKind kind = ClassifySampledImage( image );
 
-            VkImageView   view   = input.Mip ? img->GetMipView( *input.Mip ) : r.ImageView;
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes graph
+            // textures
+            auto*      graphTexture = dynamic_cast<VulkanRdgTexture*>( img->GetGraphTexture().get() );
+            const auto resolved     = SampledSubresourceView(
+                 input.Range, r.ImageView, [img]( uint32_t mip ) { return img->GetMipView( mip ); },
+                 graphTexture );
+            if ( !resolved.IsSuccess() )
+            {
+                LOG_ERROR(
+                     "ComputePipeline '{}': input at binding {} has no view of the subresource it declared: {}; "
+                     "dispatch skipped",
+                     m_Specification.DebugName, binding, resolved.GetError() );
+                return;
+            }
+            const VkImageView      view           = resolved.GetValue();
             const RDG::ImageLayout declaredLayout = RDG::GetAccessState( input.Declared ).Layout;
             if ( declaredLayout != RDG::ImageLayout::ShaderReadOnly &&
                  declaredLayout != RDG::ImageLayout::General )
@@ -123,12 +137,6 @@ namespace Desert::Graphic::API::Vulkan
                 return;
             }
             const VkImageLayout layout = RdgVulkanLayout( declaredLayout );
-            if ( input.Mip && view == VK_NULL_HANDLE )
-            {
-                LOG_ERROR( "ComputePipeline '{}': input at binding {} has no view of mip {}; dispatch skipped",
-                           m_Specification.DebugName, binding, *input.Mip );
-                return;
-            }
 
             if ( kind == SampledImageKind::Volume &&
                  ( view == VK_NULL_HANDLE || r.Sampler == VK_NULL_HANDLE ||

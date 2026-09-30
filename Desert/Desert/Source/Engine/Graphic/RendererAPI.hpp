@@ -67,11 +67,6 @@ namespace Desert::Graphic
         // labels and pass timings, and each pass's own recording, in the graph's order.
         virtual Common::BoolResultStr ExecuteGraph( RDG::Builder& graph ) = 0;
 
-        // The graph's handle on an engine image that legacy passes render into and sample. Null when the
-        // image is not in SHADER_READ_ONLY, the layout Builder::AddLegacyPass assumes around every legacy
-        // pass: declaring it would make the graph issue barriers from a layout the image is not in.
-        virtual std::shared_ptr<RDG::IPhysicalTexture> WrapLegacyImage( Image2D& image ) = 0;
-
         // Imports @p image into @p into for one graph: its description (a 2D image, a volume or a cube, as the
         // image describes itself), its physical image, the state its own layout record implies
         // (RDG::RecordedLayoutState), and the hook through which Execute writes the final layout back into
@@ -120,18 +115,13 @@ namespace Desert::Graphic
         virtual void SubmitVertices( const GraphicsPipeline* pipeline, uint32_t vertexCount,
                                      const MaterialExecutor* materialExecutor ) = 0;
 
-        // Like DispatchComputeInFrame but the compute writes are made visible to the VERTEX stage
-        // (storage read) and to the DRAW_INDIRECT stage (indirect command read) — for GPU cull passes
-        // that feed an indirect instanced draw.
-        virtual void DispatchComputeCull( const ComputePipeline* pipeline, uint32_t groupCountX,
-                                          uint32_t groupCountY, uint32_t groupCountZ ) = 0;
-
         /**
          * @brief Records a compute dispatch into the current frame command buffer (outside any render
-         *        pass), then inserts a compute-write -> shader-read barrier so the next dispatch or a
-         *        later fragment sample sees the result. The pipeline's bound inputs/outputs/push-constants
-         *        are consumed (see ComputePipeline::SetInput/SetOutput/SetPushConstants). The caller owns
-         *        image layout transitions (see ComputeImageBeginWrite / ComputeImageEndWrite).
+         *        pass), and nothing else: no barrier, no layout transition. The caller is a frame-graph
+         *        node that declares every image and buffer the dispatch reads or writes; the graph places
+         *        the barriers and transitions from those declarations. The pipeline's bound
+         *        inputs/outputs/push-constants are consumed (see ComputePipeline::SetInput/SetOutput/
+         *        SetPushConstants).
          */
         virtual void DispatchComputeInFrame( const ComputePipeline* pipeline, uint32_t groupCountX,
                                              uint32_t groupCountY, uint32_t groupCountZ ) = 0;

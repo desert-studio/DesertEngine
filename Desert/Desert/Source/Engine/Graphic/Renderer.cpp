@@ -175,12 +175,6 @@ namespace Desert::Graphic
         s_RendererAPI->DispatchComputeInFrame( pipeline, groupCountX, groupCountY, groupCountZ );
     }
 
-    void Renderer::DispatchComputeCull( const ComputePipeline* pipeline, uint32_t groupCountX,
-                                        uint32_t groupCountY, uint32_t groupCountZ )
-    {
-        s_RendererAPI->DispatchComputeCull( pipeline, groupCountX, groupCountY, groupCountZ );
-    }
-
     void Renderer::ComputeImageBeginWrite( Image* image )
     {
         s_RendererAPI->ComputeImageBeginWrite( image );
@@ -240,11 +234,6 @@ namespace Desert::Graphic
                                                   RDG::ExternalBuffer&                                   into )
     {
         return s_RendererAPI->ImportBuffer( buffer, into );
-    }
-
-    std::shared_ptr<RDG::IPhysicalTexture> Renderer::WrapLegacyImage( Image2D& image )
-    {
-        return s_RendererAPI->WrapLegacyImage( image );
     }
 
     void Renderer::BeginDebugLabel( const char* name )

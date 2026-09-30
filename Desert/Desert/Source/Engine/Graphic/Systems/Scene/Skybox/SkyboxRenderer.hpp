@@ -15,6 +15,7 @@
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <glm/glm.hpp>
+#include <optional>
 
 namespace Desert::Graphic::System
 {
@@ -72,6 +73,8 @@ namespace Desert::Graphic::System
         // pixel reads were marched for the camera that pixel was drawn with. The DISTANT SKY LIGHT is
         // refilled here for the third time on the same grounds — same frame, same consumer, no latency.
         std::vector<ComputeNodeDeclaration> DeclareAtmosphereLutNodes();
+        // The cached LUT pair counts as baked only once the frame graph accepted the nodes that bake it.
+        void SettleAtmosphereLutNodes( bool accepted );
         // The LUTs a consumer of GetAtmosphere() samples, declared with @p access (the fog and the clouds).
         void DeclareAtmosphereReads( RenderPassDeclaration& declared, RDG::Access access ) const;
 
@@ -216,9 +219,13 @@ namespace Desert::Graphic::System
         // The sky-view LUT has been written by an earlier frame's SkyAtmosphereLuts node (it is refilled every
         // frame after that). The SkyboxPass samples the LUTs only once this holds, see RegisterPasses.
         bool m_SkyViewLutFilled = false;
+        // DeclareAtmosphereLutNodes declared the SkyViewLut node this frame, until SettleAtmosphereLutNodes.
+        bool m_SkyViewLutFillPending = false;
         // Decided by the SkyboxPass's Declare and read by its Render in the same frame: the pass binds the LUTs
         // only when it declared them.
-        bool                             m_SkyPassSamplesLuts               = false;
+        bool m_SkyPassSamplesLuts = false;
+        // The fingerprint DeclareAtmosphereLutNodes' transmittance/multi-scatter nodes bake, until settled.
+        std::optional<AtmosphereLutFingerprint> m_LutBakePending;
         bool                             m_LutResourcesFailed               = false;
         bool                             m_SkyViewResourcesFailed           = false;
         bool                             m_AerialPerspectiveResourcesFailed = false;

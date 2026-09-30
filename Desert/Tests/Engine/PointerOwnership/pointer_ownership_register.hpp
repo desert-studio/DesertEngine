@@ -396,10 +396,11 @@ namespace Desert::Tests::PointerCensus
         // three above and guarded by the same two things.
         { "Desert/Desert/Source/Engine/Graphic/Clouds/CloudEnvironmentBake.hpp",
           "CloudEnvironmentBake", "MediumImages", Guard::FrameScoped,
-          "the medium's images are the TEXTURE service's, and this frame payload is safe for the reason "
-          "the noise volumes beside it are: VolumetricCloudRenderer::ResolveMediumValues re-resolves them "
-          "every frame from the material's handles and the bake is issued inside that same frame, so no "
-          "entry here outlives the resolve that produced it" },
+          "the medium's images are the TEXTURE service's, and this frame payload is safe because "
+          "VolumetricCloudRenderer::ResolveMediumValues re-resolves them every frame from the material's "
+          "handles and the bake is issued inside that same frame, so no entry here outlives the resolve "
+          "that produced it (the noise volumes beside it are stronger: the renderer CO-OWNS them, "
+          "m_NoiseVolume holds the CloudNoiseService handle and the frame graph imports each one)" },
         { "Desert/Desert/Source/Engine/Graphic/Clouds/CloudEnvironmentBake.hpp",
           "CloudBakeBinding", "MediumParams", Guard::CallScoped,
           kWhyArgumentPack },
@@ -740,7 +741,7 @@ namespace Desert::Tests::PointerCensus
           "RDG2: points at the CompileResult local Builder::Execute holds for the duration of the call (`const CompileResult& result = compiled.GetValue();`); GraphView itself is a stack local built and passed to backend.BeginGraph within that same call and never stored by the backend" },
         { "Desert/Desert/Source/Engine/Graphic/RDG/RDGBuilder.hpp",
           "ResourceRecord", "ExternalTex", Guard::HostOutlivesUs,
-          "RDG1/RDG2: set once by Builder::RegisterExternal(ExternalTexture&, ...) from a reference the caller owns; RDGResources.hpp documents ExternalTexture as \"a texture that outlives the graph\" (swapchain image, history buffer, a baked cube) -- e.g. LegacyFrameTextures::m_Storage in SceneRendererFrame.hpp keeps its ExternalTexture entries alive across the whole graph build, which is exactly the Builder's own lifetime" },
+          "RDG1/RDG2: set once by Builder::RegisterExternal(ExternalTexture&, ...) from a reference the caller owns; RDGResources.hpp documents ExternalTexture as \"a texture that outlives the graph\" (swapchain image, history buffer, a baked cube) -- e.g. FrameTextures::m_Storage in SceneRendererFrame.hpp keeps its ExternalTexture entries alive across the whole graph build, which is exactly the Builder's own lifetime" },
         { "Desert/Desert/Source/Engine/Graphic/RDG/RDGBuilder.hpp",
           "ResourceRecord", "ExternalBuf", Guard::HostOutlivesUs,
           "RDG1/RDG2: the buffer counterpart of ResourceRecord::ExternalTex, set by the matching Builder::RegisterExternal(ExternalBuffer&, ...) overload from a caller-owned reference that outlives the graph" },
@@ -927,8 +928,8 @@ namespace Desert::Tests::PointerCensus
           "ExternalPassSystem", "m_Renderer", Guard::ObservedContainsUs,
           "the SceneRenderer owns its render systems, so it cannot be destroyed while one of them is alive" },
         { "Desert/Desert/Source/Engine/Graphic/SceneRendererFrame.hpp",
-          "LegacyFrameTextures", "m_Refs", Guard::IdentityOnly,
-          "RDG2: `image.get()` used only as a memoization key (Get() does `m_Refs.find(image.get())`, never dereferences it) so a legacy Image2D already registered this graph build is not registered twice; LegacyFrameTextures (declared in SceneRendererFrame.hpp, shared by reference with the SceneRendererFrame*.cpp AddFrame* members) is a stack local scoped to one SceneRenderer graph build (constructed in SceneRenderer::OnUpdate beside the RDG::Builder it wraps, destroyed at the end of that call), every image passed to Get() is kept alive by the caller's shared_ptr for that whole synchronous call, and the map itself dies with the object before any image freed afterwards could recycle an address into it" },
+          "FrameTextures", "m_Refs", Guard::IdentityOnly,
+          "RDG2: `image.get()` used only as a memoization key (Import() does `m_Refs.find(image.get())`, never dereferences it) so an Image already imported this graph build is not imported twice; FrameTextures (declared in SceneRendererFrame.hpp, shared by reference with the SceneRendererFrame*.cpp AddFrame* members) is a stack local scoped to one SceneRenderer graph build (constructed in SceneRenderer::OnUpdate beside the RDG::Builder it wraps, destroyed at the end of that call), every image passed to Import() is kept alive by the caller's shared_ptr for that whole synchronous call, and the map itself dies with the object before any image freed afterwards could recycle an address into it" },
         { "Desert/Desert/Source/Engine/Graphic/SkyPresets.hpp",
           "SkyPresetEntry", "Name", Guard::StaticStorage,
           "a string literal in a constexpr preset table" },

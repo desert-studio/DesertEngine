@@ -113,7 +113,8 @@ namespace Desert::Graphic::System
                  glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ),
                  0, 0.0f };
 
-            m_DownsamplePipeline->SetInput( 0, src, RDG::Access::SampledCompute, srcMip );
+            m_DownsamplePipeline->SetInput( 0, src, RDG::Access::SampledCompute,
+                                            RDG::SubresourceRange::Mip( srcMip ) );
             m_DownsamplePipeline->SetOutput( 1, m_Image.get(), mip );
             m_DownsamplePipeline->SetPushConstants( &push, sizeof( push ) );
             Renderer::GetInstance().DispatchComputeInFrame( m_DownsamplePipeline.get(),

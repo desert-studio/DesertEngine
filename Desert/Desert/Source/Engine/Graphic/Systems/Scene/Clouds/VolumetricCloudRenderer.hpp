@@ -136,6 +136,10 @@ namespace Desert::Graphic::System
          * @brief Stages S0 and S1. Must be called outside any render pass, after the scene depth is final.
          */
         std::vector<ComputeNodeDeclaration> DeclareFrameNodes();
+        // Graph-build state of DeclareFrameNodes, applied once the frame graph answered: @p accepted advances
+        // the history (resolved slot, frame index, previous view-projection); a refusal records nothing, so it
+        // drops the history and the sky-occlusion volume rather than claim a resolve that never ran.
+        void SettleFrameNodes( bool accepted );
         // The cloud volumes a dispatch samples (modelling, authored atlas), declared SampledCompute.
         void DeclareVolumeReads( RenderPassDeclaration& declared ) const;
 
@@ -150,6 +154,9 @@ namespace Desert::Graphic::System
          * image is not even allocated until all four are true.
          */
         std::vector<ComputeNodeDeclaration> DeclareShadowMapNodes();
+        // HasShadowMap() becomes true only when the graph accepted the shadow-map node DeclareShadowMapNodes
+        // built.
+        void SettleShadowMapNodes( bool accepted );
 
         /// True when a shadow map was produced for THIS frame and may be sampled. False makes every
         /// consumer fall back to "no cloud shadow" rather than to a map from a frame the sun has since
@@ -531,16 +538,17 @@ namespace Desert::Graphic::System
         // bake is told to wait rather than bake a panorama the next frame would render stale.
         bool m_SkyOcclusionDecided = false;
 
-        // BORROWED, not owned: Runtime::CloudNoiseService owns every noise volume and shares one upload
-        // across all views. A raw pointer says that plainly, where a shared_ptr here would suggest this
-        // renderer has a say in the image's lifetime and would keep an unloaded volume alive on the device.
-        // Refreshed from the service every frame, so a hot reload swaps the image under it with no state of
+        // CO-OWNED, like m_AuthoredAtlas: Runtime::CloudNoiseService owns every noise volume and shares one
+        // upload across all views, and this renderer holds the service's handle (AssetRef::Share) for as long
+        // as it binds the image. The render graph imports each distinct volume (DeclareVolumeReads) and keeps
+        // a view of it for the frames in flight, which a borrowed pointer cannot promise across a hot reload
+        // or an unload. Refreshed from the service every frame, so a reload swaps the image with no state of
         // its own to go stale.
         //
         // FOUR OF THEM, one per DISTINCT volume the layer's species name, and entries at or past
         // m_NoiseNeeded repeat the first — every descriptor is written every frame, because an unbound
         // sampler is an invalid descriptor set and this backend answers one by skipping the dispatch.
-        Image3D* m_NoiseVolume[kCloudSpeciesSlots] = {};
+        std::shared_ptr<Image3D> m_NoiseVolume[kCloudSpeciesSlots];
 
         // How many of the four are DISTINCT, 1..kCloudSpeciesSlots. It is the number of images the frame
         // has to transition for reading — the barrier is per image, and transitioning the same one four
@@ -803,5 +811,15 @@ namespace Desert::Graphic::System
         // composite must sample. An index rather than a second shared_ptr, so each image has exactly one
         // owner and a resize cannot leave the composite holding a released target.
         uint32_t m_ResolvedIndex = 0;
+
+        // What DeclareFrameNodes' temporal resolve will have done once its node is recorded; applied by
+        // SettleFrameNodes, never while the graph is still being built.
+        struct PendingResolve
+        {
+            uint32_t  WriteIndex = 0;
+            glm::mat4 ViewProjection{ 1.0f };
+        };
+        std::optional<PendingResolve> m_PendingResolve;
+        bool                          m_ShadowMapPending = false;
     };
 } // namespace Desert::Graphic::System

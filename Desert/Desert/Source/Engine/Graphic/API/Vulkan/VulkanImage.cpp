@@ -4,6 +4,8 @@
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
+#include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 #include <Engine/Graphic/PixelPack.hpp> // the one packer this and the swapchain readback share
@@ -164,6 +166,16 @@ namespace Desert::Graphic::API::Vulkan
                   : VK_FORMAT_UNDEFINED;
 
         return Utils::GetVulkanFormat( format, deviceDepthFormat );
+    }
+
+    void IVulkanImage::DropGraphTexture()
+    {
+        if ( !m_GraphTexture )
+            return;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes Vulkan images
+        if ( auto* api = dynamic_cast<VulkanRendererAPI*>( Renderer::GetInstance().GetRendererAPI() ) )
+            api->RetireGraphTexture( std::move( m_GraphTexture ) );
+        m_GraphTexture.reset(); // no renderer (shut down): no frame is in flight
     }
 
     // --- VulkanImage2D ---

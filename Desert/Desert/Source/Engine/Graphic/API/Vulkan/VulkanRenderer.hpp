@@ -17,6 +17,10 @@ namespace Desert::Graphic::API::Vulkan
     class VulkanRendererAPI : public RendererAPI
     {
     public:
+        // An engine image's graph handle, released or resized: kept until every frame that may reference its
+        // views has completed (VulkanRdgPool::Retire). Before any graph executed, nothing references it.
+        void RetireGraphTexture( std::shared_ptr<RDG::IPhysicalTexture> texture );
+
         explicit VulkanRendererAPI( const std::shared_ptr<Window>& window ) : RendererAPI( window )
         {
         }
@@ -34,7 +38,6 @@ namespace Desert::Graphic::API::Vulkan
         virtual void BeginDebugLabel( const char* name ) override;
         virtual void EndDebugLabel() override;
         Common::BoolResultStr                  ExecuteGraph( RDG::Builder& graph ) override;
-        std::shared_ptr<RDG::IPhysicalTexture> WrapLegacyImage( Image2D& image ) override;
         Common::BoolResultStr                  ImportImage( const std::shared_ptr<Image>& image,
                                                             RDG::ExternalTexture&         into ) override;
         Common::BoolResultStr ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
@@ -60,9 +63,6 @@ namespace Desert::Graphic::API::Vulkan
 
         virtual void DispatchComputeInFrame( const ComputePipeline* pipeline, uint32_t groupCountX,
                                              uint32_t groupCountY, uint32_t groupCountZ ) override;
-
-        virtual void DispatchComputeCull( const ComputePipeline* pipeline, uint32_t groupCountX,
-                                          uint32_t groupCountY, uint32_t groupCountZ ) override;
 
         virtual void ComputeImageBeginWrite( Image* image ) override;
         virtual void ComputeImageEndWrite( Image* image ) override;

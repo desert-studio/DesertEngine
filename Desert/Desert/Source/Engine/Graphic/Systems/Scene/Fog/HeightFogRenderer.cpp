@@ -211,6 +211,8 @@ namespace Desert::Graphic::System
         // and drops the sun lobe and the sky ambient (PackFogParams says so per term). Fog on a
         // sky-less scene is legitimate, so there is no bail-out here.
         const FogGpuPayload payload = PackFogParams( m_Data, atmosphere, m_FogHeightY );
+        // BUILD TIME: the node exists only when this upload lands; it fills this frame's slot before the graph
+        // runs.
         const auto uploaded = m_ParamsBuffer->SetData( &payload, static_cast<uint32_t>( sizeof( payload ) ) );
         if ( !uploaded.IsSuccess() )
         {
@@ -254,7 +256,7 @@ namespace Desert::Graphic::System
             m_FogPipeline->SetOutput( kFogOutputBinding, m_FogImage.get(), 0 );
             m_FogPipeline->SetStorageBuffer( kFogParamsBinding, m_ParamsBuffer.get() );
             m_FogPipeline->SetInput( kFogSceneDepthBinding, depthImage, RDG::Access::SampledCompute,
-                                     std::nullopt );
+                                     RDG::SubresourceRange::All() );
 
             // ALWAYS bound, even when the shader will not read it: a `sampler3D` with no image is an invalid
             // descriptor set, not an unused one, and ComputePipeline refuses to dispatch at all when a volume
@@ -265,7 +267,7 @@ namespace Desert::Graphic::System
                  apActive
                       ? atmosphere.AerialPerspectiveVolume
                       : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get(),
-                 RDG::Access::SampledCompute, std::nullopt );
+                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             // The distant sky light, on exactly the same terms as the volume above — always bound, read only
             // when the payload's Ambient.w says the texel is real (PackFogParams sets that from this same
             // handle, so the two cannot disagree).
@@ -274,7 +276,7 @@ namespace Desert::Graphic::System
                  atmosphere.DistantSkyLight
                       ? atmosphere.DistantSkyLight
                       : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ).get(),
-                 RDG::Access::SampledCompute, std::nullopt );
+                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             m_FogPipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
 
             renderer.DispatchComputeInFrame( m_FogPipeline.get(), GroupCount( m_FogWidth ),

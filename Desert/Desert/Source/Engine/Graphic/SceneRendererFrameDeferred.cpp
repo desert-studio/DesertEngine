@@ -57,7 +57,7 @@ namespace Desert::Graphic
         }
     } // namespace
 
-    void SceneRenderer::AddFrameClearMainFramebuffer( RDG::Builder& graph, LegacyFrameTextures& textures )
+    void SceneRenderer::AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures )
     {
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "ClearMainFramebuffer" );
         if ( !targets )
@@ -82,7 +82,7 @@ namespace Desert::Graphic
              []( RDG::PassContext& ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
     }
 
-    void SceneRenderer::AddFrameDepthResolve( RDG::Builder& graph, LegacyFrameTextures& textures )
+    void SceneRenderer::AddFrameDepthResolve( RDG::Builder& graph, FrameTextures& textures )
     {
         // Copy the G-buffer depth (static opaque geometry) into the scene target depth. The deferred composite
         // writes only colour, so without this depth-tested overlays (grid, colliders) never get occluded by
@@ -124,7 +124,7 @@ namespace Desert::Graphic
         return resolve && resolve->IsReady() ? resolve->GetFramebuffer()->GetDepthAttachmentImage() : nullptr;
     }
 
-    void SceneRenderer::AddFrameSceneDepthResolve( RDG::Builder& graph, LegacyFrameTextures& textures )
+    void SceneRenderer::AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures )
     {
         if ( !m_TargetFramebuffer || m_TargetFramebuffer->GetDepthAttachmentCount() == 0 )
             return;
@@ -141,9 +141,9 @@ namespace Desert::Graphic
              { return resolve->Record( sceneDepth ); } );
     }
 
-    void SceneRenderer::AddFrameSSAO( RDG::Builder& graph, LegacyFrameTextures& textures,
+    void SceneRenderer::AddFrameSSAO( RDG::Builder& graph, FrameTextures& textures,
                                       const std::vector<RDG::TextureRef>& gbuffer, const glm::mat4& viewProj,
-                                      const glm::vec4& cameraPos, const std::shared_ptr<LegacyFrameValues>& values,
+                                      const glm::vec4& cameraPos, const std::shared_ptr<FrameValues>& values,
                                       std::vector<RDG::TextureRef>& compositeReads )
     {
         // SSAO first (reads the G-buffer world pos + normal into the AO buffer); the lighting pass below
@@ -179,13 +179,12 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddFrameGIResolve( RDG::Builder& graph, LegacyFrameTextures& textures,
+    void SceneRenderer::AddFrameGIResolve( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer,
                                            const std::vector<RDG::TextureRef>& rsm,
                                            System::MeshRenderer* meshRenderer, const glm::mat4& viewProj,
-                                           const glm::vec4&                          lightColor,
-                                           const std::shared_ptr<LegacyFrameValues>& values,
-                                           std::vector<RDG::TextureRef>&             compositeReads )
+                                           const glm::vec4& lightColor, const std::shared_ptr<FrameValues>& values,
+                                           std::vector<RDG::TextureRef>& compositeReads )
     {
         auto* gi = UNIQUE_GET_AS( System::GIResolveRenderer, m_RenderSystems["GISystem"] );
         if ( !gi || !gi->Prepare() )
@@ -227,11 +226,11 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddFrameComposite( RDG::Builder& graph, LegacyFrameTextures& textures,
+    void SceneRenderer::AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& compositeReads,
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
                                            const glm::vec4& lightColor, const glm::vec4& cameraPos,
-                                           const std::shared_ptr<LegacyFrameValues>& values )
+                                           const std::shared_ptr<FrameValues>& values )
     {
         // LOAD/STORE on every scene-target attachment. The depth is declared written because the passes after
         // this one that are not graph nodes yet (forward meshes, glass, fog, clouds, overlays) begin their own
@@ -295,11 +294,10 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddFrameSceneCopy( RDG::Builder& graph, LegacyFrameTextures& textures,
-                                           const std::vector<RDG::TextureRef>&       sceneColor,
-                                           System::CopyRenderer*                     copy,
-                                           const std::shared_ptr<LegacyFrameValues>& values,
-                                           std::vector<RDG::TextureRef>&             copyReads )
+    void SceneRenderer::AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,
+                                           const std::vector<RDG::TextureRef>& sceneColor,
+                                           System::CopyRenderer* copy, const std::shared_ptr<FrameValues>& values,
+                                           std::vector<RDG::TextureRef>& copyReads )
     {
         if ( !copy || !copy->GetImage() )
             return;
@@ -320,10 +318,10 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddFrameSSR( RDG::Builder& graph, LegacyFrameTextures& textures,
+    void SceneRenderer::AddFrameSSR( RDG::Builder& graph, FrameTextures& textures,
                                      const std::vector<RDG::TextureRef>& gbuffer,
                                      const std::vector<RDG::TextureRef>& copyReads, const glm::mat4& viewProj,
-                                     const glm::vec4& cameraPos, const std::shared_ptr<LegacyFrameValues>& values )
+                                     const glm::vec4& cameraPos, const std::shared_ptr<FrameValues>& values )
     {
         auto* ssr = UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["SSRSystem"] );
         if ( !ssr || copyReads.empty() || !ssr->Prepare() )

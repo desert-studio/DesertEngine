@@ -163,28 +163,34 @@ namespace Desert::Graphic::RDG
             m_Passes.back().Exec = ExecFunction( std::forward<Exec>( exec ) );
         }
 
-        // Adapter for code not yet written as graph passes (removed in RDG-Z): the graph brings every
-        // texture in @p reads and @p writes to SHADER_READ_ONLY before @p exec, and considers them left
-        // there afterwards - what old code with its own render passes expects and does.
-        template <class Exec>
-        void AddLegacyPass( std::string_view name, const std::vector<TextureRef>& reads,
-                            const std::vector<TextureRef>& writes, Exec&& exec )
-        {
-            AddPass(
-                 name, PassFlags::Legacy | PassFlags::NeverCull,
-                 [&]( PassBuilder& pass )
-                 {
-                     for ( const TextureRef read : reads )
-                         pass.Read( read, Access::LegacyRead );
-                     for ( const TextureRef write : writes )
-                         pass.Write( write, Access::LegacyWrite );
-                 },
-                 std::forward<Exec>( exec ) );
-        }
-
         // Pure: reads the declarations, touches nothing, may be called any number of times. @p memory
         // answers the size / alignment / memory types of each transient for the aliasing plan.
+        //
+        // PASS CULLING (UE's FRDGBuilder::Compile). A pass executes only if it is live:
+        //   * it is NeverCull - its effect is one the graph cannot see (a readback, a query, a clock it advances);
+        //   * or it writes an EXTERNALLY VISIBLE subresource. A resource is externally visible when its contents
+        //     leave the graph through a registered hand-back: RegisterExternal / ImportFramebuffer (the image
+        //     outlives the graph, and Execute writes every external's final state back into its
+        //     SubresourceStates and through RecordFinalStates / RecordFinalState when set) or Extract (a transient
+        //     that survives the graph, or an external's final access such as Present). A plain transient is not;
+        //   * or it produced a subresource (one mip/layer of a texture, or a buffer) that a live pass consumes: it
+        //     was the last pass before that consumer to write it. A read consumes; an attachment that is cleared
+        //     or not loaded does not, so the pass that wrote it before is not kept alive by it.
+        // A culled pass records nothing, gets no barrier and opens no lifetime; CompileResult::CulledPasses and
+        // CulledPassNames list it.
         Common::ResultStr<CompileResult> Compile( const IMemoryRequirementsProvider& memory ) const;
+
+        // Pass culling is on by default. Off, every pass is live and CulledPasses stays empty: the debug switch
+        // DebugViewState::DisablePassCulling, so that a picture which changes with it names a pass whose effect
+        // is not declared to the graph.
+        void SetPassCulling( bool enabled )
+        {
+            m_PassCulling = enabled;
+        }
+        bool IsPassCullingEnabled() const
+        {
+            return m_PassCulling;
+        }
 
         // Compiles against the backend's memory requirements, has the backend acquire physical resources,
         // then for every executed pass in order: label/timestamp, its one barrier batch, begin render pass
@@ -270,6 +276,7 @@ namespace Desert::Graphic::RDG
         std::vector<ResourceRecord> m_Resources;
         std::vector<PassRecord>     m_Passes;
         std::string                 m_DeclarationError;
-        bool                        m_Executed = false;
+        bool                        m_Executed    = false;
+        bool                        m_PassCulling = true;
     };
 } // namespace Desert::Graphic::RDG

@@ -4,8 +4,15 @@
 // compiles the RDG sources directly with no Vulkan include path, and the census below proves the sources
 // never ask for one.
 
+#include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/DeferredFrameNodes.hpp>
+
+// `#if DESERT_DEV_INSTRUMENTS` on a macro nobody defined is `#if 0`: without DevInstruments.hpp above, every
+// instrument-gated test here was skipped in Debug too. Refuse to compile rather than skip silently again.
+#if !defined( DESERT_DEV_INSTRUMENTS )
+#error "DevInstruments.hpp must define DESERT_DEV_INSTRUMENTS before the instrument-gated tests"
+#endif
 
 #include <gtest/gtest.h>
 
@@ -13,6 +20,7 @@
 #include <cctype>
 #include <filesystem>
 #include <memory>
+#include <regex>
 #include <span>
 #include <format>
 #include <functional>
@@ -378,6 +386,233 @@ TEST( RenderGraphCompile, CullingFollowsAChainBackFromTheRootOnly )
     ASSERT_EQ( result.Passes.size(), 3u );
     EXPECT_TRUE( HasEdge( result, 0, 1, DependencyKind::ReadAfterWrite ) );
     EXPECT_TRUE( HasEdge( result, 1, 3, DependencyKind::ReadAfterWrite ) );
+}
+
+// ── Culling (RDG-CULL): subresource accuracy, buffers, extraction chains, the switch, diagnostics ──────────
+
+// Liveness is per SUBRESOURCE. A pass writing mip 0 that a live pass samples is kept; a pass writing mip 1 of
+// the SAME texture, which nobody reads, is culled. A per-resource rule would keep both.
+TEST( RenderGraphCompile, CullingIsPerMipAWriterOfAnUnreadMipIsCulled )
+{
+    ExternalTexture  backbuffer( Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None );
+    Builder          graph( "mips" );
+    const TextureRef chain = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA16F, 2 ), "Chain" );
+    const TextureRef back  = graph.RegisterExternal( backbuffer, "Backbuffer" );
+
+    graph.AddPass(
+         "WriteMip0", PassFlags::Compute,
+         [&]( PassBuilder& pass ) { pass.Write( chain, Access::StorageWrite, SubresourceRange::Mip( 0 ) ); }, Ok );
+    graph.AddPass(
+         "WriteMip1", PassFlags::Compute,
+         [&]( PassBuilder& pass ) { pass.Write( chain, Access::StorageWrite, SubresourceRange::Mip( 1 ) ); }, Ok );
+    graph.AddPass(
+         "Present", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( chain, Access::SampledGraphics, SubresourceRange::Mip( 0 ) );
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+         },
+         Ok );
+
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_EQ( result.CulledPasses, std::vector<uint32_t>{ 1 } );
+    EXPECT_EQ( result.CulledPassNames, std::vector<std::string>{ "WriteMip1" } );
+    EXPECT_NE( result.FindPass( "WriteMip0" ), nullptr );
+    EXPECT_EQ( result.FindPass( "WriteMip1" ), nullptr );
+    EXPECT_TRUE( HasEdge( result, 0, 2, DependencyKind::ReadAfterWrite ) );
+}
+
+// A chain of transients ending in an EXTRACTED texture survives although no pass of the graph reads the end of
+// it: the extraction is the consumer. The unrelated dead pass beside it is still culled, by name.
+TEST( RenderGraphCompile, AChainFeedingAnExtractedTextureIsKept )
+{
+    ExternalTexture  history;
+    Builder          graph( "extract" );
+    const TextureRef a    = graph.CreateTexture( Tex2D( 32, 32, ImageFormat::RGBA16F ), "A" );
+    const TextureRef b    = graph.CreateTexture( Tex2D( 32, 32, ImageFormat::RGBA16F ), "B" );
+    const TextureRef dead = graph.CreateTexture( Tex2D( 32, 32, ImageFormat::RGBA16F ), "Dead" );
+    graph.Extract( b, history, Access::SampledGraphics );
+
+    graph.AddPass(
+         "WriteA", PassFlags::Compute, [&]( PassBuilder& pass ) { pass.Write( a, Access::StorageWrite ); }, Ok );
+    graph.AddPass(
+         "WriteDead", PassFlags::Compute, [&]( PassBuilder& pass ) { pass.Write( dead, Access::StorageWrite ); },
+         Ok );
+    graph.AddPass(
+         "AtoB", PassFlags::Compute,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( a, Access::SampledCompute );
+             pass.Write( b, Access::StorageWrite );
+         },
+         Ok );
+
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_EQ( result.CulledPasses, std::vector<uint32_t>{ 1 } );
+    EXPECT_EQ( result.CulledPassNames, std::vector<std::string>{ "WriteDead" } );
+    ASSERT_EQ( result.Passes.size(), 2u );
+    EXPECT_EQ( result.Passes[0].Name, "WriteA" ); // kept only because AtoB consumes it
+    EXPECT_EQ( result.Passes[1].Name, "AtoB" );   // writes the extracted texture
+}
+
+// Buffers take part: a producer is kept by a live reader of its buffer, and a producer of a buffer nobody reads
+// is culled even when it runs between the two.
+TEST( RenderGraphCompile, ABufferProducerIsKeptByALiveBufferReader )
+{
+    ExternalTexture  backbuffer( Tex2D( 32, 32, ImageFormat::BGRA8F ), Access::None );
+    Builder          graph( "buffers" );
+    const BufferRef  counts = graph.CreateBuffer( BufferDesc{ 1024 }, "Counts" );
+    const BufferRef  unread = graph.CreateBuffer( BufferDesc{ 1024 }, "Unread" );
+    const TextureRef back   = graph.RegisterExternal( backbuffer, "Backbuffer" );
+
+    graph.AddPass(
+         "Produce", PassFlags::Compute, [&]( PassBuilder& pass ) { pass.Write( counts, Access::StorageWrite ); },
+         Ok );
+    graph.AddPass(
+         "ProduceUnread", PassFlags::Compute,
+         [&]( PassBuilder& pass ) { pass.Write( unread, Access::StorageWrite ); }, Ok );
+    graph.AddPass(
+         "Draw", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( counts, Access::StorageRead );
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+         },
+         Ok );
+
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_EQ( result.CulledPassNames, std::vector<std::string>{ "ProduceUnread" } );
+    EXPECT_NE( result.FindPass( "Produce" ), nullptr );
+    EXPECT_TRUE( HasEdge( result, 0, 2, DependencyKind::ReadAfterWrite ) );
+    EXPECT_EQ( result.FindAllocation( unread.Index ), nullptr );
+    EXPECT_NE( result.FindAllocation( counts.Index ), nullptr );
+}
+
+// A culled pass records nothing and gets no barrier: the backend never sees it, and no barrier anywhere in the
+// plan (per pass or final) touches the resource only it wrote. Its reads do not extend a lifetime either: the
+// range of a texture a live and a culled pass both read ends at the live one.
+TEST( RenderGraphCompile, CulledPassesGetNoBarriersRecordNothingAndShrinkLifetimes )
+{
+    ExternalTexture  backbuffer( Tex2D( 32, 32, ImageFormat::BGRA8F ), Access::None );
+    Builder          graph( "nobarriers" );
+    const TextureRef lit  = graph.CreateTexture( Tex2D( 32, 32, ImageFormat::RGBA16F ), "Lit" );
+    const TextureRef dead = graph.CreateTexture( Tex2D( 32, 32, ImageFormat::RGBA16F ), "Dead" );
+    const TextureRef back = graph.RegisterExternal( backbuffer, "Backbuffer" );
+
+    graph.AddPass(
+         "Light", PassFlags::Compute, [&]( PassBuilder& pass ) { pass.Write( lit, Access::StorageWrite ); }, Ok );
+    graph.AddPass(
+         "Present", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( lit, Access::SampledGraphics );
+             pass.ColorTarget( 0, back, LoadOp::DontCare() );
+         },
+         Ok );
+    graph.AddPass(
+         "Dead", PassFlags::Compute,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( lit, Access::SampledCompute );
+             pass.Write( dead, Access::StorageWrite );
+         },
+         Ok );
+
+    const CompileResult result = CompileOrFail( graph );
+    EXPECT_EQ( result.CulledPassNames, std::vector<std::string>{ "Dead" } );
+    auto touchesDead = [&]( const Barrier& barrier ) { return barrier.Resource == dead.Index; };
+    for ( const CompiledPass& pass : result.Passes )
+        EXPECT_TRUE( std::none_of( pass.Barriers.begin(), pass.Barriers.end(), touchesDead ) ) << pass.Name;
+    EXPECT_TRUE( std::none_of( result.FinalBarriers.begin(), result.FinalBarriers.end(), touchesDead ) );
+    // Lit: first written by Light (AddPass 0), last read by Present (1) - not by the culled Dead (2).
+    const auto lifetime = std::find_if( result.Lifetimes.begin(), result.Lifetimes.end(),
+                                        [&]( const ResourceLifetime& l ) { return l.Resource == lit.Index; } );
+    ASSERT_NE( lifetime, result.Lifetimes.end() );
+    EXPECT_EQ( lifetime->FirstPass, 0u );
+    EXPECT_EQ( lifetime->LastPass, 1u );
+    EXPECT_EQ( lifetime->FirstPosition, 0u );
+    EXPECT_EQ( lifetime->LastPosition, 1u );
+
+    RecordingBackend backend;
+    ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
+    for ( const std::string& call : backend.Calls )
+    {
+        EXPECT_EQ( call.find( std::format( kBeginPassFormat, "Dead" ) ), std::string::npos ) << call;
+        EXPECT_EQ( call.find( std::format( kEndPassFormat, "Dead" ) ), std::string::npos ) << call;
+    }
+}
+
+// The debug switch is real: with culling off every pass runs (the one nothing reads included), CulledPasses is
+// empty and the result says culling was off; the frame sets it from DebugViewState, and the viewport edits it.
+TEST( RenderGraphCompile, TheCullingSwitchKeepsEveryPassAndTheFrameAndViewportWireIt )
+{
+    auto build = []( Builder& graph, ExternalTexture& backbuffer, std::vector<std::string>& ran )
+    {
+        const TextureRef orphan = graph.CreateTexture( Tex2D( 16, 16, ImageFormat::RGBA8F ), "Orphan" );
+        const TextureRef back   = graph.RegisterExternal( backbuffer, "Backbuffer" );
+        graph.AddPass(
+             "Orphan", PassFlags::Compute,
+             [&, orphan]( PassBuilder& pass ) { pass.Write( orphan, Access::StorageWrite ); },
+             [&ran]( PassContext& )
+             {
+                 ran.emplace_back( "Orphan" );
+                 return Common::MakeSuccess( true );
+             } );
+        graph.AddPass(
+             "Present", PassFlags::Raster,
+             [&, back]( PassBuilder& pass ) { pass.ColorTarget( 0, back, LoadOp::ClearColor( 0, 0, 0, 1 ) ); },
+             [&ran]( PassContext& )
+             {
+                 ran.emplace_back( "Present" );
+                 return Common::MakeSuccess( true );
+             } );
+    };
+
+    ExternalTexture          culledBack( Tex2D( 16, 16, ImageFormat::BGRA8F ), Access::None );
+    std::vector<std::string> culledRan;
+    Builder                  culled( "switch-on" );
+    build( culled, culledBack, culledRan );
+    EXPECT_TRUE( culled.IsPassCullingEnabled() );
+    const CompileResult on = CompileOrFail( culled );
+    EXPECT_TRUE( on.PassCulling );
+    EXPECT_EQ( on.CulledPassNames, std::vector<std::string>{ "Orphan" } );
+    ASSERT_TRUE( ExecuteRecorded( culled ).IsSuccess() );
+    EXPECT_EQ( culledRan, std::vector<std::string>{ "Present" } );
+
+    ExternalTexture          keptBack( Tex2D( 16, 16, ImageFormat::BGRA8F ), Access::None );
+    std::vector<std::string> keptRan;
+    Builder                  kept( "switch-off" );
+    kept.SetPassCulling( false );
+    build( kept, keptBack, keptRan );
+    const CompileResult off = CompileOrFail( kept );
+    EXPECT_FALSE( off.PassCulling );
+    EXPECT_TRUE( off.CulledPasses.empty() );
+    EXPECT_TRUE( off.CulledPassNames.empty() );
+    ASSERT_EQ( off.Passes.size(), 2u );
+    ASSERT_TRUE( ExecuteRecorded( kept ).IsSuccess() );
+    EXPECT_EQ( keptRan, ( std::vector<std::string>{ "Orphan", "Present" } ) );
+
+    // The seam: the view's graph takes the switch from the pushed DebugViewState, and the viewport's Show menu
+    // is what sets it (whitespace-insensitive, like the frame-order census).
+    auto stripped = []( const fs::path& path )
+    {
+        std::ifstream     file( path.string() );
+        std::stringstream text;
+        text << file.rdbuf();
+        std::string out;
+        for ( char c : text.str() )
+            if ( !std::isspace( static_cast<unsigned char>( c ) ) )
+                out.push_back( c );
+        return out;
+    };
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    EXPECT_NE( stripped( root / "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" )
+                    .find( "graph.SetPassCulling(!m_DebugView.DisablePassCulling);" ),
+               std::string::npos );
+    EXPECT_NE( stripped( root / "Editor/Source/Editor/Panels/ViewportPanel/ViewportPanel.cpp" )
+                    .find( "ImGui::Checkbox(\"DisablePassCulling\",&view.DisablePassCulling)" ),
+               std::string::npos );
 }
 
 // ── Barriers ────────────────────────────────────────────────────────────────────────────────────────────
@@ -849,6 +1084,7 @@ TEST( RenderGraphCompile, PassContextRefusesAnUndeclaredResourceNamingPassAndRes
     EXPECT_NE( executed.GetError().find( "Sneaky" ), std::string::npos ) << executed.GetError();
     EXPECT_NE( wrongAccess.find( "StorageRead" ), std::string::npos ) << wrongAccess;
 #else
+    // Shipping only (DESERT_CONFIG_SHIPPING): Debug and Release define DESERT_DEV_INSTRUMENTS 1 and run the test.
     GTEST_SKIP() << "the declaration check is a development instrument, compiled out of Shipping";
 #endif
 }
@@ -1113,112 +1349,15 @@ TEST( RenderGraphCompile, AliasingPlanUsesTheProvidersRequirements )
     EXPECT_NE( refused.GetError().find( "Scratch" ), std::string::npos ) << refused.GetError();
 }
 
-// AddLegacyPass: old code gets its images in SHADER_READ_ONLY and leaves them there; the graph neither
-// opens a rendering scope for it nor lets graph passes use the legacy accesses.
-TEST( RenderGraphCompile, LegacyPassSeesShaderReadOnlyAndLeavesItThere )
-{
-    ExternalTexture  history( Tex2D( 64, 64, ImageFormat::RGBA16F ), Access::None );
-    ExternalTexture  back( Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None );
-    RecordingBackend backend;
-    Builder          graph( "legacy" );
-    const TextureRef scene = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA16F ), "Scene" );
-    const TextureRef hist  = graph.RegisterExternal( history, "History" );
-    const TextureRef bb    = graph.RegisterExternal( back, "Backbuffer" );
-    graph.AddPass(
-         "Scene", PassFlags::Raster,
-         [&]( PassBuilder& pass ) { pass.ColorTarget( 0, scene, LoadOp::ClearColor( 0, 0, 0, 1 ) ); }, Ok );
-    graph.AddLegacyPass( "OldBloom", { scene }, { hist }, Ok );
-    graph.AddPass(
-         "Tonemap", PassFlags::Raster,
-         [&]( PassBuilder& pass )
-         {
-             pass.Read( hist, Access::SampledGraphics );
-             pass.ColorTarget( 0, bb, LoadOp::DontCare() );
-         },
-         Ok );
-
-    const CompileResult result = CompileOrFail( graph );
-    const CompiledPass* legacy = result.FindPass( "OldBloom" );
-    ASSERT_NE( legacy, nullptr );
-    const std::vector<Barrier> onScene = BarriersOn( legacy, scene.Index );
-    const std::vector<Barrier> onHist  = BarriersOn( legacy, hist.Index );
-    ASSERT_EQ( onScene.size(), 1u );
-    ASSERT_EQ( onHist.size(), 1u );
-    EXPECT_EQ( onScene[0].Before.Layout, ImageLayout::ColorAttachment );
-    EXPECT_EQ( onScene[0].After.Layout, ImageLayout::ShaderReadOnly );
-    EXPECT_EQ( onHist[0].After.Layout, ImageLayout::ShaderReadOnly );
-    // After the legacy pass the texture is considered in SHADER_READ_ONLY: the reader's barrier waits on
-    // everything legacy code may have done but changes no layout.
-    const std::vector<Barrier> tonemap = BarriersOn( result.FindPass( "Tonemap" ), hist.Index );
-    ASSERT_EQ( tonemap.size(), 1u );
-    EXPECT_EQ( tonemap[0].Before, GetAccessState( Access::LegacyWrite ) );
-    EXPECT_EQ( tonemap[0].Before.Layout, ImageLayout::ShaderReadOnly );
-    EXPECT_EQ( tonemap[0].After.Layout, ImageLayout::ShaderReadOnly );
-
-    ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
-    const auto legacyBegin = std::find( backend.Calls.begin(), backend.Calls.end(), "BeginPass OldBloom" );
-    ASSERT_NE( legacyBegin, backend.Calls.end() );
-    ASSERT_GE( backend.Calls.end() - legacyBegin, 3 );
-    EXPECT_EQ( *( legacyBegin + 1 ), "Barriers 2" );
-    EXPECT_EQ( *( legacyBegin + 2 ), "EndPass OldBloom" ) << "a legacy pass records its own render passes";
-
-    // The legacy accesses belong to legacy passes only, and legacy passes take nothing else.
-    Builder          misuse( "misuse" );
-    const TextureRef t = misuse.CreateTexture( Tex2D( 8, 8, ImageFormat::RGBA8F ), "T" );
-    misuse.AddPass(
-         "Sneaky", PassFlags::Raster, [&]( PassBuilder& pass ) { pass.Read( t, Access::LegacyRead ); }, Ok );
-    Common::ResultStr<CompileResult> refused = misuse.Compile( kEstimate );
-    ASSERT_FALSE( refused.IsSuccess() );
-    EXPECT_NE( refused.GetError().find( "Sneaky" ), std::string::npos ) << refused.GetError();
-    EXPECT_NE( refused.GetError().find( "raster" ), std::string::npos ) << refused.GetError();
-}
-
-// ── SceneRenderer's frame as legacy passes (RDG3) ───────────────────────────────────────────────────────
-
-// SceneRenderer records its frame as AddLegacyPass wrappers whose real hazards the graph does not see
-// (most declare nothing, some declare only the SceneColor they read). The frame is correct only if the graph
-// then runs them exactly in the order they were added and drops none. Here the declarations point the wrong
-// way on purpose: a later pass writes what an earlier one reads, and two passes declare nothing and feed
-// nobody, which is what culling removes and a dependency sort would move.
-TEST( RenderGraphCompile, LegacyPassesRunInTheOrderAddedAndNoneIsCulled )
-{
-    ExternalTexture          color( Tex2D( 64, 64, ImageFormat::RGBA16F ), Access::None );
-    RecordingBackend         backend;
-    Builder                  graph( "legacyFrame" );
-    const TextureRef         scene = graph.RegisterExternal( color, "SceneColor" );
-    std::vector<std::string> executed;
-    const auto               body = [&executed]( const char* name )
-    {
-        return [&executed, name]( PassContext& ) -> Common::BoolResultStr
-        {
-            executed.emplace_back( name );
-            return Common::MakeSuccess( true );
-        };
-    };
-    graph.AddLegacyPass( "Clear", {}, {}, body( "Clear" ) );
-    graph.AddLegacyPass( "Tonemap", { scene }, {}, body( "Tonemap" ) );
-    graph.AddLegacyPass( "Composite", {}, { scene }, body( "Composite" ) );
-    graph.AddLegacyPass( "Particles", {}, {}, body( "Particles" ) );
-    graph.AddLegacyPass( "Bloom", {}, { scene }, body( "Bloom" ) );
-
-    const std::vector<std::string> added  = { "Clear", "Tonemap", "Composite", "Particles", "Bloom" };
-    const CompileResult            result = CompileOrFail( graph );
-    std::vector<std::string>       compiled;
-    for ( const CompiledPass& pass : result.Passes )
-        compiled.push_back( pass.Name );
-    EXPECT_EQ( compiled, added );
-    ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
-    EXPECT_EQ( executed, added );
-}
-
 // WHICH ORDER SceneRenderer ADDS. The pass sequence of SceneRenderer::OnUpdate, read from the source: every
 // graph node call (graph.AddPass, AddRaster, the DeferredFrameNodes declarations it calls) by its name, every
-// system's compute nodes by the declaring call, every AddLegacy wrapper by its name and, for
-// AddGraphPhasePasses, its phase selector (it adds one wrapper per RenderGraphBuilder::GetSortedPasses entry the
-// selector admits, in that order). A node added only at some sample counts (Deferred: DepthResolve at 1x,
-// Deferred: DepthExpand and Scene: DepthResolve at MSAA) is listed where its call stands. With the test above,
-// the frame the graph runs is this table: moving a pass changes the picture and has to change the table on
-// purpose.
+// system's compute nodes by the declaring call and, for AddGraphPhasePasses, its phase selector (it adds one
+// node per RenderGraphBuilder::GetSortedPasses entry the selector admits, in that order). A node added only at
+// some sample counts (Deferred: DepthResolve at 1x, Deferred: DepthExpand and Scene: DepthResolve at MSAA) is
+// listed where its call stands. The table is the frame order before RDG3 (c303909f9, SceneRenderer::OnUpdate):
+// its DESERT_PROFILE_PASS scopes and direct calls in sequence, ExecuteRenderGraph = every phase but the deferred
+// overlays, then ExecuteTransparency, ExecuteDebugOverlay and ExecuteUI one phase each. Moving a pass changes
+// the picture and has to change the table on purpose.
 TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
 {
     const fs::path root = RepoRoot();
@@ -1291,7 +1430,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     {
         for ( size_t at = from;; )
         {
-            const size_t legacy = std::min( text.find( "AddLegacy(", at ), text.find( "graph.AddPass(", at ) );
+            const size_t pass   = text.find( "graph.AddPass(", at );
             const size_t phases = text.find( "AddGraphPhasePasses(", at );
             const size_t frame  = text.find( "AddFrame", at );
             size_t       raster = text.find( "AddRaster(", at );
@@ -1307,7 +1446,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
             // A call names its node first (a quote before the call's first ')'); the helper's definition does not.
             while ( raster != std::string::npos && text.find( '"', raster ) > text.find( ')', raster ) )
                 raster = text.find( "AddRaster(", raster + 1 );
-            const size_t first = std::min( { legacy, phases, frame, raster, node, compute, deferred } );
+            const size_t first = std::min( { pass, phases, frame, raster, node, compute, deferred } );
             if ( first == std::string::npos )
                 return;
             if ( first == frame )
@@ -1340,7 +1479,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
                      std::format( "compute[{}]", call.substr( prefix.size(), call.size() - prefix.size() - 1 ) ) );
                 at = semi + 1;
             }
-            else if ( first == legacy || first == raster || first == node )
+            else if ( first == pass || first == raster || first == node )
             {
                 const size_t open  = text.find( '"', first );
                 const size_t close = text.find( '"', open + 1 );
@@ -1411,12 +1550,11 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     };
     EXPECT_EQ( added, frameOrder );
 
-    // RDG-LEG1-L2: the deferred passes are graph nodes with declared accesses, not legacy wrappers.
+    // RDG-LEG1-L2: the deferred passes are graph nodes with declared accesses.
     const auto declares = [&]( std::string_view function, std::initializer_list<std::string_view> needles )
     {
         const std::string text = squeeze( bodyOf( function ) );
         ASSERT_FALSE( text.empty() ) << function;
-        EXPECT_EQ( text.find( "AddLegacy(" ), std::string::npos ) << function << " still adds a legacy pass";
         for ( const std::string_view needle : needles )
             EXPECT_NE( text.find( needle ), std::string::npos ) << function << " does not declare " << needle;
     };
@@ -1429,7 +1567,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
 }
 
 // DepthResolve is a Copy node: G-buffer depth CopySrc -> target depth CopyDst, so the graph plans the barriers
-// into TRANSFER_SRC / TRANSFER_DST before it (the old AddLegacy wrapper declared nothing and got none), and the
+// into TRANSFER_SRC / TRANSFER_DST before it (the old wrapper declared nothing and got none), and the
 // G-buffer depth ends the graph in the attachment layout. The same declarations compiled on recorded images:
 TEST( RenderGraphCompile, DepthResolveIsACopyNodeWithCopySrcCopyDstAndPlannedBarriers )
 {
@@ -1448,12 +1586,11 @@ TEST( RenderGraphCompile, DepthResolveIsACopyNodeWithCopySrcCopyDstAndPlannedBar
          body.find( "DeferredFrameNodes::AddDepthToScene(graph,m_TargetFramebuffer->GetSpecification().Samples," ),
          std::string::npos );
     EXPECT_NE( body.find( "\"GBuffer.Depth\",DeferredFrameNodes::kGBufferDepthFinal" ), std::string::npos );
-    EXPECT_EQ( body.find( "AddLegacy(" ), std::string::npos );
 }
 
 // THE POST-PROCESS AND BACKDROP PASSES ARE GRAPH NODES (RDG-LEG1-L4). Every pass SceneRendererFramePostFX.cpp
 // adds is a Compute or Raster node whose setup declares what it samples and writes, so the graph places every
-// barrier and opens every render pass: no AddLegacy wrapper is left, and neither the file nor the renderers it
+// barrier and opens every render pass, and neither the file nor the renderers it
 // drives record a manual image transition, a ComputeImageBegin/EndWrite bracket or their own render pass. A
 // node that declares nothing must be a culling root (NeverCull): the auto-exposure histogram clear writes only
 // a buffer the graph does not import yet.
@@ -1477,8 +1614,6 @@ TEST( RenderGraphCompile, PostFxPassesAreRealGraphNodesWithDeclaredAccess )
     const std::string postFx = read( "Desert/Desert/Source/Engine/Graphic/SceneRendererFramePostFX.cpp" );
     ASSERT_FALSE( postFx.empty() ) << "SceneRendererFramePostFX.cpp is gone";
 
-    EXPECT_EQ( postFx.find( "AddLegacy(" ), std::string::npos ) << "a PostFX/UI pass is still a legacy wrapper";
-
     size_t nodes = 0;
     for ( size_t at = postFx.find( "graph.AddPass(" ); at != std::string::npos;
           at        = postFx.find( "graph.AddPass(", at + 1 ) )
@@ -1496,7 +1631,6 @@ TEST( RenderGraphCompile, PostFxPassesAreRealGraphNodesWithDeclaredAccess )
         EXPECT_TRUE( flags.find( "RDG::PassFlags::Compute" ) != std::string::npos ||
                      flags.find( "RDG::PassFlags::Raster" ) != std::string::npos )
              << name << " is neither a Compute nor a Raster node";
-        EXPECT_EQ( flags.find( "PassFlags::Legacy" ), std::string::npos ) << name << " is a legacy node";
 
         const std::string declarations = postFx.substr( setup, exec - setup );
         const bool        declares     = declarations.find( "pass.Read(" ) != std::string::npos ||
@@ -1723,7 +1857,7 @@ TEST( RenderGraphCompile, DepthTargetOnAnImportedDepthIsTransitionedIntoAttachme
 
 // The deferred frame's own declarations (DeferredFrameNodes, what SceneRendererFrameDeferred.cpp declares) on the
 // images as the frame hands them over: the G-buffer depth and the scene target depth both recorded in the
-// attachment layout. The graph must plan TRANSFER_SRC / TRANSFER_DST before the copy (the old AddLegacy wrapper
+// attachment layout. The graph must plan TRANSFER_SRC / TRANSFER_DST before the copy (the old wrapper
 // declared nothing, and CopyDepthImage transitioned by hand behind the graph's back), take the target depth back
 // into the attachment layout before Composite, and leave the G-buffer depth where the next frame's G-buffer
 // pass begins.
@@ -1875,7 +2009,6 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
         return std::string( std::istreambuf_iterator<char>( file ), std::istreambuf_iterator<char>() );
     };
     const std::string frame = read( "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameMesh.cpp" );
-    EXPECT_EQ( frame.find( "AddLegacy(" ), std::string::npos );
     EXPECT_NE( frame.find( "pass.ColorTarget(" ), std::string::npos );
     EXPECT_NE( frame.find( "pass.DepthTarget(" ), std::string::npos );
     // The call is matched with its whitespace collapsed: where clang-format breaks "AddRaster(" from its arguments
@@ -2077,7 +2210,6 @@ TEST( RenderGraphCompile, ParticleSimulationIsAComputeNodeTheGraphKeeps )
     const size_t begin = text.find( "voidSceneRenderer::AddFrameParticlesSimulate(" );
     ASSERT_NE( begin, std::string::npos );
     const std::string body = text.substr( begin, text.find( "voidSceneRenderer::", begin + 1 ) - begin );
-    EXPECT_EQ( body.find( "AddLegacy(" ), std::string::npos );
     EXPECT_NE(
          body.find( "graph.AddPass(\"Particles:Simulate\",RDG::PassFlags::Compute|RDG::PassFlags::NeverCull" ),
          std::string::npos );
@@ -2188,8 +2320,8 @@ namespace
 // targets are its framebuffer whole (ColorTarget / DepthTarget / ResolveTarget), whose reads are what the system
 // names in RenderGraphBuilder::PassConfig::Declare, and whose render pass the graph opens and merges. Each system
 // declares its own reads where it registers the pass, the editor's external passes through
-// ExternalPassSpecification::Declare, and DispatchComputeCull records no barrier of its own any more (the particle
-// draw declares its StorageRead).
+// ExternalPassSpecification::Declare, and DispatchComputeInFrame records no barrier of its own any more (the
+// particle draw declares its StorageRead).
 TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
 {
     const fs::path root = RepoRoot();
@@ -2199,7 +2331,6 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
     { return SqueezedSource( root, std::format( "{}{}", graphic, relative ).c_str() ); };
 
     const std::string sceneRenderer = source( "SceneRenderer.cpp" );
-    EXPECT_EQ( sceneRenderer.find( "AddLegacy(" ), std::string::npos ) << "SceneRenderer.cpp adds a legacy pass";
     EXPECT_EQ( sceneRenderer.find( "BeginRenderPass(pass->CachedRenderPass" ), std::string::npos )
          << "the bridge still opens the engine render pass itself";
 
@@ -2213,7 +2344,6 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
             "node.ResolveTarget(slot,targets->Resolves[slot])",
             "RDG::LoadOp::ClearDepth(spec.ClearColor.DepthStencil.x)" } )
         EXPECT_NE( bridge.find( needle ), std::string::npos ) << "the phase pass node does not " << needle;
-    EXPECT_EQ( bridge.find( "AddLegacy(" ), std::string::npos );
     EXPECT_EQ( bridge.find( "BeginRenderPass(" ), std::string::npos );
     EXPECT_EQ( bridge.find( "EndRenderPass(" ), std::string::npos );
 
@@ -2247,13 +2377,16 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
               .find( "declared.Read(ctx.Renderer->GetBackdropBlurImage(),Graphic::RDG::Access::SampledGraphics" ),
          std::string::npos );
 
-    // The particle simulation's dispatch records no barrier: the graph places it between the declared write and
-    // read.
-    const std::string cull =
-         SqueezedBody( source( "API/Vulkan/VulkanRenderer.cpp" ), "voidVulkanRendererAPI::DispatchComputeCull(",
-                       "voidVulkanRendererAPI::" );
-    ASSERT_FALSE( cull.empty() );
-    EXPECT_EQ( cull.find( "vkCmdPipelineBarrier" ), std::string::npos ) << "DispatchComputeCull still barriers";
+    // The one compute dispatch records no barrier: every caller is a graph node, and the graph places the barrier
+    // between the declared write and read (RDG-TAILS merged the particle-only DispatchComputeCull into it).
+    const std::string vulkan = source( "API/Vulkan/VulkanRenderer.cpp" );
+    const std::string dispatch =
+         SqueezedBody( vulkan, "voidVulkanRendererAPI::DispatchComputeInFrame(", "voidVulkanRendererAPI::" );
+    ASSERT_FALSE( dispatch.empty() );
+    EXPECT_EQ( dispatch.find( "vkCmdPipelineBarrier" ), std::string::npos )
+         << "DispatchComputeInFrame still barriers";
+    EXPECT_EQ( vulkan.find( "DispatchComputeCull" ), std::string::npos )
+         << "a second dispatch entry point is back";
 }
 
 // THE ATMOSPHERE PASSES ARE REAL GRAPH NODES WITH DECLARED ACCESS (RDG-LEG1-L5a). SceneRendererFrameAtmosphere.cpp
@@ -2269,7 +2402,6 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
     { return SqueezedSource( root, std::format( "Desert/Desert/Source/Engine/Graphic/{}", relative ).c_str() ); };
 
     const std::string frame = source( "SceneRendererFrameAtmosphere.cpp" );
-    EXPECT_EQ( frame.find( "AddLegacy(" ), std::string::npos ) << "an atmosphere pass is still a legacy wrapper";
     for ( const char* needle : { "AddComputeNodes(graph,textures,clouds->DeclareShadowMapNodes())",
                                  "AddComputeNodes(graph,textures,sky->DeclareAtmosphereLutNodes())",
                                  "AddComputeNodes(graph,textures,fog->DeclareFrameNodes())",
@@ -2324,4 +2456,70 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
     EXPECT_NE( source( "SceneRenderer.cpp" )
                     .find( "ResolveDeclared(textures,shadows,\"Deferred:Composite\",shadowMaps)" ),
                std::string::npos );
+}
+
+// NO LEGACY CONSTRUCT REMAINS (RDG-LEG1-L5b). Every pass of the frame is a Raster, Compute or Copy node that
+// declares what it touches; the bridge that let old code record its own render passes behind the graph's back
+// (the legacy pass, its two accesses and pass kind, the SHADER_READ_ONLY image wrapper and the frame texture table
+// built on it) is gone from the engine and the editor, and must not come back under the same names.
+TEST( RenderGraphCompile, NoLegacyConstructRemainsInTheEngine )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const std::regex forbidden(
+         R"(AddLegacy|AddLegacyPass|LegacyRead|LegacyWrite|PassFlags::Legacy|WrapLegacyImage|LegacyFrameTextures)" );
+    std::vector<std::string> found;
+    size_t                   scanned = 0;
+    for ( const char* tree : { "Desert/Desert/Source", "Editor/Source" } )
+    {
+        ASSERT_TRUE( fs::is_directory( root / tree ) ) << tree << " is gone";
+        for ( const fs::directory_entry& entry : fs::recursive_directory_iterator( root / tree ) )
+        {
+            const std::string extension = entry.path().extension().string();
+            if ( !entry.is_regular_file() ||
+                 ( extension != ".cpp" && extension != ".hpp" && extension != ".h" && extension != ".inl" ) )
+                continue;
+            ++scanned;
+            std::ifstream file( entry.path() );
+            std::string   line;
+            for ( size_t number = 1; std::getline( file, line ); ++number )
+                if ( line.find( "Legacy" ) != std::string::npos && std::regex_search( line, forbidden ) )
+                    found.push_back( std::format( "{}:{}: {}", fs::relative( entry.path(), root ).generic_string(),
+                                                  number, line ) );
+        }
+    }
+    EXPECT_GT( scanned, 0u );
+    std::string list;
+    for ( const std::string& hit : found )
+        std::format_to( std::back_inserter( list ), "\n  {}", hit );
+    EXPECT_TRUE( found.empty() ) << found.size() << " legacy construct(s) remain:" << list;
+}
+
+// THE AUTO-EXPOSURE HISTOGRAM IS AN IMPORTED BUFFER THE GRAPH ORDERS (RDG-TAILS 1). Before, the histogram was a
+// storage buffer the graph never saw: Clear and Histogram were NeverCull roots, and the dispatch's own memory
+// barrier ordered clear -> accumulate -> average. Now the renderer imports it (Renderer::ImportBuffer), Clear and
+// Histogram declare Write(StorageWrite), Average declares Read(StorageRead), and no node needs NeverCull.
+TEST( RenderGraphCompile, AutoExposureHistogramIsAnImportedBufferTheGraphOrders )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const std::string frame =
+         SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/SceneRendererFramePostFX.cpp" );
+    const std::string body =
+         SqueezedBody( frame, "voidSceneRenderer::AddFrameAutoExposure(", "voidSceneRenderer::" );
+    ASSERT_FALSE( body.empty() );
+    const size_t imported = body.find( "autoExp->ImportHistogram(graph)" );
+    ASSERT_NE( imported, std::string::npos );
+    EXPECT_LT( imported, body.find( "autoExp->Prepare()" ) ) << "a refused import must not advance the ping-pong";
+    size_t writes = 0;
+    for ( size_t at = body.find( "pass.Write(histogram,RDG::Access::StorageWrite)" ); at != std::string::npos;
+          at        = body.find( "pass.Write(histogram,RDG::Access::StorageWrite)", at + 1 ) )
+        ++writes;
+    EXPECT_EQ( writes, 2u ) << "Clear and Histogram both write the histogram";
+    EXPECT_NE( body.find( "pass.Read(histogram,RDG::Access::StorageRead)" ), std::string::npos );
+    EXPECT_EQ( body.find( "NeverCull" ), std::string::npos );
+
+    const std::string renderer = SqueezedSource(
+         root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/AutoExposureRenderer.cpp" );
+    EXPECT_NE( renderer.find( "ImportBuffer(m_Histogram,m_HistogramImport)" ), std::string::npos );
 }

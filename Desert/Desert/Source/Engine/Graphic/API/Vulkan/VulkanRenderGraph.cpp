@@ -40,7 +40,6 @@ namespace Desert::Graphic::API::Vulkan
                                         uint32_t accessMask )
         {
             const VkFormat    format = RdgFormat( device, desc.Format );
-            const bool        depth  = ( GetImageVulkanAspect( desc.Format ) & VK_IMAGE_ASPECT_DEPTH_BIT ) != 0;
             VkImageCreateInfo info{};
             info.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
             info.flags         = desc.Dim == RDG::TextureDim::Cube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0u;
@@ -52,7 +51,7 @@ namespace Desert::Graphic::API::Vulkan
             info.arrayLayers   = desc.Layers;
             info.samples       = static_cast<VkSampleCountFlagBits>( std::max( 1u, desc.Samples ) );
             info.tiling        = VK_IMAGE_TILING_OPTIMAL;
-            info.usage         = RdgImageUsage( accessMask, depth );
+            info.usage         = RdgImageUsage( accessMask );
             info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
             info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
             return info;
@@ -86,12 +85,11 @@ namespace Desert::Graphic::API::Vulkan
 
     // ── Translation tables ─────────────────────────────────────────────────────────────────────────────
 
-    VkImageUsageFlags RdgImageUsage( uint32_t accessMask, bool depthFormat )
+    VkImageUsageFlags RdgImageUsage( uint32_t accessMask )
     {
         using RDG::Access;
         VkImageUsageFlags usage = 0;
-        if ( RdgHas( accessMask, Access::SampledGraphics ) || RdgHas( accessMask, Access::SampledCompute ) ||
-             RdgHas( accessMask, Access::LegacyRead ) )
+        if ( RdgHas( accessMask, Access::SampledGraphics ) || RdgHas( accessMask, Access::SampledCompute ) )
             usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
         if ( RdgHas( accessMask, Access::StorageRead ) || RdgHas( accessMask, Access::StorageWrite ) )
             usage |= VK_IMAGE_USAGE_STORAGE_BIT;
@@ -103,13 +101,6 @@ namespace Desert::Graphic::API::Vulkan
             usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         if ( RdgHas( accessMask, Access::CopyDst ) )
             usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-        // Legacy code renders into the image through its own render pass, samples it and copies it; what it
-        // does exactly is invisible to the graph.
-        if ( RdgHas( accessMask, Access::LegacyWrite ) )
-            usage |= VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                     VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                     ( depthFormat ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
-                                   : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT );
         return usage;
     }
 
@@ -411,6 +402,34 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( view );
     }
 
+    Common::ResultStr<VkImageView> SampledSubresourceView( const RDG::SubresourceRange& range, VkImageView whole,
+                                                           const std::function<VkImageView( uint32_t )>& mipView,
+                                                           VulkanRdgTexture* graphTexture )
+    {
+        if ( range == RDG::SubresourceRange::All() )
+        {
+            if ( whole == VK_NULL_HANDLE )
+                return Common::MakeFormattedError<VkImageView>( "the image has no view" );
+            return Common::MakeSuccess( whole );
+        }
+        if ( range.MipCount == 1 && range.BaseLayer == 0 && range.LayerCount == RDG::kAllRemaining )
+        {
+            const VkImageView view = mipView( range.BaseMip );
+            if ( view == VK_NULL_HANDLE )
+                return Common::MakeFormattedError<VkImageView>( "no view of mip {}", range.BaseMip );
+            return Common::MakeSuccess( view );
+        }
+        if ( !graphTexture )
+            return Common::MakeFormattedError<VkImageView>(
+                 "mips [{}, +{}) layers [{}, +{}) name a layer range of an image the graph did not import",
+                 range.BaseMip, range.MipCount, range.BaseLayer, range.LayerCount );
+        constexpr VkImageAspectFlags kDepthStencil = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+        if ( ( graphTexture->GetAspect() & kDepthStencil ) == kDepthStencil )
+            return Common::MakeFormattedError<VkImageView>(
+                 "a layer of a packed depth-stencil image has no single sampleable aspect" );
+        return graphTexture->GetView( range );
+    }
+
     Common::ResultStr<std::shared_ptr<VulkanRdgBuffer>> VulkanRdgBuffer::Create( const VulkanRdgDevice& device,
                                                                                  const RDG::BufferDesc& desc,
                                                                                  uint32_t               accessMask,
@@ -485,12 +504,19 @@ namespace Desert::Graphic::API::Vulkan
         m_Slot = slot % static_cast<uint32_t>( m_Slots.size() );
         ++m_Frame;
         Slot& current = m_Slots[m_Slot];
+        current.Retired.clear(); // this slot's previous frame, and every frame before it, has completed
         // Kept: whatever this slot's previous frame handed out, and whatever an extraction target still holds.
         auto stale = [&]( const auto& entry )
         { return entry.LastFrame < current.PreviousFrame && entry.Resource.use_count() == 1; };
         std::erase_if( current.Textures, stale );
         std::erase_if( current.Buffers, stale );
         current.PreviousFrame = m_Frame;
+    }
+
+    void VulkanRdgPool::Retire( std::shared_ptr<RDG::IPhysicalTexture> texture )
+    {
+        if ( texture )
+            m_Slots[m_Slot].Retired.push_back( std::move( texture ) );
     }
 
     Common::ResultStr<std::shared_ptr<VulkanRdgTexture>>

@@ -47,7 +47,7 @@ namespace Desert::Graphic
         }
     } // namespace
 
-    void SceneRenderer::AddFrameJumpFlood( RDG::Builder& graph, LegacyFrameTextures& textures )
+    void SceneRenderer::AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures )
     {
         auto* jfa = UNIQUE_GET_AS( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
         if ( !jfa )
@@ -117,11 +117,17 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddFrameAutoExposure( RDG::Builder& graph, LegacyFrameTextures& textures,
+    void SceneRenderer::AddFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures,
                                               const std::vector<RDG::TextureRef>& sceneColor )
     {
         auto* autoExp = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] );
-        if ( !autoExp || !autoExp->Prepare() )
+        if ( !autoExp )
+            return;
+        // Build-time decisions, both legitimately so: the histogram import is what the nodes declare, and Prepare
+        // picks which 1x1 image this frame writes, which the graph must know to import it and the tonemap to
+        // sample it. The import goes first so a refused import does not advance the ping-pong.
+        const RDG::BufferRef histogram = autoExp->ImportHistogram( graph );
+        if ( !histogram.IsValid() || !autoExp->Prepare() )
             return;
         // The tonemap samples the luminance this frame writes; that image is known when the graph is built.
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
@@ -131,19 +137,23 @@ namespace Desert::Graphic
         const RDG::TextureRef adapted =
              textures.Import( autoExp->GetAdaptedLuminanceImage(), "AutoExposure.Adapted" );
 
-        // The histogram is a storage buffer the graph does not track (no buffer import yet): Clear and Histogram
-        // write only it, so they are culling roots.
+        // Clear and Histogram write the imported histogram, Average reads it: the graph orders the three and
+        // places their barriers, and Average's write of the adapted image keeps all three alive.
         graph.AddPass(
-             "PostFX: AutoExposureClear", RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
-             []( RDG::PassBuilder& ) {},
+             "PostFX: AutoExposureClear", RDG::PassFlags::Compute,
+             [histogram]( RDG::PassBuilder& pass ) { pass.Write( histogram, RDG::Access::StorageWrite ); },
              [autoExp]( RDG::PassContext& ) -> Common::BoolResultStr
              {
                  autoExp->RecordClear();
                  return BOOLSUCCESS;
              } );
         graph.AddPass(
-             "PostFX: AutoExposureHistogram", RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
-             [&]( RDG::PassBuilder& pass ) { ReadEach( pass, sceneColor, RDG::Access::SampledCompute ); },
+             "PostFX: AutoExposureHistogram", RDG::PassFlags::Compute,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 ReadEach( pass, sceneColor, RDG::Access::SampledCompute );
+                 pass.Write( histogram, RDG::Access::StorageWrite );
+             },
              [autoExp]( RDG::PassContext& ) -> Common::BoolResultStr
              {
                  autoExp->RecordHistogram();
@@ -153,6 +163,7 @@ namespace Desert::Graphic
              "PostFX: AutoExposureAverage", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
+                 pass.Read( histogram, RDG::Access::StorageRead );
                  pass.Read( previous, RDG::Access::SampledCompute );
                  pass.Write( adapted, RDG::Access::StorageWrite );
              },
@@ -163,7 +174,7 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddFrameBloom( RDG::Builder& graph, LegacyFrameTextures& textures,
+    void SceneRenderer::AddFrameBloom( RDG::Builder& graph, FrameTextures& textures,
                                        const std::vector<RDG::TextureRef>& sceneColor )
     {
         auto* bloom = UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] );
@@ -206,9 +217,9 @@ namespace Desert::Graphic
                  } );
     }
 
-    void SceneRenderer::AddFrameLightShafts( RDG::Builder& graph, LegacyFrameTextures& textures,
-                                             const std::vector<RDG::TextureRef>&       sceneColor,
-                                             const std::shared_ptr<LegacyFrameValues>& values )
+    void SceneRenderer::AddFrameLightShafts( RDG::Builder& graph, FrameTextures& textures,
+                                             const std::vector<RDG::TextureRef>& sceneColor,
+                                             const std::shared_ptr<FrameValues>& values )
     {
         // The sun's screen position is the frame's, known when the graph is built (the camera and the atmosphere
         // are); the shafts here and the lens flare after them read it from the frame's shared values, whether or
@@ -275,9 +286,9 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRenderer::AddFrameLensFlare( RDG::Builder& graph, LegacyFrameTextures& textures,
-                                           const std::vector<RDG::TextureRef>&       sceneColor,
-                                           const std::shared_ptr<LegacyFrameValues>& values )
+    void SceneRenderer::AddFrameLensFlare( RDG::Builder& graph, FrameTextures& textures,
+                                           const std::vector<RDG::TextureRef>& sceneColor,
+                                           const std::shared_ptr<FrameValues>& values )
     {
         auto* flare   = UNIQUE_GET_AS( System::LensFlareRenderer, m_RenderSystems["LensFlareSystem"] );
         auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
@@ -332,7 +343,7 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddFrameTonemap( RDG::Builder& graph, LegacyFrameTextures& textures )
+    void SceneRenderer::AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures )
     {
         auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
         if ( !tonemap )
@@ -363,7 +374,7 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddFrameFXAA( RDG::Builder& graph, LegacyFrameTextures& textures )
+    void SceneRenderer::AddFrameFXAA( RDG::Builder& graph, FrameTextures& textures )
     {
         auto* fxaa = UNIQUE_GET_AS( System::FXAARenderer, m_RenderSystems["FXAASystem"] );
         if ( !fxaa )
@@ -384,7 +395,7 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddFrameSMAA( RDG::Builder& graph, LegacyFrameTextures& textures )
+    void SceneRenderer::AddFrameSMAA( RDG::Builder& graph, FrameTextures& textures )
     {
         auto* smaa = UNIQUE_GET_AS( System::SMAARenderer, m_RenderSystems["SMAASystem"] );
         if ( !smaa || !smaa->Prepare() )
@@ -440,7 +451,7 @@ namespace Desert::Graphic
              } );
     }
 
-    RDG::TextureRef SceneRenderer::AddFrameBackdropBlur( RDG::Builder& graph, LegacyFrameTextures& textures,
+    RDG::TextureRef SceneRenderer::AddFrameBackdropBlur( RDG::Builder& graph, FrameTextures& textures,
                                                          const std::vector<RDG::TextureRef>& sceneColor )
     {
         auto* backdrop = UNIQUE_GET_AS( System::BackdropBlurRenderer, m_RenderSystems["BackdropBlurSystem"] );

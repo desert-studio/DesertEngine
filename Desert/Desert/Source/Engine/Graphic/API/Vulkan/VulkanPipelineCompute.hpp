@@ -24,7 +24,7 @@ namespace Desert::Graphic::API::Vulkan
 
         // --- Resource-binding API (see ComputePipeline) ---
         ComputePipeline& SetInput( uint32_t binding, Image* image, RDG::Access declared,
-                                   std::optional<uint32_t> mip ) override;
+                                   RDG::SubresourceRange range ) override;
         ComputePipeline& SetOutput( uint32_t binding, Image* image, uint32_t mip = 0 ) override;
         ComputePipeline& SetStorageBuffer( uint32_t binding, ShaderResources::StorageBuffer* buffer ) override;
         ComputePipeline& SetPushConstants( const void* data, uint32_t size ) override;
@@ -90,13 +90,13 @@ namespace Desert::Graphic::API::Vulkan
             Image*   Image = nullptr;
             uint32_t Mip   = 0;
         };
-        // A sampled input: the view (Mip set for a single-mip view) in the layout its declared access
-        // leaves the image in. There is no binding in the image's recorded layout.
+        // A sampled input: the view of the subresource the caller declared (Range), in the layout its declared
+        // access leaves the image in. There is no binding in the image's recorded layout.
         struct InputBinding
         {
-            Image*                  Image    = nullptr;
-            RDG::Access             Declared = RDG::Access::SampledCompute;
-            std::optional<uint32_t> Mip;
+            Image*                Image    = nullptr;
+            RDG::Access           Declared = RDG::Access::SampledCompute;
+            RDG::SubresourceRange Range    = RDG::SubresourceRange::All();
         };
         std::unordered_map<uint32_t, InputBinding>                    m_BoundInputs;
         std::unordered_map<uint32_t, OutputBinding>                   m_BoundOutputs;

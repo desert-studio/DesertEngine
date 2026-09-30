@@ -120,11 +120,11 @@ namespace Desert::Graphic::API::Vulkan
         }
 
     protected:
-        // Its views name the VkImage the caller is about to release.
-        void DropGraphTexture()
-        {
-            m_GraphTexture.reset();
-        }
+        // Its views name the VkImage the caller is about to release (or resize). A frame in flight may still
+        // reference them, so the handle is retired to the frame graph's pool (VulkanRdgPool::Retire), which
+        // releases it once every such frame has completed; the VkImage itself waits in the allocator's frame
+        // deletion queue the same way (RT_DestroyImage).
+        void DropGraphTexture();
 
     private:
         std::shared_ptr<RDG::IPhysicalTexture> m_GraphTexture;

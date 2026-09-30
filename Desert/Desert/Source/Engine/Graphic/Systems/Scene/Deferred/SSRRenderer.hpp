@@ -164,12 +164,13 @@ namespace Desert::Graphic::System
                     glm::vec4( static_cast<float>( maxSteps ), maxDistance, intensity, thickness ) };
 
             m_TracePipeline->SetInput( 0, gbuffer->GetColorAttachmentImage( 0 ).get(), RDG::Access::SampledCompute,
-                                       std::nullopt );
+                                       RDG::SubresourceRange::All() );
             m_TracePipeline->SetInput( 1, gbuffer->GetColorAttachmentImage( 1 ).get(), RDG::Access::SampledCompute,
-                                       std::nullopt );
+                                       RDG::SubresourceRange::All() );
             m_TracePipeline->SetInput( 2, gbuffer->GetColorAttachmentImage( 2 ).get(), RDG::Access::SampledCompute,
-                                       std::nullopt );
-            m_TracePipeline->SetInput( 3, sceneColor.get(), RDG::Access::SampledCompute, std::nullopt );
+                                       RDG::SubresourceRange::All() );
+            m_TracePipeline->SetInput( 3, sceneColor.get(), RDG::Access::SampledCompute,
+                                       RDG::SubresourceRange::All() );
             m_TracePipeline->SetOutput( 4, m_TraceImage.get() );
             m_TracePipeline->SetOutput( 5, m_TileMask.get() );
             m_TracePipeline->SetPushConstants( &push, sizeof( push ) );

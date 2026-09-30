@@ -1,4 +1,6 @@
 #include "SkyboxRenderer.hpp"
+
+#include <utility>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/SkyGroundTransmittance.hpp>
@@ -244,7 +246,7 @@ namespace Desert::Graphic::System
         m_MultiScatterLutPipeline->SetOutput( kSkyMultiScatterLutOutputBinding, m_MultiScatterLut.get(), 0 );
         m_MultiScatterLutPipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
         m_MultiScatterLutPipeline->SetInput( kSkyTransmittanceLutBinding, m_TransmittanceLut.get(),
-                                             RDG::Access::SampledCompute, std::nullopt );
+                                             RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         Renderer::GetInstance().DispatchComputeInFrame( m_MultiScatterLutPipeline.get(),
                                                         LutGroupCount( kMultiScatterLutSize ),
                                                         LutGroupCount( kMultiScatterLutSize ), 1 );
@@ -294,9 +296,9 @@ namespace Desert::Graphic::System
         m_SkyViewLutPipeline->SetOutput( kSkyViewLutOutputBinding, m_SkyViewLut.get(), 0 );
         m_SkyViewLutPipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
         m_SkyViewLutPipeline->SetInput( kSkyTransmittanceLutBinding, m_TransmittanceLut.get(),
-                                        RDG::Access::SampledCompute, std::nullopt );
+                                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         m_SkyViewLutPipeline->SetInput( kSkyMultiScatterLutBinding, m_MultiScatterLut.get(),
-                                        RDG::Access::SampledCompute, std::nullopt );
+                                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         m_SkyViewLutPipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
         renderer.DispatchComputeInFrame( m_SkyViewLutPipeline.get(), LutGroupCount( kSkyViewLutWidth ),
                                          LutGroupCount( kSkyViewLutHeight ), 1 );
@@ -352,9 +354,9 @@ namespace Desert::Graphic::System
                                                 0 );
         m_AerialPerspectivePipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
         m_AerialPerspectivePipeline->SetInput( kSkyTransmittanceLutBinding, m_TransmittanceLut.get(),
-                                               RDG::Access::SampledCompute, std::nullopt );
+                                               RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         m_AerialPerspectivePipeline->SetInput( kSkyMultiScatterLutBinding, m_MultiScatterLut.get(),
-                                               RDG::Access::SampledCompute, std::nullopt );
+                                               RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         m_AerialPerspectivePipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
 
         // ONE INVOCATION PER FROXEL COLUMN — the z extent is walked inside the shader so consecutive
@@ -410,9 +412,9 @@ namespace Desert::Graphic::System
         m_DistantLightPipeline->SetOutput( kSkyDistantLightOutputBinding, m_DistantLight.get(), 0 );
         m_DistantLightPipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
         m_DistantLightPipeline->SetInput( kSkyTransmittanceLutBinding, m_TransmittanceLut.get(),
-                                          RDG::Access::SampledCompute, std::nullopt );
+                                          RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         m_DistantLightPipeline->SetInput( kSkyMultiScatterLutBinding, m_MultiScatterLut.get(),
-                                          RDG::Access::SampledCompute, std::nullopt );
+                                          RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
 
         // ONE WORKGROUP, and it must stay one: the 64 directions are reduced in groupshared memory,
         // which no second group can see. The shader's LocalSize is 64 for the same reason.
@@ -425,6 +427,8 @@ namespace Desert::Graphic::System
         // (SampledCompute): the graph orders transmittance -> multi-scattering -> sky-view / aerial perspective /
         // distant light and places every barrier. What runs is decided here, while the frame graph is built.
         std::vector<ComputeNodeDeclaration> nodes;
+        m_LutBakePending.reset();
+        m_SkyViewLutFillPending = false;
         if ( !m_UseProceduralSky || m_Sky.Model != ECS::SkyModel::PhysicalAtmosphere )
             return nodes;
         if ( !m_TransmittanceLutPipeline || !m_MultiScatterLutPipeline || !m_SkyParams )
@@ -459,16 +463,13 @@ namespace Desert::Graphic::System
             multiScatter.Record = [this]() { DispatchMultiScatterLut(); };
             nodes.push_back( std::move( multiScatter ) );
 
-            m_LutBaked  = wanted;
-            m_LutsValid = true;
-
-            LOG_INFO( "[SkyAtmosphere] Atmosphere LUTs dispatched (transmittance {}x{}, multi-scattering "
-                      "{}x{}) — the atmosphere parameter fingerprint changed.",
-                      kTransmittanceLutWidth, kTransmittanceLutHeight, kMultiScatterLutSize,
-                      kMultiScatterLutSize );
+            // BUILD TIME: which nodes exist is decided here; the pair counts as baked once
+            // SettleAtmosphereLutNodes hears the graph accepted them.
+            m_LutBakePending = wanted;
         }
 
-        if ( m_LutsValid )
+        // BUILD TIME: the LUT handles feed the atmosphere the later nodes of this graph declare and bind.
+        if ( m_LutsValid || m_LutBakePending )
         {
             m_Atmosphere.TransmittanceLut               = m_TransmittanceLut.get();
             m_Atmosphere.TransmittanceLutBottomRadiusKm = AtmosphereBottomRadiusKm( m_Sky );
@@ -487,7 +488,8 @@ namespace Desert::Graphic::System
                 DispatchSkyViewLut();
             };
             nodes.push_back( std::move( skyView ) );
-            m_SkyViewLutFilled = true;
+            // BUILD TIME: the fill counts once SettleAtmosphereLutNodes hears the graph accepted the node.
+            m_SkyViewLutFillPending = true;
         }
 
         if ( m_AerialPerspectivePipeline && m_ActiveCamera && EnsureAerialPerspectiveResources() )
@@ -525,6 +527,28 @@ namespace Desert::Graphic::System
             m_Atmosphere.DistantSkyLight = m_DistantLight.get();
         }
         return nodes;
+    }
+
+    void SkyboxRenderer::SettleAtmosphereLutNodes( bool accepted )
+    {
+        const std::optional<AtmosphereLutFingerprint> pending = std::exchange( m_LutBakePending, std::nullopt );
+        // A refused sky-view node wrote nothing; a LUT an earlier accepted frame filled keeps that content.
+        if ( std::exchange( m_SkyViewLutFillPending, false ) && accepted )
+            m_SkyViewLutFilled = true;
+        if ( !accepted )
+        {
+            // Nothing was recorded: a pair that was about to be baked is not baked, so the next frame bakes it.
+            if ( pending )
+                m_LutsValid = false;
+            return;
+        }
+        if ( !pending )
+            return;
+        m_LutBaked  = *pending;
+        m_LutsValid = true;
+        LOG_INFO( "[SkyAtmosphere] Atmosphere LUTs dispatched (transmittance {}x{}, multi-scattering {}x{}) — the "
+                  "atmosphere parameter fingerprint changed.",
+                  kTransmittanceLutWidth, kTransmittanceLutHeight, kMultiScatterLutSize, kMultiScatterLutSize );
     }
 
     void SkyboxRenderer::DeclareAtmosphereReads( RenderPassDeclaration& declared, const RDG::Access access ) const

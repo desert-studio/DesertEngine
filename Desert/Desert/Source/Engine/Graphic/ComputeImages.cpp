@@ -114,12 +114,12 @@ namespace Desert::Graphic
                             transmittanceLut
                                  ? transmittanceLut
                                  : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
-                            RDG::Access::SampledCompute, std::nullopt );
+                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         pipeline->SetInput( kSkyMultiScatterLutBinding,
                             multiScatterLut
                                  ? multiScatterLut
                                  : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
-                            RDG::Access::SampledCompute, std::nullopt );
+                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
 
         // ---- THE CLOUD LAYER -------------------------------------------------------------------------
         //
@@ -159,25 +159,25 @@ namespace Desert::Graphic
         {
             Image3D* noise = cloudsBound ? clouds.Noise[slot] : nullptr;
             pipeline->SetInput( kSkyBakeCloudNoiseBindings[slot], noise ? noise : volumeFallback,
-                                RDG::Access::SampledCompute, std::nullopt );
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         }
 
         pipeline->SetInput( kSkyBakeCloudModellingBinding,
                             cloudsBound && clouds.Modelling ? clouds.Modelling : volumeFallback,
-                            RDG::Access::SampledCompute, std::nullopt );
+                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         pipeline->SetInput( kSkyBakeCloudAuthoredAtlasBinding,
                             cloudsBound && clouds.AuthoredAtlas ? clouds.AuthoredAtlas : volumeFallback,
-                            RDG::Access::SampledCompute, std::nullopt );
+                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         pipeline->SetInput( kSkyBakeCloudSkyOcclusionBinding,
                             cloudsBound && clouds.SkyOcclusion && clouds.SkyOcclusionVolume
                                  ? clouds.SkyOcclusionVolume
                                  : volumeFallback,
-                            RDG::Access::SampledCompute, std::nullopt );
+                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         pipeline->SetInput( kSkyBakeDistantSkyLightBinding,
                             clouds.DistantSkyLight
                                  ? clouds.DistantSkyLight
                                  : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
-                            RDG::Access::SampledCompute, std::nullopt );
+                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
 
         // ---- THE AUTHORED MEDIUM'S OWN RESOURCES -----------------------------------------------------
         //
@@ -202,7 +202,7 @@ namespace Desert::Graphic
                                 clouds.MediumImages[slot]
                                      ? clouds.MediumImages[slot]
                                      : fallbacks.GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get(),
-                                RDG::Access::SampledCompute, std::nullopt );
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
 
         // x marches, y reads the sky-occlusion volume, z is the aerial perspective's start depth, w applies
         // the atmosphere's transmittance at each cloud sample's own altitude. The last three are ANDed with
@@ -256,7 +256,7 @@ namespace Desert::Graphic
         }
         const auto& pipeline = built.GetValue();
 
-        pipeline->SetInput( 0, input, RDG::Access::SampledCompute, std::nullopt );
+        pipeline->SetInput( 0, input, RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         pipeline->SetOutput( 1, output.get(), 0 );
 
         // One thread per face texel (the shaders normalize by `imageSize(outputTexture)`, which is the
@@ -335,7 +335,7 @@ namespace Desert::Graphic
             const uint32_t mipSize   = std::max( 1u, faceSize >> mip );
             const uint32_t groups    = DispatchGroupCount( mipSize, kComputeImagesWorkGroupSize );
 
-            pipeline->SetInput( 0, radiance, RDG::Access::SampledCompute, std::nullopt );
+            pipeline->SetInput( 0, radiance, RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             pipeline->SetOutput( 1, output.get(), mip );
             pipeline->SetPushConstants( &roughness, sizeof( float ) );
             pipeline->Record( batch, groups, groups, 6u );

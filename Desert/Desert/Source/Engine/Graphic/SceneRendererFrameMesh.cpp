@@ -70,7 +70,7 @@ namespace Desert::Graphic
 
         // The shadow images a lit forward pass samples (SceneRenderer::DeclareShadowReads), as graph textures.
         // When one cannot be imported the error is logged and the pass declares none of them.
-        std::vector<RDG::TextureRef> ShadowSamples( const SceneRenderer& renderer, LegacyFrameTextures& textures,
+        std::vector<RDG::TextureRef> ShadowSamples( const SceneRenderer& renderer, FrameTextures& textures,
                                                     std::string_view node )
         {
             RenderPassDeclaration declared;
@@ -82,7 +82,7 @@ namespace Desert::Graphic
         }
     } // namespace
 
-    void SceneRenderer::AddGraphPhasePasses( RDG::Builder& graph, LegacyFrameTextures&      textures,
+    void SceneRenderer::AddGraphPhasePasses( RDG::Builder& graph, FrameTextures&            textures,
                                              bool ( *selects )( RenderPhaseID ), const bool clearFirst )
     {
         // Every registered pass of the selected phases (engine systems and the editor's external passes), in the
@@ -93,7 +93,8 @@ namespace Desert::Graphic
         // neither clearing the other) with the pass's own clear values (a cascade clears its depth to 1); every
         // other node LOADS, and the overlay phases only LOAD, so a CLEAR never wipes the depth a later overlay
         // tests against. A pass whose target or reads the graph cannot declare is refused with its error, never
-        // half-declared.
+        // half-declared. NeverCull: a pass body (the editor's external passes too) may change state outside
+        // the graph - per-frame material state, picking - which no declaration shows.
         std::shared_ptr<Framebuffer> previous;
         for ( const RenderGraphBuilder::PassConfig& pass : m_RenderGraphBuilder.GetSortedPasses() )
         {
@@ -140,7 +141,7 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRenderer::AddFrameGBuffer( RDG::Builder& graph, LegacyFrameTextures& textures,
+    void SceneRenderer::AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures,
                                          System::MeshRenderer* meshRenderer )
     {
         const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Deferred: GBuffer" );
@@ -153,7 +154,7 @@ namespace Desert::Graphic
                    [meshRenderer]() { meshRenderer->RenderGBufferManual(); } );
     }
 
-    void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, LegacyFrameTextures& textures )
+    void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )
     {
         // Its own row, so the ground's G-buffer cost reads as a pass line (the forward path's is the
         // graph's "TerrainPass"). LOAD: the meshes' G-buffer node cleared it; the graph merges the two into
@@ -170,7 +171,7 @@ namespace Desert::Graphic
         // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
     }
 
-    void SceneRenderer::AddFrameRSM( RDG::Builder& graph, LegacyFrameTextures& textures,
+    void SceneRenderer::AddFrameRSM( RDG::Builder& graph, FrameTextures& textures,
                                      System::MeshRenderer* meshRenderer, const glm::vec3& sunDir )
     {
         if ( glm::distance( sunDir, m_RSMLastSunDir ) > 1e-4f || m_RSMFrameCounter == 0 )
@@ -187,7 +188,7 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRenderer::AddFrameGeneric( RDG::Builder& graph, LegacyFrameTextures& textures,
+    void SceneRenderer::AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures,
                                          System::MeshRenderer* meshRenderer )
     {
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Generic" );
@@ -198,7 +199,7 @@ namespace Desert::Graphic
                    [meshRenderer]() { meshRenderer->RenderGenericManual(); } );
     }
 
-    void SceneRenderer::AddFrameSkinned( RDG::Builder& graph, LegacyFrameTextures& textures,
+    void SceneRenderer::AddFrameSkinned( RDG::Builder& graph, FrameTextures& textures,
                                          System::MeshRenderer* meshRenderer )
     {
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Skinned" );
@@ -209,10 +210,10 @@ namespace Desert::Graphic
                    [meshRenderer]() { meshRenderer->RenderSkinnedManual(); } );
     }
 
-    void SceneRenderer::AddFrameGlass( RDG::Builder& graph, LegacyFrameTextures& textures,
-                                       const std::vector<RDG::TextureRef>&       copyReads,
-                                       System::MeshRenderer*                     meshRenderer,
-                                       const std::shared_ptr<LegacyFrameValues>& values )
+    void SceneRenderer::AddFrameGlass( RDG::Builder& graph, FrameTextures& textures,
+                                       const std::vector<RDG::TextureRef>& copyReads,
+                                       System::MeshRenderer*               meshRenderer,
+                                       const std::shared_ptr<FrameValues>& values )
     {
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Glass" );
         if ( !targets || !meshRenderer )
@@ -225,7 +226,7 @@ namespace Desert::Graphic
     }
 
 #if DESERT_DEV_INSTRUMENTS
-    void SceneRenderer::AddFrameOverdraw( RDG::Builder& graph, LegacyFrameTextures& textures )
+    void SceneRenderer::AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
