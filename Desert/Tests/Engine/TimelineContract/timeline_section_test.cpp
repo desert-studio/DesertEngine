@@ -73,6 +73,9 @@ TEST( TimelineSequence, TheHostRestrictsWhatASequenceMayHold )
     Sequence ui = clip;
     ui.Host     = SequenceHost::UIAnimation;
     EXPECT_FALSE( Validate( ui ).IsSuccess() ) << "a UI clip binds widgets only";
+    ui.Bindings = { Binding{ Guid( 1 ), BindingKind::Widget, "panel-uuid", "Panel", {} },
+                    Binding{ Guid( 2 ), BindingKind::Widget, "label-uuid", "Label", {} } };
+    EXPECT_TRUE( Validate( ui ).IsSuccess() ) << "a UI clip binds any number of widgets of its tree";
 
     Sequence level = clip;
     level.Host     = SequenceHost::LevelSequence;
