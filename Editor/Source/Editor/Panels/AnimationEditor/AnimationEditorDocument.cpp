@@ -995,7 +995,7 @@ namespace Desert::Editor
             return false;
         if ( undoable )
         {
-            if ( const auto begun = m_PoseEdit.Begin( animator, &asset->GetClipForAuthoring() );
+            if ( const auto begun = m_PoseEdit.Begin( OwnerOf( &asset->GetClipForAuthoring() ), animator );
                  !begun.IsSuccess() )
             {
                 LOG_ERROR( "Animation Editor: pose edit refused: {}", begun.GetError() );

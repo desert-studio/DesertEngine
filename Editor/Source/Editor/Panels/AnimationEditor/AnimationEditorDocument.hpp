@@ -210,7 +210,7 @@ namespace Desert::Editor
 
         // POSING (UE Persona's bone gizmo and "+ Key"). While m_Posed the preview shows the animator's
         // authoring pose instead of the clip's; it is dropped, unkeyed, when the frame changes or play starts.
-        PoseEditTransaction m_PoseEdit;
+        SequenceEditTransaction m_PoseEdit;
         bool                m_Posed        = false;
         int32_t             m_PosedFrame   = 0;
         bool                m_GizmoRotate  = true; // E rotate / W translate, as the level viewport

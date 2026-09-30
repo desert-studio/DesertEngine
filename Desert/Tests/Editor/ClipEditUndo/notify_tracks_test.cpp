@@ -6,7 +6,7 @@
 #include <Engine/Core/WindowCloseGate.hpp>
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/UnsavedClose.hpp>
-#include <Editor/Panels/AnimationEditor/NotifyKeyTracks.hpp>
+#include <Editor/Panels/AnimationEditor/AnimationNotifyTracks.hpp>
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/TimeModel.hpp>
 
