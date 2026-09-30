@@ -1,0 +1,4 @@
+# REMAINDER RDG-ALIAS-A1 (task/RDG-ALIAS-A1)
+- Suites for the lead (after B1+B2 land, link needs Compile(memory,pipes), AsyncComputeFallbackLog, QueueSet/B2 overrides): RenderGraphVulkan (new TEST render_graph_vulkan_test.cpp:1816 + 6 tests now bound via BeginFrameSlot :425), RenderGraphCompile, RenderGraphContracts.
+- Not A1, still unimplemented: VulkanRdgBackend::GetPipeCapabilities / GetAsyncComputeFallbackLog (VulkanRenderGraph.hpp:398-399, need B2 families + B1 log body) and the product frame loop calling Transients/Descriptors BeginFrameSlot + backend.BeginFrame (B2 submit site).
+- Mutations: VulkanRdgTransient.cpp:155 drop `Retire(...)` (heap freed while bound -> validation); :71 skip DestroyRetired (HeapCount after re-begin 3 != 2, test :1879); :204 drop `!placed.UsedThisFrame` (Second reuses First's VkImage -> EXPECT_NE Images); VulkanRenderGraph.cpp:950 PlaceTexture -> m_Pool.AcquireTexture (no shared offset; PlacedResources 0).

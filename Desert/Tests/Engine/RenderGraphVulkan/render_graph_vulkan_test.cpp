@@ -775,22 +775,22 @@ TEST( RenderGraphVulkan, ClearSampleComputeCopyIsByteExactAndValidationClean )
         Programs programs( gpu );
         ASSERT_TRUE( programs.Error.empty() ) << programs.Error;
         VulkanRdgPool    pool( gpu.Rdg, 1 );
-        FrameObjects     frame( gpu, 1 );
+        FrameObjects     frameObjects( gpu, 1 );
         VulkanRdgBackend backend( gpu.Rdg, pool );
 
-        const RunResult first = RunGraph( gpu, programs, backend, backend, pool, frame );
+        const RunResult first = RunGraph( gpu, programs, backend, backend, pool, frameObjects );
         ASSERT_TRUE( first.Error.empty() ) << first.Error;
         EXPECT_TRUE( first.CommandBufferOfMatched );
         EXPECT_EQ( FirstMismatch( first.Bytes, Expected() ), "" );
 
-        const RunResult second = RunGraph( gpu, programs, backend, backend, pool, frame );
+        const RunResult second = RunGraph( gpu, programs, backend, backend, pool, frameObjects );
         ASSERT_TRUE( second.Error.empty() ) << second.Error;
         EXPECT_EQ( FirstMismatch( second.Bytes, Expected() ), "" );
         EXPECT_EQ( second.Images, first.Images )
              << "an unchanged plan must get the same placed images from the transient allocator";
         // The three textures are placed in the graph's heap; only the extracted readback comes from the pool.
         EXPECT_EQ( pool.GetTextureCount(), 0u );
-        EXPECT_EQ( frame.Transients.GetStats().PlacedResources, 3u );
+        EXPECT_EQ( frameObjects.Transients.GetStats().PlacedResources, 3u );
         vkDeviceWaitIdle( gpu.Device.device );
     }
     const std::vector<Message> messages = TakeMessages();
@@ -808,10 +808,10 @@ TEST( RenderGraphVulkan, SynchronizationValidationReportsAWeakenedBarrier )
         Programs programs( gpu );
         ASSERT_TRUE( programs.Error.empty() ) << programs.Error;
         VulkanRdgPool    pool( gpu.Rdg, 1 );
-        FrameObjects     frame( gpu, 1 );
+        FrameObjects     frameObjects( gpu, 1 );
         VulkanRdgBackend backend( gpu.Rdg, pool );
         WeakenedBarriers weakened( backend, "Invert" );
-        const RunResult  run = RunGraph( gpu, programs, weakened, backend, pool, frame );
+        const RunResult  run = RunGraph( gpu, programs, weakened, backend, pool, frameObjects );
         ASSERT_TRUE( run.Error.empty() ) << run.Error;
         vkDeviceWaitIdle( gpu.Device.device );
     }
@@ -867,7 +867,7 @@ TEST( RenderGraphVulkan, AnImportedFramebufferSharesOneRenderPassAndWritesItsLay
     VkImageLayout recorded = VK_IMAGE_LAYOUT_UNDEFINED; // the image's own layout record, as VulkanImage2D keeps it
     {
         VulkanRdgPool    pool( gpu.Rdg, 1 );
-        FrameObjects     frame( gpu, 1 );
+        FrameObjects     frameObjects( gpu, 1 );
         VulkanRdgBackend backend( gpu.Rdg, pool );
         WeakenedBarriers counting( backend, "" ); // weakens no pass: it only counts the render passes
         const std::shared_ptr<VulkanRdgTexture> wrapped =
@@ -897,7 +897,7 @@ TEST( RenderGraphVulkan, AnImportedFramebufferSharesOneRenderPassAndWritesItsLay
             VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
             begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
             vkBeginCommandBuffer( cmd, &begin );
-            ASSERT_TRUE( BeginFrameSlot( frame, backend, pool, 0 ) );
+            ASSERT_TRUE( BeginFrameSlot( frameObjects, backend, pool, 0 ) );
             backend.SetCommandBuffer( cmd );
 
             RDG::ExternalBuffer                        readback;
@@ -1083,7 +1083,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
     std::vector<uint8_t> pixels;
     {
         VulkanRdgPool        pool( gpu.Rdg, 1 );
-        FrameObjects         frame( gpu, 1 );
+        FrameObjects         frameObjects( gpu, 1 );
         VulkanRdgBackend     backend( gpu.Rdg, pool );
         RDG::ExternalTexture target;
         target.Desc = Target();
@@ -1102,7 +1102,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
         VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer( cmd, &begin );
-        ASSERT_TRUE( BeginFrameSlot( frame, backend, pool, 0 ) );
+        ASSERT_TRUE( BeginFrameSlot( frameObjects, backend, pool, 0 ) );
         backend.SetCommandBuffer( cmd );
 
         RDG::ExternalBuffer                        readback;
@@ -1294,7 +1294,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
     std::vector<uint8_t> pixels;
     {
         VulkanRdgPool    pool( gpu.Rdg, 1 );
-        FrameObjects     frame( gpu, 1 );
+        FrameObjects     frameObjects( gpu, 1 );
         VulkanRdgBackend backend( gpu.Rdg, pool );
         RDG::TextureDesc msaaDesc = Target();
         msaaDesc.Samples          = 4;
@@ -1321,7 +1321,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
         VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer( cmd, &begin );
-        ASSERT_TRUE( BeginFrameSlot( frame, backend, pool, 0 ) );
+        ASSERT_TRUE( BeginFrameSlot( frameObjects, backend, pool, 0 ) );
         backend.SetCommandBuffer( cmd );
 
         RDG::ExternalBuffer                        readback;
@@ -1548,7 +1548,7 @@ void main()
     RDG::AccessState              bufferState = RDG::GetAccessState( RDG::Access::None );
     {
         VulkanRdgPool    pool( gpu.Rdg, 1 );
-        FrameObjects     frame( gpu, 1 );
+        FrameObjects     frameObjects( gpu, 1 );
         VulkanRdgBackend backend( gpu.Rdg, pool );
         for ( int frame = 0; frame < 2; ++frame )
         {
@@ -1622,7 +1622,7 @@ void main()
             VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
             begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
             vkBeginCommandBuffer( cmd, &begin );
-            ASSERT_TRUE( BeginFrameSlot( frame, backend, pool, 0 ) );
+            ASSERT_TRUE( BeginFrameSlot( frameObjects, backend, pool, 0 ) );
             backend.SetCommandBuffer( cmd );
             const Common::BoolResultStr executed = graph.Execute( backend );
             vkEndCommandBuffer( cmd );
