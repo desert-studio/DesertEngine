@@ -553,7 +553,7 @@ namespace Desert::Editor
     {
         const std::string identity = ThumbnailKey::Identity( assetPath );
         const std::string png      = ThumbnailKey::PreviewPath( assetPath );
-        Request req         = MaterialRequestOf( material, identity, assetPath, png );
+        Request           req      = MaterialRequestOf( material, identity, assetPath, png );
         req.Thumbnail.Orbit = orbit;
         m_Preview.Put( identity, orbit, std::move( req ) );
         return png;
@@ -564,16 +564,16 @@ namespace Desert::Editor
     {
         const std::string identity = ThumbnailKey::Identity( mesh.CookedPath );
         const std::string png      = ThumbnailKey::PreviewPath( mesh.CookedPath );
-        Request req{ .Type        = Kind::Mesh,
-                     .Handle      = mesh.Handle,
-                     .Material    = mesh.Material,
-                     .Identity    = identity,
-                     .Source      = mesh.CookedPath,
-                     .Png         = png,
-                     .How         = ThumbnailSubject::Preview::Sphere,
-                     .PreviewMesh = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
-                     .Thumbnail   = {},
-                     .Clip        = nullptr };
+        Request           req{ .Type        = Kind::Mesh,
+                               .Handle      = mesh.Handle,
+                               .Material    = mesh.Material,
+                               .Identity    = identity,
+                               .Source      = mesh.CookedPath,
+                               .Png         = png,
+                               .How         = ThumbnailSubject::Preview::Sphere,
+                               .PreviewMesh = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
+                               .Thumbnail   = {},
+                               .Clip        = nullptr };
         req.Thumbnail.Orbit = orbit;
         m_Preview.Put( identity, orbit, std::move( req ) );
         return png;
@@ -584,16 +584,16 @@ namespace Desert::Editor
     {
         const std::string identity = ThumbnailKey::Identity( pose.CookedPath );
         const std::string png      = ThumbnailKey::PreviewPath( pose.CookedPath );
-        Request req{ .Type        = Kind::Pose,
-                     .Handle      = pose.Handle,
-                     .Material    = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
-                     .Identity    = identity,
-                     .Source      = pose.CookedPath,
-                     .Png         = png,
-                     .How         = ThumbnailSubject::Preview::Sphere,
-                     .PreviewMesh = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
-                     .Thumbnail   = {},
-                     .Clip        = pose.Clip };
+        Request           req{ .Type        = Kind::Pose,
+                               .Handle      = pose.Handle,
+                               .Material    = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
+                               .Identity    = identity,
+                               .Source      = pose.CookedPath,
+                               .Png         = png,
+                               .How         = ThumbnailSubject::Preview::Sphere,
+                               .PreviewMesh = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
+                               .Thumbnail   = {},
+                               .Clip        = pose.Clip };
         req.Thumbnail.Orbit = orbit;
         m_Preview.Put( identity, orbit, std::move( req ) );
         return png;
