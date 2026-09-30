@@ -2154,7 +2154,9 @@ namespace Desert::Editor
         std::optional<MeshPicture> picture;
         const auto                 kind = Assets::Serialization::ReadImportRecordKind( *source );
         if ( !kind )
+        {
             LOG_WARN( "[Thumbnail] '{}': {}", assetPath, kind.GetError() ); // once per record version (cached)
+        }
         else
         {
             using Common::Content::ContentKind;
