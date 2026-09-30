@@ -225,8 +225,9 @@ TEST( LevelSequenceComponent, LoopModeIsStoredByName )
 
     const auto name = root.Find( "Loop" );
     ASSERT_TRUE( name.has_value() );
-    ASSERT_TRUE( name->AsString().IsSuccess() );
-    EXPECT_EQ( name->AsString().GetValue(), "PingPong" );
+    const auto text = name->AsString();
+    ASSERT_TRUE( text.IsSuccess() );
+    EXPECT_EQ( text.GetValue(), "PingPong" );
 
     Common::Json::Issues issues;
     T::LoopMode          loop = T::LoopMode::Once;
