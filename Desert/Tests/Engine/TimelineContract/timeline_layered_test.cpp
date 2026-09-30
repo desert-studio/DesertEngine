@@ -524,6 +524,50 @@ TEST( LinkedAnimLayer, UnlinkMatchesTheGraphGuidNotItsName )
     EXPECT_NEAR( out.Pose[spine].Translation.x, 1.0F, 1e-6F ) << "its own GUID unlinks it";
 }
 
+TEST( LinkedAnimLayer, TheHostsOwnLayerIsTheDefaultAnUnlinkReturnsTo )
+{
+    const Skeleton skeleton  = FiveBones();
+    const auto     spineBone = skeleton.FindBoneIndex( "spine" );
+    if ( !spineBone )
+    {
+        FAIL() << "FiveBones names a spine";
+    }
+    const uint32_t spine = *spineBone;
+    // UE: the character's AnimBlueprint implements Weapon.UpperBody itself — its layer is one leaf "Own".
+    G::AnimGraph character = Character();
+    character.Layers->Implemented.push_back( G::AnimLayerGraph{ "Weapon", "UpperBody", { Leaf( "Own" ) }, "Own" } );
+    G::PoseGraphInstance instance;
+    ASSERT_TRUE( instance.Bind( character, skeleton ).IsSuccess() );
+    const LocalPose     reference( skeleton.GetBones().size() );
+    G::LinkedLayerTable table;
+    G::GraphPose        out;
+
+    const auto defaults = table.SetDefaults( character, skeleton );
+    ASSERT_TRUE( defaults.IsSuccess() ) << defaults.GetError();
+    instance.Evaluate( LinkedLeaves( reference, table ), skeleton, out );
+    EXPECT_NEAR( out.Pose[spine].Translation.x, 10.0F, 1e-6F ) << "nothing linked: the host's own layer answers";
+
+    ASSERT_TRUE( table.Link( character, 301, Rifle(), skeleton ).IsSuccess() );
+    instance.Evaluate( LinkedLeaves( reference, table ), skeleton, out );
+    EXPECT_NEAR( out.Pose[spine].Translation.x, 11.0F, 1e-6F ) << "the rifle replaces the default";
+    ASSERT_EQ( table.Layers().size(), 1U ) << "the default is replaced, not left underneath";
+
+    table.Unlink( 301 );
+    instance.Evaluate( LinkedLeaves( reference, table ), skeleton, out );
+    EXPECT_NEAR( out.Pose[spine].Translation.x, 10.0F, 1e-6F )
+         << "unlinked: back to the host's own layer, not to pass-through (1)";
+    ASSERT_TRUE( table.Find( "Weapon", "UpperBody" ).has_value() );
+
+    ASSERT_TRUE( table.Link( character, 301, Rifle(), skeleton ).IsSuccess() );
+    table.Clear();
+    instance.Evaluate( LinkedLeaves( reference, table ), skeleton, out );
+    EXPECT_NEAR( out.Pose[spine].Translation.x, 10.0F, 1e-6F ) << "every link undone = the defaults again";
+
+    ASSERT_TRUE( table.SetDefaults( Character(), skeleton ).IsSuccess() );
+    instance.Evaluate( LinkedLeaves( reference, table ), skeleton, out );
+    EXPECT_NEAR( out.Pose[spine].Translation.x, 1.0F, 1e-6F ) << "a host implementing nothing passes its input";
+}
+
 TEST( LinkedAnimLayer, ALayerMayHoldAStateMachineAndCallANestedLayerButNotACycle )
 {
     const Skeleton skeleton  = FiveBones();

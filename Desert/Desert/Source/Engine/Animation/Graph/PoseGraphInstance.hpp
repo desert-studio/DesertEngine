@@ -167,12 +167,23 @@ namespace Desert::Animation::Graph
          */
         [[nodiscard]] Common::BoolResultStr Link( const AnimGraph& host, uint64_t implementationId,
                                                   const AnimGraph& implementation, const Skeleton& skeleton );
+        /**
+         * @brief UE's default linked layers: the layer graphs the HOST implements itself (an AnimBlueprint
+         *        implementing the interface it calls). They answer every interface nothing else links, and
+         *        an interface whose link is undone returns to them — to pass-through only when the host
+         *        implements none. Replaces the previous defaults and resets the table to them (every link
+         *        undone). Refuses, naming it, a host layer graph that does not bind; the table is then left
+         *        with no defaults. Their `Implementation` is 0, which no Link can carry.
+         */
+        [[nodiscard]] Common::BoolResultStr SetDefaults( const AnimGraph& host, const Skeleton& skeleton );
         /// UE UnlinkAnimClassLayers: the interfaces the graph with GUID `implementationId` linked go back to
-        /// pass-through. A no-op for interfaces another graph has linked since.
+        /// the host's own implementation (SetDefaults), or to pass-through when it has none. A no-op for
+        /// interfaces another graph has linked since.
         void Unlink( uint64_t implementationId );
+        /// Every link undone: the table is the defaults again.
         void Clear()
         {
-            m_Layers.clear();
+            m_Layers = m_Defaults;
         }
 
         /// The slot of (interface, layer), or empty when nothing is linked for it.
@@ -187,6 +198,16 @@ namespace Desert::Animation::Graph
         }
 
     private:
+        /// The layers `implementation` would link and the interfaces they answer, or the refusal; the table
+        /// is not touched. `implementationId` is not checked here (Link refuses 0, SetDefaults uses it).
+        [[nodiscard]] Common::BoolResultStr BuildLayers( const AnimGraph& host, uint64_t implementationId,
+                                                         const AnimGraph& implementation, const Skeleton& skeleton,
+                                                         std::vector<Layer>&       layers,
+                                                         std::vector<std::string>& interfaces ) const;
+        /// Every default whose interface no layer in the table answers is put back, fresh (entry states).
+        void RestoreDefaults();
+
         std::vector<Layer> m_Layers;
+        std::vector<Layer> m_Defaults; ///< bound once by SetDefaults, copied in on Clear / Unlink
     };
 } // namespace Desert::Animation::Graph

@@ -64,8 +64,9 @@ namespace Desert::ECS
             anim.LinkedLayerGraphs.push_back( graph );
             return Common::MakeSuccess( true );
         }
-        /// UE UnlinkAnimClassLayers: `graph` leaves LinkedLayerGraphs and its interfaces pass their input
-        /// through again (or return to an earlier entry implementing them). False when it was not listed.
+        /// UE UnlinkAnimClassLayers: `graph` leaves LinkedLayerGraphs and its interfaces return to an
+        /// earlier entry implementing them, else to the pose graph's own implementation (UE's default linked
+        /// layer), else pass their input through. False when it was not listed.
         static bool UnlinkAnimLayers( ECS::AnimationComponent& anim, Assets::AssetHandle graph )
         {
             return std::erase( anim.LinkedLayerGraphs, graph ) != 0;

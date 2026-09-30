@@ -950,6 +950,41 @@ TEST( AnimatorBlending, ABasePlayerAtGraphWeightZeroIsSilentAndAtOneIsHeard )
     }
 }
 
+TEST( AnimatorBlending, AnUnlinkReturnsTheInterfaceToTheHostsOwnLayerAndNotToPassThrough )
+{
+    namespace G                   = Animation::Graph;
+    const Skeleton      skeleton  = MakeRig();
+    const AnimationClip base      = SteppingClip( "Base" );
+    G::AnimGraph        ownsLayer = CallingHost(); // UE: the AnimBlueprint implements the interface it calls
+    ownsLayer.Layers->Implemented.push_back(
+         G::AnimLayerGraph{ "Weapon", "UpperBody", { PoseGraphFixture::Sequence( "Own" ) }, "Own" } );
+
+    Animator animator( skeleton );
+    animator.Play( base, false );
+    ASSERT_TRUE( animator.SetPoseGraph( ownsLayer ) );
+    ASSERT_EQ( animator.GetLinkedLayers().Layers().size(), 1U ) << "the host's own layer answers with no link";
+    EXPECT_EQ( animator.GetLinkedLayers().Layers()[0].Implementation, 0U );
+
+    ASSERT_TRUE( animator.LinkLayers( 7, ReplacingLayer() ) );
+    ASSERT_EQ( animator.GetLinkedLayers().Layers().size(), 1U );
+    EXPECT_EQ( animator.GetLinkedLayers().Layers()[0].Implementation, 7U ) << "a link replaces the default";
+
+    animator.UnlinkLayers( 7 );
+    ASSERT_EQ( animator.GetLinkedLayers().Layers().size(), 1U )
+         << "unlinked: the interface went to pass-through instead of back to the host's own layer";
+    EXPECT_EQ( animator.GetLinkedLayers().Layers()[0].Implementation, 0U );
+    EXPECT_EQ( CountFrom( PlayOneSecond( animator ), "Step", Kind::Fire, -1 ), 0 )
+         << "the default layer plays its own sequence, so the base under the call is at weight 0";
+
+    ASSERT_TRUE( animator.LinkLayers( 7, ReplacingLayer() ) );
+    animator.ClearLinkedLayers();
+    ASSERT_EQ( animator.GetLinkedLayers().Layers().size(), 1U ) << "clearing the links keeps the defaults";
+
+    ASSERT_TRUE( animator.SetPoseGraph( CallingHost() ) );
+    EXPECT_TRUE( animator.GetLinkedLayers().Layers().empty() )
+         << "a host implementing nothing has no defaults: its calls pass their input";
+}
+
 TEST( AnimatorBlending, ACrossFadesOutgoingNotifyIsHeardUntilItsWeightReachesZero )
 {
     const Skeleton      skeleton = MakeRig();

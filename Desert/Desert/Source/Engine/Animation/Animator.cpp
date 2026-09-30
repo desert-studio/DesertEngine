@@ -948,6 +948,14 @@ namespace Desert::Animation
         if ( m_PoseGraph && m_PoseGraph->Parameters.size() == state.Parameters.size() )
             state.Parameters = std::move( m_PoseGraph->Parameters );
         m_PoseGraph = std::move( state );
+        // The layers the graph implements itself answer its interfaces until something is linked (UE's
+        // default linked layers); every earlier link was made against the previous graph and is undone.
+        if ( auto defaults = m_LinkedLayers.SetDefaults( m_PoseGraph->Instance.Graph(), m_Skeleton ); !defaults )
+        {
+            ClearPoseGraph();
+            return defaults;
+        }
+        RebuildLinkedClocks();
         SyncStages();
         return Common::MakeSuccess( true );
     }
@@ -1053,6 +1061,9 @@ namespace Desert::Animation
             for ( size_t node = 0; node < m_PoseGraph->ActiveStates.size(); ++node )
                 RetireStates( m_PoseGraph->ActiveStates[node], static_cast<int>( node ), -1 );
         m_PoseGraph.reset();
+        // No host, no defaults and nothing its interfaces could be linked against.
+        (void)m_LinkedLayers.SetDefaults( Graph::AnimGraph{}, m_Skeleton );
+        RebuildLinkedClocks();
         SyncStages();
     }
 

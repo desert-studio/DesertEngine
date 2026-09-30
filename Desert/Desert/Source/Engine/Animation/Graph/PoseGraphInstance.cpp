@@ -317,12 +317,82 @@ namespace Desert::Animation::Graph
             return Common::MakeError<bool>(
                  std::format( "AnimGraph '{}' implements no layer interface, so it has no layer to link onto '{}'",
                               implementation.Name, host.Name ) );
+        std::vector<Layer>       linked;
+        std::vector<std::string> interfaces;
+        if ( auto built = BuildLayers( host, implementationId, implementation, skeleton, linked, interfaces );
+             !built )
+            return built;
+
+        const auto replaced = [&]( const Layer& l )
+        { return std::find( interfaces.begin(), interfaces.end(), l.Interface ) != interfaces.end(); };
+
+        // The table as it would stand after this link: nested calls must not close a cycle through it.
+        std::vector<LayerCalls> after;
+        for ( const Layer& l : m_Layers )
+            if ( !replaced( l ) )
+                after.push_back( { l.Interface, l.Name, CalledLayers( l.Instance.Graph().Nodes ) } );
+        for ( const Layer& l : linked )
+            after.push_back( { l.Interface, l.Name, CalledLayers( l.Instance.Graph().Nodes ) } );
+        if ( std::string cycle = LayerCycle( after ); !cycle.empty() )
+            return Common::MakeError<bool>(
+                 std::format( "cannot link '{}' onto '{}': the linked layers would call each other in a cycle "
+                              "({}), which would evaluate forever",
+                              implementation.Name, host.Name, cycle ) );
+
+        std::erase_if( m_Layers, replaced );
+        for ( Layer& entry : linked )
+            m_Layers.push_back( std::move( entry ) );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr LinkedLayerTable::SetDefaults( const AnimGraph& host, const Skeleton& skeleton )
+    {
+        m_Defaults.clear();
+        m_Layers.clear();
+        if ( !host.Layers || host.Layers->Implemented.empty() )
+            return Common::MakeSuccess( true );
+        std::vector<Layer>       defaults;
+        std::vector<std::string> interfaces;
+        if ( auto built = BuildLayers( host, 0, host, skeleton, defaults, interfaces ); !built )
+            return Common::MakeError<bool>( std::format( "the default layers '{}' implements itself: {}",
+                                                         host.Name, built.GetError() ) );
+        std::vector<LayerCalls> calls;
+        for ( const Layer& l : defaults )
+            calls.push_back( { l.Interface, l.Name, CalledLayers( l.Instance.Graph().Nodes ) } );
+        if ( std::string cycle = LayerCycle( calls ); !cycle.empty() )
+            return Common::MakeError<bool>( std::format(
+                 "the default layers '{}' implements itself call each other in a cycle ({})", host.Name, cycle ) );
+        m_Defaults = std::move( defaults );
+        m_Layers   = m_Defaults;
+        return Common::MakeSuccess( true );
+    }
+
+    void LinkedLayerTable::RestoreDefaults()
+    {
+        const size_t linkedCount = m_Layers.size();
+        m_Layers.reserve( linkedCount + m_Defaults.size() ); // `before` below must survive the push_backs
+        for ( const Layer& fallback : m_Defaults )
+        {
+            // An interface is linked whole (Link replaces every layer of it), so "answered" is per interface.
+            // Only the layers there before this restore count: an interface's second default is not
+            // "answered" by its first.
+            const auto before   = m_Layers.begin() + static_cast<std::ptrdiff_t>( linkedCount );
+            const bool answered = std::any_of( m_Layers.begin(), before, [&]( const Layer& l )
+                                               { return l.Interface == fallback.Interface; } );
+            if ( !answered )
+                m_Layers.push_back( fallback );
+        }
+    }
+
+    Common::BoolResultStr LinkedLayerTable::BuildLayers( const AnimGraph& host, uint64_t implementationId,
+                                                         const AnimGraph& implementation, const Skeleton& skeleton,
+                                                         std::vector<Layer>&       linked,
+                                                         std::vector<std::string>& interfaces ) const
+    {
         // The implementation plans (a loaded file has; a graph built in code may not have been).
         if ( auto plan = PlanPoseGraph( implementation ); !plan )
             return Common::MakeError<bool>( plan.GetError() );
 
-        std::vector<Layer>       linked;
-        std::vector<std::string> interfaces;
         for ( const AnimLayerGraph& layer : implementation.Layers->Implemented )
         {
             const AnimLayerInterface* mine   = FindLayerInterface( implementation, layer.Interface );
@@ -373,32 +443,13 @@ namespace Desert::Animation::Graph
             if ( std::find( interfaces.begin(), interfaces.end(), layer.Interface ) == interfaces.end() )
                 interfaces.push_back( layer.Interface );
         }
-
-        const auto replaced = [&]( const Layer& l )
-        { return std::find( interfaces.begin(), interfaces.end(), l.Interface ) != interfaces.end(); };
-
-        // The table as it would stand after this link: nested calls must not close a cycle through it.
-        std::vector<LayerCalls> after;
-        for ( const Layer& l : m_Layers )
-            if ( !replaced( l ) )
-                after.push_back( { l.Interface, l.Name, CalledLayers( l.Instance.Graph().Nodes ) } );
-        for ( const Layer& l : linked )
-            after.push_back( { l.Interface, l.Name, CalledLayers( l.Instance.Graph().Nodes ) } );
-        if ( std::string cycle = LayerCycle( after ); !cycle.empty() )
-            return Common::MakeError<bool>(
-                 std::format( "cannot link '{}' onto '{}': the linked layers would call each other in a cycle "
-                              "({}), which would evaluate forever",
-                              implementation.Name, host.Name, cycle ) );
-
-        std::erase_if( m_Layers, replaced );
-        for ( Layer& entry : linked )
-            m_Layers.push_back( std::move( entry ) );
         return Common::MakeSuccess( true );
     }
 
     void LinkedLayerTable::Unlink( uint64_t implementationId )
     {
         std::erase_if( m_Layers, [&]( const Layer& l ) { return l.Implementation == implementationId; } );
+        RestoreDefaults();
     }
 
     std::optional<size_t> LinkedLayerTable::Find( std::string_view anInterface, std::string_view layer ) const

@@ -305,7 +305,9 @@ namespace Desert::Animation
         [[nodiscard]] Common::BoolResultStr LinkLayers( uint64_t                implementationId,
                                                         const Graph::AnimGraph& implementation );
         void                                UnlinkLayers( uint64_t implementationId );
-        /// Every link undone: each LinkedAnimLayer node passes its input again.
+        /// Every link undone: each LinkedAnimLayer node is answered by the pose graph's own layer graph for
+        /// its interface (UE's default linked layer), or passes its input when the graph implements none.
+        /// UnlinkLayers returns the graph's interfaces the same way.
         void                                         ClearLinkedLayers();
         [[nodiscard]] const Graph::LinkedLayerTable& GetLinkedLayers() const
         {
