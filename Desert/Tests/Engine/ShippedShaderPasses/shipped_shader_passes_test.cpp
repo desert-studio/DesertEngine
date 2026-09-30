@@ -357,6 +357,7 @@ TEST( ShippedShaderPasses, AGeneratedMaterialRowAlwaysArrivesWithThePushConstant
          // by the TerrainRenderer into whichever of the two the render path draws with.
          "TerrainGBuffer.shader",
          "TextSDF.shader",
+         "Toon.shader", // SHM1: the Toon shading model ships its own program
          "UIMatRadialWipe.shader",
          "Unlit.shader",
     };
