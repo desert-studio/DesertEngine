@@ -22,8 +22,17 @@ namespace Common::Content
         // A scalar is spelled by yyjson itself, the writer rfl::json writes with: the shortest round-trip
         // spelling of a real, the same escaping of a string. Owning the spelling here would be a second
         // source of truth for how a number looks, and any disagreement would be a value change on reformat.
+        // ONE SPELLING OF ZERO: -0.0 is written as 0.0. The two compare equal, and a value that is zero only by
+        // the sign of the arithmetic that produced it (an inverse bind matrix's off-diagonal, a rotated axis)
+        // would otherwise flip between spellings from one run of the same import to the next - a diff in a
+        // committed file with no change in it. The sign of zero carries no authored meaning in any asset.
         bool AppendScalar( std::string& out, yyjson_val* value )
         {
+            if ( yyjson_is_real( value ) && yyjson_get_real( value ) == 0.0 )
+            {
+                out += "0.0";
+                return true;
+            }
             std::size_t length = 0;
             char*       text   = yyjson_val_write( value, YYJSON_WRITE_NOFLAG, &length );
             if ( text == nullptr )

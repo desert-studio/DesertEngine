@@ -57,10 +57,12 @@
 #include "SceneMigration.hpp"
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include "SettingsCanonical.hpp"
+#include "ImportRecordSourceHash.hpp"
 
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Content/ImportRecord.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
@@ -1259,6 +1261,39 @@ namespace Desert::Migration
                 ++( layout == Layout::Failed ? failed : relaid );
         }
 
+        // THE SKINNED IMPORTS' SOURCE HASH (SKEL-fixa, ImportRecordSourceHash.hpp): a `.skmesh` with its raw
+        // source beside it is that source's import; its record states the source's hash, or the editor re-imports
+        // it at its first start and rewrites committed files.
+        int recordsStated = 0;
+        for ( const auto& path : meshes )
+        {
+            if ( path.extension() != Common::Constants::Extensions::SKINNED_MESH )
+                continue;
+            const auto source = Common::Content::MeshSourceBeside( path );
+            if ( !source )
+                continue; // a hand-authored mesh: no import, no record
+            const auto stated = Desert::Migration::ImportRecordWithSourceHash( *source, path );
+            if ( !stated )
+            {
+                err << "FAIL   " << path.string() << " — " << stated.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            if ( !stated.GetValue() )
+                continue;
+            const std::filesystem::path record = Common::Content::ImportRecordPathFor( *source );
+            ++recordsStated;
+            out << ( check ? "would state " : "stated " ) << record.string() << " SourceHash\n";
+            if ( check )
+                continue;
+            if ( const auto written = Common::Content::WriteCanonicalJsonFileAtomic( record, *stated.GetValue() );
+                 !written )
+            {
+                err << "FAIL   " << record.string() << " — " << written.GetError() << "\n";
+                ++failed;
+            }
+        }
+
         out << "SceneMigrator: " << scenes.size() << " scene(s), " << changed
             << ( check ? " would change, " : " raised, " ) << clips.size() << " clip(s), " << materials.size()
             << " material(s), " << prefabs.size() << " prefab(s), " << prefabsChanged
@@ -1266,13 +1301,18 @@ namespace Desert::Migration
             << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << foliageRaised
             << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << meshesRaised
             << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
-            << " landscape tile(s), " << failed << " failed\n";
+            << " landscape tile(s), " << recordsStated
+            << ( check ? " import record(s) would state their source hash, "
+                       : " import record(s) stated their source hash, " )
+            << failed << " failed\n";
 
         failedOut = failed;
         if ( failed > 0 )
             return 1;
         return ( check && ( changed > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 ||
-                             meshesRaised > 0 ) ) ? 1 : 0;
+                            meshesRaised > 0 || recordsStated > 0 ) )
+                    ? 1
+                    : 0;
     }
 
     // ALL OR NOTHING. A write run used to raise file after file and let one refusal fail only itself: over
