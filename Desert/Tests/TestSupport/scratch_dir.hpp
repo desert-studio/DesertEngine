@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <format>
 #include <random>
 #include <string>
 #include <string_view>
@@ -153,12 +154,13 @@ namespace Desert::TestSupport
             const std::filesystem::path root = RepositoryRoot();
             if ( ec || root.empty() )
             {
-                m_Error = "no checkout above the working directory '" + m_Previous.string() + "'";
+                m_Error = std::format( "no checkout above the working directory '{}'", m_Previous.string() );
                 return;
             }
             std::filesystem::current_path( root / "Editor", ec );
             if ( ec )
-                m_Error = "could not work from '" + ( root / "Editor" ).string() + "': " + ec.message();
+                m_Error =
+                     std::format( "could not work from '{}': {}", ( root / "Editor" ).string(), ec.message() );
         }
 
         ~EngineResourcesWorkingDirectory()
