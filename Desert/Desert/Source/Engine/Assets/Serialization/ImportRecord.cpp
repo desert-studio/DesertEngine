@@ -2,6 +2,7 @@
 
 #include <Engine/Assets/TextAssetHeaderCheck.hpp>
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Json/Json.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -13,7 +14,10 @@ namespace Desert::Assets::Serialization
     {
         return { settings.CombineMeshes, settings.Mesh.UniformScale,
                  std::string( Assets::MeshSourceUpAxisName( settings.Mesh.UpAxis ) ),
-                 std::string( Assets::MeshLodPolicyName( settings.Mesh.LodPolicy ) ) };
+                 std::string( Assets::MeshLodPolicyName( settings.Mesh.LodPolicy ) ),
+                 settings.Skeleton
+                      ? std::optional<std::string>( Common::Content::AssetGuidToText( *settings.Skeleton ) )
+                      : std::nullopt };
     }
 
     Common::ResultStr<Assets::SourceImportSettings> ImportSettingsFromText( const SourceImportSettingsText& text )
@@ -29,6 +33,14 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<Result>(
                  "import settings state scale {}, not a finite positive number", text.UniformScale );
         Result out;
+        if ( text.Skeleton )
+        {
+            auto skeleton = Common::Content::AssetGuidFromText( *text.Skeleton );
+            if ( !skeleton || skeleton.GetValue().IsNull() )
+                return Common::MakeFormattedError<Result>( "import settings name skeleton '{}', not an asset GUID",
+                                                           *text.Skeleton );
+            out.Skeleton = skeleton.GetValue();
+        }
         out.CombineMeshes     = text.CombineMeshes;
         out.Mesh.UniformScale = text.UniformScale;
         out.Mesh.UpAxis       = *axis;
@@ -268,6 +280,30 @@ namespace Desert::Assets::Serialization
                                                      written.GetError() );
         return BOOLSUCCESS;
     }
+    Common::BoolResultStr SetImportRecordSourceHash( const std::filesystem::path& source, const uint64_t hash )
+    {
+        const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
+        auto                        data   = ReadImportRecord( source );
+        if ( !data )
+            return Common::MakeError<bool>( data.GetError() );
+        if ( !data.GetValue() )
+            return Common::MakeFormattedError<bool>( "'{}' does not exist, so its import's source hash cannot be "
+                                                     "recorded",
+                                                     record.string() );
+        ImportRecordData out = *data.GetValue();
+        if ( out.SourceHash == hash )
+            return BOOLSUCCESS;
+        out.SourceHash  = hash;
+        const auto kind = Common::Content::ContentKindNamed( out.Header->Kind );
+        const auto text = WriteImportRecord( out, kind.value_or( Common::Content::ContentKind::StaticMesh ) );
+        if ( !text )
+            return Common::MakeFormattedError<bool>( "'{}': {}", record.string(), text.GetError() );
+        if ( auto written = Common::Content::WriteCanonicalJsonFileAtomic( record, text.GetValue() ); !written )
+            return Common::MakeFormattedError<bool>( "'{}' could not be written: {}", record.string(),
+                                                     written.GetError() );
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr SetImportRecordThumbnail( const std::filesystem::path& source,
                                                     const std::string& meshFile, const ThumbnailOrbit& orbit )
     {

@@ -9,6 +9,7 @@
 #include <Common/Json/Json.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
@@ -338,7 +339,11 @@ namespace Desert::Editor::ImportOptions
         if ( ec )
             return Common::MakeFormattedError<bool>( "'{}' could not be created: {}",
                                                      LastUsedPath().parent_path().string(), ec.message() );
-        return Common::Json::WriteFileAtomic( LastUsedPath(), Ser::ImportSettingsToText( settings ) );
+        // The Skeleton choice belongs to the file it was made for (its record): a remembered one would import the
+        // next, unrelated file onto it.
+        Assets::SourceImportSettings remembered = settings;
+        remembered.Skeleton.reset();
+        return Common::Json::WriteFileAtomic( LastUsedPath(), Ser::ImportSettingsToText( remembered ) );
     }
 
     bool DrawImportSettingsFields( Assets::SourceImportSettings& settings, const ImportContentKind kind )
@@ -393,6 +398,54 @@ namespace Desert::Editor::ImportOptions
             changed                 = true;
         }
         UI::EndPropertyRow();
+
+        // UE's Skeleton field of the skeletal mesh / animation import: an existing skeleton the rig is imported
+        // onto, or none (the default) - then the one skeleton whose bones state the rig's, else a new one
+        // (ImportManager ExistingSkeletonFor). Listed from the registry's Skeleton rows, loading nothing.
+        if ( kind != ImportContentKind::StaticMesh )
+        {
+            UI::BeginPropertyRow( "Skeleton",
+                                  "None: the one registered skeleton with the file's bones, else a new "
+                                  ".skeleton. A chosen skeleton must hold every bone the mesh and the "
+                                  "clips need, or the import is refused." );
+            const auto rows   = Assets::ContentRegistry::Rows( Common::Content::ContentKind::Skeleton );
+            const auto nameOf = []( const Assets::ContentRegistry::PickerRow& row )
+            { return row.DisplayName.empty() ? row.Path.stem().string() : row.DisplayName; };
+            std::string preview = "None (new or matching skeleton)";
+            if ( settings.Skeleton )
+            {
+                preview =
+                     std::format( "Missing skeleton {}", Common::Content::AssetGuidToText( *settings.Skeleton ) );
+                for ( const auto& row : rows )
+                    if ( row.Guid && *row.Guid == *settings.Skeleton )
+                        preview = nameOf( row );
+            }
+            if ( ImGui::BeginCombo( "##Skeleton", preview.c_str() ) )
+            {
+                if ( ImGui::Selectable( "None (new or matching skeleton)", !settings.Skeleton ) )
+                {
+                    settings.Skeleton.reset();
+                    changed = true;
+                }
+                for ( const auto& row : rows )
+                {
+                    if ( !row.Guid )
+                        continue;
+                    ImGui::PushID( row.Key.c_str() );
+                    const bool selected = settings.Skeleton && *settings.Skeleton == *row.Guid;
+                    if ( ImGui::Selectable( nameOf( row ).c_str(), selected ) )
+                    {
+                        settings.Skeleton = *row.Guid;
+                        changed           = true;
+                    }
+                    if ( ImGui::IsItemHovered() )
+                        ImGui::SetTooltip( "%s", row.Key.c_str() );
+                    ImGui::PopID();
+                }
+                ImGui::EndCombo();
+            }
+            UI::EndPropertyRow();
+        }
 
         ImGui::PopID();
         return changed;

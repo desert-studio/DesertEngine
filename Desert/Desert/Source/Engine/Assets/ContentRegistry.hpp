@@ -3,6 +3,7 @@
 #include <Engine/Assets/AssetGuidRef.hpp>
 
 #include <Common/Content/AssetMove.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/ContentScan.hpp>
 

@@ -86,7 +86,12 @@ namespace Desert::Assets
         // (NodeMeshSplit); on, the whole file is the one combined mesh.
         bool               CombineMeshes = false;
         MeshImportSettings Mesh;
-        bool               operator==( const SourceImportSettings& ) const = default;
+        // UE UFbxImportUI::Skeleton: the existing skeleton a skinned file (or its clips) is imported onto. Unset
+        // = none chosen: the import takes the one registered skeleton whose bones state the rig's
+        // (FindSkeletonsBySignature, exactly one), else writes a new .skeleton. Set = that skeleton or a refused
+        // import (CheckSkeletonAssignment) - never a new .skeleton in its place.
+        std::optional<Common::Content::AssetGuid> Skeleton;
+        bool                                      operator==( const SourceImportSettings& ) const = default;
     };
 
     struct MeshImportInfo
