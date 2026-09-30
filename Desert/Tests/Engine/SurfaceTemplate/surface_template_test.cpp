@@ -12,6 +12,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
 
 #include <TestSupport/derived_data_sandbox.hpp>
+#include <TestSupport/scratch_dir.hpp>
 
 #include <algorithm>
 #include <filesystem>
@@ -61,13 +62,9 @@ namespace
         static void SetUpTestSuite()
         {
             // Includes resolve against "Resources/Shaders/", relative: run from Editor/ as the editor does.
-            std::filesystem::path here = std::filesystem::current_path();
-            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" );
-                  ++up )
-                here = here.parent_path();
-            ASSERT_TRUE( std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" ) )
-                 << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
-            s_EditorDir = here / "Editor";
+            const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
+            ASSERT_FALSE( root.empty() );
+            s_EditorDir = root / "Editor";
             std::filesystem::current_path( s_EditorDir );
         }
     };
@@ -218,8 +215,9 @@ TEST_F( SurfaceTemplateFixture, EditingAnyCellHeaderMovesTheKeyOfEveryCell )
 
     const auto headers = PP::SurfaceTemplateIncludes();
     // Types + one vertex header per path + one pass header per (pass x shading model), the depth pass shared by
-    // both models (SurfacePassInclude).
-    EXPECT_EQ( headers.size(), 1u + PP::kSurfaceVertexPaths.size() + 2u * PP::kSurfaceCellPasses.size() - 1u );
+    // both models (SurfacePassInclude), + the translucency pass header a Translucent template's Forward cells use.
+    EXPECT_EQ( headers.size(),
+               1u + PP::kSurfaceVertexPaths.size() + 2u * PP::kSurfaceCellPasses.size() - 1u + 1u );
     for ( const auto& header : headers )
     {
         ASSERT_TRUE( std::filesystem::exists( shaders / header ) ) << header;

@@ -170,6 +170,23 @@ namespace
            "FileExplorerPanel::CaptureThumbnailFromViewport", Role::Handles, "",
            "WRITES a thumbnail from the viewport readback, under the same key the grid reads. A producer, "
            "not a consumer: its output is what the Shows rows would otherwise have had to queue" },
+
+         { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkyboxComponent.cpp",
+           "DESERT_REGISTER_CUSTOM_COMPONENT", Role::Shows, "RequestSkybox",
+           "the Details Skybox tile (THM-FIXF/G): the sky's picture from the shared pool, asked with the same "
+           "request and key as the Content Browser sky tile. The drawer is the registration lambda, so the "
+           "row names the macro whose first body it is" },
+
+         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp", "FileExplorerPanel::DrawThumbnailFor",
+           Role::Shows, "RequestSkybox",
+           "the asset browser's tile dispatch; its RenderedSky case draws the skybox tile inline and asks "
+           "ThumbnailService::RequestSkybox itself (the other producers go to their own Draw* rows)" },
+
+         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
+           "FileExplorerPanel::DrawThumbnailEdit", Role::Rereads, "",
+           "Edit Thumbnail's live orbit preview. It draws only the preview PNG that RequestThumbnailPreview — "
+           "called a line earlier in this same function, every frame of the gesture — asked the service for, "
+           "and only once ThumbnailService::PreviewLanded says it arrived; it can never be the first to look" },
     };
 
     // ------------------------------------------------------------------------------------------------
@@ -278,6 +295,10 @@ namespace
                 before -= 2;
             else
                 continue;
+            // A receiver that is a CALL (`SlotThumbnails().Get(`, a function-local cache behind an accessor):
+            // the name is the identifier in front of the `()`.
+            if ( before >= 2 && body[before - 1] == ')' && body[before - 2] == '(' )
+                before -= 2;
 
             std::size_t start = before;
             while ( start > 0 && CT::IsIdentChar( body[start - 1] ) )
@@ -569,12 +590,21 @@ TEST( ThumbnailRequesters, TheOnlyExceptionIsBackedByTheSiteThatQueuesForIt )
              << site.Why;
     }
 
-    // Two, decided (THUMB2): the drag ghost, and the splash's upload pass — which runs before the window
-    // exists, where no capture may be asked for (Splash::ThumbnailCaptureAllowed), for pictures the same
-    // folder's tile draws ask for one frame later.
-    EXPECT_EQ( exceptions, 2 ) << "the number of sites excused from asking has changed. Two are "
-                                  "documented re-reads; three is a habit. Read the new row's argument and "
-                                  "decide, then update this number deliberately.";
+    // The exceptions are a NAMED register, not a count: the drag ghost and the splash's upload pass (THUMB2 —
+    // no capture may be asked for before the window exists, Splash::ThumbnailCaptureAllowed) and Edit
+    // Thumbnail's live preview (DEV-CIFIX, 09-30 — it re-reads what its own function just requested).
+    // A new Rereads row fails here until its name is added deliberately.
+    const std::set<std::string> kDecidedExceptions = { "FileExplorerPanel::EmitAssetDragSource",
+                                                       "FileExplorerPanel::UploadPrefetchedThumbnails",
+                                                       "FileExplorerPanel::DrawThumbnailEdit" };
+    std::set<std::string>       excused;
+    for ( const Site& site : kSites )
+        if ( site.What == Role::Rereads )
+            excused.insert( site.Function );
+    EXPECT_EQ( excused, kDecidedExceptions )
+         << "the sites excused from asking are not the decided ones. Read the new row's argument and decide, "
+            "then name it in this register deliberately.";
+    EXPECT_EQ( exceptions, static_cast<int>( kDecidedExceptions.size() ) ) << "a Rereads row is listed twice";
 }
 
 // ---------------------------------------------------------------------------------------------------
