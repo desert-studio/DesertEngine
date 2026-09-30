@@ -26,7 +26,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Assets/Shader` — 2 files, 316 lines: ShaderAsset
 - `Assets/Skybox` — 2 files, 123 lines: SkyboxAsset
 - `Audio` — 2 files, 278 lines: AudioEngine
-- `Core` — 44 files, 6,955 lines: Application, ApplicationInfo, AxisRow, BootTimeline, Camera, CameraEntityView, CellHLOD, CookedWorldStart, Device, DeviceCapabilities, DeviceMemoryHeap, DeviceMemoryReport, … (+33)
+- `Core` — 44 files, 6,953 lines: Application, ApplicationInfo, AxisRow, BootTimeline, Camera, CameraEntityView, CellHLOD, CookedWorldStart, Device, DeviceCapabilities, DeviceMemoryHeap, DeviceMemoryReport, … (+33)
 - `Core/Formats` — 11 files, 3,151 lines: BC6HCeilingCensus, BlockPolicy, Image2DSpecification, Image3DSpecification, ImageCubeSpecification, MaterialLayout, MaterialLayoutBindings, MaterialLayoutParam, MaterialLayoutPushField, MaterialLayoutTexture, MipLevelSpan, ReflectedLayoutMember, … (+6)
 - `Core/IO` — 2 files, 89 lines: ImageReader, ImageReaderGifInfo
 - `Core/Serialize` — 38 files, 10,185 lines: AxisSpan, CellBounds, CellCoord, CellPayload, ComponentLoadingRow, ComponentRegistry, ComponentSerializer, ContainmentEdge, CookedCellSource, CookedFile, CookedWorld, DanglingContainment, … (+56)
@@ -54,8 +54,8 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Geometry/MeshCore/Selections` — 4 files, 411 lines: Component, MeshConnectedComponents, QuadGridPatch
 - `Geometry/MeshCore/Solvers` — 2 files, 528 lines: SparseLDLT, SparseMatrixD, SpectralConformalMeshUVSolver, Triplet
 - `Geometry/MeshCore/Spatial` — 3 files, 1,101 lines: BoxesSet, DynamicMeshAABBTree3, FastWindingTree, IntersectionsQueryResult, MeshQueryOptions, MeshTriInfoCache, PointHashGrid3, SegmentIntersection, WNInfo
-- `Graphic` — 91 files, 13,870 lines: ActiveViewScope, AllocationLedger, AtmosphereEnv, CallerCost, CascadeFit, CascadeSetup, ComputeImages, ComputeImagesSpecification, ComputePipeline, ComputePipelineSpecification, CookedTexture2D, DebugViewState, … (+110)
-- `Graphic/API/Vulkan` — 49 files, 12,951 lines: AllocatedData, BufferDeletionEntry, CapabilityRow, CapabilitySpec, CommandBufferAllocator, DescriptorPoolDeletionEntry, DescriptorSetInfo, DeviceCaps, ExternalAttachmentInfo, FallbackImageBinding, FrameQueries, FramebufferDeletionEntry, … (+40)
+- `Graphic` — 91 files, 13,931 lines: ActiveViewScope, AllocationLedger, AtmosphereEnv, CallerCost, CascadeFit, CascadeSetup, ComputeImages, ComputeImagesSpecification, ComputePipeline, ComputePipelineSpecification, CookedTexture2D, DebugViewState, … (+112)
+- `Graphic/API/Vulkan` — 49 files, 12,966 lines: AllocatedData, BufferDeletionEntry, CapabilityRow, CapabilitySpec, CommandBufferAllocator, DescriptorPoolDeletionEntry, DescriptorSetInfo, DeviceCaps, ExternalAttachmentInfo, FallbackImageBinding, FrameQueries, FramebufferDeletionEntry, … (+40)
 - `Graphic/API/Vulkan/VulkanUtils` — 4 files, 556 lines: DescriptorSetBuilder
 - `Graphic/Clouds` — 11 files, 3,373 lines: CloudAuthoredInstanceGpu, CloudAuthoredPackResult, CloudAuthoredPayload, CloudBakeBinding, CloudBakeLayerInputs, CloudEnvelopeKm, CloudEnvironmentBake, CloudGpuPayload, CloudMaterialValues, CloudMediumValues, CloudNearFadeKm, CloudNoiseResolution, … (+13)
 - `Graphic/Environment` — 6 files, 1,111 lines: Environment, EnvironmentCacheEntry, EnvironmentCacheWriter, EnvironmentManager, OwnedEnvironment, SampledCube, SkyLook, SkyLookGPU, Write
@@ -125,9 +125,9 @@ compile each engine source -- run exactly those after touching it, and add a new
 
 ## Common — `Desert/Common/Source/Common`
 - `Content` — 26 files, 5,650 lines: AssetEnvelope, AssetFolderMoveRecord, AssetGuid, AssetHeader, AssetHeaderReadContext, AssetMoveRecord, AssetRedirector, ChunkFolderRow, ChunkPlan, ChunkRule, ChunkScheme, ChunkSchemeSession, … (+21)
-- `Core` — 47 files, 6,543 lines: AssetHandle, AutoRegistry, ContentDirSpec, Entry, Error, EventHandler, FieldDescriptor, FieldMeta, GpuIdentity, GpuScopedTimer, Handle, HandlePool, … (+20)
+- `Core` — 45 files, 6,506 lines: AssetHandle, ContentDirSpec, Entry, Error, FieldDescriptor, FieldMeta, GpuIdentity, GpuScopedTimer, Handle, HandlePool, IGpuProfilerSink, InlineJob, … (+18)
 - `Core/Algorithms` — 1 files, 55 lines: ScopeExit, ScopeExitTag
-- `Core/Events` — 4 files, 287 lines: Event, EventWindowClose, EventWindowFileDrop, EventWindowResize, KeyEvent, KeyPressedEvent, KeyTypedEvent, MouseButtonEvent, MouseButtonPressedEvent, MouseMovedEvent, MouseScrolledEvent
+- `Core/Events` — 7 files, 931 lines: DispatchScope, EmplacedNode, EventHandlerTable, EventNodeId, EventNodeLink, EventReply, EventTree, EventTypeList, EventWindowClose, EventWindowFileDrop, EventWindowResize, KeyEvent, … (+8)
 - `Core/Math` — 6 files, 330 lines: AABB, Pcg32, Ray
 - `Core/Memory` — 3 files, 253 lines: Buffer, CommandBuffer
 - `Core/Serialization` — 2 files, 244 lines: ReflType, SerializationProvider
@@ -140,18 +140,18 @@ compile each engine source -- run exactly those after touching it, and add a new
 
 ## Editor — `Editor/Source/Editor`
 - `Builtin` — 2 files, 136 lines: BuiltinMeshRegistry
-- `Core` — 80 files, 18,317 lines: AssetFieldRequest, AssetFieldRequests, AssetReferenceIndex, ByteCommand, ClosedDocument, CommandHistory, CommandLineFlag, CommandLineOptions, CommandPalette, ControlNudgeRequests, CrashRecovery, DemoMaterial, … (+62)
+- `Core` — 80 files, 18,335 lines: AssetFieldRequest, AssetFieldRequests, AssetReferenceIndex, ByteCommand, ClosedDocument, CommandHistory, CommandLineFlag, CommandLineOptions, CommandPalette, ControlNudgeRequests, CrashRecovery, DemoMaterial, … (+62)
 - `Core/Commands` — 13 files, 5,166 lines: AssetFolderMoveCommand, AssetMoveCommand, BoneDelta, BoneGizmoGesture, ClipPoseCommand, ControlAutoKey, ControlEdit, ControlGizmoGesture, ControlPoseCommand, FoldCandidate, FoldMeshIdentity, FoldPlan, … (+12)
-- `Core/Control` — 8 files, 2,379 lines: AuthoringSnapshot, ClosedDocumentSnapshot, CommandAddress, ControlChannelOptions, ControlSocket, DocumentSnapshot, EditorQuiescence, EditorSnapshot, EntitySnapshot, FrameGate, OpSpec, PanelSnapshot, … (+10)
+- `Core/Control` — 9 files, 2,627 lines: AuthoringSnapshot, ClosedDocumentSnapshot, CommandAddress, ControlChannelOptions, ControlSocket, DocumentSnapshot, EditorQuiescence, EditorSnapshot, EntitySnapshot, FrameGate, InputChord, InputInjection, … (+14)
 - `Core/GraphCanvas` — 4 files, 620 lines: CanvasPlan, DeferredFrameAll, ElementIdMap, ElementLedger, PlannedLink, PlannedNode, Resolved
 - `Core/Rigging` — 2 files, 282 lines: Bone, RigBuilder
 - `Core/Selection` — 21 files, 4,106 lines: AuthoringContext, AuthoringContextHost, AuthoringOwner, BooleanToolArgs, FoliagePaint, LandscapeSculptSettings, LandscapeSculptState, LandscapeToolControl, LandscapeToolProperty, MeshElementSelection, MeshOperationArgs, ModelingState, … (+10)
-- `ImGuiIntegration` — 5 files, 352 lines: ImGuiLayer, VulkanImGui
+- `ImGuiIntegration` — 5 files, 403 lines: ImGuiLayer, VulkanImGui
 - `Import` — 43 files, 7,021 lines: AsyncMeshLoader, BackgroundCookQueue, Completed, Done, IAssetImporter, ImportManager, ImportOutcome, ImportResult, ImportSettingsEdit, ImportTemplate, ImportedMaterial, ImportedMeshSource, … (+15)
 - `Import/Assimp` — 12 files, 1,803 lines: AssimpImporter, SceneVertexStreams, SourceAlpha, SourceMaterialRead, SourceTextureFile
 - `Import/Blend` — 2 files, 235 lines: BlendImporter
 - `Packaging` — 8 files, 2,110 lines: CookStats, PackageOptions, PackageResult, PackagedTree, TargetPlatformInfo
-- `Panels` — 2 files, 509 lines: DocumentAction, IPanel, ISubjectDocument
+- `Panels` — 3 files, 547 lines: DocumentAction, IPanel, ISubjectDocument
 - `Panels/Animation` — 8 files, 2,351 lines: AnimGraphCanvas, AnimGraphPanel, AnimLayersPanel, ControlRigPanel, PoseFieldEdit, StatePosition, TransitionRef, WarningTarget
 - `Panels/AnimationEditor` — 8 files, 3,321 lines: AnimationEditorBase, AnimationEditorDocument, AnimationTransport, BoneTransformRows, CurveEditCommand, NotifyEditCommand, SkeletonTreeRow
 - `Panels/AssetReferences` — 2 files, 250 lines: AssetReferencesPanel
@@ -159,7 +159,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Panels/Clouds` — 13 files, 6,997 lines: CloudChain, CloudHeroBody, CloudLayoutPanel, CloudModellingVolumePanel, CloudNoiseVolumePanel, CloudStageAssetTypes, CloudStageCensus, CloudTypePanel, CloudsPanel, LayerContext, SpeciesSlot
 - `Panels/Collections` — 5 files, 993 lines: CollectionFoliageTypes, CollectionItem, CollectionManifest, CollectionManifestAssetRef, CollectionManifestItem, CollectionManifestMaterial, CollectionsPanel, LoadedCollection
 - `Panels/Debug` — 4 files, 855 lines: ShaderLibraryPanel, UIDebuggerPanel
-- `Panels/FileExplorer` — 7 files, 4,526 lines: DirectoryInformation, FileExplorerPanel, FileExtension, MeshPicture, MeshSourceRead, Rect, SourcePictureRead, ThumbnailGesture, ThumbnailOrbitSubject
+- `Panels/FileExplorer` — 7 files, 4,517 lines: DirectoryInformation, FileExplorerPanel, FileExtension, MeshPicture, MeshSourceRead, Rect, SourcePictureRead, ThumbnailGesture, ThumbnailOrbitSubject
 - `Panels/Foliage` — 3 files, 901 lines: FoliageFootprint, FoliageTypeCost, PalettePresetEntry
 - `Panels/History` — 2 files, 103 lines: HistoryPanel
 - `Panels/Landscape` — 2 files, 790 lines: LandscapePanel
@@ -182,7 +182,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Panels/TextureViewer` — 2 files, 300 lines: TextureViewerDocument
 - `Panels/UI` — 5 files, 1,108 lines: UIEditorPanel, UIElementEntry
 - `Panels/Validation` — 2 files, 156 lines: Issue, SceneValidationPanel
-- `Panels/ViewportPanel` — 14 files, 5,848 lines: CameraPilot, LightGizmoRenderer, PerfHudOverlay, ViewportCameraAim, ViewportCameraPresetRow, ViewportData, ViewportPanel
+- `Panels/ViewportPanel` — 14 files, 5,852 lines: CameraPilot, LightGizmoRenderer, PerfHudOverlay, ViewportCameraAim, ViewportCameraPresetRow, ViewportCommandKey, ViewportData, ViewportPanel
 - `Panels/ViewportPanel/Tools` — 26 files, 7,290 lines: ActiveToolLabel, CameraFrustumGizmo, CreateShapeTool, CubeGridTool, ElementSelectTool, FoliageBrushDab, FoliageBrushStats, FoliageBrushWorld, FoliageFillTriangle, FoliagePaintTool, FoliagePick, FoliageReapplyResult, … (+14)
 - `Panels/WorldPartition` — 4 files, 938 lines: LegendRow, View, WorldPartitionPanel
 - `Panels/WorldSettings` — 2 files, 150 lines: WorldSettingsPanel
@@ -197,7 +197,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Widgets/UIHelper` — 4 files, 174 lines: UICacheTextureImGui, UIHelper
 
 ## Runtime — `Runtime/Source`
-- `.` — 7 files, 1,946 lines: ContentMountResult, CrashTestRequest, RuntimeLayer, RuntimeShot
+- `.` — 7 files, 1,936 lines: ContentMountResult, CrashTestRequest, RuntimeLayer, RuntimeShot
 
 ## Shaders — `Editor/Resources/Shaders`
 - `Common` — 40 files, 6,525 lines
@@ -248,8 +248,8 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `DShaderTool` — 1 files, 47 lines
 - `DShaderTool/Source` — 1 files, 118 lines
 - `DesertCtl` — 1 files, 63 lines
-- `DesertCtl/Source` — 1 files, 490 lines
-- `DesertCtl/mcp` — 1 files, 340 lines
+- `DesertCtl/Source` — 1 files, 513 lines
+- `DesertCtl/mcp` — 1 files, 367 lines
 - `DesertHeaderTool` — 2 files, 982 lines
 - `DomeSheet` — 1 files, 36 lines
 - `DomeSheet/Source` — 2 files, 698 lines: DomeSample, Image, SheetGeometry
