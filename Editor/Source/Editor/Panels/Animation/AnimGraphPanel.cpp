@@ -193,7 +193,7 @@ namespace Desert::Editor
         AnimGraphOwner                 owner;
         if ( anim == nullptr || !asset )
             return owner; // resolves to nothing: a transaction refuses it
-        owner.Identity                = asset.get();
+        owner.Asset                   = anim->GraphAsset;
         owner.Name                    = asset->GetDisplayName();
         owner.Volatile                = false;
         Assets::AssetManager* manager = m_AssetManager;
@@ -314,13 +314,12 @@ namespace Desert::Editor
         // The SAME function the toolbar button calls. A second code path here would be a second behaviour
         // to keep in step, and the point of the entry is that what a client drives is what a person
         // presses.
-        //  is here for the reason  is: this machine refuses synthetic input, so a view
+        // `Frame All` is here for the reason `Save` is: this machine refuses synthetic input, so a view
         // control that exists only as a toolbar button is a view control no test and no script can reach.
         std::vector<DocumentAction> actions{
              { "Save", [this] { SaveGraph(); } },
-             { "Frame All", [this] { Graph::FrameAll( m_EditingMachine ? m_Context : m_PoseContext ); } },
-             { "Frame Selection",
-               [this] { Graph::FrameSelection( m_EditingMachine ? m_Context : m_PoseContext ); } },
+             { "Frame All", [this] { Graph::FrameAll( ShownCanvas() ); } },
+             { "Frame Selection", [this] { Graph::FrameSelection( ShownCanvas() ); } },
              // AND `+ State`, FOR THE SAME REASON `Save` IS HERE. It is the one authoring action of this
              // window that creates something, and a toolbar button is unreachable to every client and
              // every check on this machine -- which is exactly why "a new state lands on top of its
@@ -477,7 +476,7 @@ namespace Desert::Editor
             }
         }
         ImGui::SameLine();
-        Graph::DrawViewButtons( m_EditingMachine ? m_Context : m_PoseContext );
+        Graph::DrawViewButtons( ShownCanvas() );
         if ( const auto* cur = anim->GraphEvaluator ? anim->GraphEvaluator->CurrentState() : nullptr )
         {
             ImGui::SameLine();

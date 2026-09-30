@@ -222,17 +222,24 @@ namespace Desert::Editor
         /// Reports a refused edit on the status line. Returns whether the edit went through.
         bool Report( const Common::BoolResultStr& result );
         /// The pose graph the canvas shows: the host's nodes and Output Pose, or a layer graph's. A layer
-        /// that no longer exists (renamed, undone) falls back to the host.
+        /// that no longer exists (renamed, undone) falls back to the host. REFERENCES, not pointers: there is
+        /// always a graph to show (the fallback), and the view lives no longer than the call that resolved it.
         struct PoseGraphTarget
         {
-            std::vector<Animation::Graph::PoseNode>* Nodes  = nullptr;
-            std::string*                             Output = nullptr;
-            Animation::Graph::GraphScope             Scope  = Animation::Graph::GraphScope::Host;
+            std::vector<Animation::Graph::PoseNode>& Nodes;
+            std::string&                             Output;
+            Animation::Graph::GraphScope             Scope = Animation::Graph::GraphScope::Host;
         };
         [[nodiscard]] PoseGraphTarget ResolvePoseTarget( Animation::Graph::AnimGraph& graph );
         /// The machine the state canvas edits (m_MachineNode in the shown pose graph, else the host's Output
         /// Pose machine), or nullptr.
         [[nodiscard]] Animation::Graph::StateMachine* ResolveMachine( Animation::Graph::AnimGraph& graph );
+        /// The canvas on screen: the state machine's or the pose graph's. The view controls (Frame All, Frame
+        /// Selection, the toolbar buttons) act on THIS one, never on a hidden canvas.
+        [[nodiscard]] ax::NodeEditor::EditorContext* ShownCanvas() const
+        {
+            return m_EditingMachine ? m_Context : m_PoseContext;
+        }
         /// Show the host's AnimGraph (empty) or a layer graph; the canvas ids and selection start over.
         void ShowPoseGraph( std::optional<std::pair<std::string, std::string>> layer );
         /// Open the state machine node `node` of the shown pose graph on the state canvas.

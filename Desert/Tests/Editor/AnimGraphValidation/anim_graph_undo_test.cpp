@@ -42,7 +42,7 @@ namespace
         AnimGraphOwner Owner()
         {
             AnimGraphOwner owner;
-            owner.Identity     = &graph;
+            owner.Asset        = ::Common::AssetHandle( 1 );
             owner.Name         = "Test";
             owner.Volatile     = false;
             owner.Resolve      = [this] { return &graph; };

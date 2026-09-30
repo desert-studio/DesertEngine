@@ -43,6 +43,12 @@ namespace Desert::Editor::Graph
                                                               Animation::Graph::GraphScope scope, float x, float y,
                                                               const std::string& clip );
 
+    /// The question ConnectPose asks before it writes, asked without writing (UE's schema
+    /// CanCreateConnection): the same refusals, word for word, and nothing changed. The canvas's
+    /// wire offers are this answer, not a trial edit on a copy of the graph.
+    [[nodiscard]] Common::BoolResultStr CanConnectPose( const std::vector<Animation::Graph::PoseNode>& nodes,
+                                                        std::string_view from, std::string_view to, int pin );
+
     /// Wires node @p from into Pose pin @p pin of node @p to. Refuses a missing node, a pin the node does
     /// not have, a node wired into itself and a wire that would close a loop — the loop spelled as
     /// PlanPoseGraph spells one, "A -> B -> A". Replaces what the pin was wired to (a pin takes one wire).

@@ -154,15 +154,15 @@ namespace Desert::Editor::Graph
         return Common::MakeSuccess( std::string( nodes.back().Name ) );
     }
 
-    Common::BoolResultStr ConnectPose( std::vector<G::PoseNode>& nodes, std::string_view from, std::string_view to,
-                                       int pin )
+    Common::BoolResultStr CanConnectPose( const std::vector<G::PoseNode>& nodes, std::string_view from,
+                                          std::string_view to, int pin )
     {
         const int source = IndexOf( nodes, from );
         const int target = IndexOf( nodes, to );
         if ( source < 0 || target < 0 )
             return Common::MakeError<bool>(
                  std::format( "no pose node called '{}' to wire", source < 0 ? from : to ) );
-        G::PoseNode& into = nodes[static_cast<size_t>( target )];
+        const G::PoseNode& into = nodes[static_cast<size_t>( target )];
         if ( pin < 0 || pin >= G::PoseInputCountOf( into ) )
             return Common::MakeError<bool>( std::format( "node '{}' ({}) has {} Pose pin(s), no pin {}", into.Name,
                                                          G::KindName( static_cast<G::PoseNodeKind>( into.Kind ) ),
@@ -183,7 +183,15 @@ namespace Desert::Editor::Graph
                  "no first node",
                  from, to, loop ) );
         }
+        return Common::MakeSuccess( true );
+    }
 
+    Common::BoolResultStr ConnectPose( std::vector<G::PoseNode>& nodes, std::string_view from, std::string_view to,
+                                       int pin )
+    {
+        if ( auto verdict = CanConnectPose( nodes, from, to, pin ); !verdict.IsSuccess() )
+            return verdict;
+        G::PoseNode& into = nodes[static_cast<size_t>( IndexOf( nodes, to ) )];
         if ( static_cast<int>( into.PoseInputs.size() ) != G::PoseInputCountOf( into ) )
             into.PoseInputs.resize( static_cast<size_t>( G::PoseInputCountOf( into ) ) );
         into.PoseInputs[static_cast<size_t>( pin )] = std::string( from );

@@ -27,6 +27,7 @@
 
 #include <Editor/Core/CommandHistory.hpp>
 
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <Engine/Animation/Graph/AnimGraph.hpp>
@@ -47,8 +48,11 @@ namespace Desert::Editor
      */
     struct AnimGraphOwner
     {
-        /// What `CommandHistory::DropFor` matches. Compared, never read.
-        const void* Identity = nullptr;
+        /// WHOSE graph, as a value that is never recycled: the graph asset's handle (UE names the transacted
+        /// object by path, not by address). An address was reused after an eviction, and a baseline taken
+        /// on the dead asset would then have been pushed as an edit of the new one. The entry is not
+        /// dropped when a window closes (`EditedObject` stays null): it resolves by handle at every use.
+        Common::AssetHandle Asset;
         /// The live graph, or null when the owner is gone (the entry then refuses to apply).
         std::function<Animation::Graph::AnimGraph*()> Resolve;
         /// Runs after Undo/Redo wrote the graph: the asset's revision bump.
@@ -72,10 +76,6 @@ namespace Desert::Editor
         [[nodiscard]] bool IsVolatile() const override
         {
             return m_Owner.Volatile;
-        }
-        [[nodiscard]] const void* EditedObject() const override
-        {
-            return m_Owner.Identity;
         }
         [[nodiscard]] std::string GetLabel() const override;
 
@@ -144,7 +144,7 @@ namespace Desert::Editor
         uint64_t                                   m_HistoryAtOpen = 0;
         // The settled state the next gesture opens on.
         std::optional<Animation::Graph::AnimGraph> m_Baseline;
-        const void*                                m_BaselineOwner    = nullptr;
+        Common::AssetHandle                        m_BaselineOwner;
         uint32_t                                   m_BaselineRevision = 0;
         uint64_t                                   m_HistorySeen      = 0;
     };
