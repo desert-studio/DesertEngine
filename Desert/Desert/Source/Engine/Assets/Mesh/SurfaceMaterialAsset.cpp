@@ -5,7 +5,6 @@
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Common/Content/CanonicalText.hpp>
 
-#include <Engine/Assets/Mesh/PBRSurfaceParams.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Engine/Assets/Serialization/Material.hpp>
@@ -87,7 +86,7 @@ namespace Desert::Assets
                                  Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
     }
 
-    void SurfaceMaterialAsset::ResolveShader( const AssetManager* manager )
+    void SurfaceMaterialAsset::ResolveShader( AssetManager* manager )
     {
         m_ShaderName.clear();
         m_ShaderHandle       = Common::AssetHandle::Null();
@@ -106,8 +105,24 @@ namespace Desert::Assets
         m_ShaderHandle =
              Common::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( m_Data.ShaderGuid() ) ) );
         m_ShaderName = name.GetValue();
-        if ( const auto shader = manager->FindByHandle<ShaderAsset>( m_ShaderHandle ) )
-            m_ShaderIsPBRSurface = shader->GetRole() == Common::Content::kPBRSurfaceRole;
+        // THE ROLE IS READ FROM A PARSED MANIFEST, NEVER FROM A SHELL. A shader registered unloaded (the boot
+        // scan, an on-demand shell) or evicted (ShaderAsset::Unload clears the Role) answers an EMPTY role, and
+        // the PBR surface template was then taken for a custom DSL shader: a skinned mesh's thumbnail asked
+        // for a (Skinned x Forward) cell of 'StaticMeshPBR', was told none exists, and drew the sky (THM1n-10).
+        // The shader is named in this file's header Dependencies, so it is loaded as the dependency it is.
+        const auto shader = manager->FindByHandle<ShaderAsset>( m_ShaderHandle );
+        if ( !shader )
+            return;
+        if ( const auto loaded = shader->EnsureLoaded( *manager ); !loaded )
+        {
+            LOG_ERROR( "{}: its shader '{}' could not be read ({}), so its role is unknown; the material draws "
+                       "nothing until the shader loads",
+                       context, m_ShaderName, loaded.GetError() );
+            m_ShaderName.clear();
+            m_ShaderHandle = Common::AssetHandle::Null();
+            return;
+        }
+        m_ShaderIsPBRSurface = shader->GetRole() == Common::Content::kPBRSurfaceRole;
     }
 
     Common::BoolResultStr SurfaceMaterialAsset::StateShader( MaterialData& data, const AssetManager& manager,

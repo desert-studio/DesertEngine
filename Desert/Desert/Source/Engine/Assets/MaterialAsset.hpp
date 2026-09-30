@@ -20,7 +20,7 @@ namespace Desert::Assets
         virtual Common::UUID GetMaterialUUID() const = 0;
 
         // The surface template (shader asset) this material draws with, BY HANDLE — its identity.
-        // MaterialFactory routes on it: the engine PBR templates get their C++ material, everything else a
+        // MaterialService routes on it: the engine PBR templates get their C++ material, everything else a
         // generic DataDrivenMaterial. Null = no template resolved (the material draws nothing).
         [[nodiscard]] virtual Common::AssetHandle GetShaderHandle() const = 0;
 

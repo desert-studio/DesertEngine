@@ -190,7 +190,10 @@ namespace Desert::Player
                   Assets::ContentRegistry::Get().Count(), registry.GetValue() );
 
         // The whole content boot (AL1-9): every other kind is created from its registry row when named.
-        m_Boot.Run( "Compiling engine shaders", [this] { Assets::CompileEngineShaders( m_AssetManager ); } );
+        if ( const auto shaders = m_Boot.Run( "Compiling engine shaders",
+                                              [this] { return Assets::CompileEngineShaders( m_AssetManager ); } );
+             !shaders )
+            return shaders;
         m_Boot.Run( "Indexing animation clips",
                     [this] { Assets::IndexAnimationClips( *m_AssetManager, *m_AnimationLibrary ); } );
         // Order-free. A packaged game reads its `.destrings` out of Content.dpak through the same VFS as

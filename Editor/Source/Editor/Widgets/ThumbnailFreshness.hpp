@@ -124,6 +124,28 @@ namespace Desert::Editor::ThumbnailFreshness
             return table;
         }
 
+        /// Memoised under @p key (several values read from ONE file: one per mesh an import record states an
+        /// orbit for), invalidated by @p file's (size, modtime).
+        template <typename ReadFn>
+        std::optional<uint64_t> MemoisedAs( const std::filesystem::path& file, const std::string& key,
+                                            ReadFn&& read )
+        {
+            std::error_code sizeEc;
+            std::error_code stampEc;
+            const uintmax_t size  = std::filesystem::file_size( file, sizeEc );
+            const auto      stamp = std::filesystem::last_write_time( file, stampEc );
+            if ( sizeEc || stampEc )
+                return std::nullopt;
+
+            MemoTable&            table = Memos();
+            const std::lock_guard lock( table.Mutex );
+            Memo&                 entry = table.Entries[key];
+            if ( entry.Value && entry.Size == size && entry.Stamp == stamp )
+                return entry.Value;
+            entry = { size, stamp, read( file ) };
+            return entry.Value;
+        }
+
         template <typename ReadFn>
         std::optional<uint64_t> Memoised( const std::filesystem::path& file, ReadFn&& read )
         {
@@ -198,6 +220,21 @@ namespace Desert::Editor::ThumbnailFreshness
         return Detail::Memoised( source, Detail::HashFile );
     }
 
+    /**
+     * @brief THE PICTURE DEPENDS ON THE ASSET AND ON HOW IT IS PHOTOGRAPHED (UE: the asset's ThumbnailInfo). An
+     * asset whose ThumbnailInfo lives in ANOTHER file than its bytes (an imported mesh: the import record) is
+     * judged against both, so an edit of the record re-shoots the picture. @p info empty = the default info,
+     * which leaves the source's hash as it is: every picture taken before a record stated an orbit stays fresh.
+     */
+    [[nodiscard]] inline std::optional<uint64_t> WithInfo( std::optional<uint64_t> source,
+                                                           std::optional<uint64_t> info )
+    {
+        if ( !source || !info )
+            return source;
+        std::array<uint64_t, 2> both{ *source, *info };
+        return Common::Utils::PakContentHash( both.data(), sizeof( both ) );
+    }
+
     /// THE FILE A MESH PICTURE IS JUDGED AGAINST, for the mesh asset path @p cooked (the picture's identity):
     /// @p cooked itself when it is on disk (a hand-authored `.stmesh`), else the raw source beside it. An
     /// import since AF4h never writes @p cooked (its envelope is in the DDC, keyed by the source's bytes), so
@@ -236,17 +273,27 @@ namespace Desert::Editor::ThumbnailFreshness
     }
 
     /// Ask the filesystem the three questions Judge needs. Separate from Judge so the DECISION stays pure.
-    [[nodiscard]] inline Observation Observe( const std::filesystem::path& png,
-                                              const std::filesystem::path& source )
+    /// Observe against a hash the caller computed: a picture that also depends on info kept in another file
+    /// (WithInfo; an imported mesh's orbit, MeshThumbnailFreshness).
+    [[nodiscard]] inline Observation Observe( const std::filesystem::path& png, std::optional<uint64_t> current )
     {
         Observation     seen;
         std::error_code existsEc;
         seen.PngExists = std::filesystem::exists( png, existsEc ) && !existsEc;
         if ( !seen.PngExists )
             return seen;
-        seen.Current  = ContentHash( source );
+        seen.Current  = current;
         seen.Recorded = Detail::Memoised( RecordPath( png ), Detail::ParseRecord );
         return seen;
+    }
+
+    [[nodiscard]] inline Observation Observe( const std::filesystem::path& png,
+                                              const std::filesystem::path& source )
+    {
+        std::error_code existsEc;
+        if ( !std::filesystem::exists( png, existsEc ) || existsEc )
+            return Observation{};
+        return Observe( png, ContentHash( source ) );
     }
 
     /// The PNG's modification time, absent when there is no file. What "the capture wrote it" is measured by.
@@ -260,17 +307,13 @@ namespace Desert::Editor::ThumbnailFreshness
     }
 
     /**
-     * @brief One renderer capture, from dispatch until the renderer is idle again — INCLUDING after the
-     * service stopped waiting for it.
+     * @brief One renderer capture, from dispatch until the renderer is idle again. It ends ONLY by the
+     * renderer's answer — a written picture or a refusal — never by a clock (THM1n-3: the service's
+     * give-up watchdog was a time budget and is gone).
      *
-     * GIVING UP DOES NOT FORGET THE DISPATCH (TH1c). The service stops waiting after a fixed number of
-     * frames so the queue is not held hostage, but the renderer's single slot finishes the job anyway and
-     * writes the PNG seconds later. That late PNG used to land with no record beside it: a picture the
-     * next session could not tell from a stale one, so it was re-rendered on every launch (the two
-     * M_SIL_*_Clouds materials in the TH1b measurement). The late PNG is ACCEPTED, not refused: it was
-     * rendered from the asset as it stood at dispatch, and the hash taken THEN is what gets recorded, so
-     * an edit made in the meantime still reads as stale (Record). Refusing it would discard a finished,
-     * correct render only to pay for it again next session.
+     * THE HASH IS TAKEN AT DISPATCH. The picture is rendered from the asset as it stood when the capture
+     * began, so that hash is what gets recorded, and an edit made while the capture ran still reads as
+     * stale (Record).
      *
      * THE PICTURE MUST HAVE MOVED, not merely exist: a stale thumbnail is re-captured in place, so the old
      * file sits at the target path before the renderer starts, and an existence check would certify a
@@ -290,39 +333,32 @@ namespace Desert::Editor::ThumbnailFreshness
             std::string                Identity;
             std::filesystem::path      Png;
             Landed                     What = Landed::NotWritten;
-            bool                       Late = false; ///< the service had already given up on it
             std::optional<std::string> RecordError;  ///< Written, but the record could not be saved
         };
 
         /// The renderer accepted a capture of `source` into `png`. Hash and stamp are taken NOW.
         void Begin( std::string identity, std::filesystem::path png, const std::filesystem::path& source )
         {
-            m_Identity   = std::move( identity );
-            m_PngBefore  = Stamp( png );
-            m_SourceHash = ContentHash( source );
-            m_Png        = std::move( png );
-            m_GaveUp     = false;
+            Begin( std::move( identity ), std::move( png ), ContentHash( source ) );
         }
 
-        /// A capture is dispatched and not yet settled, waited for or not.
+        /// The same, for a picture judged against a hash the caller computed (Observe's second form).
+        void Begin( std::string identity, std::filesystem::path png, std::optional<uint64_t> sourceHash )
+        {
+            m_Identity   = std::move( identity );
+            m_PngBefore  = Stamp( png );
+            m_SourceHash = sourceHash;
+            m_Png        = std::move( png );
+        }
+
+        /// A capture is dispatched and the renderer has not answered yet.
         [[nodiscard]] bool Outstanding() const
         {
             return !m_Identity.empty();
         }
-        /// Outstanding, and the service is still waiting for it.
-        [[nodiscard]] bool Waiting() const
-        {
-            return Outstanding() && !m_GaveUp;
-        }
         [[nodiscard]] const std::string& Identity() const
         {
             return m_Identity;
-        }
-
-        /// Stop waiting. The dispatch is KEPT, so the PNG the renderer still writes gets its record.
-        void GiveUp()
-        {
-            m_GaveUp = true;
         }
 
         /// Call once the renderer is idle. Empty when nothing was outstanding.
@@ -330,7 +366,7 @@ namespace Desert::Editor::ThumbnailFreshness
         {
             if ( !Outstanding() )
                 return std::nullopt;
-            Settled settled{ m_Identity, m_Png, Landed::NotWritten, m_GaveUp, std::nullopt };
+            Settled settled{ m_Identity, m_Png, Landed::NotWritten, std::nullopt };
             const std::optional<std::filesystem::file_time_type> after = Stamp( m_Png );
             if ( after && after != m_PngBefore )
             {
@@ -350,7 +386,6 @@ namespace Desert::Editor::ThumbnailFreshness
             m_Png.clear();
             m_PngBefore.reset();
             m_SourceHash.reset();
-            m_GaveUp = false;
         }
 
     private:
@@ -358,6 +393,5 @@ namespace Desert::Editor::ThumbnailFreshness
         std::filesystem::path                          m_Png;
         std::optional<std::filesystem::file_time_type> m_PngBefore;
         std::optional<uint64_t>                        m_SourceHash;
-        bool                                           m_GaveUp = false;
     };
 } // namespace Desert::Editor::ThumbnailFreshness

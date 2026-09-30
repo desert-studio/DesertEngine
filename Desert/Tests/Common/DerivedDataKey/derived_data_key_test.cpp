@@ -15,11 +15,15 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <chrono>
+#include <format>
 #include <fstream>
 #include <regex>
 #include <set>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -164,6 +168,94 @@ TEST( DerivedDataKey, PutThenGetAndAPackagedGameLooksUnderCooked )
 
     EXPECT_EQ( Common::DDC::PlatformCookedDir(),
                ( project / "Saved" / "Cooked" / Common::DDC::CookPlatformName() ).lexically_normal() );
+    Common::Constants::Path::ResetToSandbox();
+    fs::remove_all( project, ec );
+}
+
+// Two writers of ONE key (Blockout_1/2 share a content-addressed key, 09-30). With one `<entry>.tmp` for
+// both, the second rename found the first one's working file already moved and failed "could not rename".
+// Each Put now has its own working file: both succeed, the entry is whole, no working file is left.
+TEST( DerivedDataKey, ParallelPutsOfOneKeyBothSucceedAndLeaveOneWholeEntry )
+{
+    const fs::path  project = fs::temp_directory_path() / "desert_ddc_parallel_put";
+    std::error_code ec;
+    fs::remove_all( project, ec );
+    Common::Constants::Path::SetProjectRoot( project, "Assets" );
+
+    const std::string payload( 4 << 20, 'x' ); // large enough that the two writes overlap in time
+    for ( int round = 0; round < 8; ++round )
+    {
+        std::atomic<int>      ready{ 0 };
+        Common::BoolResultStr first  = Common::MakeError<bool>( "not run" );
+        Common::BoolResultStr second = Common::MakeError<bool>( "not run" );
+        const auto            put    = [&]( Common::BoolResultStr& out )
+        {
+            ready.fetch_add( 1 );
+            while ( ready.load() < 2 )
+                std::this_thread::yield();
+            out = Common::DDC::Put( kTestDeriver, 77, payload );
+        };
+        std::thread a( put, std::ref( first ) );
+        std::thread b( put, std::ref( second ) );
+        a.join();
+        b.join();
+        EXPECT_TRUE( first.IsSuccess() ) << ( first.IsSuccess() ? "" : first.GetError() );
+        EXPECT_TRUE( second.IsSuccess() ) << ( second.IsSuccess() ? "" : second.GetError() );
+    }
+    EXPECT_EQ( Common::DDC::Get( kTestDeriver, 77 ).value_or( "" ), payload ) << "the entry is not whole";
+    for ( const auto& e : fs::directory_iterator( Common::DDC::PathFor( kTestDeriver, 77 ).parent_path(), ec ) )
+        EXPECT_NE( e.path().extension(), ".tmp" ) << "a working file survived: " << e.path();
+
+    Common::Constants::Path::ResetToSandbox();
+    fs::remove_all( project, ec );
+}
+
+// The build of one key is single-flight: callers that miss together wait for the first one's build
+// instead of building (and writing) the same entry beside it; all of them get the bytes.
+TEST( DerivedDataKey, ConcurrentMissesOfOneKeyBuildOnce )
+{
+    const fs::path  project = fs::temp_directory_path() / "desert_ddc_single_flight";
+    std::error_code ec;
+    fs::remove_all( project, ec );
+    Common::Constants::Path::SetProjectRoot( project, "Assets" );
+
+    std::atomic<int>         builds{ 0 };
+    std::atomic<int>         ready{ 0 };
+    constexpr int            kCallers = 6;
+    std::vector<std::string> got( kCallers );
+    std::vector<std::thread> callers;
+    callers.reserve( kCallers );
+    for ( int i = 0; i < kCallers; ++i )
+        callers.emplace_back(
+             [&, i]
+             {
+                 ready.fetch_add( 1 );
+                 while ( ready.load() < kCallers )
+                     std::this_thread::yield();
+                 auto r =
+                      Common::DDC::GetOrBuild( kTestDeriver, 91,
+                                               [&]
+                                               {
+                                                   builds.fetch_add( 1 );
+                                                   std::this_thread::sleep_for( std::chrono::milliseconds( 50 ) );
+                                                   return Common::MakeSuccess( std::string( "built once" ) );
+                                               } );
+                 got[i] = r.IsSuccess() ? r.GetValue() : std::format( "error: {}", r.GetError() );
+             } );
+    for ( auto& t : callers )
+        t.join();
+
+    EXPECT_EQ( builds.load(), 1 ) << "the same key was built by several callers";
+    for ( const auto& g : got )
+        EXPECT_EQ( g, "built once" );
+    EXPECT_EQ( Common::DDC::Get( kTestDeriver, 91 ).value_or( "" ), "built once" );
+
+    // A failed build reaches the caller and is not cached: the next call builds again.
+    auto failed =
+         Common::DDC::GetOrBuild( kTestDeriver, 92, [] { return Common::MakeError<std::string>( "no" ); } );
+    EXPECT_FALSE( failed.IsSuccess() );
+    EXPECT_FALSE( Common::DDC::Get( kTestDeriver, 92 ).has_value() );
+
     Common::Constants::Path::ResetToSandbox();
     fs::remove_all( project, ec );
 }

@@ -7,6 +7,8 @@
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 
+#include <algorithm>
+
 namespace Desert::Runtime
 {
     MeshService::MeshService( std::unique_ptr<IMeshUploader> uploader ) : m_Uploader( std::move( uploader ) )
@@ -189,9 +191,36 @@ namespace Desert::Runtime
              [] {} );
     }
 
+    bool MeshService::RearmOnRigWritten( const Assets::AssetHandle& handle, Entry& entry )
+    {
+        if ( !entry.AwaitedRig )
+            return false;
+        RigAwaited& awaited = *entry.AwaitedRig;
+        if ( Assets::ContentRegistry::WriteSerial() <= awaited.Since )
+            return false;
+
+        const auto rigs =
+             Assets::ContentRegistry::WrittenSince( Common::Content::ContentKind::Skeleton, awaited.Since );
+        const auto meshes =
+             Assets::ContentRegistry::WrittenSince( Common::Content::ContentKind::SkinnedMesh, awaited.Since );
+        const bool rigWritten = std::ranges::any_of( rigs.Rows, [&]( const auto& row )
+                                                     { return row.RigSignature == awaited.Signature; } );
+        const bool meshWritten =
+             std::ranges::any_of( meshes.Rows, [&]( const auto& row ) { return row.Handle == handle; } );
+        awaited.Since = std::min( rigs.Serial, meshes.Serial );
+        if ( !rigWritten && !meshWritten )
+            return false;
+
+        entry.AwaitedRig.reset();
+        entry.Failed = false;
+        return true;
+    }
+
     bool MeshService::Arrived( const Assets::AssetHandle& handle, Entry& entry ) const
     {
-        if ( entry.Failed || !entry.Asset )
+        if ( entry.Failed && !RearmOnRigWritten( handle, entry ) )
+            return false;
+        if ( !entry.Asset )
             return false;
 
         bool ready = true;
@@ -208,6 +237,9 @@ namespace Desert::Runtime
         // mesh, before either file is read, and no other skeleton is touched.
         if ( !entry.Rig )
         {
+            // Taken BEFORE the lookup, so a Skeleton row written between the lookup and the failure is
+            // still seen by RearmOnRigWritten.
+            const uint64_t seen      = Assets::ContentRegistry::WriteSerial();
             const auto     row       = Assets::ContentRegistry::RowOf( Common::Content::ContentKind::SkinnedMesh,
                                                                        static_cast<uint64_t>( handle ) );
             const uint64_t signature = row ? row->RigSignature : 0;
@@ -216,8 +248,9 @@ namespace Desert::Runtime
             {
                 Fail( handle,
                       fmt::format( "the skinned mesh '{}' names rig signature {} and no Skeleton row of the "
-                                   "content registry states it (re-cook the mesh or its skeleton)",
+                                   "content registry states it yet; it is drawn once that rig is written",
                                    entry.Asset->GetMetadata().Filepath.string(), signature ) );
+                entry.AwaitedRig = RigAwaited{ signature, seen };
                 return false;
             }
             auto created = Assets::CreateFromRegistryRow<Assets::SkeletonAsset>(

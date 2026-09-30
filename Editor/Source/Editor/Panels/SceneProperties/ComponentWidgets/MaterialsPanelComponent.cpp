@@ -239,6 +239,13 @@ namespace Desert::Editor
             ImGui::Checkbox( "##recvshadows", &materialComp.ReceiveShadows );
             Utils::ImGuiUtilities::EndPropertyRow();
 
+            Utils::ImGuiUtilities::BeginPropertyRow(
+                 "Translucency Sort Priority",
+                 "Translucent materials only: a lower value draws first (behind a higher one) regardless of "
+                 "distance; equal values sort back to front from the camera" );
+            ImGui::DragInt( "##translucencysort", &materialComp.TranslucencySortPriority, 0.1f );
+            Utils::ImGuiUtilities::EndPropertyRow();
+
             const size_t subCount = lodMesh ? lodMesh->GetSubmeshes().size() : 0;
             if ( subCount > 1 )
             {
@@ -476,7 +483,7 @@ namespace Desert::Editor
             }
 
             // THE SAME RULE THE SERVICE APPLIES, out of the same header, and that is the point: the
-            // RequestMaterial above asked Judge whether a capture is owed and queued it; Choose says what
+            // RequestLoadedMaterial above asked Judge whether a capture is owed and queued it; Choose says what
             // to draw meanwhile — any picture of this material on disk, outdated or not, before a flat
             // swatch. ThumbnailCache::Get re-decodes the PNG once the capture rewrites it, so this panel
             // keeps no table of stamps (the Material Editor window saves materials and cannot reach it).

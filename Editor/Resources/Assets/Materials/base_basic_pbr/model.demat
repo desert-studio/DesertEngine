@@ -5,7 +5,7 @@
         "Versions": {
             "MATL": 4
         },
-        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "235a4677ab990d51e1ab19be0ad75fc2", "4935766ceb333c400238ec9d78b344c2", "f4458fd2d2ef186689c5b11bda29765b"]
+        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "235a4677ab990d51e1ab19be0ad75fc2", "4935766ceb333c400238ec9d78b344c2"]
     },
     "Shader": {
         "Guid": "4f1cac6af403a010c792d835dd6f7d44",
@@ -41,18 +41,6 @@
             "Value": [0.0, 0.0, 0.0, 0.0]
         },
         {
-            "Name": "Transmission",
-            "Value": [0.0, 0.0, 0.0, 0.0]
-        },
-        {
-            "Name": "IOR",
-            "Value": [1.5, 0.0, 0.0, 0.0]
-        },
-        {
-            "Name": "GlassTint",
-            "Value": [1.0, 1.0, 1.0, 1.0]
-        },
-        {
             "Name": "UVTiling",
             "Value": [1.0, 1.0, 0.0, 0.0]
         }
@@ -70,21 +58,6 @@
         },
         {
             "Name": "u_OpacityTexture",
-            "Guid": "",
-            "Path": ""
-        },
-        {
-            "Name": "u_MetallicTexture",
-            "Guid": "f4458fd2d2ef186689c5b11bda29765b",
-            "Path": "assets:Meshes/texture_metallic.detex"
-        },
-        {
-            "Name": "u_RoughnessTexture",
-            "Guid": "",
-            "Path": ""
-        },
-        {
-            "Name": "u_AOTexture",
             "Guid": "",
             "Path": ""
         },

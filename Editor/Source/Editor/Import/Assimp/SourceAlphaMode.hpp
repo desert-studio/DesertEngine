@@ -22,7 +22,7 @@ namespace Desert::Editor
     struct SourceAlpha
     {
         SourceAlphaKind Kind        = SourceAlphaKind::Opaque;
-        float           AlphaCutoff = 0.0f; // 0 = no cut-out; what PBRSurfaceParams::AlphaCutoff receives
+        float           AlphaCutoff = 0.0f; // 0 = no cut-out; what the template's AlphaCutoff parameter receives
         std::string     AlphaMode;          // the glTF statement verbatim ("" when the file made none)
         std::string     Warning;            // non-empty: what the importer must LOG_WARN about this material
     };

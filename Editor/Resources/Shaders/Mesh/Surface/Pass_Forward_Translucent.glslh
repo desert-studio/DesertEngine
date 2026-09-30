@@ -1,0 +1,82 @@
+// Surface cell pass: forward TRANSLUCENT (UE's translucency base pass) — the Forward cell of a `BlendMode
+// Translucent` template. It is drawn by MeshRenderer::RenderGlassManual over the composited opaque scene and
+// nowhere else: the renderer sends an object here because its material's TEMPLATE is translucent
+// (ShaderProgramMeta::Blend), never because of a parameter value. The surface is clear glass: the scene behind
+// it (u_SceneColor, bent by the normal and s.Refraction) tinted by s.BaseColor, mixed by Schlick Fresnel into
+// the sky's reflection, plus the sun's specular hotspot under the cloud shadow. Written opaque: the refracted
+// scene already carries the background. It declares what it reads and nothing else (no cascades, no irradiance,
+// no BRDF LUT, no local lights); the slots keep the numbers the rest of the mesh family uses.
+DESERT_SURFACE_VARYINGS( in )
+
+layout( location = 0 ) out vec4 oColor;
+
+struct DirectionLight
+{
+    vec4 Direction;      // xyz = normalized direction
+    vec4 ColorIntensity; // rgb = color, a = intensity
+};
+
+layout( binding = 3 ) uniform DirectionLightsUB
+{
+    DirectionLight directionLights;
+}
+directionLights;
+
+// The specular cube is the ONE environment binding glass reads: a mirror term at grazing angles, not an ambient.
+layout( binding = 8 ) uniform samplerCube u_EnvSpecularTex;
+layout( binding = 22 ) uniform SkyLookUB
+{
+    vec4 YawCosSin; // xy = (cos yaw, sin yaw) — Graphic::SkyLookGPU
+    vec4 Gain;      // rgb = tint * intensity
+}
+skyLook;
+#include <Common/SkyLook.glslh>
+
+// A copy of the composited opaque scene, for refraction (bound by the translucency pass only).
+layout( binding = 19 ) uniform sampler2D u_SceneColor;
+
+// The cloud layer's shadow on the world: it takes the sun's highlight away with it.
+layout( binding = 20 ) uniform sampler2D u_CloudShadowMap;
+layout( binding = 21 ) uniform CloudShadowUB
+{
+    mat4 u_CloudShadowWorldToMap;
+    vec4 u_CloudShadowParams;
+};
+
+#include <Common/CloudShadowReceiver.glslh>
+
+void main()
+{
+    const SurfaceInput i =
+         DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
+                              v_Surface.VertexColor );
+    const SurfaceOutput s = EvaluateSurface( i );
+
+    const vec3  N   = DesertSurfaceWorldNormal( i, s );
+    const vec3  V   = normalize( v_Surface.CameraPosition - v_Surface.WorldPosition );
+    const float ior = max( s.Refraction, 1.0 );
+
+    // Schlick Fresnel with the IOR-derived normal reflectance (glass F0 ~0.04, water ~0.02).
+    const float f0      = pow( ( ior - 1.0 ) / ( ior + 1.0 ), 2.0 );
+    const float fresnel = f0 + ( 1.0 - f0 ) * pow( 1.0 - max( dot( N, V ), 0.0 ), 5.0 );
+
+    // Sun specular highlight (glass is smooth -> a tight hotspot).
+    const vec3  L    = normalize( -directionLights.directionLights.Direction.xyz );
+    const vec3  H    = normalize( V + L );
+    const float spec = pow( max( dot( N, H ), 0.0 ), 128.0 ) * directionLights.directionLights.ColorIntensity.a *
+                       CloudShadowFactor( v_Surface.WorldPosition );
+
+    // Screen-space refraction: the composited scene behind the surface, bent by the normal (more for a higher
+    // IOR) and tinted by the surface colour.
+    const vec2  screenUV  = gl_FragCoord.xy / vec2( textureSize( u_SceneColor, 0 ) );
+    const float bendScale = ( 1.0 - 1.0 / ior ) * 0.35;
+    const vec2  refractUV = clamp( screenUV + N.xy * bendScale, vec2( 0.001 ), vec2( 0.999 ) );
+    const vec3  refracted = texture( u_SceneColor, refractUV ).rgb * s.BaseColor;
+
+    // The sky's reflection at grazing edges; Fresnel mixes refraction (centre) into reflection (edge).
+    const vec3 R       = reflect( -V, N );
+    const vec3 envRefl = ApplySkyGain( texture( u_EnvSpecularTex, SkyLookDirection( R, skyLook.YawCosSin.xy ) ).rgb,
+                                       skyLook.Gain.rgb );
+
+    oColor = vec4( mix( refracted, envRefl, fresnel ) + vec3( spec ) + s.Emissive, 1.0 );
+}

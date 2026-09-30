@@ -57,6 +57,7 @@ namespace Desert::Graphic::System
         int      LODBias         = 0;  // shifts the auto LOD (ignored when forced)
         bool     CastShadows     = true;
         bool     ReceiveShadows  = true;
+        int      TranslucencySortPriority = 0; // lower draws first (translucency pass)
     };
 
     class MeshRenderer final : public RenderSystem
@@ -75,6 +76,7 @@ namespace Desert::Graphic::System
             int                    LODBias         = 0;  // shifts the auto LOD (ignored when forced)
             bool                   CastShadows     = true;
             bool                   ReceiveShadows  = true;
+            int                    TranslucencySortPriority = 0; // lower draws first (TranslucentSortOrder)
         };
 
         struct SkinnedMeshRenderData
@@ -174,8 +176,10 @@ namespace Desert::Graphic::System
         // (outside the graph — see the note in RegisterPasses). No-op unless the deferred pipeline exists.
         // Called by SceneRenderer when RenderPath == Deferred, before the deferred lighting pass.
         void RenderGBufferManual();
-        // Forward transparent (glass) pass: draws meshes with material Transmission > 0 over the composited
-        // scene. sceneColor = a snapshot of the opaque scene the glass samples for refraction (may be null).
+        // Translucency pass: draws the meshes whose material's template is BlendMode Translucent over the
+        // composited scene, each with its OWN template's cell/pipeline (TranslucentDrawFor), in the order of
+        // TranslucentSortOrder: priority, then back to front from the frame's camera, stable on ties.
+        // sceneColor = a snapshot of the opaque scene the translucent cells sample for refraction (may be null).
         void RenderGlassManual( const std::shared_ptr<Image2D>& sceneColor );
         // Deferred path: draws the generic (custom-shader) meshes FORWARD over the deferred
         // lighting composite in a LOAD render pass — they have no G-buffer variant, so without
@@ -274,6 +278,17 @@ namespace Desert::Graphic::System
         // (logged once per pipeline); the caller does not draw that object culled instead.
         [[nodiscard]] GraphicsPipeline* CullPermutation( GraphicsPipeline* pipeline, bool twoSided );
         std::unordered_map<const GraphicsPipeline*, std::shared_ptr<GraphicsPipeline>> m_TwoSidedPipelines;
+
+        // THE PIPELINE OF ONE DRAW: @p passState's fixed state (layout, target, depth, polygon mode, load) with
+        // the program of @p cell — the material whose descriptor sets the draw binds, i.e. its template's
+        // (path x pass) cell. Built on first use from the shared pipeline cache and kept per
+        // MeshCellPipelineKey; the default template's cell is served the pass's own pipeline back by the cache's
+        // dedupe, with no case for it here. Null (logged once per key) when the cell's shader is not registered
+        // or the pipeline is refused — the caller skips that draw rather than binding another template's program.
+        [[nodiscard]] GraphicsPipeline* CellPipeline( GraphicsPipeline*         passState,
+                                                      const DataDrivenMaterial& cell );
+        std::unordered_map<MeshCellPipelineKey, std::shared_ptr<GraphicsPipeline>, MeshCellPipelineKeyHash>
+             m_CellPipelines; // null = refused
 
         [[nodiscard]] GraphicsPipeline* WireframePipelineOr( GraphicsPipeline* fallback ) const
         {
@@ -389,7 +404,12 @@ namespace Desert::Graphic::System
     private:
         bool SetupGeometryPass();
         bool SetupGBufferPass(); // deferred: static-mesh G-buffer write pipeline
-        bool SetupGlassPass();   // forward transparent: static-mesh glass pipeline (blend, composites over scene)
+        // The translucency pass's draw state for ONE translucent cell shader (a translucent template's
+        // Static.Forward cell), built on first use and kept: UE draws each translucent material with its own
+        // shader/PSO, so every translucent template gets its own pipeline here. Null (logged once per shader) when
+        // it cannot.
+        struct TranslucentDraw;
+        TranslucentDraw* TranslucentDrawFor( const std::string& cellShader );
         bool SetupSkinnedGeometryPass();
         bool SetupSilhouettePass();
         bool SetupShadowPass();
@@ -415,6 +435,15 @@ namespace Desert::Graphic::System
                                                                   bool useLoadPass );
         void RegisterSilhouettePass( RenderGraphBuilder& builder );
         void RegisterShadowPass( RenderGraphBuilder& builder );
+        // A caster whose material is Masked draws through its OWN template's (path x ShadowDepth) cell
+        // (ShadowCasterCellFor), on a per-cascade copy of that material (MaterialService::GetViewVariant) —
+        // its mask texture and clip threshold with it. The cascade material of the draw, or null when the
+        // caster takes the shared program (opaque, or no batched-path material).
+        static DataDrivenMaterial* MaskedCasterMaterial( const DataDrivenMaterial* material, MeshVertexPath path,
+                                                         uint32_t cascade );
+        // The pipeline of one masked caster cell: the shared caster's state for @p path with the cell's shader,
+        // built on first use and kept per cell shader. Null (logged once per shader) when it cannot.
+        GraphicsPipeline* MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path );
 #if DESERT_DEV_INSTRUMENTS
         bool SetupDebugLinePass();
         bool SetupOverdrawPass(); // overdraw accumulation pipeline + FB + fullscreen heat resolve
@@ -445,19 +474,17 @@ namespace Desert::Graphic::System
         std::shared_ptr<Shader>           m_InstancedGBufferShader;
         std::shared_ptr<GraphicsPipeline> m_InstancedGBufferPipeline;
         bool                              m_DeferredGeometry = false; // set true only while drawing the G-buffer pass
-        std::shared_ptr<Shader>           m_StaticGlassShader;
-        std::shared_ptr<GraphicsPipeline> m_StaticGlassPipeline;
-        // `bool m_GlassPass` stood here, described as "set true only while drawing the transparent glass
-        // pass". No line in the engine ever set it, so its two readers were a transparency test that could
-        // only ever mean "skip glass" and a pipeline branch nothing could reach — and the unreachable
-        // branch was the one that would have bound a FORWARD material against the glass pipeline, which is
-        // the only reason StaticMeshGlass.shader was padded to the forward layout. Both are gone.
-        // DEDICATED glass material (never drawn by the opaque passes) so its per-frame UB ring is written ONCE
-        // per frame in the glass pass — sharing an opaque material across two passes/frame hangs the GPU.
-        // It is (Static x Glass) rather than its own class: what made it different from the opaque
-        // material was always the shader, and the shader is what the pair names.
-        std::shared_ptr<DataDrivenMaterial> m_GlassMaterial;
-        MaterialInstancePtr          m_GlassInstance;
+        // THE TRANSLUCENCY PASS, PER TRANSLUCENT CELL. One entry per translucent template's cell shader: its
+        // blended pipeline and a DEDICATED material (+ instance) owning that pass's per-frame UBs / Materials
+        // rows — never shared with an opaque material, whose per-frame ring would then be written twice a frame
+        // (the GPU hang). There is no engine-wide glass material: the object's template decides its shader.
+        struct TranslucentDraw
+        {
+            std::shared_ptr<GraphicsPipeline>   Pipeline;
+            std::shared_ptr<DataDrivenMaterial> Material;
+            MaterialInstancePtr                 Instance;
+        };
+        std::unordered_map<std::string, std::unique_ptr<TranslucentDraw>> m_Translucent;
 
         // Reflective Shadow Map (G-buffer from the sun) — the off-screen bounce source for the RSM GI mode.
         // Its camera UB carries the SUN's matrices, so like glass it needs its OWN material: sharing one with
@@ -485,7 +512,7 @@ namespace Desert::Graphic::System
         // mesh whose slot did not resolve.
         //
         // IT USED TO RECORD EVERY BATCH, AND THAT WAS THE DEFECT. A material built here has never been
-        // through MaterialFactory, so every 2D sampler it declares holds the shader schema's 1x1 white.
+        // through MaterialService, so every 2D sampler it declares holds the shader schema's 1x1 white.
         // Recording an asset-backed group with it deleted that surface's whole texture channel while
         // leaving its colours, tiling-independent, intact — see InstancedRecorder.hpp for the numbers and
         // for why rebinding this one material per batch cannot be the fix. A batch now finds its own
@@ -737,6 +764,31 @@ namespace Desert::Graphic::System
         std::vector<ObjDraw>        m_ScratchSingles;
         std::vector<ShadowBatch>    m_ScratchShadowBatches;
         std::vector<const StaticMeshRenderData*> m_ScratchShadowSingles;
+        // Masked casters of one cascade: per cascade copy, its rows / instance transforms / bone poses end to
+        // end (each uploaded once before the copy's draws are recorded), and the draws naming their slice.
+        struct MaskedCasterSet
+        {
+            DataDrivenMaterial*    Caster = nullptr;
+            std::vector<glm::vec4> Rows;
+            std::vector<glm::mat4> Transforms; // Instanced path: InstanceTransforms; Skinned path: Bones
+        };
+        struct MaskedCasterDraw
+        {
+            MaskedCasterSet*  Set       = nullptr;
+            MeshVertexPath    Path      = MeshVertexPath::Static;
+            Desert::Mesh*     Mesh      = nullptr;
+            glm::mat4         Transform = glm::mat4( 1.0f );
+            MaterialInstance* Instance  = nullptr;
+            uint32_t          Row       = 0;
+            uint32_t          Count     = 1; // instances (Instanced path)
+            uint32_t          First     = 0; // first instance transform / first bone
+            uint32_t          LodLevel  = 0;
+            InstanceWindPush  Wind;
+        };
+        std::vector<std::unique_ptr<MaskedCasterSet>> m_ScratchMaskedSets;
+        std::vector<MaskedCasterDraw>                 m_ScratchMaskedDraws;
+        std::unordered_map<std::string, std::shared_ptr<GraphicsPipeline>>
+                                                                  m_MaskedCasterPipelines; // null = refused
         std::vector<GenericDraw>                 m_ScratchGenericDraws;
         std::vector<std::pair<DataDrivenMaterial*, MaterialRows>> m_ScratchGenericRows;
     };

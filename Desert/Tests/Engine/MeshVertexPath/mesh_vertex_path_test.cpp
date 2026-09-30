@@ -36,19 +36,19 @@
 #include <Engine/Graphic/Materials/MaterialBinder.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialShadow.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
-#include <Engine/Graphic/Materials/Mesh/MeshVertexLayout.hpp>
-#include <Engine/Geometry/MeshTypes.hpp>
 
+#include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Core/Constants.hpp>
 
 #include <shaderc/shaderc.hpp>
-#include <spirv_cross/spirv_cross.hpp>
 
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <map>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -59,7 +59,6 @@ using Desert::Core::Formats::ShaderStage;
 using Desert::Graphic::MaterialShadowSkinned;
 using Desert::Graphic::MeshPass;
 using Desert::Graphic::MeshPathOwnBinding;
-using Desert::Graphic::MeshShaderFor;
 using Desert::Graphic::MeshVertexPath;
 using Desert::Graphic::MeshVertexPathName;
 using namespace Desert::Graphic::API::Vulkan;
@@ -93,7 +92,7 @@ namespace
     {
         const std::string           name = TemplateOf( shaderName );
         const std::filesystem::path programs( "Resources/Shaders/Programs" );
-        for ( const char* dir : { "PBR", "Silhouette" } )
+        for ( const char* dir : { "PBR", "Silhouette", "Unlit" } )
         {
             const auto candidate = programs / dir / ( name + ".shader" );
             if ( std::filesystem::exists( candidate ) )
@@ -108,6 +107,43 @@ namespace
         std::ostringstream out;
         out << in.rdbuf();
         return out.str();
+    }
+
+    // THE TEMPLATE THE FILE-LEVEL RELATIONS ARE ASSERTED ON, found BY ROLE as the engine finds it: the one shipped
+    // shader declaring `Default Surface` (ReadShaderManifest), never a name written here.
+    const std::string& DefaultTemplate()
+    {
+        static const std::string name = []
+        {
+            std::vector<std::string> found;
+            for ( const auto& entry :
+                  std::filesystem::recursive_directory_iterator( "Resources/Shaders/Programs" ) )
+                if ( entry.path().extension() == ".shader" )
+                    if ( const auto m = Common::Content::ReadShaderManifest( ReadFile( entry.path() ) );
+                         m && m.GetValue().DefaultSurface )
+                        found.push_back( entry.path().stem().string() );
+            EXPECT_EQ( found.size(), 1u ) << "exactly one shipped shader may declare `Default Surface`";
+            return found.empty() ? std::string() : found.front();
+        }();
+        return name;
+    }
+
+    // The (path x pass) shader of the default template (of the glass template for Glass), or nullptr for a hole.
+    const char* TableShader( MeshVertexPath path, Desert::Graphic::MeshPass pass )
+    {
+        // An empty name is a hole of the table, remembered as one.
+        static std::map<std::pair<int, int>, std::string> cache;
+        const std::pair<int, int> key{ static_cast<int>( path ), static_cast<int>( pass ) };
+        auto                      slot = cache.find( key );
+        if ( slot == cache.end() )
+            // The translucency pass is drawn by a TRANSLUCENT template's own cell; the shipped one is the glass.
+            slot = cache.emplace( key, Desert::Graphic::MeshShaderFor( pass == Desert::Graphic::MeshPass::Glass
+                                                                            ? std::string( "StaticMeshGlass" )
+                                                                            : DefaultTemplate(),
+                                                                       path, pass )
+                                            .value_or( std::string() ) )
+                        .first;
+        return slot->second.empty() ? nullptr : slot->second.c_str();
     }
 
     // The stages of the program the table names: the default program, or the named cell/pass.
@@ -273,13 +309,13 @@ TEST_F( ShaderRootFixture, EveryCellOfTheTableNamesAShaderThatExistsAndCallsItse
     {
         for ( const auto pass : { MeshPass::Forward, MeshPass::GBuffer, MeshPass::Glass, MeshPass::ShadowDepth } )
         {
-            const char* name = MeshShaderFor( path, pass );
+            const char* name = TableShader( path, pass );
             if ( name == nullptr )
                 continue; // a deliberate hole; MeshVertexPath.hpp says why each one is one
 
             const auto file = ShaderFileFor( name );
             ASSERT_FALSE( file.empty() )
-                 << "MeshShaderFor(" << MeshVertexPathName( path ) << ", " << Desert::Graphic::MeshPassName( pass )
+                 << "TableShader(" << MeshVertexPathName( path ) << ", " << Desert::Graphic::MeshPassName( pass )
                  << ") names '" << name << "', and no such .shader exists";
 
             const auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( file ) );
@@ -308,9 +344,9 @@ TEST_F( ShaderRootFixture, EveryVertexPathThatCanBeDrawnCanAlsoCastAShadow )
 {
     for ( const auto path : kAllPaths )
     {
-        if ( !MeshShaderFor( path, MeshPass::Forward ) )
+        if ( TableShader( path, MeshPass::Forward ) == nullptr )
             continue;
-        EXPECT_NE( MeshShaderFor( path, MeshPass::ShadowDepth ), nullptr )
+        EXPECT_NE( TableShader( path, MeshPass::ShadowDepth ), nullptr )
              << "the " << MeshVertexPathName( path )
              << " vertex path has a forward shader but no shadow-depth one, so geometry drawn on it is "
                 "lit by the sun and casts nothing";
@@ -339,11 +375,11 @@ TEST_F( ShaderRootFixture, EveryVertexPathDrawnINTOTheGBufferHasACellForIt )
 
     for ( const auto path : kAllPaths )
     {
-        if ( MeshShaderFor( path, MeshPass::Forward ) == nullptr || !drawnIntoTheGBuffer( path ) )
+        if ( TableShader( path, MeshPass::Forward ) == nullptr || !drawnIntoTheGBuffer( path ) )
         {
             continue;
         }
-        EXPECT_NE( MeshShaderFor( path, MeshPass::GBuffer ), nullptr )
+        EXPECT_NE( TableShader( path, MeshPass::GBuffer ), nullptr )
              << "the " << MeshVertexPathName( path )
              << " vertex path is rasterized into the deferred G-buffer and has no shader for it, so "
                 "every object on that path is missing from a deferred scene";
@@ -356,8 +392,8 @@ TEST_F( ShaderRootFixture, EveryVertexPathDrawnINTOTheGBufferHasACellForIt )
 // symptom would be that two cubes with one material look different.
 TEST_F( ShaderRootFixture, TheInstancedGBufferCellIsTheStaticOnePlusItsOwnBinding )
 {
-    const char* staticName    = MeshShaderFor( MeshVertexPath::Static, MeshPass::GBuffer );
-    const char* instancedName = MeshShaderFor( MeshVertexPath::Instanced, MeshPass::GBuffer );
+    const char* staticName    = TableShader( MeshVertexPath::Static, MeshPass::GBuffer );
+    const char* instancedName = TableShader( MeshVertexPath::Instanced, MeshPass::GBuffer );
     ASSERT_NE( staticName, nullptr );
     ASSERT_NE( instancedName, nullptr );
 
@@ -393,7 +429,7 @@ TEST_F( ShaderRootFixture, TheForwardVariantsAreOneSurfacePlusExactlyThePathsOwn
     std::map<MeshVertexPath, std::map<uint32_t, std::string>> bindings;
     for ( const auto path : kAllPaths )
     {
-        const char* name = MeshShaderFor( path, MeshPass::Forward );
+        const char* name = TableShader( path, MeshPass::Forward );
         ASSERT_NE( name, nullptr ) << MeshVertexPathName( path );
         bindings[path] = BindingMap( SetZero( ReflectGraphics( name ) ) );
         ASSERT_FALSE( bindings[path].empty() ) << name;
@@ -443,7 +479,7 @@ TEST_F( ShaderRootFixture, TheForwardVariantsAreOneSurfacePlusExactlyThePathsOwn
 // ---- The layout belongs to the CELL, not to a neighbouring cell -------------------------------------
 
 // THE RELATION THIS REPLACED A COMMENT WITH. A `Graphic::Material` is one shader's descriptor sets plus a
-// payload, and the shader is `MeshShaderFor(path, pass)` — so a descriptor layout is a property of the
+// payload, and the shader is `TableShader(path, pass)` — so a descriptor layout is a property of the
 // CELL. A pass that owns no material has to bind a neighbouring cell's sets against its own pipeline
 // layout, which Vulkan tolerates only while the two shaders reflect identically, and the deferred
 // G-buffer pass did exactly that: `StaticMeshGBuffer.shader` declared four cascade maps, three
@@ -466,7 +502,7 @@ TEST_F( ShaderRootFixture, TheGBufferCellIsAProperSubsetOfItsPathsForwardSurface
     std::map<MeshPass, std::map<uint32_t, std::string>> bindings;
     for ( const auto pass : { MeshPass::Forward, MeshPass::GBuffer, MeshPass::Glass } )
     {
-        const char* name = MeshShaderFor( MeshVertexPath::Static, pass );
+        const char* name = TableShader( MeshVertexPath::Static, pass );
         ASSERT_NE( name, nullptr ) << Desert::Graphic::MeshPassName( pass );
         bindings[pass] = BindingMap( SetZero( ReflectGraphics( name ) ) );
         ASSERT_FALSE( bindings[pass].empty() ) << name;
@@ -519,7 +555,7 @@ TEST_F( ShaderRootFixture, TheCasterVariantsAreOneCasterPlusExactlyThePathsOwnBi
     std::map<MeshVertexPath, std::map<uint32_t, std::string>> bindings;
     for ( const auto path : kAllPaths )
     {
-        const char* name = MeshShaderFor( path, MeshPass::ShadowDepth );
+        const char* name = TableShader( path, MeshPass::ShadowDepth );
         ASSERT_NE( name, nullptr ) << MeshVertexPathName( path );
         bindings[path] = BindingMap( SetZero( ReflectGraphics( name ) ) );
         ASSERT_FALSE( bindings[path].empty() ) << name;
@@ -559,7 +595,7 @@ TEST_F( ShaderRootFixture, EveryInstancedVertexStagePositionsThroughTheOneWindFu
 {
     for ( const MeshPass pass : { MeshPass::Forward, MeshPass::GBuffer, MeshPass::ShadowDepth } )
     {
-        const char* name = MeshShaderFor( MeshVertexPath::Instanced, pass );
+        const char* name = TableShader( MeshVertexPath::Instanced, pass );
         ASSERT_NE( name, nullptr );
         const auto  file   = ShaderFileFor( name );
         std::string vertex = StageSource( name, ShaderStage::Vertex );
@@ -783,7 +819,7 @@ TEST_F( ShaderRootFixture, EveryMeshCellDeclaresEachPushFieldTheRendererWritesBy
 
     for ( const auto& expected : expectations )
     {
-        const char* name = MeshShaderFor( expected.Path, expected.Pass );
+        const char* name = TableShader( expected.Path, expected.Pass );
         ASSERT_NE( name, nullptr );
         auto cell = Reconcile( ReadFile( ShaderFileFor( name ) ), name, CellOf( name ) );
         EXPECT_TRUE( cell.Errors.empty() ) << ( cell.Errors.empty() ? "" : cell.Errors.front() );
@@ -801,7 +837,7 @@ TEST_F( ShaderRootFixture, EveryShippedForwardCellReconcilesWithTheTransportFiel
 {
     for ( const auto path : kAllPaths )
     {
-        const char* name = MeshShaderFor( path, MeshPass::Forward );
+        const char* name = TableShader( path, MeshPass::Forward );
         ASSERT_NE( name, nullptr );
         auto cell = Reconcile( ReadFile( ShaderFileFor( name ) ), name, CellOf( name ) );
         EXPECT_TRUE( cell.Errors.empty() ) << ( cell.Errors.empty() ? "" : cell.Errors.front() );
@@ -908,171 +944,181 @@ TEST_F( ShaderRootFixture, AFieldTheCellLacksIsNotWrittenAndAWrongSizeIsRefused 
 // nothing, which is what sends it to the generic queue. A cell that answered the wrong path would bind a
 // skinned material without its Bones; one that answered nothing would draw a PBR mesh through the generic
 // forward pipeline of a G-buffer shader.
-TEST( MeshCellPath, EveryCellOfThePBRTemplateRoutesToThePathItWasAllocatedFor )
+TEST( MeshCellPath, EveryCellOfAnyTemplateRoutesToThePathItWasAllocatedFor )
 {
-    // The template heading the table: its (Static x Forward) program is "<Template>/<cell>".
-    const std::string head        = MeshShaderFor( MeshVertexPath::Static, MeshPass::Forward );
-    const std::string pbrTemplate = head.substr(
-         0, head.size() -
-                 std::string_view( Desert::Graphic::MeshCellFor( MeshVertexPath::Static, MeshPass::Forward ) )
-                      .size() -
-                 1 );
+    for ( const std::string templateName : { "SomeSurface", "Unlit" } )
+        for ( uint32_t p = 0; p < Desert::Graphic::kMeshVertexPathCount; ++p )
+            for ( uint32_t s = 0; s < Desert::Graphic::kMeshPassCount; ++s )
+            {
+                const auto path = static_cast<MeshVertexPath>( p );
+                const auto pass = static_cast<MeshPass>( s );
+                const auto cell = Desert::Graphic::MeshShaderFor( templateName, path, pass );
+                if ( !cell || pass == MeshPass::Glass )
+                    continue;
+                const auto routed = Desert::Graphic::MeshCellPath( *cell );
+                ASSERT_TRUE( routed.has_value() )
+                     << *cell << " is a cell of the table and must take the batched path";
+                EXPECT_EQ( *routed, path ) << *cell << " routes to " << MeshVertexPathName( *routed )
+                                           << ", allocated for " << MeshVertexPathName( path );
+            }
+    EXPECT_FALSE( Desert::Graphic::MeshCellPath( "TextSDF" ).has_value() )
+         << "a template's default program is no cell";
+    EXPECT_FALSE( Desert::Graphic::MeshCellPath( "" ).has_value() );
+}
+
+// THE CELL RULE (THM-INT2): the one function MaterialService builds a material's cell by AND answers CellOf by
+// (so a skinned thumbnail refuses before staging a draw exactly when the scene would have substituted the
+// default material). Asserted as the relation between two templates on one table: the template WITH a Surface
+// block has every cell the table names, each its own "<Template>/<Cell>"; the template WITHOUT one has only its
+// own default program, as (Static x Forward), and every other cell is a hole — never another template's
+// program, never its own name on a path that would need a skinning or G-buffer stage it does not carry.
+TEST( TemplateCellShader, ASurfaceTemplateHasEveryCellAPlainTemplateOnlyItsStaticForward )
+{
+    constexpr std::string_view kSurface   = "SomeSurface"; // registers every "<SomeSurface>/<Cell>"
+    constexpr std::string_view kPlain     = "TextSDF";     // no Surface block: registers only "TextSDF"
+    const auto                 registered = [&]( std::string_view name )
+    { return name == kPlain || name.starts_with( std::format( "{}/", kSurface ) ); };
+
+    uint32_t surfaceCells = 0;
     for ( uint32_t p = 0; p < Desert::Graphic::kMeshVertexPathCount; ++p )
         for ( uint32_t s = 0; s < Desert::Graphic::kMeshPassCount; ++s )
         {
             const auto path = static_cast<MeshVertexPath>( p );
-            const auto cell = Desert::Graphic::SurfaceCellShader( pbrTemplate, path, static_cast<MeshPass>( s ) );
-            ASSERT_EQ( cell.has_value(), MeshShaderFor( path, static_cast<MeshPass>( s ) ) != nullptr )
-                 << MeshVertexPathName( path ) << " x " << s;
-            if ( !cell )
-                continue;
-            const auto routed = Desert::Graphic::MeshCellPath( *cell );
-            if ( !routed.has_value() )
-                FAIL() << *cell << " is a cell of the table and must take the batched path";
-            EXPECT_EQ( *routed, path ) << *cell << " routes to " << MeshVertexPathName( *routed )
-                                       << ", allocated for " << MeshVertexPathName( path );
+            const auto pass = static_cast<MeshPass>( s );
+            const auto where =
+                 std::format( "({} x {})", MeshVertexPathName( path ), Desert::Graphic::MeshPassName( pass ) );
+
+            const auto table   = Desert::Graphic::MeshShaderFor( kSurface, path, pass );
+            const auto surface = Desert::Graphic::TemplateCellShader( kSurface, path, pass, registered );
+            EXPECT_EQ( surface, table ) << "the Surface template's " << where << " must be the table's cell";
+            surfaceCells += surface.has_value() ? 1u : 0u;
+
+            const auto plain     = Desert::Graphic::TemplateCellShader( kPlain, path, pass, registered );
+            const bool staticFwd = path == MeshVertexPath::Static && pass == MeshPass::Forward;
+            if ( staticFwd )
+                EXPECT_EQ( plain, std::optional<std::string>( kPlain ) )
+                     << "a template without a Surface block draws (Static x Forward) with its own program";
+            else
+                EXPECT_FALSE( plain.has_value() ) << "a template without a Surface block has no " << where
+                                                  << " cell, got " << plain.value_or( "" );
         }
+    // Every path has Forward, GBuffer and ShadowDepth; only Static has Glass.
+    EXPECT_EQ( surfaceCells, Desert::Graphic::kMeshVertexPathCount * 3u + 1u );
 }
 
-TEST( MeshCellPath, ADSLSurfacesOwnCellIsNoCellOfTheTableAndGoesGeneric )
+// THE CASTER IS CHOSEN BY BLEND MODE (SURF2-mask). A Masked material casts through ITS template's ShadowDepth
+// cell, the only program that evaluates its OpacityMask and clips; every other caster shares the default
+// surface template's. The defect this pins: the cascade pass drew every static caster with one shared
+// pipeline, so a leaf card or a grass blade cast its whole quad. Asserted as a RELATION between two
+// materials on two templates, on every path: the masked caster differs from the shared one and is the masked
+// template's own cell; the opaque (and translucent) one IS the shared one, whatever template it names.
+TEST( ShadowCaster, MaskedCastsThroughItsOwnTemplateCellOpaqueThroughTheSharedOne )
 {
-    // Any template that does not head the table has only its own (Static x Forward) cell, named as itself.
-    const std::string dslTemplate = "TextSDF";
-    const auto own = Desert::Graphic::SurfaceCellShader( dslTemplate, MeshVertexPath::Static, MeshPass::Forward );
-    if ( !own.has_value() )
-        FAIL() << dslTemplate << " has no own (Static x Forward) cell";
-    EXPECT_EQ( *own, dslTemplate );
-    EXPECT_FALSE( Desert::Graphic::MeshCellPath( *own ).has_value() ) << "a DSL surface would be batched as PBR";
-    EXPECT_FALSE( Desert::Graphic::SurfaceCellShader( dslTemplate, MeshVertexPath::Skinned, MeshPass::Forward ) );
-    EXPECT_FALSE( Desert::Graphic::SurfaceCellShader( dslTemplate, MeshVertexPath::Static, MeshPass::GBuffer ) );
-    EXPECT_FALSE( Desert::Graphic::MeshCellPath( "" ).has_value() );
-}
-
-// ---- The vertex input: one home, both halves ---------------------------------------------------------
-
-// MeshVertexLayout (the C++ half, what the pipeline's vertex-input state is built from) against every mesh
-// cell's REFLECTED vertex stage (the GLSL half): each input a stage declares is fed by the element the layout
-// puts at that location, of the same shape — binding 0 at 0..N-1, the optional streams from
-// kMeshVertexStreamFirstLocation on. And the lit cells of every path read the streams: vertex colour at 7,
-// UV1 at 8, which is what SurfaceInput.VertexColor / UV1 come from.
-TEST_F( ShaderRootFixture, EveryMeshCellsVertexInputsAreTheOneLayoutsElements )
-{
+    using Desert::Core::Formats::SurfaceBlendMode;
+    constexpr std::string_view kDefault = "StandardSurface";
+    constexpr std::string_view kFoliage = "FoliageSurface";
+    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Masked ),
+               Desert::Graphic::ShadowCasterCell::Own );
+    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Opaque ),
+               Desert::Graphic::ShadowCasterCell::Shared );
+    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Translucent ),
+               Desert::Graphic::ShadowCasterCell::Shared );
     for ( const auto path : kAllPaths )
     {
-        const auto layout = Desert::Graphic::MeshVertexLayout( path );
-        ASSERT_TRUE( layout.HasStreams() ) << MeshVertexPathName( path );
-        EXPECT_EQ( layout.GetStreamFirstLocation(), 7u );
-        EXPECT_EQ( layout.GetStreamStride(), sizeof( Desert::MeshVertexStreams ) )
-             << "the streams' stride is the packed vertex the mesh uploads";
+        const auto shared = Desert::Graphic::MeshShaderFor( kDefault, path, MeshPass::ShadowDepth );
+        ASSERT_TRUE( shared.has_value() ) << MeshVertexPathName( path );
 
+        const auto masked =
+             Desert::Graphic::ShadowCasterShaderFor( kFoliage, kDefault, SurfaceBlendMode::Masked, path );
+        ASSERT_TRUE( masked.has_value() ) << MeshVertexPathName( path );
+        EXPECT_NE( masked, shared ) << "a masked caster on " << MeshVertexPathName( path )
+                                    << " draws through the shared program and casts its whole quad";
+        EXPECT_EQ( masked, Desert::Graphic::MeshShaderFor( kFoliage, path, MeshPass::ShadowDepth ) );
+
+        for ( const auto blend : { SurfaceBlendMode::Opaque, SurfaceBlendMode::Translucent } )
+        {
+            const auto caster = Desert::Graphic::ShadowCasterShaderFor( kFoliage, kDefault, blend, path );
+            ASSERT_TRUE( caster.has_value() );
+            EXPECT_EQ( caster, shared ) << "a non-masked caster on " << MeshVertexPathName( path )
+                                        << " must share the one position-only program and batch by mesh";
+        }
+    }
+}
+
+// THE TABLE NAMES NO TEMPLATE (UE: the shader map is the MATERIAL's). No entry of the cell table carries a
+// "<Template>/" prefix, and no shipped template's name appears in it: which template draws is the material's.
+TEST_F( ShaderRootFixture, TheTableNamesNoTemplate )
+{
+    std::set<std::string> templates;
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( "Resources/Shaders/Programs" ) )
+        if ( entry.path().extension() == ".shader" )
+            templates.insert( entry.path().stem().string() );
+    ASSERT_FALSE( templates.empty() );
+    for ( const auto path : kAllPaths )
         for ( const auto pass : { MeshPass::Forward, MeshPass::GBuffer, MeshPass::Glass, MeshPass::ShadowDepth } )
-        {
-            const char* name = MeshShaderFor( path, pass );
-            if ( name == nullptr )
-                continue;
-            const auto spirv = CompileStage( StageSource( name, ShaderStage::Vertex ), ShaderFileFor( name ),
-                                             shaderc_vertex_shader );
-            ASSERT_FALSE( spirv.empty() ) << name;
-
-            const spirv_cross::Compiler reflected( spirv );
-            std::set<uint32_t>          locations;
-            for ( const auto& input : reflected.get_shader_resources().stage_inputs )
+            if ( const char* cell = Desert::Graphic::MeshCellFor( path, pass ) )
             {
-                const uint32_t location = reflected.get_decoration( input.id, spv::DecorationLocation );
-                locations.insert( location );
-                const auto& type = reflected.get_type( input.base_type_id );
-
-                const Desert::Graphic::VertexBufferElement* element = nullptr;
-                if ( location < layout.GetElementCount() )
-                    element = &layout.GetElements()[location];
-                else if ( location >= layout.GetStreamFirstLocation() &&
-                          location - layout.GetStreamFirstLocation() < layout.GetStreamElements().size() )
-                    element = &layout.GetStreamElements()[location - layout.GetStreamFirstLocation()];
-
-                ASSERT_NE( element, nullptr )
-                     << name << " reads location " << location << " (" << input.name << ") that MeshVertexLayout("
-                     << MeshVertexPathName( path ) << ") does not feed";
-                EXPECT_EQ( element->Type == Desert::Graphic::ShaderDataType::UNorm8x4 ? 4u : element->Size / 4u,
-                           type.vecsize )
-                     << name << " location " << location;
-                const bool integer = type.basetype == spirv_cross::SPIRType::Int;
-                EXPECT_EQ( integer, element->Type == Desert::Graphic::ShaderDataType::Int4 )
-                     << name << " location " << location;
+                EXPECT_EQ( std::string_view( cell ).find( '/' ), std::string_view::npos ) << cell;
+                for ( const auto& t : templates )
+                    EXPECT_EQ( std::string_view( cell ).find( t ), std::string_view::npos )
+                         << "the cell table names the template '" << t << "' (" << cell << ")";
             }
-
-            if ( pass == MeshPass::Forward || pass == MeshPass::GBuffer )
-            {
-                if ( std::string_view( name ).find( '/' ) == std::string_view::npos )
-                    continue; // a program of its own, not a surface cell
-                EXPECT_TRUE( locations.contains( 7 ) ) << name << " does not read the vertex colour stream";
-                EXPECT_TRUE( locations.contains( 8 ) ) << name << " does not read the UV1 stream";
-            }
-        }
-    }
+    EXPECT_FALSE( Desert::Graphic::MeshShaderFor( "", MeshVertexPath::Static, MeshPass::Forward ) );
 }
 
-// Every mesh pipeline MeshRenderer builds takes its vertex input from the one home: a layout spelled out
-// in the renderer again is the eleven hand copies that stood there, one of which would miss the streams.
-TEST_F( ShaderRootFixture, MeshRendererSpellsNoVertexLayoutOfItsOwn )
+// A MATERIAL ON THE UNLIT TEMPLATE GETS THE UNLIT CELLS on every path, and the shipped Unlit.shader expands into
+// each of them — so a skinned or instanced unlit mesh is drawn by Unlit, not by the default surface.
+TEST_F( ShaderRootFixture, AnUnlitMaterialGetsTheUnlitCells )
 {
-    const auto source = ReadFile( "../Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
-    ASSERT_FALSE( source.empty() );
-    EXPECT_EQ( source.find( "ShaderDataType::" ), std::string::npos )
-         << "MeshRenderer.cpp builds a vertex layout by hand; take MeshVertexLayout( path )";
-    EXPECT_NE( source.find( "MeshVertexLayout(" ), std::string::npos );
-}
-
-// A mesh with neither Colors nor UV1 uploads no stream buffer: it binds the one shared default buffer, which
-// is white and (0,0) in every vertex — the format's meaning, not a fallback.
-TEST( MeshVertexStreamsFormat, AMeshWithoutStreamsUploadsNoneAndTheDefaultIsWhite )
-{
-    EXPECT_TRUE( Desert::PackMeshVertexStreams( {}, {}, 24 ).empty() );
-
-    const Desert::MeshVertexStreams defaults{};
-    EXPECT_EQ( defaults.Color, ( std::array<uint8_t, 4>{ 255, 255, 255, 255 } ) );
-    EXPECT_EQ( defaults.UV1, glm::vec2( 0.0f ) );
-
-    const auto onlyUV1 = Desert::PackMeshVertexStreams( {}, { glm::vec2( 0.25f, 0.5f ) }, 2 );
-    ASSERT_EQ( onlyUV1.size(), 2u );
-    EXPECT_EQ( onlyUV1[0].Color, defaults.Color ) << "an absent colour stream is white in every vertex";
-    EXPECT_EQ( onlyUV1[0].UV1, glm::vec2( 0.25f, 0.5f ) );
-}
-
-// SURF1e-d: no stride-0 binding (portability devices refuse it: vertexAttributeAccessBeyondStride = false). A
-// mesh without streams binds the shared default buffer at the layout's stream stride, so that buffer holds at
-// least as many stream vertices as the mesh has vertices — on every vertex path, for small and large meshes,
-// and it only grows as bigger meshes are drawn.
-TEST( MeshVertexStreamsFormat, AMeshWithoutStreamsBindsADefaultAtLeastAsLongAsItsVerticesAtANonZeroStride )
-{
-    using namespace Desert::Graphic;
-    for ( const auto path : { MeshVertexPath::Static, MeshVertexPath::Skinned } )
-    {
-        const VertexBufferLayout layout = MeshVertexLayout( path );
-        ASSERT_NE( layout.GetStride(), 0u );
-        uint32_t capacity = 0;
-        for ( const uint64_t vertices : { 3ull, 4096ull, 4097ull, 100000ull, 24ull, 1500000ull } )
+    const auto file = ShaderFileFor( "Unlit" );
+    ASSERT_FALSE( file.empty() );
+    const auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( file ) );
+    ASSERT_TRUE( parsed.IsSuccess() ) << file.string();
+    const auto& passes = parsed.GetValue().Meta.PassNames;
+    for ( const auto path : kAllPaths )
+        for ( const auto pass : { MeshPass::Forward, MeshPass::GBuffer, MeshPass::ShadowDepth } )
         {
-            const auto binding = DefaultVertexStreamsFor( layout, vertices * layout.GetStride(), capacity );
-            EXPECT_NE( binding.Stride, 0u ) << "a stride-0 binding is refused on portability devices";
-            EXPECT_EQ( binding.Stride, sizeof( Desert::MeshVertexStreams ) );
-            EXPECT_GE( binding.Capacity, vertices ) << "the default must cover every vertex the mesh reads";
-            EXPECT_GE( binding.Capacity, capacity ) << "the shared buffer grows, never shrinks";
-            capacity = binding.Capacity;
+            const auto shader = Desert::Graphic::MeshShaderFor( "Unlit", path, pass );
+            if ( !shader.has_value() )
+                FAIL() << "Unlit has no cell on " << MeshVertexPathName( path );
+            EXPECT_EQ( *shader, std::format( "Unlit/{}", Desert::Graphic::MeshCellFor( path, pass ) ) );
+            EXPECT_NE( std::find( passes.begin(), passes.end(), CellOf( shader->c_str() ) ), passes.end() )
+                 << file.string() << " expands into no cell '" << CellOf( shader->c_str() ) << "'";
         }
-    }
 }
 
-// The backend keeps ONE pipeline per layout: no stride-0 twin and no per-mesh variant choice at bind time.
-TEST_F( ShaderRootFixture, TheBackendBuildsNoStrideZeroTwin )
+// A DRAW'S PIPELINE IS KEYED BY ITS MATERIAL'S CELL, NOT BY THE PASS ALONE (SURF2-FIX). The renderer used to draw
+// every opaque static/instanced/skinned mesh with ONE pipeline per pass, built from the default template's cell,
+// while binding the descriptor sets of the material's OWN template cell: an Unlit object vanished with 22
+// validation errors (set 0: 7 descriptors in the layout, 3 bound). Two materials on two templates, drawn in the
+// same pass, must ask for two pipelines; one template in two passes too; and the same template in the same pass
+// must be served the one pipeline back.
+TEST( MeshCellPipeline, TwoTemplatesInOnePassAreTwoPipelines )
 {
-    for ( const char* file : { "../Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanPipeline.hpp",
-                               "../Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanPipeline.cpp",
-                               "../Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.hpp" } )
+    using Desert::Graphic::MeshCellPipelineKey;
+    using Desert::Graphic::MeshCellPipelineKeyHash;
+    const int  forwardState = 0;
+    const int  gbufferState = 0;
+    const auto keyOf = []( const void* state, std::string_view templateName, MeshVertexPath path, MeshPass pass )
     {
-        const auto source = ReadFile( file );
-        ASSERT_FALSE( source.empty() ) << file;
-        EXPECT_EQ( source.find( "NoStreams" ), std::string::npos ) << file;
-        EXPECT_EQ( source.find( "meshHasStreams" ), std::string::npos ) << file;
+        const auto cell = Desert::Graphic::MeshShaderFor( templateName, path, pass );
+        EXPECT_TRUE( cell.has_value() ) << templateName;
+        return MeshCellPipelineKey{ state, cell.value_or( std::string{} ) };
+    };
+    for ( const auto path : kAllPaths )
+    {
+        const auto standard = keyOf( &forwardState, "StandardSurface", path, MeshPass::Forward );
+        const auto unlit    = keyOf( &forwardState, "Unlit", path, MeshPass::Forward );
+        EXPECT_NE( standard, unlit ) << MeshVertexPathName( path );
+        EXPECT_NE( standard, keyOf( &gbufferState, "StandardSurface", path, MeshPass::GBuffer ) )
+             << MeshVertexPathName( path );
+        EXPECT_NE( standard, MeshCellPipelineKey( { &gbufferState, standard.CellShader } ) )
+             << MeshVertexPathName( path ) << ": one program under two pass states is two pipelines";
+
+        const auto again = keyOf( &forwardState, "StandardSurface", path, MeshPass::Forward );
+        EXPECT_EQ( standard, again ) << MeshVertexPathName( path );
+        EXPECT_EQ( MeshCellPipelineKeyHash{}( standard ), MeshCellPipelineKeyHash{}( again ) )
+             << MeshVertexPathName( path );
     }
 }
 

@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <optional>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -488,7 +489,7 @@ namespace
     }
 
     // The handle a `.demat`'s normal slot resolves to (HandleForGuid of the GUID it states, MATL 3), or 0 for
-    // "no slot" and for "the slot is empty" alike -- which are the same fact to every consumer: MaterialFactory
+    // "no slot" and for "the slot is empty" alike -- which are the same fact to every consumer: MaterialService
     // binds the shader's 1x1 fallback for both, and the fragment stage's `textureSize(...) > 1` guard then
     // skips the TBN multiply.
     uint64_t NormalTextureHandleOf( const std::string& demat )
@@ -778,9 +779,6 @@ int main( int argc, char** argv )
 // same numeric params in the same order, or a GBuffer draw reads roughness where the forward wrote metallic.
 namespace
 {
-    // StandardSurface is one template (its cells share its one Properties block); glass is its own program.
-    const std::vector<std::string> kPBRPasses = { "StandardSurface", "StaticMeshGlass" };
-
     const DShaderParseResult* ShippedByName( const std::string& name )
     {
         for ( const auto& shader : ShippedShaders() )
@@ -817,19 +815,80 @@ namespace
     };
 } // namespace
 
-TEST( ShippedShaderPasses, EveryPBRPassDeclaresTheOneRowLayout )
+// GLASS IS A TEMPLATE, TRANSLUCENT BY ITS BLEND MODE (SURF2). It used to be a hand-written program that shared
+// StandardSurface's row, and an object reached it because MeshRenderer read the material parameter
+// "Transmission" by name. Now the template says `BlendMode Translucent`: the parser gives it Forward cells only,
+// on the translucency pass header, and the blend mode rides on the program's metadata for the renderer to read.
+TEST( ShippedShaderPasses, TheGlassTemplateIsTranslucentWithForwardCellsOnly )
 {
-    const auto* forward = ShippedByName( "StandardSurface" );
-    ASSERT_NE( forward, nullptr );
-    const auto layout = GeneratedRowMembers( *forward );
-    ASSERT_FALSE( layout.empty() ) << "StandardSurface generates no Materials[] row";
-    for ( const auto& name : kPBRPasses )
+    namespace PP      = Desert::Core::Preprocess;
+    const auto* glass = ShippedByName( "StaticMeshGlass" );
+    ASSERT_NE( glass, nullptr );
+    EXPECT_EQ( glass->Meta.Domain, Desert::Core::Formats::ShaderDomain::Surface );
+    EXPECT_EQ( glass->Surface.Blend, PP::SurfaceBlendMode::Translucent );
+    EXPECT_EQ( glass->Meta.Blend, PP::SurfaceBlendMode::Translucent )
+         << "the renderer reads the blend off the meta";
+    const std::vector<std::string> cells = { "Static.Forward", "Instanced.Forward", "Skinned.Forward" };
+    EXPECT_EQ( glass->Surface.Cells, cells ) << "a translucent surface writes no G-buffer and no depth";
+    for ( const auto& name : cells )
     {
-        const auto* parsed = ShippedByName( name );
-        ASSERT_NE( parsed, nullptr ) << name;
-        EXPECT_EQ( GeneratedRowMembers( *parsed ), layout )
-             << name << " reads a different row than the forward pass writes";
+        const auto* cell = glass->FindPass( name );
+        ASSERT_NE( cell, nullptr ) << name;
+        EXPECT_NE( cell->Stages.at( ShaderStage::Fragment ).find( PP::kSurfaceTranslucentPassInclude ),
+                   std::string::npos )
+             << name << " is not built on the translucency pass header";
     }
+    // Every opaque template stays opaque on the metadata.
+    const auto* standard = ShippedByName( "StandardSurface" );
+    ASSERT_NE( standard, nullptr );
+    EXPECT_EQ( standard->Meta.Blend, PP::SurfaceBlendMode::Opaque );
+
+    // The translucent pass is Static x Glass, drawn by the glass template's OWN Static.Forward cell.
+    EXPECT_EQ( Desert::Graphic::MeshShaderFor( "StaticMeshGlass", Desert::Graphic::MeshVertexPath::Static,
+                                               Desert::Graphic::MeshPass::Glass ),
+               std::optional<std::string>( "StaticMeshGlass/Static.Forward" ) );
+}
+
+// UE: every translucent material is drawn by its own shader/PSO in the translucency pass. Two translucent
+// templates are two cells of the pass, and the mesh renderer holds no single engine-wide glass material — its
+// translucency state is keyed by the object's cell shader (MeshRenderer::TranslucentDrawFor).
+TEST( ShippedShaderPasses, TwoTranslucentTemplatesAreTwoShadersOfTheTranslucencyPass )
+{
+    using Desert::Graphic::MeshPass;
+    using Desert::Graphic::MeshVertexPath;
+    const auto glass =
+         Desert::Graphic::MeshShaderFor( "StaticMeshGlass", MeshVertexPath::Static, MeshPass::Glass );
+    const auto water = Desert::Graphic::MeshShaderFor( "Water", MeshVertexPath::Static, MeshPass::Glass );
+    ASSERT_TRUE( glass && water );
+    EXPECT_NE( glass, water );
+    EXPECT_FALSE( Desert::Graphic::MeshShaderFor( "", MeshVertexPath::Static, MeshPass::Glass ).has_value() );
+
+    std::filesystem::path here = std::filesystem::current_path();
+    for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Desert" / "Desert" / "Source" ); ++up )
+        here = here.parent_path();
+    const std::string source =
+         ReadFile( here / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
+    ASSERT_FALSE( source.empty() ) << "MeshRenderer.cpp was not found from " << here;
+    for ( const std::string_view single : { "m_GlassMaterial", "m_StaticGlassPipeline", "\"StaticMeshGlass\"" } )
+        EXPECT_EQ( source.find( single ), std::string::npos )
+             << "MeshRenderer.cpp holds " << single << ": one translucency material/pipeline for every template";
+    EXPECT_NE( source.find( "TranslucentDrawFor( mat->GetShaderName() )" ), std::string::npos )
+         << "the translucency pass must take each object's draw state from ITS material's cell shader";
+}
+
+// THE CENSUS: no string literal naming a material parameter picks a pass in the mesh renderer. The pass an
+// object is drawn in is a property of its material's template (its blend mode); a parameter's VALUE never is.
+TEST( ShippedShaderPasses, TheMeshRendererPicksNoPassByAParameterName )
+{
+    std::filesystem::path here = std::filesystem::current_path();
+    for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Desert" / "Desert" / "Source" ); ++up )
+        here = here.parent_path();
+    const std::string source =
+         ReadFile( here / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
+    ASSERT_FALSE( source.empty() ) << "MeshRenderer.cpp was not found from " << here;
+    for ( const std::string_view name : { "\"Transmission\"", "\"IOR\"", "\"GlassTint\"" } )
+        EXPECT_EQ( source.find( name ), std::string::npos )
+             << "MeshRenderer.cpp names " << name << ": a pass is chosen by the template's blend mode";
 }
 
 TEST( ShippedShaderPasses, AnAuthoredPBRParamReachesItsBytesInTheRowByManifestName )
@@ -865,7 +924,7 @@ TEST( ShippedShaderPasses, AnAuthoredPBRParamReachesItsBytesInTheRowByManifestNa
 
 TEST( ShippedShaderPasses, EveryPBRTextureSlotIsBoundByManifestNameAndAnEmptyOneTakesTheSchemaDefault )
 {
-    // MaterialFactory binds a PBR material's maps through ForEachMaterialTextureSlot: the slot names come
+    // MaterialService binds a PBR material's maps through ForEachMaterialTextureSlot: the slot names come
     // from the template's manifest, the handles from the .demat. There used to be three hand-written binds
     // (albedo, normal, opacity), so an ORM or emissive map persisted in the file never reached a sampler.
     constexpr uint64_t                    kORMHandle = 0x0123456789ABCDEFull;

@@ -2,7 +2,12 @@
 
 #include <Engine/Graphic/Image.hpp>
 
+#include <ImGui/imgui.h>
+
+#include <vulkan/vulkan.h>
+
 #include <memory>
+#include <unordered_map>
 
 namespace Desert::Editor::UI
 {
@@ -29,6 +34,13 @@ namespace Desert::Editor::UI
     class UICacheTextureImGui
     {
     public:
-        const void* AddTextureCache( const std::shared_ptr<Graphic::Image2D>& image );
+        // THE ONE CACHE. It is process-wide (one descriptor set per view, whichever panel asks), so it is one
+        // object every UIHelper points at rather than a function-static behind a member function.
+        static UICacheTextureImGui& Get();
+
+        ImTextureID AddTextureCache( const std::shared_ptr<Graphic::Image2D>& image );
+
+    private:
+        std::unordered_map<VkImageView, ImTextureID> m_TextureCache;
     };
 } // namespace Desert::Editor::UI

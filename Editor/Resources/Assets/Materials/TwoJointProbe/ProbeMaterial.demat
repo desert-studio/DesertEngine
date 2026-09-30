@@ -41,18 +41,6 @@
             "Value": [0.0, 0.0, 0.0, 0.0]
         },
         {
-            "Name": "Transmission",
-            "Value": [0.0, 0.0, 0.0, 0.0]
-        },
-        {
-            "Name": "IOR",
-            "Value": [1.5, 0.0, 0.0, 0.0]
-        },
-        {
-            "Name": "GlassTint",
-            "Value": [1.0, 1.0, 1.0, 1.0]
-        },
-        {
             "Name": "UVTiling",
             "Value": [1.0, 1.0, 0.0, 0.0]
         }
@@ -70,21 +58,6 @@
         },
         {
             "Name": "u_OpacityTexture",
-            "Guid": "",
-            "Path": ""
-        },
-        {
-            "Name": "u_MetallicTexture",
-            "Guid": "",
-            "Path": ""
-        },
-        {
-            "Name": "u_RoughnessTexture",
-            "Guid": "",
-            "Path": ""
-        },
-        {
-            "Name": "u_AOTexture",
             "Guid": "",
             "Path": ""
         },

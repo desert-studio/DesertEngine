@@ -1412,17 +1412,22 @@ namespace Desert::Graphic
         {
             return;
         }
+        // SubmitMesh's const is the caller-facing contract; MeshRenderData and the RenderMesh chain below it
+        // still carry a mutable Mesh* and never write through it.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+        auto* drawnMesh = const_cast<Mesh*>( mesh );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitMesh( { .Mesh            = (Mesh*)mesh,
-                             .Transform       = transform,
-                             .MaterialSlots   = materialSlots,
-                             .BoneMatrices    = extra.BoneMatrices,
-                             .Outlined        = extra.Outlined,
-                             .HiddenSubmeshes = extra.HiddenSubmeshes,
-                             .ForcedLOD       = extra.ForcedLOD,
-                             .LODBias         = extra.LODBias,
-                             .CastShadows     = extra.CastShadows,
-                             .ReceiveShadows  = extra.ReceiveShadows } );
+             ->SubmitMesh( { .Mesh                     = drawnMesh,
+                             .Transform                = transform,
+                             .MaterialSlots            = materialSlots,
+                             .BoneMatrices             = extra.BoneMatrices,
+                             .Outlined                 = extra.Outlined,
+                             .HiddenSubmeshes          = extra.HiddenSubmeshes,
+                             .ForcedLOD                = extra.ForcedLOD,
+                             .LODBias                  = extra.LODBias,
+                             .CastShadows              = extra.CastShadows,
+                             .ReceiveShadows           = extra.ReceiveShadows,
+                             .TranslucencySortPriority = extra.TranslucencySortPriority } );
     }
 
     void SceneRenderer::SubmitLandscapeTile( Image2D* heightmap, const System::LandscapeTileDraw& tile,

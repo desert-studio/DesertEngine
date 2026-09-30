@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
+#include <Engine/Graphic/Materials/Mesh/MeshVertexLayout.hpp>
 
 #include <shaderc/shaderc.hpp>
 
@@ -466,6 +467,113 @@ void main() { o_Color = texture(u_Albedo, vec2(0.5)); }
     ASSERT_EQ( second.size(), 1u ) << FirstOr( second, "no diagnostic at all" );
     EXPECT_NE( second.front().find( "Transform" ), std::string::npos ) << second.front();
     EXPECT_NE( second.front().find( "u_Albedo" ), std::string::npos ) << second.front();
+}
+
+// VERTEX INPUT = LAYOUT ∩ WHAT THE VERTEX STAGE READS. The static mesh layout feeds 0..4 on binding 0 and
+// colour/UV1 at 7/8 on binding 1; a shadow-like stage reads position only, a surface stage reads 7 and 8.
+// Before this, every mesh pipeline described 7/8 whatever its shader read, and the validation layer said
+// "Vertex attribute at location 7/8 not consumed by vertex shader" for shadow, silhouette, glass, wireframe.
+namespace
+{
+    const char* kPositionOnlyVertex = R"(#version 450
+layout(location = 0) in vec3 a_Position;
+void main() { gl_Position = vec4(a_Position, 1.0); }
+)";
+    const char* kStreamsVertex      = R"(#version 450
+layout(location = 0) in vec3 a_Position;
+layout(location = 4) in vec2 a_TextureCoord;
+layout(location = 7) in vec4 a_Color;
+layout(location = 8) in vec2 a_TexCoord1;
+layout(location = 0) out vec4 v_Color;
+void main() { v_Color = a_Color + vec4(a_TexCoord1 + a_TextureCoord, 0.0, 0.0); gl_Position = vec4(a_Position, 1.0); }
+)";
+} // namespace
+
+TEST( ShaderReflection, VertexStageRecordsItsInputLocations )
+{
+    ShaderResource::ReflectionData data;
+    ASSERT_TRUE( ShaderReflection::ReflectStage( Compile( kStreamsVertex, shaderc_glsl_vertex_shader ),
+                                                 ShaderStage::Vertex, data )
+                      .empty() );
+    EXPECT_EQ( data.VertexInputLocations, ( std::vector<uint32_t>{ 0, 4, 7, 8 } ) );
+}
+
+TEST( ShaderReflection, VertexInputDropsStreamsTheStageDoesNotRead )
+{
+    const auto layout = Desert::Graphic::MeshVertexLayout( Desert::Graphic::MeshVertexPath::Static );
+    const auto state =
+         ShaderReflection::BuildVertexInput( layout, ShaderReflection::ReflectVertexInputLocations( Compile(
+                                                          kPositionOnlyVertex, shaderc_glsl_vertex_shader ) ) );
+
+    EXPECT_TRUE( state.Errors.empty() ) << state.Errors.front();
+    ASSERT_EQ( state.Attributes.size(), 1u );
+    EXPECT_EQ( state.Attributes[0].location, 0u );
+    EXPECT_FALSE( state.HasLocation( 7 ) );
+    EXPECT_FALSE( state.HasLocation( 8 ) );
+    EXPECT_TRUE( state.HasBinding( 0 ) ); // the draw binds the mesh there regardless
+    EXPECT_FALSE( state.HasBinding( 1 ) );
+}
+
+TEST( ShaderReflection, VertexInputKeepsStreamsTheStageReads )
+{
+    const auto layout = Desert::Graphic::MeshVertexLayout( Desert::Graphic::MeshVertexPath::Static );
+    const auto state  = ShaderReflection::BuildVertexInput(
+         layout,
+         ShaderReflection::ReflectVertexInputLocations( Compile( kStreamsVertex, shaderc_glsl_vertex_shader ) ) );
+
+    EXPECT_TRUE( state.Errors.empty() ) << state.Errors.front();
+    ASSERT_EQ( state.Attributes.size(), 4u );
+    EXPECT_TRUE( state.HasLocation( 4 ) );
+    EXPECT_FALSE( state.HasLocation( 1 ) );
+    ASSERT_TRUE( state.HasBinding( 1 ) );
+    for ( const auto& attribute : state.Attributes )
+    {
+        EXPECT_EQ( attribute.binding,
+                   attribute.location >= Desert::Graphic::kMeshVertexStreamFirstLocation ? 1u : 0u )
+             << "location " << attribute.location;
+    }
+    for ( const auto& binding : state.Bindings )
+    {
+        EXPECT_EQ( binding.stride, binding.binding == 1 ? layout.GetStreamStride() : layout.GetStride() );
+    }
+}
+
+TEST( ShaderReflection, VertexInputNamesALocationTheLayoutDoesNotFeed )
+{
+    const char* kReadsFive = R"(#version 450
+layout(location = 5) in vec4 a_Unfed;
+void main() { gl_Position = a_Unfed; }
+)";
+    const auto  layout     = Desert::Graphic::MeshVertexLayout( Desert::Graphic::MeshVertexPath::Static );
+    const auto  state      = ShaderReflection::BuildVertexInput(
+         layout,
+         ShaderReflection::ReflectVertexInputLocations( Compile( kReadsFive, shaderc_glsl_vertex_shader ) ) );
+
+    ASSERT_EQ( state.Errors.size(), 1u );
+    EXPECT_NE( state.Errors.front().find( "location 5" ), std::string::npos ) << state.Errors.front();
+}
+
+// The pipeline's side of the rule (VulkanPipeline::CreateVertexInputState): an unfed location is a REFUSAL —
+// the pipeline is not built — and the one message names the location; a matching stage is no refusal.
+TEST( ShaderReflection, VertexInputRefusesAStageReadingAnUnfedLocation )
+{
+    const char* kReadsUnfed = R"(#version 450
+layout(location = 0) in vec3 a_Position;
+layout(location = 15) in vec4 a_Unfed;
+void main() { gl_Position = vec4(a_Position, 1.0) + a_Unfed; }
+)";
+    const auto  layout      = Desert::Graphic::MeshVertexLayout( Desert::Graphic::MeshVertexPath::Static );
+    const auto  refused     = ShaderReflection::VertexInputRefusal( ShaderReflection::BuildVertexInput(
+         layout,
+         ShaderReflection::ReflectVertexInputLocations( Compile( kReadsUnfed, shaderc_glsl_vertex_shader ) ) ) );
+    if ( !refused.has_value() )
+        FAIL() << "a shader reading an attribute the layout does not stream was not refused";
+    EXPECT_NE( refused->find( "location 15" ), std::string::npos ) << *refused;
+
+    const auto clean = ShaderReflection::VertexInputRefusal(
+         ShaderReflection::BuildVertexInput( layout, ShaderReflection::ReflectVertexInputLocations( Compile(
+                                                          kStreamsVertex, shaderc_glsl_vertex_shader ) ) ) );
+    EXPECT_FALSE( clean.has_value() ) << clean.value_or( std::string() );
 }
 
 int main( int argc, char** argv )

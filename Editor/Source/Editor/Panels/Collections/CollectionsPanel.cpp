@@ -5,6 +5,7 @@
 #endif
 #include <rflcpp/rfl.hpp>
 #include <Editor/Core/DragPayloads.hpp>
+#include <Editor/Import/TextureDnD.hpp>
 #include <Common/Json/Json.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
@@ -13,6 +14,7 @@
 
 #include <Editor/Core/AssetReferences.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
+#include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
 #include <Editor/Import/CookPaths.hpp>
@@ -23,7 +25,6 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
-#include <Engine/Assets/Mesh/PBRSurfaceParams.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 // The reflection rules for glm types and for the .demat schema. Needed HERE because this file now
 // reads a .demat back — it has to recover the material's existing identity so re-cooking one produces
@@ -158,7 +159,7 @@ namespace Desert::Editor
             {
                 if ( !path || path->empty() )
                     return Common::UUID::Null();
-                return importer.ImportAndRegisterTexture( mgr, *path );
+                return TextureDnD::ImportAndRegister( importer, mgr, *path );
             };
 
             // Dereferenced through a local empty list rather than `*manifest.Materials`: the early
@@ -257,20 +258,19 @@ namespace Desert::Editor
                     if ( const auto parsed = Assets::ParseMaterialJson( key, at->second ); parsed )
                         header = parsed.GetValue().Header;
 
-                Assets::PBRSurfaceParams p;
-                p.AlbedoTexture    = albedo;
-                p.NormalTexture    = normal;
-                p.OpacityTexture   = opacity;
+                // ONLY WHAT THE SOURCE STATES, by the template's parameter names: every other value is the
+                // template's own default, answered by its MaterialLayout at bind time — no C++ copy of the
+                // template's Properties restates them here.
+                Assets::MaterialData data;
                 // The map is the value (factor x map, glTF's rule): a stated map runs at factor 1.
                 if ( mat.Roughness )
-                    p.RoughnessFactor = 1.0f;
+                    data.SetParam( "RoughnessFactor", glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) );
                 if ( mat.Metallic )
-                    p.MetallicFactor = 1.0f;
-                p.AlphaCutoff      = mat.AlphaCutoff.value_or( mat.Opacity ? 0.5f : 0.0f );
-
-                Assets::MaterialData data = p.ToMaterialData();
-                // The texture slots, by each imported asset's header GUID (MATL 3): the typed view's handles
-                // are folds of those GUIDs and cannot be turned back into them.
+                    data.SetParam( "MetallicFactor", glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) );
+                if ( const float cutoff = mat.AlphaCutoff.value_or( mat.Opacity ? 0.5f : 0.0f ); cutoff > 0.0f )
+                    data.SetParam( "AlphaCutoff", glm::vec4( cutoff, 0.0f, 0.0f, 0.0f ) );
+                // The texture slots, by each imported asset's header GUID (MATL 3): a runtime handle is a fold
+                // of that GUID and cannot be turned back into it.
                 const auto stateTexture = [&]( const char* sampler, const Assets::AssetHandle& handle )
                 {
                     if ( static_cast<uint64_t>( handle ) == 0 )
@@ -658,9 +658,7 @@ namespace Desert::Editor
         // capture keep showing the old shape, and — because ThumbnailService used to ask the same
         // impoverished question — never get a new one (Editor/Widgets/ThumbnailFreshness.hpp).
         if ( m_UIHelper && m_Thumbs &&
-             ThumbnailFreshness::Judge(
-                  ThumbnailFreshness::Observe( pngPath, ThumbnailFreshness::MeshFreshnessSource( cookedStr ) ) ) ==
-                  ThumbnailFreshness::Verdict::Show )
+             ThumbnailService::JudgeMeshPicture( cookedStr ) == ThumbnailFreshness::Verdict::Show )
         {
             if ( auto image = m_Thumbs->Get( pngPath ) )
             {

@@ -1,9 +1,16 @@
 #include "AssetThumbnailRenderer.hpp"
+#include <Editor/Widgets/ThumbnailSlots.hpp>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
+
+#include <Engine/Geometry/PosedBounds.hpp>
 
 #include <Editor/Widgets/ThumbnailEncode.hpp>
 #include <Editor/Widgets/ThumbnailFraming.hpp>
 
+#include <Engine/Animation/Animator.hpp>
+#include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/System/MeshECSSystem.hpp>
 #include <Engine/ECS/System/SkyboxECSSystem.hpp>
@@ -11,6 +18,7 @@
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
+#include <Engine/Runtime/Services/Skybox/SkyboxService.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
 #include <Common/Core/JobSystem.hpp>
@@ -193,6 +201,7 @@ namespace Desert::Editor
         // a dark ground reads as muddy grey after tonemap and looked like "no sky" when it was in shot.
         // That is a property of the backdrop, and it survives the camera moving again.
         auto  skyEnt             = m_Scene->CreateNewEntity( "ThumbSky" );
+        m_SkyAtmosphere          = skyEnt;
         auto& skyC               = skyEnt.AddComponent<ECS::SkyAtmosphereComponent>();
         skyC.Data.ZenithColor    = { 0.26f, 0.46f, 0.78f };
         skyC.Data.HorizonColor   = { 0.62f, 0.73f, 0.87f };
@@ -238,6 +247,26 @@ namespace Desert::Editor
         m_Inited = true;
     }
 
+    namespace
+    {
+        // The asset's thumbnail primitive as the shared primitive mesh drawn for it.
+        Geometry::PrimitiveType PrimitiveFor( const Assets::ThumbnailPrimitive primitive )
+        {
+            switch ( primitive )
+            {
+                case Assets::ThumbnailPrimitive::Sphere:
+                    return Geometry::PrimitiveType::Sphere;
+                case Assets::ThumbnailPrimitive::Cube:
+                    return Geometry::PrimitiveType::Cube;
+                case Assets::ThumbnailPrimitive::Plane:
+                    return Geometry::PrimitiveType::Plane;
+                case Assets::ThumbnailPrimitive::Cylinder:
+                    return Geometry::PrimitiveType::Cylinder;
+            }
+            return Geometry::PrimitiveType::Sphere;
+        }
+    } // namespace
+
     void AssetThumbnailRenderer::FitTarget( const glm::vec3& center, float worldSize )
     {
         auto& tc    = m_Target.GetComponent<ECS::TransformComponent>();
@@ -256,10 +285,11 @@ namespace Desert::Editor
             return;
         }
 
-        const auto placement =
-             ThumbnailFraming::PlaceInView( cam->GetViewMatrix(), cam->GetProjectionMatrix(), worldSize, center );
+        const auto placement = ThumbnailFraming::PlaceInView( cam->GetViewMatrix(), cam->GetProjectionMatrix(),
+                                                              worldSize, center, m_PendingThumbnail.Orbit );
         tc.Scale       = glm::vec3( placement.Scale );
         tc.Translation = placement.Translation;
+        tc.Rotation          = glm::eulerAngles( placement.Rotation );
     }
 
     void AssetThumbnailRenderer::RecordRender()
@@ -273,9 +303,10 @@ namespace Desert::Editor
             LOG_ERROR( "[AssetThumbnailRenderer] preview frame skipped: {}", frame.GetError() );
     }
 
-    Common::BoolResultStr AssetThumbnailRenderer::RequestMaterial( const Assets::AssetHandle& materialHandle,
-                                                                   const std::string&         outPng,
-                                                                   ThumbnailSubject::Preview  how )
+    Common::BoolResultStr AssetThumbnailRenderer::RequestMaterial( const Assets::AssetHandle&   materialHandle,
+                                                                   const std::string&           outPng,
+                                                                   ThumbnailSubject::Preview    how,
+                                                                   const Assets::ThumbnailInfo& thumbnail )
     {
         if ( static_cast<uint64_t>( materialHandle ) == 0 )
             return Common::MakeFormattedError( "no material handle for '{}'", outPng );
@@ -308,10 +339,26 @@ namespace Desert::Editor
         // The cloud layer asks MaterialService::ResolveOverrides, which would then parse it inside the frame:
         // five `*_Clouds.demat` per Starter start. Read on a worker instead, with its closure.
         (void)Runtime::AwaitAssetClosure( materialHandle, Common::Content::ContentKind::Material );
+
+        // A SKYBOX-DOMAIN DOME shows the HDR its cube slot binds; required now (the loader delivers it while
+        // the dome settles), refused with the reason when there is none (the route already refused it).
+        m_PendingSky.reset();
+        if ( how == ThumbnailSubject::Preview::SkyDome )
+        {
+            auto sky = ThumbnailSubject::DomeSkyboxOf( materialHandle );
+            if ( !sky )
+                return Common::MakeFormattedError( "'{}' was not queued: {}", outPng, sky.GetError() );
+            if ( const auto& dome = sky.GetValue(); dome )
+            {
+                m_PendingSky = Assets::AssetHandle( *dome );
+                (void)Runtime::RequireSkybox( *m_PendingSky );
+            }
+        }
         m_PendingHandle  = materialHandle;
         m_PendingPng     = outPng;
         m_PendingSubject = Subject::Material;
-        m_PendingPreview = how;
+        m_PendingPreview   = how;
+        m_PendingThumbnail = thumbnail;
         // Render for several frames before reading back: the first renders after init aren't "warm" yet
         // (GPU mesh buffers + per-frame uniform-buffer ring slots need a few frames to fully populate), so an
         // early readback returns an empty frame. Capture happens on the last count (reads the prior, warm
@@ -322,34 +369,95 @@ namespace Desert::Editor
         // The dome needs its own, much longer window on top of that warm-up — see DomeIsStillSettling.
         m_DomeSettle = ( how == ThumbnailSubject::Preview::SkyDome ) ? kDomeSettleFrames : 0;
         m_DomeFrames = 0;
+        m_Staged     = false;
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr AssetThumbnailRenderer::RequestSkybox( const Assets::AssetHandle& skyboxHandle,
+                                                                 const std::string&         outPng )
+    {
+        if ( static_cast<uint64_t>( skyboxHandle ) == 0 )
+            return Common::MakeFormattedError( "no skybox handle for '{}'", outPng );
+        if ( m_Phase != 0 )
+            return Common::MakeFormattedError( "a capture is already in flight; '{}' was not queued", outPng );
+        // Required now: the loader delivers it while the dome settles (DomeIsStillSettling waits for it).
+        if ( !Runtime::RequireSkybox( skyboxHandle ) )
+            return Common::MakeFormattedError( "'{}' was not queued: the registry has no skybox {}", outPng,
+                                               static_cast<uint64_t>( skyboxHandle ) );
+        m_PendingSky       = skyboxHandle;
+        m_PendingHandle    = skyboxHandle;
+        m_PendingPng       = outPng;
+        m_PendingSubject   = Subject::Sky;
+        m_PendingThumbnail = {};
+        m_Phase            = kRenderFrames;
+        m_CaptureMainMs    = 0.0;
+        m_CaptureTicks     = 0;
+        m_DomeSettle       = kDomeSettleFrames;
+        m_DomeFrames       = 0;
+        m_Staged           = false;
         return Common::MakeSuccess( true );
     }
 
     namespace
     {
-        // The mesh's own material slots, resolved through the material service. Empty when any slot is still
-        // unresolved: MeshECSSystem then retries every frame instead of freezing on a Null() slot.
-        std::vector<Assets::AssetHandle> MeshOwnSlots( const Assets::AssetHandle& meshHandle )
+        // The mesh's own material slots, resolved through the material service — or REFUSED, naming the slot.
+        // An unresolved slot used to empty the whole list, and an empty list is what the scene draws with its
+        // default material: the thumbnail then showed a material the mesh does not have, as its picture. The
+        // request is the moment to say so (ResolveMesh awaited the slots' closure, so a registered material
+        // answers now; one that does not will not answer on a later frame either).
+        Common::ResultStr<std::vector<Assets::AssetHandle>> MeshOwnSlots( const Assets::AssetHandle& meshHandle )
         {
+            using Slots = std::vector<Assets::AssetHandle>;
             auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( meshHandle );
             if ( asset == nullptr )
-                return {};
-            std::vector<Assets::AssetHandle> slots;
-            for ( const auto& external : asset->GetMaterialHandles() )
+                return Common::MakeFormattedError<Slots>( "mesh {} has no asset in the MeshService to read its "
+                                                          "material slots from",
+                                                          static_cast<uint64_t>( meshHandle ) );
+            auto* materials = Runtime::ResourceRegistry::GetMaterialService();
+            if ( materials == nullptr )
+                return Common::MakeFormattedError<Slots>( "there is no material service to resolve mesh {}'s "
+                                                          "material slots",
+                                                          static_cast<uint64_t>( meshHandle ) );
+            Slots       slots;
+            const auto& externals = asset->GetMaterialHandles();
+            for ( std::size_t i = 0; i < externals.size(); ++i )
             {
-                const auto internal =
-                     Runtime::ResourceRegistry::GetMaterialService()->GetAssetHandleByExternal( external );
-                if ( internal.IsNull() )
-                    return {};
-                slots.push_back( internal );
+                // Unassigned -> the engine default (null staged); a broken reference -> refused by index.
+                auto slot = ThumbnailSlots::SlotMaterial( externals[i], i, [&]( const Common::UUID& ref )
+                                                          { return materials->GetAssetHandleByExternal( ref ); } );
+                if ( !slot )
+                    return Common::MakeFormattedError<Slots>( "mesh {} {}", static_cast<uint64_t>( meshHandle ),
+                                                              slot.GetError() );
+                slots.push_back( slot.GetValue() );
             }
-            return slots;
+            return Common::MakeSuccess( std::move( slots ) );
+        }
+
+        /// The pose a skinned capture draws, built as PreviewViewport builds it: no clip -> the bind pose
+        /// evaluated by a zero step, a clip -> its middle frame. One builder for the frame measured at the
+        /// request and the animator staged for the draw, so the two cannot disagree.
+        std::unique_ptr<Animation::Animator> BuildPoseAnimator( const Desert::SkinnedMesh&                   mesh,
+                                                                const Assets::Asset<Assets::AnimationAsset>& clip )
+        {
+            auto animator = std::make_unique<Animation::Animator>( mesh.GetSkeleton() );
+            if ( clip )
+            {
+                const auto& c = clip->GetClip();
+                animator->Play( c, true );
+                animator->SetTick( Animation::FrameTime{ Animation::FrameNumber{ c.DurationTicks.Value / 2 } } );
+            }
+            else
+            {
+                animator->Update( Common::Timestep( 0.0f ) ); // the bind pose into the skinning matrices
+            }
+            return animator;
         }
     } // namespace
 
-    Common::BoolResultStr AssetThumbnailRenderer::RequestMesh( const Assets::AssetHandle& meshHandle,
-                                                               const std::string&         outPng,
-                                                               const Assets::AssetHandle& material )
+    Common::BoolResultStr AssetThumbnailRenderer::RequestMesh( const Assets::AssetHandle&    meshHandle,
+                                                               const std::string&            outPng,
+                                                               const Assets::ThumbnailOrbit& orbit,
+                                                               const Assets::AssetHandle&    material )
     {
         if ( static_cast<uint64_t>( meshHandle ) == 0 )
             return Common::MakeFormattedError( "no mesh handle for '{}'", outPng );
@@ -361,7 +469,7 @@ namespace Desert::Editor
         // resulting file as a finished picture. Asked here rather than in Tick() because this is the last
         // moment the caller is still on the stack and can be told; five frames later there is only a PNG.
         auto* mesh = Runtime::ResourceRegistry::GetMeshService()->Get( meshHandle );
-        if ( !mesh )
+        if ( mesh == nullptr )
         {
             return Common::MakeFormattedError(
                  "mesh {} is not built in the MeshService, so a capture would photograph an empty scene "
@@ -374,20 +482,197 @@ namespace Desert::Editor
                  "mesh {} is built but has no submeshes, so there is nothing to photograph for '{}'",
                  static_cast<uint64_t>( meshHandle ), outPng );
         }
+        // THE FRAME IS THE ASSET'S OWN BOUNDS, measured here where a refusal can still be told (UE frames a
+        // thumbnail by the asset's Bounds and takes no picture of an object that has none).
+        const auto frame = ThumbnailFraming::MeasureSubmeshes( mesh->GetSubmeshes() );
+        if ( !frame.Valid )
+        {
+            return Common::MakeFormattedError(
+                 "mesh {} has {} submesh(es) but every bounding box is empty, so there is no frame to put a "
+                 "camera on for '{}'",
+                 static_cast<uint64_t>( meshHandle ), mesh->GetSubmeshes().size(), outPng );
+        }
+        m_PendingFrame = frame;
+
+        // No material worn over every slot -> the mesh's OWN slots, every one resolved or the capture refused.
+        m_PendingSlots.clear();
+        if ( static_cast<uint64_t>( material ) == 0 )
+        {
+            auto slots = MeshOwnSlots( meshHandle );
+            if ( !slots )
+                return Common::MakeFormattedError( "'{}' was not queued: {}", outPng, slots.GetError() );
+            m_PendingSlots = slots.GetValue();
+        }
 
         m_PendingHandle   = meshHandle;
-        m_PendingMaterial = material;
+        m_PendingMaterial        = material;
+        m_PendingThumbnail       = Assets::ThumbnailInfo{};
+        m_PendingThumbnail.Orbit = orbit;
         m_PendingPng      = outPng;
         m_PendingSubject  = Subject::Mesh;
+        m_PendingClip            = nullptr;
         m_Phase           = kRenderFrames;
         m_CaptureMainMs   = 0.0;
         m_CaptureTicks    = 0;
         m_DomeSettle      = 0;
         m_DomeFrames      = 0;
+        m_Staged                 = false;
         return Common::MakeSuccess( true );
     }
 
-    void AssetThumbnailRenderer::StageSubject()
+    Common::BoolResultStr AssetThumbnailRenderer::RequestPose( const Assets::AssetHandle&            meshHandle,
+                                                               Assets::Asset<Assets::AnimationAsset> clip,
+                                                               const std::string&                    outPng,
+                                                               const Assets::ThumbnailOrbit&         orbit )
+    {
+        // Refused BEFORE the shared checks queue anything: a static mesh posed would stage a skinned
+        // component on geometry with no skeleton and photograph nothing.
+        if ( static_cast<uint64_t>( meshHandle ) != 0 )
+        {
+            const auto* mesh = Runtime::ResourceRegistry::GetMeshService()->Get( meshHandle );
+            if ( mesh != nullptr && !mesh->IsSkinned() )
+                return Common::MakeFormattedError(
+                     "mesh {} is not skinned, so there is no pose to photograph for '{}'",
+                     static_cast<uint64_t>( meshHandle ), outPng );
+        }
+        // EVERY SLOT MUST HAVE A (Skinned x Forward) CELL, asked BEFORE anything is queued and by the rule the
+        // scene's material build refuses by (MaterialService::CellOf — the rule
+        // CreateSurfaceMaterial builds by). The
+        // scene answers a missing cell by substituting its default material; a thumbnail of THAT is a picture
+        // of a material the mesh does not have, so the capture is refused with the reason instead (THM1n-10).
+        // The pass does not change the answer for a skinned path: a template with a Surface block has every
+        // cell, one without has only (Static x Forward).
+        auto* materials = Runtime::ResourceRegistry::GetMaterialService();
+        if ( materials == nullptr )
+            return Common::MakeFormattedError( "there is no material service to ask skinned mesh {}'s slots "
+                                               "for a (Skinned x Forward) cell, for '{}'",
+                                               static_cast<uint64_t>( meshHandle ), outPng );
+        const auto ownSlots = MeshOwnSlots( meshHandle );
+        if ( !ownSlots )
+            return Common::MakeFormattedError( "skinned mesh {} cannot be photographed for '{}': {}",
+                                               static_cast<uint64_t>( meshHandle ), outPng, ownSlots.GetError() );
+        for ( const auto& slot : ownSlots.GetValue() )
+        {
+            if ( slot.IsNull() )
+                continue; // unassigned: the engine's default skinned material, which every path has
+            if ( const auto cell =
+                      materials->CellOf( slot, Graphic::MeshVertexPath::Skinned, Graphic::MeshPass::Forward );
+                 !cell )
+                return Common::MakeFormattedError( "skinned mesh {} cannot be photographed for '{}': {}",
+                                                   static_cast<uint64_t>( meshHandle ), outPng, cell.GetError() );
+        }
+
+        auto queued = RequestMesh( meshHandle, outPng, orbit );
+        if ( !queued.IsSuccess() )
+            return queued;
+
+        // A SKINNED MESH IS FRAMED AS IT IS DRAWN. Its submesh boxes are raw-vertex space, which is the drawn
+        // mesh only when the bind is identity; TwoJointProbe's boxes said 80 cm while the bind drew it at a
+        // different size, and the camera photographed the sky from inside it. The posed vertices cannot lie.
+        const auto* mesh = Runtime::ResourceRegistry::GetMeshService()->Get( meshHandle );
+        // IsSkinned() is the mesh's own type tag: a skinned mesh IS a SkinnedMesh.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+        const auto* skinnedMesh = static_cast<const Desert::SkinnedMesh*>( mesh );
+        const auto  animator    = BuildPoseAnimator( *skinnedMesh, clip );
+        const auto  box =
+             Geometry::MeasurePosedVertices( skinnedMesh->GetVertices(), animator->GetPose().Matrices );
+        const auto frame = ThumbnailFraming::FrameOfBox( box.Min, box.Max );
+        if ( !frame.Valid )
+        {
+            m_Phase = 0; // withdrawn: the request above queued it before the pose could be measured
+            return Common::MakeFormattedError(
+                 "skinned mesh {} keeps no CPU vertices to measure its pose by, so there is no frame to put a "
+                 "camera on for '{}'",
+                 static_cast<uint64_t>( meshHandle ), outPng );
+        }
+        m_PendingFrame   = frame;
+        m_PendingSubject = Subject::Pose;
+        m_PendingClip    = std::move( clip );
+        return queued;
+    }
+
+    void AssetThumbnailRenderer::StagePose()
+    {
+        auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
+        smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+        smc.Primitive.reset();
+        smc.MaterialSlots.clear();
+        smc.RuntimeMaterialInstances.clear();
+        ECS::ClearEditableMesh( smc );
+
+        // As PreviewViewport::SetSkinnedMesh + ApplyAnimationTime stage it: this scene runs no
+        // AnimationECSSystem either, so the animator is built here and evaluated once.
+        auto& skinned         = m_Target.AddComponent<ECS::SkinnedMeshComponent>();
+        skinned.MeshHandle    = m_PendingHandle;
+        skinned.MaterialSlots = m_PendingSlots; // resolved (or refused) at RequestMesh
+        auto& anim            = m_Target.AddComponent<ECS::AnimationComponent>();
+        anim.CurrentClip      = m_PendingClip ? m_PendingClip->GetClip().AnimationName : std::string();
+        anim.Playing          = false;
+        anim.Loop             = true;
+
+        if ( auto* mesh = Runtime::ResourceRegistry::GetMeshService()->Get( m_PendingHandle );
+             mesh != nullptr && mesh->IsSkinned() )
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast) -- IsSkinned() is the type tag
+            anim.Animator = BuildPoseAnimator( *static_cast<Desert::SkinnedMesh*>( mesh ), m_PendingClip );
+        }
+        m_FitFrame = m_PendingFrame;
+        FitTarget( m_PendingFrame.Center, m_PendingFrame.Extent );
+    }
+
+    void AssetThumbnailRenderer::PinDomeCamera()
+    {
+        if ( !m_DomeCamera )
+            m_DomeCamera = std::make_shared<::Desert::Core::GameplayCamera>();
+
+        // PINNED, not merely set active: Scene::OnUpdate re-picks the camera from the play state every
+        // frame, so a plain SetActiveCamera survives exactly one frame before the scene's own
+        // EditorCamera takes the view back.
+        //
+        // AND THE PIN IS WHY THE OBJECT CAMERA STOPS MOVING AFTERWARDS. PinActiveCamera also mutes the
+        // scene's EditorCamera, which until now polled the global mouse from inside this offscreen
+        // scene — so an object capture's subject was framed against wherever the person happened to be
+        // flying the real viewport. FitTarget reads the pose from the camera's own matrices, so the
+        // picture was right either way; from here it is also REPRODUCIBLE.
+        m_DomeCamera->SetFromTransform( glm::vec3( 0.0f, kDomeEyeHeight, 0.0f ),
+                                        glm::vec3( kDomePitch, kDomeYaw, 0.0f ), kDomeFov, kDomeNearPlane,
+                                        kDomeFarPlane, kRenderSize, kRenderSize );
+        m_Scene->PinActiveCamera( m_DomeCamera );
+    }
+
+    void AssetThumbnailRenderer::ResetPreviewScene()
+    {
+        // The subject: a pose capture's two components go, the static mesh component is emptied.
+        if ( m_Target.HasComponent<ECS::AnimationComponent>() )
+            m_Target.RemoveComponent<ECS::AnimationComponent>();
+        if ( m_Target.HasComponent<ECS::SkinnedMeshComponent>() )
+            m_Target.RemoveComponent<ECS::SkinnedMeshComponent>();
+        auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
+        smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+        smc.Primitive.reset();
+        smc.MaterialSlots.clear();
+        smc.RuntimeMaterialInstances.clear();
+        ECS::ClearEditableMesh( smc );
+
+        // The layers: switched OFF rather than destroyed — destroying the deck would give back its 10 MiB
+        // and pay for it again on the next cloud material, of which this project has 52.
+        if ( m_CloudLayer && m_CloudLayer.HasComponent<ECS::VolumetricCloudComponent>() )
+            m_CloudLayer.GetComponent<ECS::VolumetricCloudComponent>().Data.Enabled = false;
+        if ( m_SkyboxLayer )
+            m_SkyboxLayer.GetComponent<ECS::SkyboxComponent>().SkyboxHandle = Assets::AssetHandle();
+        m_SkyAtmosphere.GetComponent<ECS::SkyAtmosphereComponent>().Data.Enabled = true;
+
+        // The camera Scene::Init made, by name. Unpinning alone would leave the DOME camera active until
+        // the scene's next OnUpdate — which is after FitTarget has already framed against it.
+        if ( m_DomeCamera && m_ObjectCamera )
+        {
+            m_Scene->PinActiveCamera( nullptr );
+            m_Scene->SetActiveCamera( m_ObjectCamera );
+        }
+        m_FitFrame.reset();
+    }
+
+    bool AssetThumbnailRenderer::StageSubject()
     {
         auto& smc = m_Target.GetComponent<ECS::StaticMeshComponent>();
 
@@ -396,13 +681,27 @@ namespace Desert::Editor
         // Nothing rides the mesh path here — a cloud material has no surface to put on a ball, and the
         // mesh path would refuse it by name anyway (MeshRenderer::DrawGenericMeshes). What is photographed
         // is the SKY it authors, from a camera standing on a rise and looking up.
-        if ( m_PendingSubject == Subject::Material && m_PendingPreview == ThumbnailSubject::Preview::SkyDome )
+        if ( IsDomeCapture() )
         {
             smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
             smc.Primitive.reset();
             smc.MaterialSlots.clear();
             smc.RuntimeMaterialInstances.clear();
             ECS::ClearEditableMesh( smc );
+
+            if ( m_PendingSky )
+            {
+                // THE SKY IS THE MATERIAL'S HDR, drawn by the scene's skybox from the same ground camera.
+                if ( !m_SkyboxLayer )
+                {
+                    m_SkyboxLayer = m_Scene->CreateNewEntity( "ThumbSkybox" );
+                    m_SkyboxLayer.AddComponent<ECS::SkyboxComponent>();
+                }
+                m_SkyboxLayer.GetComponent<ECS::SkyboxComponent>().SkyboxHandle          = *m_PendingSky;
+                m_SkyAtmosphere.GetComponent<ECS::SkyAtmosphereComponent>().Data.Enabled = false;
+                PinDomeCamera();
+                return true;
+            }
 
             if ( !m_CloudLayer )
             {
@@ -421,43 +720,16 @@ namespace Desert::Editor
             cloud.Data.StopTransmittance = kDomeStopTransmittance;
             cloud.Data.VolumeResolution  = kDomeVolumeResolution;
 
-            if ( !m_DomeCamera )
-                m_DomeCamera = std::make_shared<::Desert::Core::GameplayCamera>();
-
-            // PINNED, not merely set active: Scene::OnUpdate re-picks the camera from the play state every
-            // frame, so a plain SetActiveCamera survives exactly one frame before the scene's own
-            // EditorCamera takes the view back.
-            //
-            // AND THE PIN IS WHY THE OBJECT CAMERA STOPS MOVING AFTERWARDS. PinActiveCamera also mutes the
-            // scene's EditorCamera, which until now polled the global mouse from inside this offscreen
-            // scene — so an object capture's subject was framed against wherever the person happened to be
-            // flying the real viewport. FitTarget reads the pose from the camera's own matrices, so the
-            // picture was right either way; from here it is also REPRODUCIBLE.
-            m_DomeCamera->SetFromTransform( glm::vec3( 0.0f, kDomeEyeHeight, 0.0f ),
-                                            glm::vec3( kDomePitch, kDomeYaw, 0.0f ), kDomeFov, kDomeNearPlane,
-                                            kDomeFarPlane, kRenderSize, kRenderSize );
-            m_Scene->PinActiveCamera( m_DomeCamera );
-            return;
+            PinDomeCamera();
+            return true;
         }
 
-        // ── NOT THE DOME: TAKE IT DOWN ────────────────────────────────────────────────────────────────
-        //
-        // The scene is shared between the three pictures, so the layer has to be switched off rather than
-        // merely not switched on: a live deck would otherwise sit over every material and mesh captured
-        // after the first cloud one. Off rather than destroyed, because destroying it would give back the
-        // 10 MiB and then pay for it again on the next cloud material, of which this project has 52.
-        if ( m_CloudLayer && m_CloudLayer.HasComponent<ECS::VolumetricCloudComponent>() )
-            m_CloudLayer.GetComponent<ECS::VolumetricCloudComponent>().Data.Enabled = false;
-
-        // The camera Scene::Init made, by name. Unpinning alone would leave the DOME camera active until
-        // the scene's next OnUpdate — which is after FitTarget has already framed against it.
-        if ( m_DomeCamera && m_ObjectCamera )
+        // ── NOT THE DOME: the base scene ResetPreviewScene left is already the object scene ─────────────
+        if ( m_PendingSubject == Subject::Pose )
         {
-            m_Scene->PinActiveCamera( nullptr );
-            m_Scene->SetActiveCamera( m_ObjectCamera );
+            StagePose();
         }
-
-        if ( m_PendingSubject == Subject::Mesh )
+        else if ( m_PendingSubject == Subject::Mesh )
         {
             // Asset mesh, auto-framed by its bounds. Apply the mesh's linked (sidecar) material to every slot
             // if one was provided, so the preview shows the real look instead of a flat default gray.
@@ -466,33 +738,25 @@ namespace Desert::Editor
             smc.RuntimeMaterialInstances.clear();
             smc.MeshHandle = m_PendingHandle;
 
-            glm::vec3 center( 0.0f );
-            float     extent = 1.0f;
+            // Framed by the asset's bounds measured at the request (RequestMesh refused a mesh without them).
             if ( auto* mesh = Runtime::ResourceRegistry::GetMeshService()->Get( m_PendingHandle ) )
             {
-                // Union of the submesh AABBs in MESH space — ThumbnailFraming::MeasureSubmeshes, shared
-                // with the material branch below so both frame what is actually drawn.
-                if ( const auto frame = ThumbnailFraming::MeasureSubmeshes( mesh->GetSubmeshes() ); frame.Valid )
-                {
-                    center = frame.Center;
-                    extent = frame.Extent;
-                }
-
                 // Slot count = submesh count; a sidecar material wears every slot. Without one, THE MESH'S OWN
                 // SLOTS — the .demat each submesh names by GUID, as an imported mesh carries them and as the
                 // scene draws them (MeshECSSystem). Clearing them here photographed every import in the
-                // fallback grey. ResolveMesh waited for their closure, so they resolve now.
+                // fallback grey. Resolved once at the request, which refuses an unresolved slot by index.
                 if ( static_cast<uint64_t>( m_PendingMaterial ) != 0 )
                     smc.MaterialSlots.assign( std::max<size_t>( 1, mesh->GetSubmeshes().size() ),
                                               m_PendingMaterial );
                 else
-                    smc.MaterialSlots = MeshOwnSlots( m_PendingHandle );
+                    smc.MaterialSlots = m_PendingSlots; // resolved (or refused) at RequestMesh
             }
             else
             {
                 smc.MaterialSlots.clear();
             }
-            FitTarget( center, extent );
+            m_FitFrame = m_PendingFrame;
+            FitTarget( m_PendingFrame.Center, m_PendingFrame.Extent );
         }
         else
         {
@@ -500,7 +764,7 @@ namespace Desert::Editor
             // rebuild against the current material handle. Always the sphere: a masked material is cut by
             // the mesh path's alpha discard, so its blades show against the backdrop.
             smc.MeshHandle    = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
-            smc.Primitive     = Geometry::PrimitiveType::Sphere;
+            smc.Primitive     = PrimitiveFor( m_PendingThumbnail.Primitive );
             smc.MaterialSlots = { m_PendingHandle };
             smc.RuntimeMaterialInstances.clear();
             ECS::ClearEditableMesh( smc ); // drop any previously-built primitive so the type change rebuilds
@@ -514,23 +778,26 @@ namespace Desert::Editor
             // the migrated camera no longer looks at), the capture came out as the flank of a 400-unit
             // sphere the camera was practically resting on: a wall of albedo under sky, with no sphere in
             // it. See ThumbnailFraming for the framing rule and the measured geometry.
-            glm::vec3 matCenter( 0.0f );
-            float     matExtent = 1.0f;
-            if ( auto* prim = Geometry::PrimitiveMeshFactory::GetShared( *smc.Primitive ) )
+            // No stand-in: a sphere that cannot be measured is not photographed (TickCapture abandons it).
+            const auto* prim  = Geometry::PrimitiveMeshFactory::GetShared( *smc.Primitive );
+            const auto  frame = prim != nullptr ? ThumbnailFraming::MeasureSubmeshes( prim->GetSubmeshes() )
+                                                : ThumbnailFraming::Frame{};
+            if ( !frame.Valid )
             {
-                if ( const auto frame = ThumbnailFraming::MeasureSubmeshes( prim->GetSubmeshes() ); frame.Valid )
-                {
-                    matCenter = frame.Center;
-                    matExtent = frame.Extent;
-                }
+                LOG_ERROR( "[AssetThumbnailRenderer] the preview sphere has no measurable bounds, so '{}' is not "
+                           "captured",
+                           m_PendingPng );
+                return false;
             }
-            FitTarget( matCenter, matExtent );
+            m_FitFrame = frame;
+            FitTarget( frame.Center, frame.Extent );
         }
+        return true;
     }
 
     bool AssetThumbnailRenderer::DomeIsStillSettling()
     {
-        if ( m_PendingSubject != Subject::Material || m_PendingPreview != ThumbnailSubject::Preview::SkyDome )
+        if ( !IsDomeCapture() )
             return false;
 
         if ( m_DomeFrames >= kDomeMaxSettleFrames )
@@ -554,6 +821,13 @@ namespace Desert::Editor
         // in flight restarts the window rather than merely extending it.
         if ( m_Renderer->IsCloudVolumeBaking() )
             m_DomeSettle = kDomeSettleFrames;
+        // A skybox dome's HDR still on the loader: nothing to photograph yet, so the window restarts too.
+        if ( m_PendingSky )
+        {
+            auto* skies = Runtime::ResourceRegistry::GetSkyboxService();
+            if ( skies != nullptr && !skies->Get( *m_PendingSky ) )
+                m_DomeSettle = kDomeSettleFrames;
+        }
 
         if ( m_DomeSettle <= 0 )
             return false;
@@ -600,7 +874,24 @@ namespace Desert::Editor
         // the two paths resolve a material differently, so a preview taken on one proves nothing about the
         // other (Docs/MaterialEditor/STAGE1_END_TO_END.md). Every capture below now goes through
         // MaterialSlots, the per-slot route the scene itself uses.
-        StageSubject();
+        // ONCE PER CAPTURE: the scene back to its base, then this capture's subject into it. Every later
+        // warm-up tick only re-fits the object to the camera's current matrices.
+        if ( !m_Staged )
+        {
+            ResetPreviewScene();
+            if ( !StageSubject() )
+            {
+                // Nothing measurable to frame, and StageSubject said so: abandoned like a scene that would
+                // not initialise, so no picture of the backdrop is written as the asset.
+                m_Phase = 0;
+                return;
+            }
+            m_Staged = true;
+        }
+        else if ( m_FitFrame )
+        {
+            FitTarget( m_FitFrame->Center, m_FitFrame->Extent );
+        }
 
         // Render this frame (recorded into the editor's in-flight frame, submitted at frame end).
         RecordRender();

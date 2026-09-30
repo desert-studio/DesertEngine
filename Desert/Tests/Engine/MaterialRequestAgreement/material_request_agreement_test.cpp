@@ -79,6 +79,20 @@ namespace
         const Common::Json::Node root = Common::Json::Root( parsed.GetValue() );
         EXPECT_EQ( root.GetKind(), Common::Json::Kind::Object ) << path;
 
+        // The template the author asked for is part of the request (SURF2): read the file's Shader
+        // reference, so an absent one is the file's silence and not this reader's.
+        if ( const auto shader = root.Find( "Shader" ) )
+        {
+            AssetGuidRef ref;
+            if ( const auto guid = shader->Find( "Guid" ) )
+                if ( const auto text = guid->AsString() )
+                    ref.Guid = text.GetValue();
+            if ( const auto where = shader->Find( "Path" ) )
+                if ( const auto text = where->AsString() )
+                    ref.Path = text.GetValue();
+            data.Shader = std::move( ref );
+        }
+
         const auto params = root.Find( "Params" );
         if ( !params.has_value() )
             return data;
@@ -197,6 +211,15 @@ TEST( MaterialRequestAgreement, EveryShippedDemoMaterialStillSaysWhatItsAuthorAs
 
         const MaterialData onDisk = LoadMaterialFile( path );
         ASSERT_FALSE( onDisk.Params.empty() ) << path << " parsed to no parameters at all";
+        // The template is part of what the author asked: glass params on the Default Surface template would be
+        // params with no row (SURF2). An empty Template is the Default Surface one, which the file states too.
+        if ( !demo.Template.empty() )
+        {
+            if ( !onDisk.Shader.has_value() )
+                FAIL() << path << " states no template";
+            EXPECT_EQ( onDisk.Shader->Guid, demo.Template )
+                 << path << " is authored on a different template than DemoMaterials.hpp names";
+        }
         const auto divergences = DiffRequestedParams( demo.Params, onDisk );
         EXPECT_TRUE( divergences.empty() )
              << path << " has drifted from Editor/Core/DemoMaterials.hpp, which is what generated it: "
@@ -213,7 +236,7 @@ TEST( MaterialRequestAgreement, AnUnknownDemoMaterialIsRefusedRatherThanAnswered
 {
     EXPECT_EQ( FindDemoMaterial( "CB_NoSuchMaterial" ), nullptr );
     ASSERT_NE( FindDemoMaterial( "CB_Red" ), nullptr );
-    EXPECT_FALSE( FindDemoMaterial( "CB_Red" )->empty() );
+    EXPECT_FALSE( FindDemoMaterial( "CB_Red" )->Params.empty() );
 }
 
 int main( int argc, char** argv )

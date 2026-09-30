@@ -35,8 +35,8 @@
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 
 using Desert::Graphic::InstancedRecorder;
+using Desert::Graphic::MeshCellFor;
 using Desert::Graphic::MeshPass;
-using Desert::Graphic::MeshShaderFor;
 using Desert::Graphic::MeshVertexPath;
 using Desert::Graphic::SelectInstancedRecorder;
 
@@ -83,8 +83,8 @@ TEST( InstancedRecorder, AGroupWithNoAssetIsRecordedByTheRendererSpare )
 // surfaces are no longer batched". Both cells exist; this is what fails if one is removed.
 TEST( InstancedRecorder, BothInstancedCellsOfThePbrSurfaceExist )
 {
-    EXPECT_NE( MeshShaderFor( MeshVertexPath::Instanced, MeshPass::Forward ), nullptr );
-    EXPECT_NE( MeshShaderFor( MeshVertexPath::Instanced, MeshPass::GBuffer ), nullptr );
+    EXPECT_NE( MeshCellFor( MeshVertexPath::Instanced, MeshPass::Forward ), nullptr );
+    EXPECT_NE( MeshCellFor( MeshVertexPath::Instanced, MeshPass::GBuffer ), nullptr );
 }
 
 int main( int argc, char** argv )

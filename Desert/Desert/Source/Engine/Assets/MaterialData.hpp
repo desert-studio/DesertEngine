@@ -13,6 +13,7 @@
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Core/Formats/SamplerState.hpp>
+#include <Engine/Assets/ThumbnailInfo.hpp>
 
 namespace Desert::Assets
 {
@@ -51,8 +52,8 @@ namespace Desert::Assets
     //
     // A material is a shader + parameter values, nothing else (Unity model). The shader's schema
     // (declared in the .shader file) defines which params exist, their types, ranges and UI; this
-    // struct only stores the values by name. The optimized PBR backend consumes a typed VIEW of
-    // these values (PBRSurfaceParams) — an implementation detail, not part of the protocol.
+    // struct only stores the values by name; the renderer binds them through the template's MaterialLayout
+    // (MaterialBinder), which also answers the default of every parameter the material does not state.
     struct MaterialData
     {
         // First member: the text header (kind Material, GUID, MATL schema version). Stamped and checked
@@ -75,12 +76,27 @@ namespace Desert::Assets
         // the handle a shader registers under.
         std::vector<MaterialAssetRef> CloudAssets;
 
-        // THE MESH THIS MATERIAL IS PHOTOGRAPHED ON (UE: UMaterial's ThumbnailInfo / PreviewMesh), by the mesh's
-        // header GUID (its `.deimport` or `.stmesh` header); `Path` is the mesh SOURCE relative to the assets
-        // root, a locator only. Absent -> the thumbnail draws the sphere. An import states the mesh it came
-        // from, so a grass atlas previews as the tuft it was authored for rather than cut out of a ball.
-        // Optional and additive: a file without it is the same MATL 4 material, so no schema step.
-        std::optional<AssetGuidRef> PreviewMesh;
+        // HOW THIS MATERIAL IS PHOTOGRAPHED (UE: UMaterial::ThumbnailInfo, a USceneThumbnailInfoWithPrimitive
+        // stored in the package): the primitive, its own preview mesh instead of it, and the orbit — the one home
+        // of all three (ThumbnailInfo.hpp). Absent = the default info (the sphere, straight on), and so is every
+        // absent member of it (ThumbnailInfoRecord). Its PreviewMesh is a stated dependency of the header like
+        // any other reference. Read it through ThumbnailOrDefault, write it through SetThumbnail.
+        std::optional<ThumbnailInfoRecord> Thumbnail;
+
+        [[nodiscard]] ThumbnailInfo ThumbnailOrDefault() const
+        {
+            return Thumbnail.has_value() ? Resolve( *Thumbnail ) : ThumbnailInfo{};
+        }
+
+        /// The one spelling of an edit of the info: the default info is written as no key, a default member of
+        /// it as no member (a stated default would give one picture two spellings).
+        void SetThumbnail( const ThumbnailInfo& info )
+        {
+            if ( info == ThumbnailInfo{} )
+                Thumbnail.reset();
+            else
+                Thumbnail = ToRecord( info );
+        }
 
         // MATERIAL INSTANCE (UE model): when set, this asset is a CHILD of the material whose header GUID this
         // names (32 hex digits, AssetGuidToText), and Params/Textures hold ONLY the overridden values - the
@@ -304,8 +320,8 @@ namespace Desert::Assets
                 add( r.Guid );
             for ( const auto& r : CloudAssets )
                 add( r.Guid );
-            if ( PreviewMesh.has_value() )
-                add( PreviewMesh->Guid );
+            if ( Thumbnail.has_value() && Thumbnail->PreviewMesh.has_value() )
+                add( Thumbnail->PreviewMesh->Guid );
             return out;
         }
 

@@ -35,6 +35,17 @@ namespace Desert::Editor
             return assimp.Import( fbx, manager );
         }
 
+        // The converted FBX's kind (the conversion is the same cached one Import runs).
+        Common::ResultStr<ImportContentKind> Probe( const std::filesystem::path& blendPath ) override
+        {
+            const std::filesystem::path fbx = ConvertToFbx( blendPath );
+            if ( fbx.empty() )
+                return Common::MakeFormattedError<ImportContentKind>(
+                     "'{}' was not converted to FBX (see the Blender error above)", blendPath.string() );
+            AssimpImporter assimp;
+            return assimp.Probe( fbx );
+        }
+
     private:
         // Where converted FBXs (and their copied textures) live — a DERIVED intermediate, so the DDC's
         // BlendConvert bucket (deletable, never committed; AF8b took it out of the project's Cooked/ tree),

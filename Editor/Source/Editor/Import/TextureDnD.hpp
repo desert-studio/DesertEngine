@@ -3,11 +3,22 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Graphic/Image.hpp>
 
+#include <filesystem>
 #include <memory>
 #include <string>
 
+namespace Desert::Editor
+{
+    class ImportManager;
+}
+
 namespace Desert::Editor::TextureDnD
 {
+    // Import @p sourcePath through @p importer, create its TextureAsset and register it with the runtime's
+    // TextureService; the handle it is keyed by, or a zero handle on failure.
+    Assets::AssetHandle ImportAndRegister( ImportManager& importer, Assets::AssetManager& mgr,
+                                           const std::filesystem::path& sourcePath );
+
     // Drag-and-drop / import glue for textures. The File Explorer emits SOURCE paths
     // (Resources/Textures/foo.png) but textures are registered from their `.detex` assets, so a path
     // match misses — these helpers bridge source paths to registered runtime-texture handles.

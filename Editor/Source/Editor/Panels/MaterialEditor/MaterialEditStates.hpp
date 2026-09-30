@@ -51,8 +51,7 @@ namespace Desert::Editor::MaterialEdit
             return false;
         // The thumbnail's mesh (UE ThumbnailInfo) is authored and saved with the material: compared by GUID,
         // so a moved locator beside the same mesh is not an edit.
-        if ( a.PreviewMesh.has_value() != b.PreviewMesh.has_value() ||
-             ( a.PreviewMesh && a.PreviewMesh->Guid != b.PreviewMesh->Guid ) )
+        if ( a.Thumbnail != b.Thumbnail )
             return false;
 
         if ( a.Params.size() != b.Params.size() || a.Textures.size() != b.Textures.size() ||
@@ -90,7 +89,7 @@ namespace Desert::Editor::MaterialEdit
         destination.Params      = source.Params;
         destination.Textures    = source.Textures;
         destination.CloudAssets = source.CloudAssets;
-        destination.PreviewMesh = source.PreviewMesh;
+        destination.Thumbnail   = source.Thumbnail;
     }
 
     // THE TWO "DIRTY"S, AND THEY ARE NOT ONE FLAG.

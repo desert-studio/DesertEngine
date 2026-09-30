@@ -1,197 +1,38 @@
 // DesertAsset {"Kind":"Shader","Guid":"2cd21e52ff88b0c7a42c25d9a6ab4238","Versions":{"SHDR":1},"Dependencies":[]}
+// The glass surface template (UE: a DefaultLit material with BlendMode Translucent and a Refraction input). Like
+// every `Domain Surface` shader it is a Properties block plus ONE surface function; being Translucent, the parser
+// gives it Forward cells only, built on Mesh/Surface/Pass_Forward_Translucent.glslh, and the mesh renderer draws
+// its objects in the translucency pass BECAUSE the template is translucent (ShaderProgramMeta::Blend) — no
+// renderer code reads a parameter of it to decide. Its identity is the GUID above, kept from the hand-written
+// StaticMeshGlass program this template replaces.
 Shader "StaticMeshGlass"
 {
-    // Forward transparent (glass) pass for static meshes: shares Static.glsl.vert + the Materials[] SSBO with
-    // StaticMeshPBR so material data binds unchanged, but shades glass (Fresnel edge + specular + transmission)
-    // and blends over the composited scene. Selected for materials with Transmission > 0.
+    Domain Surface
+    BlendMode Translucent
 
-    // ONE parameter layout for every PBR pass (forward, instanced, GBuffer, skinned, glass): the renderer
-    // writes one Materials[] row per object from the forward material and every pass reads it, so these
-    // rows are identical by contract — ShippedShaderPasses.EveryPBRPassDeclaresTheOneRowLayout holds them equal.
-    // Texture slots are not part of the row: glass offers only the maps it samples (no albedo, no opacity —
-    // its colour is GlassTint and its coverage is Transmission), so the Material Editor draws no dead slot.
+    // The glass's own row: what its surface reads and nothing else. Its colour is the tint the scene behind it is
+    // seen through; its coverage is the refraction itself (the pass writes it opaque over the scene it bent).
     Properties Binding(2)
     {
-        Color       AlbedoColor ("Albedo", Category("Surface")) = (1, 1, 1, 1)
-        Float       MetallicFactor ("Metallic", Range(0,1), Category("Surface")) = 0
-        Float       RoughnessFactor ("Roughness", Range(0,1), Category("Surface")) = 0.5
-        Float       AOStrength ("Ambient Occlusion", Range(0,1), Category("Surface")) = 1
-        Color       EmissiveColor ("Emissive", Category("Surface")) = (0, 0, 0, 1)
-        Float       EmissiveIntensity ("Emissive Intensity", Range(0,100), Category("Surface")) = 1
-        Float       AlphaCutoff ("Alpha Cutoff", Range(0,1), Category("Surface")) = 0
-        Float       Transmission ("Transmission", Range(0,1), Category("Glass")) = 0
-        Float       IOR ("IOR", Range(1,2.5), Category("Glass")) = 1.5
         Color       GlassTint ("Glass Tint", Category("Glass")) = (1, 1, 1, 1)
-        Vec2        UVTiling ("UV Tiling", Category("Surface")) = (1, 1)
-        Vec2        UVOffset ("UV Offset", Category("Surface")) = (0, 0)
-        Float       UVRotation ("UV Rotation", Range(-3.14159,3.14159), Category("Surface")) = 0
-        Float       NormalScale ("Normal Scale", Range(0,4), Category("Surface")) = 1
-        Float       OcclusionStrength ("Occlusion Strength", Range(0,1), Category("Surface")) = 1
-        // Which channel of u_OpacityTexture is the mask: 0 = R of a separate opacity map, 3 = A (the importer binds the
-        // albedo texture itself there for a glTF MASK). Stated, never guessed from the bound texture's size.
-        Float       OpacityChannel ("Opacity Channel", Range(0,3), Category("Surface")) = 0
-        // Material half of the sun-shadow receive decision; the renderer also zeroes it for a mesh whose
-        // Receive Shadows toggle is off, so a surface skips the sun shadow when EITHER says so.
-        Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
-        // The ONE slot whose empty state is not white. A normal map is unpacked with `2*t - 1`, so a
-        // white texel decodes to a normalised (1,1,1) — a normal tilted 54 degrees off the surface —
-        // whereas (0.5,0.5,1) decodes to +Z, which is what "this surface has no normal detail" means.
-        // The fragment stages here, in StaticMeshGBuffer and in StaticMeshPBR_Instanced all guard with
-        // `textureSize(u_NormalTexture,0).x > 1` and skip a 1x1, so this changes no pixel today; it is
-        // written down so the guard is a fast path rather than the only thing standing between an empty
-        // slot and a wrong normal.
+        Float       IOR ("IOR", Range(1,2.5), Category("Glass")) = 1.5
+        // Empty = flat (0.5,0.5,1): a normal map is unpacked with `2*t - 1`, and a white texel is not "no detail".
         Texture2D   u_NormalTexture ("Normal Map", Category("Textures")) = "normal"
     }
 
-    Vertex
+    Surface
     {
-        In(0) vec3 a_Position;
-        In(1) vec3 a_Normal;
-        In(2) vec3 a_Tangent;
-        In(3) vec3 a_Bitangent;
-        In(4) vec2 a_TextureCoord;
+        layout( binding = 12 ) uniform sampler2D u_NormalTexture;
 
-        #include <Common/CameraUB.glslh>
-
-        // The ONE engine push block (Transform, MaterialIndex, BoneOffset, wind): the parser injects the same
-        // header into the fragment stage, so both stages of this pipeline reflect one range of one length.
-        // This stage reads Transform only.
-        #include <Common/MaterialTransport.glslh>
-
-
-        Out(0) Vertex
+        SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
-        	vec3 WorldPosition;
-        	vec3 Normal;
-        	vec2 Texcoord;
-        	mat3 TBN;
-        	vec3 CameraPosition;
-        } outVertex;
-
-        void main()
-        {
-        	outVertex.WorldPosition  = vec3(m_PushConstants.Transform * vec4(a_Position, 1.0));
-        	outVertex.Texcoord       = vec2(a_TextureCoord.x, 1.0 - a_TextureCoord.y);
-        	outVertex.CameraPosition = cameraUB.CameraPos;
-
-        	mat3 normalMatrix = transpose(inverse(mat3(m_PushConstants.Transform)));
-
-        	vec3 T = normalize(normalMatrix * a_Tangent);
-        	vec3 B = normalize(normalMatrix * a_Bitangent);
-        	vec3 N = normalize(normalMatrix * a_Normal);
-
-        	outVertex.Normal = N;
-        	outVertex.TBN    = mat3(T, B, N);
-
-        	gl_Position = cameraUB.Projection * cameraUB.View * m_PushConstants.Transform * vec4(a_Position, 1.0);
-        }
-    }
-
-    Fragment
-    {
-        // Forward TRANSPARENT (glass) fragment. Drawn over the composited opaque scene with alpha blending. v1:
-        // clear glass — Fresnel-bright reflective edges + a sun specular highlight + see-through centre (alpha from
-        // transmission). Background TINT + screen-space REFRACTION are v2 (need the scene colour bound as a texture).
-        //
-        // IT DECLARES WHAT IT READS AND NOTHING ELSE. This file used to declare twelve descriptors it never
-        // sampled — the four cascade maps, ShadowUB, the irradiance cube, the BRDF LUT, the albedo and
-        // opacity maps, the two light SSBOs and the lights-metadata block — and touch every one through a
-        // `keep` sum multiplied by 1e-20, so that its reflected layout would stay identical to the forward
-        // mesh shader's. The comment that stood here said why: the pass was drawn with the shared
-        // StaticMaterialPBR descriptor set.
-        //
-        // Neither half of that is true any more, and the second half stopped being true before the first.
-        // The glass pass has held its OWN material since it was split out (MeshRenderer::RenderGlassManual,
-        // MaterialPBR::Create(Static, Glass)), so its sets already came from this shader's reflection; the
-        // only code that would have bound a forward material against the glass pipeline was reached through
-        // MeshRenderer::m_GlassPass, a flag no line in the engine ever set to true. So the padding was
-        // holding a layout equal for a borrow that had already stopped happening.
-
-        In(0) Vertex
-        {
-        	vec3 WorldPosition;
-        	vec3 Normal;
-        	vec2 Texcoord;
-        	mat3 TBN;
-        	vec3 CameraPosition;
-        } inVertex;
-
-        Out(0) vec4 oColor;
-
-
-
-        struct DirectionLight { vec4 Direction; vec4 ColorIntensity; };
-        Uniform(3) DirectionLightsUB { DirectionLight directionLights; } directionLights;
-
-        // The specular cube is the ONE environment binding glass reads: it is a mirror term at grazing
-        // angles, not an ambient (Desert/Tests/Engine/AmbientIBL says the same thing from the other side).
-        // Slots keep the numbers the rest of the mesh family uses; the gaps are what this pass does not need.
-        #include <Common/TangentNormal.glslh>
-        Uniform(8) samplerCube u_EnvSpecularTex;
-        Uniform(12) sampler2D u_NormalTexture;
-        // The sky's look — how the two cubes above are read (Common/SkyLook.glslh). The same slot as
-        // the rest of the mesh family.
-        Uniform(22) SkyLookUB
-        {
-            vec4 YawCosSin; // xy = (cos yaw, sin yaw) — Graphic::SkyLookGPU
-            vec4 Gain;      // rgb = tint * intensity
-        } skyLook;
-        #include <Common/SkyLook.glslh>
-        Uniform(19) sampler2D u_SceneColor; // copy of the composited opaque scene (for refraction)
-
-        // THE CLOUD LAYER'S SHADOW ON THE WORLD — at the same slots as the four other mesh shaders. Glass
-        // is drawn FORWARD over the deferred composite, so like the skinned meshes it never saw the map.
-        // The only direct sun term this shader has is the specular hotspot below, and that is what the
-        // factor multiplies: a cloud between the sun and the glass takes the highlight away with it.
-        Uniform(20) sampler2D u_CloudShadowMap;
-        Uniform(21) CloudShadowUB {
-        	mat4 u_CloudShadowWorldToMap;
-        	vec4 u_CloudShadowParams;
-        };
-
-        #include <Common/CloudShadowReceiver.glslh>
-
-        void main()
-        {
-
-        	vec3  tint         = u_Material.GlassTint.rgb;
-        	float transmission = clamp(u_Material.Transmission, 0.0, 1.0);
-        	float ior          = max(u_Material.IOR, 1.0);
-
-        	vec3 N = normalize(inVertex.Normal);
-        	const ivec2 nrmSize = textureSize(u_NormalTexture, 0);
-        	if (nrmSize.x > 1 && nrmSize.y > 1)
-        		N = normalize(inVertex.TBN * SampleTangentNormal(u_NormalTexture, inVertex.Texcoord));
-
-        	vec3 V = normalize(inVertex.CameraPosition - inVertex.WorldPosition);
-
-        	// Schlick Fresnel with the IOR-derived normal reflectance (glass F0 ~0.04, water ~0.02).
-        	float f0        = pow((ior - 1.0) / (ior + 1.0), 2.0);
-        	float fresnel   = f0 + (1.0 - f0) * pow(1.0 - max(dot(N, V), 0.0), 5.0);
-
-        	// Sun specular highlight (glass is smooth -> a tight hotspot).
-        	vec3  L        = normalize(-directionLights.directionLights.Direction.xyz);
-        	vec3  H        = normalize(V + L);
-        	float spec     = pow(max(dot(N, H), 0.0), 128.0) * directionLights.directionLights.ColorIntensity.a
-        	               * CloudShadowFactor(inVertex.WorldPosition);
-
-        	// --- Screen-space REFRACTION: sample the composited scene behind the glass, bent by the surface normal
-        	// (so objects behind the sphere show through, distorted by IOR) + tinted. ---
-        	vec2 screenUV   = gl_FragCoord.xy / vec2(textureSize(u_SceneColor, 0));
-        	float bendScale = (1.0 - 1.0 / ior) * 0.35;                 // stronger IOR -> more bend
-        	vec2  refractUV = clamp(screenUV + N.xy * bendScale, vec2(0.001), vec2(0.999));
-        	vec3  refracted = texture(u_SceneColor, refractUV).rgb * tint;
-
-        	// Environment reflection at grazing edges (skybox); Fresnel mixes refraction (centre) -> reflection (edge).
-        	vec3 R       = reflect(-V, N);
-        	vec3 envRefl = ApplySkyGain(texture(u_EnvSpecularTex, SkyLookDirection(R, skyLook.YawCosSin.xy)).rgb,
-        	                            skyLook.Gain.rgb);
-
-        	vec3 color = mix(refracted, envRefl, fresnel) + vec3(spec);
-
-        	// Written opaque (the refraction already carries the background); the transmission factor only trims the
-        	// reflection strength for very clear glass.
-        	oColor = vec4(color, 1.0);
+            SurfaceOutput s = DefaultSurfaceOutput();
+            s.BaseColor     = u_Material.GlassTint.rgb;
+            s.Refraction    = u_Material.IOR;
+            const ivec2 normalSize = textureSize( u_NormalTexture, 0 );
+            if ( normalSize.x > 1 && normalSize.y > 1 )
+                s.Normal = SampleTangentNormal( u_NormalTexture, i.UV0 );
+            return s;
         }
     }
 }

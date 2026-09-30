@@ -8,10 +8,10 @@ namespace Desert::Reflection
 {
     // Fluent helper used by generated reflection code to assemble and register a TypeInfo.
     //
-    //   TypeBuilder( "PBRSurfaceParams", sizeof( PBRSurfaceParams ) )
-    //       .Field( { .Name = "AlbedoColor", .Type = FieldType::Vec4,
-    //                 .Offset = offsetof( PBRSurfaceParams, AlbedoColor ),
-    //                 .Size = sizeof( glm::vec4 ), .Meta = { .Category = "Surface", .IsColor = true } } )
+    //   TypeBuilder( "ExampleData", sizeof( ExampleData ) )
+    //       .Field( { .Name = "Tint", .Type = FieldType::Vec4,
+    //                 .Offset = offsetof( ExampleData, Tint ),
+    //                 .Size = sizeof( glm::vec4 ), .Meta = { .Category = "Camera", .IsColor = true } } )
     //       .Register();
     class TypeBuilder
     {

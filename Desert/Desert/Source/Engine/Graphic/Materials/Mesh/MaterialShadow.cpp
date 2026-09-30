@@ -3,17 +3,30 @@
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Graphic/ShaderProtocols/Camera.hpp>
 #include <Engine/Graphic/ShaderProtocols/SkinnedMaterialUB.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
+
+#include <Common/Core/Logger.hpp>
+
+#include <cstddef>
+#include <span>
 
 namespace Desert::Graphic
 {
     namespace
     {
-        // The shaders come from the ONE table (MeshShaderFor), so a caster variant cannot be named here
-        // and somewhere else and drift.
+        // The shaders come from the ONE table (MeshShaderFor) on the DEFAULT SURFACE template, found by that
+        // role, so a caster variant cannot be named here and somewhere else and drift.
         std::string ShadowShaderName( MeshVertexPath path )
         {
-            const char* name = MeshShaderFor( path, MeshPass::ShadowDepth );
-            return name ? std::string( name ) : std::string();
+            const auto name = Runtime::ResourceRegistry::GetMaterialService()->DefaultSurfaceShader(
+                 path, MeshPass::ShadowDepth );
+            if ( !name )
+            {
+                LOG_ERROR( "[MaterialShadow] no {} caster: {}", MeshVertexPathName( path ), name.GetError() );
+                return {};
+            }
+            return name.GetValue();
         }
     } // namespace
 
@@ -36,15 +49,23 @@ namespace Desert::Graphic
     {
     }
 
-    void MaterialShadow::SetLightMatrix( const glm::mat4& view, const glm::mat4& projection )
+    void WriteLightCamera( Material& material, const glm::mat4& view, const glm::mat4& projection )
     {
         ShaderProtocols::Camera cameraUB;
         cameraUB.Projection = projection;
         cameraUB.View       = view;
         cameraUB.CameraPos  = glm::vec3( 0.0f );
 
-        Get<UniformBufferProperty>( ShaderProtocols::Camera::Name )
-             ->SetRawData( reinterpret_cast<const std::byte*>( &cameraUB ), sizeof( cameraUB ) );
+        if ( auto* camera = material.Get<UniformBufferProperty>( ShaderProtocols::Camera::Name ) )
+        {
+            const auto bytes = std::as_bytes( std::span{ &cameraUB, 1 } );
+            camera->SetRawData( bytes.data(), bytes.size() );
+        }
+    }
+
+    void MaterialShadow::SetLightMatrix( const glm::mat4& view, const glm::mat4& projection )
+    {
+        WriteLightCamera( *this, view, projection );
     }
 
     void MaterialShadowSkinned::UploadBones( const std::vector<glm::mat4>& packedBoneMatrices )

@@ -8,6 +8,7 @@
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/AnimatorForSkeleton.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 
 #include "UIHelper/ImGuiUI.hpp"
@@ -966,24 +967,30 @@ namespace Desert::Editor
         if ( !m_Target || !m_Target.HasComponent<ECS::AnimationComponent>() )
             return true;
         auto& anim = m_Target.GetComponent<ECS::AnimationComponent>();
-        if ( !anim.Animator )
         {
             // THIS SCENE HAS NO AnimationECSSystem (it needs the editor's AnimationLibrary and AssetManager,
             // and its clock would fight the scrub), so nothing else ever builds the animator: waiting for "the
             // system's next update" left GetAnimator() null forever, which hid the bones, the Skeleton Tree
             // and every "Select Bone" command. The preview builds it itself, the same way the system does,
             // once the skinned mesh has resolved; until then the bind pose renders and the caller keeps
-            // rendering.
+            // rendering. And REBUILDS it the same way: a reimported rig is the same Skeleton with other bones,
+            // so the signature stamp, not the pointer, says the Animator is stale.
             Desert::Mesh* mesh = m_Target.HasComponent<ECS::SkinnedMeshComponent>()
                                       ? Runtime::ResourceRegistry::GetMeshService()->Get(
                                              m_Target.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle )
                                       : nullptr;
             if ( mesh == nullptr || !mesh->IsSkinned() )
-                return false;
-            // IsSkinned() above is the mesh's own type tag: a skinned mesh IS a SkinnedMesh.
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
-            const auto* skinned = static_cast<Desert::SkinnedMesh*>( mesh );
-            anim.Animator       = std::make_unique<Animation::Animator>( skinned->GetSkeleton() );
+            {
+                if ( !anim.Animator )
+                    return false;
+            }
+            else
+            {
+                // IsSkinned() above is the mesh's own type tag: a skinned mesh IS a SkinnedMesh.
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+                const Animation::Skeleton& skeleton = static_cast<Desert::SkinnedMesh*>( mesh )->GetSkeleton();
+                (void)Animation::EnsureAnimatorFor( anim.Animator, anim.BuiltSkeletonSignature, skeleton );
+            }
         }
         if ( !m_Clip )
         {
@@ -1357,15 +1364,11 @@ namespace Desert::Editor
         {
             ImGui::SetMouseCursor( ImGuiMouseCursor_Hand );
             // One sentence per camera, because they genuinely do different things: a promise of panning and
-            // zoom in a view that has neither would be describing a different widget, and a Static row that
-            // advertised dragging would be describing the editor window it opens.
-            if ( mode == PreviewInteraction::Static )
-                ImGui::SetTooltip( "Double-click to open" );
-            else
-                ImGui::SetTooltip( dome ? "Drag to look around - hold L and drag to move the sun - double-click "
-                                          "to reset"
-                                        : "Drag to orbit - right-drag to pan - wheel to zoom - hold L and drag "
-                                          "to move the sun - double-click to reset" );
+            // zoom in a view that has neither would be describing a different widget.
+            ImGui::SetTooltip( dome ? "Drag to look around - hold L and drag to move the sun - double-click "
+                                      "to reset"
+                                    : "Drag to orbit - right-drag to pan - wheel to zoom - hold L and drag "
+                                      "to move the sun - double-click to reset" );
         }
 
         return input;

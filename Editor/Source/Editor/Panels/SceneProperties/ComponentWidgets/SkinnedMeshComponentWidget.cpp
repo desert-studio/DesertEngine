@@ -6,18 +6,22 @@
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
-#include <Editor/Core/ThemeManager.hpp>
-#include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Editor/Import/ImportedMeshAsset.hpp>
+#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Widgets/ThumbnailKey.hpp>
+#include <Editor/Widgets/ThumbnailPose.hpp>
+#include <Editor/Widgets/ThumbnailCache.hpp>
+#include <Editor/Widgets/ThumbnailService.hpp>
 
-#include "Helper/MeshDetailsWidget.hpp"
+#include <string>
+#include <unordered_set>
+
 #include "MaterialsPanelComponent.hpp"
 
-#include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 
-#include <functional>
 #include <Editor/Core/AssetPickerRows.hpp>
 
 namespace Desert::Editor
@@ -26,74 +30,13 @@ namespace Desert::Editor
 
     namespace
     {
-        // WHO THIS PANEL IS, to the authoring context. One value, built once, because the owner is compared
-        // by value on every write and a fresh string per click would be two owners that merely look alike.
-        const Core::AuthoringOwner& BoneTreeOwner()
-        {
-            static const Core::AuthoringOwner s_Owner = Core::AuthoringOwner::ForPanel( "Details/Bone Tree" );
-            return s_Owner;
-        }
-
-        // What the vertex weights say about a rig. Real, checkable problems only — the engine has no
-        // fixed bone cap to warn about (the pose lives in a storage buffer that grows on demand), but a
-        // vertex no bone moves, or one pointing past the end of the skeleton, is a genuine bug.
-        struct SkinningAudit
-        {
-            uint64_t Unweighted      = 0; // no influence at all -> the vertex stays in bind pose
-            uint64_t OutOfRange      = 0; // references a bone index the skeleton does not have
-            uint64_t FullyInfluenced = 0; // uses all 4 slots -> the importer may have dropped weights
-        };
-
-        // Scanning every vertex per UI frame would be silly, and the answer only changes when the mesh
-        // does: cache it against (mesh, vertex count, bone count). Editor UI is single-threaded.
-        const SkinningAudit& AuditSkinning( const SkinnedMesh& mesh, size_t boneCount )
-        {
-            static const void*   cachedMesh  = nullptr;
-            static size_t        cachedVerts = 0;
-            static size_t        cachedBones = 0;
-            static SkinningAudit cached;
-
-            const auto& vertices = mesh.GetVertices();
-            if ( cachedMesh == &mesh && cachedVerts == vertices.size() && cachedBones == boneCount )
-                return cached;
-
-            cached = {};
-            for ( const auto& v : vertices )
-            {
-                float  weight   = 0.0f;
-                size_t active   = 0;
-                bool   outRange = false;
-                for ( size_t i = 0; i < SkinnedVertex::MAX_BONE_INFLUENCES; ++i )
-                {
-                    if ( v.BoneWeights[i] <= 0.0f )
-                        continue;
-                    weight += v.BoneWeights[i];
-                    ++active;
-                    if ( v.BoneIDs[i] >= boneCount )
-                        outRange = true;
-                }
-                if ( weight <= 0.0f )
-                    ++cached.Unweighted;
-                if ( outRange )
-                    ++cached.OutOfRange;
-                if ( active == SkinnedVertex::MAX_BONE_INFLUENCES )
-                    ++cached.FullyInfluenced;
-            }
-
-            cachedMesh  = &mesh;
-            cachedVerts = vertices.size();
-            cachedBones = boneCount;
-            return cached;
-        }
-
         // UE's asset-type colour for a skeletal mesh, sampled off the reference: the bar under the slot's
         // preview says WHAT KIND of asset the slot takes, before you have read a single word of the name.
         constexpr ImU32 kSkeletalMeshTint = IM_COL32( 241, 163, 241, 255 );
 
-        // The framed preview box beside an asset slot. This panel renders nothing offscreen (one preview
-        // renderer per panel, and it belongs to the panel, not to a component row), so the box carries the
-        // asset's GLYPH rather than a fake render — and the type bar underneath when the slot is filled.
-        void DrawAssetBox( float size, const char* icon, bool filled, ImU32 tint )
+        // The framed preview box beside an asset slot: the asset's rendered thumbnail when @p picture is
+        // given (DrawMeshThumbnail), its GLYPH until then — and the type bar underneath when the slot is filled.
+        void DrawAssetBox( float size, const char* icon, bool filled, ImU32 tint, ImTextureID picture = nullptr )
         {
             const ImVec2 at = ImGui::GetCursorScreenPos();
             ImGui::Dummy( ImVec2( size, size ) );
@@ -101,21 +44,77 @@ namespace Desert::Editor
             const ImVec2 br( at.x + size, at.y + size );
             ImDrawList*  dl = ImGui::GetWindowDrawList();
             dl->AddRectFilled( at, br, IM_COL32( 15, 15, 15, 255 ), 2.0f );
+            if ( picture != nullptr )
+                dl->AddImageRounded( picture, ImVec2( at.x + 1.0f, at.y + 1.0f ),
+                                     ImVec2( br.x - 1.0f, br.y - 1.0f ), ImVec2( 0, 0 ), ImVec2( 1, 1 ),
+                                     IM_COL32_WHITE, 2.0f );
             dl->AddRect( at, br, ImGui::GetColorU32( ImGuiCol_Border ), 2.0f );
 
-            const ImVec2 ts = ImGui::CalcTextSize( icon );
-            dl->AddText( ImVec2( at.x + ( size - ts.x ) * 0.5f, at.y + ( size - ts.y ) * 0.5f ),
-                         ImGui::GetColorU32( filled ? ImGuiCol_Text : ImGuiCol_TextDisabled ), icon );
+            if ( picture == nullptr )
+            {
+                const ImVec2 ts = ImGui::CalcTextSize( icon );
+                dl->AddText( ImVec2( at.x + ( size - ts.x ) * 0.5f, at.y + ( size - ts.y ) * 0.5f ),
+                             ImGui::GetColorU32( filled ? ImGuiCol_Text : ImGuiCol_TextDisabled ), icon );
+            }
 
             if ( filled )
                 dl->AddRectFilled( ImVec2( at.x + 1.0f, br.y - 3.0f ), ImVec2( br.x - 1.0f, br.y ), tint );
         }
+
+        // THE SLOT'S PICTURES OUTLIVE THE FRAME. The registration below builds this widget per draw (as every
+        // component row is), so a cache it owned was born empty every frame: it asked the worker for the
+        // .skmesh PNG, the decode landed in a cache already destroyed, and the next frame asked again — 417
+        // decodes in 90 s, the slot and the browser tile (whose decode the loop kept stealing) on their
+        // icons, 111 -> 59 FPS while the Fox was selected (THM-FIXD). Kept where the static-mesh slot keeps
+        // its own (StaticMeshComponent.cpp `s_Thumbnails`), released with every live cache (ReleaseAll).
+        ThumbnailCache& SlotPictures()
+        {
+            static ThumbnailCache s_Pictures;
+            return s_Pictures;
+        }
+
+        // A refusal is logged once for the session, not once per frame of a widget rebuilt per frame.
+        std::unordered_set<std::string>& RefusedSlots()
+        {
+            static std::unordered_set<std::string> s_Refused;
+            return s_Refused;
+        }
     } // namespace
 
     SkinnedMeshComponentWidget::SkinnedMeshComponentWidget(
-         const std::weak_ptr<Assets::AssetManager>& assetManager )
-         : IComponentWidget( "Skinned Mesh" ), m_AssetManager( assetManager )
+         const std::weak_ptr<Assets::AssetManager>& assetManager, UI::UIHelper* ui )
+         : IComponentWidget( "Skinned Mesh" ), m_AssetManager( assetManager ), m_UI( ui )
     {
+    }
+
+    void SkinnedMeshComponentWidget::DrawMeshThumbnail( Assets::AssetManager& manager, const std::string& meshPath,
+                                                        const float size, const bool filled )
+    {
+        // The Content Browser tile's rule (FileExplorerPanel::DrawRenderedPoseThumbnail): the .skmesh is its own
+        // cooked form, so the picture is filed under it and judged against it. A stale or missing picture is
+        // asked for through the service — never a read of the disk cache hoping the browser walked past it
+        // (Desert/Tests/Editor/ThumbnailRequesters keeps every showing slot a requesting slot).
+        std::shared_ptr<Graphic::Image2D> thumb;
+        if ( !meshPath.empty() && !RefusedSlots().contains( meshPath ) )
+        {
+            const std::string png = ThumbnailKey::DiskPath( meshPath );
+            if ( ThumbnailService::JudgeMeshPicture( meshPath ) == ThumbnailFreshness::Verdict::Show )
+                thumb = SlotPictures().Get( png );
+            else
+            {
+                SlotPictures().Invalidate( png ); // the old render must not be handed back once the new one lands
+                const auto subject = ThumbnailPose::ResolvePoseSubject( manager, meshPath );
+                if ( !subject )
+                {
+                    LOG_WARN( "[Thumbnail] Skeletal Mesh slot '{}': {}", meshPath, subject.GetError() );
+                    RefusedSlots().insert( meshPath );
+                }
+                else if ( !subject.GetValue().Pending ) // read in flight: asked again next frame
+                    ThumbnailService::Get().RequestPose( subject.GetValue() );
+            }
+        }
+        ImTextureID picture = thumb && m_UI != nullptr ? m_UI->GetTextureID( thumb ) : nullptr;
+        DrawAssetBox( size, ICON_MDI_HUMAN, filled, kSkeletalMeshTint, picture );
     }
 
     void SkinnedMeshComponentWidget::Render( ECS::Entity& entity, ::Desert::Core::Scene* scene )
@@ -124,13 +123,6 @@ namespace Desert::Editor
         auto  assetManager = m_AssetManager.lock();
         if ( !assetManager )
             return;
-
-        // WHOSE RIG THIS IS. The authoring context is keyed on the entity (see AuthoringContext.hpp): it is
-        // what keeps the bone selection of two characters apart, and what lets this tree take the context
-        // over from the viewport without resetting it when it is the SAME character.
-        const Common::UUID entityId = entity.HasComponent<ECS::UUIDComponent>()
-                                           ? entity.GetComponent<ECS::UUIDComponent>().UUID
-                                           : Common::UUID::Null();
 
         Utils::ImGuiUtilities::PushID();
 
@@ -171,13 +163,16 @@ namespace Desert::Editor
             Utils::ImGuiUtilities::BeginPropertyRow( "Skeletal Mesh Asset",
                                                      "The skinned mesh asset this component renders", rowH );
 
-            DrawAssetBox( kBox, ICON_MDI_HUMAN, !emptySlot, kSkeletalMeshTint );
+            DrawMeshThumbnail( *assetManager,
+                               asset ? asset->GetMetadata().Filepath.generic_string() : std::string(), kBox,
+                               !emptySlot );
             ImGui::SameLine();
             const bool clicked =
                  Utils::ImGuiUtilities::AssetSlot( "SkinnedMeshSlot", currentMeshName.c_str(), emptySlot );
             if ( TakeDetailsPickerRequest( "Skinned mesh" ) || clicked )
                 ImGui::OpenPopup( "skinned_mesh_selector" );
             DrawAssetFieldOpen( emptySlot || !asset ? 0 : static_cast<uint64_t>( skinnedMesh.MeshHandle ) );
+            DrawAssetFieldButtons( emptySlot || !asset ? 0 : static_cast<uint64_t>( skinnedMesh.MeshHandle ) );
 
             if ( ImGui::BeginPopup( "skinned_mesh_selector" ) )
             {
@@ -207,15 +202,11 @@ namespace Desert::Editor
 
         Utils::ImGuiUtilities::PopID();
 
-        {
-            MeshDetailsWidget::Context ctx;
-            ctx.Asset       = skinnedMesh.RuntimeMesh ? nullptr : asset;
-            ctx.RuntimeMesh = mesh;
-            ctx.Entity      = &entity;
-            ctx.Scene       = scene;
-            MeshDetailsWidget::Show( ctx );
-        }
-
+        // What the mesh IS — statistics, elements, the skeleton and its bone tree, the skinning audit, Import
+        // Settings — is the ASSET's, shown by its editors (UE: the Skeletal Mesh / Skeleton Editor; here the
+        // Animation Editor's Mesh and Skeleton modes, MeshAssetDetails). A component's Details is the slot,
+        // its materials and the component's own properties.
+        //
         // Material slots. A skinned mesh carries the same MaterialSlots the renderer maps per submesh, but
         // the slot editor used to be hard-wired to StaticMeshComponent — so a character's materials could
         // only be set by editing the scene file. Same widget, same rows, same drag-drop.
@@ -223,171 +214,10 @@ namespace Desert::Editor
             static MaterialComponentWidget materials( assetManager.get() );
             materials.Render( entity, scene );
         }
-
-        if ( !mesh || !mesh->IsSkinned() )
-        {
-            return;
-        }
-
-        auto        skinned  = static_cast<SkinnedMesh*>( mesh );
-        const auto& skeleton = skinned->GetSkeleton();
-
-        const auto& bones = skeleton.GetBones();
-
-        // The bone count on the bar, UE-style: a collapsed Skeleton section still says how big the rig is.
-        const std::string skeletonDetail = std::to_string( bones.size() ) + " bones";
-        if ( Utils::ImGuiUtilities::SectionHeader( ICON_MDI_BONE "  Skeleton", true, skeletonDetail.c_str() ) )
-        {
-            Utils::ImGuiUtilities::ResetPropertyRows();
-
-            // The facts as ROWS, on the panel's shared grid — the same label column as every other
-            // component, instead of a paragraph of TextDisabled lines floating under a header.
-            const auto statRow = []( const char* label, const std::string& value, const char* tooltip )
-            {
-                Utils::ImGuiUtilities::BeginPropertyRow( label, tooltip );
-                ImGui::AlignTextToFramePadding();
-                ImGui::TextUnformatted( value.c_str() );
-                Utils::ImGuiUtilities::EndPropertyRow();
-            };
-
-            char buf[128];
-
-            statRow( "Bone Count", std::to_string( bones.size() ), nullptr );
-
-            // Rig identity: the signature is what links a SkinnedMeshAsset to its SkeletonAsset, so it is
-            // the thing to compare when a mesh refuses to bind to the rig you expect.
-            std::snprintf( buf, sizeof( buf ), "%016llx",
-                           static_cast<unsigned long long>( skeleton.GetSignature() ) );
-            statRow( "Signature", buf,
-                     "Hash of the bone hierarchy. A mesh binds to the skeleton with the same signature." );
-
-            // Cost + format limits, stated instead of implied: the pose is uploaded per frame as one
-            // mat4 per bone, and the vertex format carries at most 4 influences per vertex.
-            std::snprintf( buf, sizeof( buf ), "%zu x %zu B = %.1f KB / frame", bones.size(), sizeof( glm::mat4 ),
-                           static_cast<double>( bones.size() * sizeof( glm::mat4 ) ) / 1024.0 );
-            statRow( "Pose Upload", buf, "One mat4 per bone, uploaded every frame the mesh is drawn" );
-
-            std::snprintf( buf, sizeof( buf ), "up to %zu per vertex", SkinnedVertex::MAX_BONE_INFLUENCES );
-            statRow( "Influences", buf, nullptr );
-
-            if ( entity.HasComponent<ECS::AnimationComponent>() )
-            {
-                const auto& anim = entity.GetComponent<ECS::AnimationComponent>();
-                const char* clip = anim.CurrentClip.empty() ? "<none>" : anim.CurrentClip.c_str();
-                if ( anim.Graph )
-                    std::snprintf( buf, sizeof( buf ), "%s  (driven by the Anim Graph)", clip );
-                else
-                    std::snprintf( buf, sizeof( buf ), "%s%s", clip, anim.Playing ? "" : "  (paused)" );
-                statRow( "Clip", buf, nullptr );
-            }
-
-            ImGui::Dummy( ImVec2( 0.0f, 2.0f ) );
-
-            // Weight problems the GPU can't tell you about. Only real ones — see AuditSkinning. Wrapped,
-            // because a warning that runs off the edge of a docked panel is a warning nobody reads.
-            const SkinningAudit& audit = AuditSkinning( *skinned, bones.size() );
-            ImGui::PushTextWrapPos( 0.0f );
-            if ( audit.OutOfRange > 0 )
-                ImGui::TextColored( ThemeManager::GetErrorColor(),
-                                    ICON_MDI_ALERT " %llu vertices reference a bone this skeleton does not "
-                                                   "have - the mesh is bound to the wrong rig",
-                                    static_cast<unsigned long long>( audit.OutOfRange ) );
-            if ( audit.Unweighted > 0 )
-                ImGui::TextColored( ThemeManager::GetWarningColor(),
-                                    ICON_MDI_ALERT " %llu vertices have no bone weights - they stay in bind "
-                                                   "pose while the rest animates",
-                                    static_cast<unsigned long long>( audit.Unweighted ) );
-            ImGui::PopTextWrapPos();
-            if ( audit.FullyInfluenced > 0 )
-            {
-                ImGui::TextDisabled( "%llu vertices use all %zu influence slots",
-                                     static_cast<unsigned long long>( audit.FullyInfluenced ),
-                                     SkinnedVertex::MAX_BONE_INFLUENCES );
-                Utils::ImGuiUtilities::Tooltip( "The import keeps the 4 heaviest influences per vertex; "
-                                                "weights beyond that were dropped." );
-            }
-
-            ImGui::Separator();
-
-            // Build child adjacency and collect root bones.
-            std::unordered_map<size_t, std::vector<size_t>> children;
-            std::vector<size_t>                             roots;
-            for ( size_t i = 0; i < bones.size(); ++i )
-            {
-                const auto& parentBone = bones[i].ParentBoneID;
-                if ( parentBone.has_value() )
-                {
-                    children[*parentBone].push_back( i );
-                }
-                else
-                    roots.push_back( i );
-            }
-
-            std::function<void( size_t )> DrawBone;
-            DrawBone = [&]( size_t boneIndex )
-            {
-                const auto& bone = bones[boneIndex];
-
-                ImGuiTreeNodeFlags flags =
-                     ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen;
-                if ( children[boneIndex].empty() )
-                    flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet;
-
-                const bool boneSelected = ::Desert::Editor::Core::ActiveAuthoringContext().SelectedBoneIndex() ==
-                                          static_cast<int>( boneIndex );
-                if ( boneSelected )
-                    flags |= ImGuiTreeNodeFlags_Selected;
-
-                const std::string label =
-                     std::string( ICON_MDI_BONE ) + "  " + bone.Name + "##" + std::to_string( boneIndex );
-                const bool open = ImGui::TreeNodeEx( label.c_str(), flags );
-                // Clicking a bone selects it (highlighted in the viewport's bone overlay).
-                //
-                // THE TREE TAKES THE AUTHORING CONTEXT TO DO IT, and that is the whole shape of the change
-                // that removed SkeletonEditMode: only the owner may write the selected bone, so a surface
-                // that wants to change it has to say it is the one the user is working in. Focus() adopts
-                // the live context when it is about the SAME entity, so taking it over here keeps the mode
-                // and the bone the viewport or a Sequencer had — the user sees exactly what the shared
-                // global used to give them, and a Sequencer over a DIFFERENT character keeps its own.
-                if ( ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen() )
-                {
-                    m_Authoring.Entity = entityId;
-                    Core::ActiveAuthoringContext().Focus( BoneTreeOwner(), m_Authoring );
-                    if ( const auto set = Core::ActiveAuthoringContext().SetSelectedBone(
-                              BoneTreeOwner(), m_Authoring, static_cast<uint32_t>( boneIndex ) );
-                         !set.IsSuccess() )
-                    {
-                        // Unreachable while Focus() above succeeds, and logged rather than dropped because
-                        // the day it IS reachable the symptom is "clicking a bone does nothing" with no
-                        // other trace at all.
-                        LOG_WARN( "[Details] bone selection refused: {}", set.GetError() );
-                    }
-                }
-                if ( open )
-                {
-                    for ( auto child : children[boneIndex] )
-                        DrawBone( child );
-                    ImGui::TreePop();
-                }
-            };
-
-            // UE-style: a single "Armature" root (accent-coloured) that holds the actual root bones.
-            ImGui::PushStyleColor( ImGuiCol_Text, ThemeManager::GetIconColor() );
-            const bool armatureOpen = ImGui::TreeNodeEx(
-                 ICON_MDI_HUMAN "  Armature",
-                 ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth );
-            ImGui::PopStyleColor();
-            if ( armatureOpen )
-            {
-                for ( size_t r : roots )
-                    DrawBone( r );
-                ImGui::TreePop();
-            }
-        }
     }
 
     DESERT_REGISTER_CUSTOM_COMPONENT(
          ECS::SkinnedMeshComponent, "Skinned Mesh", false,
          ( []( ECS::Entity& e, ::Desert::Core::Scene* s, const ComponentEditContext& ctx )
-           { SkinnedMeshComponentWidget( ctx.AssetManager ).Render( e, s ); } ) )
+           { SkinnedMeshComponentWidget( ctx.AssetManager, ctx.UIHelper ).Render( e, s ); } ) )
 } // namespace Desert::Editor

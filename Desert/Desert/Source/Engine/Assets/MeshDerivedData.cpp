@@ -65,8 +65,6 @@ namespace Desert::Assets
         if ( !source.IsSuccess() )
             return Common::MakeError<std::string>( source.GetError() );
         const uint64_t key = MeshAssetDerivedDataKey( source.GetValue() );
-        if ( auto hit = Common::DDC::Get( kMeshDeriver, key ); hit.has_value() )
-            return Common::MakeSuccess( std::move( *hit ) );
 
         MeshPlatformDataBuilder builder;
         {
@@ -74,19 +72,22 @@ namespace Desert::Assets
             builder = s_Builder;
         }
         if ( !builder )
+        {
+            if ( auto hit = Common::DDC::Get( kMeshDeriver, key ); hit.has_value() )
+                return Common::MakeSuccess( std::move( *hit ) );
             return Common::MakeFormattedError<std::string>(
                  "mesh asset '{}' has no render data under DDC key {:016x} ({}), and this build cannot derive "
                  "it: the package was cooked without it",
                  asset.string(), key, Common::DDC::RelativePath( kMeshDeriver, key ).generic_string() );
+        }
 
-        auto built = builder( source.GetValue() );
-        if ( !built.IsSuccess() )
-            return Common::MakeFormattedError<std::string>( "mesh asset '{}': {}", asset.string(),
-                                                            built.GetError() );
-        if ( auto put = Common::DDC::Put( kMeshDeriver, key, built.GetValue() ); !put.IsSuccess() )
-            return Common::MakeFormattedError<std::string>(
-                 "mesh asset '{}': render data built but not cached: {}", asset.string(), put.GetError() );
-        return built;
+        // Single-flight per key: assets with identical source share the key and load on parallel threads.
+        auto derived = Common::DDC::GetOrBuild( kMeshDeriver, key,
+                                                [&builder, &source] { return builder( source.GetValue() ); } );
+        if ( !derived.IsSuccess() )
+            return Common::MakeFormattedError<std::string>( "mesh asset '{}': render data: {}", asset.string(),
+                                                            derived.GetError() );
+        return derived;
     }
 
     Common::ResultStr<uint64_t> HashMeshSourceFile( const std::filesystem::path& file )

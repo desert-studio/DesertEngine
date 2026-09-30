@@ -54,9 +54,8 @@ Shader "StandardSurface"
         "fbx.alphaCutoff"               -> AlphaCutoff
     }
 
-    // ONE parameter layout for every PBR pass (forward, instanced, GBuffer, skinned, glass): the renderer
-    // writes one Materials[] row per object from the forward material and every pass reads it, so these
-    // rows are identical by contract — ShippedShaderPasses.EveryPBRPassDeclaresTheOneRowLayout holds them equal.
+    // ONE parameter layout for every cell (forward, instanced, GBuffer, skinned): the cells share this one
+    // Properties block. Glass is its own template (StaticMeshGlass, BlendMode Translucent) with its own row.
     Properties Binding(2)
     {
         Color       AlbedoColor ("Albedo", Category("Surface")) = (1, 1, 1, 1)
@@ -66,9 +65,6 @@ Shader "StandardSurface"
         Color       EmissiveColor ("Emissive", Category("Surface")) = (0, 0, 0, 1)
         Float       EmissiveIntensity ("Emissive Intensity", Range(0,100), Category("Surface")) = 1
         Float       AlphaCutoff ("Alpha Cutoff", Range(0,1), Category("Surface")) = 0
-        Float       Transmission ("Transmission", Range(0,1), Category("Glass")) = 0
-        Float       IOR ("IOR", Range(1,2.5), Category("Glass")) = 1.5
-        Color       GlassTint ("Glass Tint", Category("Glass")) = (1, 1, 1, 1)
         Vec2        UVTiling ("UV Tiling", Category("Surface")) = (1, 1)
         Vec2        UVOffset ("UV Offset", Category("Surface")) = (0, 0)
         Float       UVRotation ("UV Rotation", Range(-3.14159,3.14159), Category("Surface")) = 0

@@ -5,6 +5,7 @@
 #include <Engine/Graphic/Image.hpp>
 
 #include <Common/Utilities/WriteWatch.hpp>
+#include <Editor/Widgets/ThumbnailOutdated.hpp>
 
 #include <memory>
 #include <string>
@@ -15,7 +16,13 @@ namespace Desert::Editor
 {
     // Decodes image files (any png/tga/jpg/hdr the asset browser shows) into small GPU textures for
     // thumbnails — independent of the cook pipeline, so EVERY image previews consistently (not only
-    // already-cooked ones). Bounded + cached by source path; cleared on panel refresh.
+    // already-cooked ones). Keyed by the picture's path (ThumbnailKey::DiskPath for a rendered one).
+    //
+    // RESIDENT, NOT BOUNDED (THM1n-13, owner 09-29 "all assets on the splash"): the browser's cache holds every
+    // picture of the project from the hand-over on — the splash uploads them all — and never drops one to make
+    // room, so entering a folder draws what is here instead of decoding it again. A picture leaves only when
+    // its file changes (WriteWatch, below) or its owner is torn down. Unloading for very large projects is a
+    // separate owner decision, not a silent cap here.
     class ThumbnailCache
     {
     public:
@@ -38,6 +45,16 @@ namespace Desert::Editor
         // regenerated on disk). No-op if not cached.
         void Invalidate( const std::string& sourcePath );
 
+        // Whether `sourcePath` has an entry that needs no decode: cached (a picture, or a remembered failure)
+        // and not outdated. What the browser asks before handing a picture to the worker decode.
+        [[nodiscard]] bool Holds( const std::string& sourcePath ) const
+        {
+            return m_Cache.contains( sourcePath ) && !m_Outdated.Contains( sourcePath );
+        }
+
+        // The pictures held (entries with an image; remembered failures are not pictures).
+        [[nodiscard]] std::size_t ResidentCount() const;
+
         void Clear();
 
         /**
@@ -45,12 +62,13 @@ namespace Desert::Editor
          *        EditorLayer::OnDetach.
          *
          * WHY A STATIC SWEEP RATHER THAN A CALL PER OWNER. Most caches belong to a panel and go down with
-         * `m_Panels.clear()`, which is safely inside the editor's teardown. Four do NOT: the component
+         * `m_Panels.clear()`, which is safely inside the editor's teardown. Five do NOT: the component
          * widgets keep theirs in FUNCTION-STATICS —
          *
          *     StaticMeshComponent.cpp           `static MaterialComponentWidget materialComponent;`
          *     StaticMeshComponent.cpp           `static ThumbnailCache s_Thumbnails;`
          *     SkinnedMeshComponentWidget.cpp    `static MaterialComponentWidget materials;`
+         *     SkinnedMeshComponentWidget.cpp    `static ThumbnailCache s_Pictures;` (SlotPictures)
          *     ComponentEditorRegistrations.cpp  `static MaterialComponentWidget s_InstancedMaterials;`
          *
          * (the fourth is the Instanced Static Mesh editor's material slots, added when an ISM gained a
@@ -94,11 +112,9 @@ namespace Desert::Editor
         // the same Get() decodes those for the browser's texture previews. See its use for the argument.
         static bool IsOurGeneratedThumbnail( const std::string& path );
 
-        static constexpr std::size_t kMaxEntries = 512; // bound VRAM/handles
-
         std::unordered_map<std::string, std::shared_ptr<Graphic::Image2D>> m_Cache;
         Common::Utils::WriteWatch                                          m_Watch; // the file as decoded
-        std::unordered_set<std::string> m_Outdated; // changed on disk, new picture not cached yet
+        ThumbnailOutdated m_Outdated;                                               // rewritten, not re-read yet
 
         // Every constructed cache, so ReleaseAll() can reach the ones no panel owns. Raw pointers to
         // objects that deregister themselves; this set outlives them all and holds nothing that needs a

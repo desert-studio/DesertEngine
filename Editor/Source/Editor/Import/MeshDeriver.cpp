@@ -4,6 +4,7 @@
 // reduction is meshopt (SimplifyLODLevels), the render buffers are one MeshBinary container, and authored LOD
 // source models (UE SourceModels[k>0]) are folded as extra index sets of LOD0's sections.
 #include "MeshDeriver.hpp"
+#include "SourceToEngine.hpp"
 
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Geometry/EditMeshBridge.hpp>
@@ -19,71 +20,56 @@ namespace Desert::Editor
 {
     namespace Ser = Assets::Serialization;
 
-    namespace
+    void BakeMeshLODs( Ser::MeshAssetData& data )
     {
-        // Bakes each static submesh's LOD triangle sets (meshopt) into SubmeshData.LODs, so the load path skips
-        // the simplification pass. Submeshes that already carry LODs (folded from authored source models) are
-        // kept.
-        void BakeStaticMeshLODs( Ser::MeshAssetData& data )
+        const size_t vertexCount = data.IsSkinned ? data.SkinnedVertices.size() : data.StaticVertices.size();
+        for ( auto& sm : data.Submeshes )
         {
-            if ( data.IsSkinned )
-                return;
-            for ( auto& sm : data.Submeshes )
+            if ( !sm.LODs.empty() )
+                continue; // authored LODs already folded in -> don't regenerate
+
+            const uint32_t triCount = sm.IndexCount / 3;
+            if ( triCount < 8 || sm.VertexCount == 0 || sm.VertexOffset + sm.VertexCount > vertexCount )
+                continue;
+
+            std::vector<float> pos;
+            pos.reserve( static_cast<size_t>( sm.VertexCount ) * 3 );
+            for ( uint32_t v = 0; v < sm.VertexCount; ++v )
             {
-                if ( !sm.LODs.empty() )
-                    continue; // authored LODs already folded in -> don't regenerate
+                const glm::vec3& p = data.IsSkinned ? data.SkinnedVertices[sm.VertexOffset + v].Position
+                                                    : data.StaticVertices[sm.VertexOffset + v].Position;
+                pos.push_back( p.x );
+                pos.push_back( p.y );
+                pos.push_back( p.z );
+            }
 
-                const uint32_t triCount = sm.IndexCount / 3;
-                if ( triCount < 8 || sm.VertexCount == 0 ||
-                     sm.VertexOffset + sm.VertexCount > data.StaticVertices.size() )
-                    continue;
+            std::vector<Desert::Index> localTris;
+            localTris.reserve( triCount );
+            const uint32_t triStart = sm.IndexOffset / 3;
+            if ( triStart + triCount > data.Indices.size() )
+                continue;
+            for ( uint32_t t = 0; t < triCount; ++t )
+            {
+                const auto& idx = data.Indices[triStart + t];
+                localTris.push_back( { idx.V1, idx.V2, idx.V3 } );
+            }
 
-                std::vector<float> pos;
-                pos.reserve( static_cast<size_t>( sm.VertexCount ) * 3 );
-                for ( uint32_t v = 0; v < sm.VertexCount; ++v )
-                {
-                    const auto& p = data.StaticVertices[sm.VertexOffset + v].Position;
-                    pos.push_back( p.x );
-                    pos.push_back( p.y );
-                    pos.push_back( p.z );
-                }
-
-                std::vector<Desert::Index> localTris;
-                localTris.reserve( triCount );
-                const uint32_t triStart = sm.IndexOffset / 3;
-                if ( triStart + triCount > data.Indices.size() )
-                    continue;
-                for ( uint32_t t = 0; t < triCount; ++t )
-                {
-                    const auto& idx = data.Indices[triStart + t];
-                    localTris.push_back( { idx.V1, idx.V2, idx.V3 } );
-                }
-
-                const auto levels = Geometry::SimplifyLODLevels( pos.data(), sm.VertexCount, localTris );
-                sm.LODs.clear();
-                sm.LODs.reserve( levels.size() );
-                for ( const auto& lvl : levels )
-                {
-                    std::vector<Ser::IndexData> tris;
-                    tris.reserve( lvl.size() );
-                    for ( const auto& tri : lvl )
-                        tris.push_back( { tri.V1, tri.V2, tri.V3 } );
-                    sm.LODs.push_back( std::move( tris ) );
-                }
+            const auto levels = Geometry::SimplifyLODLevels( pos.data(), sm.VertexCount, localTris );
+            sm.LODs.clear();
+            sm.LODs.reserve( levels.size() );
+            for ( const auto& lvl : levels )
+            {
+                std::vector<Ser::IndexData> tris;
+                tris.reserve( lvl.size() );
+                for ( const auto& tri : lvl )
+                    tris.push_back( { tri.V1, tri.V2, tri.V3 } );
+                sm.LODs.push_back( std::move( tris ) );
             }
         }
+    }
 
-        // Source axes -> the engine's (+Y up, centimetres). FromFile and Y: the importer already resolved the
-        // file's own hierarchy into Y-up, so only the scale remains; Z: +Z up becomes +Y up (x, y, z) ->
-        // (x, z, -y), a rotation, so winding and handedness are kept.
-        glm::mat4 SourceToEngine( const Assets::MeshImportSettings& settings )
-        {
-            glm::mat4 m = glm::scale( glm::mat4( 1.0f ), glm::vec3( settings.UniformScale ) );
-            if ( settings.UpAxis == Assets::MeshSourceUpAxis::Z )
-                m = glm::rotate( glm::mat4( 1.0f ), glm::radians( -90.0f ), glm::vec3( 1.0f, 0.0f, 0.0f ) ) * m;
-            return m;
-        }
-
+    namespace
+    {
         // One source model built to render form: its MeshAssetData (submesh j draws material slot MaterialIds[j];
         // ToRenderMesh emits one submesh per distinct material ID, ascending) and the IDs themselves.
         struct BuiltModel
@@ -265,7 +251,7 @@ namespace Desert::Editor
             out = std::move( lod0.ExtractValue().Data );
         // Sections the authored models left without LODs are simplified; folded ones are kept as authored.
         if ( generate )
-            BakeStaticMeshLODs( out );
+            BakeMeshLODs( out );
         return Common::MakeSuccess( Ser::EncodeMeshBinary( out ) );
     }
 } // namespace Desert::Editor

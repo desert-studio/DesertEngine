@@ -25,8 +25,11 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/MeshLOD.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/MeshSimplifier.cpp",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/MeshDeriver.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/SourceToEngine.cpp",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportedMeshAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/NodeMeshSplit.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/ImportRecord.cpp", -- FIX8
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportSettingsEdits.cpp", -- THM1l-b11: the Details copy kept with its record
         -- P9b: a modeling edit committed into an imported mesh's asset, lifted by the tool-target rule
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/EditedMeshAsset.cpp",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Selection/ModelingToolTarget.cpp",

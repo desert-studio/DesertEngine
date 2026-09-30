@@ -12,6 +12,8 @@
 #include <limits>
 #include <functional>
 
+#include <glm/gtc/quaternion.hpp>
+
 #include <assimp/Importer.hpp>
 #include <assimp/LogStream.hpp>
 #include <assimp/DefaultLogger.hpp>
@@ -88,6 +90,48 @@ namespace Desert::Editor
             }
 
             return Animation::FrameRate{ static_cast<int32_t>( std::llround( rate * 1000000.0 ) ), 1000000 };
+        }
+
+        /**
+         * @brief The cadence a clip without a stated frame rate was authored on: the standard rate nearest to
+         * the finest spacing of its distinct key times (Fox Walk: 18 keys 1/24 s apart -> 24 fps). A clip
+         * with a single key time has no spacing and shows the project's own 24.
+         */
+        [[nodiscard]] Animation::FrameRate CadenceOfKeys( const aiAnimation& anim )
+        {
+            const double        ticksPerSecond = anim.mTicksPerSecond != 0.0 ? anim.mTicksPerSecond : 1.0;
+            std::vector<double> seconds;
+            for ( uint32_t c = 0; c < anim.mNumChannels; ++c )
+            {
+                const aiNodeAnim& channel = *anim.mChannels[c];
+                for ( uint32_t k = 0; k < channel.mNumPositionKeys; ++k )
+                    seconds.push_back( channel.mPositionKeys[k].mTime / ticksPerSecond );
+                for ( uint32_t k = 0; k < channel.mNumRotationKeys; ++k )
+                    seconds.push_back( channel.mRotationKeys[k].mTime / ticksPerSecond );
+                for ( uint32_t k = 0; k < channel.mNumScalingKeys; ++k )
+                    seconds.push_back( channel.mScalingKeys[k].mTime / ticksPerSecond );
+            }
+            std::sort( seconds.begin(), seconds.end() );
+            double finest = 0.0;
+            for ( size_t i = 1; i < seconds.size(); ++i )
+            {
+                const double step = seconds[i] - seconds[i - 1];
+                if ( step > 1.0e-5 && ( finest == 0.0 || step < finest ) )
+                    finest = step;
+            }
+            if ( finest == 0.0 )
+                return Animation::FrameRate{ 24, 1 };
+            const double rate = 1.0 / finest;
+            for ( const Animation::FrameRate standard :
+                  { Animation::FrameRate{ 12, 1 }, Animation::FrameRate{ 15, 1 },
+                    Animation::FrameRate{ 24000, 1001 }, Animation::FrameRate{ 24, 1 },
+                    Animation::FrameRate{ 25, 1 }, Animation::FrameRate{ 30000, 1001 },
+                    Animation::FrameRate{ 30, 1 }, Animation::FrameRate{ 48, 1 }, Animation::FrameRate{ 50, 1 },
+                    Animation::FrameRate{ 60000, 1001 }, Animation::FrameRate{ 60, 1 },
+                    Animation::FrameRate{ 90, 1 }, Animation::FrameRate{ 120, 1 } } )
+                if ( std::fabs( rate - standard.AsDouble() ) < standard.AsDouble() * 1.0e-3 )
+                    return standard;
+            return RationalFromRate( std::round( rate ) );
         }
     } // namespace
 
@@ -240,6 +284,106 @@ namespace Desert::Editor
         }
     }
 
+    // THE SOURCE'S NODE HIERARCHY IS APPLIED ONCE, HERE (THM1l-b12). A skinned vertex is drawn as
+    // jointGlobal * inverseBind * v (glTF 2.0 skins; assimp's mOffsetMatrix is the inverse bind) and the mesh
+    // node's own transform is ignored, so the stored vertices are NOT the rest shape whenever the joints sit
+    // under non-joint nodes that turn them — CesiumMan's Z_UP and Armature nodes: its vertices lie along Z
+    // while the character drawn stands along Y, so its bounds, its Approx Size and its placement all read a
+    // body lying down. UE's import bakes the same into the reference pose. The rest shape is
+    // sum(w * G_b * O_b) * v; baking it into the vertices and stating O_b = inverse(G_b) makes the stored
+    // vertices the drawn shape, and every animated pose is unchanged: G(t) * inverse(G_b) * v' = G(t) * O_b * v
+    // wherever the bones under a vertex agree on G_b * O_b, which a bound skin does.
+    static void BakeBindPose( SkeletonAssetData& skeleton, MeshAssetData& mesh )
+    {
+        const std::size_t                       n = skeleton.Bones.size();
+        std::vector<glm::mat4>                  global( n, glm::mat4( 1.0f ) );
+        std::vector<char>                       known( n, 0 );
+        std::function<glm::mat4( std::size_t )> globalOf = [&]( std::size_t i ) -> glm::mat4
+        {
+            if ( known[i] == 0 )
+            {
+                const auto& bone = skeleton.Bones[i];
+                global[i]        = bone.ParentBoneID && *bone.ParentBoneID < n
+                                        ? globalOf( *bone.ParentBoneID ) * bone.LocalBindTransform
+                                        : bone.LocalBindTransform;
+                known[i]         = 1;
+            }
+            return global[i];
+        };
+        std::vector<glm::mat4> rest( n );
+        for ( std::size_t i = 0; i < n; ++i )
+            rest[i] = globalOf( i ) * skeleton.Bones[i].OffsetMatrix;
+
+        for ( std::size_t vi = 0; vi < mesh.SkinnedVertices.size(); ++vi )
+        {
+            auto&     v = mesh.SkinnedVertices[vi];
+            glm::mat4 m( 0.0f );
+            float     sum = 0.0f;
+            for ( int k = 0; k < 4; ++k )
+                if ( v.BoneWeights[k] > 0.0f && v.BoneIDs[k] < n )
+                {
+                    m += v.BoneWeights[k] * rest[v.BoneIDs[k]];
+                    sum += v.BoneWeights[k];
+                }
+            if ( sum <= 0.0f )
+                continue;
+            m /= sum;
+            const glm::mat3 r      = glm::mat3( m );
+            const glm::mat3 normal = glm::transpose( glm::inverse( r ) );
+            const auto      unit   = []( const glm::vec3& d )
+            { return glm::length( d ) > 0.0f ? glm::normalize( d ) : d; };
+            v.Position  = glm::vec3( m * glm::vec4( v.Position, 1.0f ) );
+            v.Normal    = unit( normal * v.Normal );
+            v.Tangent   = unit( r * v.Tangent );
+            v.Bitangent = unit( r * v.Bitangent );
+            for ( auto& morph : mesh.MorphTargets )
+            {
+                if ( vi < morph.DeltaPositions.size() )
+                    morph.DeltaPositions[vi] = r * morph.DeltaPositions[vi];
+                if ( vi < morph.DeltaNormals.size() )
+                    morph.DeltaNormals[vi] = normal * morph.DeltaNormals[vi];
+            }
+        }
+        for ( std::size_t i = 0; i < n; ++i )
+            skeleton.Bones[i].OffsetMatrix = glm::inverse( globalOf( i ) );
+
+        for ( auto& sub : mesh.Submeshes )
+        {
+            if ( sub.VertexCount == 0 || sub.VertexOffset + sub.VertexCount > mesh.SkinnedVertices.size() )
+                continue;
+            glm::vec3 mn( std::numeric_limits<float>::max() );
+            glm::vec3 mx( std::numeric_limits<float>::lowest() );
+            for ( std::size_t i = sub.VertexOffset; i < sub.VertexOffset + sub.VertexCount; ++i )
+            {
+                mn = glm::min( mn, mesh.SkinnedVertices[i].Position );
+                mx = glm::max( mx, mesh.SkinnedVertices[i].Position );
+            }
+            sub.BoundingBox = { mn, mx };
+        }
+    }
+
+    // A BONE'S CHANNEL IS LOCAL TO ITS NODE'S PARENT, and the skeleton's local bind (GetFullLocalTransform)
+    // folds the non-bone nodes between the bone and its parent bone into it. The keys must be stated in the
+    // same frame, or a clip drops those nodes the moment it plays (CesiumMan's root turn). Rigid transforms
+    // with a uniform scale — what a node chain above a rig is — keep TRS keys TRS.
+    static void FoldNonBoneAncestors( const glm::mat4& pre, ChannelData& channel )
+    {
+        if ( pre == glm::mat4( 1.0f ) )
+            return;
+        const float     scale = glm::length( glm::vec3( pre[0] ) );
+        const glm::quat turn  = glm::quat_cast( glm::mat3( pre ) / ( scale > 0.0f ? scale : 1.0f ) );
+        for ( auto& key : channel.Positions )
+        {
+            key.Value         = glm::vec3( pre * glm::vec4( key.Value, 1.0f ) );
+            key.ArriveTangent = glm::vec3( pre * glm::vec4( key.ArriveTangent, 0.0f ) );
+            key.LeaveTangent  = glm::vec3( pre * glm::vec4( key.LeaveTangent, 0.0f ) );
+        }
+        for ( auto& key : channel.Rotations )
+            key.Value = turn * key.Value;
+        for ( auto& key : channel.Scales )
+            key.Value *= scale;
+    }
+
     static glm::vec4 GetColor( aiMaterial* mat, const char* key, unsigned type, unsigned idx, glm::vec4 def )
     {
         aiColor4D color;
@@ -271,7 +415,7 @@ namespace Desert::Editor
                  static_cast<uint64_t>( Common::AssetHandle::FromKey( "guid-lo:" + key ) ) };
     }
 
-    // Extract every source material into the unified, reflected PBRSurfaceParams (the .demat schema). Recovers
+    // Extract every source material into its source dictionary, bound to a template's layout at write. Recovers
     // NORMAL + OPACITY maps the old MaterialAssetData path silently dropped, and stamps a stable MaterialId.
     static std::vector<ImportedMaterial> ExtractMaterials( const aiScene*               scene,
                                                            const std::filesystem::path& sourcePath )
@@ -362,7 +506,8 @@ namespace Desert::Editor
         // vertices. We bake that world transform into STATIC vertices below so the prop faces the right way
         // (without it a Blender FBX imports rotated ~90° about X — "looking at the floor"). Skinned meshes are
         // NOT baked: their bind/bone hierarchy (BuildSkeletonHierarchy) already carries the same transforms.
-        std::vector<glm::mat4> meshWorld( scene->mNumMeshes, glm::mat4( 1.0f ) );
+        std::vector<glm::mat4>   meshWorld( scene->mNumMeshes, glm::mat4( 1.0f ) );
+        std::vector<std::string> meshNode( scene->mNumMeshes );
         {
             std::vector<bool> meshHasXf( scene->mNumMeshes, false );
             std::function<void( const aiNode*, const glm::mat4& )> walk =
@@ -375,6 +520,7 @@ namespace Desert::Editor
                     if ( mi < meshWorld.size() && !meshHasXf[mi] )
                     {
                         meshWorld[mi]  = world;
+                        meshNode[mi]   = node->mName.C_Str();
                         meshHasXf[mi]  = true;
                     }
                 }
@@ -637,6 +783,7 @@ namespace Desert::Editor
             }
 
             meshData.Submeshes.push_back( submesh );
+            result.SubmeshNodes.push_back( meshNode[meshIdx] );
         }
 
         // ============================
@@ -689,6 +836,7 @@ namespace Desert::Editor
         {
 
             BuildSkeletonHierarchy( scene->mRootNode, boneMapping, skeletonData );
+            BakeBindPose( skeletonData, meshData );
 
             skeletonData.Signature     = Animation::Skeleton::ComputeSignature( skeletonData.Bones );
             meshData.SkeletonSignature = skeletonData.Signature;
@@ -760,17 +908,41 @@ namespace Desert::Editor
             // exporter realistically states: 30 -> x800, 25 -> x960, 24 -> x1000, 1000 (glTF ms) -> x24.
             const double sourceRateValue          = anim->mTicksPerSecond != 0.0 ? anim->mTicksPerSecond : 25.0;
             const Animation::FrameRate sourceRate = RationalFromRate( sourceRateValue );
+            // glTF has no frame rate: key times are SECONDS (assimp reports them as milliseconds, 1000 ticks/s).
+            // 1000 is a unit, not the cadence the clip was authored on, so the display grid comes from the keys.
+            const bool timeIsContinuous = SourceFormatOf( sourcePath ) == "gltf";
 
             animData.TickRate = { Animation::PROJECT_TICK_RATE.Numerator,
                                   Animation::PROJECT_TICK_RATE.Denominator };
             // The file's own rate becomes the DISPLAY grid: it is the cadence the animation was authored
             // on, which is exactly what an artist should see on the ruler and snap to.
-            animData.DisplayRate = { sourceRate.Numerator, sourceRate.Denominator };
+            const Animation::FrameRate displayRate = timeIsContinuous ? CadenceOfKeys( *anim ) : sourceRate;
+            animData.DisplayRate                   = { displayRate.Numerator, displayRate.Denominator };
+            if ( timeIsContinuous )
+                LOG_INFO(
+                     "[Import] clip '{}': key times in seconds (glTF); authored cadence from the keys: {}/{} fps",
+                     animData.Name, displayRate.Numerator, displayRate.Denominator );
 
             std::size_t roundedKeys   = 0;
             int64_t     worstMicro    = 0;
             const auto  toProjectTick = [&]( double sourceTick ) -> int32_t
             {
+                // A fractional source tick (glTF: 1/24 s = 41.666... ms) is converted as a time, not rounded to
+                // a whole source tick first — that moved every 24 fps glTF key by up to half a millisecond.
+                // The file stores float seconds, so a key within the float's own precision counts as exact.
+                if ( std::fabs( sourceTick - std::round( sourceTick ) ) > 1.0e-6 )
+                {
+                    const double exact =
+                         sourceTick * Animation::PROJECT_TICK_RATE.AsDouble() / sourceRate.AsDouble();
+                    const double  rounded = std::round( exact );
+                    const int64_t micro   = std::llround( std::fabs( exact - rounded ) * 1.0e6 );
+                    if ( micro > std::llround( std::fabs( exact ) * 0.25 ) + 1 )
+                    {
+                        ++roundedKeys;
+                        worstMicro = std::max( worstMicro, micro );
+                    }
+                    return static_cast<int32_t>( rounded );
+                }
                 const auto converted = Animation::ConvertTick(
                      Animation::FrameNumber{ static_cast<int32_t>( llround( sourceTick ) ) }, sourceRate,
                      Animation::PROJECT_TICK_RATE );
@@ -821,6 +993,10 @@ namespace Desert::Editor
                                              channel->mScalingKeys[s].mValue.z } } );
                 }
 
+                if ( aiNode* node = FindNodeRecursive( scene->mRootNode, ch.BoneName ) )
+                    FoldNonBoneAncestors( GetFullLocalTransform( node, boneMapping ) *
+                                               glm::inverse( ConvertMatrix( node->mTransformation ) ),
+                                          ch );
                 animData.Channels.push_back( ch );
             }
 
@@ -844,7 +1020,17 @@ namespace Desert::Editor
             result.Animations.push_back( animData );
         }
 
-        result.Materials = materialData;
+        // Only the materials a mesh draws with. assimp appends its own default material to a glTF whose
+        // primitives all name one (Fox: fox_material + an unnamed default that became "Material_1"); a
+        // material nothing references is not content of this file. Filtered here, after the submeshes took
+        // their GUIDs by index, so every kept material keeps its index-derived GUID.
+        std::vector<bool> referenced( scene->mNumMaterials, false );
+        for ( uint32_t m = 0; m < scene->mNumMeshes; ++m )
+            if ( scene->mMeshes[m]->mMaterialIndex < scene->mNumMaterials )
+                referenced[scene->mMeshes[m]->mMaterialIndex] = true;
+        for ( uint32_t m = 0; m < materialData.size(); ++m )
+            if ( referenced[m] )
+                result.Materials.push_back( materialData[m] );
 
         return result;
     }
@@ -874,6 +1060,23 @@ namespace Desert::Editor
         }
 
         return false;
+    }
+
+    Common::ResultStr<ImportContentKind> AssimpImporter::Probe( const std::filesystem::path& path )
+    {
+        static const ScopedAssimpLogger logger;
+        Assimp::Importer                importer;
+        // No post-processing: the kind is the scene's meshes and bones as the file states them.
+        const aiScene* scene = importer.ReadFile( path.string(), 0 );
+        if ( scene == nullptr || scene->mRootNode == nullptr )
+            return Common::MakeFormattedError<ImportContentKind>( "'{}' could not be read: {}", path.string(),
+                                                                  importer.GetErrorString() );
+        if ( scene->mNumMeshes == 0 )
+            return Common::MakeSuccess( ImportContentKind::Animation );
+        for ( uint32_t i = 0; i < scene->mNumMeshes; ++i )
+            if ( scene->mMeshes[i]->HasBones() )
+                return Common::MakeSuccess( ImportContentKind::SkeletalMesh );
+        return Common::MakeSuccess( ImportContentKind::StaticMesh );
     }
 
     ImportResult AssimpImporter::Import( const std::filesystem::path& path, ImportManager& manager )

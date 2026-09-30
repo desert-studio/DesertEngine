@@ -43,6 +43,7 @@
 #include <Common/Core/Profiler.hpp>
 #include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/MeshDnD.hpp>
+#include <Editor/Import/ImportOptionsDialog.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Common/Core/JobSystem.hpp>
@@ -131,6 +132,7 @@
 #include "Editor/Panels/Debug/ShaderLibraryPanel.hpp"
 #include "Editor/Panels/Debug/UIDebuggerPanel.hpp"
 #include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
+#include "Editor/Widgets/ThumbnailEdit.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
 #include "Editor/Panels/ViewportPanel/Tools/ActiveToolBar.hpp"
 #include "Editor/Panels/Scalability/ScalabilityPanel.hpp"
@@ -822,8 +824,10 @@ namespace Desert::Editor
         MakeSplashPlan();
         BeginSplashStage( m_ShaderStage );
         // The splash's close button, pressed during this one long call, stops it between programs.
-        Assets::CompileEngineShaders( m_AssetManager, SplashItems(),
-                                      [this]() { return m_Splash && m_Splash->CloseRequested(); } );
+        if ( const auto shaders = Assets::CompileEngineShaders(
+                  m_AssetManager, SplashItems(), [this]() { return m_Splash && m_Splash->CloseRequested(); } );
+             !shaders )
+            return Common::MakeFormattedError( "the engine shaders: {}", shaders.GetError() );
         // The imported materials choose among these shaders' Import blocks; every cook below comes after.
         LOG_INFO( "[Import] {} import template(s) published from the loaded shaders",
                   ImportManager::PublishImportTemplates( *m_AssetManager ) );
@@ -1742,7 +1746,11 @@ namespace Desert::Editor
         if ( Splash::ThumbnailDiskDecodeAllowed( CurrentRevealState() ) )
             ThumbnailService::TickDiskAndDecode();
         UploadSplashThumbnails();
-        // THE ONE CAPTURE THE SPLASH MAY RUN (THUMB3): the open scene's materials, queued by WarmSplashScene.
+        // THE ONE CAPTURE THE SPLASH MAY RUN (THUMB3, THM1m, THM1n-13): the open scene's subjects, then every
+        // uncaptured picture of the project, queued by WarmSplashScene. A warmed mesh still being read when
+        // the window appears keeps being asked for after it (TickWarmMeshes), first in the queue once queued.
+        if ( m_Revealed && m_FileExplorerPanel != nullptr )
+            (void)m_FileExplorerPanel->TickWarmMeshes();
         if ( Splash::ThumbnailCaptureAllowed( CurrentRevealState() ) )
             ThumbnailService::Get().TickCapture( ThumbnailWarmup::CaptureScope::Everything );
         else if ( Splash::SceneThumbnailCaptureAllowed( CurrentRevealState() ) &&
@@ -3349,14 +3357,8 @@ namespace Desert::Editor
         for ( const auto& view : m_ExtraViewports )
             census.push_back( { "viewport '" + view->Name + "'", view->Renderer != nullptr } );
 
-        // The Details preview is a TOOL that happens to own a renderer, so it is found among the panels.
-        for ( const auto& panel : m_Panels )
-            if ( const auto* details = dynamic_cast<const ScenePropertiesPanel*>( panel.get() ) )
-                // Only while it HOLDS one. With nothing previewable selected it owns no renderer and has
-                // no forecast either (it builds lazily on a selection, not on a document), so a row here
-                // read "will allocate ~0.0 MiB when it draws" — a line the user could do nothing with.
-                if ( details->HoldsView() )
-                    census.push_back( { "Details preview", true } );
+        // NO DETAILS ROW. Details holds no view (THM-FIXF): its asset rows are pictures from the thumbnail pool,
+        // as UE's Details slots are, and a live view belongs to an asset window and dies with it.
 
         // The documents are asked of their own owner rather than sifted out of the panel list with a
         // dynamic_cast. That cast was the seam an earlier task closed: it only existed because the two
@@ -4420,6 +4422,7 @@ namespace Desert::Editor
         DrawRecoveryPopup();
         DrawLayoutSavePopup();
         DrawOpenRefusedPopup();
+        ImportOptions::DrawWindow(); // a dropped file never imported asks for its options first (THM1l)
         DrawCloseQuestionPopup();
 
         // Transient bottom-right notifications (save/import/validation). Drawn last so they float on top.
@@ -4597,6 +4600,18 @@ namespace Desert::Editor
                 commands.push_back( { "Assets", "Select asset " + path,
                                       std::bind_front( &FileExplorerPanel::SelectEntry,
                                                        std::to_address( m_FileExplorerPanel ), path ) } );
+            }
+            // UE "Edit Thumbnail" in steps, for the selected models and materials (the tile's drag is the free
+            // form). The file name addresses the entry: the selection lives in one folder, so it is unique.
+            for ( const std::string& path : m_FileExplorerPanel->SelectedThumbnailSubjects() )
+            {
+                const std::string file = std::filesystem::path( path ).filename().string();
+                for ( const Editor::ThumbnailEdit::OrbitStep step : Editor::ThumbnailEdit::kOrbitSteps )
+                    commands.push_back( { "Assets",
+                                          std::format( "Edit Thumbnail: {} {}", file,
+                                                       Editor::ThumbnailEdit::OrbitStepName( step ) ),
+                                          std::bind_front( &Editor::ThumbnailEdit::EditOrbitStep,
+                                                           std::filesystem::path( path ), step ) } );
             }
         }
 
@@ -6160,17 +6175,95 @@ namespace Desert::Editor
                        ::Desert::Core::EditorCamera* camera = ActiveEditorCamera();
                        if ( camera == nullptr || !m_MainScene )
                            return PaletteCommandOutcome( false, "no viewport camera or no scene" );
+                       // The view centre's ray: the surface it meets, or UE's background drop distance.
                        const Common::Math::Ray    ray( camera->GetPosition(), camera->GetDirection() );
                        ::Desert::Core::RaycastHit hit;
-                       if ( !m_MainScene->Raycast( ray, hit ) )
-                           return PaletteCommandOutcome( false, "the viewport centre looks at no surface" );
-                       const auto dropped = ViewportPanel::DropMeshIntoActiveViewport( path, hit.Point );
+                       const bool                 met     = m_MainScene->Raycast( ray, hit );
+                       const auto                 dropped = ViewportPanel::DropMeshIntoActiveViewport(
+                            path, ActorDrop::TargetFor( met ? std::optional<glm::vec3>( hit.Point ) : std::nullopt,
+                                                        hit.Normal, ray.Origin, ray.Direction ) );
                        if ( !dropped )
                            return Common::MakeError<bool>( dropped.GetError() );
                        return PaletteCommandDone();
                    } } );
             // NOLINTEND(bugprone-exception-escape)
         }
+        // THE IMPORT OPTIONS WINDOW WITHOUT A MOUSE: its three buttons, each running the button's own body.
+        const auto importOptionsCommand = [&commands]( const char* label, Common::BoolResultStr ( *answer )() )
+        {
+            commands.push_back( { "Assets", label, [answer]
+                                  {
+                                      if ( const auto answered = answer(); !answered )
+                                          return Common::MakeError<bool>( answered.GetError() );
+                                      return PaletteCommandDone();
+                                  } } );
+        };
+        importOptionsCommand( "Import Options: Import", [] { return ImportOptions::ConfirmImport( false ); } );
+        importOptionsCommand( "Import Options: Import All", [] { return ImportOptions::ConfirmImport( true ); } );
+        importOptionsCommand( "Import Options: Cancel", [] { return ImportOptions::CancelImport(); } );
+        // ITS FIELDS WITHOUT A MOUSE: the same edits the fields make (ImportOptions::SetShown*), on the options
+        // the window shows. Uniform Scale offers the unit conversions (metres, decimetres, centimetres, ...).
+        for ( const float scale : { 0.01f, 0.1f, 1.0f, 10.0f, 100.0f } )
+            commands.push_back( { "Assets", std::format( "Import Options: Uniform Scale {}", scale ),
+                                  [scale] { return ImportOptions::SetShownUniformScale( scale ); } } );
+        for ( const auto& [label, axis] :
+              { std::pair{ "From File", Assets::MeshSourceUpAxis::FromFile },
+                std::pair{ "Y", Assets::MeshSourceUpAxis::Y }, std::pair{ "Z", Assets::MeshSourceUpAxis::Z } } )
+            commands.push_back( { "Assets", std::format( "Import Options: Up Axis {}", label ),
+                                  [axis] { return ImportOptions::SetShownUpAxis( axis ); } } );
+        for ( const bool on : { true, false } )
+            commands.push_back( { "Assets", std::format( "Import Options: Combine Meshes {}", on ? "on" : "off" ),
+                                  [on] { return ImportOptions::SetShownCombineMeshes( on ); } } );
+        // UE's Content Browser > Asset Actions > Reimport (and the Import Settings fields Reimport imports with):
+        // over the assets SELECTED IN THE CONTENT BROWSER, the RMB item's and the Import Settings button's own
+        // ImportOptions bodies. Without a selected asset each is unavailable and says why; an asset with no import
+        // source is refused by name by the body it reaches.
+        const auto selectedAssets = [this]() -> Common::ResultStr<std::vector<std::string>>
+        {
+            if ( m_FileExplorerPanel == nullptr )
+                return Common::MakeError<std::vector<std::string>>( "the Content Browser is not open" );
+            std::vector<std::string> selected = m_FileExplorerPanel->SelectionPaths();
+            if ( selected.empty() )
+                return Common::MakeError<std::vector<std::string>>(
+                     "no asset is selected in the Content Browser" );
+            return Common::MakeSuccess( std::move( selected ) );
+        };
+        // One body over every selected asset; the first refusal is the command's answer, the others still run.
+        const auto overSelectedAssets =
+             [selectedAssets]( const std::function<Common::BoolResultStr( const std::filesystem::path& )>& body )
+             -> Common::BoolResultStr
+        {
+            const auto assets = selectedAssets();
+            if ( !assets )
+                return Common::MakeError<bool>( assets.GetError() );
+            Common::BoolResultStr outcome = PaletteCommandDone();
+            for ( const std::string& asset : assets.GetValue() )
+                if ( const auto done = body( asset ); !done && outcome )
+                    outcome = Common::MakeError<bool>( std::format( "'{}': {}", asset, done.GetError() ) );
+            return outcome;
+        };
+        commands.push_back( { "Assets", "Reimport selected", [overSelectedAssets]
+                              {
+                                  return overSelectedAssets( []( const std::filesystem::path& asset )
+                                                             { return ImportOptions::Reimport( asset ); } );
+                              } } );
+        for ( const float scale : { 0.01f, 0.1f, 1.0f, 10.0f, 100.0f } )
+            commands.push_back( { "Assets", std::format( "Import Settings: Uniform Scale {}", scale ),
+                                  [overSelectedAssets, scale]
+                                  {
+                                      return overSelectedAssets(
+                                           [scale]( const std::filesystem::path& asset )
+                                           { return ImportOptions::SetSectionUniformScale( asset, scale ); } );
+                                  } } );
+        for ( const auto& [label, axis] :
+              { std::pair{ "From File", Assets::MeshSourceUpAxis::FromFile },
+                std::pair{ "Y", Assets::MeshSourceUpAxis::Y }, std::pair{ "Z", Assets::MeshSourceUpAxis::Z } } )
+            commands.push_back(
+                 { "Assets", std::format( "Import Settings: Up Axis {}", label ), [overSelectedAssets, axis]
+                   {
+                       return overSelectedAssets( [axis]( const std::filesystem::path& asset )
+                                                  { return ImportOptions::SetSectionUpAxis( asset, axis ); } );
+                   } } );
         // THE FOLIAGE PALETTE WITHOUT A MOUSE: the mode, and one entry per collection running the palette's own
         // collection drop (FO-2), so a frame can show types that came from a collection unattended.
         commands.push_back( { "Foliage", "Foliage mode", []
@@ -8071,6 +8164,9 @@ namespace Desert::Editor
         if ( const auto& window = m_Application->GetWindow() )
             window->Show();
         LOG_INFO( "[Startup] reveal: the scene's content has settled and the editor window is shown" );
+        if ( m_FileExplorerPanel != nullptr )
+            LOG_INFO( "[Thumbnails] {} thumbnails resident, {} captured on splash",
+                      m_FileExplorerPanel->ResidentThumbnails(), m_SplashWarmTotal );
         StartBackgroundCook();
         // Starts the crossfade and returns; the splash object stays until this layer is destroyed.
         m_Splash->Close();
@@ -8102,11 +8198,20 @@ namespace Desert::Editor
             return;
         }
         WarmSplashScene();
+        // A cold mesh still being read counts too: it is a capture that has not been queued YET (THM1m).
+        const std::size_t warmPending =
+             ThumbnailService::Get().SceneWarmPending() + m_FileExplorerPanel->TickWarmMeshes();
+        m_SplashWarmTotal = std::max( m_SplashWarmTotal, warmPending ); // a late resolve queues after the start
+        // THE CAPTURES' PICTURES ARE UPLOADED TOO (THM1n-13): once every splash capture has landed, the PNGs they
+        // wrote are asked of the workers like the rest, so the window never opens on a picture still on disk.
+        if ( m_SplashWarmStarted && warmPending == 0 && !m_SplashPicturesReasked )
+        {
+            m_SplashPicturesReasked = true;
+            m_FileExplorerPanel->RequestProjectPictures();
+        }
         // An upload of pixels a worker already decoded from the disk cache: no renderer slot and no capture,
         // which is why it may run before the hand-over while ThumbnailCaptureAllowed is still false.
-        const std::size_t pending     = m_FileExplorerPanel->UploadPrefetchedThumbnails();
-        const std::size_t warmPending = ThumbnailService::Get().SceneWarmPending();
-        m_SplashWarmTotal = std::max( m_SplashWarmTotal, warmPending ); // a late resolve queues after the start
+        const std::size_t pending = m_FileExplorerPanel->UploadPrefetchedThumbnails();
         if ( warmPending != m_SplashWarmShown )
         {
             // The splash says what it is waiting on, as every other stage does.
@@ -8130,23 +8235,11 @@ namespace Desert::Editor
         const double waitedMs =
              std::chrono::duration<double, std::milli>( now - *m_RevealOtherwiseReadySince ).count();
         const bool wasHolding  = m_ThumbnailsHoldReveal;
-        m_ThumbnailsHoldReveal = Splash::ThumbnailsHoldReveal( pending, waitedMs ) ||
-                                 Splash::SceneCapturesHoldReveal( warmPending, waitedMs );
-        if ( warmPending > 0 && wasHolding && !m_ThumbnailsHoldReveal )
+        m_ThumbnailsHoldReveal =
+             Splash::ThumbnailsHoldReveal( pending ) || Splash::SceneCapturesHoldReveal( warmPending );
+        if ( wasHolding && !m_ThumbnailsHoldReveal )
         {
-            LOG_WARN( "[Thumbnails] the hand-over waited {:.0f} ms for the scene's captures and {} are left; "
-                      "they are first in the queue after it",
-                      waitedMs, warmPending );
-        }
-        if ( pending > 0 && !m_ThumbnailsHoldReveal )
-        {
-            LOG_WARN( "[Thumbnails] the hand-over waited {:.0f} ms for the opening folder's cached thumbnails "
-                      "and {} are still decoding; they arrive after it",
-                      waitedMs, pending );
-        }
-        else if ( pending == 0 && wasHolding && !m_ThumbnailsHoldReveal )
-        {
-            LOG_INFO( "[Thumbnails] the opening folder's cached thumbnails held the hand-over {:.0f} ms",
+            LOG_INFO( "[Thumbnails] the opening folder's and the scene's pictures held the hand-over {:.0f} ms",
                       waitedMs );
         }
     }
@@ -8161,14 +8254,23 @@ namespace Desert::Editor
 
         Assets::AssetRootSet roots;
         ::Desert::Core::CollectAssetRoots( *m_MainScene, roots );
-        const std::vector<std::string> warm = ThumbnailWarmup::SceneWarmList(
+        const std::vector<ThumbnailWarmup::WarmItem> scene = ThumbnailWarmup::SceneWarmList(
              roots.Handles(), []( const Common::AssetHandle& handle )
              { return Common::AssetPathIndex::PathFor( static_cast<uint64_t>( handle ) ); } );
-        m_FileExplorerPanel->WarmSceneThumbnails( warm );
-        m_SplashWarmTotal = ThumbnailService::Get().SceneWarmPending();
-        LOG_INFO( "[Thumbnails] the scene uses {} material(s) of {} root(s); {} picture(s) to capture before the "
-                  "hand-over (budget {:.0f} ms), the rest decode from the disk cache",
-                  warm.size(), roots.Size(), m_SplashWarmTotal, Splash::kSceneCaptureBudgetMs );
+        // EVERY PICTURE OF THE PROJECT (THM1n-13, owner 09-29): the content registry's rows of every kind, not the
+        // folder the browser opens on — so no folder entered after the hand-over waits for a picture.
+        const std::vector<ThumbnailWarmup::WarmItem> project =
+             ThumbnailWarmup::ProjectWarmList( &Assets::ContentRegistry::FilesOfKind );
+        for ( const ThumbnailWarmup::Unproduced& gap :
+              ThumbnailWarmup::UnproducedKinds( &Assets::ContentRegistry::FilesOfKind ) )
+            LOG_WARN(
+                 "[Thumbnails] {} {} file(s) get no picture on the splash: the kind has no thumbnail producer "
+                 "yet ({})",
+                 gap.Files, Common::Content::KindName( gap.Kind ), gap.Why );
+        m_SplashWarmTotal = m_FileExplorerPanel->WarmProjectThumbnails( scene, project );
+        LOG_INFO( "[Thumbnails] the scene uses {} subject(s) of {} root(s), the project has {} picture(s); {} "
+                  "picture(s) to capture before the hand-over, the rest decode from the disk cache",
+                  scene.size(), roots.Size(), project.size(), m_SplashWarmTotal );
     }
 
     void EditorLayer::UpdateContentSettling()
@@ -9684,12 +9786,15 @@ namespace Desert::Editor
             tf.Translation = pos * Common::Units::UnitsPerMetre;
             tf.Scale       = scale;
         };
-        auto mat = [&]( const std::string& name, std::initializer_list<std::pair<const char*, glm::vec4>> params )
+        // @p templateGuid: the material's template by shader GUID; empty = the `Default Surface` one.
+        auto mat = [&]( const std::string& name, std::initializer_list<std::pair<const char*, glm::vec4>> params,
+                        std::string_view templateGuid = {} )
         {
             // .Handle drops the rest of the answer on purpose: this builder has nothing to do about a
             // demo material the user has since edited, and the disagreement is already reported by name
             // and value from inside the call. See Editor/Core/MaterialAssetUtils.hpp.
-            return Editor::MaterialAssetUtils::FindOrCreatePBRMaterialAsset( m_AssetManager.get(), name, params )
+            return Editor::MaterialAssetUtils::FindOrCreatePBRMaterialAsset( m_AssetManager.get(), name, params,
+                                                                             templateGuid )
                  .Handle;
         };
 
@@ -9729,9 +9834,8 @@ namespace Desert::Editor
 
         // Glass probe (refraction path) + emissive probe (bloom path — glows past the threshold).
         prim( "GlassSphere", Geometry::PrimitiveType::Sphere, { -2.5f, 1.0f, 0.5f }, glm::vec3( 1.2f ),
-              mat( "Starter_Glass", { { "Transmission", { 0.9f, 0, 0, 0 } },
-                                      { "IOR", { 1.5f, 0, 0, 0 } },
-                                      { "GlassTint", { 0.8f, 0.95f, 1.0f, 1.0f } } } ) );
+              mat( "Starter_Glass", { { "IOR", { 1.5f, 0, 0, 0 } }, { "GlassTint", { 0.8f, 0.95f, 1.0f, 1.0f } } },
+                   Editor::MaterialAssetUtils::kGlassTemplateGuid ) );
         prim( "EmissiveCube", Geometry::PrimitiveType::Cube, { 2.5f, 0.5f, 0.5f }, glm::vec3( 1.0f ),
               mat( "Starter_Emissive", { { "AlbedoColor", { 0.1f, 0.1f, 0.1f, 1.0f } },
                                          { "EmissiveColor", { 0.2f, 0.8f, 1.0f, 1.0f } },
@@ -9801,8 +9905,8 @@ namespace Desert::Editor
             auto& e            = m_MainScene->CreateNewEntity( std::string( name ) );
             auto& smc          = e.AddComponent<ECS::StaticMeshComponent>();
             smc.Primitive      = Geometry::PrimitiveType::Cube;
-            const auto* params = Editor::MaterialAssetUtils::FindDemoMaterial( matName );
-            if ( !params )
+            const auto* demo   = Editor::MaterialAssetUtils::FindDemoMaterial( matName );
+            if ( demo == nullptr )
             {
                 LOG_ERROR( "[Cornell] '{}' is not in the demo material table; '{}' gets no material.", matName,
                            name );
@@ -9810,7 +9914,7 @@ namespace Desert::Editor
             else
             {
                 smc.MaterialSlots.push_back( Editor::MaterialAssetUtils::FindOrCreatePBRMaterialAsset(
-                                                  m_AssetManager.get(), matName, *params )
+                                                  m_AssetManager.get(), matName, demo->Params, demo->Template )
                                                   .Handle );
             }
             auto& tf       = e.GetComponent<ECS::TransformComponent>();
@@ -9828,11 +9932,12 @@ namespace Desert::Editor
         auto& glass    = m_MainScene->CreateNewEntity( std::string( "CB_GlassSphere" ) );
         auto& gsmc     = glass.AddComponent<ECS::StaticMeshComponent>();
         gsmc.Primitive = Geometry::PrimitiveType::Sphere;
-        if ( const auto* glassParams = Editor::MaterialAssetUtils::FindDemoMaterial( "CB_Glass" ) )
+        if ( const auto* glassDemo = Editor::MaterialAssetUtils::FindDemoMaterial( "CB_Glass" ) )
         {
-            gsmc.MaterialSlots.push_back( Editor::MaterialAssetUtils::FindOrCreatePBRMaterialAsset(
-                                               m_AssetManager.get(), "CB_Glass", *glassParams )
-                                               .Handle );
+            gsmc.MaterialSlots.push_back(
+                 Editor::MaterialAssetUtils::FindOrCreatePBRMaterialAsset( m_AssetManager.get(), "CB_Glass",
+                                                                           glassDemo->Params, glassDemo->Template )
+                      .Handle );
         }
         auto& gtf       = glass.GetComponent<ECS::TransformComponent>();
         gtf.Translation = Common::Units::Metres( 1.0f ) * glm::vec3( 0.0f, 1.5f, 0.7f );
