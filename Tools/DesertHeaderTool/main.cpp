@@ -5,13 +5,14 @@
 // metadata) into Desert::Reflection::ReflectionRegistry at static-init time.
 //
 // Usage:
-//   DesertHeaderTool --templates <dir> <source-root> <output-file> [scan-subdir]
-//     --templates    directory of the *.tpl text templates (Tools/DesertHeaderTool/Templates); the entry
-//                    is Reflection.gen.cpp.tpl. Required: the emitted text lives only there.
-//     <source-root>  include root (e.g. Desert/Desert/Source). #include paths in the generated
-//                    file are computed relative to this.
-//     <output-file>  path of the generated .cpp (e.g. .../Source/Engine/Generated/Reflection.gen.cpp)
-//     [scan-subdir]  optional subdirectory of source-root to scan (default: whole root, e.g. "Engine").
+//   DesertHeaderTool --templates <dir> [--reflect <source-root> <scan-subdir> <output-file>]
+//                    [--check <include-root>]... [--context <include-root>]...
+//                    [--subsystems <Owner> <OwnerType> <owner-header> <output-file>]...
+//     --templates    directory of the *.tpl text templates (Tools/DesertHeaderTool/Templates).
+//     --reflect      REFLECT()/PROPERTY() registration of <source-root>/<scan-subdir> into <output-file>.
+//     --check        sources whose routed-event handlers are verified (a build error with file:line).
+//     --context      sources read for events, bases and attachments but not diagnosed.
+//     --subsystems   CreateSubsystems() of <OwnerType> for every DESERT_SUBSYSTEM( <Owner> ) class.
 //
 // The annotation macros (REFLECT/PROPERTY) expand to nothing during normal compilation; only this
 // tool reads them. See Engine/Reflection/ReflectionMacros.hpp.
@@ -21,10 +22,15 @@
 #include <Common/Json/Template.hpp>
 #include <ToolMain.hpp>
 
+#include "Source/HeaderScan.hpp"
+
 #include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
+#include <set>
+#include <utility>
 #include <optional>
 #include <sstream>
 #include <charconv>
@@ -108,55 +114,7 @@ namespace
 
     // Removes // and /* */ comments while respecting string and char literals (so braces or //
     // sequences inside "..." are preserved verbatim).
-    std::string StripComments( const std::string& src )
-    {
-        std::string out;
-        out.reserve( src.size() );
-        for ( size_t i = 0; i < src.size(); )
-        {
-            char c = src[i];
-            if ( c == '"' || c == '\'' )
-            {
-                char quote = c;
-                out += c;
-                ++i;
-                while ( i < src.size() )
-                {
-                    out += src[i];
-                    if ( src[i] == '\\' && i + 1 < src.size() )
-                    {
-                        out += src[i + 1];
-                        i += 2;
-                        continue;
-                    }
-                    if ( src[i] == quote )
-                    {
-                        ++i;
-                        break;
-                    }
-                    ++i;
-                }
-                continue;
-            }
-            if ( c == '/' && i + 1 < src.size() && src[i + 1] == '/' )
-            {
-                while ( i < src.size() && src[i] != '\n' )
-                    ++i;
-                continue;
-            }
-            if ( c == '/' && i + 1 < src.size() && src[i + 1] == '*' )
-            {
-                i += 2;
-                while ( i + 1 < src.size() && !( src[i] == '*' && src[i + 1] == '/' ) )
-                    ++i;
-                i += 2;
-                continue;
-            }
-            out += c;
-            ++i;
-        }
-        return out;
-    }
+    using Desert::HeaderTool::StripComments;
 
     // Reads an identifier (optionally qualified with ::) starting at i; advances i past it.
     std::string ReadQualifiedIdent( const std::string& s, size_t& i )
@@ -829,9 +787,9 @@ namespace
 
     // Every *.tpl in `dir` under its file name, so `{% include "Field.tpl" %}` resolves inside the same set.
     // No directory, no entry template or a template that does not compile is an error with the path.
-    Common::ResultStr<std::string> RenderReflection( const fs::path& dir, const std::vector<ReflectedType>& types )
+    Common::ResultStr<std::string> RenderTemplate( const fs::path& dir, std::string_view entry,
+                                                   const Common::Json::Value& model )
     {
-        constexpr std::string_view entry = "Reflection.gen.cpp.tpl";
         if ( !fs::is_directory( dir ) )
             return Common::MakeError<std::string>( "template directory does not exist: " + dir.string() );
         Common::Text::TemplateSet set;
@@ -846,87 +804,200 @@ namespace
         const Common::Text::Template* root = set.Find( entry );
         if ( root == nullptr )
             return Common::MakeError<std::string>( "entry template missing: " + ( dir / entry ).string() );
-        const Common::Json::Value model = ReflectionModel( types );
         return Common::Text::Render( *root, Common::Json::Root( model ), set.Loader() );
+    }
+
+    Common::Json::Value SubsystemsModel( const std::string& ownerType, const std::string& ownerHeader,
+                                         const std::vector<Desert::HeaderTool::SubsystemDeclaration>& subsystems )
+    {
+        Common::Json::Value::Array includes;
+        Common::Json::Value::Array names;
+        std::set<std::string>      included;
+        for ( const auto& subsystem : subsystems )
+        {
+            if ( included.insert( subsystem.Include ).second )
+                includes.emplace_back( subsystem.Include );
+            names.emplace_back( subsystem.QualifiedName );
+        }
+        const size_t scope = ownerType.rfind( "::" );
+        return Common::Json::ObjectBuilder()
+             .Set( "ownerType", ownerType )
+             .Set( "ownerNamespace", scope == std::string::npos ? std::string() : ownerType.substr( 0, scope ) )
+             .Set( "ownerHeader", ownerHeader )
+             .Set( "includes", Common::Json::Value( std::move( includes ) ) )
+             .Set( "subsystems", Common::Json::Value( std::move( names ) ) )
+             .Build();
+    }
+
+    std::vector<Desert::HeaderTool::ScannedFile> GatherSources( const fs::path& root, bool checked )
+    {
+        std::vector<Desert::HeaderTool::ScannedFile> files;
+        for ( const auto& entry : fs::recursive_directory_iterator( root ) )
+        {
+            if ( !entry.is_regular_file() )
+                continue;
+            const auto ext = entry.path().extension().string();
+            if ( ext != ".hpp" && ext != ".h" && ext != ".cpp" && ext != ".mm" )
+                continue;
+            if ( entry.path().filename().string().find( ".gen." ) != std::string::npos )
+                continue;
+            files.push_back( { entry.path(), ReadFile( entry.path() ), checked,
+                               fs::relative( entry.path(), root ).generic_string() } );
+        }
+        return files;
+    }
+
+    bool WriteIfChanged( const fs::path& outputFile, const std::string& content )
+    {
+        if ( fs::exists( outputFile ) && ReadFile( outputFile ) == content )
+            return false;
+        fs::create_directories( outputFile.parent_path() );
+        std::ofstream out( outputFile, std::ios::binary );
+        out << content;
+        return true;
+    }
+
+    struct ReflectRequest
+    {
+        fs::path SourceRoot;
+        fs::path ScanRoot;
+        fs::path Output;
+    };
+
+    struct SubsystemsRequest
+    {
+        std::string Owner;
+        std::string OwnerType;
+        std::string OwnerHeader;
+        fs::path    Output;
+    };
+
+    int Reflect( const fs::path& templateDir, const ReflectRequest& request )
+    {
+        if ( !fs::exists( request.ScanRoot ) )
+        {
+            std::cerr << "[DesertHeaderTool] scan root does not exist: " << request.ScanRoot << "\n";
+            return 1;
+        }
+        std::vector<fs::path> headers;
+        for ( const auto& entry : fs::recursive_directory_iterator( request.ScanRoot ) )
+        {
+            if ( !entry.is_regular_file() )
+                continue;
+            const auto ext = entry.path().extension().string();
+            if ( ext != ".hpp" && ext != ".h" )
+                continue;
+            if ( entry.path().filename().string().find( ".gen." ) != std::string::npos )
+                continue;
+            headers.push_back( entry.path() );
+        }
+
+        // Pass 1: every enum definition, so a reflected field can reference an enum from any header.
+        std::vector<EnumDef> enums;
+        for ( const auto& h : headers )
+            CollectEnums( StripComments( ReadFile( h ) ), enums );
+
+        // Pass 2: reflected types, resolving enum field types against the collected enums.
+        std::vector<ReflectedType> types;
+        for ( const auto& h : headers )
+            ParseFile( h, request.SourceRoot, types, enums );
+
+        auto rendered = RenderTemplate( templateDir, "Reflection.gen.cpp.tpl", ReflectionModel( types ) );
+        if ( !rendered.IsSuccess() )
+        {
+            std::cerr << "[DesertHeaderTool] " << rendered.GetError() << "\n";
+            return 1;
+        }
+        const bool written = WriteIfChanged( request.Output, rendered.ExtractValue() );
+        std::cout << "[DesertHeaderTool] " << ( written ? "generated " : "up to date " ) << request.Output.string()
+                  << " (" << types.size() << " reflected types, " << headers.size() << " headers scanned)\n";
+        return 0;
     }
 } // namespace
 
 static int RunTool( int argc, char** argv )
 {
-    std::optional<fs::path>  templateDir;
-    std::vector<std::string> positional;
+    std::optional<fs::path>        templateDir;
+    std::optional<ReflectRequest>  reflect;
+    std::vector<SubsystemsRequest> subsystemRequests;
+    std::vector<fs::path>          checkRoots;
+    std::vector<fs::path>          contextRoots;
     for ( int i = 1; i < argc; ++i )
     {
-        const std::string_view arg = argv[i];
-        if ( arg == "--templates" && i + 1 < argc )
+        const std::string_view arg  = argv[i];
+        const int              left = argc - i - 1;
+        if ( arg == "--templates" && left >= 1 )
             templateDir = argv[++i];
+        else if ( arg == "--check" && left >= 1 )
+            checkRoots.emplace_back( argv[++i] );
+        else if ( arg == "--context" && left >= 1 )
+            contextRoots.emplace_back( argv[++i] );
+        else if ( arg == "--reflect" && left >= 3 )
+        {
+            const fs::path root = argv[i + 1];
+            reflect             = ReflectRequest{ root, root / argv[i + 2], argv[i + 3] };
+            i += 3;
+        }
+        else if ( arg == "--subsystems" && left >= 4 )
+        {
+            subsystemRequests.push_back( { argv[i + 1], argv[i + 2], argv[i + 3], argv[i + 4] } );
+            i += 4;
+        }
         else
-            positional.emplace_back( arg );
+        {
+            std::cerr << "[DesertHeaderTool] unknown argument: " << arg << "\n";
+            templateDir.reset();
+            break;
+        }
     }
-    if ( !templateDir || positional.size() < 2 || positional.size() > 3 )
+    if ( !templateDir || ( !reflect && checkRoots.empty() ) )
     {
-        std::cerr << "Usage: DesertHeaderTool --templates <dir> <source-root> <output-file> [scan-subdir]\n";
+        std::cerr << "Usage: DesertHeaderTool --templates <dir> [--reflect <source-root> <scan-subdir> <output>]\n"
+                     "       [--check <include-root>]... [--context <include-root>]...\n"
+                     "       [--subsystems <Owner> <OwnerType> <owner-header> <output>]...\n";
         return 1;
     }
 
-    const fs::path sourceRoot = positional[0];
-    const fs::path outputFile = positional[1];
-    const fs::path scanRoot   = positional.size() == 3 ? ( sourceRoot / positional[2] ) : sourceRoot;
-
-    if ( !fs::exists( scanRoot ) )
+    std::vector<Desert::HeaderTool::ScannedFile> files;
+    for ( const auto& [roots, checked] : { std::pair{ &checkRoots, true }, std::pair{ &contextRoots, false } } )
     {
-        std::cerr << "[DesertHeaderTool] scan root does not exist: " << scanRoot << "\n";
+        for ( const fs::path& root : *roots )
+        {
+            if ( !fs::is_directory( root ) )
+            {
+                std::cerr << "[DesertHeaderTool] root does not exist: " << root << "\n";
+                return 1;
+            }
+            auto gathered = GatherSources( root, checked );
+            files.insert( files.end(), std::make_move_iterator( gathered.begin() ),
+                          std::make_move_iterator( gathered.end() ) );
+        }
+    }
+
+    const Desert::HeaderTool::HeaderModel model = Desert::HeaderTool::ScanHeaders( files );
+    for ( const auto& error : model.Errors )
+        std::cerr << Desert::HeaderTool::FormatDiagnostic( error ) << "\n";
+    if ( !model.Errors.empty() )
         return 1;
-    }
 
-    // Gather headers once.
-    std::vector<fs::path> headers;
-    for ( auto& entry : fs::recursive_directory_iterator( scanRoot ) )
+    for ( const SubsystemsRequest& request : subsystemRequests )
     {
-        if ( !entry.is_regular_file() ) continue;
-        const auto ext = entry.path().extension().string();
-        if ( ext != ".hpp" && ext != ".h" ) continue;
-        // never parse our own generated output
-        if ( entry.path().filename().string().find( ".gen." ) != std::string::npos ) continue;
-        headers.push_back( entry.path() );
+        std::vector<Desert::HeaderTool::SubsystemDeclaration> owned;
+        std::copy_if( model.Subsystems.begin(), model.Subsystems.end(), std::back_inserter( owned ),
+                      [&]( const auto& subsystem ) { return subsystem.Owner == request.Owner; } );
+        auto rendered = RenderTemplate( *templateDir, "Subsystems.gen.cpp.tpl",
+                                        SubsystemsModel( request.OwnerType, request.OwnerHeader, owned ) );
+        if ( !rendered.IsSuccess() )
+        {
+            std::cerr << "[DesertHeaderTool] " << rendered.GetError() << "\n";
+            return 1;
+        }
+        const bool written = WriteIfChanged( request.Output, rendered.ExtractValue() );
+        std::cout << "[DesertHeaderTool] " << ( written ? "generated " : "up to date " ) << request.Output.string()
+                  << " (" << owned.size() << " " << request.Owner << " subsystems)\n";
     }
 
-    // Pass 1: collect every enum definition (so a reflected field can reference an enum from any header,
-    // regardless of declaration order or file).
-    std::vector<EnumDef> enums;
-    for ( const auto& h : headers )
-        CollectEnums( StripComments( ReadFile( h ) ), enums );
-
-    // Pass 2: parse reflected types, resolving enum field types against the collected enums.
-    std::vector<ReflectedType> types;
-    const size_t               scanned = headers.size();
-    for ( const auto& h : headers )
-        ParseFile( h, sourceRoot, types, enums );
-
-    auto rendered = RenderReflection( *templateDir, types );
-    if ( !rendered.IsSuccess() )
-    {
-        std::cerr << "[DesertHeaderTool] " << rendered.GetError() << "\n";
-        return 1;
-    }
-
-    // Only rewrite when content changed — avoids needless recompiles of the generated TU.
-    const std::string newContent = rendered.ExtractValue();
-    if ( fs::exists( outputFile ) && ReadFile( outputFile ) == newContent )
-    {
-        std::cout << "[DesertHeaderTool] up to date (" << types.size() << " reflected types, "
-                  << scanned << " headers scanned)\n";
-        return 0;
-    }
-
-    fs::create_directories( outputFile.parent_path() );
-    std::ofstream out( outputFile, std::ios::binary );
-    out << newContent;
-    out.close();
-
-    std::cout << "[DesertHeaderTool] generated " << outputFile.string() << " ("
-              << types.size() << " reflected types, " << scanned << " headers scanned)\n";
-    return 0;
+    return reflect ? Reflect( *templateDir, *reflect ) : 0;
 }
 
 // The entry point, one line. Anything this tool throws is named on stderr with the tool's own name

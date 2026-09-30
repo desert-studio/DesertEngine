@@ -12,6 +12,19 @@ project "Editor"
     debugdir "%{_MAIN_SCRIPT_DIR}/Editor"
     debugargs { "--project Desert.deproj" } -- what scripts/Windows/Run*.bat pass with no arguments
 
+    -- DesertHeaderTool over the editor's sources: routed-event handlers verified (a build error at
+    -- file:line) and the DESERT_SUBSYSTEM( Editor ) list emitted for EditorLayer.
+    dependson { "DesertHeaderTool" }
+    prebuildcommands {
+        DesertPlatform.BuiltToolPath("DesertHeaderTool")
+            .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
+            .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Editor/Source"'
+            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source"'
+            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
+            .. ' --subsystems Editor Desert::Editor::EditorLayer EditorLayer.hpp'
+            .. ' "' .. _MAIN_SCRIPT_DIR .. '/Editor/Source/Editor/Generated/EditorSubsystems.gen.cpp"'
+    }
+
     files { 
         -- Engine 
         "Source/**.cpp", 
