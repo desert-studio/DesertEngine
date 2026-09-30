@@ -155,3 +155,13 @@ The engine owns MECHANISMS and data formats; game RULES live in scripts. The eng
 items, "equip", and no bone/socket/body-part names (`"head"`, `"hand_r"`, `"Spine"`) in engine code — a turtle's helmet
 goes on `"shell"`. Names come from assets (skeleton sockets, data assets) and are passed in by scripts or content.
 Examples and tests may use concrete names; engine headers/sources may not hard-code them.
+
+## Уроки 2026-09-30 (вечер/ночь)
+- **Список целей make — через bash, не zsh:** в zsh `$T` не делится на слова, и `build_quiet.sh … $T` отдаёт make одну цель «A B C» → «No rule to make target». Писать цели отдельными аргументами или `bash -c '…'`.
+- **llvm@18 в PATH — ТОЛЬКО для CheckFormat/CheckTidy/git-clang-format.** Сборка с ним в PATH берёт чужой clang → `FP_INFINITE` в math.h. clang-tidy по одному файлу: `/opt/homebrew/opt/llvm@18/bin/clang-tidy -p . --quiet --extra-arg=-isysroot --extra-arg=$(xcrun --show-sdk-path) <файл>` (без isysroot — шум «iostream not found»).
+- **`--project` — АБСОЛЮТНЫЙ путь** (до ENG-ROOT редактор делает chdir в Editor/ раньше, чем читает относительный путь). Проект — `Editor/Desert.deproj`, не корень.
+- **Синтетический ввод ОС теперь РАЗРЕШЁН** (Terminal в «Универсальном доступе»): python3 ctypes Quartz CGEventPost / osascript. Основная проверка ввода — внедрение через MCP (`send_input`, `desertctl input`, ветка EVT), ввод ОС — дополнительная сквозная.
+- **Обработчик события не может быть private** (EVT): детектор молча не видит private-метод — узел не получает событие. Обработчики `On<Событие>` — public.
+- **IPanel.hpp — без ImGui** (правило в самом заголовке): всё, что зовёт ImGui, — в IPanel.cpp.
+- **После живой проверки — чистый `git status --ignored`:** импортированные файлы, `base_basic_*.png`, `Saved/`-мусор уронили TextureImport/AssetReferenceCensus/MeshBinaryFormat у следующего прогона.
+- **Тест, что ищет строку в исходнике** (placement/pose-edit и т.п.): переименовал/обобщил вызов — обнови закреплённую строку в тот же коммит.

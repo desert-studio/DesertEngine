@@ -9,6 +9,7 @@
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
+#include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
@@ -82,6 +83,7 @@ namespace Desert::Runtime
         PollCloudModellingVolumes( assetManager );
         PollUIThemes( assetManager );
         PollLandscapeLayerInfos( assetManager );
+        PollPrefabs( assetManager );
         m_ContentWatch.Poll();
         m_FirstScan = false;
     }
@@ -264,6 +266,46 @@ namespace Desert::Runtime
             }
 
             LOG_INFO( "[HotReload] Landscape layer info '{}' reloaded — the next frame and stroke use it.", key );
+        }
+    }
+
+    void AssetHotReload::PollPrefabs( Assets::AssetManager& assetManager )
+    {
+        for ( const auto& [handle, asset] : assetManager.FindAllByType<Assets::PrefabAsset>() )
+        {
+            if ( !asset )
+                continue;
+
+            // THE WATCH IS TOUCHED BEFORE THE READINESS TEST, so a prefab loaded later starts from the stamp
+            // its file has now rather than reporting an edit that happened before anyone read it.
+            const auto& path    = asset->GetMetadata().Filepath;
+            const bool  changed = TouchWatched( path );
+            if ( !changed || !asset->IsReadyForUse() )
+                continue;
+
+            const std::string key = path.generic_string();
+
+            // A capture from a live entity that "Save as Prefab" has not written yet: its payload is the only
+            // copy, and the file on disk (if any) is older than it.
+            if ( !asset->IsReloadableFromFile() )
+            {
+                LOG_WARN( "[HotReload] Prefab '{}' changed on disk but holds a capture not yet saved; the capture "
+                          "is kept.",
+                          key );
+                continue;
+            }
+
+            // A FAILED RE-READ KEEPS THE OLD PAYLOADS (LoadFromFile replaces them only after a parse that
+            // succeeded), for the cloud type's reason: a poll can land mid-write.
+            if ( const auto reloaded = asset->Load(); !reloaded )
+            {
+                LOG_ERROR( "[HotReload] Prefab '{}' could not be re-read: {}", key, reloaded.GetError() );
+                continue;
+            }
+
+            LOG_INFO( "[HotReload] Prefab '{}' reloaded - the next spawn, placement and Default Pawn capsule "
+                      "read it.",
+                      key );
         }
     }
 

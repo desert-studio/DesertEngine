@@ -660,6 +660,8 @@ namespace Common::Crash::Detail
                 return "EXCEPTION_STACK_OVERFLOW";
             case EXCEPTION_IN_PAGE_ERROR:
                 return "EXCEPTION_IN_PAGE_ERROR";
+            case EXCEPTION_BREAKPOINT:
+                return "EXCEPTION_BREAKPOINT";
             default:
                 return "EXCEPTION_UNKNOWN";
         }
@@ -1089,6 +1091,8 @@ namespace Common::Crash::Detail
                 return "SIGFPE";
             case SIGABRT:
                 return "SIGABRT";
+            case SIGTRAP:
+                return "SIGTRAP";
             default:
                 return "SIGNAL_UNKNOWN";
         }
@@ -1302,7 +1306,10 @@ namespace Common::Crash::Detail
         // does not compile there (the first POSIX build of this file, PKG1).
         sigemptyset( &action.sa_mask );
 
-        const int signals[] = { SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT };
+        // SIGTRAP: a breakpoint instruction executed with no debugger attached (a third-party
+        // __builtin_debugtrap / brk; the engine's own DESERT_DEBUG_BREAK traps only under a debugger, which
+        // sees the trap before this handler does). Without it the process died as "trace trap", unreported.
+        const int signals[] = { SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGTRAP };
         for ( const int number : signals )
         {
             if ( ::sigaction( number, &action, nullptr ) != 0 )
@@ -1738,6 +1745,14 @@ namespace Common::Crash
         {
             return TestKind::StackOverflowJob;
         }
+        if ( inWord == "verify" )
+        {
+            return TestKind::Verify;
+        }
+        if ( inWord == "trap" )
+        {
+            return TestKind::Trap;
+        }
         return std::nullopt;
     }
 
@@ -1757,6 +1772,10 @@ namespace Common::Crash
                 return "stackoverflow-worker";
             case TestKind::StackOverflowJob:
                 return "stackoverflow-job";
+            case TestKind::Verify:
+                return "verify";
+            case TestKind::Trap:
+                return "trap";
         }
         return "unknown";
     }
@@ -1779,6 +1798,23 @@ namespace Common::Crash
 
         [[noreturn]] void CrashTestAbort()
         {
+            std::abort();
+        }
+
+        // `volatile` so the condition is not folded: DESERT_VERIFY on a constant false is still a verify,
+        // but a read the compiler cannot see through keeps this frame's shape identical to a real one.
+        volatile bool g_VerifyHolds = false;
+
+        [[noreturn]] void CrashTestVerify()
+        {
+            DESERT_VERIFY( g_VerifyHolds, "[CrashHandler] --crash-test verify: a deliberately failed check" );
+            std::abort();
+        }
+
+        [[noreturn]] void CrashTestTrap()
+        {
+            DESERT_PLATFORM_BREAK;
+            // Reached only if the trap was swallowed (a debugger that continued past it): say so.
             std::abort();
         }
 
@@ -1898,6 +1934,10 @@ namespace Common::Crash
                 CrashTestStackOverflowWorker();
             case TestKind::StackOverflowJob:
                 CrashTestStackOverflowJob();
+            case TestKind::Verify:
+                CrashTestVerify();
+            case TestKind::Trap:
+                CrashTestTrap();
         }
         std::abort();
     }

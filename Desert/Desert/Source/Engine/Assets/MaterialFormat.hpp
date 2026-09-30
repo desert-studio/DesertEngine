@@ -207,11 +207,17 @@ namespace Desert::Assets
     [[nodiscard]] inline Common::ResultStr<bool> SetMaterialFileThumbnail( const std::filesystem::path& file,
                                                                            const ThumbnailInfo&         info )
     {
-        std::ifstream in( file, std::ios::binary );
-        if ( !in )
-            return Common::MakeFormattedError<bool>( "[Material] '{}' cannot be opened", file.generic_string() );
-        const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
-        auto              parsed = ParseMaterialJson( file.generic_string(), text );
+        // The reader is closed BEFORE the write: on Windows an open stream on the target makes the atomic
+        // replace fail with "Access is denied" (the replace needs the target free of readers).
+        std::string text;
+        {
+            std::ifstream in( file, std::ios::binary );
+            if ( !in )
+                return Common::MakeFormattedError<bool>( "[Material] '{}' cannot be opened",
+                                                         file.generic_string() );
+            text.assign( std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() );
+        }
+        auto parsed = ParseMaterialJson( file.generic_string(), text );
         if ( !parsed )
             return Common::MakeError<bool>( parsed.GetError() );
         MaterialData material = parsed.GetValue();

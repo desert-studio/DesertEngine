@@ -19,7 +19,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Animation/Retarget` — 8 files, 1,505 lines: BonePairing, ModelPose, ResolvedChain, RetargetChain, RetargetPose, RetargetSetup, RetargetSource, Retargeter
 - `Animation/Rig` — 12 files, 4,320 lines: ControlBoneDrive, ControlDrag, ControlElement, ControlHierarchy, ControlKeyTarget, ControlKeyer, ControlRigStage, ControlShape, ControlShapeDraw, ControlShapeLibrary, ControlShapePolyline, ControlSpace, … (+15)
 - `Animation/Solvers` — 2 files, 270 lines: TwoBoneIKChain, TwoBoneIKGoal, TwoBoneIKSolution
-- `Assets` — 92 files, 20,777 lines: AnimGraphAsset, AssetBase, AssetDependency, AssetEviction, AssetEvictionSchedule, AssetGuidRef, AssetKey, AssetManager, AssetMetadata, AssetRef, AssetRefSite, AssetRootPin, … (+91)
+- `Assets` — 92 files, 20,783 lines: AnimGraphAsset, AssetBase, AssetDependency, AssetEviction, AssetEvictionSchedule, AssetGuidRef, AssetKey, AssetManager, AssetMetadata, AssetRef, AssetRefSite, AssetRootPin, … (+91)
 - `Assets/Mesh` — 14 files, 1,732 lines: AnimationAsset, MeshAsset, SkeletonAsset, SkinnedMeshAsset, StaticMeshAsset, SurfaceMaterialAsset
 - `Assets/Prefab` — 9 files, 1,435 lines: AnimationComponentSer, EntityData, InstanceRootTransform, InstancedStaticMeshComponentSer, MaterialComponentSer, MaterialParamSer, MaterialTextureSer, PrefabAsset, PrefabBoundsSer, PrefabData, PrefabDiffReport, PrefabOverrideData, … (+8)
 - `Assets/Serialization` — 29 files, 8,203 lines: AnimationAssetData, AnimationMigrationReport, Box, ChannelData, ControlDriveData, ControlElementData, ControlRigData, ControlSpaceData, CookedPanorama, CurveData, Document, FoliageFloatInterval, … (+44)
@@ -93,7 +93,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Physics/Cloth` — 2 files, 259 lines: ClothCapsuleCollider, ClothConfig, ClothMeshBinding, ClothPhysicalMesh, ClothSimulationOutput, ClothSphereCollider, ClothStepContext, ClothVertexMaps, ClothingAsset, ClothingSimulationFactoryRegistry, IClothingSimulation, IClothingSimulationFactory
 - `Project` — 6 files, 824 lines: EngineRootLookup, ProjectContext, ResourceRootLookup
 - `Reflection` — 7 files, 842 lines: AssetResolver, EnumValue, FieldInfo, PropertyMetadata, ReflectionRegistry, TypeBuilder, TypeInfo
-- `Runtime` — 6 files, 936 lines: AssetHotReload, ImageHandle, ResourceRegistry, SelectionContext
+- `Runtime` — 6 files, 987 lines: AssetHotReload, ImageHandle, ResourceRegistry, SelectionContext
 - `Runtime/Factory` — 2 files, 400 lines: PrefabFactory
 - `Runtime/Services` — 3 files, 543 lines: ClosureResidency
 - `Runtime/Services/AnimatedImage` — 2 files, 148 lines: Anim, AnimatedImageService
@@ -125,17 +125,18 @@ compile each engine source -- run exactly those after touching it, and add a new
 
 ## Common — `Desert/Common/Source/Common`
 - `Content` — 26 files, 5,650 lines: AssetEnvelope, AssetFolderMoveRecord, AssetGuid, AssetHeader, AssetHeaderReadContext, AssetMoveRecord, AssetRedirector, ChunkFolderRow, ChunkPlan, ChunkRule, ChunkScheme, ChunkSchemeSession, … (+21)
-- `Core` — 47 files, 6,481 lines: AssetHandle, AutoRegistry, ContentDirSpec, Entry, Error, EventHandler, FieldDescriptor, FieldMeta, GpuIdentity, GpuScopedTimer, Handle, HandlePool, … (+20)
+- `Core` — 47 files, 6,543 lines: AssetHandle, AutoRegistry, ContentDirSpec, Entry, Error, EventHandler, FieldDescriptor, FieldMeta, GpuIdentity, GpuScopedTimer, Handle, HandlePool, … (+20)
 - `Core/Algorithms` — 1 files, 55 lines: ScopeExit, ScopeExitTag
 - `Core/Events` — 4 files, 287 lines: Event, EventWindowClose, EventWindowFileDrop, EventWindowResize, KeyEvent, KeyPressedEvent, KeyTypedEvent, MouseButtonEvent, MouseButtonPressedEvent, MouseMovedEvent, MouseScrolledEvent
 - `Core/Math` — 6 files, 330 lines: AABB, Pcg32, Ray
 - `Core/Memory` — 3 files, 253 lines: Buffer, CommandBuffer
 - `Core/Serialization` — 2 files, 244 lines: ReflType, SerializationProvider
 - `Json` — 9 files, 3,263 lines: CarryRule, FormatInfo, HasNoRawPointerMember, Issue, Node, ObjectBuilder, Path, Segment, Template, TemplateSet, TextDocument
+- `Platform` — 1 files, 76 lines
 - `Platform/MacOS` — 1 files, 20 lines
 - `Project` — 2 files, 23 lines
 - `Settings` — 5 files, 589 lines: MachineSettings
-- `Utilities` — 28 files, 5,613 lines: AssetRegistry, AssetRegistryEntry, CameraCapture, ContentDiff, ContentManifest, ContentManifestEntry, ContentUpdatePlan, ContentUpdateReport, ContentUpdateStep, Entry, FileSystem, PakReader, … (+10)
+- `Utilities` — 28 files, 5,655 lines: AssetRegistry, AssetRegistryEntry, CameraCapture, ContentDiff, ContentManifest, ContentManifestEntry, ContentUpdatePlan, ContentUpdateReport, ContentUpdateStep, Entry, FileSystem, PakReader, … (+10)
 
 ## Editor — `Editor/Source/Editor`
 - `Builtin` — 2 files, 136 lines: BuiltinMeshRegistry
