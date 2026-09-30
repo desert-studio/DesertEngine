@@ -491,12 +491,13 @@ namespace Desert::Editor::ImportOptions
         if ( CookPaths::IsSkinnedAssetFile( assetPath ) )
         {
             const auto stated = ImportedAssetSource::SkinnedAssetSource( assetPath );
-            if ( !stated || !stated.GetValue() )
+            if ( !stated )
                 return std::nullopt;
-            std::error_code ec;
-            if ( !std::filesystem::is_regular_file( *stated.GetValue(), ec ) )
+            const std::optional<std::filesystem::path>& source = stated.GetValue();
+            std::error_code                             ec;
+            if ( !source.has_value() || !std::filesystem::is_regular_file( source.value(), ec ) )
                 return std::nullopt;
-            return *stated.GetValue();
+            return source;
         }
         if ( auto beside = Common::Content::MeshSourceBeside( assetPath ) )
             return beside;

@@ -792,7 +792,7 @@ namespace Desert::Editor
     Common::BoolResultStr ViewportPanel::RequestCommand( ViewportCommand command )
     {
         ViewportPanel* target = ActiveViewport();
-        if ( !target )
+        if ( target == nullptr )
             return Common::MakeFormattedError<bool>( "'{}': there is no viewport to run it in.",
                                                      CommandInfo( command ).Label );
         return target->RunCommand( command );

@@ -47,8 +47,8 @@ namespace Desert::Editor::Tools
     // has no horizontal part; the capsule is then oriented by world -Z so the answer is still a frame.
     [[nodiscard]] inline glm::vec3 PlanarFacing( const glm::vec3& forward )
     {
-        glm::vec3   flat( forward.x, 0.0f, forward.z );
-        const float len = glm::length( flat );
+        const glm::vec3 flat( forward.x, 0.0f, forward.z );
+        const float     len = glm::length( flat );
         return len > 1e-5f ? flat / len : glm::vec3( 0.0f, 0.0f, -1.0f );
     }
 
@@ -76,7 +76,8 @@ namespace Desert::Editor::Tools
 
         for ( int i = 0; i < sides; ++i ) // the two rings
         {
-            const float     a0 = step * i, a1 = step * ( i + 1 );
+            const float     a0 = step * static_cast<float>( i );
+            const float     a1 = step * static_cast<float>( i + 1 );
             const glm::vec3 p0 = ( fwd * std::cos( a0 ) + right * std::sin( a0 ) ) * radius;
             const glm::vec3 p1 = ( fwd * std::cos( a1 ) + right * std::sin( a1 ) ) * radius;
             out.push_back( { top + p0, top + p1 } );
@@ -90,7 +91,8 @@ namespace Desert::Editor::Tools
         for ( const glm::vec3& axis : { fwd, right } )
             for ( int i = 0; i < half; ++i )
             {
-                const float a0 = step * i, a1 = step * ( i + 1 );
+                const float a0 = step * static_cast<float>( i );
+                const float a1 = step * static_cast<float>( i + 1 );
                 out.push_back( { top + ( axis * std::cos( a0 ) + up * std::sin( a0 ) ) * radius,
                                  top + ( axis * std::cos( a1 ) + up * std::sin( a1 ) ) * radius } );
                 out.push_back( { bottom + ( axis * std::cos( a0 ) - up * std::sin( a0 ) ) * radius,
@@ -120,13 +122,11 @@ namespace Desert::Editor::Tools
 
         const auto ring = [&]( float a ) { return u * std::cos( a ) + v * std::sin( a ); };
         const auto add  = [&]( const glm::vec3& a, const glm::vec3& b, const glm::vec3& c )
-        {
-            GizmoTriangle t{ { a, b, c }, glm::normalize( glm::cross( b - a, c - a ) ) };
-            out.push_back( t );
-        };
+        { out.push_back( GizmoTriangle{ { a, b, c }, glm::normalize( glm::cross( b - a, c - a ) ) } ); };
         for ( int i = 0; i < sides; ++i )
         {
-            const glm::vec3 r0 = ring( step * i ), r1 = ring( step * ( i + 1 ) );
+            const glm::vec3 r0 = ring( step * static_cast<float>( i ) );
+            const glm::vec3 r1 = ring( step * static_cast<float>( i + 1 ) );
             // shaft wall (two triangles), and its back cap at the origin
             add( origin + r0 * shaftRadius, origin + r1 * shaftRadius, neck + r1 * shaftRadius );
             add( origin + r0 * shaftRadius, neck + r1 * shaftRadius, neck + r0 * shaftRadius );

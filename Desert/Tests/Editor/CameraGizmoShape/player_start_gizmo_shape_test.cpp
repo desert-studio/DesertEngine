@@ -22,12 +22,12 @@ namespace
 TEST( PlayerStartGizmoShape, ArrowTipIsLengthAlongTheFacing )
 {
     const glm::vec3 origin( 100.0f, 50.0f, -30.0f );
-    const glm::vec3 facing = glm::normalize( glm::vec3( 1.0f, 0.0f, -1.0f ) );
-    float           far    = -1.0f;
+    const glm::vec3 facing      = glm::normalize( glm::vec3( 1.0f, 0.0f, -1.0f ) );
+    float           farDistance = -1.0f;
     for ( const GizmoTriangle& t : BuildArrowMesh( origin, facing ) )
         for ( const glm::vec3& p : t.P )
-            far = std::max( far, glm::dot( p - origin, facing ) );
-    EXPECT_NEAR( far, kPlayerStartArrowLength, kEps );
+            farDistance = std::max( farDistance, glm::dot( p - origin, facing ) );
+    EXPECT_NEAR( farDistance, kPlayerStartArrowLength, kEps );
 }
 
 TEST( PlayerStartGizmoShape, ArrowIsAClosedOutwardSolid )
@@ -51,8 +51,11 @@ TEST( PlayerStartGizmoShape, ArrowIsAClosedOutwardSolid )
 TEST( PlayerStartGizmoShape, CapsuleIsThePawnsSizeAndCentred )
 {
     const glm::vec3 centre( 10.0f, 92.0f, 20.0f );
-    const float     radius = 40.0f, height = 184.0f; // UE's default pawn: 40 cm, half-height 92
-    float           top = -1e9f, bottom = 1e9f, widest = 0.0f;
+    const float     radius = 40.0f;  // UE's default pawn: 40 cm,
+    const float     height = 184.0f; // half-height 92
+    float           top    = -1e9f;
+    float           bottom = 1e9f;
+    float           widest = 0.0f;
     for ( const GizmoSegment& s : BuildPawnCapsuleWire( centre, glm::vec3( 0.0f, 0.0f, -1.0f ), radius, height ) )
         for ( const glm::vec3& p : { s.A, s.B } )
         {

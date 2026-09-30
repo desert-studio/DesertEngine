@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <set>
 #include <sstream>
@@ -97,12 +98,12 @@ TEST( CommandHome, TheContentBrowserMenuRowsAreCommands )
     for ( const ContentBrowserCommand command : kContentBrowserCommandOrder )
     {
         const std::string label( CommandInfo( command ).Label );
-        EXPECT_EQ( menu.find( "MenuItem( \"" + label + "\"" ), std::string::npos )
+        EXPECT_EQ( menu.find( std::format( "MenuItem( \"{}\"", label ) ), std::string::npos )
              << "'" << label << "' is drawn as its own MenuItem, not as the command";
     }
     for ( const char* name : { "Open", "ShowInExplorer", "OpenContainingFolder", "Reimport", "ReimportWithNewFile",
                                "CaptureThumbnail", "EditThumbnail" } )
-        EXPECT_NE( menu.find( std::string( "CommandMenuItem( ContentBrowserCommand::" ) + name ),
+        EXPECT_NE( menu.find( std::format( "CommandMenuItem( ContentBrowserCommand::{}", name ) ),
                    std::string::npos )
              << name << " is not a row of the context menu";
 }

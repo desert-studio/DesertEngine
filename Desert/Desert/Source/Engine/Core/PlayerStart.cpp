@@ -110,9 +110,9 @@ namespace Desert::Core
 
         const auto prefab = assets.FindByHandle<Assets::PrefabAsset>( pawnHandle );
         if ( !prefab || !prefab->IsReadyForUse() )
-            return Common::MakeError<std::optional<PawnCapsule>>(
-                 "level '" + scene.GetSceneName() + "': its Default Pawn (asset handle " +
-                 std::to_string( static_cast<uint64_t>( pawnHandle ) ) + ") is not a loaded prefab" );
+            return Common::MakeFormattedError<std::optional<PawnCapsule>>(
+                 "level '{}': its Default Pawn (asset handle {}) is not a loaded prefab", scene.GetSceneName(),
+                 static_cast<uint64_t>( pawnHandle ) );
 
         const auto* type = Reflection::ReflectionRegistry::Get().Find( "CharacterControllerData" );
         if ( type == nullptr )
@@ -129,10 +129,9 @@ namespace Desert::Core
                  *type, &data,
                  Common::Json::Root( block.value(), Common::Json::Path().Key( "CharacterController" ) ), issues );
             if ( !issues.empty() )
-                return Common::MakeError<std::optional<PawnCapsule>>(
-                     "level '" + scene.GetSceneName() +
-                     "': its Default Pawn's CharacterController block is malformed (" +
-                     std::to_string( issues.size() ) + " issue(s))" );
+                return Common::MakeFormattedError<std::optional<PawnCapsule>>(
+                     "level '{}': its Default Pawn's CharacterController block is malformed ({} issue(s))",
+                     scene.GetSceneName(), issues.size() );
             return Common::MakeSuccess( std::optional<PawnCapsule>( PawnCapsule{ data.Radius, data.Height } ) );
         }
         return Common::MakeSuccess( std::optional<PawnCapsule>{} );

@@ -1437,11 +1437,15 @@ namespace Desert::Editor
                                               : std::string( "Actor" );
                 ImGui::PushStyleColor( ImGuiCol_PopupBg, IM_COL32( 0, 0, 0, 0 ) );
                 ImGui::PushStyleColor( ImGuiCol_Border, IM_COL32( 0, 0, 0, 0 ) );
-                const std::string pawnLine =
-                     !isStart               ? std::string()
-                     : !pawnRefusal.empty() ? std::format( "\n{}", pawnRefusal )
-                     : pawn ? std::format( "\nPawn capsule: r {:.0f} cm, h {:.0f} cm", pawn->Radius, pawn->Height )
-                            : std::string( "\nNo Default Pawn with a CharacterController" );
+                // a Player Start adds one line about its pawn: the refusal, the capsule, or its absence
+                std::string pawnLine;
+                if ( isStart && !pawnRefusal.empty() )
+                    pawnLine = std::format( "\n{}", pawnRefusal );
+                else if ( isStart && pawn.has_value() )
+                    pawnLine =
+                         std::format( "\nPawn capsule: r {:.0f} cm, h {:.0f} cm", pawn->Radius, pawn->Height );
+                else if ( isStart )
+                    pawnLine = "\nNo Default Pawn with a CharacterController";
                 Utils::ImGuiUtilities::Tooltip( std::format( "{}\n{}\nPosition: ({:.2f}, {:.2f}, {:.2f}){}", name,
                                                              label, worldPos.x, worldPos.y, worldPos.z, pawnLine )
                                                      .c_str() );
@@ -1455,8 +1459,8 @@ namespace Desert::Editor
                                                   float height, const ImVec2& windowPos, bool selected,
                                                   const std::optional<::Desert::Core::PawnCapsule>& pawn )
     {
-        const glm::vec3                  centre  = glm::vec3( world[3] );
-        const glm::vec3                  forward = glm::normalize( -glm::vec3( world[2] ) ); // -Z, as cameras
+        const glm::vec3  centre  = glm::vec3( world[3] );
+        const glm::vec3  forward = glm::normalize( -glm::vec3( world[2] ) ); // -Z, as cameras
         const glm::vec3& outline = EditorPreferences::Get().OutlineColor;
 
         // (1) the capsule — UE's ShapeColor for a shape component, the selection colour when selected
@@ -1503,8 +1507,9 @@ namespace Desert::Editor
         // UArrowComponent's ArrowColor (150, 200, 255); the selection colour when selected
         const glm::vec3 base = selected ? outline : glm::vec3( 150.0f, 200.0f, 255.0f ) / 255.0f;
         for ( const Face& f : faces )
-            drawList->AddTriangleFilled( f.P[0], f.P[1], f.P[2],
-                                         ImColor( ImVec4( base.r * f.Shade, base.g * f.Shade, base.b * f.Shade, 1.0f ) ) );
+            drawList->AddTriangleFilled(
+                 f.P[0], f.P[1], f.P[2],
+                 ImColor( ImVec4( base.r * f.Shade, base.g * f.Shade, base.b * f.Shade, 1.0f ) ) );
     }
 
     void LightGizmoRenderer::RenderTextIcons( const std::shared_ptr<Desert::Core::Camera>& camera, float width,

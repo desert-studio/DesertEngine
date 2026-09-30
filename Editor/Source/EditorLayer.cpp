@@ -8766,14 +8766,12 @@ namespace Desert::Editor
         // measures it, so the width the layout reserves is the width the button takes.
         struct ToolbarButtonText
         {
-            char Text[192];
+            std::string Text;
 
             ToolbarButtonText( const char* icon, const char* label )
+                 : Text( label != nullptr && label[0] != '\0' ? std::format( "{}  {}", icon, label )
+                                                              : std::string( icon ) )
             {
-                if ( label && *label )
-                    std::snprintf( Text, sizeof( Text ), "%s  %s", icon, label );
-                else
-                    std::snprintf( Text, sizeof( Text ), "%s", icon );
             }
         };
 
@@ -8781,7 +8779,7 @@ namespace Desert::Editor
         float ToolbarButtonWidth( const char* icon, const char* label )
         {
             const ToolbarButtonText text( icon, label );
-            return ::ImGui::CalcTextSize( text.Text ).x + ::ImGui::GetStyle().FramePadding.x * 2.0f;
+            return ::ImGui::CalcTextSize( text.Text.c_str() ).x + ::ImGui::GetStyle().FramePadding.x * 2.0f;
         }
     } // namespace
 
@@ -8791,7 +8789,7 @@ namespace Desert::Editor
         namespace ImGui = ::ImGui;
 
         const ToolbarButtonText button( icon, label );
-        const char*             text = button.Text;
+        const char*             text = button.Text.c_str();
 
         const ImVec4 accent = ThemeManager::GetSelectedColor();
         ImGui::PushStyleColor( ImGuiCol_Button, active ? ImVec4( accent.x, accent.y, accent.z, 0.30f )
@@ -10338,12 +10336,17 @@ namespace Desert::Editor
             const bool clicked = ImGui::InvisibleButton( id, size );
             const bool hovered = enabled && ImGui::IsItemHovered();
             const bool held    = enabled && ImGui::IsItemActive();
-            if ( tooltip && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+            if ( tooltip != nullptr && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
                 ImGui::SetTooltip( "%s", tooltip );
             if ( !enabled )
                 ImGui::EndDisabled();
 
-            const float  lift  = held ? -0.06f : hovered ? 0.08f : 0.0f;
+            // pressed darkens, hover lifts, rest is the fill as authored
+            float lift = 0.0f;
+            if ( held )
+                lift = -0.06f;
+            else if ( hovered )
+                lift = 0.08f;
             const float  alpha = enabled ? 1.0f : 0.45f;
             const auto   shade = [&]( float c ) { return std::clamp( c + lift, 0.0f, 1.0f ); };
             ImDrawList*  draw  = ImGui::GetWindowDrawList();

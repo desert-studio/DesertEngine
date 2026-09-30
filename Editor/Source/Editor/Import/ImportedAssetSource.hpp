@@ -22,9 +22,10 @@ namespace Desert::Editor::ImportedAssetSource
             const auto text = Common::Utils::FileSystem::ReadFileContentIfExists( asset );
             if ( !text )
                 return Common::MakeError<Source>( text.GetError() );
-            if ( !text.GetValue().has_value() )
+            const std::optional<std::string>& content = text.GetValue();
+            if ( !content.has_value() )
                 return Common::MakeFormattedError<Source>( "'{}' does not exist", asset.string() );
-            const auto data = read( *text.GetValue() );
+            const auto data = read( content.value() );
             if ( !data )
                 return Common::MakeFormattedError<Source>( "'{}': {}", asset.string(), data.GetError() );
             const auto& import = data.GetValue().Import;
