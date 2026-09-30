@@ -4,6 +4,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanGpuProfiler.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRdgTransient.hpp> // m_RdgTransients is owned here
 
 #include <memory>
 
