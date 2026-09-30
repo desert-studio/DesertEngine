@@ -13,31 +13,32 @@ compile each engine source -- run exactly those after touching it, and add a new
 
 ## Engine — `Desert/Desert/Source/Engine`
 - `.` — 2 files, 212 lines
-- `Animation` — 30 files, 6,584 lines: AnimationClip, AnimationCurve, AnimationLayer, AnimationLibrary, AnimationNotify, Animator, BoneControl, BoneInfo, BoneOverride, BoneRef, BoneTrack, BoneTransform, … (+26)
-- `Animation/Graph` — 5 files, 954 lines: AnimGraph, ClipSet, Condition, Evaluator, GraphWarning, Parameter, Result, State, Transition
+- `Animation` — 27 files, 6,134 lines: ActiveNotifyState, AnimationClip, AnimationLibrary, Animator, BoneControl, BoneInfo, BoneOverride, BoneRef, BoneTransform, ClipBinding, ClipPlayback, ClipRigIdentity, … (+20)
+- `Animation/Graph` — 11 files, 2,940 lines: AnimGraph, AnimGraphLayers, AnimLayerGraph, AnimLayerInterface, BranchFilter, ClipSet, Condition, Evaluator, GraphPose, GraphWarning, Layer, LayerCalls, … (+17)
 - `Animation/Modular` — 1 files, 112 lines: ClothInstanceId, FollowerMeshId, IModularCharacter, LeaderPose, SocketAttachmentDesc, SocketAttachmentId
 - `Animation/Retarget` — 8 files, 1,505 lines: BonePairing, ModelPose, ResolvedChain, RetargetChain, RetargetPose, RetargetSetup, RetargetSource, Retargeter
-- `Animation/Rig` — 12 files, 4,320 lines: ControlBoneDrive, ControlDrag, ControlElement, ControlHierarchy, ControlKeyTarget, ControlKeyer, ControlRigStage, ControlShape, ControlShapeDraw, ControlShapeLibrary, ControlShapePolyline, ControlSpace, … (+15)
+- `Animation/Rig` — 12 files, 4,297 lines: ControlBoneDrive, ControlDrag, ControlElement, ControlHierarchy, ControlKeyTarget, ControlKeyer, ControlRigStage, ControlShape, ControlShapeDraw, ControlShapeLibrary, ControlShapePolyline, ControlSpace, … (+15)
 - `Animation/Solvers` — 2 files, 270 lines: TwoBoneIKChain, TwoBoneIKGoal, TwoBoneIKSolution
-- `Assets` — 92 files, 20,783 lines: AnimGraphAsset, AssetBase, AssetDependency, AssetEviction, AssetEvictionSchedule, AssetGuidRef, AssetKey, AssetManager, AssetMetadata, AssetRef, AssetRefSite, AssetRootPin, … (+91)
+- `Animation/Timeline` — 16 files, 3,942 lines: AnimationSample, AnimationSectionContent, ApplyReport, Binding, BindingGuid, BoneBindingTable, BoolChannel, CameraCutSectionContent, CrossedEvent, EasingResult, EvaluatedFrame, EvaluatedTrack, … (+15)
+- `Assets` — 94 files, 21,016 lines: AnimGraphAsset, AssetBase, AssetDependency, AssetEviction, AssetEvictionSchedule, AssetGuidRef, AssetKey, AssetManager, AssetMetadata, AssetRef, AssetRefSite, AssetRootPin, … (+93)
 - `Assets/Mesh` — 14 files, 1,732 lines: AnimationAsset, MeshAsset, SkeletonAsset, SkinnedMeshAsset, StaticMeshAsset, SurfaceMaterialAsset
-- `Assets/Prefab` — 9 files, 1,435 lines: AnimationComponentSer, EntityData, InstanceRootTransform, InstancedStaticMeshComponentSer, MaterialComponentSer, MaterialParamSer, MaterialTextureSer, PrefabAsset, PrefabBoundsSer, PrefabData, PrefabDiffReport, PrefabOverrideData, … (+8)
-- `Assets/Serialization` — 29 files, 8,203 lines: AnimationAssetData, AnimationMigrationReport, Box, ChannelData, ControlDriveData, ControlElementData, ControlRigData, ControlSpaceData, CookedPanorama, CurveData, Document, FoliageFloatInterval, … (+44)
+- `Assets/Prefab` — 9 files, 1,427 lines: AnimationComponentSer, EntityData, InstanceRootTransform, InstancedStaticMeshComponentSer, MaterialComponentSer, MaterialParamSer, MaterialTextureSer, PrefabAsset, PrefabBoundsSer, PrefabData, PrefabDiffReport, PrefabOverrideData, … (+6)
+- `Assets/Serialization` — 27 files, 7,328 lines: AnimationAssetData, Box, ControlDriveData, ControlElementData, ControlRigData, ControlSpaceData, CookedPanorama, Document, FoliageFloatInterval, FoliageTypeData, FoliageTypeFile, FoliageWind, … (+33)
 - `Assets/Shader` — 2 files, 316 lines: ShaderAsset
 - `Assets/Skybox` — 2 files, 123 lines: SkyboxAsset
 - `Audio` — 2 files, 278 lines: AudioEngine
-- `Core` — 44 files, 6,996 lines: Application, ApplicationInfo, AxisRow, BootTimeline, Camera, CameraEntityView, CellHLOD, CookedWorldStart, Device, DeviceCapabilities, DeviceMemoryHeap, DeviceMemoryReport, … (+33)
+- `Core` — 44 files, 7,011 lines: Application, ApplicationInfo, AxisRow, BootTimeline, Camera, CameraEntityView, CellHLOD, CookedWorldStart, Device, DeviceCapabilities, DeviceMemoryHeap, DeviceMemoryReport, … (+33)
 - `Core/Formats` — 11 files, 3,151 lines: BC6HCeilingCensus, BlockPolicy, Image2DSpecification, Image3DSpecification, ImageCubeSpecification, MaterialLayout, MaterialLayoutBindings, MaterialLayoutParam, MaterialLayoutPushField, MaterialLayoutTexture, MipLevelSpan, ReflectedLayoutMember, … (+6)
 - `Core/IO` — 2 files, 89 lines: ImageReader, ImageReaderGifInfo
-- `Core/Serialize` — 38 files, 10,185 lines: AxisSpan, CellBounds, CellCoord, CellPayload, ComponentLoadingRow, ComponentRegistry, ComponentSerializer, ContainmentEdge, CookedCellSource, CookedFile, CookedWorld, DanglingContainment, … (+56)
+- `Core/Serialize` — 38 files, 10,333 lines: AxisSpan, CellBounds, CellCoord, CellPayload, ComponentLoadingRow, ComponentRegistry, ComponentSerializer, ContainmentEdge, CookedCellSource, CookedFile, CookedWorld, DanglingContainment, … (+56)
 - `Core/ShaderCompiler` — 13 files, 1,746 lines: ScopedShaderPhase, ShaderCacheCounts, ShaderCompiler, ShaderMap, ShaderMapLookup, ShaderMapOutcome, ShaderMapRequest, ShaderMapStage, ShaderPhaseTimes, ShaderVariant, ShaderVirtualSource
 - `Core/ShaderCompiler/DShader` — 2 files, 2,180 lines: DShaderParseResult, DShaderParser, DShaderPass, SurfaceTemplateInfo
 - `Core/ShaderCompiler/Includer` — 2 files, 256 lines: ShaderIncluder
 - `Core/ShaderCompiler/ShaderPreprocess` — 2 files, 138 lines: PreprocessedPass, ShaderPreprocess
 - `Core/ShaderCompiler/ShadingModels` — 6 files, 956 lines: LoadedShadingModels, PayloadSlot, ShadingModelEntry, ShadingModelManifest, ShadingModelRegistry, ShadingWordField
 - `Core/Traits` — 1 files, 17 lines
-- `ECS` — 17 files, 4,698 lines: AlwaysLoadedComponent, AnimationComponent, AudioSourceComponent, AudioSourceData, CameraComponent, CameraData, CharacterControllerComponent, CharacterControllerData, CloudSpeciesResolution, ColliderComponent, ColliderData, ControlRigComponent, … (+120)
-- `ECS/System` — 25 files, 4,900 lines: AnimationECSSystem, AtmosphereSunSelection, AttachmentSystem, AudioECSSystem, ColliderMesh, DecomposedTransform, HeightFogECSSystem, LandscapeCollision, LandscapeECSSystem, LocomotionSystem, MeshECSSystem, PhysicsBodyLifetime, … (+13)
+- `ECS` — 21 files, 5,508 lines: AlwaysLoadedComponent, AnimationComponent, AppliedLayerLink, AudioSourceComponent, AudioSourceData, CameraComponent, CameraData, CharacterControllerComponent, CharacterControllerData, CloudSpeciesResolution, ColliderComponent, ColliderData, … (+127)
+- `ECS/System` — 26 files, 5,298 lines: Actor, AnimationECSSystem, AtmosphereSunSelection, AttachmentSystem, AudioECSSystem, ColliderMesh, DecomposedTransform, HeightFogECSSystem, LandscapeCollision, LandscapeECSSystem, LevelSequenceSystem, LocomotionSystem, … (+15)
 - `Generated` — 3 files, 774 lines
 - `Geometry` — 74 files, 14,366 lines: BakeOptions, BooleanOutcome, Cell, CleanCounts, CleanOutcome, CollapseEdgeInfo, CollapseSide, CompactMaps, CutPlane, DynamicMesh, EditMesh, EditMeshAttributes, … (+70)
 - `Geometry/Errors` — 1 files, 20 lines
@@ -113,19 +114,19 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Runtime/Services/Texture` — 4 files, 567 lines: Entry, Item, TextureCookOutcome, TextureService, TextureUploadQueue, TextureUploadSettings, TextureWaiters
 - `Runtime/Services/UITheme` — 2 files, 247 lines: Entry, UIThemeService
 - `Runtime/Services/Video` — 2 files, 245 lines: VideoPlayback, VideoService
-- `Scripting` — 15 files, 1,715 lines: ScriptEngine, ScriptProperty
+- `Scripting` — 15 files, 1,782 lines: ScriptEngine, ScriptProperty
 - `Scripting/Internal` — 1 files, 514 lines: PendingTimer, ScriptEngine, ScriptEntity
 - `ShaderResources` — 15 files, 1,193 lines: AccelerationStructure, BaseBuffer, DescriptorCopyRecord, FillClaim, HandOver, IBlockCopy, Image2DData, Image2DSampler, Image3DSampler, ImageCubeData, ImageCubeSampler, PushConstantRange, … (+10)
 - `ShaderResources/API/Vulkan` — 10 files, 731 lines: MappedBufferCopy, ViewCopyBinding, VulkanStorageBuffer, VulkanUniformBuffer, VulkanUniformImage2D, VulkanUniformImageCube
 - `Text` — 8 files, 2,002 lines: BakedFont, Contour, EdgeSegment, Glyph, Shape, Vec2
-- `UI` — 19 files, 7,293 lines: CanvasStyle, Change, ElementStyle, Entry, IUIMaterialSource, IUIRenderTextureSource, LayoutGroupParams, ListBindingSeen, ListWindow, Rect, Request, StyleSlotInfo, … (+17)
+- `UI` — 21 files, 7,427 lines: CanvasStyle, Change, ElementStyle, Entry, IUIMaterialSource, IUIRenderTextureSource, LayoutGroupParams, ListBindingSeen, ListWindow, Rect, Request, StyleSlotInfo, … (+19)
 - `Vector` — 4 files, 1,108 lines: BakedIcon, BakedIconLayer, Shape, Vec2, VectorImage
 - `World/Foliage` — 5 files, 430 lines: FoliageCellField, FoliageGathered, PrefabFoliageHost, PrefabFoliagePlan
 - `World/Landscape` — 23 files, 6,670 lines: FlattenValues, LandscapeBrushSettings, LandscapeBrushTile, LandscapeBrushWeights, LandscapeChangedTile, LandscapeCopyBuffer, LandscapeEditLayer, LandscapeEditLayerStack, LandscapeEditLayerTarget, LandscapeEditLayerTileData, LandscapeErosionField, LandscapeErosionSettings, … (+37)
 
 ## Common — `Desert/Common/Source/Common`
-- `Content` — 26 files, 5,650 lines: AssetEnvelope, AssetFolderMoveRecord, AssetGuid, AssetHeader, AssetHeaderReadContext, AssetMoveRecord, AssetRedirector, ChunkFolderRow, ChunkPlan, ChunkRule, ChunkScheme, ChunkSchemeSession, … (+21)
-- `Core` — 45 files, 6,506 lines: AssetHandle, ContentDirSpec, Entry, Error, FieldDescriptor, FieldMeta, GpuIdentity, GpuScopedTimer, Handle, HandlePool, IGpuProfilerSink, InlineJob, … (+18)
+- `Content` — 26 files, 5,653 lines: AssetEnvelope, AssetFolderMoveRecord, AssetGuid, AssetHeader, AssetHeaderReadContext, AssetMoveRecord, AssetRedirector, ChunkFolderRow, ChunkPlan, ChunkRule, ChunkScheme, ChunkSchemeSession, … (+21)
+- `Core` — 46 files, 6,536 lines: AssetHandle, ContentDirSpec, Entry, Error, FieldDescriptor, FieldMeta, GpuIdentity, GpuScopedTimer, Handle, HandlePool, IGpuProfilerSink, InlineJob, … (+18)
 - `Core/Algorithms` — 1 files, 55 lines: ScopeExit, ScopeExitTag
 - `Core/Events` — 7 files, 931 lines: DispatchScope, EmplacedNode, EventHandlerTable, EventNodeId, EventNodeLink, EventReply, EventTree, EventTypeList, EventWindowClose, EventWindowFileDrop, EventWindowResize, KeyEvent, … (+8)
 - `Core/Math` — 6 files, 330 lines: AABB, Pcg32, Ray
@@ -141,27 +142,27 @@ compile each engine source -- run exactly those after touching it, and add a new
 
 ## Editor — `Editor/Source/Editor`
 - `Builtin` — 2 files, 136 lines: BuiltinMeshRegistry
-- `Core` — 80 files, 18,335 lines: AssetFieldRequest, AssetFieldRequests, AssetReferenceIndex, ByteCommand, ClosedDocument, CommandHistory, CommandLineFlag, CommandLineOptions, CommandPalette, ControlNudgeRequests, CrashRecovery, DemoMaterial, … (+62)
-- `Core/Commands` — 13 files, 5,166 lines: AssetFolderMoveCommand, AssetMoveCommand, BoneDelta, BoneGizmoGesture, ClipPoseCommand, ControlAutoKey, ControlEdit, ControlGizmoGesture, ControlPoseCommand, FoldCandidate, FoldMeshIdentity, FoldPlan, … (+12)
+- `Core` — 81 files, 18,366 lines: AssetFieldRequest, AssetFieldRequests, AssetReferenceIndex, ByteCommand, ClosedDocument, CommandHistory, CommandLineFlag, CommandLineOptions, CommandPalette, ControlNudgeRequests, CrashRecovery, DemoMaterial, … (+62)
+- `Core/Commands` — 15 files, 5,193 lines: AnimGraphEditCommand, AnimGraphEditTransaction, AnimGraphOwner, AssetFolderMoveCommand, AssetMoveCommand, BoneDelta, BoneGizmoGesture, ControlAutoKey, ControlEdit, ControlGizmoGesture, ControlPoseCommand, FoldCandidate, … (+14)
 - `Core/Control` — 9 files, 2,627 lines: AuthoringSnapshot, ClosedDocumentSnapshot, CommandAddress, ControlChannelOptions, ControlSocket, DocumentSnapshot, EditorQuiescence, EditorSnapshot, EntitySnapshot, FrameGate, InputChord, InputInjection, … (+14)
 - `Core/GraphCanvas` — 4 files, 620 lines: CanvasPlan, DeferredFrameAll, ElementIdMap, ElementLedger, PlannedLink, PlannedNode, Resolved
 - `Core/Rigging` — 2 files, 282 lines: Bone, RigBuilder
 - `Core/Selection` — 21 files, 4,106 lines: AuthoringContext, AuthoringContextHost, AuthoringOwner, BooleanToolArgs, FoliagePaint, LandscapeSculptSettings, LandscapeSculptState, LandscapeToolControl, LandscapeToolProperty, MeshElementSelection, MeshOperationArgs, ModelingState, … (+10)
 - `Generated` — 1 files, 13 lines
 - `ImGuiIntegration` — 5 files, 403 lines: ImGuiLayer, VulkanImGui
-- `Import` — 43 files, 7,021 lines: AsyncMeshLoader, BackgroundCookQueue, Completed, Done, IAssetImporter, ImportManager, ImportOutcome, ImportResult, ImportSettingsEdit, ImportTemplate, ImportedMaterial, ImportedMeshSource, … (+15)
-- `Import/Assimp` — 12 files, 1,803 lines: AssimpImporter, SceneVertexStreams, SourceAlpha, SourceMaterialRead, SourceTextureFile
+- `Import` — 43 files, 7,061 lines: AsyncMeshLoader, BackgroundCookQueue, Completed, Done, IAssetImporter, ImportManager, ImportOutcome, ImportResult, ImportSettingsEdit, ImportTemplate, ImportedMaterial, ImportedMeshSource, … (+15)
+- `Import/Assimp` — 12 files, 1,834 lines: AssimpImporter, SceneVertexStreams, SourceAlpha, SourceMaterialRead, SourceTextureFile
 - `Import/Blend` — 2 files, 235 lines: BlendImporter
 - `Packaging` — 8 files, 2,110 lines: CookStats, PackageOptions, PackageResult, PackagedTree, TargetPlatformInfo
 - `Panels` — 3 files, 547 lines: DocumentAction, IPanel, ISubjectDocument
-- `Panels/Animation` — 8 files, 2,351 lines: AnimGraphCanvas, AnimGraphPanel, AnimLayersPanel, ControlRigPanel, PoseFieldEdit, StatePosition, TransitionRef, WarningTarget
-- `Panels/AnimationEditor` — 8 files, 3,321 lines: AnimationEditorBase, AnimationEditorDocument, AnimationTransport, BoneTransformRows, CurveEditCommand, NotifyEditCommand, SkeletonTreeRow
+- `Panels/Animation` — 9 files, 3,580 lines: AnimGraphCanvas, AnimGraphPanel, ControlRigPanel, PoseFieldEdit, PoseGraphCanvas, PoseGraphTarget, PosePinRef, PoseWireRef, StatePosition, TransitionRef, WarningTarget
+- `Panels/AnimationEditor` — 8 files, 3,413 lines: AnimationEditorBase, AnimationEditorDocument, AnimationTransport, BoneTransformRows, SkeletonTreeRow
 - `Panels/AssetReferences` — 2 files, 250 lines: AssetReferencesPanel
 - `Panels/Build` — 4 files, 645 lines: BuildSettingsPanel, ContentChunksPanel
 - `Panels/Clouds` — 13 files, 6,997 lines: CloudChain, CloudHeroBody, CloudLayoutPanel, CloudModellingVolumePanel, CloudNoiseVolumePanel, CloudStageAssetTypes, CloudStageCensus, CloudTypePanel, CloudsPanel, LayerContext, SpeciesSlot
 - `Panels/Collections` — 5 files, 993 lines: CollectionFoliageTypes, CollectionItem, CollectionManifest, CollectionManifestAssetRef, CollectionManifestItem, CollectionManifestMaterial, CollectionsPanel, LoadedCollection
 - `Panels/Debug` — 4 files, 855 lines: ShaderLibraryPanel, UIDebuggerPanel
-- `Panels/FileExplorer` — 7 files, 4,517 lines: DirectoryInformation, FileExplorerPanel, FileExtension, MeshPicture, MeshSourceRead, Rect, SourcePictureRead, ThumbnailGesture, ThumbnailOrbitSubject
+- `Panels/FileExplorer` — 7 files, 4,573 lines: DirectoryInformation, FileExplorerPanel, FileExtension, MeshPicture, MeshSourceRead, Rect, SourcePictureRead, ThumbnailGesture, ThumbnailOrbitSubject
 - `Panels/Foliage` — 3 files, 901 lines: FoliageFootprint, FoliageTypeCost, PalettePresetEntry
 - `Panels/History` — 2 files, 103 lines: HistoryPanel
 - `Panels/Landscape` — 2 files, 790 lines: LandscapePanel
@@ -176,9 +177,9 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Panels/PropertyEditor` — 8 files, 2,409 lines: ComponentEditContext, ComponentEditorEntry, ComponentWidgetRegistry, PropertyEditSignals, PropertyEditorBuilder
 - `Panels/Scalability` — 2 files, 156 lines: ScalabilityPanel
 - `Panels/SceneHierarchy` — 3 files, 1,478 lines: EntityTypeInfo, OutlinerColumnWidths, SceneHierarchyPanel
-- `Panels/SceneProperties` — 5 files, 3,117 lines: ComponentEditor, ScenePropertiesPanel
+- `Panels/SceneProperties` — 5 files, 3,349 lines: ComponentEditor, ScenePropertiesPanel
 - `Panels/SceneProperties/ComponentWidgets` — 16 files, 2,883 lines: AnimationComponentWidget, IComponentWidget, MaterialComponentWidget, MaterialHost, PrefabComponentWidget, SkinnedMeshComponentWidget, SkyboxComponentWidget, SlotRow, SlotSwatch, StaticMeshComponentWidget, TransformComponentWidget
-- `Panels/Sequencer` — 6 files, 3,967 lines: CurveViewport, SectionTarget, SequencerPanel
+- `Panels/Sequencer` — 7 files, 4,906 lines: CurveViewport, SectionTarget, SequencerPanel
 - `Panels/SkyboxViewer` — 4 files, 608 lines: Level, SkyboxViewerBase, SkyboxViewerDocument, ViewAction, ViewState
 - `Panels/StaticMeshViewer` — 4 files, 516 lines: StaticMeshStats, StaticMeshViewerBase, StaticMeshViewerDocument
 - `Panels/TextureViewer` — 2 files, 300 lines: TextureViewerDocument
@@ -194,12 +195,12 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `RenderSystems/Passes` — 8 files, 727 lines: EditorColliderPass, EditorCubemapPreviewPass, EditorGridPass, EditorUIPass
 - `Splash` — 7 files, 801 lines: ButtonTracker, DesignPoint, Layout, ProgressModel, ProgressSnapshot, Rect, RevealState, SplashContent, SplashPixels, SplashScreen, Stage, StageTiming
 - `Splash/Windows` — 1 files, 551 lines
-- `Widgets` — 51 files, 10,716 lines: Acquired, AssetThumbnailRenderer, ButtonColour, Capture, CaptureBudget, Decoded, Encoded, Entry, EquirectMap, FaceTracker, Frame, FramedSubject, … (+39)
+- `Widgets` — 51 files, 10,718 lines: Acquired, AssetThumbnailRenderer, ButtonColour, Capture, CaptureBudget, Decoded, Encoded, Entry, EquirectMap, FaceTracker, Frame, FramedSubject, … (+39)
 - `Widgets/Controls` — 2 files, 241 lines: Widgets
 - `Widgets/UIHelper` — 4 files, 174 lines: UICacheTextureImGui, UIHelper
 
 ## Runtime — `Runtime/Source`
-- `.` — 7 files, 1,936 lines: ContentMountResult, CrashTestRequest, RuntimeLayer, RuntimeShot
+- `.` — 7 files, 1,938 lines: ContentMountResult, CrashTestRequest, RuntimeLayer, RuntimeShot
 
 ## Shaders — `Editor/Resources/Shaders`
 - `Common` — 40 files, 6,525 lines
@@ -269,8 +270,8 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `LineJump/Source` — 1 files, 161 lines
 - `PakTool` — 1 files, 38 lines
 - `PakTool/Source` — 1 files, 297 lines
-- `SceneMigrator` — 1 files, 116 lines
-- `SceneMigrator/Source` — 9 files, 4,216 lines: BlockCanonicalisationReport, FileMigrationReport, FoliageTypesMigrationReport, InstanceTransformsReport, MeshGuidsMigrationReport, PlayerViewFlagReport, PrefabData, PrefabMigrationOutcome, ScanExclusion, SceneCanonicalisationReport, SceneSerialized, SceneSettingsHomesReport, … (+1)
+- `SceneMigrator` — 1 files, 129 lines
+- `SceneMigrator/Source` — 18 files, 7,217 lines: AnimationAssetData, AnimationClip, AnimationCurve, AnimationNotify, BlockCanonicalisationReport, BoneTrack, ChannelData, ClipMigrationOutcome, ClipSection, CurveData, FileMigrationReport, FoliageTypesMigrationReport, … (+31)
 - `Shared` — 1 files, 49 lines
 - `TextureCook` — 1 files, 82 lines
 - `TextureCook/Source` — 1 files, 141 lines
@@ -285,32 +286,40 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Desert/Common/Source/Common/Json/Json.cpp` — 3: DesertCtl, FbxMeshSplitter, PreviewEnvironment
 - `Desert/Common/Source/Common/Settings/ProductName.cpp` — 2: PipelineCacheFile, ProductName
 - `Desert/Common/Source/Common/Utilities/ProcessMemory.cpp` — 1: MemoryDetector
-- `Desert/Desert/Source/Engine/Animation/AnimationClip.cpp` — 11: AnimatorBlending, AnimatorClipRebind, AnimatorPose, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, IKProbeRig, PoseSubstrate, RetargetAsset, RigGraph
 - `Desert/Desert/Source/Engine/Animation/AnimationLibrary.cpp` — 1: AnimationLibraryOnDemand
-- `Desert/Desert/Source/Engine/Animation/Animator.cpp` — 11: AnimatorBlending, AnimatorClipRebind, AnimatorPose, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, IKProbeRig, PoseSubstrate, RetargetAsset, RigGraph
-- `Desert/Desert/Source/Engine/Animation/BoneControl.cpp` — 13: AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, PoseSubstrate, RetargetAsset, RigGraph
-- `Desert/Desert/Source/Engine/Animation/ClipSection.cpp` — 13: AnimationClipFormat, AnimatorBlending, AnimatorClipRebind, AnimatorPose, BoneControlContract, ClipEditUndo, ClipSections, ControlRigAsset, ControlRigStage, IKProbeRig, PoseSubstrate, RetargetAsset, RigGraph
+- `Desert/Desert/Source/Engine/Animation/Animator.cpp` — 12: AnimatorBlending, AnimatorClipRebind, AnimatorPose, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, IKProbeRig, LevelSequence, PoseSubstrate, RetargetAsset, RigGraph
+- `Desert/Desert/Source/Engine/Animation/BoneControl.cpp` — 14: AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, LevelSequence, PoseSubstrate, RetargetAsset, RigGraph
 - `Desert/Desert/Source/Engine/Animation/ClipSkeletonMatch.cpp` — 6: AnimationClipCorpus, AnimationLibraryOnDemand, ClipSkeletonMatch, IKProbeRig, SkinnedImport, TwoBoneWitness
-- `Desert/Desert/Source/Engine/Animation/Graph/AnimGraphEvaluator.cpp` — 4: AnimGraph, AnimGraphAsset, AnimGraphScript, AnimGraphValidation
-- `Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp` — 9: AnimGraphAsset, AssetHandleStability, EngineShaderByGuid, FoliageTypeMigration, GraphCanvasIdentity, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes
-- `Desert/Desert/Source/Engine/Animation/Graph/AnimGraphValidation.cpp` — 4: AnimGraph, AnimGraphAsset, AnimGraphScript, AnimGraphValidation
-- `Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp` — 23: AnimationClipCorpus, AnimationClipFormat, AnimatorBlending, AnimatorClipRebind, AnimatorPose, BoneControlContract, ClipEditUndo, ClipSections, ClipSkeletonMatch, ControlKeying, ControlRigAsset, ControlRigStage, CurveViewTransform, IKProbeRig, KeyInterpolation, KeyInterpolationWitness, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SkeletonMapperFit, SkeletonReference, TwoBoneWitness
-- `Desert/Desert/Source/Engine/Animation/Pose.cpp` — 31: AnimationClipCorpus, AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, AssetMissingFile, BoneControlContract, ClipEditUndo, ClipSections, ClipSkeletonMatch, ControlHierarchy, ControlKeying, ControlManipulator, ControlRigAsset, ControlRigStage, EngineShaderByGuid, HumanoidSkeleton, IKProbeRig, MaterialDocumentOpen, MeshServiceResidency, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SkeletonMapperFit, SkeletonReference, SkinnedImport, SkinnedMeshDependency, TwoBoneWitness
-- `Desert/Desert/Source/Engine/Animation/Retarget/ModelPose.cpp` — 17: AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SkinnedImport
-- `Desert/Desert/Source/Engine/Animation/Retarget/RetargetPose.cpp` — 17: AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SkinnedImport
-- `Desert/Desert/Source/Engine/Animation/Retarget/RetargetSource.cpp` — 11: AnimatorBlending, AnimatorClipRebind, AnimatorPose, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, IKProbeRig, PoseSubstrate, RetargetAsset, RigGraph
-- `Desert/Desert/Source/Engine/Animation/Retarget/Retargeter.cpp` — 17: AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SkinnedImport
-- `Desert/Desert/Source/Engine/Animation/Rig/ControlHierarchy.cpp` — 16: AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlHierarchy, ControlKeying, ControlManipulator, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, PoseSubstrate, RetargetAsset, RigGraph
-- `Desert/Desert/Source/Engine/Animation/Rig/ControlKeyer.cpp` — 2: ClipEditUndo, ControlKeying
+- `Desert/Desert/Source/Engine/Animation/Graph/AnimGraphEvaluator.cpp` — 17: AnimGraph, AnimGraphAsset, AnimGraphScript, AnimGraphValidation, AnimatorBlending, AnimatorClipRebind, AnimatorPose, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, IKProbeRig, LevelSequence, PoseSubstrate, RetargetAsset, RigGraph, TimelineContract
+- `Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp` — 10: AnimGraphAsset, AnimGraphValidation, AssetHandleStability, EngineShaderByGuid, FoliageTypeMigration, GraphCanvasIdentity, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes
+- `Desert/Desert/Source/Engine/Animation/Graph/AnimGraphValidation.cpp` — 17: AnimGraph, AnimGraphAsset, AnimGraphScript, AnimGraphValidation, AnimatorBlending, AnimatorClipRebind, AnimatorPose, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, IKProbeRig, LevelSequence, PoseSubstrate, RetargetAsset, RigGraph, TimelineContract
+- `Desert/Desert/Source/Engine/Animation/Graph/LayeredBlendPerBone.cpp` — 13: AnimatorBlending, AnimatorClipRebind, AnimatorPose, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, IKProbeRig, LevelSequence, PoseSubstrate, RetargetAsset, RigGraph, TimelineContract
+- `Desert/Desert/Source/Engine/Animation/Graph/PoseGraph.cpp` — 25: AnimGraph, AnimGraphAsset, AnimGraphScript, AnimGraphValidation, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, FoliageTypeMigration, GraphCanvasIdentity, IKProbeRig, LevelSequence, PoseSubstrate, RetargetAsset, RigGraph, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, TimelineContract
+- `Desert/Desert/Source/Engine/Animation/Graph/PoseGraphInstance.cpp` — 13: AnimatorBlending, AnimatorClipRebind, AnimatorPose, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, IKProbeRig, LevelSequence, PoseSubstrate, RetargetAsset, RigGraph, TimelineContract
+- `Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp` — 45: AnimationClipCorpus, AnimationClipFormat, AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, AssetMissingFile, BoneControlContract, ClipEditUndo, ClipSections, ClipSkeletonMatch, ControlKeying, ControlRigAsset, ControlRigStage, CurveViewTransform, EngineShaderByGuid, FoliageTypeMigration, IKProbeRig, KeyInterpolation, KeyInterpolationWitness, LevelSequence, MaterialDocumentOpen, MeshDerivedData, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, SkeletonMapperFit, SkeletonReference, SkinnedImport, TimelineContract, TwoBoneWitness, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
+- `Desert/Desert/Source/Engine/Animation/Pose.cpp` — 46: AnimationClipCorpus, AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, AssetMissingFile, BoneControlContract, ClipEditUndo, ClipSections, ClipSkeletonMatch, ControlHierarchy, ControlKeying, ControlManipulator, ControlRigAsset, ControlRigStage, EngineShaderByGuid, FoliageTypeMigration, HumanoidSkeleton, IKProbeRig, KeyInterpolationWitness, LevelSequence, MaterialDocumentOpen, MeshServiceResidency, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, SkeletonMapperFit, SkeletonReference, SkinnedImport, SkinnedMeshDependency, TimelineContract, TwoBoneWitness, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
+- `Desert/Desert/Source/Engine/Animation/Retarget/ModelPose.cpp` — 18: AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, LevelSequence, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SkinnedImport
+- `Desert/Desert/Source/Engine/Animation/Retarget/RetargetPose.cpp` — 18: AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, LevelSequence, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SkinnedImport
+- `Desert/Desert/Source/Engine/Animation/Retarget/RetargetSource.cpp` — 12: AnimatorBlending, AnimatorClipRebind, AnimatorPose, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, IKProbeRig, LevelSequence, PoseSubstrate, RetargetAsset, RigGraph
+- `Desert/Desert/Source/Engine/Animation/Retarget/Retargeter.cpp` — 18: AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, LevelSequence, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SkinnedImport
+- `Desert/Desert/Source/Engine/Animation/Rig/ControlHierarchy.cpp` — 18: AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlHierarchy, ControlKeying, ControlManipulator, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, LevelSequence, PoseSubstrate, RetargetAsset, RigGraph, TimelineContract
+- `Desert/Desert/Source/Engine/Animation/Rig/ControlKeyer.cpp` — 3: ClipEditUndo, ControlKeying, TimelineContract
 - `Desert/Desert/Source/Engine/Animation/Rig/ControlManipulator.cpp` — 2: ClipEditUndo, ControlManipulator
-- `Desert/Desert/Source/Engine/Animation/Rig/ControlRigStage.cpp` — 13: AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, PoseSubstrate, RetargetAsset, RigGraph
+- `Desert/Desert/Source/Engine/Animation/Rig/ControlRigStage.cpp` — 14: AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, LevelSequence, PoseSubstrate, RetargetAsset, RigGraph
 - `Desert/Desert/Source/Engine/Animation/Rig/ControlShape.cpp` — 2: ClipEditUndo, ControlManipulator
-- `Desert/Desert/Source/Engine/Animation/Rig/RigGraph.cpp` — 13: AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, PoseSubstrate, RetargetAsset, RigGraph
-- `Desert/Desert/Source/Engine/Animation/Skeleton.cpp` — 36: AnimationClipCorpus, AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, AssetMissingFile, BoneControlContract, ClipEditUndo, ClipSections, ClipSkeletonMatch, ControlHierarchy, ControlKeying, ControlManipulator, ControlRigAsset, ControlRigStage, EngineShaderByGuid, FoliageTypeMigration, HumanoidSkeleton, IKProbeRig, MaterialDocumentOpen, MeshServiceResidency, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, SkeletonMapperFit, SkeletonReference, SkinnedImport, SkinnedMeshDependency, TwoBoneWitness
+- `Desert/Desert/Source/Engine/Animation/Rig/RigGraph.cpp` — 14: AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, LevelSequence, PoseSubstrate, RetargetAsset, RigGraph
+- `Desert/Desert/Source/Engine/Animation/Skeleton.cpp` — 46: AnimationClipCorpus, AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, AssetMissingFile, BoneControlContract, ClipEditUndo, ClipSections, ClipSkeletonMatch, ControlHierarchy, ControlKeying, ControlManipulator, ControlRigAsset, ControlRigStage, EngineShaderByGuid, FoliageTypeMigration, HumanoidSkeleton, IKProbeRig, KeyInterpolationWitness, LevelSequence, MaterialDocumentOpen, MeshServiceResidency, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, SkeletonMapperFit, SkeletonReference, SkinnedImport, SkinnedMeshDependency, TimelineContract, TwoBoneWitness, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
 - `Desert/Desert/Source/Engine/Animation/SkeletonReference.cpp` — 12: AnimationClipCorpus, AnimationLibraryOnDemand, ClipSkeletonMatch, FoliageTypeMigration, IKProbeRig, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, SkeletonReference, SkinnedImport, TwoBoneWitness
-- `Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp` — 18: AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SkinnedImport, TwoBoneIKSolver
-- `Desert/Desert/Source/Engine/Animation/TimeModel.cpp` — 25: AnimationClipCorpus, AnimationClipFormat, AnimationTimeModel, AnimatorBlending, AnimatorClipRebind, AnimatorPose, BoneControlContract, ClipEditUndo, ClipSections, ClipSkeletonMatch, ControlKeying, ControlRigAsset, ControlRigStage, CurveViewTransform, IKProbeRig, KeyInterpolation, KeyInterpolationWitness, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SkeletonMapperFit, SkeletonReference, SkinnedImport, TwoBoneWitness
-- `Desert/Desert/Source/Engine/Animation/TrackEditing.cpp` — 3: ClipEditUndo, ControlKeying, KeyInterpolationWitness
+- `Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp` — 19: AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, LevelSequence, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SkinnedImport, TwoBoneIKSolver
+- `Desert/Desert/Source/Engine/Animation/TimeModel.cpp` — 46: AnimationClipCorpus, AnimationClipFormat, AnimationLibraryOnDemand, AnimationTimeModel, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, AssetMissingFile, BoneControlContract, ClipEditUndo, ClipSections, ClipSkeletonMatch, ControlKeying, ControlRigAsset, ControlRigStage, CurveViewTransform, EngineShaderByGuid, FoliageTypeMigration, IKProbeRig, KeyInterpolation, KeyInterpolationWitness, LevelSequence, MaterialDocumentOpen, MeshDerivedData, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, SkeletonMapperFit, SkeletonReference, SkinnedImport, TimelineContract, TwoBoneWitness, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
+- `Desert/Desert/Source/Engine/Animation/Timeline/Binding.cpp` — 41: AnimationClipCorpus, AnimationClipFormat, AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, AssetMissingFile, BoneControlContract, ClipEditUndo, ClipSections, ControlKeying, ControlRigAsset, ControlRigStage, EngineShaderByGuid, FoliageTypeMigration, IKProbeRig, KeyInterpolationWitness, LevelSequence, MaterialDocumentOpen, MeshDerivedData, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, SkeletonMapperFit, SkinnedImport, TimelineContract, TwoBoneWitness, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
+- `Desert/Desert/Source/Engine/Animation/Timeline/Channel.cpp` — 41: AnimationClipCorpus, AnimationClipFormat, AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, AssetMissingFile, BoneControlContract, ClipEditUndo, ClipSections, ControlKeying, ControlRigAsset, ControlRigStage, EngineShaderByGuid, FoliageTypeMigration, IKProbeRig, KeyInterpolationWitness, LevelSequence, MaterialDocumentOpen, MeshDerivedData, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, SkeletonMapperFit, SkinnedImport, TimelineContract, TwoBoneWitness, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
+- `Desert/Desert/Source/Engine/Animation/Timeline/Evaluator.cpp` — 36: AnimationClipCorpus, AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetMissingFile, BoneControlContract, ClipEditUndo, ClipSections, ControlKeying, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, KeyInterpolationWitness, LevelSequence, MaterialDocumentOpen, MeshDerivedData, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SceneMigrator, SceneMigratorWritePath, SkeletonMapperFit, SkinnedImport, TimelineContract, TwoBoneWitness, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
+- `Desert/Desert/Source/Engine/Animation/Timeline/Player.cpp` — 34: AnimationClipCorpus, AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetMissingFile, BoneControlContract, ClipEditUndo, ClipSections, ControlKeying, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, KeyInterpolationWitness, LevelSequence, MaterialDocumentOpen, MeshDerivedData, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SkeletonMapperFit, SkinnedImport, TimelineContract, TwoBoneWitness, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
+- `Desert/Desert/Source/Engine/Animation/Timeline/Sequence.cpp` — 41: AnimationClipCorpus, AnimationClipFormat, AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, AssetMissingFile, BoneControlContract, ClipEditUndo, ClipSections, ControlKeying, ControlRigAsset, ControlRigStage, EngineShaderByGuid, FoliageTypeMigration, IKProbeRig, KeyInterpolationWitness, LevelSequence, MaterialDocumentOpen, MeshDerivedData, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, SkeletonMapperFit, SkinnedImport, TimelineContract, TwoBoneWitness, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
+- `Desert/Desert/Source/Engine/Animation/Timeline/SequenceFormat.cpp` — 31: AnimationClipCorpus, AnimationClipFormat, AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, ControlKeying, EngineShaderByGuid, FoliageTypeMigration, IKProbeRig, KeyInterpolationWitness, LevelSequence, MaterialDocumentOpen, MeshDerivedData, RetargetAsset, RetargetPipeline, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, SkeletonMapperFit, SkinnedImport, TimelineContract, TwoBoneWitness, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
+- `Desert/Desert/Source/Engine/Animation/Timeline/Track.cpp` — 41: AnimationClipCorpus, AnimationClipFormat, AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, AssetMissingFile, BoneControlContract, ClipEditUndo, ClipSections, ControlKeying, ControlRigAsset, ControlRigStage, EngineShaderByGuid, FoliageTypeMigration, IKProbeRig, KeyInterpolationWitness, LevelSequence, MaterialDocumentOpen, MeshDerivedData, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, SkeletonMapperFit, SkinnedImport, TimelineContract, TwoBoneWitness, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
+- `Desert/Desert/Source/Engine/Animation/TrackEditing.cpp` — 11: ClipEditUndo, ClipSections, ControlKeying, ControlRigAsset, ControlRigStage, KeyInterpolationWitness, LevelSequence, MeshDerivedData, RigGraph, SkinnedImport, TimelineContract
 - `Desert/Desert/Source/Engine/Animation/TwoBoneIKControl.cpp` — 3: BoneControlContract, ControlRigStage, IKProbeRig
 - `Desert/Desert/Source/Engine/Assets/AnimGraphAsset.cpp` — 3: AnimGraphAsset, AssetHandleStability, EngineShaderByGuid
 - `Desert/Desert/Source/Engine/Assets/AssetEviction.cpp` — 3: AnimationLibraryOnDemand, AssetEviction, SkinnedImport
@@ -332,6 +341,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Desert/Desert/Source/Engine/Assets/ControlRigAsset.cpp` — 2: AssetHandleStability, EngineShaderByGuid
 - `Desert/Desert/Source/Engine/Assets/FoliageTypeAsset.cpp` — 1: AssetHandleStability
 - `Desert/Desert/Source/Engine/Assets/LandscapeLayerInfoAsset.cpp` — 1: AssetHandleStability
+- `Desert/Desert/Source/Engine/Assets/LevelSequenceAsset.cpp` — 2: AssetHandleStability, LevelSequence
 - `Desert/Desert/Source/Engine/Assets/Mesh/AnimationAsset.cpp` — 7: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, EngineShaderByGuid, MaterialDocumentOpen, SkinnedImport
 - `Desert/Desert/Source/Engine/Assets/Mesh/SkeletonAsset.cpp` — 9: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, EngineShaderByGuid, MaterialDocumentOpen, MeshServiceResidency, SkinnedImport, SkinnedMeshDependency
 - `Desert/Desert/Source/Engine/Assets/Mesh/SkeletonReferenceAssets.cpp` — 1: SkinnedImport
@@ -344,8 +354,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Desert/Desert/Source/Engine/Assets/Prefab/PrefabOverrides.cpp` — 2: PlayerStart, PrefabOverrides
 - `Desert/Desert/Source/Engine/Assets/Prefab/PrefabPlacement.cpp` — 2: PrefabInstantiationCensus, PrefabPlacement
 - `Desert/Desert/Source/Engine/Assets/RetargetAsset.cpp` — 5: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, EngineShaderByGuid, SkinnedImport
-- `Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp` — 15: AnimationClipCorpus, AnimationClipFormat, AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, EngineShaderByGuid, IKProbeRig, KeyInterpolationWitness, MaterialDocumentOpen, RetargetAsset, RetargetPipeline, SkeletonMapperFit, SkinnedImport, TwoBoneWitness
-- `Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipMigrate.cpp` — 1: AnimationClipFormat
+- `Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp` — 17: AnimationClipCorpus, AnimationClipFormat, AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, EngineShaderByGuid, IKProbeRig, KeyInterpolationWitness, MaterialDocumentOpen, RetargetAsset, RetargetPipeline, SceneMigrator, SceneMigratorWritePath, SkeletonMapperFit, SkinnedImport, TwoBoneWitness
 - `Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipWrite.cpp` — 1: AnimationClipFormat
 - `Desert/Desert/Source/Engine/Assets/Serialization/ControlRig.cpp` — 4: AssetHandleStability, ControlRigAsset, EngineShaderByGuid, RigGraph
 - `Desert/Desert/Source/Engine/Assets/Serialization/EnvironmentStaging.cpp` — 7: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, EngineShaderByGuid, MaterialDocumentOpen, SkinnedImport
@@ -388,9 +397,11 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.cpp` — 18: CloudControlCensus, CloudMaterialSchema, CloudMaterialTiming, DShaderParser, DShaderTool, GamePackager, MaterialImportContract, MeshVertexPath, PBRSceneFrame, PackagedContent, ShaderCacheKey, ShaderDomainRouting, ShaderGraphCompiler, ShaderIncluderOwnership, ShaderMapBuild, ShippedShaderPasses, SkinnedImport, SurfaceTemplate
 - `Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.cpp` — 18: CloudControlCensus, CloudMaterialSchema, CloudMaterialTiming, DShaderParser, DShaderTool, GamePackager, MaterialImportContract, MeshVertexPath, PBRSceneFrame, PackagedContent, ShaderCacheKey, ShaderDomainRouting, ShaderGraphCompiler, ShaderIncluderOwnership, ShaderMapBuild, ShippedShaderPasses, SkinnedImport, SurfaceTemplate
 - `Desert/Desert/Source/Engine/Core/ShaderCompiler/ShadingModels/ShadingModelRegistry.cpp` — 18: CloudControlCensus, CloudMaterialSchema, CloudMaterialTiming, DShaderParser, DShaderTool, GamePackager, MaterialImportContract, MeshVertexPath, PBRSceneFrame, PackagedContent, ShaderCacheKey, ShaderDomainRouting, ShaderGraphCompiler, ShaderIncluderOwnership, ShaderMapBuild, ShippedShaderPasses, SkinnedImport, SurfaceTemplate
+- `Desert/Desert/Source/Engine/ECS/LevelSequenceAuthoring.cpp` — 1: LevelSequence
+- `Desert/Desert/Source/Engine/ECS/LevelSequencePlayback.cpp` — 1: LevelSequence
 - `Desert/Desert/Source/Engine/ECS/System/LandscapeCollision.cpp` — 1: LandscapeRaycast
 - `Desert/Desert/Source/Engine/ECS/System/PhysicsBodyLifetime.cpp` — 1: EntityDestroy
-- `Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp` — 21: AssetResolverCensus, CloudControlCensus, CloudProtocolScene, ComponentReflection, ConfigOwnership, FoliageTypeMigration, SceneCloudLayoutDefault, SceneDebugFields, SceneForeignKeys, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, SettingConsumers, SkyPresets, UIClipUndo, UIComponentRoundTrip, UIEventRouting, UIOverlays, WorldGen, WorldSceneGenerator
+- `Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp` — 21: AssetResolverCensus, ClipEditUndo, CloudControlCensus, CloudProtocolScene, ComponentReflection, ConfigOwnership, FoliageTypeMigration, SceneCloudLayoutDefault, SceneDebugFields, SceneForeignKeys, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, SettingConsumers, SkyPresets, UIComponentRoundTrip, UIEventRouting, UIOverlays, WorldGen, WorldSceneGenerator
 - `Desert/Desert/Source/Engine/Geometry/AutoRig.cpp` — 1: AutoRig
 - `Desert/Desert/Source/Engine/Geometry/DynamicMeshAsset.cpp` — 5: DynamicMeshAsset, MeshDerivedData, ModelingToolTarget, SkinnedImport, StaticMeshOutput
 - `Desert/Desert/Source/Engine/Geometry/DynamicMeshRenderConversion.cpp` — 8: DynamicMesh3Render, DynamicMeshAsset, DynamicMeshSerialization, MeshDerivedData, ModelingToolTarget, OffsetInsetRegion, SkinnedImport, StaticMeshOutput
@@ -471,8 +482,8 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Desert/Desert/Source/Engine/Project/EngineRegistration.cpp` — 1: ProjectFormat
 - `Desert/Desert/Source/Engine/Project/ProjectContext.cpp` — 5: GamePackager, PackagedContent, PreferenceOwnership, ProjectFormat, TextureCook
 - `Desert/Desert/Source/Engine/Project/StartupLayout.cpp` — 1: StartupLayout
-- `Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp` — 21: AssetResolverCensus, CloudControlCensus, CloudProtocolScene, ComponentReflection, ConfigOwnership, FoliageTypeMigration, SceneCloudLayoutDefault, SceneDebugFields, SceneForeignKeys, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, SettingConsumers, SkyPresets, UIClipUndo, UIComponentRoundTrip, UIEventRouting, UIOverlays, WorldGen, WorldSceneGenerator
-- `Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp` — 17: CloudProtocolScene, ComponentReflection, ConfigOwnership, FoliageTypeMigration, ReflectionSerializer, SceneCloudLayoutDefault, SceneForeignKeys, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, UIClipUndo, UIComponentRoundTrip, UIEventRouting, UIOverlays, WorldGen, WorldSceneGenerator
+- `Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp` — 21: AssetResolverCensus, ClipEditUndo, CloudControlCensus, CloudProtocolScene, ComponentReflection, ConfigOwnership, FoliageTypeMigration, SceneCloudLayoutDefault, SceneDebugFields, SceneForeignKeys, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, SettingConsumers, SkyPresets, UIComponentRoundTrip, UIEventRouting, UIOverlays, WorldGen, WorldSceneGenerator
+- `Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp` — 17: ClipEditUndo, CloudProtocolScene, ComponentReflection, ConfigOwnership, FoliageTypeMigration, ReflectionSerializer, SceneCloudLayoutDefault, SceneForeignKeys, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, UIComponentRoundTrip, UIEventRouting, UIOverlays, WorldGen, WorldSceneGenerator
 - `Desert/Desert/Source/Engine/Runtime/Services/CloudType/CloudTypeService.cpp` — 1: AssetMissingFile
 - `Desert/Desert/Source/Engine/Runtime/Services/Image/ImageService.cpp` — 2: ProceduralEnvironmentCube, TextureOwnership
 - `Desert/Desert/Source/Engine/Runtime/Services/Mesh/MeshService.cpp` — 1: MeshServiceResidency
@@ -481,6 +492,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Desert/Desert/Source/Engine/Text/FontCache.cpp` — 2: GamePackager, PackagedContent
 - `Desert/Desert/Source/Engine/Text/Msdf.cpp` — 3: FontBaker, GamePackager, PackagedContent
 - `Desert/Desert/Source/Engine/Text/Utf8.cpp` — 9: UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture, UIScriptCollections, Utf8
+- `Desert/Desert/Source/Engine/UI/UIAnimationPlayback.cpp` — 7: UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
 - `Desert/Desert/Source/Engine/UI/UICanvasLayout.cpp` — 8: UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture, UIScriptCollections
 - `Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp` — 7: UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
 - `Desert/Desert/Source/Engine/UI/UICollectionClone.cpp` — 8: UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture, UIScriptCollections
@@ -506,10 +518,11 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Editor/Source/Editor/Core/AssetFileOps.cpp` — 1: AssetFileOps
 - `Editor/Source/Editor/Core/AssetReferences.cpp` — 3: AssetClosure, AssetReferences, BuildScriptContract
 - `Editor/Source/Editor/Core/AssetReferencesScan.cpp` — 2: AssetClosure, BuildScriptContract
+- `Editor/Source/Editor/Core/Commands/AnimGraphEdit.cpp` — 1: AnimGraphValidation
 - `Editor/Source/Editor/Core/Commands/InstanceFold.cpp` — 1: InstanceFold
 - `Editor/Source/Editor/Core/Commands/LandscapeEditLayerEdits.cpp` — 1: LandscapeScene
 - `Editor/Source/Editor/Core/Commands/PoseEditTransaction.cpp` — 1: ClipEditUndo
-- `Editor/Source/Editor/Core/Commands/UIClipEdit.cpp` — 1: UIClipUndo
+- `Editor/Source/Editor/Core/Commands/SequenceEdit.cpp` — 1: ClipEditUndo
 - `Editor/Source/Editor/Core/Control/ControlSocket.cpp` — 1: ControlTransport
 - `Editor/Source/Editor/Core/EditorPreferences.cpp` — 1: PreferenceOwnership
 - `Editor/Source/Editor/Core/FuzzyMatch.cpp` — 3: ControlDispatch, FuzzyMatch, PaletteCommands
@@ -542,6 +555,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Editor/Source/Editor/Packaging/GamePackager.cpp` — 2: GamePackager, PackagedContent
 - `Editor/Source/Editor/Packaging/PackageCook.cpp` — 2: GamePackager, PackagedContent
 - `Editor/Source/Editor/Panels/Animation/AnimGraphCanvasPlan.cpp` — 2: AnimGraphValidation, GraphCanvasIdentity
+- `Editor/Source/Editor/Panels/Animation/PoseGraphEdit.cpp` — 1: AnimGraphValidation
 - `Editor/Source/Editor/Panels/Collections/CollectionFoliageTypes.cpp` — 2: FoliagePalette, FoliageTypeDnD
 - `Editor/Source/Editor/Panels/FileExplorer/NewCloudAsset.cpp` — 1: NewCloudAsset
 - `Editor/Source/Editor/Panels/Foliage/FoliagePalette.cpp` — 1: FoliagePalette
@@ -573,10 +587,15 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `ThirdParty/vk-bootstrap/VkBootstrap.cpp` — 1: Desert
 - `Tools/CrashReporter/Source/CrashReport.cpp` — 1: CrashReportParse
 - `Tools/DesertHeaderTool/Source/HeaderScan.cpp` — 1: HeaderToolChecks
+- `Tools/SceneMigrator/Source/ClipGeneration3.cpp` — 2: SceneMigratorWritePath, TimelineContract
+- `Tools/SceneMigrator/Source/ClipInterpShift.cpp` — 5: FoliageTypeMigration, SceneMeshGuidMigration, SceneMigratorWritePath, SceneSettingsHomes, TimelineContract
+- `Tools/SceneMigrator/Source/ClipLift.cpp` — 2: SceneMigratorWritePath, TimelineContract
+- `Tools/SceneMigrator/Source/ClipMigration.cpp` — 1: SceneMigratorWritePath
 - `Tools/SceneMigrator/Source/ImportRecordSourceHash.cpp` — 1: SceneMigratorWritePath
 - `Tools/SceneMigrator/Source/MigratorMain.cpp` — 1: SceneMigratorWritePath
 - `Tools/SceneMigrator/Source/SceneMigration.cpp` — 4: FoliageTypeMigration, SceneMeshGuidMigration, SceneMigratorWritePath, SceneSettingsHomes
 - `Tools/SceneMigrator/Source/SettingsCanonical.cpp` — 3: SceneMigratorWritePath, WorldGen, WorldSceneGenerator
+- `Tools/SceneMigrator/Source/UILift.cpp` — 6: FoliageTypeMigration, SceneMeshGuidMigration, SceneMigratorWritePath, SceneSettingsHomes, TimelineContract, UICanvasContext
 - `Tools/WorldCook/Source/WorldCookMain.cpp` — 1: WorldCells
 - `Tools/WorldGen/Source/WorldBuild.cpp` — 1: WorldSceneGenerator
 - `Tools/WorldGen/Source/WorldGenMain.cpp` — 1: WorldSceneGenerator
