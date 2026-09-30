@@ -43,6 +43,14 @@ namespace Desert::Assets
             return m_Sequence;
         }
 
+        /// The Sequencer's document edits the LOADED sequence in place (UE: the Sequencer edits the
+        /// ULevelSequence object), so every placed LevelSequenceComponent plays the edit at once — its
+        /// Evaluator rebuilds on `Revision`, which every edit bumps. Saving writes this same object.
+        [[nodiscard]] Animation::Timeline::Sequence& EditSequence()
+        {
+            return m_Sequence;
+        }
+
         [[nodiscard]] std::string GetDisplayName() const
         {
             return m_Metadata.Filepath.stem().string();

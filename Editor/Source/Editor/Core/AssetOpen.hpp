@@ -50,6 +50,7 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::Mesh:      // `.stmesh` the viewer, `.skmesh` Persona's Mesh mode
             case Assets::AssetTypeID::Animation: // Persona's Animation mode (ANV1a)
             case Assets::AssetTypeID::Skeleton:  // Persona's Skeleton mode (ANV1f)
+            case Assets::AssetTypeID::LevelSequence: // the Sequencer's Level timeline (ANIM-LSEQ)
                 return nullptr;
             case Assets::AssetTypeID::Unknown:
                 return "the asset has no type — nothing can say which editor opens it";
@@ -63,7 +64,6 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::Retarget:
             case Assets::AssetTypeID::LandscapeLayerInfo: // edited in the landscape panel's layer list
             case Assets::AssetTypeID::FoliageType:        // edited in the foliage panel
-            case Assets::AssetTypeID::LevelSequence:      // the Sequencer opens it (ANIM-I10)
                 return kNoEditor;
             case Assets::AssetTypeID::Count:
                 return "AssetTypeID::Count is the number of types, not a type";

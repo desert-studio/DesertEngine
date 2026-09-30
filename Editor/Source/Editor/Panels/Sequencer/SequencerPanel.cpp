@@ -125,6 +125,14 @@ namespace Desert::Editor
         // Closing gives bone authoring back. Refused — and correctly ignored — when this window was not the
         // one holding it; see the note in ViewportPanel's destructor.
         (void)Core::ActiveAuthoringContext().Release( m_AuthoringOwner );
+
+        // CLOSING A LEVEL SEQUENCE GIVES THE SCENE BACK (UE: Restore State). A scene that died first has
+        // nothing to give back to.
+        if ( m_LevelPreview.Active() )
+        {
+            if ( const auto scene = m_Scene.lock() )
+                m_LevelPreview.Restore( scene->GetRegistry() );
+        }
     }
 
     void SequencerPanel::TakeAuthoringContextIfFocused()
@@ -143,6 +151,12 @@ namespace Desert::Editor
 
     bool SequencerPanel::IsSubjectAlive() const
     {
+        // A level sequence is about its ASSET: alive while the manager still knows the handle and the scene
+        // it poses is still open.
+        if ( m_Timeline == Timeline::Level )
+            return !m_Scene.expired() && m_AssetManager != nullptr &&
+                   m_AssetManager->FindMetadataByHandle( Assets::AssetHandle( Subject().Owner ) ) != nullptr;
+
         const auto entOpt = ResolveEntity();
         if ( !entOpt )
             return false;
@@ -582,6 +596,17 @@ namespace Desert::Editor
     // the window with a named reason on the same frame it notices.
     void SequencerPanel::OnUIRender()
     {
+        if ( m_Timeline == Timeline::Level )
+        {
+            if ( !IsSubjectAlive() )
+            {
+                ImGui::TextDisabled( "What this timeline was editing no longer exists; closing." );
+                return;
+            }
+            DrawLevelTimeline();
+            return;
+        }
+
         const auto entOpt = ResolveEntity();
         if ( !entOpt || !IsSubjectAlive() )
         {
@@ -2161,6 +2186,10 @@ namespace Desert::Editor
         if ( m_Timeline == Timeline::UI )
         {
             return UIActions();
+        }
+        if ( m_Timeline == Timeline::Level )
+        {
+            return LevelActions();
         }
         if ( m_Timeline != Timeline::Skeletal )
         {

@@ -5,6 +5,7 @@
 #include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Editor/Core/Commands/PoseEditTransaction.hpp>
 #include <Editor/Core/Commands/SequenceEdit.hpp>
+#include <Editor/Core/SubjectEditorRegistry.hpp>
 
 #include <Engine/Animation/Rig/ControlKeyer.hpp>
 
@@ -17,6 +18,7 @@
 #include <Engine/Animation/ClipSkeletonMatch.hpp>
 #include <Engine/Animation/TimeModel.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
+#include <Engine/ECS/LevelSequenceAuthoring.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -32,6 +34,7 @@ namespace Desert::Core
 namespace Desert::Assets
 {
     class AssetManager;
+    class LevelSequenceAsset;
 }
 namespace Desert::Animation
 {
@@ -94,7 +97,10 @@ namespace Desert::Editor
         enum class Timeline
         {
             Skeletal,
-            UI
+            UI,
+            /// A LEVEL SEQUENCE (`.dseq`) asset: the subject is the ASSET (its handle), the scene it poses is
+            /// the one the document was opened over — UE's Sequencer over a ULevelSequence.
+            Level
         };
 
         // The two subject types this editor is registered under — one literal each, read by the
@@ -188,6 +194,28 @@ namespace Desert::Editor
 
         // The rig timeline for @p entity — the clip picker, the transport and the bone lanes.
         void DrawSkeletalTimeline( ECS::Entity& entity );
+
+        // ── LEVEL SEQUENCE (LevelSequenceTimeline.cpp) ──────────────────────────────────────────────────
+        // The asset, resolved from the subject handle per call (never stored: the manager owns it).
+        [[nodiscard]] std::shared_ptr<Assets::LevelSequenceAsset> ResolveLevelAsset() const;
+        [[nodiscard]] SequenceOwner                              LevelOwner() const;
+        void                                                     DrawLevelTimeline();
+        [[nodiscard]] std::vector<DocumentAction>                LevelActions();
+        /// "+ Track → Actor": @p entity of the scene bound as a possessable (find-or-create).
+        void AddLevelActor( const Common::UUID& entity, const std::string& label );
+        /// Keys @p binding's entity's live Transform at the playhead (UE: "Key Transform" on the track row).
+        void KeyLevelTransform( const Animation::Timeline::BindingGuid& binding );
+        void AddLevelCameraCut( const Animation::Timeline::BindingGuid& camera );
+        void SaveLevelSequence();
+        void SetLevelTimePercent( int percent );
+        /// Poses the scene at m_LevelTick when the tick or the sequence's Revision moved since the last pose.
+        void PreviewLevelIfChanged( const Animation::Timeline::Sequence& sequence );
+
+        ECS::LevelSequencePreview m_LevelPreview;
+        Animation::FrameNumber    m_LevelTick;
+        int32_t                   m_LevelTickShown     = INT32_MIN;
+        uint32_t                  m_LevelRevisionShown = UINT32_MAX;
+        SequenceEditTransaction   m_LevelEdit;
 
         // Creates a NEW empty clip for the given skeleton (a track per bone, no keys yet), registers it as an
         // in-memory AnimationAsset so it shows in the picker, and returns its name (empty on failure).
@@ -428,4 +456,10 @@ namespace Desert::Editor
 
         // Layer-preview authoring state (transient — previews on the live Animator).
     };
+
+    // The `.dseq` path opener (LevelSequenceTimeline.cpp): find-or-create the LevelSequenceAsset, load it, then
+    // open it through the one handle route, Core::RequestOpenAsset. Any other extension is NotMine.
+    [[nodiscard]] SubjectEditorRegistry::PathOpenOutcome
+    RequestLevelSequenceDocument( Assets::AssetManager* assets, const std::string& path,
+                                  const SubjectEditorRegistry& editors );
 } // namespace Desert::Editor
