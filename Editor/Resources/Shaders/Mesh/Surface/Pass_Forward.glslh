@@ -12,8 +12,6 @@ DESERT_SURFACE_VARYINGS( in )
 
 layout( location = 0 ) out vec4 oColor;
 
-const vec3 Fdielectric = vec3( 0.04 );
-
 struct DirectionLight
 {
     vec4 Direction;      // xyz = normalized direction
@@ -64,22 +62,13 @@ layout( binding = 21 ) uniform CloudShadowUB
 
 #include <Common/CloudShadowReceiver.glslh>
 
-// The sun through the shared Cook-Torrance text; DirectionLightsUB holds one light and the count gates it.
-vec3 DesertSurfaceSunLight( vec3 view, vec3 N, vec3 F0, float metalness, float roughness, vec3 albedo )
-{
-    vec3 color = vec3( 0 );
-    for ( uint i = 0; i < lightsMetadata.DirectionLightCount; i++ )
-    {
-        const vec3 radiance =
-             directionLights.directionLights.ColorIntensity.rgb * directionLights.directionLights.ColorIntensity.a;
-        color += EvaluateDirectionalLight( directionLights.directionLights.Direction.xyz, radiance, view, N, F0,
-                                           metalness, roughness, albedo );
-    }
-    return color;
-}
-
-// The split-sum ambient, the SAME text the deferred lighting pass compiles.
+// The split-sum ambient, the SAME text the deferred lighting pass compiles; it also provides the two environment
+// lookups a shading model may call, so it precedes the generated dispatch.
 #include <Mesh/AmbientIBL.glslh>
+#include <Mesh/LightSources.glslh>
+// THE lighting of this pass: the template's model (DESERT_SHADING_MODEL_INDEX, defined by the parser) through the
+// dispatch the registry generates. This pass names no model.
+#include <ShadingModels/ShadingModels.generated.glslh>
 
 void main()
 {
@@ -98,22 +87,15 @@ void main()
         return;
     }
 
-    const vec3  albedo    = s.BaseColor;
-    const float metalness = s.Metallic;
-    const float roughness = max( s.Roughness, 0.04 ); // GGX NDF stays finite for mirror-smooth surfaces
-    const vec3  view      = normalize( v_Surface.CameraPosition - i.WorldPosition );
-
-    const vec3 F0    = mix( Fdielectric, albedo, metalness );
-    const vec3 light = DesertSurfaceSunLight( view, N, F0, metalness, roughness, albedo );
-    const vec3 ibl   = AmbientIBL( view, N, F0, metalness, roughness, albedo );
-
-    vec3 pointLight = vec3( 0.0 );
-    for ( uint p = 0; p < lightsMetadata.PointLightCount; p++ )
-        pointLight += CalculatePointLight( pointLights[p], i.WorldPosition, view, N, F0, metalness, roughness, albedo );
-
-    vec3 spotLight = vec3( 0.0 );
-    for ( uint p = 0; p < lightsMetadata.SpotLightCount; p++ )
-        spotLight += CalculateSpotLight( spotLights[p], i.WorldPosition, view, N, F0, metalness, roughness, albedo );
+    DesertSurface surface;
+    surface.WorldPosition = i.WorldPosition;
+    surface.N             = N;
+    surface.V             = normalize( v_Surface.CameraPosition - i.WorldPosition );
+    surface.BaseColor     = s.BaseColor;
+    surface.Metallic      = s.Metallic;
+    surface.Roughness     = max( s.Roughness, 0.04 ); // GGX NDF stays finite for mirror-smooth surfaces
+    // The payload a model reads, at the 8 bits an opaque surface's reaches it through the G-buffer.
+    const DesertPayload payload = DesertQuantizePayload( DesertPayload( s.CustomData0, s.CustomData1 ) );
 
     // The sun is occluded by the cascades (unless the surface does not receive them) and then by the cloud
     // layer — the cloud factor AFTER the toggle, exactly as the deferred composite assembles it.
@@ -123,6 +105,21 @@ void main()
     if ( s.ReceiveSunShadows < 0.5 )
         shadow = 1.0;
     shadow *= CloudShadowFactor( i.WorldPosition );
+
+    vec3 light = vec3( 0.0 );
+    for ( uint d = 0; d < lightsMetadata.DirectionLightCount; d++ )
+        light += DesertEvaluateShadingModel( DESERT_SHADING_MODEL_INDEX,
+                                             DesertSunLight( directionLights.directionLights.Direction.xyz,
+                                                             directionLights.directionLights.ColorIntensity.rgb *
+                                                                  directionLights.directionLights.ColorIntensity.a,
+                                                             shadow ),
+                                             surface, payload );
+    for ( uint p = 0; p < lightsMetadata.PointLightCount; p++ )
+        light += DesertEvaluateShadingModel( DESERT_SHADING_MODEL_INDEX,
+                                             DesertPointLightAt( pointLights[p], i.WorldPosition ), surface, payload );
+    for ( uint p = 0; p < lightsMetadata.SpotLightCount; p++ )
+        light += DesertEvaluateShadingModel( DESERT_SHADING_MODEL_INDEX,
+                                             DesertSpotLightAt( spotLights[p], i.WorldPosition ), surface, payload );
 
     // Lighting debug (viewport View Mode -> Lighting): each source a distinct colour, weighted by
     // attenuation * NdotL, mapped through an exposure-like curve so any light reaching the surface shows.
@@ -155,6 +152,7 @@ void main()
 
     // Occlusion attenuates only the ambient; the forward path has no indirect-bounce gather (zero), the one
     // difference from the deferred composite's call, visible in the argument list.
-    const vec3 ambient = ComposeAmbient( ibl, albedo, s.AmbientOcclusion, vec3( 0.0 ) );
-    oColor             = vec4( light * shadow + ambient + pointLight + spotLight + s.Emissive, 1.0 );
+    const vec3 ambient = DesertEvaluateShadingModelAmbient(
+         DESERT_SHADING_MODEL_INDEX, DesertSampleAmbient( surface, vec3( 0.0 ), s.AmbientOcclusion ), surface, payload );
+    oColor = vec4( light + ambient + s.Emissive, 1.0 );
 }

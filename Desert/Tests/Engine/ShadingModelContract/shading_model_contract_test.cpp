@@ -13,6 +13,8 @@
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShadingModelRegistry.hpp>
 
 #include <algorithm>
+#include <bit>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <format>
@@ -148,6 +150,27 @@ TEST( ShadingWord, GlslDefinesAreTheCppTable )
     EXPECT_EQ( glsl.at( "PAYLOAD1_FIRST_BIT" ), Field( "PAYLOAD1" ).FirstBit );
     EXPECT_EQ( glsl.at( "PAYLOAD_BITS" ), Field( "PAYLOAD0" ).BitCount );
     EXPECT_EQ( glsl.at( "PAYLOAD_BITS" ), Field( "PAYLOAD1" ).BitCount );
+}
+
+// ReceiveSunShadows rides the word's SIGN: outside every magnitude field, and the IEEE sign bit itself, so marking
+// it leaves the magnitude the generated unpack reads exact — at 0.0 (an empty Unlit word) and at the largest word.
+TEST( ShadingWord, SunShadowReceiveIsTheSignOutsideTheMagnitude )
+{
+    const SM::ShadingWordField& sign = SM::kShadingWordSignField;
+    ASSERT_EQ( sign.BitCount, 1 );
+    EXPECT_EQ( sign.FirstBit, 31 ) << "the float's sign bit is bit 31";
+    for ( const SM::ShadingWordField& f : SM::kShadingWordFields )
+        EXPECT_LE( f.FirstBit + f.BitCount, sign.FirstBit ) << f.Name << " reaches the sign";
+
+    for ( const std::uint32_t magnitude : { 0u, 1u, ( 1u << SM::kShadingWordExactBits ) - 1u } )
+    {
+        const float word   = static_cast<float>( magnitude );
+        const float marked = std::bit_cast<float>( std::bit_cast<std::uint32_t>( word ) | ( 1u << sign.FirstBit ) );
+        EXPECT_TRUE( std::signbit( marked ) ) << magnitude;
+        EXPECT_FALSE( std::signbit( word ) ) << magnitude;
+        EXPECT_EQ( static_cast<std::uint32_t>( std::fabs( marked ) ), magnitude );
+    }
+    EXPECT_EQ( ShadingWordDefines().at( "RECEIVE_SUN_SHADOWS_BIT" ), sign.FirstBit );
 }
 
 // ---------------------------------------------------------------------------------------------------------------

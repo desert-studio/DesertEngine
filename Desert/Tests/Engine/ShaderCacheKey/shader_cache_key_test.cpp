@@ -24,6 +24,7 @@
 
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
+#include <Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderMapCache.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.hpp>
@@ -1437,12 +1438,13 @@ TEST_F( ShaderRootFixture, AnUnlitGraphSurfaceReceivesNoneOfIt )
     EXPECT_FALSE( HasBinding( bindings, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
 }
 
-TEST_F( ShaderRootFixture, TheUnlitTemplateIsASurfaceWhoseCellsReadNoLight )
+TEST_F( ShaderRootFixture, TheUnlitTemplateIsLitThroughTheSamePassesAsEveryModel )
 {
-    // SURF1f-4: Unlit.shader stopped being a hand-written program and became a surface template with
-    // ShadingModel Unlit, so it exists the one way a surface material exists — as cells. The relation held
-    // here is between its cells and the lit template's: every cell compiles, and not one of them compiles a
-    // shared shading text or binds anything but the material row, the camera and its own albedo slot.
+    // SHM1: Unlit is a shading model FILE (ShadingModels/Unlit.shadingmodel) whose two functions return zero, not
+    // a pass of its own. So its cells are the passes every template's are — the forward cell compiles the forward
+    // lighting pass and the generated dispatch, and no cell compiles a header named for a model — and what makes
+    // the texel flat is the dispatch, not a missing descriptor. It still binds its albedo on the material layout's
+    // albedo slot.
     const auto path   = ShaderPath( "Unlit/Unlit.shader" );
     const auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( path ) );
     ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
@@ -1453,22 +1455,26 @@ TEST_F( ShaderRootFixture, TheUnlitTemplateIsASurfaceWhoseCellsReadNoLight )
          << "the Unlit template expanded into no Static.Forward cell";
 
     for ( const auto& cell : cells )
-    {
         for ( const auto& include : FragmentIncludes( path, cell.Name ) )
-            EXPECT_FALSE( IsSharedShadingText( include ) )
-                 << "the Unlit cell " << cell.Name << " compiles " << include.filename().string();
+            EXPECT_EQ( include.filename().string().find( "Unlit" ), std::string::npos )
+                 << "the Unlit cell " << cell.Name << " compiles a model's own header, "
+                 << include.filename().string();
+
+    bool forwardPass = false;
+    bool dispatch    = false;
+    for ( const auto& include : FragmentIncludes( path, "Static.Forward" ) )
+    {
+        forwardPass = forwardPass || include.filename() == "Pass_Forward.glslh";
+        dispatch    = dispatch || include.filename() ==
+                                        std::filesystem::path( Desert::Core::ShadingModels::kGeneratedInclude ).filename();
     }
+    EXPECT_TRUE( forwardPass ) << "the Unlit forward cell is not built on Mesh/Surface/Pass_Forward.glslh";
+    EXPECT_TRUE( dispatch ) << "the Unlit forward cell does not compile the generated shading-model dispatch";
 
     const auto forward = GraphicsSetZero( path, "Static.Forward" );
     ASSERT_FALSE( forward.empty() ) << "the Unlit forward cell does not compile";
     EXPECT_TRUE( HasBinding( forward, 11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) )
          << "the albedo map is not on the material layout's albedo slot: " << DescribeBindings( forward );
-    for ( const auto& b : forward )
-        EXPECT_TRUE( b.binding == 11 || b.descriptorType != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER )
-             << "the Unlit forward cell samples binding " << b.binding
-             << " (a shadow cascade, IBL or another lighting texture): " << DescribeBindings( forward );
-    EXPECT_LE( forward.size(), 3u ) << "an unlit surface binds more than camera + material row + albedo: "
-                                    << DescribeBindings( forward );
 }
 
 // ---- The terrain's per-draw data rides beside the draw, not in the shared block --------------------
@@ -2742,58 +2748,44 @@ TEST( ShaderMapProducerFingerprint, LineEndingsWhitespaceAndCommentsDoNotCount )
     EXPECT_NE( ProducerCodeOnly( unixText ), ProducerCodeOnly( "int a = 2; // one\nint b;\n" ) );
 }
 
-TEST_F( ShaderRootFixture, TheShadingModelIdsAreOneTableInCppAndGlsl )
+TEST_F( ShaderRootFixture, OnlyTheGeneratedDispatchBranchesOnAShadingModel )
 {
-    // THE RELATION: the id a G-buffer writer stores (GBufferC.w, low four bits) and the id the deferred
-    // composite branches on are the SAME table — SurfaceShadingModel's values on the C++ side, the
-    // SHADING_MODEL_ID_<GlslName> defines of Mesh/Surface/ShadingModels.glslh on the shader side. A row that
-    // differs lights an Unlit surface or blacks out a lit one, and nothing else would notice.
-    namespace PP      = Desert::Core::Preprocess;
-    const auto header = std::filesystem::path( "Resources/Shaders" ) / PP::kShadingModelsInclude;
-    const auto text   = ReadFile( header );
-    ASSERT_FALSE( text.empty() ) << header.string();
+    // THE RELATION (SHM1): the index a G-buffer writer stores (GBufferC.w, low four bits) and the index the
+    // lighting passes dispatch on come from ONE place — the registry's generated header, which numbers the
+    // ShadingModels/*.shadingmodel files. Writers store the template's index (DESERT_SHADING_MODEL_INDEX, set by
+    // the parser) or, for the hand-written terrain, DefaultLit's generated define; both lighting passes call the
+    // two dispatchers; and no shipped pass names Unlit's index or keeps the old hand-written table.
+    namespace SM = Desert::Core::ShadingModels;
+    EXPECT_FALSE( std::filesystem::exists( "Resources/Shaders/Mesh/Surface/ShadingModels.glslh" ) )
+         << "the hand-written shading-model table is back beside the generated one";
 
-    std::map<std::string, int> defined; // every SHADING_MODEL_ID_* the header defines, by name
-    std::istringstream         lines( text );
-    for ( std::string line; std::getline( lines, line ); )
+    struct User
     {
-        std::istringstream words( line );
-        std::string        directive;
-        std::string        name;
-        int                value = -1;
-        if ( words >> directive >> name >> value && directive == "#define" &&
-             name.starts_with( "SHADING_MODEL_ID_" ) )
-            defined[name] = value;
-    }
-
-    ASSERT_EQ( defined.size(), PP::kSurfaceShadingModels.size() )
-         << header.string() << " defines " << defined.size() << " shading-model ids, the C++ table has "
-         << PP::kSurfaceShadingModels.size() << " rows";
-    std::set<int> ids;
-    for ( const PP::SurfaceShadingModelRow& row : PP::kSurfaceShadingModels )
-    {
-        const std::string name = std::format( "SHADING_MODEL_ID_{}", row.GlslName );
-        const int         id   = static_cast<int>( row.Model );
-        ASSERT_TRUE( defined.contains( name ) ) << header.string() << " does not define " << name;
-        EXPECT_EQ( defined[name], id ) << name << " in " << header.string() << " is not the C++ id";
-        EXPECT_LT( id, 16 ) << "the G-buffer carries four bits of shading-model id";
-        EXPECT_TRUE( ids.insert( id ).second ) << "two shading models share id " << id;
-    }
-    // UE's numbering, which the "a writer that forgets the id reads as Unlit" argument rests on.
-    EXPECT_EQ( static_cast<int>( PP::SurfaceShadingModel::Unlit ), 0 );
-
-    // And each writer stores its own model's id, the reader branches on Unlit: the table is USED at both ends.
-    const std::pair<const char*, const char*> users[] = {
-         { "Resources/Shaders/Mesh/Surface/Pass_GBuffer.glslh", "SHADING_MODEL_ID_DEFAULT_LIT" },
-         { "Resources/Shaders/Mesh/Surface/Pass_GBuffer_Unlit.glslh", "SHADING_MODEL_ID_UNLIT" },
-         { "Resources/Shaders/Programs/Terrain/TerrainGBuffer.shader", "SHADING_MODEL_ID_DEFAULT_LIT" },
-         { "Resources/Shaders/Programs/Deferred/DeferredLighting.shader", "SHADING_MODEL_ID_UNLIT" },
+        const char*              File;
+        std::vector<const char*> Names; // what the file must name
     };
-    for ( const auto& [file, id] : users )
+    const User users[] = {
+         { "Resources/Shaders/Mesh/Surface/Pass_GBuffer.glslh",
+           { "DESERT_SHADING_MODEL_INDEX", "DesertPackShadingWord", "DesertMarkSunShadowReceive" } },
+         { "Resources/Shaders/Programs/Terrain/TerrainGBuffer.shader",
+           { "SHADING_MODEL_INDEX_DEFAULT_LIT", "DesertPackShadingWord" } },
+         { "Resources/Shaders/Mesh/Surface/Pass_Forward.glslh",
+           { "DESERT_SHADING_MODEL_INDEX", "DesertEvaluateShadingModel(", "DesertEvaluateShadingModelAmbient(" } },
+         { "Resources/Shaders/Programs/Deferred/DeferredLighting.shader",
+           { "DesertShadingModelIndex(", "DesertReceivesSunShadows(", "DesertEvaluateShadingModel(",
+             "DesertEvaluateShadingModelAmbient(" } },
+    };
+    for ( const User& user : users )
     {
-        const auto source = ReadFile( file );
-        EXPECT_NE( source.find( std::format( "<{}>", PP::kShadingModelsInclude ) ), std::string::npos )
-             << file << " does not include the shading-model table";
-        EXPECT_NE( source.find( id ), std::string::npos ) << file << " does not name " << id;
+        const auto source = ReadFile( user.File );
+        ASSERT_FALSE( source.empty() ) << user.File;
+        EXPECT_NE( source.find( std::format( "<{}>", SM::kGeneratedInclude ) ), std::string::npos )
+             << user.File << " does not include the generated shading-model dispatch";
+        for ( const char* name : user.Names )
+            EXPECT_NE( source.find( name ), std::string::npos ) << user.File << " does not name " << name;
+        EXPECT_EQ( source.find( "SHADING_MODEL_INDEX_UNLIT" ), std::string::npos )
+             << user.File << " branches on Unlit outside the dispatch";
+        EXPECT_EQ( source.find( "SHADING_MODEL_ID_" ), std::string::npos )
+             << user.File << " still names the removed hand-written table";
     }
 }

@@ -1,0 +1,45 @@
+#ifndef LIGHT_SOURCES_GLSLH
+#define LIGHT_SOURCES_GLSLH
+
+// Every analytic source as a shading model receives it (DesertLight, ShadingModels/ShadingModelContract.glslh):
+// what is specific to the SOURCE — its direction, colour * intensity, falloff and cone — is resolved here, and
+// the model's Evaluate does the rest. The deferred composite and the forward pass build their lights here, so the
+// two paths hand a model the same light. Requires Mesh/PointLight.glslh and Mesh/Spotlight.glslh first.
+#include <ShadingModels/ShadingModelContract.glslh>
+
+// The sun. `lightTravel` is the direction the light travels (away from the sun), as both paths' uniform
+// blocks carry it; `shadow` is the cascades (unless the surface does not receive them) times the cloud layer.
+DesertLight DesertSunLight( vec3 lightTravel, vec3 radiance, float shadow )
+{
+    DesertLight light;
+    light.L        = normalize( -lightTravel );
+    light.Radiance = radiance;
+    light.Shadow   = shadow;
+    return light;
+}
+
+DesertLight DesertPointLightAt( PointLight source, vec3 worldPosition )
+{
+    const vec3  toLight  = source.position - worldPosition;
+    const float distance = length( toLight );
+    DesertLight light;
+    light.L        = normalize( toLight );
+    light.Radiance = source.color * source.intensity *
+                     LightFalloffFactor( distance, source.minRadius, source.radius, source.falloff );
+    light.Shadow   = 1.0;
+    return light;
+}
+
+DesertLight DesertSpotLightAt( SpotLight source, vec3 worldPosition )
+{
+    const vec3  toLight  = source.position - worldPosition;
+    const float distance = length( toLight );
+    DesertLight light;
+    light.L        = normalize( toLight );
+    light.Radiance = source.color * source.intensity * LightFalloffFactor( distance, 0.0, source.range, source.falloff ) *
+                     SpotConeFactor( source, light.L );
+    light.Shadow   = 1.0;
+    return light;
+}
+
+#endif // LIGHT_SOURCES_GLSLH

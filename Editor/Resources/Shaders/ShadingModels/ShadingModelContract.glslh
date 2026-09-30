@@ -46,7 +46,7 @@
 //   GBufferB        RGBA16F  world Normal.rgb, Roughness.a                   — full
 //   GBufferC        RGBA32F  WorldPosition.xyz, shading word .w              — xyz full
 //   GBufferEmissive RGBA16F  Emissive.rgb, AmbientOcclusion.a                — full
-// The one free space is the shading word, GBufferC.w (Mesh/Surface/ShadingModels.glslh:12-19): a 32-bit float
+// The one free space is the shading word, GBufferC.w (Mesh/Surface/Pass_GBuffer.glslh): a 32-bit float
 // holds every integer below 2^24 exactly, and the word used only the id (4 bits) and the texture count above it.
 // The word becomes four bit fields, like UE's GBufferB.a (ShadingModelID | SelectiveOutputMask << 4) with the
 // payload in the place of UE's CustomData GBufferD (RGBA8 — the same 8-bit precision per float):
@@ -65,6 +65,34 @@
 #define DESERT_SHADING_WORD_PAYLOAD1_FIRST_BIT 16
 #define DESERT_SHADING_WORD_PAYLOAD_BITS       8
 #define DESERT_SHADING_WORD_EXACT_BITS         24
+
+// The word's SIGN is one more field, outside the 24 magnitude bits above (the float's IEEE sign bit, which
+// holds without costing the magnitude any precision): the surface's ReceiveSunShadows (SurfaceOutput), the
+// material half of UE's receive-CSM-shadows flag. Set (a negative word, -0.0 included) = the cascades do not
+// shadow this surface. The G-buffer writer marks it after DesertPackShadingWord; every reader takes the
+// magnitude before any unpack. So the deferred composite applies the toggle exactly as the forward pass does,
+// and a writer that forgets the mark gets the default, receives. ShadingModelManifest.hpp (kShadingWordSignField)
+// is the C++ half.
+#define DESERT_SHADING_WORD_RECEIVE_SUN_SHADOWS_BIT 31
+
+float DesertMarkSunShadowReceive( float shadingWord, float receiveSunShadows )
+{
+    // Bits, not negation: the word of an Unlit texel with nothing in it is 0.0, and its mark must survive.
+    const uint noReceive = receiveSunShadows < 0.5 ? 1u : 0u;
+    return uintBitsToFloat( floatBitsToUint( shadingWord ) |
+                            ( noReceive << DESERT_SHADING_WORD_RECEIVE_SUN_SHADOWS_BIT ) );
+}
+
+bool DesertReceivesSunShadows( float shadingWord )
+{
+    return ( floatBitsToUint( shadingWord ) >> DESERT_SHADING_WORD_RECEIVE_SUN_SHADOWS_BIT ) == 0u;
+}
+
+// The 24-bit word the generated unpack functions read.
+float DesertShadingWordMagnitude( float shadingWord )
+{
+    return abs( shadingWord );
+}
 
 // A model's two payload floats, in [0, 1] (the pass clamps; 1/255 resolution). The manifest's `Payload` block
 // names them for the material author; the body reads them as CustomData0 / CustomData1, UE's pin names, which are
