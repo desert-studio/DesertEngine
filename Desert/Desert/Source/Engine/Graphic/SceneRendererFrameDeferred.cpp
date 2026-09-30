@@ -36,6 +36,7 @@
 #include <vector>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
 #include <Engine/Graphic/DeferredFrameNodes.hpp>
+#include <Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp>
 
 namespace Desert::Graphic
 {
@@ -108,6 +109,36 @@ namespace Desert::Graphic
                      return Common::MakeError( "Deferred: DepthExpand has no DepthExpandSystem" );
                  return expand->Record( source );
              } );
+    }
+
+    std::shared_ptr<Image2D> SceneRenderer::GetComputeSceneDepth() const
+    {
+        if ( !m_TargetFramebuffer || m_TargetFramebuffer->GetDepthAttachmentCount() == 0 )
+            return nullptr;
+        if ( m_TargetFramebuffer->GetSpecification().Samples <= 1 )
+            return m_TargetFramebuffer->GetDepthAttachmentImage();
+        const auto found = m_RenderSystems.find( "SceneDepthResolveSystem" );
+        if ( found == m_RenderSystems.end() )
+            return nullptr;
+        auto* resolve = UNIQUE_GET_AS( System::SceneDepthResolveRenderer, found->second );
+        return resolve && resolve->IsReady() ? resolve->GetFramebuffer()->GetDepthAttachmentImage() : nullptr;
+    }
+
+    void SceneRenderer::AddFrameSceneDepthResolve( RDG::Builder& graph, LegacyFrameTextures& textures )
+    {
+        if ( !m_TargetFramebuffer || m_TargetFramebuffer->GetDepthAttachmentCount() == 0 )
+            return;
+        auto* resolve =
+             UNIQUE_GET_AS( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] );
+        if ( !resolve || !resolve->IsReady() )
+            return;
+        const std::shared_ptr<Image2D> sceneDepth = m_TargetFramebuffer->GetDepthAttachmentImage();
+        DeferredFrameNodes::AddSceneDepthResolve(
+             graph, m_TargetFramebuffer->GetSpecification().Samples,
+             textures.Depth( m_TargetFramebuffer, "SceneColor" ),
+             textures.Depth( resolve->GetFramebuffer(), "SceneDepthResolved" ),
+             [resolve, sceneDepth]( RDG::PassContext& ) -> Common::BoolResultStr
+             { return resolve->Record( sceneDepth ); } );
     }
 
     void SceneRenderer::AddFrameSSAO( RDG::Builder& graph, LegacyFrameTextures& textures,

@@ -1,3 +1,4 @@
+#include <Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
@@ -329,6 +330,17 @@ namespace Desert::Graphic
              !expandInit )
             LOG_ERROR( "[SceneRenderer] DepthExpand unavailable (deferred depth at MSAA): {}",
                        expandInit.GetError() );
+
+        // The multisampled scene depth into the 1x depth compute passes sample (Scene: DepthResolve); MSAA > 1
+        // only.
+        RegisterSystem<System::SceneDepthResolveRenderer>( "SceneDepthResolveSystem", this, m_TargetFramebuffer,
+                                                           m_RenderGraphBuilder );
+        if ( const auto resolveInit =
+                  SP_CAST( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] )
+                       ->Initialize();
+             !resolveInit )
+            LOG_ERROR( "[SceneRenderer] SceneDepthResolve unavailable (fog and clouds at MSAA): {}",
+                       resolveInit.GetError() );
 
         RegisterSystem<System::CopyRenderer>( "SceneColorCopySystem", this, m_SceneColorCopy,
                                               m_RenderGraphBuilder );
@@ -877,6 +889,7 @@ namespace Desert::Graphic
             AddFrameGlass( graph, textures, copyReads, meshRenderer, values );
         }
 
+        AddFrameSceneDepthResolve( graph, textures );
         AddFrameSkyAtmosphereLuts( graph, textures );
         AddFrameAtmosphericFog( graph, textures );
         AddFrameVolumetricClouds( graph, textures );
@@ -1123,6 +1136,9 @@ namespace Desert::Graphic
         m_TargetFramebuffer->Resize( width, height );
         if ( m_GBuffer )
             m_GBuffer->Resize( width, height );
+        if ( auto resolve =
+                  SP_CAST( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] ) )
+            resolve->Resize( width, height );
         if ( m_SSAOBuffer )
             m_SSAOBuffer->Resize( width, height );
         if ( m_SceneColorCopy )

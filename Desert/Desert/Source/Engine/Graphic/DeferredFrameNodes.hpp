@@ -54,4 +54,24 @@ namespace Desert::Graphic::DeferredFrameNodes
              },
              std::forward<ExpandExec>( expand ) );
     }
+
+    // "Scene: DepthResolve": compute passes that read scene depth sample a single-sample image. At MSAA > 1 a
+    // Raster node samples the multisampled scene depth (sample 0, SampledGraphics) and writes it through
+    // gl_FragDepth into the 1x SceneDepthResolved (its only target, old contents DontCare); every consumer
+    // declares its read of that 1x texture. At one sample no node exists and the consumers read the scene depth.
+    template <typename ResolveExec>
+    void AddSceneDepthResolve( RDG::Builder& graph, uint32_t sceneSamples, RDG::TextureRef sceneDepth,
+                               RDG::TextureRef resolved, ResolveExec&& resolve )
+    {
+        if ( sceneSamples <= 1 )
+            return;
+        graph.AddPass(
+             "Scene: DepthResolve", RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 pass.Read( sceneDepth, RDG::Access::SampledGraphics );
+                 pass.DepthTarget( resolved, RDG::LoadOp::DontCare(), /*write*/ true );
+             },
+             std::forward<ResolveExec>( resolve ) );
+    }
 } // namespace Desert::Graphic::DeferredFrameNodes

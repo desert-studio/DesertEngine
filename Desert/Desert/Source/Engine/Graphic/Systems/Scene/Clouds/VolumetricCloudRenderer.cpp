@@ -1909,12 +1909,16 @@ namespace Desert::Graphic::System
 
         // The march: samples the scene depth, the cloud volumes, the sky occlusion written above and the
         // atmosphere's LUTs; writes the half-resolution trace and its guide.
-        const std::shared_ptr<Image2D> depth       = target->GetDepthAttachmentImage();
+        // Single-sample: the scene depth at MSAA 1, SceneDepthResolved at MSAA > 1 (a sampler2D over a
+        // multisampled image is invalid).
+        const std::shared_ptr<Image2D> depth = m_SceneRenderer->GetComputeSceneDepth();
+        if ( !depth )
+            return {};
         const uint32_t                 traceWidth  = HalfExtent( m_HalfWidth );
         const uint32_t                 traceHeight = HalfExtent( m_HalfHeight );
         ComputeNodeDeclaration         march;
         march.Name = "Clouds: March";
-        march.Access.Read( depth, RDG::Access::SampledCompute, "SceneColor.Depth" );
+        march.Access.Read( depth, RDG::Access::SampledCompute, "SceneDepth.Compute" );
         DeclareVolumeReads( march.Access );
         if ( skyOcclusionReady )
             march.Access.Read( m_SkyOcclusionVolume, RDG::Access::SampledCompute, "Clouds.SkyOcclusion" );

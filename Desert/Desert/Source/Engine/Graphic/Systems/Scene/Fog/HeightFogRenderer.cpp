@@ -231,10 +231,14 @@ namespace Desert::Graphic::System
 
         // One Compute node: it samples the scene depth, the aerial-perspective volume and the distant sky light,
         // and writes the fog image the apply (HeightFogApply, a Transparency raster node) samples.
-        const std::shared_ptr<Image2D> depth = target->GetDepthAttachmentImage();
-        ComputeNodeDeclaration         fog;
+        // Single-sample: the scene depth at MSAA 1, SceneDepthResolved at MSAA > 1 (a sampler2D over a
+        // multisampled image is invalid).
+        const std::shared_ptr<Image2D> depth = m_SceneRenderer->GetComputeSceneDepth();
+        if ( !depth )
+            return {};
+        ComputeNodeDeclaration fog;
         fog.Name = "AtmosphericFog";
-        fog.Access.Read( depth, RDG::Access::SampledCompute, "SceneColor.Depth" );
+        fog.Access.Read( depth, RDG::Access::SampledCompute, "SceneDepth.Compute" );
         m_SceneRenderer->DeclareAtmosphereReads( fog.Access, RDG::Access::SampledCompute );
         fog.Access.Write( m_FogImage, RDG::Access::StorageWrite, "HeightFog.Fog" );
         fog.Record = [this, push, apActive, atmosphere, depthImage = depth.get()]()

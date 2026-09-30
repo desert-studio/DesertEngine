@@ -366,6 +366,10 @@ namespace Desert::Graphic
         uint32_t                 GetShadowCascadeCount();
 
         const std::shared_ptr<Image2D>      GetFinalImage();
+        // The single-sample scene depth compute passes sample (height fog, volumetric clouds): the scene depth
+        // itself at MSAA 1, SceneDepthResolved at MSAA > 1 ("Scene: DepthResolve"); null when that failed to
+        // build.
+        std::shared_ptr<Image2D>            GetComputeSceneDepth() const;
         const std::shared_ptr<Framebuffer>& GetTargetFramebuffer() const
         {
             return m_TargetFramebuffer;
@@ -550,6 +554,7 @@ namespace Desert::Graphic
 #endif // DESERT_DEV_INSTRUMENTS
         void AddFrameClearMainFramebuffer( RDG::Builder& graph, LegacyFrameTextures& textures );
         void AddFrameDepthResolve( RDG::Builder& graph, LegacyFrameTextures& textures );
+        void AddFrameSceneDepthResolve( RDG::Builder& graph, LegacyFrameTextures& textures );
         void AddFrameSSAO( RDG::Builder& graph, LegacyFrameTextures& textures,
                            const std::vector<RDG::TextureRef>& gbuffer, const glm::mat4& viewProj,
                            const glm::vec4& cameraPos, const std::shared_ptr<LegacyFrameValues>& values,

@@ -1783,6 +1783,43 @@ TEST( RenderGraphCompile, DepthToSceneIsACopyAtOneSampleAndARasterDepthExpandAtM
     }
 }
 
+// Compute passes that read scene depth sample a single-sample image. At samples > 1 "Scene: DepthResolve" is a
+// Raster node that samples the multisampled scene depth and renders into the 1x SceneDepthResolved (its depth
+// attachment); at one sample there is no node and the consumers read the scene depth directly.
+TEST( RenderGraphCompile, SceneDepthResolveIsARasterNodeOnlyAtMsaa )
+{
+    namespace Nodes = Desert::Graphic::DeferredFrameNodes;
+    for ( const uint32_t samples : { 1u, 4u } )
+    {
+        ExternalTexture scene    = Recorded( ImageFormat::DEPTH32F, ImageLayout::DepthStencilAttachment, nullptr );
+        ExternalTexture resolved = Recorded( ImageFormat::DEPTH32F, ImageLayout::DepthStencilAttachment, nullptr );
+        scene.Desc.Samples       = samples;
+        Builder          graph( "scene-depth" );
+        const TextureRef sceneRef    = graph.RegisterExternal( scene, "SceneColor.Depth" );
+        const TextureRef resolvedRef = graph.RegisterExternal( resolved, "SceneDepthResolved.Depth" );
+        graph.Extract( resolvedRef, resolved, Access::SampledCompute );
+        Nodes::AddSceneDepthResolve( graph, samples, sceneRef, resolvedRef, Ok );
+        const CompileResult result  = CompileOrFail( graph );
+        const CompiledPass* resolve = result.FindPass( "Scene: DepthResolve" );
+        if ( samples == 1 )
+        {
+            EXPECT_EQ( resolve, nullptr ) << "no resolve at one sample";
+            EXPECT_TRUE( result.Passes.empty() );
+            continue;
+        }
+        ASSERT_NE( resolve, nullptr );
+        EXPECT_TRUE( HasFlag( resolve->Flags, PassFlags::Raster ) );
+        const std::vector<Barrier> intoRead = BarriersOn( resolve, sceneRef.Index );
+        ASSERT_EQ( intoRead.size(), 1u );
+        EXPECT_EQ( intoRead[0].After, GetAccessState( Access::SampledGraphics ) );
+        bool depthAttachment = false;
+        for ( const AttachmentDecision& attachment : resolve->Attachments )
+            depthAttachment =
+                 depthAttachment || ( attachment.IsDepth && attachment.Resource == resolvedRef.Index );
+        EXPECT_TRUE( depthAttachment ) << "the resolve does not render into SceneDepthResolved";
+    }
+}
+
 // THE MESH AND TERRAIN PASSES ARE RASTER NODES (RDG-LEG1-L1): SceneRendererFrameMesh.cpp adds no legacy pass, each
 // of its passes declares its targets (the graph opens the render pass), and none of their bodies opens or closes a
 // render pass of its own.
