@@ -52,15 +52,6 @@ namespace Desert::Assets
 
 namespace Desert::Assets::Serialization
 {
-    namespace
-    {
-        // A reference as the .skeleton states it: the GUID resolves, the registry's stable key is for the reader.
-        AssetGuidRef RefFor( const Common::Content::AssetGuid& guid )
-        {
-            return AssetGuidRef{ Common::Content::AssetGuidToText( guid ),
-                                 ContentRegistry::KeyForHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ) };
-        }
-    } // namespace
 
     Common::BoolResultStr SaveSkeletonAsset( const SkeletonAsset& skeleton )
     {
@@ -79,14 +70,14 @@ namespace Desert::Assets::Serialization
         SkeletonAssetData data = read.ExtractValue();
         data.PreviewMesh.reset();
         if ( const auto preview = skeleton.GetPreviewMesh(); !preview.IsNull() )
-            data.PreviewMesh = RefFor( preview );
+            data.PreviewMesh = ContentRegistry::ReferenceTo( preview );
         data.CompatibleSkeletons.clear();
         for ( const auto& compatible : skeleton.GetCompatibleSkeletons() )
         {
             if ( compatible.IsNull() )
                 return Common::MakeFormattedError<bool>(
                      "skeleton '{}' was not saved: CompatibleSkeletons holds a null reference", file.string() );
-            data.CompatibleSkeletons.push_back( RefFor( compatible ) );
+            data.CompatibleSkeletons.push_back( ContentRegistry::ReferenceTo( compatible ) );
         }
 
         const auto canonical = Common::Content::CanonicalJsonTextOfWriterOutput( WriteSkeletonJson( data ) );

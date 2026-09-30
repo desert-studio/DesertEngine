@@ -20,9 +20,7 @@ namespace Desert::Assets::Serialization
         data.DurationTicks     = clip.DurationTicks.Value;
         // The GUID resolves; the path is the registry's key for it, for the reader (AssetGuidRef).
         if ( !clip.Skeleton.IsNull() )
-            data.Skeleton = AssetGuidRef{
-                 Common::Content::AssetGuidToText( clip.Skeleton ),
-                 ContentRegistry::KeyForHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( clip.Skeleton ) ) ) };
+            data.Skeleton = ContentRegistry::ReferenceTo( clip.Skeleton );
 
         data.Channels.reserve( clip.Tracks.size() );
         for ( const auto& track : clip.Tracks )

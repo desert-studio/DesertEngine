@@ -104,7 +104,6 @@ namespace Desert::Editor
             return mesh;
         }
 
-
         void CopyName( std::array<char, 128>& buffer, const std::string& name )
         {
             buffer.fill( '\0' );

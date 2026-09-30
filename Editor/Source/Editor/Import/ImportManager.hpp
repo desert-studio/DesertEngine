@@ -110,7 +110,8 @@ namespace Desert::Editor
         [[nodiscard]] Common::BoolResultStr
         SerializeMaterialAsset( const ImportedMaterial& material, const std::filesystem::path& sourcePath );
 
-        [[nodiscard]] Common::BoolResultStr
+        // The GUID the written .skeleton states (kept from the file it replaces, minted for a new one).
+        [[nodiscard]] Common::ResultStr<Common::Content::AssetGuid>
         SerializeSkeletonAsset( const Desert::Assets::Serialization::SkeletonAssetData& data,
                                 const std::filesystem::path&                            sourcePath );
 

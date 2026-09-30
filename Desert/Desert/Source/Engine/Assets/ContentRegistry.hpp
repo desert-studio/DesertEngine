@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Assets/AssetGuidRef.hpp>
+
 #include <Common/Content/AssetMove.hpp>
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/ContentScan.hpp>
@@ -338,6 +340,15 @@ namespace Desert::Assets
             }
 
             return Common::AssetPathIndex::KeyFor( handle );
+        }
+
+        /// A reference as a text format states it (AssetGuidRef): the GUID resolves, the registry's stable key
+        /// for it is for the reader. The one spelling every writer of a GUID reference uses (.skeleton, .anim,
+        /// the importer).
+        inline AssetGuidRef ReferenceTo( const Common::Content::AssetGuid& guid )
+        {
+            return AssetGuidRef{ Common::Content::AssetGuidToText( guid ),
+                                 KeyForHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ) };
         }
 
         inline std::optional<Common::Content::ContentKind> KindForFile( const std::filesystem::path& file )

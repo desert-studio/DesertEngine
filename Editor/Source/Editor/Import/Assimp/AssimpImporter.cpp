@@ -838,8 +838,9 @@ namespace Desert::Editor
             BuildSkeletonHierarchy( scene->mRootNode, boneMapping, skeletonData );
             BakeBindPose( skeletonData, meshData );
 
-            skeletonData.Signature     = Animation::Skeleton::ComputeSignature( skeletonData.Bones );
-            meshData.SkeletonSignature = skeletonData.Signature;
+            // The bones' hash: import pre-selects an existing .skeleton by it (ImportManager::Import); the mesh's
+            // Skeleton GUID is set there, once the rig is known to be an existing skeleton or a new one.
+            skeletonData.Signature = Animation::Skeleton::ComputeSignature( skeletonData.Bones );
         }
 
         if ( !meshData.StaticVertices.empty() || !meshData.SkinnedVertices.empty() )
@@ -956,8 +957,9 @@ namespace Desert::Editor
                 return converted.Ticks.Value;
             };
 
-            animData.DurationTicks     = toProjectTick( anim->mDuration );
-            animData.SkeletonSignature = skeletonData.Signature;
+            // The clip's Skeleton reference is the import's to set (ImportManager::Import): the parser knows the
+            // rig's bones, not which registered .skeleton they are.
+            animData.DurationTicks = toProjectTick( anim->mDuration );
 
             for ( uint32_t c = 0; c < anim->mNumChannels; ++c )
             {
