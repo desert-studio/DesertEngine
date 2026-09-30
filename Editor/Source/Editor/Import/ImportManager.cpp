@@ -112,8 +112,7 @@ namespace Desert::Editor
         // import's OWN .skeleton (a re-import) is no candidate: rewriting it keeps its GUID. nullopt = the rig is
         // a new skeleton - the import writes its .skeleton and references that.
         std::optional<Common::Content::AssetGuid>
-        ExistingSkeletonFor( const Assets::Serialization::SkeletonAssetData&              rig,
-                             const bool                                                   skinnedMesh,
+        ExistingSkeletonFor( const Assets::Serialization::SkeletonAssetData& rig, const bool skinnedMesh,
                              const std::vector<Assets::Serialization::AnimationAssetData>& clips,
                              const std::filesystem::path& ownSkeleton, const std::filesystem::path& source )
         {
@@ -132,8 +131,8 @@ namespace Desert::Editor
                                        : Common::MakeError<Assets::Serialization::SkeletonAssetData>( text.GetError() );
                 if ( !read )
                 {
-                    LOG_WARN( "[Import] '{}': skeleton '{}' is no candidate for its rig: {}", source.generic_string(),
-                              row.Path.generic_string(), read.GetError() );
+                    LOG_WARN( "[Import] '{}': skeleton '{}' is no candidate for its rig: {}",
+                              source.generic_string(), row.Path.generic_string(), read.GetError() );
                     continue;
                 }
                 candidates.push_back( Animation::SkeletonCandidate{ *row.Guid, read.GetValue().Signature,
@@ -158,14 +157,16 @@ namespace Desert::Editor
             std::vector<Animation::RequiredBone> required;
             if ( skinnedMesh )
             {
-                // The mesh is skinned to the imported rig: every bone of it, with its parent (UE IsCompatibleMesh).
+                // The mesh is skinned to the imported rig: every bone of it, with its parent (UE
+                // IsCompatibleMesh).
                 const Animation::Skeleton imported( std::vector<Animation::BoneInfo>( rig.Bones ) );
                 const auto&               bones = imported.GetBones();
                 for ( uint32_t i = 0; i < bones.size(); ++i )
                 {
                     const uint32_t parent = imported.ResolveParent( i );
                     required.push_back( Animation::RequiredBone{
-                         bones[i].Name, parent == Animation::Skeleton::NO_PARENT ? std::string() : bones[parent].Name } );
+                         bones[i].Name,
+                         parent == Animation::Skeleton::NO_PARENT ? std::string() : bones[parent].Name } );
                 }
             }
             for ( const auto& clip : clips )
@@ -175,14 +176,15 @@ namespace Desert::Editor
 
             const auto&               chosen = candidates[matches.front()];
             const Animation::Skeleton existing( std::move( rigs[matches.front()].Bones ) );
-            if ( const auto checked =
-                      Animation::CheckSkeletonAssignment( existing, chosen.Path, required, source.generic_string() );
+            if ( const auto checked = Animation::CheckSkeletonAssignment( existing, chosen.Path, required,
+                                                                          source.generic_string() );
                  !checked )
             {
                 LOG_WARN( "[Import] {} - a new .skeleton is written", checked.GetError() );
                 return std::nullopt;
             }
-            LOG_INFO( "[Import] '{}': its rig is the existing skeleton '{}'", source.generic_string(), chosen.Path );
+            LOG_INFO( "[Import] '{}': its rig is the existing skeleton '{}'", source.generic_string(),
+                      chosen.Path );
             return chosen.Guid;
         }
     } // namespace
