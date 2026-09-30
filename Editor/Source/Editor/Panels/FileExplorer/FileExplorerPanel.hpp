@@ -278,8 +278,8 @@ namespace Desert::Editor
         void RequestThumbnailPreview( const DirectoryInformation& entry, ThumbnailGesture& gesture );
         // Leaves Edit Thumbnail: a running gesture is committed first, its preview ended.
         void LeaveThumbnailEdit();
-        // THE FILE @p entry's THUMBNAIL ORBIT LIVES UNDER, the one its picture is filed under: a material's .demat;
-        // a posed kind's own .skmesh / .skeleton / .anim; a model's or a foliage type's mesh picture
+        // THE FILE @p entry's THUMBNAIL ORBIT LIVES UNDER, the one its picture is filed under: a material's
+        // .demat; a posed kind's own .skmesh / .skeleton / .anim; a model's or a foliage type's mesh picture
         // (MeshPictureFor: a static mesh's .stmesh, a skinned source's .skmesh). nullopt for a kind with no orbit
         // (ThumbnailProducers::HasThumbnailOrbit) or a model with no picture yet (not imported).
         std::optional<std::string> ThumbnailOrbitFile( const DirectoryInformation& entry );

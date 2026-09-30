@@ -2452,7 +2452,7 @@ namespace Desert::Editor
                 const std::optional<std::string> orbitFile = ThumbnailOrbitFile( entry );
                 const auto                       stated =
                      orbitFile ? ThumbnailEdit::ReadOrbit( *orbitFile )
-                                     : Common::MakeError<Assets::ThumbnailOrbit>( "not imported: no picture to edit" );
+                                                     : Common::MakeError<Assets::ThumbnailOrbit>( "not imported: no picture to edit" );
                 CommandMenuItem( ContentBrowserCommand::EditThumbnail, m_EditThumbnailPath == entry.AssetPath,
                                  stated.IsSuccess() );
                 if ( !stated && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
@@ -2917,8 +2917,8 @@ namespace Desert::Editor
                          label, entry.AssetPath );
                 const std::optional<std::string> orbitFile = ThumbnailOrbitFile( entry );
                 if ( !orbitFile )
-                    return Common::MakeFormattedError<bool>(
-                         "'{}': '{}' has no picture to edit (not imported)", label, entry.AssetPath );
+                    return Common::MakeFormattedError<bool>( "'{}': '{}' has no picture to edit (not imported)",
+                                                             label, entry.AssetPath );
                 if ( const auto stated = ThumbnailEdit::ReadOrbit( *orbitFile ); !stated )
                     return Common::MakeFormattedError<bool>( "'{}': {}", label, stated.GetError() );
                 if ( m_ThumbnailGesture )
@@ -3004,8 +3004,8 @@ namespace Desert::Editor
     Common::BoolResultStr FileExplorerPanel::GoToFolder( const std::string& path )
     {
         if ( !NavigateToPath( path ) )
-            return Common::MakeFormattedError<bool>(
-                 "{}: '{}' is not a folder under the Content Browser's root", kGoToFolderLabel, path );
+            return Common::MakeFormattedError<bool>( "{}: '{}' is not a folder under the Content Browser's root",
+                                                     kGoToFolderLabel, path );
         return Common::MakeSuccess( true );
     }
 

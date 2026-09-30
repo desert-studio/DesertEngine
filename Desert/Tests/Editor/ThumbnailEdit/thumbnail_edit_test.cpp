@@ -155,7 +155,7 @@ TEST( ThumbnailOrbitKinds, EveryRenderedPictureHasAnOrbitAndNoOtherDoes )
 // (MeshThumbnailHome): the name rule that finds it.
 TEST( ThumbnailOrbitKinds, ASkinnedImportsFilesAreFoundByTheirSourcesName )
 {
-    namespace CP = Desert::Editor::CookPaths;
+    namespace CP                    = Desert::Editor::CookPaths;
     const std::filesystem::path fox = "Assets/Meshes/Fox.glb";
     EXPECT_TRUE( CP::IsSkinnedAssetOf( fox, "Assets/Meshes/Fox.skmesh" ) );
     EXPECT_TRUE( CP::IsSkinnedAssetOf( fox, "Assets/Meshes/Fox.skeleton" ) );
