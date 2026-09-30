@@ -83,9 +83,10 @@ namespace Desert::Editor
     MeshThumbnailOrbit( const std::filesystem::path& meshFile );
 
     // THE HOME OF @p meshFile's orbit: the raw source whose import record states it (the source itself for a
-    // combined mesh, the source whose `Nodes` wrote a node `.stmesh`); nullopt for a mesh no import wrote. The
-    // node lookup is remembered per process (a browser asks per visible tile per frame) and re-done when that
-    // record is gone.
+    // combined mesh, the source whose `Nodes` wrote a node `.stmesh`, the skinned source whose import wrote a
+    // `.skmesh` / `.skeleton` / `.anim`, as that file states it (ImportedAssetSource::SkinnedAssetSource));
+    // nullopt for a mesh no import wrote. The node lookup is remembered per process (a browser asks per visible
+    // tile per frame) and re-done when that record is gone.
     [[nodiscard]] Common::ResultStr<std::optional<std::filesystem::path>>
     MeshThumbnailHome( const std::filesystem::path& meshFile );
 

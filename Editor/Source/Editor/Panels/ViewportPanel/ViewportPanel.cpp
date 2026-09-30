@@ -789,6 +789,43 @@ namespace Desert::Editor
         return target->ApplyCameraPreset( preset );
     }
 
+    Common::BoolResultStr ViewportPanel::RequestCommand( ViewportCommand command )
+    {
+        ViewportPanel* target = ActiveViewport();
+        if ( !target )
+            return Common::MakeFormattedError<bool>( "'{}': there is no viewport to run it in.",
+                                                     CommandInfo( command ).Label );
+        return target->RunCommand( command );
+    }
+
+    Common::BoolResultStr ViewportPanel::RunCommand( ViewportCommand command )
+    {
+        switch ( command )
+        {
+            case ViewportCommand::SelectNone:
+                Core::SelectionManager::ClearSelection();
+                return Common::MakeSuccess( true );
+            case ViewportCommand::FocusSelected:
+            {
+                const auto selected = Core::SelectionManager::GetSelected();
+                if ( !selected )
+                    return Common::MakeError<bool>( "Focus Selected: nothing is selected." );
+                const auto camera       = ViewCamera();
+                auto*      editorCamera = dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() );
+                if ( editorCamera == nullptr )
+                    return Common::MakeError<bool>(
+                         "Focus Selected: this viewport looks through a scene camera, not the editor camera." );
+                const auto entity = m_Scene ? m_Scene->FindEntityByID( *selected ) : std::nullopt;
+                if ( !entity )
+                    return Common::MakeError<bool>(
+                         "Focus Selected: the selected entity is not in this viewport's scene." );
+                editorCamera->Focus( glm::vec3( entity->get().GetWorldTransform()[3] ) );
+                return Common::MakeSuccess( true );
+            }
+        }
+        return Common::MakeError<bool>( "unknown viewport command" );
+    }
+
     Common::BoolResultStr ViewportPanel::SetCameraPreset( uint64_t sceneViewId, ViewportCameraPreset preset )
     {
         for ( ViewportPanel* panel : s_Live )
@@ -2461,7 +2498,7 @@ namespace Desert::Editor
             case Common::KeyCode::Escape:
                 // First Esc turns the gizmo off; a second Esc (gizmo already off) clears the selection.
                 if ( m_Gizmo.GetOperation() == Tools::GizmoController::Operation::None )
-                    Core::SelectionManager::ClearSelection();
+                    (void)RunCommand( ViewportCommand::SelectNone );
                 else
                     m_Gizmo.SetOperation( Tools::GizmoController::Operation::None );
                 break;
@@ -2491,12 +2528,9 @@ namespace Desert::Editor
                 }
                 break;
             case Common::KeyCode::F:
-                // Frame the selected entity (Unity/Godot 'F').
-                if ( const auto sel = Core::SelectionManager::GetSelected() )
-                    if ( auto cam = ViewCamera() )
-                        if ( auto* editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( cam.get() ) )
-                            if ( auto ref = m_Scene->FindEntityByID( *sel ) )
-                                editorCam->Focus( glm::vec3( ref->get().GetWorldTransform()[3] ) );
+                // Frame the selected entity (UE's Focus Selected).
+                if ( const auto focused = RunCommand( ViewportCommand::FocusSelected ); !focused )
+                    LOG_WARN( "[Viewport] {}", focused.GetError() );
                 break;
             // A `default` and not 115 empty cases: this is a KEYBOARD, and the shortcuts it handles are a
             // deliberately small set. Enumerating the rest would make every key an editing decision and

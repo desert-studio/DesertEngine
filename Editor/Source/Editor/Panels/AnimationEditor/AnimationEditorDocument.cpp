@@ -353,9 +353,10 @@ namespace Desert::Editor
         // so their palette does not offer edits that could only fail.
         if ( Mode() == Core::PersonaMode::Animation )
         {
-            actions.push_back( { "Play/Pause", [this]() { m_Transport.TogglePlay(); } } );
-            actions.push_back( { "Next Frame", [this]() { m_Transport.StepFrames( 1 ); } } );
-            actions.push_back( { "Previous Frame", [this]() { m_Transport.StepFrames( -1 ); } } );
+            // The toolbar's buttons, by the same commands (DrawTransport).
+            for ( const TransportCommand command : kTransportCommandOrder )
+                actions.push_back( { std::string( CommandInfo( command ).Label ),
+                                     [this, command]() { m_Transport.Execute( command ); } } );
             static constexpr std::array kPercents = { 0, 10, 20, 25, 30, 40, 50, 60, 70, 75, 80, 90, 100 };
             for ( const int percent : kPercents )
                 actions.push_back( { std::format( "Set Time {}%", percent ), [this, percent]()
@@ -615,21 +616,22 @@ namespace Desert::Editor
         if ( ImGui::Button( "+ Key" ) )
             (void)KeySelectedBone();
         ImGui::SameLine();
-        if ( ImGui::Button( "|<" ) )
-            t.ToStart();
-        ImGui::SameLine();
-        if ( ImGui::Button( "<|" ) )
-            t.StepFrames( -1 );
-        ImGui::SameLine();
-        if ( ImGui::Button( t.Playing ? "Pause" : "Play", ImVec2( 60.0f, 0.0f ) ) )
-            t.TogglePlay();
-        ImGui::SameLine();
-        if ( ImGui::Button( "|>" ) )
-            t.StepFrames( 1 );
-        ImGui::SameLine();
-        if ( ImGui::Button( ">|" ) )
-            t.ToEnd();
-        ImGui::SameLine();
+        // UE's transport glyphs; each button runs its TransportCommand, the one the palette's action runs, and
+        // names it in the tooltip.
+        const auto transportButton = [&t]( const TransportCommand command, const char* glyph, const ImVec2 size )
+        {
+            if ( ImGui::Button( glyph, size ) )
+                t.Execute( command );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "%.*s", static_cast<int>( CommandInfo( command ).Label.size() ),
+                                   CommandInfo( command ).Label.data() );
+            ImGui::SameLine();
+        };
+        transportButton( TransportCommand::ToStart, "|<", ImVec2( 0.0f, 0.0f ) );
+        transportButton( TransportCommand::PreviousFrame, "<|", ImVec2( 0.0f, 0.0f ) );
+        transportButton( TransportCommand::PlayPause, t.Playing ? "Pause" : "Play", ImVec2( 60.0f, 0.0f ) );
+        transportButton( TransportCommand::NextFrame, "|>", ImVec2( 0.0f, 0.0f ) );
+        transportButton( TransportCommand::ToEnd, ">|", ImVec2( 0.0f, 0.0f ) );
         ImGui::Checkbox( "Loop", &t.Loop );
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 80.0f );

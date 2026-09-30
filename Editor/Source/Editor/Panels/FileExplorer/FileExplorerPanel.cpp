@@ -2402,6 +2402,13 @@ namespace Desert::Editor
         if ( !ImGui::BeginPopupContextItem( "##ItemContext" ) )
             return;
 
+        // UE: a right click on an entry outside the selection selects it, so the menu's commands (which act on
+        // the selection, as the palette's do) act on what was clicked.
+        if ( !m_Selection.contains( entry.AssetPath ) )
+        {
+            m_Selection            = { entry.AssetPath };
+            m_SelectionAnchorShown = -1;
+        }
         m_CurrentSelected      = &entry;
         const std::string name = std::filesystem::path( entry.AssetPath ).filename().string();
         ImGui::TextDisabled( "%s", name.c_str() );
@@ -2409,12 +2416,9 @@ namespace Desert::Editor
 
         if ( entry.IsFile )
         {
-            if ( ImGui::MenuItem( "Open" ) ) // default Windows app for this file type
-                ShellOpenDefault( entry.AssetPath );
-            if ( ImGui::MenuItem( "Show in Explorer" ) ) // reveal with the file selected
-                ShellRevealInExplorer( entry.AssetPath );
-            if ( ImGui::MenuItem( "Open Containing Folder" ) )
-                ShellOpenDefault( std::filesystem::path( entry.AssetPath ).parent_path().string() );
+            CommandMenuItem( ContentBrowserCommand::Open ); // default app for this file type
+            CommandMenuItem( ContentBrowserCommand::ShowInExplorer );
+            CommandMenuItem( ContentBrowserCommand::OpenContainingFolder );
 
             // Quick "Add to Scene" for prefabs (same instantiate path as dragging into the viewport).
             if ( entry.Type == FileType::Prefab && !m_ViewportScene.expired() && m_AssetManager )
@@ -2424,58 +2428,41 @@ namespace Desert::Editor
                     AddPrefabToScene( entry.AssetPath );
             }
 
-            // UE's Asset Actions > Reimport / Reimport with New File, for a mesh asset with an import source: the
-            // ImportOptions bodies the asset editor's Import Settings button and the palette run - no second home.
+            // UE's Asset Actions > Reimport / Reimport with New File, for a mesh asset with an import source.
             if ( ImportOptions::ImportSourceOfAsset( entry.AssetPath ) )
             {
                 ImGui::Separator();
-                if ( ImGui::MenuItem( "Reimport" ) )
-                    if ( const auto done = ImportOptions::Reimport( entry.AssetPath ); !done )
-                        LOG_ERROR( "[Import] {}", done.GetError() );
-                if ( ImGui::MenuItem( "Reimport with New File..." ) )
-                {
-                    const auto chosen = Common::Utils::FileSystem::OpenFileDialog(
-                         "Meshes\0*.fbx;*.glb;*.gltf;*.obj\0All\0*.*\0" );
-                    if ( !chosen.empty() )
-                        if ( const auto done = ImportOptions::ReimportWithNewFile( entry.AssetPath, chosen );
-                             !done )
-                            LOG_ERROR( "[Import] {}", done.GetError() );
-                }
+                CommandMenuItem( ContentBrowserCommand::Reimport );
+                CommandMenuItem( ContentBrowserCommand::ReimportWithNewFile );
             }
 
             // UE-style: use the current viewport view as this asset's thumbnail (frame it in the scene first).
-            // Only meaningful for assets that show a rendered preview (meshes/materials).
             if ( ( entry.Type == FileType::Model || entry.Type == FileType::Material ) &&
                  !m_ViewportScene.expired() )
             {
                 ImGui::Separator();
-                if ( ImGui::MenuItem( "Capture Thumbnail (from viewport)" ) )
-                    CaptureThumbnailFromViewport( entry.AssetPath );
+                CommandMenuItem( ContentBrowserCommand::CaptureThumbnail );
             }
 
             // UE "Edit Thumbnail": the tile itself becomes the orbit control. Offered only when the asset states
             // an orbit to edit (a model with no import record has none); the item says why when it cannot.
-            if ( entry.Type == FileType::Model || entry.Type == FileType::Material )
+            if ( ThumbnailProducers::HasThumbnailOrbit( entry.Type ) )
             {
                 ImGui::Separator();
-                const auto stated = ThumbnailEdit::ReadOrbit( entry.AssetPath );
-                if ( ImGui::MenuItem( "Edit Thumbnail", "drag / wheel, Esc",
-                                      m_EditThumbnailPath == entry.AssetPath, stated.IsSuccess() ) )
-                {
-                    if ( m_ThumbnailGesture )
-                        CommitThumbnailGesture();
-                    m_EditThumbnailPath = entry.AssetPath;
-                }
+                const std::optional<std::string> orbitFile = ThumbnailOrbitFile( entry );
+                const auto                       stated =
+                     orbitFile ? ThumbnailEdit::ReadOrbit( *orbitFile )
+                                                     : Common::MakeError<Assets::ThumbnailOrbit>( "not imported: no picture to edit" );
+                CommandMenuItem( ContentBrowserCommand::EditThumbnail, m_EditThumbnailPath == entry.AssetPath,
+                                 stated.IsSuccess() );
                 if ( !stated && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
                     ImGui::SetTooltip( "%s", stated.GetError().c_str() );
             }
         }
         else
         {
-            if ( ImGui::MenuItem( "Open" ) )
-                ChangeDirectory( &entry );
-            if ( ImGui::MenuItem( "Show in Explorer" ) )
-                ShellRevealInExplorer( entry.AssetPath );
+            CommandMenuItem( ContentBrowserCommand::Open );
+            CommandMenuItem( ContentBrowserCommand::ShowInExplorer );
             if ( ImGui::MenuItem( EditorPreferences::IsFavouriteFolder( entry.AssetPath ) ? "Remove from Favorites"
                                                                                           : "Add to Favorites" ) )
                 EditorPreferences::ToggleFavouriteFolder( entry.AssetPath );
@@ -2804,17 +2791,234 @@ namespace Desert::Editor
         LOG_INFO( "[Thumbnail] Captured from viewport -> {}", png );
     }
 
-    std::vector<std::string> FileExplorerPanel::SelectedThumbnailSubjects() const
+    std::vector<DirectoryInformation*> FileExplorerPanel::SelectedEntries() const
     {
-        std::vector<std::string> subjects;
+        std::vector<DirectoryInformation*> entries;
+        if ( m_CurrentDir == nullptr )
+            return entries;
+        const std::vector<std::string> selected = SelectionPaths();
+        for ( DirectoryInformation* child : m_CurrentDir->Children )
+            if ( std::find( selected.begin(), selected.end(), child->AssetPath ) != selected.end() )
+                entries.push_back( child );
+        return entries;
+    }
+
+    void FileExplorerPanel::CommandMenuItem( ContentBrowserCommand command, bool selected, bool enabled )
+    {
+        const UICommandInfo& info     = CommandInfo( command );
+        const std::string    label    = std::string( info.Label );
+        const std::string    shortcut = std::string( info.Shortcut );
+        if ( !ImGui::MenuItem( label.c_str(), shortcut.empty() ? nullptr : shortcut.c_str(), selected, enabled ) )
+            return;
+        if ( const auto done = RunCommand( command ); !done )
+            LOG_ERROR( "[Content Browser] {}: {}", info.Label, done.GetError() );
+    }
+
+    Common::BoolResultStr FileExplorerPanel::RunCommand( ContentBrowserCommand command )
+    {
+        const std::string_view label = CommandInfo( command ).Label;
+        if ( command == ContentBrowserCommand::ClearSelection )
+        {
+            m_Selection.clear();
+            m_CurrentSelected      = nullptr;
+            m_SelectionAnchorShown = -1;
+            return Common::MakeSuccess( true );
+        }
+
+        const std::vector<DirectoryInformation*> entries = SelectedEntries();
+        if ( entries.empty() )
+            return Common::MakeFormattedError<bool>( "'{}': nothing is selected in the Content Browser", label );
+        const auto one = [&]() -> Common::ResultStr<DirectoryInformation*>
+        {
+            if ( entries.size() != 1 )
+                return Common::MakeFormattedError<DirectoryInformation*>(
+                     "'{}' acts on one asset, and {} are selected", label, entries.size() );
+            return Common::MakeSuccess( entries.front() );
+        };
+        const auto thumbnailSubject = []( const DirectoryInformation& entry )
+        { return entry.IsFile && ( entry.Type == FileType::Model || entry.Type == FileType::Material ); };
+        // One body over every selected entry; the first refusal is the command's answer, the others still run.
+        const auto overEntries = [&]( const std::function<Common::BoolResultStr( DirectoryInformation& )>& body )
+             -> Common::BoolResultStr
+        {
+            Common::BoolResultStr outcome = Common::MakeSuccess( true );
+            for ( DirectoryInformation* entry : entries )
+                if ( const auto done = body( *entry ); !done && outcome )
+                    outcome = Common::MakeFormattedError<bool>( "'{}': {}", entry->AssetPath, done.GetError() );
+            return outcome;
+        };
+
+        switch ( command )
+        {
+            case ContentBrowserCommand::Open:
+            {
+                if ( entries.size() == 1 && !entries.front()->IsFile )
+                {
+                    ChangeDirectory( entries.front() );
+                    return Common::MakeSuccess( true );
+                }
+                return overEntries(
+                     [&]( DirectoryInformation& entry ) -> Common::BoolResultStr
+                     {
+                         if ( !entry.IsFile )
+                             return Common::MakeError<bool>(
+                                  "a folder opens on its own, not in a multi-selection" );
+                         ShellOpenDefault( entry.AssetPath );
+                         return Common::MakeSuccess( true );
+                     } );
+            }
+            case ContentBrowserCommand::ShowInExplorer:
+                return overEntries(
+                     []( DirectoryInformation& entry ) -> Common::BoolResultStr
+                     {
+                         ShellRevealInExplorer( entry.AssetPath );
+                         return Common::MakeSuccess( true );
+                     } );
+            case ContentBrowserCommand::OpenContainingFolder:
+                // The selection lives in one folder: one window, not one per entry.
+                ShellOpenDefault( std::filesystem::path( entries.front()->AssetPath ).parent_path().string() );
+                return Common::MakeSuccess( true );
+            case ContentBrowserCommand::Reimport:
+                return overEntries( []( DirectoryInformation& entry )
+                                    { return ImportOptions::Reimport( entry.AssetPath ); } );
+            case ContentBrowserCommand::ReimportWithNewFile:
+            {
+                const auto target = one();
+                if ( !target )
+                    return Common::MakeError<bool>( target.GetError() );
+                const auto chosen =
+                     Common::Utils::FileSystem::OpenFileDialog( "Meshes\0*.fbx;*.glb;*.gltf;*.obj\0All\0*.*\0" );
+                if ( chosen.empty() )
+                    return Common::MakeFormattedError<bool>( "'{}': no file was chosen", label );
+                return ImportOptions::ReimportWithNewFile( target.GetValue()->AssetPath, chosen );
+            }
+            case ContentBrowserCommand::CaptureThumbnail:
+                if ( m_ViewportScene.expired() )
+                    return Common::MakeFormattedError<bool>( "'{}': there is no viewport scene to capture",
+                                                             label );
+                return overEntries(
+                     [&]( DirectoryInformation& entry ) -> Common::BoolResultStr
+                     {
+                         if ( !thumbnailSubject( entry ) )
+                             return Common::MakeError<bool>(
+                                  "only a model or a material has a rendered thumbnail" );
+                         CaptureThumbnailFromViewport( entry.AssetPath );
+                         return Common::MakeSuccess( true );
+                     } );
+            case ContentBrowserCommand::EditThumbnail:
+            {
+                const auto target = one();
+                if ( !target )
+                    return Common::MakeError<bool>( target.GetError() );
+                const DirectoryInformation& entry = *target.GetValue();
+                if ( !entry.IsFile || !ThumbnailProducers::HasThumbnailOrbit( entry.Type ) )
+                    return Common::MakeFormattedError<bool>(
+                         "'{}': '{}' has no thumbnail orbit (its picture is not shot through an orbit camera)",
+                         label, entry.AssetPath );
+                const std::optional<std::string> orbitFile = ThumbnailOrbitFile( entry );
+                if ( !orbitFile )
+                    return Common::MakeFormattedError<bool>( "'{}': '{}' has no picture to edit (not imported)",
+                                                             label, entry.AssetPath );
+                if ( const auto stated = ThumbnailEdit::ReadOrbit( *orbitFile ); !stated )
+                    return Common::MakeFormattedError<bool>( "'{}': {}", label, stated.GetError() );
+                if ( m_ThumbnailGesture )
+                    CommitThumbnailGesture();
+                m_EditThumbnailPath      = entry.AssetPath;
+                m_EditThumbnailOrbitFile = *orbitFile;
+                return Common::MakeSuccess( true );
+            }
+            case ContentBrowserCommand::ClearSelection:
+                break; // answered above: it needs no selection
+        }
+        return Common::MakeSuccess( true );
+    }
+
+    std::vector<FileExplorerPanel::ThumbnailOrbitSubject> FileExplorerPanel::SelectedThumbnailSubjects()
+    {
+        std::vector<ThumbnailOrbitSubject> subjects;
         if ( m_CurrentDir == nullptr )
             return subjects;
         const std::vector<std::string> selected = SelectionPaths();
         for ( const DirectoryInformation* child : m_CurrentDir->Children )
-            if ( child->IsFile && ( child->Type == FileType::Model || child->Type == FileType::Material ) &&
-                 std::find( selected.begin(), selected.end(), child->AssetPath ) != selected.end() )
-                subjects.push_back( child->AssetPath );
+            if ( std::find( selected.begin(), selected.end(), child->AssetPath ) != selected.end() )
+                if ( std::optional<std::string> orbitFile = ThumbnailOrbitFile( *child ) )
+                    subjects.push_back( { child->AssetPath, std::move( *orbitFile ) } );
         return subjects;
+    }
+
+    std::optional<std::string> FileExplorerPanel::ThumbnailOrbitFile( const DirectoryInformation& entry )
+    {
+        if ( !entry.IsFile || !ThumbnailProducers::HasThumbnailOrbit( entry.Type ) )
+            return std::nullopt;
+        const std::optional<ThumbnailProducers::Producer> how = ThumbnailProducers::ProducerOf( entry.Type );
+        if ( how == ThumbnailProducers::Producer::RenderedMaterial ||
+             how == ThumbnailProducers::Producer::RenderedPose )
+            return entry.AssetPath; // filed under itself (a posed kind is its own cooked form)
+        const std::optional<MeshPicture> picture = MeshPictureFor( entry.AssetPath, entry.Type );
+        if ( !picture )
+            return std::nullopt;
+        return picture->Cooked;
+    }
+
+    std::vector<std::string> FileExplorerPanel::ContentFolders() const
+    {
+        std::vector<std::string> folders;
+        if ( m_BaseProjectDir == nullptr )
+            return folders;
+        folders.push_back( m_BaseProjectDir->AssetPath );
+        std::error_code ec;
+        for ( auto it = std::filesystem::recursive_directory_iterator( m_BaseProjectDir->AssetPath, ec );
+              !ec && it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
+        {
+            if ( !m_ShowHiddenFiles && IsHidden( it->path() ) )
+            {
+                it.disable_recursion_pending(); // the tree never opens what it hides
+                continue;
+            }
+            if ( it->is_directory( ec ) )
+                folders.push_back( it->path().generic_string() );
+        }
+        return folders;
+    }
+
+    std::vector<std::string> FileExplorerPanel::ContentFiles() const
+    {
+        std::vector<std::string> files;
+        if ( m_BaseProjectDir == nullptr )
+            return files;
+        std::error_code ec;
+        for ( auto it = std::filesystem::recursive_directory_iterator( m_BaseProjectDir->AssetPath, ec );
+              !ec && it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
+        {
+            if ( !m_ShowHiddenFiles && IsHidden( it->path() ) )
+            {
+                it.disable_recursion_pending();
+                continue;
+            }
+            if ( it->is_regular_file( ec ) )
+                files.push_back( it->path().generic_string() );
+        }
+        return files;
+    }
+
+    Common::BoolResultStr FileExplorerPanel::GoToFolder( const std::string& path )
+    {
+        if ( !NavigateToPath( path ) )
+            return Common::MakeFormattedError<bool>( "{}: '{}' is not a folder under the Content Browser's root",
+                                                     kGoToFolderLabel, path );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr FileExplorerPanel::SyncToAsset( const std::string& path )
+    {
+        const std::string folder = std::filesystem::path( path ).parent_path().generic_string();
+        if ( !NavigateToPath( folder ) )
+            return Common::MakeFormattedError<bool>(
+                 "{}: the folder of '{}' is not under the Content Browser's root", kSyncToAssetLabel, path );
+        if ( auto selected = SelectEntry( path ); !selected )
+            return Common::MakeFormattedError<bool>( "{}: '{}' is not a file in '{}'", kSyncToAssetLabel, path,
+                                                     folder );
+        return Common::MakeSuccess( true );
     }
 
     void FileExplorerPanel::CommitThumbnailGesture()
@@ -2824,7 +3028,7 @@ namespace Desert::Editor
         const Assets::ThumbnailOrbit live = m_ThumbnailGesture->Live;
         ThumbnailService::Get().EndPreview( m_ThumbnailGesture->PreviewKey );
         m_ThumbnailGesture.reset();
-        if ( auto edited = ThumbnailEdit::EditOrbit( m_EditThumbnailPath, live ); !edited )
+        if ( auto edited = ThumbnailEdit::EditOrbit( m_EditThumbnailOrbitFile, live ); !edited )
             LOG_WARN( "[Thumbnail] Edit Thumbnail '{}': {}", m_EditThumbnailPath, edited.GetError() );
     }
 
@@ -2832,6 +3036,7 @@ namespace Desert::Editor
     {
         CommitThumbnailGesture();
         m_EditThumbnailPath.clear();
+        m_EditThumbnailOrbitFile.clear();
     }
 
     void FileExplorerPanel::RequestThumbnailPreview( const DirectoryInformation& entry, ThumbnailGesture& gesture )
@@ -2849,17 +3054,19 @@ namespace Desert::Editor
                      ThumbnailService::Get().RequestPreviewMaterial( *material, entry.AssetPath, gesture.Live );
             return;
         }
-        // A skinned source's picture is the pose of the asset its import wrote (MeshPictureFor), the tile's own
-        // subject: the static route refuses a skinned mesh as "no drawable geometry".
-        if ( const std::optional<MeshPicture> picture = MeshPictureFor( entry.AssetPath, entry.Type );
-             picture && picture->Pose )
+        // A posed picture (a .skmesh / .skeleton / .anim, or a skinned source's .skmesh: ThumbnailOrbitFile) is
+        // the pose route's: the static route refuses a skinned mesh as "no drawable geometry".
+        if ( CookPaths::IsSkinnedAssetFile( m_EditThumbnailOrbitFile ) )
         {
-            const auto pose = ThumbnailPose::ResolvePoseSubject( *m_AssetManager, picture->Cooked );
+            const auto pose = ThumbnailPose::ResolvePoseSubject( *m_AssetManager, m_EditThumbnailOrbitFile );
             if ( pose && !pose.GetValue().Pending )
                 gesture.PreviewPng = ThumbnailService::Get().RequestPreviewPose( pose.GetValue(), gesture.Live );
             return;
         }
-        const auto subject = ThumbnailSubject::ResolveMesh( *m_AssetManager, entry.AssetPath );
+        const std::optional<std::string> source = MeshSourceFor( entry ); // a model, or a foliage type's mesh
+        if ( !source )
+            return;
+        const auto subject = ThumbnailSubject::ResolveMesh( *m_AssetManager, *source );
         if ( subject && !subject.GetValue().Pending )
             gesture.PreviewPng = ThumbnailService::Get().RequestPreviewMesh( subject.GetValue(), gesture.Live );
     }
@@ -2878,28 +3085,16 @@ namespace Desert::Editor
         if ( ( dragging || wheeled ) && !m_ThumbnailGesture )
         {
             // The gesture starts from what the home states NOW (an undo since the last gesture moved it).
-            const auto stated = ThumbnailEdit::ReadOrbit( entry.AssetPath );
+            const auto stated = ThumbnailEdit::ReadOrbit( m_EditThumbnailOrbitFile );
             if ( !stated )
             {
                 LOG_WARN( "[Thumbnail] Edit Thumbnail '{}': {}", entry.AssetPath, stated.GetError() );
-                m_EditThumbnailPath.clear();
+                LeaveThumbnailEdit();
                 return;
             }
-            // The preview is keyed where the tile's picture is (MeshPictureFor): a skinned source's is its
+            // The preview is keyed where the tile's picture is (ThumbnailOrbitFile): a skinned source's is its
             // .skmesh, not the .stmesh an extension swap would name.
-            std::string previewKey = entry.AssetPath;
-            if ( entry.Type == FileType::Model )
-            {
-                const std::optional<MeshPicture> picture = MeshPictureFor( entry.AssetPath, entry.Type );
-                if ( !picture )
-                {
-                    LOG_WARN( "[Thumbnail] Edit Thumbnail '{}': the model has no picture to edit (not imported)",
-                              entry.AssetPath );
-                    m_EditThumbnailPath.clear();
-                    return;
-                }
-                previewKey = picture->Cooked;
-            }
+            std::string previewKey = m_EditThumbnailOrbitFile;
             m_ThumbnailGesture = ThumbnailGesture{ .From       = stated.GetValue(),
                                                    .Live       = stated.GetValue(),
                                                    .Drag       = ImVec2( 0.0f, 0.0f ),
