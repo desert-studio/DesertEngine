@@ -735,14 +735,16 @@ namespace Desert::ECS
          * reports, and a state that starts resolving and breaks again reports again only if the reason
          * changes rigs.
          */
-        void ReportUnplayableState( const Animation::Skeleton& skeleton, const std::string& stateName,
+        void ReportUnplayableState( const Animation::MeshSkeletonIdentity& rig, const std::string& stateName,
                                     const std::string& clipName, const std::string& reason ) const
         {
-            ReportOnce( std::to_string( skeleton.GetSignature() ) + '|' + stateName + '|' + clipName,
-                        fmt::format( "state '{}' asks for clip '{}' and nothing will play: {} The rig has {} "
-                                     "bone(s), signature {}.",
-                                     stateName, clipName, reason, skeleton.GetBones().size(),
-                                     skeleton.GetSignature() ) );
+            const std::string skeleton = rig.Skeleton.Guid.IsNull()
+                                              ? std::string( "no skeleton" )
+                                              : Common::Content::AssetGuidToText( rig.Skeleton.Guid );
+            ReportOnce( skeleton + '|' + stateName + '|' + clipName,
+                        fmt::format( "state '{}' asks for clip '{}' and nothing will play: {} The mesh's skeleton "
+                                     "is '{}' ({}).",
+                                     stateName, clipName, reason, rig.Skeleton.Name, skeleton ) );
         }
 
     private:

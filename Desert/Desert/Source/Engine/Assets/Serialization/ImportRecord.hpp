@@ -51,6 +51,8 @@ namespace Desert::Assets::Serialization
         float       UniformScale  = 1.0f;
         std::string UpAxis;
         std::string LodPolicy;
+        /// SourceImportSettings::Skeleton as its GUID's text; absent = none chosen.
+        std::optional<std::string> Skeleton;
     };
     [[nodiscard]] SourceImportSettingsText ImportSettingsToText( const Assets::SourceImportSettings& settings );
     /// Refused, by name, for an unknown up axis or LOD policy or a scale that is not finite and > 0.
@@ -79,6 +81,13 @@ namespace Desert::Assets::Serialization
         // source (NodeMeshSplit). Present only when the source was split; then there is NO combined mesh, and
         // the import's freshness is these files' (each states the source's hash), not a combined envelope's.
         std::optional<std::vector<std::string>> Nodes;
+
+        // THE SOURCE'S BYTES THE LAST SKINNED, SKELETON OR CLIP IMPORT READ (UE UAssetImportData's source file
+        // hash, HashMeshSourceFile): such an import is current when this states the source's current hash. It
+        // lives in the record, not in a written asset, because the rig the import names may be an existing
+        // skeleton another source wrote (SkeletonReference.hpp). Absent = no complete import yet. A static
+        // import's hash is in each mesh it writes (MeshImportInfo::SourceHash).
+        std::optional<uint64_t> SourceHash;
 
         // HOW EACH MESH THIS IMPORT WRITES IS PHOTOGRAPHED (UE: UStaticMesh::ThumbnailInfo, a USceneThumbnailInfo
         // saved in the mesh's package). The record IS the imported mesh's package: the combined mesh lives in the
@@ -127,6 +136,10 @@ namespace Desert::Assets::Serialization
     /// The record must exist (EnsureImportRecord runs first); written only when the list changes.
     Common::BoolResultStr SetImportRecordNodes( const std::filesystem::path&                   source,
                                                 const std::optional<std::vector<std::string>>& nodes );
+
+    /// Rewrites the record's `SourceHash`: the import of @p source that read bytes of @p hash completed. The
+    /// record must exist (EnsureImportRecord runs first); written only when the hash changes.
+    Common::BoolResultStr SetImportRecordSourceHash( const std::filesystem::path& source, uint64_t hash );
 
     /// The orbit @p source's record states for the mesh asset named @p meshFile (ImportRecordData::Thumbnail);
     /// the default orbit when it states none for it. An error naming the record when it is missing or unreadable.
