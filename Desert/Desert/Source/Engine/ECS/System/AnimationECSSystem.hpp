@@ -50,8 +50,8 @@ namespace Desert::ECS
          *        nodes of the entity's pose graph (Animator::LinkLayers). Refuses an entity with no animator yet
          *        and every Animator::LinkLayers refusal, by name.
          */
-        [[nodiscard]] static Common::BoolResultStr LinkAnimLayers( ECS::AnimationComponent&          anim,
-                                                                   const Animation::Graph::AnimGraph& implementation )
+        [[nodiscard]] static Common::BoolResultStr
+        LinkAnimLayers( ECS::AnimationComponent& anim, const Animation::Graph::AnimGraph& implementation )
         {
             if ( !anim.Animator )
                 return Common::MakeError<bool>( fmt::format(
@@ -59,7 +59,8 @@ namespace Desert::ECS
             return anim.Animator->LinkLayers( implementation );
         }
         /// UE UnlinkAnimClassLayers: the interfaces `implementation` linked pass their input through again.
-        static void UnlinkAnimLayers( ECS::AnimationComponent& anim, const Animation::Graph::AnimGraph& implementation )
+        static void UnlinkAnimLayers( ECS::AnimationComponent&           anim,
+                                      const Animation::Graph::AnimGraph& implementation )
         {
             if ( anim.Animator )
                 anim.Animator->UnlinkLayers( implementation );
@@ -464,7 +465,8 @@ namespace Desert::ECS
                         continue;
                     const auto found = m_AnimationLibrary->FindForSkeleton( clipRig, node.Sequence->Clip );
                     if ( found )
-                        anim.Animator->SetLinkedLayerSource( slot, n, found.GetValue()->GetClip(), node.Sequence->Loop );
+                        anim.Animator->SetLinkedLayerSource( slot, n, found.GetValue()->GetClip(),
+                                                             node.Sequence->Loop );
                     else if ( !m_AnimationLibrary->HasPending( node.Sequence->Clip ) )
                         ReportUnplayableState( clipRig, node.Name, node.Sequence->Clip, found.GetError() );
                 }

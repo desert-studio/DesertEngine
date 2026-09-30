@@ -125,8 +125,8 @@ namespace Desert::Animation::Graph
         Run( sources, skeleton, slot, &input, out );
     }
 
-    void PoseGraphInstance::Run( const PoseGraphSources& sources, const Skeleton& skeleton, std::optional<size_t> slot,
-                                 const GraphPose* input, GraphPose& out )
+    void PoseGraphInstance::Run( const PoseGraphSources& sources, const Skeleton& skeleton,
+                                 std::optional<size_t> slot, const GraphPose* input, GraphPose& out )
     {
         if ( m_Plan.empty() )
             return;
@@ -164,11 +164,13 @@ namespace Desert::Animation::Graph
                     // UE FAnimNode_LinkedAnimLayer: the linked implementation's layer graph on this node's input,
                     // or — nothing linked — the input itself (the interface's default).
                     const GraphPose& in = m_Poses[static_cast<size_t>( wired[0] )];
-                    const auto linked   = sources.Linked != nullptr
-                                               ? sources.Linked->Find( node.LinkedLayer->Interface, node.LinkedLayer->Layer )
-                                               : std::nullopt;
+                    const auto       linked =
+                         sources.Linked != nullptr
+                                    ? sources.Linked->Find( node.LinkedLayer->Interface, node.LinkedLayer->Layer )
+                                    : std::nullopt;
                     if ( linked )
-                        sources.Linked->At( *linked ).Instance.EvaluateLayer( sources, skeleton, *linked, in, pose );
+                        sources.Linked->At( *linked ).Instance.EvaluateLayer( sources, skeleton, *linked, in,
+                                                                              pose );
                     else
                         pose = in;
                     break;
@@ -247,7 +249,8 @@ namespace Desert::Animation::Graph
                         return Common::MakeError<bool>( std::format(
                              "cannot link '{}' onto '{}': layer '{}.{}' reads parameter '{}', which '{}' does not "
                              "declare as the same type",
-                             implementation.Name, host.Name, layer.Interface, layer.Layer, pin.Parameter, host.Name ) );
+                             implementation.Name, host.Name, layer.Interface, layer.Layer, pin.Parameter,
+                             host.Name ) );
                 }
 
             Layer entry{ implementation.Name, layer.Interface, layer.Layer, PoseGraphInstance{} };
@@ -260,9 +263,9 @@ namespace Desert::Animation::Graph
                 interfaces.push_back( layer.Interface );
         }
 
-        std::erase_if( m_Layers,
-                       [&]( const Layer& l )
-                       { return std::find( interfaces.begin(), interfaces.end(), l.Interface ) != interfaces.end(); } );
+        std::erase_if(
+             m_Layers, [&]( const Layer& l )
+             { return std::find( interfaces.begin(), interfaces.end(), l.Interface ) != interfaces.end(); } );
         for ( Layer& entry : linked )
             m_Layers.push_back( std::move( entry ) );
         return Common::MakeSuccess( true );

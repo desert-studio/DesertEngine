@@ -368,7 +368,7 @@ namespace Desert::Animation
         // A linked layer's sequence players run on their own clocks, sampled exactly as the host's are.
         sources.SampleLinked = [&]( size_t slot, size_t node, Graph::GraphPose& out )
         { sampleClock( m_LinkedSources[slot][node], out ); };
-        sources.Linked = &m_LinkedLayers;
+        sources.Linked    = &m_LinkedLayers;
         sources.Parameter = [&]( const std::string& name )
         {
             for ( size_t p = 0; p < graph.Parameters.size(); ++p )
@@ -749,9 +749,11 @@ namespace Desert::Animation
     Common::BoolResultStr Animator::LinkLayers( const Graph::AnimGraph& implementation )
     {
         if ( !m_PoseGraph )
-            return Common::MakeError<bool>( std::format(
-                 "cannot link the layers of '{}': the character has no pose graph to call them", implementation.Name ) );
-        if ( auto linked = m_LinkedLayers.Link( m_PoseGraph->Instance.Graph(), implementation, m_Skeleton ); !linked )
+            return Common::MakeError<bool>(
+                 std::format( "cannot link the layers of '{}': the character has no pose graph to call them",
+                              implementation.Name ) );
+        if ( auto linked = m_LinkedLayers.Link( m_PoseGraph->Instance.Graph(), implementation, m_Skeleton );
+             !linked )
             return linked;
         RebuildLinkedClocks();
         return Common::MakeSuccess( true );

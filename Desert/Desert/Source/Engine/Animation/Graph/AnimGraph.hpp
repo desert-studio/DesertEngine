@@ -275,7 +275,7 @@ namespace Desert::Animation::Graph
     /// with what is declared), and each implemented layer graph planned in `GraphScope::Layer`, of a declared
     /// interface and layer, once, with every layer of an implemented interface present.
     [[nodiscard]] Common::ResultStr<std::vector<int>> PlanPoseGraph( const AnimGraph& graph,
-                                                                     GraphScope scope = GraphScope::Host );
+                                                                     GraphScope       scope = GraphScope::Host );
 
     /// The graph's declared parameters as a readable list ("'Speed' (Float), 'Armed' (Bool)"), or
     /// "none at all". ONE spelling, because both refusals that need it — the evaluator's and the Lua

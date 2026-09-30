@@ -400,25 +400,26 @@ namespace
     AnimGraph CallingGraph()
     {
         AnimGraph graph;
-        graph.Name  = "Hero";
-        graph.Nodes = { KindNode( "Walk", PG::PoseNodeKind::SequencePlayer ),
-                        KindNode( "Call", PG::PoseNodeKind::LinkedAnimLayer, { "Walk" } ) };
+        graph.Name                 = "Hero";
+        graph.Nodes                = { KindNode( "Walk", PG::PoseNodeKind::SequencePlayer ),
+                                       KindNode( "Call", PG::PoseNodeKind::LinkedAnimLayer, { "Walk" } ) };
         graph.Nodes[1].LinkedLayer = PG::LinkedAnimLayerNode{ "Weapon", "UpperBody" };
         graph.OutputPose           = "Call";
-        graph.Layers               = PG::AnimGraphLayers{ { PG::AnimLayerInterface{ "Weapon", { "UpperBody", "Hands" } } }, {} };
+        graph.Layers = PG::AnimGraphLayers{ { PG::AnimLayerInterface{ "Weapon", { "UpperBody", "Hands" } } }, {} };
         return graph;
     }
 
     PG::AnimLayerGraph PassLayer( std::string layer )
     {
-        return PG::AnimLayerGraph{ "Weapon", std::move( layer ), { KindNode( "In", PG::PoseNodeKind::LinkedInputPose ) }, "In" };
+        return PG::AnimLayerGraph{
+             "Weapon", std::move( layer ), { KindNode( "In", PG::PoseNodeKind::LinkedInputPose ) }, "In" };
     }
 } // namespace
 
 TEST( LinkedAnimLayer, ACallPlansAndAnUnknownInterfaceOrLayerIsRefusedByName )
 {
-    AnimGraph graph = CallingGraph();
-    const auto plan = PG::PlanPoseGraph( graph );
+    AnimGraph  graph = CallingGraph();
+    const auto plan  = PG::PlanPoseGraph( graph );
     ASSERT_TRUE( plan.IsSuccess() ) << plan.GetError();
     EXPECT_EQ( plan.GetValue(), ( std::vector<int>{ 0, 1 } ) );
     EXPECT_EQ( PG::BaseSourceNode( graph ), &graph.Nodes[0] ) << "the base chain runs through the call's input";
@@ -427,7 +428,8 @@ TEST( LinkedAnimLayer, ACallPlansAndAnUnknownInterfaceOrLayerIsRefusedByName )
     const auto noLayer                = PG::PlanPoseGraph( graph );
     ASSERT_FALSE( noLayer.IsSuccess() );
     EXPECT_NE( noLayer.GetError().find( "'Legs'" ), std::string::npos ) << noLayer.GetError();
-    EXPECT_NE( noLayer.GetError().find( "'UpperBody'" ), std::string::npos ) << "lists the layers: " << noLayer.GetError();
+    EXPECT_NE( noLayer.GetError().find( "'UpperBody'" ), std::string::npos )
+         << "lists the layers: " << noLayer.GetError();
 
     graph.Nodes[1].LinkedLayer = PG::LinkedAnimLayerNode{ "Shield", "UpperBody" };
     const auto noInterface     = PG::PlanPoseGraph( graph );
@@ -456,7 +458,8 @@ TEST( LinkedAnimLayer, AnImplementationIsWholeAndAnInputPoseLivesOnlyInALayerGra
     EXPECT_NE( unknown.GetError().find( "'Tail'" ), std::string::npos ) << unknown.GetError();
     graph.Layers->Implemented.pop_back();
 
-    graph.Layers->Implemented[0].Nodes.push_back( KindNode( "Nested", PG::PoseNodeKind::LinkedAnimLayer, { "In" } ) );
+    graph.Layers->Implemented[0].Nodes.push_back(
+         KindNode( "Nested", PG::PoseNodeKind::LinkedAnimLayer, { "In" } ) );
     graph.Layers->Implemented[0].Nodes.back().LinkedLayer = PG::LinkedAnimLayerNode{ "Weapon", "Hands" };
     graph.Layers->Implemented[0].OutputPose               = "Nested";
     EXPECT_FALSE( PG::PlanPoseGraph( graph ).IsSuccess() ) << "a layer graph calls no layer";

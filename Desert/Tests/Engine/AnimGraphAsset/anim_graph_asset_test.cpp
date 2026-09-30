@@ -356,8 +356,8 @@ int main( int argc, char** argv )
 // The linked-layer half of a graph (ANIM-I14) survives the file; a file without it is a graph without layers.
 TEST( AnimGraphAsset, LayerInterfacesAndImplementedLayersRoundTrip )
 {
-    namespace PG   = Desert::Animation::Graph;
-    AnimGraph graph = PG::MakeStateMachineGraph( "Rifle" );
+    namespace PG       = Desert::Animation::Graph;
+    AnimGraph    graph = PG::MakeStateMachineGraph( "Rifle" );
     PG::PoseNode input;
     input.Name   = "In";
     input.Kind   = static_cast<int>( PG::PoseNodeKind::LinkedInputPose );

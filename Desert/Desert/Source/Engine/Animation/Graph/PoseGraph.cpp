@@ -200,8 +200,8 @@ namespace Desert::Animation::Graph
         {
             const auto kind = static_cast<PoseNodeKind>( node.Kind );
             if ( kind == PoseNodeKind::LinkedAnimLayer && !node.LinkedLayer )
-                return std::format( "AnimGraph '{}': node '{}' is a LinkedAnimLayer node naming no layer", graph.Name,
-                                    node.Name );
+                return std::format( "AnimGraph '{}': node '{}' is a LinkedAnimLayer node naming no layer",
+                                    graph.Name, node.Name );
             if ( kind != PoseNodeKind::LinkedAnimLayer && node.LinkedLayer )
                 return std::format( "AnimGraph '{}': node '{}' ({}) names a linked layer, which only a "
                                     "LinkedAnimLayer node does",
@@ -212,10 +212,11 @@ namespace Desert::Animation::Graph
                                     graph.Name, node.Name );
             if ( scope == GraphScope::Layer &&
                  ( kind == PoseNodeKind::LinkedAnimLayer || kind == PoseNodeKind::StateMachine ) )
-                return std::format( "AnimGraph '{}': node '{}' is a {} inside a layer graph; a layer graph runs on "
-                                    "its caller's clocks and calls no layer, so it holds sequence players, "
-                                    "blends and its input pose",
-                                    graph.Name, node.Name, KindName( kind ) );
+                return std::format(
+                     "AnimGraph '{}': node '{}' is a {} inside a layer graph; a layer graph runs on "
+                     "its caller's clocks and calls no layer, so it holds sequence players, "
+                     "blends and its input pose",
+                     graph.Name, node.Name, KindName( kind ) );
             if ( kind != PoseNodeKind::LinkedAnimLayer )
                 return {};
             const AnimLayerInterface* called = FindLayerInterface( graph, node.LinkedLayer->Interface );
@@ -225,10 +226,10 @@ namespace Desert::Animation::Graph
                                     graph.Name, node.Name, node.LinkedLayer->Interface, InterfaceList( graph ) );
             if ( std::find( called->Layers.begin(), called->Layers.end(), node.LinkedLayer->Layer ) ==
                  called->Layers.end() )
-                return std::format( "AnimGraph '{}': LinkedAnimLayer node '{}' calls layer '{}' of interface '{}', "
-                                    "which has no such layer. Its layers: {}",
-                                    graph.Name, node.Name, node.LinkedLayer->Layer, called->Name,
-                                    LayerList( *called ) );
+                return std::format(
+                     "AnimGraph '{}': LinkedAnimLayer node '{}' calls layer '{}' of interface '{}', "
+                     "which has no such layer. Its layers: {}",
+                     graph.Name, node.Name, node.LinkedLayer->Layer, called->Name, LayerList( *called ) );
             return {};
         }
 
@@ -244,7 +245,8 @@ namespace Desert::Animation::Graph
                 const AnimLayerInterface& declared = layers.Interfaces[i];
                 if ( declared.Name.empty() || declared.Layers.empty() )
                     return std::format( "AnimGraph '{}' declares a layer interface with no {}", graph.Name,
-                                        declared.Name.empty() ? "name" : std::format( "layers ('{}')", declared.Name ) );
+                                        declared.Name.empty() ? "name"
+                                                              : std::format( "layers ('{}')", declared.Name ) );
                 for ( size_t j = 0; j < i; ++j )
                     if ( layers.Interfaces[j].Name == declared.Name )
                         return std::format( "AnimGraph '{}' declares layer interface '{}' twice", graph.Name,
@@ -265,11 +267,13 @@ namespace Desert::Animation::Graph
                                         graph.Name, layer.Interface, InterfaceList( graph ) );
                 if ( std::find( declared->Layers.begin(), declared->Layers.end(), layer.Layer ) ==
                      declared->Layers.end() )
-                    return std::format( "AnimGraph '{}' implements layer '{}' of interface '{}', which has no such "
-                                        "layer. Its layers: {}",
-                                        graph.Name, layer.Layer, layer.Interface, LayerList( *declared ) );
+                    return std::format(
+                         "AnimGraph '{}' implements layer '{}' of interface '{}', which has no such "
+                         "layer. Its layers: {}",
+                         graph.Name, layer.Layer, layer.Interface, LayerList( *declared ) );
                 for ( size_t j = 0; j < i; ++j )
-                    if ( layers.Implemented[j].Interface == layer.Interface && layers.Implemented[j].Layer == layer.Layer )
+                    if ( layers.Implemented[j].Interface == layer.Interface &&
+                         layers.Implemented[j].Layer == layer.Layer )
                         return std::format( "AnimGraph '{}' implements layer '{}.{}' twice", graph.Name,
                                             layer.Interface, layer.Layer );
                 if ( auto plan = PlanPoseGraph( LayerGraphAsGraph( graph, layer ), GraphScope::Layer ); !plan )

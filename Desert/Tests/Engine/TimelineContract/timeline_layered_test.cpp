@@ -362,7 +362,7 @@ namespace
     G::AnimGraph Character()
     {
         G::AnimGraph graph;
-        graph.Name       = "Character";
+        graph.Name = "Character";
         graph.Parameters.push_back(
              G::Parameter{ .Name = "Aim", .Type = static_cast<int>( G::ParamType::Float ), .Default = 1.0F } );
         graph.Nodes      = { Leaf( "L0" ), LinkedCall( "Call", "L0" ) };
@@ -382,13 +382,13 @@ namespace
         graph.Nodes      = { Leaf( "Idle" ) };
         graph.OutputPose = "Idle";
         G::PoseNode input;
-        input.Name = "In";
-        input.Kind = static_cast<int>( G::PoseNodeKind::LinkedInputPose );
+        input.Name        = "In";
+        input.Kind        = static_cast<int>( G::PoseNodeKind::LinkedInputPose );
         G::PoseNode blend = Blend( "Upper", "In", "Aim", "spine" );
         blend.ParameterInputs.push_back( G::ParameterPin{ G::LayerWeightPin( 0 ), "Aim" } );
-        graph.Layers = G::AnimGraphLayers{ { G::AnimLayerInterface{ "Weapon", { "UpperBody" } } },
-                                           { G::AnimLayerGraph{ "Weapon", "UpperBody",
-                                                                { input, Leaf( "Aim" ), blend }, "Upper" } } };
+        graph.Layers = G::AnimGraphLayers{
+             { G::AnimLayerInterface{ "Weapon", { "UpperBody" } } },
+             { G::AnimLayerGraph{ "Weapon", "UpperBody", { input, Leaf( "Aim" ), blend }, "Upper" } } };
         return graph;
     }
 
@@ -409,8 +409,8 @@ namespace
 
 TEST( LinkedAnimLayer, UnlinkedPassesTheInputAndLinkingSwapsTheLayerWithoutEditingTheGraph )
 {
-    const Skeleton skeleton = FiveBones();
-    const uint32_t spine    = skeleton.FindBoneIndex( "spine" ).value();
+    const Skeleton     skeleton  = FiveBones();
+    const uint32_t     spine     = skeleton.FindBoneIndex( "spine" ).value();
     const G::AnimGraph character = Character();
 
     G::PoseGraphInstance instance;
@@ -459,7 +459,7 @@ TEST( LinkedAnimLayer, ALinkIsRefusedByNameAndLeavesTheTableAsItWas )
     ASSERT_FALSE( unread.IsSuccess() );
     EXPECT_NE( unread.GetError().find( "'Aim'" ), std::string::npos ) << unread.GetError();
 
-    G::AnimGraph badBone = Rifle();
+    G::AnimGraph badBone                                                                = Rifle();
     badBone.Layers->Implemented[0].Nodes[2].LayeredBlend->Layers[0].Filters[0].BoneName = "no_such_bone";
     const auto unbound = table.Link( Character(), badBone, skeleton );
     ASSERT_FALSE( unbound.IsSuccess() );

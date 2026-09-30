@@ -260,8 +260,8 @@ namespace Desert::Animation
         // pose graph set (the host the interfaces are checked against) and every LinkedLayerTable::Link
         // refusal, by name. Links outlive a re-set pose graph (they resolve by name at evaluation); each
         // linked layer's sequence players have their own clocks here, fed by SetLinkedLayerSource.
-        [[nodiscard]] Common::BoolResultStr LinkLayers( const Graph::AnimGraph& implementation );
-        void                                UnlinkLayers( const Graph::AnimGraph& implementation );
+        [[nodiscard]] Common::BoolResultStr          LinkLayers( const Graph::AnimGraph& implementation );
+        void                                         UnlinkLayers( const Graph::AnimGraph& implementation );
         [[nodiscard]] const Graph::LinkedLayerTable& GetLinkedLayers() const
         {
             return m_LinkedLayers;
