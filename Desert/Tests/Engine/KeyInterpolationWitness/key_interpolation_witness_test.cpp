@@ -95,7 +95,7 @@ TEST( KeyInterpolationWitness, TheTwoClipsDifferInExactlyOneFieldPerKey )
     EXPECT_EQ( Desert::Assets::StatedVersion( cubic.Header, Desert::Assets::kAnimationSchemaTag ),
                Ser::kAnimationVersion );
     EXPECT_EQ( linear.DurationTicks, cubic.DurationTicks );
-    EXPECT_EQ( linear.SkeletonSignature, cubic.SkeletonSignature );
+    EXPECT_EQ( linear.Skeleton, cubic.Skeleton );
     ASSERT_EQ( linear.Channels.size(), 1u );
     ASSERT_EQ( cubic.Channels.size(), linear.Channels.size() );
     EXPECT_EQ( linear.Channels[0].BoneName, cubic.Channels[0].BoneName );

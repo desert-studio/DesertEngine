@@ -53,6 +53,7 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Json/Json.hpp>
 
 #include <algorithm>
@@ -109,6 +110,18 @@ namespace
         auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
         EXPECT_TRUE( data.IsSuccess() ) << data.GetError();
         return data.IsSuccess() ? data.GetValue().Bones : std::vector<BoneInfo>{};
+    }
+
+    /// The GUID a .skeleton's header states - the identity a clip references it by (SKEL-TREE,
+    /// Engine/Animation/SkeletonReference.hpp). Null when the file is unreadable or states no header.
+    Common::Content::AssetGuid SkeletonGuidOf( const std::string& relPath )
+    {
+        auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>(
+             ReadFile( RepoRoot() + relPath ) );
+        if ( !data.IsSuccess() || !data.GetValue().Header.has_value() )
+            return {};
+        const auto guid = Common::Content::AssetGuidFromText( data.GetValue().Header->Guid );
+        return guid ? guid.GetValue() : Common::Content::AssetGuid{};
     }
 
     Desert::Animation::AnimationClip ProbeClip()
@@ -322,7 +335,8 @@ TEST( SkeletonMapperFit, OurClipDrivesTheMappedRig )
     const Skeleton rig{ std::vector<BoneInfo>( bones ) };
     const auto     clip = ProbeClip();
     ASSERT_FALSE( clip.Tracks.empty() ) << "the probe clip carries no tracks";
-    ASSERT_EQ( clip.SkeletonSignature, rig.GetSignature() )
+    ASSERT_FALSE( clip.Skeleton.IsNull() ) << kClipPath << " names no skeleton";
+    ASSERT_EQ( clip.Skeleton, SkeletonGuidOf( kRigPath ) )
          << "the clip does not claim this rig; every number below would be a picture of a bind pose";
 
     JPH::Skeleton joltRig;
@@ -626,7 +640,8 @@ TEST( SkeletonMapperFit, ARootTranslationIsCopiedUnscaledOntoATallerRig )
     auto built = Desert::Assets::Serialization::BuildClipFromAssetData( clipData.GetValue() );
     ASSERT_TRUE( built.IsSuccess() ) << built.GetError();
     const auto clip = built.ExtractValue();
-    ASSERT_EQ( clip.SkeletonSignature, source.GetSignature() );
+    ASSERT_FALSE( clip.Skeleton.IsNull() ) << "TwoBoneProbe_Wave.anim names no skeleton";
+    ASSERT_EQ( clip.Skeleton, SkeletonGuidOf( "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe.skeleton" ) );
 
     JPH::Skeleton joltSource;
     JPH::Skeleton joltTarget;
