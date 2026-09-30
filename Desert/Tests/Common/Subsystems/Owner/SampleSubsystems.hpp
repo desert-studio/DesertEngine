@@ -73,4 +73,26 @@ namespace SubsystemSamples
     {
         DESERT_SUBSYSTEM( Other )
     };
+
+    class WeatherSubsystem
+    {
+        DESERT_SUBSYSTEM( SampleWorld )
+
+    public:
+        explicit WeatherSubsystem( SampleWorld& world ) : m_World( &world )
+        {
+            m_World->Journal->Record( "weather created" );
+        }
+        ~WeatherSubsystem()
+        {
+            m_World->Journal->Record( "weather destroyed" );
+        }
+        WeatherSubsystem( const WeatherSubsystem& )            = delete;
+        WeatherSubsystem& operator=( const WeatherSubsystem& ) = delete;
+        WeatherSubsystem( WeatherSubsystem&& )                 = delete;
+        WeatherSubsystem& operator=( WeatherSubsystem&& )      = delete;
+
+    private:
+        SampleWorld* m_World = nullptr;
+    };
 } // namespace SubsystemSamples

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/Subsystems/SubsystemCollection.hpp>
+#include <Common/Core/Subsystems/WorldSubsystems.hpp>
 
 #include <array>
 #include <cstddef>
@@ -33,4 +34,37 @@ namespace SubsystemSamples
     };
 
     void CreateSubsystems( Common::SubsystemCollection<SampleOwner>& collection );
+
+    class SampleWorld;
+} // namespace SubsystemSamples
+
+template <>
+inline constexpr bool Common::SubsystemsJoinEventTree<SubsystemSamples::SampleWorld> = false;
+
+namespace SubsystemSamples
+{
+    class SampleWorld
+    {
+    public:
+        explicit SampleWorld( SampleOwner& journal ) : Journal( &journal )
+        {
+            Subsystems.Begin();
+        }
+        ~SampleWorld()
+        {
+            Subsystems.End();
+        }
+        SampleWorld( const SampleWorld& )            = delete;
+        SampleWorld& operator=( const SampleWorld& ) = delete;
+        SampleWorld( SampleWorld&& )                 = delete;
+        SampleWorld& operator=( SampleWorld&& )      = delete;
+
+        SampleOwner*                         Journal = nullptr;
+        Common::WorldSubsystems<SampleWorld> Subsystems{ *this };
+    };
+} // namespace SubsystemSamples
+
+namespace SubsystemSamples
+{
+    void CreateSubsystems( Common::SubsystemCollection<SampleWorld>& collection );
 } // namespace SubsystemSamples

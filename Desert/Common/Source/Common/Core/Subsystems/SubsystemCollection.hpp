@@ -12,11 +12,25 @@
 namespace Common
 {
     template <typename Owner>
+    inline constexpr bool SubsystemsJoinEventTree = true;
+
+    template <typename Owner, typename T>
+    concept SubsystemOf = !ReceivesEvents<T> || SubsystemsJoinEventTree<Owner>;
+
+    template <typename Owner>
     class SubsystemCollection
     {
     public:
         SubsystemCollection( Owner& owner, EventTree& events, EventNodeId parent )
+            requires SubsystemsJoinEventTree<Owner>
              : m_Owner( &owner ), m_Events( &events ), m_Parent( parent )
+        {
+            CreateSubsystems( *this );
+        }
+
+        explicit SubsystemCollection( Owner& owner )
+            requires( !SubsystemsJoinEventTree<Owner> )
+             : m_Owner( &owner )
         {
             CreateSubsystems( *this );
         }
@@ -35,6 +49,9 @@ namespace Common
         template <typename T>
         T& Create()
         {
+            static_assert(
+                 SubsystemOf<Owner, T>,
+                 "this owner is not a node of an event tree: its subsystems cannot handle routed events" );
             std::unique_ptr<T> created = Construct<T>();
             T&                 object  = *created;
             EventNodeLink      node;

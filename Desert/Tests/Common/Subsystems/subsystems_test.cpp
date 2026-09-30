@@ -4,6 +4,8 @@
 
 #include <Common/Core/Events/EventTree.hpp>
 
+#include <concepts>
+
 using namespace Common;
 using namespace SubsystemSamples;
 
@@ -103,6 +105,89 @@ TEST( Subsystems, ADestroyedSubsystemLeavesTheTree )
     EventWindowResize resize( 800, 600 );
     host.tree.Route( resize );
     EXPECT_EQ( host.owner.Recorded(), 4u );
+}
+
+static_assert( !SubsystemOf<SampleWorld, InputJournalSubsystem> );
+static_assert( SubsystemOf<SampleWorld, WeatherSubsystem> );
+static_assert( SubsystemOf<SampleOwner, InputJournalSubsystem> );
+static_assert( !std::constructible_from<SubsystemCollection<SampleWorld>, SampleWorld&, EventTree&, EventNodeId> );
+static_assert( !std::constructible_from<SubsystemCollection<SampleOwner>, SampleOwner&> );
+
+TEST( Subsystems, AnOwnerOutsideTheTreeCreatesItsSubsystemsWithoutATree )
+{
+    SampleOwner                      journal;
+    SampleWorld                      world( journal );
+    SubsystemCollection<SampleWorld> subsystems( world );
+    EXPECT_EQ( subsystems.Count(), 1u );
+    EXPECT_NE( subsystems.Get<WeatherSubsystem>(), nullptr );
+    EXPECT_FALSE( subsystems.NodeOf<WeatherSubsystem>().IsSet() );
+}
+
+TEST( Subsystems, AWorldSubsystemLivesAsLongAsItsWorld )
+{
+    SampleOwner journal;
+    {
+        SampleWorld world( journal );
+        EXPECT_TRUE( world.Subsystems.IsRunning() );
+        EXPECT_NE( world.Subsystems.Get<WeatherSubsystem>(), nullptr );
+        EXPECT_EQ( journal.Recorded(), 1u );
+    }
+    ASSERT_EQ( journal.Recorded(), 2u );
+    EXPECT_EQ( journal.At( 0 ), "weather created" );
+    EXPECT_EQ( journal.At( 1 ), "weather destroyed" );
+}
+
+TEST( Subsystems, AClearedWorldStartsANewSetOfSubsystems )
+{
+    SampleOwner journal;
+    SampleWorld world( journal );
+    world.Subsystems.End();
+    EXPECT_EQ( world.Subsystems.Get<WeatherSubsystem>(), nullptr );
+    world.Subsystems.Begin();
+    ASSERT_EQ( journal.Recorded(), 3u );
+    EXPECT_EQ( journal.At( 1 ), "weather destroyed" );
+    EXPECT_EQ( journal.At( 2 ), "weather created" );
+}
+
+TEST( Subsystems, ThePlayWorldGetsItsOwnSubsystems )
+{
+    SampleOwner journal;
+    SampleWorld world( journal );
+    world.Subsystems.SetPlaying( true );
+    ASSERT_EQ( journal.Recorded(), 3u );
+    EXPECT_EQ( journal.At( 1 ), "weather destroyed" );
+    EXPECT_EQ( journal.At( 2 ), "weather created" );
+    EXPECT_NE( world.Subsystems.Get<WeatherSubsystem>(), nullptr );
+}
+
+TEST( Subsystems, PausingThePlayWorldKeepsItsSubsystems )
+{
+    SampleOwner journal;
+    SampleWorld world( journal );
+    world.Subsystems.SetPlaying( true );
+    world.Subsystems.SetPlaying( true );
+    EXPECT_EQ( journal.Recorded(), 3u );
+}
+
+TEST( Subsystems, StoppingPlayEndsThePlayWorldsSubsystems )
+{
+    SampleOwner journal;
+    SampleWorld world( journal );
+    world.Subsystems.SetPlaying( true );
+    world.Subsystems.SetPlaying( false );
+    ASSERT_EQ( journal.Recorded(), 5u );
+    EXPECT_EQ( journal.At( 3 ), "weather destroyed" );
+    EXPECT_EQ( journal.At( 4 ), "weather created" );
+}
+
+TEST( Subsystems, AnEndedWorldDoesNotRestartOnPlay )
+{
+    SampleOwner journal;
+    SampleWorld world( journal );
+    world.Subsystems.End();
+    world.Subsystems.SetPlaying( true );
+    EXPECT_FALSE( world.Subsystems.IsRunning() );
+    EXPECT_EQ( journal.Recorded(), 2u );
 }
 
 int main( int argc, char** argv )

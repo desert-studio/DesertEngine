@@ -18,12 +18,15 @@ project(test_name)
             .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source/Common/Core/Events"'
             .. ' --subsystems Sample SubsystemSamples::SampleOwner SampleOwner.hpp'
             .. ' "' .. _SCRIPT_DIR .. '/Generated/SampleSubsystems.gen.cpp"'
+            .. ' --subsystems SampleWorld SubsystemSamples::SampleWorld SampleOwner.hpp'
+            .. ' "' .. _SCRIPT_DIR .. '/Generated/SampleWorldSubsystems.gen.cpp"'
     }
 
     files {
         test_files,
         "Owner/*.hpp",
         "Generated/SampleSubsystems.gen.cpp",
+        "Generated/SampleWorldSubsystems.gen.cpp",
     }
 
     includedirs {

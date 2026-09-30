@@ -11,7 +11,8 @@ project "Desert"
     -- annotations. The generated file is picked up by the Source/Engine/**.cpp glob below.
     dependson { "DesertHeaderTool" }
     -- The same run verifies every routed-event handler of the engine and Common (misspelt, non-public or
-    -- outside the event tree fails the build at file:line) and emits the engine's DESERT_SUBSYSTEM list.
+    -- outside the event tree fails the build at file:line) and emits the DESERT_SUBSYSTEM lists of the
+    -- application (Engine) and of every world (World, owned by Scene).
     prebuildcommands {
         DesertPlatform.BuiltToolPath("DesertHeaderTool")
             .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
@@ -21,6 +22,8 @@ project "Desert"
             .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source"'
             .. ' --subsystems Engine Desert::Engine::Application Engine/Core/Application.hpp'
             .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/EngineSubsystems.gen.cpp"'
+            .. ' --subsystems World Desert::Core::Scene Engine/Core/Scene.hpp'
+            .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/WorldSubsystems.gen.cpp"'
     }
 
     files { 

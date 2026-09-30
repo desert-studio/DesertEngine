@@ -13,6 +13,17 @@ project "Runtime"
     debugdir "%{_MAIN_SCRIPT_DIR}/Editor"
     debugargs { "--project Desert.deproj" } -- what scripts/Windows/Run*.bat pass with no arguments
 
+    -- DesertHeaderTool over the player's sources: a misspelt, non-public or out-of-tree routed-event
+    -- handler fails the build at file:line, as it does for the engine and the editor.
+    dependson { "DesertHeaderTool" }
+    prebuildcommands {
+        DesertPlatform.BuiltToolPath("DesertHeaderTool")
+            .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
+            .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Runtime/Source"'
+            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source"'
+            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
+    }
+
     files {
         "Source/**.cpp",
         "Source/**.hpp",

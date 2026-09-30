@@ -253,6 +253,7 @@ namespace Desert::Core
     Scene::Scene()
     {
         LiveSceneList().push_back( this );
+        m_Subsystems.Begin();
     }
 
     Scene::Scene( std::string&& sceneName, Graphic::SceneRenderer* sceneRenderer )
@@ -269,10 +270,14 @@ namespace Desert::Core
         // raw pointer that nothing ever checked, and the first frame dereferenced it.
         if ( sceneRenderer != nullptr && !m_Views.Add( sceneRenderer, nullptr ) )
             LOG_ERROR( "[Scene] '{}' refused its own renderer as view 0.", m_SceneName );
+
+        m_Subsystems.Begin();
     }
 
     Scene::~Scene()
     {
+        m_Subsystems.End();
+
         // Erased in the destructor and nowhere else, so an entry cannot outlive the object it points at.
         // That is the whole reason the list holds raw pointers rather than weak_ptrs: a Scene is in it for
         // exactly its own lifetime and there is no window in which a reader could see a dead one.
@@ -976,6 +981,7 @@ namespace Desert::Core
 
     void Scene::Clear()
     {
+        m_Subsystems.End();
         m_Registry.clear();
         m_PlayerPawn   = entt::null;
         m_ViewTarget   = entt::null;
@@ -984,6 +990,7 @@ namespace Desert::Core
         m_Entities.Clear();
 
         SetupRegistryCallbacks();
+        m_Subsystems.Begin();
     }
 
     void Scene::SetupRegistryCallbacks()
