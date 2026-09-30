@@ -26,6 +26,7 @@
 // Everything in this file is GPU-free. Common/CloudShadowMap.glslh and Common/CloudGeometry.glslh are
 // compiled AS C++ through CloudShadowReference.hpp, so every assertion is about the text the GPU runs.
 
+#include "../../TestSupport/scratch_dir.hpp"
 #include "CloudShadowReference.hpp"
 
 #include <Engine/Graphic/Clouds/CloudQuality.hpp>
@@ -907,9 +908,7 @@ namespace
     std::filesystem::path RepositoryRoot()
     {
         // The test binary lives in build/Bin/Tests/<config>; walk up to the repository root.
-        std::filesystem::path root = std::filesystem::current_path();
-        for ( int up = 0; up < 8 && !std::filesystem::exists( root / "Editor" / "Resources" / "Shaders" ); ++up )
-            root = root.parent_path();
+        const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
         return root;
     }
 

@@ -2328,7 +2328,7 @@ TEST( PackagedContent, NoWindowInitMovesTheWorkingDirectoryIntoTheBundleResource
 // THE PACKAGED GAME READS ITS SHADING MODELS FROM THE PAK AND WRITES NOTHING. The runtime reaches the set through
 // CompileEngineShaders -> BuildShaderMap -> ShaderRootShadingModels(); a scan that only looked at loose
 // directories found nothing in a package and failed every surface template. The fixture is the cook's own order:
-// the set is loaded once over a loose copy of the real models (which writes kGeneratedInclude, as the cook does),
+// the set is loaded once over a loose copy of the real models (kGeneratedInclude is virtual: nothing is written),
 // that tree is packed, and the pak is mounted in an EMPTY package directory — a fresh root, so the per-root cache
 // cannot answer from the loose load. Mutation: put the std::filesystem::is_directory check back in
 // ShadingModelRegistry::Scan and the scan fails here.
@@ -2358,8 +2358,8 @@ TEST( PackagedContent, ThePackagedGameReadsItsShadingModelsFromThePakAndWritesNo
     fs::current_path( staging );
     const auto loose = Desert::Core::ShadingModels::ShaderRootShadingModels();
     ASSERT_TRUE( loose->IsSuccess() ) << loose->GetError();
-    ASSERT_TRUE( fs::exists( stagedShaders / Desert::Core::ShadingModels::kGeneratedInclude ) )
-         << "the loose load writes the generated include the cook packs";
+    EXPECT_FALSE( fs::exists( stagedShaders / Desert::Core::ShadingModels::kGeneratedInclude ) )
+         << "the generated include is virtual; the loose load wrote it into the shader root";
 
     fs::create_directories( pkg );
     {

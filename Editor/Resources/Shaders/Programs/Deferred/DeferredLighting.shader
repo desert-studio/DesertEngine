@@ -80,7 +80,7 @@ Shader "DeferredLighting"
         #include <Mesh/LightSources.glslh>
         // THE lighting of this pass: the texel's shading model through the dispatch the registry generates. The
         // same two calls as the forward pass (Mesh/Surface/Pass_Forward.glslh); this shader names no model.
-        #include <ShadingModels/ShadingModels.generated.glslh>
+        #include <Generated/ShadingModels.glslh>
 
         // The directional (sun) Cook-Torrance contribution used to be a local copy of the BRDF right here,
         // with a comment recording that the raw albedo*NdotL*intensity Lambert made the sun ~PI× too bright

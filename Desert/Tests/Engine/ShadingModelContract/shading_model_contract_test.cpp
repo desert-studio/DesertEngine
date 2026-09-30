@@ -7,6 +7,7 @@
 // SurfaceOutput, a Guid-stable index — over the shipped files and over built-up manifests; they need the
 // implementation (ShadingModels/*.cpp, compiled in by the premake match).
 
+#include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>
 
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.hpp>
@@ -30,9 +31,7 @@ namespace
 
     std::filesystem::path ShaderRoot()
     {
-        std::filesystem::path here = std::filesystem::current_path();
-        for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" ); ++up )
-            here = here.parent_path();
+        const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
         return here / "Editor" / "Resources" / "Shaders";
     }
 

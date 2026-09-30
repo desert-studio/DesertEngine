@@ -20,6 +20,7 @@
 //      shape VulkanShader turns into a VkDescriptorSetLayout. The number this produces is the number
 //      the validation layer compares, so a shader that gains a binding is visible here first.
 
+#include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>
 
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
@@ -76,10 +77,7 @@ namespace
         static void SetUpTestSuite()
         {
             // The test binary lives in build/Bin/Tests/<config>; the shader root is Editor/Resources.
-            std::filesystem::path here = std::filesystem::current_path();
-            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" );
-                  ++up )
-                here = here.parent_path();
+            const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
 
             s_RepoRoot = here;
             ASSERT_TRUE( std::filesystem::exists( s_RepoRoot / "Editor" / "Resources" / "Shaders" ) )
@@ -2846,9 +2844,11 @@ TEST_F( ShaderRootFixture, TheGeneratedShadingModelIndicesAreTheRegistrys )
     const auto  held   = SM::ShaderRootShadingModels();
     const auto& models = *held;
     ASSERT_TRUE( models.IsSuccess() ) << models.GetError();
-    const auto header = std::filesystem::path( "Resources/Shaders" ) / SM::kGeneratedInclude;
-    const auto text   = ReadFile( header );
-    EXPECT_EQ( text, models.GetValue().GeneratedGlsl ) << header.string() << " is not the loaded set's text";
+    // The include is VIRTUAL (UE /Engine/Generated/): the includer serves the set's text and nothing is written
+    // into the engine resource tree. Mutation: write GeneratedGlsl to SHADERDIR_PATH / kGeneratedInclude again.
+    const auto header = Desert::Common::Constants::Path::SHADERDIR_PATH / SM::kGeneratedInclude;
+    EXPECT_FALSE( std::filesystem::exists( header ) ) << header.string() << " was written into the shader root";
+    const std::string& text = models.GetValue().GeneratedGlsl;
 
     std::map<std::string, int> defined; // every SHADING_MODEL_INDEX_* the header defines, by name
     std::istringstream         lines( text );

@@ -20,6 +20,7 @@
 // Every assertion is about the SHIPPED TEXT (Mesh/DirectLighting.glslh compiled as C++), and each picks
 // a property a missing 1/PI cannot have.
 
+#include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>
 
 #include "DirectLightingReference.hpp"
@@ -222,9 +223,7 @@ namespace
     std::filesystem::path ShaderRoot()
     {
         // The test binary lives in build/Bin/Tests/<config>; walk up to the repository root.
-        std::filesystem::path root = std::filesystem::current_path();
-        for ( int up = 0; up < 8 && !std::filesystem::exists( root / "Editor" / "Resources" / "Shaders" ); ++up )
-            root = root.parent_path();
+        const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
         return root / "Editor" / "Resources" / "Shaders";
     }
 

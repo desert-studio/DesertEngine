@@ -12,6 +12,7 @@
 // header is a valid header, git is a valid repository; what was broken was that nobody asserted they
 // were talking about the same commit. Assert the agreement, not either side.
 
+#include "../../TestSupport/scratch_dir.hpp"
 #include <Common/Core/Version.hpp>
 
 #include <gtest/gtest.h>
@@ -42,11 +43,7 @@ namespace
     {
         static const std::filesystem::path root = []() -> std::filesystem::path
         {
-            std::filesystem::path here = std::filesystem::current_path();
-            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Desert" / "Common" / "Source" /
-                                                                  "Common" / "Core" / "Version.cpp" );
-                  ++up )
-                here = here.parent_path();
+            const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
             return here;
         }();
         return root;

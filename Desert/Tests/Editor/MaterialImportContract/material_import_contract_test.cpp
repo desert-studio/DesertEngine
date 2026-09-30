@@ -2,6 +2,7 @@
 
 #include <Editor/Import/MaterialImportContract.hpp>
 
+#include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
 
 #include <cstdio>
@@ -130,15 +131,9 @@ TEST( MaterialImportContract, TheShippedTemplatesChooseByTheirOwnContracts )
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
-    // Parsing a surface template resolves its `ShadingModel` through the shading models of the engine's shader
-    // root, which the engine finds against the working directory; the runner starts the suite in its scratch
-    // directory, so the process works from the engine resources, as the editor does.
-    const Desert::TestSupport::EngineResourcesWorkingDirectory engineResources;
-    if ( !engineResources.Error().empty() )
-    {
-        std::fprintf( stderr, "MaterialImportContract: %s\n", engineResources.Error().c_str() );
-        return 1;
-    }
+    // The engine resources (the shader root and its shading models) hang off the engine directory the build baked
+    // in; the working directory is never consulted.
+    const Desert::TestSupport::EngineDirScope engineDir;
     return RUN_ALL_TESTS();
 }
 

@@ -19,6 +19,7 @@
 //   * the two paths' compositions are ONE call, and the forward path is the deferred one at zero
 //     indirect. That is the disagreement the owner saw, asserted directly.
 
+#include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>
 
 #include "AmbientIBLReference.hpp"
@@ -255,9 +256,7 @@ TEST( AmbientIBL, TheCompositionCarriesNoConstantTermOfItsOwn )
 TEST( AmbientIBL, BothRenderPathsReachTheirAmbientThroughTheOneSharedComposition )
 {
     // The test binary lives in build/Bin/Tests/<config>; walk up to the repository root.
-    std::filesystem::path root = std::filesystem::current_path();
-    for ( int up = 0; up < 8 && !std::filesystem::exists( root / "Editor" / "Resources" / "Shaders" ); ++up )
-        root = root.parent_path();
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
     ASSERT_TRUE( std::filesystem::exists( root / "Editor" / "Resources" / "Shaders" ) )
          << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
 

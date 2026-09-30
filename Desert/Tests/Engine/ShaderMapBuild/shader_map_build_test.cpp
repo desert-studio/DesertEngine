@@ -3,6 +3,7 @@
 // maps — metadata and every SPIR-V word — at the same index. Each side runs against its own empty derived
 // data cache, so neither reads what the other compiled.
 
+#include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
@@ -32,10 +33,7 @@ namespace
         static void SetUpTestSuite()
         {
             // Includes resolve against "Resources/Shaders/", relative: run from Editor/ as the editor does.
-            std::filesystem::path here = std::filesystem::current_path();
-            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" );
-                  ++up )
-                here = here.parent_path();
+            const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
             ASSERT_TRUE( std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" ) )
                  << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
             std::filesystem::current_path( here / "Editor" );

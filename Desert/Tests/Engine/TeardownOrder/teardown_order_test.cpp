@@ -16,6 +16,7 @@
 // to agree with each other, which is the defect class DEV_CONTRACT 2.3.1 says a unit test never catches
 // and a RELATION test does. The relations below are therefore read out of the source files themselves.
 
+#include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -34,9 +35,7 @@ namespace
     {
         static const std::filesystem::path root = []() -> std::filesystem::path
         {
-            std::filesystem::path here = std::filesystem::current_path();
-            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Desert" / "Desert" / "Source" ); ++up )
-                here = here.parent_path();
+            const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
             return here;
         }();
         return root;

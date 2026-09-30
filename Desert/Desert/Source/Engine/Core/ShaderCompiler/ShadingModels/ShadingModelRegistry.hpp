@@ -17,7 +17,7 @@
 //   * Any manifest refusal (ParseShadingModelManifest) refuses the whole scan: there is no partial registry,
 //     and no fallback model for a file that failed.
 //
-// Generated output — GenerateGlsl(), written to kGeneratedInclude — is, in order: #include of kContractInclude;
+// Generated output — GenerateGlsl(), served (virtually) as kGeneratedInclude — is, in order: #include of kContractInclude;
 // SHADING_MODEL_INDEX_<UPPER_SNAKE_NAME> per model; each model's body with Evaluate/EvaluateAmbient renamed to
 // <Name>_Evaluate/<Name>_EvaluateAmbient; the two dispatch switches; the shading-word pack/unpack and payload
 // quantization (ShadingModelContract.glslh lists the signatures). DeferredLighting.shader and the forward passes

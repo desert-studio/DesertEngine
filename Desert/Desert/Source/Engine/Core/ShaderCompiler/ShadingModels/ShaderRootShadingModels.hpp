@@ -4,16 +4,14 @@
 // (Common::Constants::Path::SHADERDIR_PATH), scanned once per root per process. Every consumer reaches the set
 // through here — the parser resolving a template's `ShadingModel <Name>`, the shader cache keys mixing the
 // Guid->index layout, the includer serving kGeneratedInclude — so the editor and DShaderTool cannot hold two
-// different sets, and the generated include is written before anything reads it.
+// different sets. The generated include is virtual: the includer answers it with the set's text, nothing is written.
 //
 // A failed scan is the answer for that root: every template, key and include that needs the set carries the
 // scan's error (there is no partial registry and no fallback model).
 //
 // READ THROUGH THE VFS, so the packaged game reads the set the cook shipped: the whole shader root (every
-// .shadingmodel, SurfaceTypes.glslh and kGeneratedInclude as the cook wrote it) is a PackagedContentTrees row
-// and lives in the pak, where no loose directory exists to scan. There the generated include already holds the
-// loaded set's bytes, so nothing is written; a pak whose include disagrees with its own models is refused by the
-// attempted write, naming the path.
+// .shadingmodel and SurfaceTypes.glslh) is a PackagedContentTrees row and lives in the pak, where no loose
+// directory exists to scan. The generated include is regenerated from those models, so it cannot disagree with them.
 //
 // ONE SET PER ROOT AT A TIME, replaced whole by ReloadShaderRootShadingModels (the editor's hot reload of a
 // .shadingmodel). Callers hold the shared_ptr for the length of one question, so a reload on another thread
@@ -32,20 +30,20 @@ namespace Desert::Core::ShadingModels
     struct LoadedShadingModels
     {
         ShadingModelRegistry Registry;
-        std::string          GeneratedGlsl;  // Registry.GenerateGlsl(), also written to kGeneratedInclude
+        std::string          GeneratedGlsl;  // Registry.GenerateGlsl(), the text the includer serves for kGeneratedInclude
         std::string          IndexLayoutKey; // Registry.IndexLayoutKey()
     };
 
     using ShaderRootSet = std::shared_ptr<const Common::ResultStr<LoadedShadingModels>>;
 
     // The set of the current shader root (SHADERDIR_PATH against the current directory). The first call for a
-    // root scans it and writes kGeneratedInclude beside the models when its bytes differ; later calls return
+    // root scans it (nothing is written: kGeneratedInclude is virtual); later calls return
     // the same object until a reload replaces it. Never null.
     ShaderRootSet ShaderRootShadingModels();
 
-    // Scans the current root again (a .shadingmodel was edited). Success replaces the set and rewrites
-    // kGeneratedInclude when its bytes changed, so every program including it is a changed program to the
-    // hot reload's include watch and a new key to the caches. A failed scan is returned and the previous set
+    // Scans the current root again (a .shadingmodel was edited). Success replaces the set, so every program
+    // including kGeneratedInclude is a changed program to the hot reload and a new key to the caches (both mix
+    // the set's text and layout). A failed scan is returned and the previous set
     // stays: a half-saved manifest must not unload every surface of a live editor.
     Common::BoolResultStr ReloadShaderRootShadingModels();
 

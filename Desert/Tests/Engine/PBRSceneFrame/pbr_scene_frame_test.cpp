@@ -24,6 +24,7 @@
 // None of it needs a device: the shaders are compiled with shaderc and reflected with the engine's own
 // reflection, exactly as Tests/Engine/ShaderCacheKey does.
 
+#include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>
 
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
@@ -72,10 +73,7 @@ namespace
     {
         static void SetUpTestSuite()
         {
-            std::filesystem::path here = std::filesystem::current_path();
-            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" );
-                  ++up )
-                here = here.parent_path();
+            const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
 
             ASSERT_TRUE( std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" ) )
                  << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();

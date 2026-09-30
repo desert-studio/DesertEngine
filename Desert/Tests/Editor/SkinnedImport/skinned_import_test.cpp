@@ -35,6 +35,7 @@
 
 #include "../../TestSupport/assets_sandbox.hpp"
 #include "../../TestSupport/derived_data_sandbox.hpp"
+#include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -181,10 +182,9 @@ namespace
         // seam the registry uses (read from the repository root, before the sandbox moves the process).
         static void SetUpTestSuite()
         {
-            // Parsing a template resolves its `ShadingModel` through the engine's shader root, found against
-            // the working directory: the reads below work from the engine resources, as the editor does.
-            const TestSupport::EngineResourcesWorkingDirectory engineResources;
-            ASSERT_TRUE( engineResources.Error().empty() ) << engineResources.Error();
+            // Parsing a template resolves its `ShadingModel` through the engine's shader root, which hangs off
+            // the engine directory the build baked in.
+            const TestSupport::EngineDirScope engineDir;
             std::vector<Editor::ImportTemplate> shipped;
             for ( const char* file : { "Editor/Resources/Shaders/Programs/PBR/StandardSurface.shader",
                                        "Editor/Resources/Shaders/Programs/Unlit/Unlit.shader" } )

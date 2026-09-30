@@ -159,6 +159,18 @@ namespace Desert::Core
                         WalkIncludes( *substituted, full, variant, visited, out, depth + 1 );
                         continue;
                     }
+                    // THE GENERATED SHADING-MODEL DISPATCH IS VIRTUAL (UE /Engine/Generated/): the loaded set's
+                    // text, served by the includer and never written to disk. Its own includes (the contract, the
+                    // models' code) are walked from that text, so editing them is a change like any header's.
+                    if ( requested == ShadingModels::kGeneratedInclude )
+                    {
+                        out.push_back( full );
+                        const auto  held   = ShadingModels::ShaderRootShadingModels();
+                        const auto& models = *held;
+                        if ( models.IsSuccess() )
+                            WalkIncludes( models.GetValue().GeneratedGlsl, full, variant, visited, out, depth + 1 );
+                        continue;
+                    }
                 }
 
                 const auto file = ReadShaderFileCached( full );
@@ -222,8 +234,8 @@ namespace Desert::Core
     {
         // THE SHADING-MODEL LAYOUT (ShadingModelRegistry::IndexLayoutKey): a program that includes the generated
         // dispatch was compiled against one Guid->index layout, and a set that gains a model may move the others'
-        // indices — so the layout is a key input of exactly the programs that include it. Loading the set first
-        // is also what writes the generated include before the include walk reads it.
+        // indices — so the layout is a key input of exactly the programs that include it. The generated text is
+        // mixed too: the include is virtual, so the file loop below has no bytes of it to hash.
         void MixShadingModelLayout( uint64_t& key, const std::filesystem::path& include )
         {
             if ( !include.generic_string().ends_with( ShadingModels::kGeneratedInclude ) )
@@ -235,6 +247,8 @@ namespace Desert::Core
             FnvMix( key, "|shadingmodels:" );
             FnvMix( key, models.IsSuccess() ? std::string_view( models.GetValue().IndexLayoutKey )
                                             : std::string_view( models.GetError() ) );
+            if ( models.IsSuccess() )
+                FnvMix( key, models.GetValue().GeneratedGlsl );
         }
     } // namespace
 
@@ -249,7 +263,6 @@ namespace Desert::Core
                                               const std::filesystem::path& requestingFile, bool spirvDebugInfo,
                                               const ShaderVariant& variant )
     {
-        (void)ShadingModels::ShaderRootShadingModels(); // writes the generated include before the walk reads it
         uint64_t key = kFnvOffset;
         FnvMix( key, kOptionsFingerprint );
         if ( spirvDebugInfo )
