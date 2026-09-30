@@ -285,14 +285,15 @@ TEST_F( SkinnedImport, TheSkinnedMeshNamesTheMaterialTheImportWrote )
                                               m_Outcome.WrittenMeshes.front().string() );
     ASSERT_TRUE( mesh.IsSuccess() ) << mesh.GetError();
     const std::filesystem::path demat = Editor::MaterialAdoption::MaterialAssetPath( m_Source, "Skin" );
-    const auto header = Common::Content::ReadAssetHeader( demat, Common::Content::AssetHeaderReadContext{ {}, true } );
+    const auto                  header =
+         Common::Content::ReadAssetHeader( demat, Common::Content::AssetHeaderReadContext{ {}, true } );
     ASSERT_TRUE( header.IsSuccess() ) << demat.string() << ": " << header.GetError();
     ASSERT_FALSE( mesh.GetValue().Submeshes.empty() );
     for ( const auto& submesh : mesh.GetValue().Submeshes )
     {
         EXPECT_FALSE( submesh.MaterialGuid.IsNull() ) << "a skinned submesh names no material";
-        EXPECT_EQ( submesh.MaterialGuid, header.GetValue().Guid ) << "the submesh names another material than "
-                                                                  << demat.string();
+        EXPECT_EQ( submesh.MaterialGuid, header.GetValue().Guid )
+             << "the submesh names another material than " << demat.string();
     }
 }
 
@@ -372,7 +373,8 @@ TEST_F( SkinnedImport, AReimportAtTenTimesTheScaleScalesMeshRigAndClipTogether )
     // The scale the reimport REALLY applied, printed (live, the log's "geometry scaled by 100" is the file's unit,
     // glTF metres -> cm, and says nothing of the record's Uniform Scale, which ApplySourceToEngine bakes after).
     const float applied = ( boxNow.Max.z - boxNow.Min.z ) / ( boxWas.Max.z - boxWas.Min.z );
-    std::printf( "[SkinnedImport] Uniform Scale 1 -> 10: the mesh's box grew x%g\n", static_cast<double>( applied ) );
+    std::printf( "[SkinnedImport] Uniform Scale 1 -> 10: the mesh's box grew x%g\n",
+                 static_cast<double>( applied ) );
     EXPECT_NEAR( applied, 10.0f, 1e-3f );
     EXPECT_NEAR( glm::length( ( boxNow.Max - boxNow.Min ) - 10.0f * ( boxWas.Max - boxWas.Min ) ), 0.0f, 1e-3f );
 
