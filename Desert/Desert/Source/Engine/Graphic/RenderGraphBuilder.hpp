@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RenderPass.hpp"
+#include "RenderPassDeclaration.hpp"
 #include "RenderPhase.hpp"
 #include "RenderGraphSort.hpp"
 #include "Pipeline.hpp"
@@ -34,6 +35,17 @@ namespace Desert::Graphic
             GraphicsPipelineSpecification     PipelineSpec;
             std::shared_ptr<Framebuffer>      TargetFramebuffer;
             std::vector<RenderPassDependency> Dependencies;
+
+            // WHAT THE PASS DECLARES TO THE FRAME GRAPH. Every pass with a TargetFramebuffer is a raster node of
+            // the frame graph: its targets are that framebuffer WHOLE (each colour as a ColorTarget, the depth as
+            // the DepthTarget, and at MSAA the image each colour resolves into as a ResolveTarget), and the graph
+            // opens the render pass around ExecuteFunc and merges it with neighbours on the same framebuffer.
+            // Declare names everything ELSE the pass's shaders touch: the images they sample, the buffers they
+            // read. It runs once per frame while the frame graph is built, before any ExecuteFunc, so it names
+            // this frame's resources. A pass whose shaders read nothing outside its target leaves it empty. What
+            // is not declared here gets no barrier: a sampled image left in a storage or attachment layout by an
+            // earlier node is a validation error, not a picture.
+            std::function<void( RenderPassDeclaration& )> Declare;
 
             // Optional per-pass color clear override. When unset the default (0.1 grey) is used. The
             // shadow pass needs 1.0 here so its R32F depth target clears to "far" (no occluder) — a 0.1
@@ -77,14 +89,16 @@ namespace Desert::Graphic
         // It is *not* a licence to encode a visual dependency in a call-site ordering hundreds of lines
         // away — if your pass must be over or under a specific neighbour, say so with `orderInPhase`,
         // and the coupling survives someone reshuffling Init.
-        void AddPass( const PassConfig& config );
-        void AddPass( const std::string& name, RenderPhaseID phase, std::function<void()> executeFunc,
-                      const GraphicsPipelineSpecification&     pipelineSpec      = {},
-                      std::shared_ptr<Framebuffer>             targetFramebuffer = nullptr,
-                      const std::vector<RenderPassDependency>& dependencies      = {},
-                      const std::optional<glm::vec4>&          clearColor        = std::nullopt,
-                      int32_t                                  orderInPhase      = RenderPassOrder::Default,
-                      const std::optional<float>&              clearDepth        = std::nullopt );
+        // Both hand back the stored pass, valid until the next AddPass, so a registration can set a field the
+        // short form has no parameter for in place: `builder.AddPass( ... ).Declare = ...;`.
+        PassConfig& AddPass( const PassConfig& config );
+        PassConfig& AddPass( const std::string& name, RenderPhaseID phase, std::function<void()> executeFunc,
+                             const GraphicsPipelineSpecification&     pipelineSpec      = {},
+                             std::shared_ptr<Framebuffer>             targetFramebuffer = nullptr,
+                             const std::vector<RenderPassDependency>& dependencies      = {},
+                             const std::optional<glm::vec4>&          clearColor        = std::nullopt,
+                             int32_t                                  orderInPhase      = RenderPassOrder::Default,
+                             const std::optional<float>&              clearDepth        = std::nullopt );
 
         void AddPhaseDependency( RenderPhaseID requiredPhase, RenderPhaseID dependentPhase );
         void AddTextureDependency( const std::string& textureName,

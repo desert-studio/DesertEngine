@@ -6,6 +6,7 @@
 
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/RenderPassDeclaration.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
@@ -447,6 +448,9 @@ namespace Desert::Graphic
         /// records, so every pass in the frame may ask. Returns the default (disabled, no map) whenever
         /// the layer is absent, off, not casting or at zero strength.
         CloudShadowInput GetCloudShadowInput() const;
+        // The shadow images a lit pass samples: every valid cascade of the directional shadow, and the cloud
+        // layer's shadow map. A system whose materials receive shadows calls this from its pass's Declare.
+        void DeclareShadowReads( RenderPassDeclaration& declared ) const;
 
     private:
         // Everything this view keeps per frame in flight, keyed by the shared resource it copies; its name is
@@ -506,8 +510,7 @@ namespace Desert::Graphic
         // @p samples are graph images those passes sample (the UI samples the backdrop pyramid); each render
         // pass group's opener declares them, so their barriers land before the render pass begins.
         void AddGraphPhasePasses( RDG::Builder& graph, LegacyFrameTextures& textures,
-                                  bool ( *selects )( RenderPhaseID ), bool  clearFirst,
-                                  const std::vector<RDG::TextureRef>& samples = {} );
+                                  bool ( *selects )( RenderPhaseID ), bool  clearFirst );
         // Exponential height fog: the closed-form COMPUTE evaluation. Called between the deferred block
         // and the Transparency-phase passes — the one point in the frame where the scene depth is finished in
         // BOTH paths and no render pass is open (an in-frame dispatch inside one is illegal). Its apply

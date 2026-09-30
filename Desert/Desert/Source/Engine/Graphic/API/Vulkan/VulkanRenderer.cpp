@@ -615,19 +615,10 @@ namespace Desert::Graphic::API::Vulkan
         const_cast<VulkanPipelineCompute*>( static_cast<const VulkanPipelineCompute*>( pipeline ) )
              ->RecordInFrame( m_CurrentCommandBuffer, groupCountX, groupCountY, groupCountZ );
 
-        // Make the cull's storage writes (visible-instance buffer + the indirect args' instanceCount)
-        // available + visible to the VERTEX stage (reads visible[]) and to the DRAW_INDIRECT stage.
-        // Its one caller is the particle simulation, whose node ("Particles: Simulate") declares its buffers
-        // StorageWrite; the reader, the billboard draw, is still in the Transparency bridge and declares
-        // nothing. L5 makes ParticlePass a node with Read(particles, StorageRead) and removes THIS barrier in
-        // the same change (the graph then places it); until then removing it leaves the draw unsynchronised.
-        VkMemoryBarrier barrier{ .sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-                                 .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-                                 .dstAccessMask = VK_ACCESS_SHADER_READ_BIT |
-                                                  VK_ACCESS_INDIRECT_COMMAND_READ_BIT };
-        vkCmdPipelineBarrier( m_CurrentCommandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                              VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 1,
-                              &barrier, 0, nullptr, 0, nullptr );
+        // No barrier here. Its one caller is the particle simulation, a graph node ("Particles: Simulate") that
+        // declares its buffers StorageWrite, and the billboard draw (ParticlePass) declares them StorageRead: the
+        // frame graph places the compute -> vertex barrier between the two, and the one back before the next
+        // write.
     }
 
     void VulkanRendererAPI::DispatchComputeInFrame( const ComputePipeline* pipeline, uint32_t groupCountX,

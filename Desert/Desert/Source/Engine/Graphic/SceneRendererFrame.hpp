@@ -3,6 +3,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
+#include <Engine/Graphic/RenderPassDeclaration.hpp>
 #include <Engine/Graphic/PostProcessing/LightShaftRules.hpp>
 
 #include <format>
@@ -58,7 +59,7 @@ namespace Desert::Graphic
         // the graph writes its final layout back (Renderer::ImportImage), so the passes that are not graph
         // nodes and the next frame find the layout the graph left. @p final, when given, is the state the graph
         // leaves the image in at its end. The first registration of an image wins, as for Refs.
-        RDG::TextureRef Import( const std::shared_ptr<Image2D>& image, std::string_view name,
+        RDG::TextureRef Import( const std::shared_ptr<Image>& image, std::string_view name,
                                 std::optional<RDG::Access> final = std::nullopt )
         {
             if ( !image )
@@ -151,7 +152,7 @@ namespace Desert::Graphic
 
         RDG::Builder&                                      m_Graph;
         std::vector<std::unique_ptr<RDG::ExternalTexture>> m_Storage; // outlive Execute: the graph points at them
-        std::map<const Image2D*, RDG::TextureRef>          m_Refs;
+        std::map<const Image*, RDG::TextureRef>            m_Refs;
     };
 
     // What one legacy pass hands a later one inside the same frame graph (the passes run at Execute).
@@ -162,6 +163,86 @@ namespace Desert::Graphic
         std::shared_ptr<Image2D> SceneCopy;
         SunScreen                Sun{ glm::vec2( 0.5f ), 0.0f };
     };
+
+    // The graph textures of every image @p declared names, in order, each through the frame's one import of it
+    // (LegacyFrameTextures::Import, so the node and every other node naming the image share one graph texture). An
+    // image or a buffer the graph does not know refuses the node: false, the error logged naming @p node, and the
+    // caller adds nothing. A node is never added half-declared.
+    inline bool ResolveDeclared( LegacyFrameTextures& textures, const RenderPassDeclaration& declared,
+                                 std::string_view node, std::vector<RDG::TextureRef>& images )
+    {
+        images.clear();
+        for ( const RenderPassDeclaration::ImageUse& use : declared.Images() )
+        {
+            const std::string name =
+                 use.Name.empty() ? std::format( "{}.Image{}", node, images.size() ) : use.Name;
+            const RDG::TextureRef ref = textures.Import( use.Image, name );
+            if ( !ref.IsValid() )
+            {
+                LOG_ERROR( "[SceneRenderer] '{}' is not recorded: the frame graph cannot import the image '{}' it "
+                           "declares",
+                           node, name );
+                return false;
+            }
+            images.push_back( ref );
+        }
+        for ( const RenderPassDeclaration::BufferUse& use : declared.Buffers() )
+            if ( !use.Buffer.IsValid() )
+            {
+                LOG_ERROR(
+                     "[SceneRenderer] '{}' is not recorded: it declares a buffer the frame graph was not given",
+                     node );
+                return false;
+            }
+        return true;
+    }
+
+    // Every entry of @p declared on @p pass; @p images are ResolveDeclared's graph textures of its images.
+    inline void DeclareOn( RDG::PassBuilder& pass, const std::vector<RDG::TextureRef>& images,
+                           const RenderPassDeclaration& declared )
+    {
+        const std::vector<RenderPassDeclaration::ImageUse>& uses = declared.Images();
+        for ( size_t i = 0; i < uses.size(); ++i )
+        {
+            if ( uses[i].Writes )
+                pass.Write( images[i], uses[i].Access );
+            else
+                pass.Read( images[i], uses[i].Access );
+        }
+        for ( const RenderPassDeclaration::BufferUse& use : declared.Buffers() )
+        {
+            if ( use.Writes )
+                pass.Write( use.Buffer, use.Access );
+            else
+                pass.Read( use.Buffer, use.Access );
+        }
+    }
+
+    // A system's compute work of this frame, one Compute node per entry in the order given, each declaring exactly
+    // what its entry names; the graph places every barrier between them and around them. All or nothing: when one
+    // entry cannot be declared none is added (a later dispatch would read what the refused one did not write), and
+    // the error names the node. NeverCull: the bodies also advance the system's own per-frame state (history
+    // index, frame counters) the graph cannot see.
+    inline void AddComputeNodes( RDG::Builder& graph, LegacyFrameTextures& textures,
+                                 std::vector<ComputeNodeDeclaration> nodes )
+    {
+        std::vector<std::vector<RDG::TextureRef>> images( nodes.size() );
+        for ( size_t i = 0; i < nodes.size(); ++i )
+            if ( !ResolveDeclared( textures, nodes[i].Access, nodes[i].Name, images[i] ) )
+                return;
+        for ( size_t i = 0; i < nodes.size(); ++i )
+        {
+            ComputeNodeDeclaration& node = nodes[i];
+            graph.AddPass(
+                 node.Name, RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
+                 [&]( RDG::PassBuilder& pass ) { DeclareOn( pass, images[i], node.Access ); },
+                 [record = std::move( node.Record )]( RDG::PassContext& ) -> Common::BoolResultStr
+                 {
+                     record();
+                     return BOOLSUCCESS;
+                 } );
+        }
+    }
 
     inline void AddLegacy( RDG::Builder& graph, std::string_view name, const std::vector<RDG::TextureRef>& reads,
                            const std::vector<RDG::TextureRef>& writes, std::function<void()> body )

@@ -12,7 +12,7 @@ namespace Desert::Graphic
     {
     }
 
-    void RenderGraphBuilder::AddPass( const PassConfig& config )
+    RenderGraphBuilder::PassConfig& RenderGraphBuilder::AddPass( const PassConfig& config )
     {
         PassConfig stored        = config;
         stored.RegistrationIndex = m_NextRegistrationIndex++;
@@ -21,16 +21,16 @@ namespace Desert::Graphic
                    RenderPhaseToString( stored.Phase ), stored.OrderInPhase, stored.RegistrationIndex,
                    stored.Dependencies.size() );
 
-        m_PhasePasses[stored.Phase].push_back( std::move( stored ) );
+        std::vector<PassConfig>& phase = m_PhasePasses[stored.Phase];
+        phase.push_back( std::move( stored ) );
+        return phase.back();
     }
 
-    void RenderGraphBuilder::AddPass( const std::string& name, RenderPhaseID phase,
-                                      std::function<void()>                    executeFunc,
-                                      const GraphicsPipelineSpecification&     pipelineSpec,
-                                      std::shared_ptr<Framebuffer>             targetFramebuffer,
-                                      const std::vector<RenderPassDependency>& dependencies,
-                                      const std::optional<glm::vec4>& clearColor, int32_t orderInPhase,
-                                      const std::optional<float>& clearDepth )
+    RenderGraphBuilder::PassConfig& RenderGraphBuilder::AddPass(
+         const std::string& name, RenderPhaseID phase, std::function<void()> executeFunc,
+         const GraphicsPipelineSpecification& pipelineSpec, std::shared_ptr<Framebuffer> targetFramebuffer,
+         const std::vector<RenderPassDependency>& dependencies, const std::optional<glm::vec4>& clearColor,
+         int32_t orderInPhase, const std::optional<float>& clearDepth )
     {
         PassConfig config;
         config.Name              = name;
@@ -43,7 +43,7 @@ namespace Desert::Graphic
         config.OrderInPhase      = orderInPhase;
         config.ClearDepth        = clearDepth;
 
-        AddPass( config );
+        return AddPass( config );
     }
 
     void RenderGraphBuilder::AddPhaseDependency( RenderPhaseID requiredPhase, RenderPhaseID dependentPhase )

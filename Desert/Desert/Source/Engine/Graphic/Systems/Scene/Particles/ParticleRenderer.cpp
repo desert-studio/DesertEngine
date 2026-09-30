@@ -310,11 +310,10 @@ namespace Desert::Graphic::System
 
             const uint32_t groups =
                  ( static_cast<uint32_t>( fe.Gpu->MaxParticles ) + kParticleLocalSize - 1 ) / kParticleLocalSize;
-            // The graph node that runs this ("Particles: Simulate") declares both buffers StorageWrite, so the
-            // graph orders this write after the previous frame's. The READER, the billboard draw, is still
-            // inside the Transparency bridge and declares nothing until L5 makes ParticlePass a node with
-            // Read(particles, StorageRead). Until then DispatchComputeCull (not InFrame) keeps its own
-            // compute -> vertex|indirect barrier; L5 removes that barrier together with adding the declaration.
+            // The graph node that runs this ("Particles: Simulate") declares both buffers StorageWrite, and the
+            // billboard draw (ParticlePass) declares the state StorageRead, so the graph places the compute ->
+            // vertex barrier between them and the vertex -> compute one before the next frame's write.
+            // DispatchComputeCull records the dispatch alone: no barrier of its own.
             renderer.DispatchComputeCull( m_SimPipeline.get(), groups, 1, 1 );
         }
     }
@@ -344,7 +343,8 @@ namespace Desert::Graphic::System
                            i, counter.GetError() );
                 continue;
             }
-            written.push_back( graph.RegisterExternal( fe.ParticlesImport, std::format( "ParticleState{}", i ) ) );
+            fe.ParticlesRef = graph.RegisterExternal( fe.ParticlesImport, std::format( "ParticleState{}", i ) );
+            written.push_back( fe.ParticlesRef );
             written.push_back( graph.RegisterExternal( fe.CounterImport, std::format( "ParticleSpawn{}", i ) ) );
             fe.Declared = true;
         }
@@ -357,30 +357,41 @@ namespace Desert::Graphic::System
         if ( !targetFb || !m_AddPipeline )
             return;
 
-        builder.AddPass(
-             "ParticlePass", RenderPhase::Transparency,
-             [this]()
-             {
-                 if ( m_FrameEmitters.empty() )
-                     return;
-                 const auto camera = m_SceneRenderer->GetMainCamera();
-                 if ( !camera )
-                     return;
+        builder
+             .AddPass(
+                  "ParticlePass", RenderPhase::Transparency,
+                  [this]()
+                  {
+                      if ( m_FrameEmitters.empty() )
+                          return;
+                      const auto camera = m_SceneRenderer->GetMainCamera();
+                      if ( !camera )
+                          return;
 
-                 auto& renderer = Renderer::GetInstance();
-                 for ( auto& fe : m_FrameEmitters )
-                 {
-                     if ( !fe.Gpu || !fe.Gpu->Particles || !fe.Gpu->Material )
-                         continue;
-                     // Each emitter updates and draws ITS OWN material: a shared one here routed every
-                     // emitter through one descriptor set, which is written at most once per frame — so
-                     // every emitter after the first drew the first one's buffer.
-                     fe.Gpu->Material->Update( camera, fe.Gpu->Particles );
-                     auto* pipeline = fe.Additive ? m_AddPipeline.get() : m_AlphaPipeline.get();
-                     renderer.SubmitVertices( pipeline, static_cast<uint32_t>( fe.Gpu->MaxParticles ) * 6u,
-                                              fe.Gpu->Material->GetMaterialExecutor() );
-                 }
-             },
-             m_AddPipeline->GetSpecification(), targetFb, { RenderPassDependency( RenderPhase::Geometry ) } );
+                      auto& renderer = Renderer::GetInstance();
+                      for ( auto& fe : m_FrameEmitters )
+                      {
+                          // An emitter the graph was not told about is neither simulated nor drawn.
+                          if ( !fe.Declared || !fe.Gpu || !fe.Gpu->Particles || !fe.Gpu->Material )
+                              continue;
+                          // Each emitter updates and draws ITS OWN material: a shared one here routed every
+                          // emitter through one descriptor set, which is written at most once per frame — so
+                          // every emitter after the first drew the first one's buffer.
+                          fe.Gpu->Material->Update( camera, fe.Gpu->Particles );
+                          auto* pipeline = fe.Additive ? m_AddPipeline.get() : m_AlphaPipeline.get();
+                          renderer.SubmitVertices( pipeline, static_cast<uint32_t>( fe.Gpu->MaxParticles ) * 6u,
+                                                   fe.Gpu->Material->GetMaterialExecutor() );
+                      }
+                  },
+                  m_AddPipeline->GetSpecification(), targetFb, { RenderPassDependency( RenderPhase::Geometry ) } )
+             .Declare = [this]( RenderPassDeclaration& declared )
+        {
+            // The billboards read each emitter's integrated state in the vertex stage: StorageRead, so the graph
+            // places the compute -> vertex barrier after "Particles: Simulate" (and the vertex -> compute one
+            // before next frame's simulation).
+            for ( const FrameEmitter& fe : m_FrameEmitters )
+                if ( fe.Declared )
+                    declared.Read( fe.ParticlesRef, RDG::Access::StorageRead );
+        };
     }
 } // namespace Desert::Graphic::System

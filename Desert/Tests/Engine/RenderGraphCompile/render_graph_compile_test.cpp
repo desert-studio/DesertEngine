@@ -1991,3 +1991,102 @@ TEST( RenderGraphCompile, ParticleSimulationIsAComputeNodeTheGraphKeeps )
     EXPECT_EQ( runs, 2 );
     EXPECT_EQ( state.State, GetAccessState( Access::StorageWrite ) );
 }
+
+namespace
+{
+    // The file at @p relative under the repository root with every whitespace character removed, so a needle is
+    // independent of the formatter's line breaks.
+    std::string SqueezedSource( const fs::path& root, const char* relative )
+    {
+        std::ifstream file( root / relative );
+        EXPECT_TRUE( file ) << relative << " is gone";
+        std::string text( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
+        text.erase(
+             std::remove_if( text.begin(), text.end(), []( unsigned char c ) { return std::isspace( c ) != 0; } ),
+             text.end() );
+        return text;
+    }
+
+    // The squeezed body of the definition that starts with @p signature, up to the next definition of its class.
+    std::string SqueezedBody( const std::string& text, std::string_view signature, std::string_view next )
+    {
+        const size_t begin = text.find( signature );
+        if ( begin == std::string::npos )
+            return {};
+        const size_t end = text.find( next, begin + signature.size() );
+        return text.substr( begin, end == std::string::npos ? std::string::npos : end - begin );
+    }
+} // namespace
+
+// THE PHASE PASSES ARE REAL GRAPH NODES THAT DECLARE THEIR TARGETS (RDG-LEG1-L5a). The AddGraphPhasePasses bridge
+// no longer opens the engine's render pass around a legacy wrapper: every registered pass is a Raster node whose
+// targets are its framebuffer whole (ColorTarget / DepthTarget / ResolveTarget), whose reads are what the system
+// names in RenderGraphBuilder::PassConfig::Declare, and whose render pass the graph opens and merges. Each system
+// declares its own reads where it registers the pass, the editor's external passes through
+// ExternalPassSpecification::Declare, and DispatchComputeCull records no barrier of its own any more (the particle
+// draw declares its StorageRead).
+TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const char* graphic = "Desert/Desert/Source/Engine/Graphic/";
+    const auto  source  = [&]( std::string_view relative )
+    { return SqueezedSource( root, std::format( "{}{}", graphic, relative ).c_str() ); };
+
+    const std::string sceneRenderer = source( "SceneRenderer.cpp" );
+    EXPECT_EQ( sceneRenderer.find( "AddLegacy(" ), std::string::npos ) << "SceneRenderer.cpp adds a legacy pass";
+    EXPECT_EQ( sceneRenderer.find( "BeginRenderPass(pass->CachedRenderPass" ), std::string::npos )
+         << "the bridge still opens the engine render pass itself";
+
+    const std::string bridge = SqueezedBody( source( "SceneRendererFrameMesh.cpp" ),
+                                             "voidSceneRenderer::AddGraphPhasePasses(", "voidSceneRenderer::" );
+    ASSERT_FALSE( bridge.empty() ) << "no AddGraphPhasePasses in SceneRendererFrameMesh.cpp";
+    for ( const char* needle :
+          { "RDG::PassFlags::Raster", "pass.Declare(declared)",
+            "ResolveDeclared(textures,declared,pass.Name,images)", "DeclareOn(node,images,declared)",
+            "node.ColorTarget(slot,targets->Colors[slot],color)", "node.DepthTarget(targets->Depth,depth)",
+            "node.ResolveTarget(slot,targets->Resolves[slot])",
+            "RDG::LoadOp::ClearDepth(spec.ClearColor.DepthStencil.x)" } )
+        EXPECT_NE( bridge.find( needle ), std::string::npos ) << "the phase pass node does not " << needle;
+    EXPECT_EQ( bridge.find( "AddLegacy(" ), std::string::npos );
+    EXPECT_EQ( bridge.find( "BeginRenderPass(" ), std::string::npos );
+    EXPECT_EQ( bridge.find( "EndRenderPass(" ), std::string::npos );
+
+    // The declaration lives on the pass registration, not in a list in SceneRenderer.
+    EXPECT_NE( source( "RenderGraphBuilder.hpp" ).find( "std::function<void(RenderPassDeclaration&)>Declare;" ),
+               std::string::npos );
+    EXPECT_NE( source( "ExternalRenderPass.hpp" )
+                    .find( "std::function<void(RenderPassDeclaration&,constExternalPassContext&)>Declare;" ),
+               std::string::npos );
+
+    // Each system names what its pass samples, in its own RegisterPasses.
+    const std::pair<const char*, const char*> declared[] = {
+         { "Systems/Scene/Skybox/SkyboxRenderer.cpp", "declared.Read(m_SkyViewLut,RDG::Access::SampledGraphics" },
+         { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
+           "declared.Read(m_TransmittanceLut,RDG::Access::SampledGraphics" },
+         { "Systems/Scene/Mesh/MeshRenderer.cpp", "m_SceneRenderer->DeclareShadowReads(declared)" },
+         { "Systems/Scene/Terrain/TerrainRenderer.cpp", "m_SceneRenderer->DeclareShadowReads(declared)" },
+         { "Systems/Scene/Particles/ParticleRenderer.cpp",
+           "declared.Read(fe.ParticlesRef,RDG::Access::StorageRead)" },
+         { "Systems/Scene/Fog/HeightFogRenderer.cpp", "declared.Read(m_FogImage,RDG::Access::SampledGraphics" },
+         { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
+           "declared.Read(m_HistoryImage[m_ResolvedIndex],RDG::Access::SampledGraphics" },
+         { "SceneRenderer.cpp", "declared.Read(mesh->GetCascadeShadowImage(c),RDG::Access::SampledGraphics" },
+         { "SceneRenderer.cpp", "declared.Read(clouds->GetShadowMap(),RDG::Access::SampledGraphics" } };
+    for ( const auto& [file, needle] : declared )
+        EXPECT_NE( source( file ).find( needle ), std::string::npos ) << file << " does not declare " << needle;
+
+    // The editor's UI pass declares the backdrop pyramid it samples (no blanket write, no phase-wide sample list).
+    EXPECT_NE(
+         SqueezedSource( root, "Editor/Source/Editor/RenderSystems/Passes/EditorUIPass.cpp" )
+              .find( "declared.Read(ctx.Renderer->GetBackdropBlurImage(),Graphic::RDG::Access::SampledGraphics" ),
+         std::string::npos );
+
+    // The particle simulation's dispatch records no barrier: the graph places it between the declared write and
+    // read.
+    const std::string cull =
+         SqueezedBody( source( "API/Vulkan/VulkanRenderer.cpp" ), "voidVulkanRendererAPI::DispatchComputeCull(",
+                       "voidVulkanRendererAPI::" );
+    ASSERT_FALSE( cull.empty() );
+    EXPECT_EQ( cull.find( "vkCmdPipelineBarrier" ), std::string::npos ) << "DispatchComputeCull still barriers";
+}

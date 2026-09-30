@@ -53,5 +53,10 @@ namespace Desert::Graphic
         GraphicsPipelineSpecification PipelineSpecification;
 
         std::function<void( const ExternalPassContext& )> Execute;
+
+        // What the pass samples besides its target (the scene framebuffer, declared whole by the graph): each
+        // engine image its shaders read, e.g. the UI's backdrop pyramid. It runs while the frame graph is built,
+        // with the same context Execute gets. Leave it empty when the pass reads nothing but what it draws over.
+        std::function<void( RenderPassDeclaration&, const ExternalPassContext& )> Declare;
     };
 } // namespace Desert::Graphic

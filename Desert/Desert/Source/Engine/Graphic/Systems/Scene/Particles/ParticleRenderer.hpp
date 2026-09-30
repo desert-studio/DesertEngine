@@ -126,6 +126,7 @@ namespace Desert::Graphic::System
             // whether both were imported: SimulateInFrame dispatches only a declared emitter.
             RDG::ExternalBuffer ParticlesImport;
             RDG::ExternalBuffer CounterImport;
+            RDG::BufferRef      ParticlesRef; // this frame's graph handle of ParticlesImport, read by ParticlePass
             bool                Declared = false;
         };
 

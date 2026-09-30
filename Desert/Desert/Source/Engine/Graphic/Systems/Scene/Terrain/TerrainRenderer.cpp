@@ -380,22 +380,25 @@ namespace Desert::Graphic::System
 
         // Same Geometry phase + scene framebuffer as the meshes: merges into the open render pass
         // (depth shared, no clear) so terrain and meshes depth-resolve against each other.
-        builder.AddPass( "TerrainPass", RenderPhase::Geometry,
-                         [this]()
-                         {
-                             // Forward path only. In Deferred the terrain is in the G-buffer (RenderGBufferManual)
-                             // and lit by the composite; drawing it here too would light the ground twice, two
-                             // different ways.
-                             if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred )
-                                 return;
-                             const auto* camera = m_SceneRenderer->GetMainCamera();
-                             if ( ( camera == nullptr ) || m_FrameDraws.empty() )
-                                 return;
-                             RecordDraws( m_Pipeline.get(), &ProgramMaterials::Forward,
-                                          camera->GetProjectionMatrix() * camera->GetViewMatrix() );
-                         },
-                         m_Pipeline->GetSpecification(), targetFb,
-                         { RenderPassDependency( RenderPhase::DepthPrePass ) } );
+        builder
+             .AddPass( "TerrainPass", RenderPhase::Geometry,
+                       [this]()
+                       {
+                           // Forward path only. In Deferred the terrain is in the G-buffer (RenderGBufferManual)
+                           // and lit by the composite; drawing it here too would light the ground twice, two
+                           // different ways.
+                           if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred )
+                               return;
+                           const auto* camera = m_SceneRenderer->GetMainCamera();
+                           if ( ( camera == nullptr ) || m_FrameDraws.empty() )
+                               return;
+                           RecordDraws( m_Pipeline.get(), &ProgramMaterials::Forward,
+                                        camera->GetProjectionMatrix() * camera->GetViewMatrix() );
+                       },
+                       m_Pipeline->GetSpecification(), targetFb,
+                       { RenderPassDependency( RenderPhase::DepthPrePass ) } )
+             .Declare = [this]( RenderPassDeclaration& declared )
+        { m_SceneRenderer->DeclareShadowReads( declared ); };
     }
 
     void TerrainRenderer::RenderGBufferManual()

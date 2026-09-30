@@ -217,31 +217,34 @@ namespace Desert::Graphic::System
             return;
         }
 
-        builder.AddPass( "MeshGeometryPass", RenderPhase::Geometry,
-                         [this]()
-                         {
-                             // Forward path only. In Deferred, meshes are drawn into the G-buffer by
-                             // MeshGBufferPass instead (this target keeps sky/grid/terrain for compositing).
-                             if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred &&
-                                  m_StaticGBufferPipeline )
-                                 return;
+        builder
+             .AddPass( "MeshGeometryPass", RenderPhase::Geometry,
+                       [this]()
+                       {
+                           // Forward path only. In Deferred, meshes are drawn into the G-buffer by
+                           // MeshGBufferPass instead (this target keeps sky/grid/terrain for compositing).
+                           if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred &&
+                                m_StaticGBufferPipeline )
+                               return;
 
-                             const auto camera = m_SceneRenderer->GetMainCamera();
-                             if ( !camera )
-                                 return;
+                           const auto camera = m_SceneRenderer->GetMainCamera();
+                           if ( !camera )
+                               return;
 
-                             // `UpdateGlobalUniforms( camera, points, directionals )` used to be called
-                             // here. Its entire body was `if ( !camera ) return;` — it read neither light
-                             // set, which is what `-Wunused-parameter` reported about both. The lights
-                             // reach the shaders through the material executors' uniform blocks, and the
-                             // two `GetXLights()` calls that fed this one were a per-frame walk of the
-                             // scene's light components for nothing.
-                             DrawStaticMeshes();
-                             DrawSkinnedMeshes();
-                             DrawGenericMeshes();
-                         },
-                         m_StaticPipeline->GetSpecification(), targetFb,
-                         { RenderPassDependency( RenderPhase::DepthPrePass ) } );
+                           // `UpdateGlobalUniforms( camera, points, directionals )` used to be called
+                           // here. Its entire body was `if ( !camera ) return;` — it read neither light
+                           // set, which is what `-Wunused-parameter` reported about both. The lights
+                           // reach the shaders through the material executors' uniform blocks, and the
+                           // two `GetXLights()` calls that fed this one were a per-frame walk of the
+                           // scene's light components for nothing.
+                           DrawStaticMeshes();
+                           DrawSkinnedMeshes();
+                           DrawGenericMeshes();
+                       },
+                       m_StaticPipeline->GetSpecification(), targetFb,
+                       { RenderPassDependency( RenderPhase::DepthPrePass ) } )
+             .Declare = [this]( RenderPassDeclaration& declared )
+        { m_SceneRenderer->DeclareShadowReads( declared ); };
 
         // NOTE: the deferred G-buffer geometry is NOT a graph pass — it's rendered MANUALLY via
         // RenderGBufferManual() (called from SceneRenderer when Deferred). A graph pass targeting the G-buffer

@@ -2111,6 +2111,17 @@ namespace Desert::Graphic::System
         // Stated here, on the pass itself, rather than implied by the order of the RegisterSystem calls —
         // that ordering is a tie-break, not a contract, and it moves when an unrelated system is added.
         config.OrderInPhase = RenderPassOrder::FarField;
+        // The composite samples the reconstruction the resolve node wrote this frame (m_ResolvedIndex is decided
+        // when the cloud nodes are declared, before this runs).
+        config.Declare = [this]( RenderPassDeclaration& declared )
+        {
+            if ( !m_HasFrameResult )
+                return;
+            declared.Read( m_HistoryImage[m_ResolvedIndex], RDG::Access::SampledGraphics,
+                           std::format( "Clouds.History{}", m_ResolvedIndex ) );
+            declared.Read( m_HistoryGuideImage[m_ResolvedIndex], RDG::Access::SampledGraphics,
+                           std::format( "Clouds.HistoryGuide{}", m_ResolvedIndex ) );
+        };
 
         builder.AddPass( config );
     }

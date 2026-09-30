@@ -862,8 +862,19 @@ namespace Desert::Graphic::System
         if ( !targetFb )
             return;
 
-        builder.AddPass( "SkyboxPass", RenderPhase::Sky, [this]() { Render(); },
-                         m_Pipeline ? m_Pipeline->GetSpecification() : GraphicsPipelineSpecification{}, targetFb );
+        builder
+             .AddPass(
+                  "SkyboxPass", RenderPhase::Sky, [this]() { Render(); },
+                  m_Pipeline ? m_Pipeline->GetSpecification() : GraphicsPipelineSpecification{}, targetFb )
+             .Declare = [this]( RenderPassDeclaration& declared )
+        {
+            // The procedural sky samples the transmittance and sky-view LUTs (Render); SkyAtmosphereLuts writes
+            // them as storage images, last frame's at this point of the frame.
+            if ( !m_BackdropVisible || !m_UseProceduralSky )
+                return;
+            declared.Read( m_TransmittanceLut, RDG::Access::SampledGraphics, "Sky.TransmittanceLut" );
+            declared.Read( m_SkyViewLut, RDG::Access::SampledGraphics, "Sky.SkyViewLut" );
+        };
     }
 
     void SkyboxRenderer::Render()

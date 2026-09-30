@@ -844,6 +844,14 @@ namespace Desert::Graphic
                                    compositeReads );
             }
 
+            {
+                // The lighting pass shades with the cascades and the cloud layer's shadow map.
+                RenderPassDeclaration shadows;
+                DeclareShadowReads( shadows );
+                std::vector<RDG::TextureRef> shadowMaps;
+                if ( ResolveDeclared( textures, shadows, "Deferred: Composite", shadowMaps ) )
+                    compositeReads.insert( compositeReads.end(), shadowMaps.begin(), shadowMaps.end() );
+            }
             AddFrameComposite( graph, textures, compositeReads, meshRenderer, lightDir, lightColor, cameraPos,
                                values );
             AddFrameGeneric( graph, textures, meshRenderer );
@@ -884,16 +892,13 @@ namespace Desert::Graphic
         AddGraphPhasePasses(
              graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::Debug; }, false );
 
-        std::vector<RDG::TextureRef> uiSamples;
+        // The pyramid the UI samples. The UI pass that samples it declares that read itself (the editor's UI pass,
+        // through ExternalPassSpecification::Declare), and the graph orders it after the blur.
         if ( m_BackdropBlurNeeded )
-        {
-            if ( const RDG::TextureRef backdrop = AddFrameBackdropBlur( graph, textures, sceneColor() );
-                 backdrop.IsValid() )
-                uiSamples.push_back( backdrop );
-        }
+            AddFrameBackdropBlur( graph, textures, sceneColor() );
 
         AddGraphPhasePasses(
-             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::UI; }, false, uiSamples );
+             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::UI; }, false );
 
         AddFrameJumpFlood( graph, textures );
         AddFrameAutoExposure( graph, textures, sceneColor() );
@@ -1358,25 +1363,35 @@ namespace Desert::Graphic
                 if ( !target || !m_Spec.Execute )
                     return;
 
-                builder.AddPass(
-                     m_Spec.Name, m_Spec.Phase,
-                     [this]()
-                     {
-                         const auto&         target = m_Renderer->GetTargetFramebuffer();
-                         ExternalPassContext ctx;
-                         ctx.Camera       = m_Renderer->GetMainCamera();
-                         ctx.Target       = target.get();
-                         ctx.Depth        = target && target->GetDepthAttachmentCount() > 0
-                                                 ? target->GetDepthAttachmentImage().get()
-                                                 : nullptr;
-                         ctx.ScenePlaying = m_Renderer->IsScenePlaying();
-                         ctx.Renderer     = m_Renderer;
-                         m_Spec.Execute( ctx );
-                     },
-                     m_Spec.PipelineSpecification, target, m_Spec.Dependencies );
+                RenderGraphBuilder::PassConfig config;
+                config.Name              = m_Spec.Name;
+                config.Phase             = m_Spec.Phase;
+                config.ExecuteFunc       = [this]() { m_Spec.Execute( Context() ); };
+                config.PipelineSpec      = m_Spec.PipelineSpecification;
+                config.TargetFramebuffer = target;
+                config.Dependencies      = m_Spec.Dependencies;
+                // What the editor's pass samples besides the scene target it draws over, in its own words.
+                if ( m_Spec.Declare )
+                    config.Declare = [this]( RenderPassDeclaration& declared )
+                    { m_Spec.Declare( declared, Context() ); };
+                builder.AddPass( config );
             }
 
         private:
+            ExternalPassContext Context() const
+            {
+                const auto&         target = m_Renderer->GetTargetFramebuffer();
+                ExternalPassContext ctx;
+                ctx.Camera       = m_Renderer->GetMainCamera();
+                ctx.Target       = target.get();
+                ctx.Depth        = target && target->GetDepthAttachmentCount() > 0
+                                        ? target->GetDepthAttachmentImage().get()
+                                        : nullptr;
+                ctx.ScenePlaying = m_Renderer->IsScenePlaying();
+                ctx.Renderer     = m_Renderer;
+                return ctx;
+            }
+
             SceneRenderer*            m_Renderer;
             ExternalPassSpecification m_Spec;
         };
@@ -1472,48 +1487,6 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRenderer::AddGraphPhasePasses( RDG::Builder& graph, LegacyFrameTextures&      textures,
-                                             bool ( *selects )( RenderPhaseID ), const bool clearFirst,
-                                             const std::vector<RDG::TextureRef>& samples )
-    {
-        std::vector<const RenderGraphBuilder::PassConfig*> passes;
-        for ( const auto& pass : m_RenderGraphBuilder.GetSortedPasses() )
-            if ( pass.CachedRenderPass && selects( pass.Phase ) )
-                passes.push_back( &pass );
-
-        // Consecutive passes that share a target framebuffer share ONE vkCmdBeginRenderPass/EndRenderPass:
-        // the first opens it (CLEAR on the main walk, so the skybox draws first and the geometry on top
-        // without either clearing the other; LOAD for the overlay phases), the last closes it. The render
-        // pass declares its attachments when it begins, so the group's opener carries the group's
-        // declarations; a barrier between two passes of one group would sit inside the render pass.
-        const auto targetOf = []( const RenderGraphBuilder::PassConfig* pass )
-        { return pass->CachedRenderPass->GetSpecification().TargetFramebuffer; };
-        for ( size_t i = 0; i < passes.size(); ++i )
-        {
-            const RenderGraphBuilder::PassConfig* pass   = passes[i];
-            const auto                            target = targetOf( pass );
-            const bool                            opens  = i == 0 || targetOf( passes[i - 1] ) != target;
-            const bool closes = i + 1 == passes.size() || targetOf( passes[i + 1] ) != target;
-
-            AddLegacy( graph, pass->Name, opens ? samples : std::vector<RDG::TextureRef>{},
-                       opens ? textures.Colors( target, pass->CachedRenderPass->GetSpecification().DebugName )
-                             : std::vector<RDG::TextureRef>{},
-                       [pass, opens, closes, clearFirst]()
-                       {
-                           auto& renderer = Renderer::GetInstance();
-                           if ( opens )
-                           {
-                               DESERT_PROFILE_SCOPE(
-                                    "RenderPass Begin/End" ); // vkCmdBeginRenderPass + transitions
-                               renderer.BeginRenderPass( pass->CachedRenderPass.get(), clearFirst );
-                           }
-                           pass->ExecuteFunc();
-                           if ( closes )
-                               renderer.EndRenderPass();
-                       } );
-        }
-    }
-
     void SceneRenderer::SetHeightFog( bool present, const ECS::ExponentialHeightFogData& data, float fogHeightY )
     {
         UNIQUE_GET_AS( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] )
@@ -1572,6 +1545,27 @@ namespace Desert::Graphic
         cloudShadow.BorderFadeUv = view.BorderFadeUv;
         cloudShadow.Enabled      = true;
         return cloudShadow;
+    }
+
+    void SceneRenderer::DeclareShadowReads( RenderPassDeclaration& declared ) const
+    {
+        // `find`, as GetCloudShadowInput: a const observer inserts no empty system.
+        if ( const auto it = m_RenderSystems.find( "MeshSystem" ); it != m_RenderSystems.end() )
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            const auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, it->second );
+            if ( mesh && mesh->AreShadowsEnabled() )
+                for ( uint32_t c = 0; c < mesh->GetValidCascadeCount(); ++c )
+                    declared.Read( mesh->GetCascadeShadowImage( c ), RDG::Access::SampledGraphics,
+                                   std::format( "ShadowCascade{}", c ) );
+        }
+        if ( const auto it = m_RenderSystems.find( "VolumetricCloudSystem" ); it != m_RenderSystems.end() )
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            const auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, it->second );
+            if ( clouds && clouds->HasShadowMap() )
+                declared.Read( clouds->GetShadowMap(), RDG::Access::SampledGraphics, "Clouds.ShadowMap" );
+        }
     }
 
     const std::shared_ptr<Desert::Graphic::Image2D>& SceneRenderer::GetBackdropBlurImage() const

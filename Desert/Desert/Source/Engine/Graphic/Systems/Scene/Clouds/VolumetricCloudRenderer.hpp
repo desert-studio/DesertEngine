@@ -162,6 +162,11 @@ namespace Desert::Graphic::System
         {
             return m_ShadowMapImage.get();
         }
+        /// The same map as the engine image the frame graph imports (a reader declares it through this).
+        const std::shared_ptr<Image2D>& GetShadowMap() const
+        {
+            return m_ShadowMapImage;
+        }
 
         /// This frame's projection and its far depth, for a consumer that has to transform a world
         /// position into the map. Meaningless unless HasShadowMap().

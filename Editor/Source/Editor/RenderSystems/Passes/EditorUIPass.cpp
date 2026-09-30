@@ -194,6 +194,15 @@ namespace Desert::Editor::Render
             }
         };
 
+        // Render2D samples the backdrop pyramid behind a blurred panel: an engine image the frame graph's blur
+        // nodes write as storage, so the pass names it and the graph brings it to a sampled layout before the UI
+        // draws.
+        pass.Declare = []( Graphic::RenderPassDeclaration& declared, const Graphic::ExternalPassContext& ctx )
+        {
+            if ( ctx.Renderer )
+                declared.Read( ctx.Renderer->GetBackdropBlurImage(), Graphic::RDG::Access::SampledGraphics,
+                               "BackdropBlur" );
+        };
         scene->RegisterExternalPass( std::move( pass ) );
         return BOOLSUCCESS;
     }

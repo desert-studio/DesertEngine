@@ -107,7 +107,78 @@ namespace Desert::Graphic
                      return BOOLSUCCESS;
                  } );
         }
+
+        // The shadow images a lit forward pass samples (SceneRenderer::DeclareShadowReads), as graph textures.
+        // When one cannot be imported the error is logged and the pass declares none of them.
+        std::vector<RDG::TextureRef> ShadowSamples( const SceneRenderer& renderer, LegacyFrameTextures& textures,
+                                                    std::string_view node )
+        {
+            RenderPassDeclaration declared;
+            renderer.DeclareShadowReads( declared );
+            std::vector<RDG::TextureRef> images;
+            if ( !ResolveDeclared( textures, declared, node, images ) )
+                images.clear();
+            return images;
+        }
     } // namespace
+
+    void SceneRenderer::AddGraphPhasePasses( RDG::Builder& graph, LegacyFrameTextures&      textures,
+                                             bool ( *selects )( RenderPhaseID ), const bool clearFirst )
+    {
+        // Every registered pass of the selected phases (engine systems and the editor's external passes), in the
+        // phase graph's order, is a raster node: its targets are its framebuffer WHOLE (TargetsOf: every colour,
+        // the depth, and at MSAA the resolve images), its reads are what its PassConfig::Declare names. The GRAPH
+        // opens the render pass and merges consecutive nodes on one framebuffer into one. The first node on a
+        // framebuffer CLEARS it on the main walk (@p clearFirst: the skybox draws first and the geometry over it,
+        // neither clearing the other) with the pass's own clear values (a cascade clears its depth to 1); every
+        // other node LOADS, and the overlay phases only LOAD, so a CLEAR never wipes the depth a later overlay
+        // tests against. A pass whose target or reads the graph cannot declare is refused with its error, never
+        // half-declared.
+        std::shared_ptr<Framebuffer> previous;
+        for ( const RenderGraphBuilder::PassConfig& pass : m_RenderGraphBuilder.GetSortedPasses() )
+        {
+            if ( !pass.CachedRenderPass || !selects( pass.Phase ) )
+                continue;
+            const auto&                         spec   = pass.CachedRenderPass->GetSpecification();
+            const std::shared_ptr<Framebuffer>& target = spec.TargetFramebuffer;
+            const bool                          clears = clearFirst && target != previous;
+            previous                                   = target;
+
+            const auto targets = TargetsOf( textures, target, spec.DebugName, pass.Name );
+            if ( !targets )
+                continue;
+            RenderPassDeclaration declared;
+            if ( pass.Declare )
+                pass.Declare( declared );
+            std::vector<RDG::TextureRef> images;
+            if ( !ResolveDeclared( textures, declared, pass.Name, images ) )
+                continue;
+
+            const glm::vec4   clearColor = spec.ClearColor.Color;
+            const RDG::LoadOp color =
+                 clears ? RDG::LoadOp::ClearColor( clearColor.r, clearColor.g, clearColor.b, clearColor.a )
+                        : RDG::LoadOp::Load();
+            const RDG::LoadOp depth =
+                 clears ? RDG::LoadOp::ClearDepth( spec.ClearColor.DepthStencil.x ) : RDG::LoadOp::Load();
+            graph.AddPass(
+                 pass.Name, RDG::PassFlags::Raster | RDG::PassFlags::NeverCull,
+                 [&]( RDG::PassBuilder& node )
+                 {
+                     DeclareOn( node, images, declared );
+                     for ( uint32_t slot = 0; slot < targets->Colors.size(); ++slot )
+                         node.ColorTarget( slot, targets->Colors[slot], color );
+                     if ( targets->Depth.IsValid() )
+                         node.DepthTarget( targets->Depth, depth );
+                     for ( uint32_t slot = 0; slot < targets->Resolves.size(); ++slot )
+                         node.ResolveTarget( slot, targets->Resolves[slot] );
+                 },
+                 [execute = pass.ExecuteFunc]( RDG::PassContext& ) -> Common::BoolResultStr
+                 {
+                     execute();
+                     return BOOLSUCCESS;
+                 } );
+        }
+    }
 
     void SceneRenderer::AddFrameGBuffer( RDG::Builder& graph, LegacyFrameTextures& textures,
                                          System::MeshRenderer* meshRenderer )
@@ -162,7 +233,8 @@ namespace Desert::Graphic
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Generic" );
         if ( !targets || !meshRenderer )
             return;
-        AddRaster( graph, "Deferred: Generic", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), {},
+        AddRaster( graph, "Deferred: Generic", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(),
+                   ShadowSamples( *this, textures, "Deferred: Generic" ),
                    [meshRenderer]() { meshRenderer->RenderGenericManual(); } );
     }
 
@@ -172,7 +244,8 @@ namespace Desert::Graphic
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Skinned" );
         if ( !targets || !meshRenderer )
             return;
-        AddRaster( graph, "Deferred: Skinned", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), {},
+        AddRaster( graph, "Deferred: Skinned", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(),
+                   ShadowSamples( *this, textures, "Deferred: Skinned" ),
                    [meshRenderer]() { meshRenderer->RenderSkinnedManual(); } );
     }
 
@@ -184,8 +257,10 @@ namespace Desert::Graphic
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Glass" );
         if ( !targets || !meshRenderer )
             return;
-        // The glass samples the scene copy for its refraction.
-        AddRaster( graph, "Deferred: Glass", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), copyReads,
+        // The glass samples the scene copy for its refraction, and the shadow maps as every lit forward pass does.
+        std::vector<RDG::TextureRef> sampled = ShadowSamples( *this, textures, "Deferred: Glass" );
+        sampled.insert( sampled.end(), copyReads.begin(), copyReads.end() );
+        AddRaster( graph, "Deferred: Glass", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), sampled,
                    [meshRenderer, values]() { meshRenderer->RenderGlassManual( values->SceneCopy ); } );
     }
 
