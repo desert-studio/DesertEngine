@@ -748,23 +748,41 @@ namespace Desert::Graphic::API::Vulkan
         return graph.Execute( *m_RdgBackend );
     }
 
+    namespace
+    {
+        // The graph's handle on an engine image, made once and kept by the image (VulkanImage2D::GetGraphTexture).
+        // The views a render pass binds are this handle's: a handle made per frame destroyed them when the frame's
+        // texture table went away, while the command buffer that bound them was still recording
+        // (VUID-...-recording on every later command). One handle per image, so both ways into the graph
+        // (ImportImage, WrapLegacyImage) hand out the same views.
+        const std::shared_ptr<RDG::IPhysicalTexture>& GraphTextureOf( VulkanImage2D& image )
+        {
+            if ( !image.GetGraphTexture() )
+            {
+                const VulkanImageResource& resource = image.GetResource();
+                RDG::TextureDesc           desc;
+                desc.Size             = { image.GetWidth(), image.GetHeight(), 1 };
+                desc.Format           = image.GetImageSpecification().Format;
+                desc.Mips             = resource.MipLevels;
+                desc.Layers           = resource.LayerCount;
+                desc.Samples          = std::max( 1u, image.GetImageSpecification().Samples );
+                const VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                                             ->GetVulkanLogicalDevice();
+                image.SetGraphTexture( VulkanRdgTexture::Wrap( device, resource.Image, resource.Format, desc ) );
+            }
+            return image.GetGraphTexture();
+        }
+    } // namespace
+
     std::shared_ptr<RDG::IPhysicalTexture> VulkanRendererAPI::WrapLegacyImage( Image2D& image )
     {
-        const auto* vulkanImage = dynamic_cast<const VulkanImage2D*>( &image );
+        auto* vulkanImage = dynamic_cast<VulkanImage2D*>( &image );
         if ( vulkanImage == nullptr )
             return nullptr;
         const VulkanImageResource& resource = vulkanImage->GetResource();
         if ( resource.Image == VK_NULL_HANDLE || resource.Layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL )
             return nullptr;
-
-        RDG::TextureDesc desc;
-        desc.Size   = { image.GetWidth(), image.GetHeight(), 1 };
-        desc.Format = image.GetImageSpecification().Format;
-        desc.Mips   = resource.MipLevels;
-        desc.Layers = resource.LayerCount;
-        const VkDevice device =
-             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
-        return VulkanRdgTexture::Wrap( device, resource.Image, resource.Format, desc );
+        return GraphTextureOf( *vulkanImage );
     }
 
     Common::BoolResultStr VulkanRendererAPI::ImportImage( const std::shared_ptr<Image2D>& image,
@@ -788,16 +806,9 @@ namespace Desert::Graphic::API::Vulkan
         desc.Mips    = resource.MipLevels;
         desc.Layers  = resource.LayerCount;
         desc.Samples = std::max( 1u, image->GetImageSpecification().Samples );
-        if ( !vulkanImage->GetGraphTexture() )
-        {
-            const VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                                         ->GetVulkanLogicalDevice();
-            vulkanImage->SetGraphTexture(
-                 VulkanRdgTexture::Wrap( device, resource.Image, resource.Format, desc ) );
-        }
         into.Desc = desc;
         into.SubresourceStates.assign( desc.SubresourceCount(), RDG::RecordedLayoutState( *layout ) );
-        into.Physical                           = vulkanImage->GetGraphTexture();
+        into.Physical                           = GraphTextureOf( *vulkanImage );
         const std::weak_ptr<VulkanImage2D> weak = vulkanImage;
         into.RecordFinalStates = [weak]( const std::vector<RDG::AccessState>& states ) -> Common::BoolResultStr
         {
