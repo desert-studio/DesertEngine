@@ -776,7 +776,7 @@ namespace Desert::Player
                     if ( const auto image = m_Scene->GetFinalImage() )
                     {
                         if ( auto tp = m_BlitExecutor->GetTexture2DProperty( "u_Texture" ) )
-                            tp->SetImage( image.get(), RDG::Access::SampledGraphics );
+                            tp->SetImage( image.get(), Desert::Graphic::RDG::Access::SampledGraphics );
                         renderer.SubmitFullscreenQuad( m_BlitPipeline.get(), m_BlitExecutor.get() );
                     }
                 }
