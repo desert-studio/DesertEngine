@@ -222,7 +222,7 @@ TEST( TimelineInterpRule, TheLiftShiftsGenerationThreeModesOneKeyBackAndSamplesA
     const Gen3::AnimationClip clip   = MixedModeClip();
     auto                      lifted = LiftClip( clip );
     ASSERT_TRUE( lifted.IsSuccess() ) << lifted.GetError();
-    Sequence&              sequence = lifted.GetValue();
+    Sequence               sequence = lifted.ExtractValue();
     const TransformChannel& channel = BoneChannel( sequence );
     const auto&             x       = channel.Translation.X.Keys;
     ASSERT_EQ( x.size(), 5U );
