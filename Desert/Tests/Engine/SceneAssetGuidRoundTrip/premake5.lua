@@ -8,7 +8,6 @@ project(test_name)
     targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
-
     files {
         test_files,
         -- THE RULE ALONE. ComponentRegistry.cpp and ShaderAsset.cpp (the two callers) link the asset manager
@@ -57,10 +56,6 @@ project(test_name)
             links { path }
         end
 
-    filter {}
-
-    filter "system:macosx"
-        links { "Cocoa.framework" }
     filter {}
 
 print("Configured test project: " .. test_name)

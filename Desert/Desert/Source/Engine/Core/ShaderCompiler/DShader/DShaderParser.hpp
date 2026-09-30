@@ -53,6 +53,7 @@
 #include <Engine/Core/Formats/Shader.hpp>
 #include <Engine/Core/Formats/MaterialLayout.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
+#include <Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <array>
@@ -102,34 +103,13 @@ namespace Desert::Core::Preprocess
     // the template has Forward cells only, built on the translucency pass header (kSurfaceTranslucentPassInclude).
     using SurfaceBlendMode = Formats::SurfaceBlendMode;
 
-    // The shading model of a template, as UE's EMaterialShadingModel: a property of the TEMPLATE, read by the pass
-    // headers when the parser builds a cell. DefaultLit is the engine's lighting (Pass_Forward/Pass_GBuffer);
-    // Unlit emits s.Emissive and nothing else — its forward cell declares no lighting resource and its G-buffer
-    // cell writes emission only. The depth cell is the same for both.
-    //
-    // The enumerator's VALUE is the ShadingModelID the G-buffer carries (GBufferC.w, low four bits) and the
-    // deferred composite branches on — UE's numbering, MSM_Unlit = 0, MSM_DefaultLit = 1. The shader half of
-    // the table is kShadingModelsInclude, whose SHADING_MODEL_ID_<GlslName> defines ShaderCacheKey holds equal
-    // to these values, row by row.
-    enum class SurfaceShadingModel : std::uint8_t
-    {
-        Unlit      = 0,
-        DefaultLit = 1,
-    };
-
-    struct SurfaceShadingModelRow
-    {
-        SurfaceShadingModel Model;
-        std::string_view    GlslName; // SHADING_MODEL_ID_<GlslName> in kShadingModelsInclude
-    };
-
-    // Every shading model, once: the id table's one home on the C++ side (four bits of id: at most 16 rows).
-    inline constexpr std::array<SurfaceShadingModelRow, 2> kSurfaceShadingModels{ {
-         { SurfaceShadingModel::Unlit, "UNLIT" },
-         { SurfaceShadingModel::DefaultLit, "DEFAULT_LIT" },
-    } };
-
-    inline constexpr std::string_view kShadingModelsInclude = "Mesh/Surface/ShadingModels.glslh";
+    // The shading model of a template, as UE's MaterialShadingModel: a property of the TEMPLATE, named by
+    // `ShadingModel <Name>` (a file ShadingModels/<Name>.shadingmodel) and carried as the model's Guid; a template
+    // without the directive is DefaultLit. Every model is lit by the same pass headers: each cell's both stages
+    // get `#define DESERT_SHADING_MODEL_INDEX SHADING_MODEL_INDEX_<NAME>` (as UE's MATERIAL_SHADINGMODEL_*), and
+    // the headers hand it to the generated dispatch (ShadingModels/ShadingModelRegistry.hpp). A template that does
+    // not assign one of its model's Inputs in the surface function is refused, naming the field.
+    inline constexpr std::string_view kSurfaceShadingModelDefine = "DESERT_SHADING_MODEL_INDEX";
 
     // The threshold of a Masked template is a material PARAMETER (per material, like UE's Opacity Mask Clip
     // Value); a Masked template that does not declare it is refused.
@@ -137,7 +117,7 @@ namespace Desert::Core::Preprocess
 
     std::string SurfaceCellName( std::string_view path, std::string_view pass );
     std::string SurfaceVertexInclude( std::string_view path );
-    std::string SurfacePassInclude( std::string_view pass, SurfaceShadingModel model, SurfaceBlendMode blend );
+    std::string SurfacePassInclude( std::string_view pass, SurfaceBlendMode blend );
     // The translucency pass header: a Translucent template's Forward cells are lit and composited by it.
     inline constexpr std::string_view kSurfaceTranslucentPassInclude =
          "Mesh/Surface/Pass_Forward_Translucent.glslh";
@@ -152,7 +132,7 @@ namespace Desert::Core::Preprocess
     {
         bool                     TwoSided = false;
         SurfaceBlendMode         Blend    = SurfaceBlendMode::Opaque;
-        SurfaceShadingModel      Shading  = SurfaceShadingModel::DefaultLit;
+        Common::UUID             ShadingModel{ ShadingModels::kDefaultLitGuid };
         std::vector<std::string> Cells; // `<Path>.<Pass>`, in kSurfaceVertexPaths × kSurfaceCellPasses order
     };
 

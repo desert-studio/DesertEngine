@@ -699,6 +699,9 @@ namespace Desert::Tests::PointerCensus
           "as the material-property family, except that MaterialSkybox holds its executor by shared_ptr "
           "rather than unique_ptr -- which only strengthens the argument: the property cannot outlive "
           "this object because this object holds a reference to the executor that owns it" },
+        { "Desert/Desert/Source/Engine/Graphic/Pipeline.hpp",
+          "LivePipelineSet", "All", Guard::SelfDeregistering,
+          "every built pipeline (IPipeline::RecordShaderCodeGeneration) inserts `this` and ~IPipeline erases it under the same recursive mutex the rebuild pass holds, so the set never names a destroyed pipeline; IPipeline is neither copyable nor assignable, so no unregistered copy can erase another's entry. Q1: the pipeline's own owners (caches, renderer members), never this set" },
         { "Desert/Desert/Source/Engine/Graphic/PipelineCache.hpp",
           "Key", "Shader", Guard::IdentityOnly,
           "the pipeline cache keys on the ADDRESS of the shader/framebuffer/render pass; a recycled address cannot collide because a pipeline is only reachable through the spec that still holds shared_ptrs to all three" },

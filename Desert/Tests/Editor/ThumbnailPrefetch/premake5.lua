@@ -46,10 +46,6 @@ project(test_name)
 
     links { "Common", "Optick" } -- FileSystem/VFS live in Common; Common's JobSystem registers with Optick
 
-    -- Common contains Objective-C (MacOSFileSystem's file dialog) — pulled in because this suite
-    -- references FileSystem, so the ObjC runtime + AppKit must link too.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "system:windows"

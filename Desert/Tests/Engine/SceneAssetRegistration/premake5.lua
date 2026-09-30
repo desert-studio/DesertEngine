@@ -48,9 +48,6 @@ project(test_name)
     -- about a refusal's wording does not need the renderer to check.
     links { "Common", "Optick" }
 
-    -- Common contains Objective-C (MacOSFileSystem's file dialog), so the ObjC runtime links too.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

@@ -58,9 +58,6 @@ project(test_name)
     -- Optick: Common's JobSystem registers its worker threads with it.
     links { "Common", "Optick" }
 
-    -- The heightmap files are read and written through Common's FileSystem, whose macOS half is Cocoa.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

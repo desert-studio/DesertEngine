@@ -271,6 +271,25 @@ TEST_F( ShaderMapBuildFixture, OneStageTextInEightFilesIsOneCompileWithoutDebugI
     }
 }
 
+// A BROKEN SHADER IS AN ERROR NAMING ITS FILE, NOT A DEAD PROCESS. Text that is not Desert Shader Language used to
+// reach DESERT_VERIFY inside the preprocessor's parse and take the editor down at boot with no file named; the
+// preprocessor now returns a ResultStr carrying the path, and BootContent logs it and carries on. Mutation:
+// restore DESERT_VERIFY in ShaderPreprocessor's ParseNamed and this suite dies instead of failing one expectation.
+TEST_F( ShaderMapBuildFixture, TextThatIsNotAShaderIsAnErrorNamingTheFile )
+{
+    const std::filesystem::path path = std::filesystem::path( "Resources/Shaders/Programs/Tmp" ) / "Broken.shader";
+    const Desert::TestSupport::DerivedDataSandbox cache( "ShaderMapBuildBroken" );
+    const auto built = Desert::Core::BuildShaderMap( { "this is not a shader { at all", path, {}, {}, "Broken" } );
+    ASSERT_FALSE( built.IsSuccess() ) << "text that is not a shader built a map";
+    EXPECT_NE( built.GetError().find( path.generic_string() ), std::string::npos )
+         << "the error does not name the file: " << built.GetError();
+
+    const auto outcomes = Desert::Core::BuildShaderMaps(
+         std::vector<ShaderMapRequest>{ { "this is not a shader { at all", path, {}, {}, "Broken" } } );
+    ASSERT_EQ( outcomes.size(), 1u );
+    EXPECT_NE( outcomes[0].Error.find( path.generic_string() ), std::string::npos ) << outcomes[0].Error;
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

@@ -178,6 +178,10 @@ namespace
         // seam the registry uses (read from the repository root, before the sandbox moves the process).
         static void SetUpTestSuite()
         {
+            // Parsing a template resolves its `ShadingModel` through the engine's shader root, found against
+            // the working directory: the reads below work from the engine resources, as the editor does.
+            const TestSupport::EngineResourcesWorkingDirectory engineResources;
+            ASSERT_TRUE( engineResources.Error().empty() ) << engineResources.Error();
             std::vector<Editor::ImportTemplate> shipped;
             for ( const char* file : { "Editor/Resources/Shaders/Programs/PBR/StandardSurface.shader",
                                        "Editor/Resources/Shaders/Programs/Unlit/Unlit.shader" } )

@@ -5,6 +5,7 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
+#include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 
 #include <format>
 #include <memory>
@@ -105,6 +106,17 @@ namespace Desert::Core
                  std::filesystem::path( requested_source ).lexically_normal().generic_string();
             if ( const std::string* substituted = m_Variant.Find( requested ) )
                 return MakeResult( fullPath.string(), Preprocess::DShaderParser::TranslateSugar( *substituted ) );
+            // The generated shading-model dispatch is the loaded set's own text, never a file that may predate it;
+            // a set that failed to load fails every program that includes it, with the scan's error.
+            if ( requested == ShadingModels::kGeneratedInclude )
+            {
+                const auto  held   = ShadingModels::ShaderRootShadingModels();
+                const auto& models = *held;
+                if ( !models.IsSuccess() )
+                    return CreateErrorIncludeResult( models.GetError() );
+                return MakeResult( fullPath.string(),
+                                   Preprocess::DShaderParser::TranslateSugar( models.GetValue().GeneratedGlsl ) );
+            }
         }
 
         // FileSystem is VFS-aware: shader includes resolve from disk in dev and from the mounted

@@ -1,10 +1,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include "VFS.hpp"
 
-#if defined( DESERT_PLATFORM_WINDOWS )
-#include <Common/Platform/Windows/WindowsFileSystem.hpp>
-#elif defined( DESERT_PLATFORM_MACOS )
-#include <Common/Platform/MacOS/MacOSFileSystem.hpp>
+#if defined( DESERT_PLATFORM_MACOS )
 #include <mach-o/dyld.h>
 #endif
 
@@ -25,7 +22,6 @@ namespace fs = std::filesystem;
 
 namespace Common::Utils
 {
-    class WindowsFileSystem;
     bool FileSystem::Exists( const std::filesystem::path& filepath )
     {
         return fs::exists( filepath ) || VFS::Exists( filepath );
@@ -65,42 +61,6 @@ namespace Common::Utils
     const std::string FileSystem::GetFileName( const std::string& filepath )
     {
         return std::filesystem::path( filepath ).filename().string();
-    }
-
-    std::filesystem::path FileSystem::OpenFileDialog( const char* filter )
-    {
-#if defined( DESERT_PLATFORM_WINDOWS )
-        return WindowsFileSystem::OpenFileDialog( filter );
-#elif defined( DESERT_PLATFORM_MACOS )
-        return MacOSFileSystem::OpenFileDialog( filter );
-#else
-        (void)filter;
-        return {};
-#endif
-    }
-
-    std::filesystem::path FileSystem::OpenFolderDialog( const char* initialFolder )
-    {
-#if defined( DESERT_PLATFORM_WINDOWS )
-        return WindowsFileSystem::OpenFolderDialog( initialFolder );
-#elif defined( DESERT_PLATFORM_MACOS )
-        return MacOSFileSystem::OpenFolderDialog( initialFolder );
-#else
-        (void)initialFolder;
-        return {};
-#endif
-    }
-
-    std::filesystem::path FileSystem::SaveFileDialog( const char* filter )
-    {
-#if defined( DESERT_PLATFORM_WINDOWS )
-        return WindowsFileSystem::SaveFileDialog( filter );
-#elif defined( DESERT_PLATFORM_MACOS )
-        return MacOSFileSystem::SaveFileDialog( filter );
-#else
-        (void)filter;
-        return {};
-#endif
     }
 
     std::filesystem::path FileSystem::GetFileDirectory( const std::filesystem::path& filepath )

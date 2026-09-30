@@ -2,6 +2,7 @@
 
 #include "CloudDocumentOpen.hpp"
 
+#include <Editor/Platform/DesktopPlatform.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/SubjectTitle.hpp>
@@ -521,8 +522,7 @@ namespace Desert::Editor
         ImGui::BeginDisabled( busy );
         if ( ImGui::Button( "Import sheet...", ImVec2( 140.0f, 0.0f ) ) )
         {
-            const std::filesystem::path picked =
-                 Common::Utils::FileSystem::OpenFileDialog( "Image\0*.png;*.tga;*.bmp\0" );
+            const std::filesystem::path picked = DesktopPlatform::OpenFileDialog( "Image\0*.png;*.tga;*.bmp\0" );
             if ( !picked.empty() )
                 ImportSheet( picked );
         }
@@ -539,7 +539,7 @@ namespace Desert::Editor
         ImGui::BeginDisabled( busy || !m_HasVolume );
         if ( ImGui::Button( "Export sheet...", ImVec2( 140.0f, 0.0f ) ) )
         {
-            std::filesystem::path target = Common::Utils::FileSystem::SaveFileDialog( "PNG image\0*.png\0" );
+            std::filesystem::path target = DesktopPlatform::SaveFileDialog( "PNG image\0*.png\0" );
             if ( !target.empty() )
             {
                 if ( target.extension() != Assets::kCloudNoiseSheetExtension )
@@ -636,7 +636,7 @@ namespace Desert::Editor
         }
         else if ( saveAs )
         {
-            target = Common::Utils::FileSystem::SaveFileDialog( "Cloud Noise Volume\0*.dcnv\0" );
+            target = DesktopPlatform::SaveFileDialog( "Cloud Noise Volume\0*.dcnv\0" );
             if ( !target.empty() && target.extension() != Assets::kCloudNoiseVolumeExtension )
                 target.replace_extension( Assets::kCloudNoiseVolumeExtension );
         }
