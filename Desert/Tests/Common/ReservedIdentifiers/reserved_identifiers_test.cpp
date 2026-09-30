@@ -1076,6 +1076,10 @@ namespace
            "TH2: the stamp only matches decoded pixels to ThumbnailCache's request; the cache applies the racy "
            "rule "
            "to what it takes" },
+         { "Editor/Source/Editor/Widgets/ThumbnailCache.cpp",
+           "THM: the stamp is only the key ThumbnailPrefetch::Acquire matches a worker's pixels by; freshness is "
+           "Common::Utils::WriteWatch's (it hashes while the stamp is racy) and ThumbnailOutdated's read moment, "
+           "and a taken entry leaves the store, so a same-tick rewrite is flagged and decoded again" },
          { "Editor/Source/Editor/Widgets/ThumbnailFreshness.hpp",
            "FIX2: the record's writer tells the memo what it wrote, so the stamp is never the only witness" },
     };

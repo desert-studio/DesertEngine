@@ -33,6 +33,16 @@ how good the rest is. Everything else is judgement, and the contract says which 
 
 ---
 
+## 00. A R C H I T E C T U R E comes first (owner, 2026-09-29)
+
+The decision is **how it is structured correctly** (as UE does it or better: clear responsibilities, one source of truth, no legacy,
+no fallbacks) — not what is cheaper, faster or "enough for now". Not acceptable as a solution: a time budget instead of completeness,
+a reduced scope ("meshes only", "the scene only"), a guess ("the first pass", "if the texture is bigger than 1x1"), a bridge to the old
+path. A measurement PROVES the right structure works; it never selects a reduced one. Only the owner may reduce scope. Out of calls →
+hand over part of it with a REMAINDER, never a compromise in code.
+
+---
+
 ## 0. The rule the rest follow from
 
 **Unfinished code does not exist in a branch.** If a task needs a dependency to exist first, write
@@ -106,6 +116,18 @@ finding these instead of me.
 
 A finding costs one paragraph in the report. Not finding it costs whatever it costs later.
 
+### Text is formatted, never glued (owner, 2026-09-29)
+A string built by `"[" + id + "] " + text` chains is returned. Text is made by a FORMAT, and a format has one home:
+- `std::format` / `std::format_to(std::back_inserter(out), …)` with a literal format string (checked at compile time);
+  in loops `format_to` into one buffer, not `+=` of temporaries.
+- A shape used more than once is ONE named function (`FormatNotifyLine(const Notify&)`) or one
+  `constexpr std::string_view k…Format` — never the same literal pieces repeated at two call sites.
+- Text a user reads in the UI goes through Localization (`LocaleFormat`, named arguments), not a literal in code.
+- Structured files (JSON, manifests) go through their writer (`Common/Json/Json.hpp`), never hand-built strings.
+- Paths are `std::filesystem::path` joined with `/`, never `dir + "/" + name`.
+- Existing glued lines (≈1,700 in 09-29) are migrated when a change touches them — the lines you change must follow
+  this rule; the changed-lines gate (FMT1) enforces it like clang-format.
+
 ### Architecture
 
 - **Interface before implementation.** The header first: types, signatures, resource ownership,
@@ -158,6 +180,32 @@ most expensive defects in this project all shipped built, tested and unseen.
    is never a pass. A macOS build runs it for you at the end unless you pass `--no-analyze`; CI runs
    it as its own job. Changed lines and not the tree, for the same reason the formatter works that
    way: `.clang-tidy` reports five figures of diagnostics over the workspace as it stands.
+3b. **How CheckTidy is run (owner, 2026-09-29 — measured, not taste).** One CheckTidy run takes
+   4+ minutes and they queue one after another on the machine; an agent that waits on it lets its
+   prompt cache expire and pays to re-read its whole context (L11c: 1.04 M units for 15 tidy lines,
+   247 k of them re-reading; ANV4f: 200 k). So:
+   - **Owner, 2026-09-30: suites, mutations, CheckTidy, CheckGluedText and the hand-off are run ONLY by the lead, ONCE, at
+     the end — on the integration branch before it goes to `dev`** (it may hold several features). An agent never runs
+     them (the guard refuses): it compiles its targets once at the end and lists "suites for the lead" and 2–3 mutations
+     (file:line → change → the test that must turn red) in its REMAINDER. Live checks stay with separate check-only agents.
+   - **A tidy-fix task gets the findings list (file:line + rule) and does NOT run CheckTidy at all.**
+     It fixes exactly those lines, runs the affected suite, formats the diff, commits. The re-check is
+     the hand-off's (`handoff_check.sh`), which runs tidy anyway. (M22c under this rule: 0 re-read.)
+   - **A tail of ≤ 25 mechanical findings after hand-off is fixed by the lead directly**, not by a new
+     agent: a separate agent for 20 lines cost 0.4 M and still skipped a file.
+   - Tidy on a **header alone** does not work (`'optional' file not found`); headers are checked
+     through a unit that includes them — that is what CheckTidy does, so don't improvise.
+   - After a **mutation** check, delete the suite's objects
+     (`build/Tests/Intermediates/Debug/Debug/<Suite>/*.o`) before the final run: a restored source
+     can leave the mutated object in place and turn the hand-off red (ANV4f, PreviewInput).
+3c. **No call longer than the prompt cache (owner, 2026-09-29 — measured).** An agent's cache lives 5 minutes; every
+   gap longer than that (a long foreground call, or ending the turn to wait for a background job) re-reads the whole
+   context at 1.25× (L10a2: 299 k of 996 k; gaps of 6–8 min, each ~100 k). A 4-minute blocking wait costs ~0.1× the
+   context. So: anything that can run past 4 minutes goes `run_in_background`, and is waited on with
+   `~/.claude/tools/wait_bg.sh <output-file>` (builds: `build_wait.sh <log>`), ≤ 4 minutes per call, turn not ended.
+   The guard refuses a foreground `timeout` above 280 s. Heavy FINAL checks (full suites, final Editor build, CheckTidy,
+   corpus migration check) are the lead's, in the background; their errors go to a FRESH agent with the error list and
+   the branch diff — returning the author costs a full cache rebuild anyway, unless the failure is about the design.
 4. No new TODOs, stubs or dead parameters.
 5. Tests on the pure logic, written and passing — **all suites, not the matching one**, and frames
    if the render changed. See `desert-engine-verify`.

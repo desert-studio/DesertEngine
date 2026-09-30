@@ -1532,6 +1532,8 @@ namespace Desert::Editor::Commands
                 candidate.Blockers.emplace_back( "a LOD bias" );
             if ( !mesh.ReceiveShadows )
                 candidate.Blockers.emplace_back( "receive-shadows off" );
+            if ( mesh.TranslucencySortPriority != 0 )
+                candidate.Blockers.emplace_back( "a translucency sort priority" );
             if ( mesh.HiddenSubmeshes != 0 )
                 candidate.Blockers.emplace_back( "hidden submeshes" );
             if ( mesh.EditableMesh )

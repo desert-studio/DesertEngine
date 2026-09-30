@@ -2,6 +2,7 @@
 #include <Common/Content/ContentScan.hpp>
 #include "MeshDnD.hpp"
 #include "ImportManager.hpp"
+#include "ImportOptionsDialog.hpp"
 #include "ImportedMeshAsset.hpp"
 #include "CookPaths.hpp"
 
@@ -20,11 +21,10 @@ namespace Desert::Editor::MeshDnD
 {
     namespace
     {
-        // One shared importer for drag-drop cooks (the cooked-file freshness check dedups re-cooks).
+        // The editor's one importer for user-started imports (the cooked-file freshness check dedups re-cooks).
         ImportManager& Importer()
         {
-            static ImportManager s_Importer;
-            return s_Importer;
+            return ImportOptions::SharedImporter();
         }
 
         // Source (Resources/Assets/Meshes/foo.obj) -> its mesh asset beside it
@@ -63,7 +63,7 @@ namespace Desert::Editor::MeshDnD
         }
 
         // Create + register a freshly-imported mesh's materials so their stable external id
-        // (PBRSurfaceParams::MaterialId, baked into each submesh) resolves in MaterialService THIS session.
+        // (the ImportedMaterial GUID, baked into each submesh) resolves in MaterialService THIS session.
         // Without this the materials would only register when something next names them and a
         // just-imported mesh shows "Unassigned material slot". Import writes them as editable content at
         // CookPaths::MaterialFolder(source) (see ImportManager::SerializeMaterialAsset).
@@ -122,6 +122,15 @@ namespace Desert::Editor::MeshDnD
         // `exists(cookedStr)` alone answered "not cooked" for every freshly imported mesh forever and the
         // drop silently placed nothing. StaticMeshCookAvailable also accepts a fresh DDC envelope for
         // `sourcePath`.
+        // A FILE NEVER IMPORTED (no record) opens the Import Options window first, as UE's FBX import does; the
+        // window imports it with the confirmed options, and the drop places nothing until then.
+        if ( std::error_code ec;
+             !std::filesystem::is_regular_file( Common::Content::ImportRecordPathFor( sourcePath ), ec ) )
+        {
+            ImportOptions::Request( sourcePath );
+            LOG_INFO( "[MeshDnD] '{}' is new: confirm the Import Options window, then place it", sourcePath );
+            return Common::UUID::Null();
+        }
         if ( !StaticMeshCookAvailable( cookedStr, sourcePath ) )
             Importer().Import( sourcePath );
 

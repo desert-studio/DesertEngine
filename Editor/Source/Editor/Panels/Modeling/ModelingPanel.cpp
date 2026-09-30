@@ -1,6 +1,8 @@
 #include "ModelingPanel.hpp"
 
 #include <Editor/Core/AssetPickerRows.hpp>
+#include <Editor/Core/ColliderFit.hpp>
+#include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/Selection/MeshBooleanTool.hpp>
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
@@ -13,6 +15,7 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
 #include <Common/Core/Units.hpp>
+#include <Engine/Core/Scene.hpp>
 #include <Common/Core/Logger.hpp>
 #include <ImGui/imgui.h>
 
@@ -83,19 +86,21 @@ namespace Desert::Editor
             PolyModel,
             TriModel,
             Transform,
+            Collision,
         };
         struct PaletteEntry
         {
             const char* Icon;
             const char* Name;
         };
-        constexpr std::array<PaletteEntry, 6> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
+        constexpr std::array<PaletteEntry, 7> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
                                                               { ICON_MDI_SHAPE_PLUS, "Shapes" },
                                                               { ICON_MDI_PLUS_BOX_OUTLINE, "Create" },
                                                               { ICON_MDI_VECTOR_SQUARE, "PolyModel" },
                                                               { ICON_MDI_VECTOR_TRIANGLE, "TriModel" },
-                                                              { ICON_MDI_ARROW_ALL, "Transform" } } };
-        static_assert( kPalettes.size() == static_cast<size_t>( Palette::Transform ) + 1,
+                                                              { ICON_MDI_ARROW_ALL, "Transform" },
+                                                              { ICON_MDI_SHIELD_OUTLINE, "Collision" } } };
+        static_assert( kPalettes.size() == static_cast<size_t>( Palette::Collision ) + 1,
                        "one rail entry per palette" );
     } // namespace
 
@@ -179,6 +184,9 @@ namespace Desert::Editor
                 break;
             case Palette::Transform:
                 DrawTransformPalette();
+                break;
+            case Palette::Collision:
+                DrawCollisionPalette();
                 break;
         }
         ImGui::EndChild();
@@ -418,6 +426,34 @@ namespace Desert::Editor
             if ( ImGui::Button( Core::ToString( MO::Subdivide ), ImVec2( -1.0f, 0.0f ) ) )
                 operate( MO::Subdivide );
         }
+        if ( Utils::ImGuiUtilities::SectionHeader( "Simplify" ) )
+        {
+            const float half = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
+            using MO         = Core::MeshOperation;
+            // UE's Simplify tool settings (SimplifyMeshTool.h): the target is a percentage of the triangles or a
+            // vertex count; polygroup borders are held Fixed (UE's FullyConstrained) unless unticked.
+            Geometry::SimplifySettings&                 simplify = ms.ElementSimplify;
+            int                                         target   = static_cast<int>( simplify.Target );
+            static constexpr std::array<const char*, 2> kTargets = { "Percentage", "Vertex Count" };
+            ImGui::SetNextItemWidth( half );
+            if ( ImGui::Combo( "##ElementSimplifyTarget", &target, kTargets.data(),
+                               static_cast<int>( kTargets.size() ) ) )
+                simplify.Target = static_cast<Geometry::SimplifyTarget>( target );
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( half );
+            if ( simplify.Target == Geometry::SimplifyTarget::Percentage )
+                ImGui::SliderFloat( "##ElementSimplifyPercentage", &simplify.Percentage, 1.0f, 100.0f, "%.0f %%" );
+            else
+                ImGui::DragInt( "##ElementSimplifyVertexCount", &simplify.VertexCount, 1.0f, 3, 1000000,
+                                "%d vertices" );
+            ImGui::Checkbox( "Preserve PolyGroups", &simplify.PreserveGroupBoundaries );
+            ImGui::Checkbox( "Preserve Sharp Edges", &simplify.PreserveSharpEdges );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "If enabled, UV and normal seams (hard edges) are kept: they never collapse\n"
+                                   "and their vertices never move." );
+            if ( ImGui::Button( Core::ToString( MO::Simplify ), ImVec2( -1.0f, 0.0f ) ) )
+                Operate( MO::Simplify );
+        }
         ImGui::Separator();
         if ( active )
         {
@@ -525,6 +561,53 @@ namespace Desert::Editor
         if ( ImGui::Checkbox( "Split by polygroups", &byGroups ) )
             ms.XformSplit =
                  byGroups ? Geometry::SplitMethod::PolyGroups : Geometry::SplitMethod::ConnectedComponents;
+    }
+
+    void ModelingPanel::DrawCollisionPalette()
+    {
+        std::array<const char*, kCollisionShapes.size()> names{};
+        for ( size_t i = 0; i < kCollisionShapes.size(); ++i )
+            names[i] = kCollisionShapes[i].Name;
+        ImGui::SetNextItemWidth( -1.0f );
+        ImGui::Combo( "##CollisionShape", &m_CollisionShape, names.data(), static_cast<int>( names.size() ) );
+        if ( ImGui::Button( "Mesh To Collision", ImVec2( -1.0f, 0.0f ) ) )
+        {
+            const auto done =
+                 MeshToCollision( m_Scene, kCollisionShapes.at( static_cast<size_t>( m_CollisionShape ) ) );
+            if ( !done.IsSuccess() )
+                LOG_WARN( "Mesh To Collision: {}", done.GetError() );
+        }
+    }
+
+    Common::ResultStr<bool> ModelingPanel::MeshToCollision( const std::shared_ptr<Desert::Core::Scene>& scene,
+                                                            const CollisionShapeEntry&                  shape )
+    {
+        const auto& ids = Core::SelectionManager::GetSelection();
+        if ( !scene || ids.size() != 1 )
+            return Common::MakeFormattedError<bool>( "select one entity with a static mesh ({} selected)",
+                                                     ids.size() );
+        const Common::UUID id  = ids.front();
+        const auto         ref = scene->FindEntityByID( id );
+        if ( !ref )
+            return Common::MakeFormattedError<bool>( "entity {} is not in the scene",
+                                                     static_cast<uint64_t>( id ) );
+        const ECS::Entity entity = ref->get();
+
+        const auto fit = Core::FitEntityCollider( entity, shape.Shape );
+        if ( !fit.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "entity {}: {}", static_cast<uint64_t>( id ),
+                                                     fit.GetError() );
+        const ECS::ColliderData collider = fit.GetValue();
+        Commands::MutateEntityUndoable( id,
+                                        [&]
+                                        {
+                                            auto live = scene->FindEntityByID( id );
+                                            if ( live )
+                                                live->get().AddComponent<ECS::ColliderComponent>(
+                                                     ECS::ColliderComponent{ collider } );
+                                        } );
+        LOG_INFO( "[Modeling] Mesh To Collision on entity {}: {}", static_cast<uint64_t>( id ), shape.Name );
+        return Common::MakeSuccess( true );
     }
 
     void ModelingPanel::DrawCubeGrid()

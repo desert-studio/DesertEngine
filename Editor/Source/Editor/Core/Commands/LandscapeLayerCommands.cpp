@@ -1,4 +1,5 @@
 #include "LandscapeLayerCommands.hpp"
+#include "LandscapeEditLayerEdits.hpp"
 
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
@@ -9,6 +10,9 @@
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/LandscapeEditTarget.hpp>
+#include <Engine/ECS/LandscapeLayerRules.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Editor/Core/Selection/LandscapeSculptState.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Editor/Import/LandscapeHeightmapIO.hpp>
 
@@ -17,6 +21,8 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <format>
+#include <span>
 #include <utility>
 
 namespace Desert::Editor::Commands
@@ -42,7 +48,7 @@ namespace Desert::Editor::Commands
             {
                 return Write( m_After );
             }
-            std::string GetLabel() const override
+            [[nodiscard]] std::string GetLabel() const override
             {
                 return m_Label;
             }
@@ -113,6 +119,7 @@ namespace Desert::Editor::Commands
                 landscape.QuadsPerTile = m_Quads;
                 landscape.SpacingCm    = m_Generated.Root.SpacingCm;
                 landscape.ZScale       = m_Generated.Root.ZScale;
+                landscape.EditLayers   = m_Generated.EditLayers;
                 for ( size_t i = 0; i < m_Tiles.size(); ++i )
                 {
                     const auto& generated = m_Generated.Tiles[i];
@@ -322,9 +329,9 @@ namespace Desert::Editor::Commands
         public:
             LandscapeHeightsCommand( const std::shared_ptr<::Desert::Core::Scene>& scene,
                                      const Common::UUID& landscape, World::Landscape::LandscapeStrokeRecord record,
-                                     std::string label )
+                                     World::Landscape::LandscapeEditLayerTarget layer, std::string label )
                  : m_Scene( scene ), m_Landscape( landscape ), m_Record( std::move( record ) ),
-                   m_Label( std::move( label ) )
+                   m_Layer( std::move( layer ) ), m_Label( std::move( label ) )
             {
             }
 
@@ -336,7 +343,7 @@ namespace Desert::Editor::Commands
             {
                 return Write( m_Record.After );
             }
-            std::string GetLabel() const override
+            [[nodiscard]] std::string GetLabel() const override
             {
                 return m_Label;
             }
@@ -358,7 +365,8 @@ namespace Desert::Editor::Commands
                     return false;
                 }
                 const auto& t = target.GetValue();
-                auto written  = World::Landscape::WriteLandscapeHeights( t.Root, t.Lookup, m_Record.Rect, values );
+                auto        written =
+                     World::Landscape::WriteLandscapeHeights( t.Root, t.Lookup, m_Record.Rect, values, m_Layer );
                 if ( !written.IsSuccess() )
                     ToastManager::Push( written.GetError(), ToastLevel::Error, 6.0f );
                 return written.IsSuccess();
@@ -366,8 +374,9 @@ namespace Desert::Editor::Commands
 
             std::weak_ptr<::Desert::Core::Scene>    m_Scene;
             Common::UUID                            m_Landscape;
-            World::Landscape::LandscapeStrokeRecord m_Record;
-            std::string                             m_Label;
+            World::Landscape::LandscapeStrokeRecord    m_Record;
+            World::Landscape::LandscapeEditLayerTarget m_Layer;
+            std::string                                m_Label;
         };
 
         Common::ResultStr<ECS::LandscapeEditTarget>
@@ -377,6 +386,25 @@ namespace Desert::Editor::Commands
             if ( !root )
                 return Common::MakeError<ECS::LandscapeEditTarget>( "heightmap: " + root.GetError() );
             return ECS::FindLandscapeEditTarget( scene->GetRegistry(), root.GetValue().Landscape );
+        }
+
+        /// The layer an import writes: the one the Landscape panel edits (LandscapeSculptState::EditingLayer),
+        /// the bottom one when none is picked — UE's Import writes the editing layer.
+        Common::ResultStr<World::Landscape::LandscapeEditLayerTarget>
+        HeightmapLayer( const std::shared_ptr<::Desert::Core::Scene>& scene, const Common::UUID& landscape )
+        {
+            auto&      registry = scene->GetRegistry();
+            const auto root     = ECS::FindLandscapeRootEntity( registry, landscape );
+            if ( root == entt::null )
+                return Common::MakeFormattedError<World::Landscape::LandscapeEditLayerTarget>(
+                     "heightmap: the landscape root is not loaded" );
+            auto rules = ECS::LandscapeLayerRulesOf( registry.get<ECS::LandscapeComponent>( root ),
+                                                     *Runtime::ResourceRegistry::GetLandscapeLayerInfoService() );
+            if ( !rules )
+                return Common::MakeFormattedError<World::Landscape::LandscapeEditLayerTarget>( "heightmap: {}",
+                                                                                               rules.GetError() );
+            return ECS::FindLandscapeEditLayerTarget( registry, landscape, rules.ExtractValue(),
+                                                      Core::LandscapeSculptState::Get().EditingLayer );
         }
     } // namespace
 
@@ -393,11 +421,16 @@ namespace Desert::Editor::Commands
         auto map = World::Landscape::ReadLandscapeHeightmapFile( path, size );
         if ( !map )
             return Common::MakeError<bool>( map.GetError() );
-        auto record = World::Landscape::ImportLandscapeHeightmap( t.Root, t.Lookup, t.Bounds, map.GetValue() );
+        auto layer = HeightmapLayer( scene, t.Landscape );
+        if ( !layer )
+            return Common::MakeError<bool>( layer.GetError() );
+        auto record = World::Landscape::ImportLandscapeHeightmap( t.Root, t.Lookup, t.Bounds, map.GetValue(),
+                                                                  layer.GetValue() );
         if ( !record )
             return Common::MakeFormattedError<bool>( "{}: {}", path.generic_string(), record.GetError() );
         CommandHistory::Get().PushCommand( std::make_unique<LandscapeHeightsCommand>(
-             scene, t.Landscape, record.ExtractValue(), "Import heightmap " + path.filename().string() ) );
+             scene, t.Landscape, record.ExtractValue(), layer.ExtractValue(),
+             std::format( "Import heightmap {}", path.filename().string() ) ) );
         return Common::MakeSuccess( true );
     }
 
@@ -466,5 +499,226 @@ namespace Desert::Editor::Commands
         if ( !map )
             return Common::MakeFormattedError<bool>( "{}: {}", path.generic_string(), map.GetError() );
         return World::Landscape::WriteLandscapeHeightmapFile( path, map.GetValue() );
+    }
+    namespace
+    {
+        namespace WL = World::Landscape;
+
+        /// The paint rules the merge reads — none needed while the landscape has no target layers.
+        Common::ResultStr<std::vector<WL::LandscapeLayerRule>> MergeRules( entt::registry&     registry,
+                                                                           const Common::UUID& landscape )
+        {
+            using Rules     = std::vector<WL::LandscapeLayerRule>;
+            const auto root = ECS::FindLandscapeRootEntity( registry, landscape );
+            if ( root == entt::null )
+                return Common::MakeError<Rules>( "landscape edit layers: the landscape root is not loaded" );
+            const auto& body = registry.get<ECS::LandscapeComponent>( root );
+            if ( body.Layers.empty() )
+                return Common::MakeSuccess( Rules{} );
+            auto* service = Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
+            if ( service == nullptr )
+                return Common::MakeError<Rules>( "landscape edit layers: no landscape layer info service" );
+            auto rules = ECS::LandscapeLayerRulesOf( body, *service );
+            if ( !rules )
+                return Common::MakeFormattedError<Rules>( "landscape edit layers: {}", rules.GetError() );
+            return rules;
+        }
+
+        /// Applies @p stack (with @p restore) and points the editing layer back at the bottom one when @p stack
+        /// no longer names it.
+        Common::BoolResultStr ApplyEditLayers( entt::registry& registry, const Common::UUID& landscape,
+                                               const WL::LandscapeEditLayerStack&         stack,
+                                               std::span<const LandscapeRemovedTileLayer> restore, bool merge )
+        {
+            std::vector<WL::LandscapeLayerRule> rules;
+            if ( merge )
+            {
+                auto read = MergeRules( registry, landscape );
+                if ( !read )
+                    return Common::MakeError<bool>( read.GetError() );
+                rules = read.ExtractValue();
+            }
+            if ( auto ok = ApplyLandscapeEditLayerStack( registry, landscape, stack, rules, restore, merge ); !ok )
+                return ok;
+            auto& editing = Core::LandscapeSculptState::Get().EditingLayer;
+            if ( !editing.IsNull() && stack.Find( editing ) == nullptr )
+                editing = Common::UUID::Null();
+            return BOOLSUCCESS;
+        }
+
+        class LandscapeEditLayersCommand final : public ICommand
+        {
+        public:
+            LandscapeEditLayersCommand( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                        const Common::UUID& landscape, WL::LandscapeEditLayerStack before,
+                                        WL::LandscapeEditLayerStack            after,
+                                        std::vector<LandscapeRemovedTileLayer> removed, bool merge,
+                                        std::string label )
+                 : m_Scene( scene ), m_Landscape( landscape ), m_Before( std::move( before ) ),
+                   m_After( std::move( after ) ), m_Removed( std::move( removed ) ), m_Merge( merge ),
+                   m_Label( std::move( label ) )
+            {
+            }
+
+            bool Undo() override
+            {
+                return Write( m_Before, m_Removed );
+            }
+            bool Redo() override
+            {
+                return Write( m_After, {} );
+            }
+            [[nodiscard]] std::string GetLabel() const override
+            {
+                return m_Label;
+            }
+
+        private:
+            bool Write( const WL::LandscapeEditLayerStack&         stack,
+                        std::span<const LandscapeRemovedTileLayer> restore )
+            {
+                const auto scene = m_Scene.lock();
+                if ( !scene )
+                {
+                    ToastManager::Push( "landscape edit layers: the scene this edit was made in is closed",
+                                        ToastLevel::Error, 6.0f );
+                    return false;
+                }
+                if ( auto ok = ApplyEditLayers( scene->GetRegistry(), m_Landscape, stack, restore, m_Merge ); !ok )
+                {
+                    ToastManager::Push( ok.GetError(), ToastLevel::Error, 6.0f );
+                    return false;
+                }
+                return true;
+            }
+
+            std::weak_ptr<::Desert::Core::Scene>   m_Scene;
+            Common::UUID                           m_Landscape;
+            WL::LandscapeEditLayerStack            m_Before;
+            WL::LandscapeEditLayerStack            m_After;
+            std::vector<LandscapeRemovedTileLayer> m_Removed;
+            bool                                   m_Merge = false;
+            std::string                            m_Label;
+        };
+
+        /// The first landscape, its stack, and @p layer's index in it (0 when @p layer is null).
+        struct StackEdit
+        {
+            Common::UUID                Landscape;
+            WL::LandscapeEditLayerStack Stack;
+            size_t                      Index = 0;
+        };
+
+        Common::ResultStr<StackEdit> StackOf( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                              const Common::UUID&                           layer )
+        {
+            auto root = RootOf( scene );
+            if ( !root )
+                return Common::MakeError<StackEdit>( root.GetError() );
+            StackEdit edit{ root.GetValue().Landscape,
+                            scene->GetRegistry().get<ECS::LandscapeComponent>( root.GetValue().Root ).EditLayers };
+            if ( layer.IsNull() )
+                return Common::MakeSuccess( std::move( edit ) );
+            auto index = LandscapeEditLayerIndex( edit.Stack, layer );
+            if ( !index )
+                return Common::MakeError<StackEdit>( index.GetError() );
+            edit.Index = index.GetValue();
+            return Common::MakeSuccess( std::move( edit ) );
+        }
+
+        /// Applies @p after and records the edit as ONE undo entry.
+        Common::BoolResultStr CommitEditLayers( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                                const StackEdit& edit, WL::LandscapeEditLayerStack after,
+                                                std::vector<LandscapeRemovedTileLayer> removed, bool merge,
+                                                std::string label )
+        {
+            if ( auto ok = ApplyEditLayers( scene->GetRegistry(), edit.Landscape, after, {}, merge ); !ok )
+                return ok;
+            CommandHistory::Get().PushCommand( std::make_unique<LandscapeEditLayersCommand>(
+                 scene, edit.Landscape, edit.Stack, std::move( after ), std::move( removed ), merge,
+                 std::move( label ) ) );
+            return BOOLSUCCESS;
+        }
+
+        /// One field of layer @p layer, edited through @p edit, as one undo entry.
+        template <typename Edit>
+        Common::BoolResultStr EditLayerField( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                              const Common::UUID& layer, bool merge, std::string label,
+                                              Edit&& edit )
+        {
+            auto stack = StackOf( scene, layer );
+            if ( !stack )
+                return Common::MakeError<bool>( stack.GetError() );
+            auto after = stack.GetValue().Stack;
+            edit( after.Layers[stack.GetValue().Index] );
+            return CommitEditLayers( scene, stack.GetValue(), std::move( after ), {}, merge, std::move( label ) );
+        }
+    } // namespace
+
+    Common::ResultStr<Common::UUID> AddLandscapeEditLayer( const std::shared_ptr<::Desert::Core::Scene>& scene )
+    {
+        auto edit = StackOf( scene, Common::UUID::Null() );
+        if ( !edit )
+            return Common::MakeError<Common::UUID>( edit.GetError() );
+        const auto guid  = Common::UUID::Generate();
+        auto       after = LandscapeStackWithLayerAdded( edit.GetValue().Stack,
+                                                         Core::LandscapeSculptState::Get().EditingLayer, guid );
+        if ( auto ok = CommitEditLayers( scene, edit.GetValue(), std::move( after ), {}, false,
+                                         "Add landscape edit layer" );
+             !ok )
+            return Common::MakeError<Common::UUID>( ok.GetError() );
+        Core::LandscapeSculptState::Get().EditingLayer = guid;
+        return Common::MakeSuccess( guid );
+    }
+
+    Common::BoolResultStr RemoveLandscapeEditLayer( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                                    const Common::UUID&                           layer )
+    {
+        auto edit = StackOf( scene, layer );
+        if ( !edit )
+            return Common::MakeError<bool>( edit.GetError() );
+        auto after = LandscapeStackWithLayerRemoved( edit.GetValue().Stack, layer );
+        if ( !after )
+            return Common::MakeError<bool>( after.GetError() );
+        auto removed = LandscapeEditLayerTileDataOf( scene->GetRegistry(), edit.GetValue().Landscape, layer );
+        if ( !removed )
+            return Common::MakeError<bool>( removed.GetError() );
+        return CommitEditLayers( scene, edit.GetValue(), after.ExtractValue(), removed.ExtractValue(), true,
+                                 "Delete landscape edit layer" );
+    }
+
+    Common::BoolResultStr RenameLandscapeEditLayer( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                                    const Common::UUID& layer, std::string name )
+    {
+        return EditLayerField( scene, layer, false, "Rename landscape edit layer",
+                               [&]( WL::LandscapeEditLayer& l ) { l.Name = std::move( name ); } );
+    }
+
+    Common::BoolResultStr SetLandscapeEditLayerVisible( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                                        const Common::UUID& layer, bool visible )
+    {
+        return EditLayerField( scene, layer, true,
+                               visible ? "Show landscape edit layer" : "Hide landscape edit layer",
+                               [&]( WL::LandscapeEditLayer& l ) { l.Visible = visible; } );
+    }
+
+    Common::BoolResultStr SetLandscapeEditLayerLocked( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                                       const Common::UUID& layer, bool locked )
+    {
+        return EditLayerField( scene, layer, false,
+                               locked ? "Lock landscape edit layer" : "Unlock landscape edit layer",
+                               [&]( WL::LandscapeEditLayer& l ) { l.Locked = locked; } );
+    }
+
+    Common::BoolResultStr SetLandscapeEditLayerAlpha( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                                      const Common::UUID& layer, float heightAlpha,
+                                                      float weightAlpha )
+    {
+        return EditLayerField( scene, layer, true, "Landscape edit layer alpha",
+                               [&]( WL::LandscapeEditLayer& l )
+                               {
+                                   l.HeightAlpha = heightAlpha;
+                                   l.WeightAlpha = weightAlpha;
+                               } );
     }
 } // namespace Desert::Editor::Commands

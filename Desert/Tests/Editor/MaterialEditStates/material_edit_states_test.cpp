@@ -705,7 +705,7 @@ TEST( MaterialEditStates, RowsThatCannotBeResetAreRefusedByKindAndNotByValue )
     //
     // THE SECOND REASON HAS EXPIRED, AND THIS ASSERTION IS NOW PINNING A DECISION RATHER THAN A LIMIT.
     // It used to read: a 2D texture slot cannot be UNBOUND at all, because
-    // Graphic::DataDrivenMaterial::SetTexture refused a null image and MaterialFactory::ApplyShaderAsset
+    // Graphic::DataDrivenMaterial::SetTexture refused a null image and MaterialService's ApplySurfaceAsset
     // skipped handle 0 — so erasing the entry would clear the file and leave the ball still sampling the
     // old texture, a control that changes the document and not the picture (DC §1.3). М9 removed that
     // limit: a null image now binds the shader's own `Properties … = "white"` default

@@ -10,8 +10,7 @@ namespace Desert::Editor
     class StaticMeshComponentWidget final : public IComponentWidget
     {
     public:
-        StaticMeshComponentWidget( const Assets::AssetManager* assetManager,
-                                   const ComponentEditContext* ctx = nullptr );
+        StaticMeshComponentWidget( Assets::AssetManager* assetManager, const ComponentEditContext* ctx = nullptr );
 
         bool CanRemove() const override
         {
@@ -31,13 +30,8 @@ namespace Desert::Editor
         // In-editor rigging section: place bones on an asset-backed static mesh and "Convert to Skinned".
         void RenderRigging( ECS::Entity& entity, ECS::StaticMeshComponent& staticMesh );
 
-        // Resolves the mesh this entity really draws (edited runtime mesh, else the built asset mesh)
-        // and hands it to the shared mesh-stats section.
-        void ShowMeshDetails( const ECS::Entity& entity, ::Desert::Core::Scene* scene,
-                              const ECS::StaticMeshComponent& staticMesh ) const;
-
     private:
-        const Assets::AssetManager* m_AssetManager;
+        Assets::AssetManager* m_AssetManager;
         // The Details panel's shared preview, when it lent one — the mesh row draws it as a thumbnail.
         const ComponentEditContext* m_Ctx = nullptr;
     };

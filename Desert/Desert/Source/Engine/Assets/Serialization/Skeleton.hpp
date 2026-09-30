@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Assets/Serialization/ImportSourceInfo.hpp>
 #include <Engine/Assets/TextAssetHeaderCheck.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
@@ -17,16 +18,6 @@
 
 namespace Desert::Assets::Serialization
 {
-    /// Where an IMPORTED rig came from (AF8b): the source's file name and the hash of the bytes it was imported
-    /// from (Assets::HashMeshSourceFile). The importer compares that hash, not file times, to decide whether a
-    /// skinned source is current - the texture IMPT rule of AF7 - so a fresh checkout, whose mtimes are the
-    /// checkout's order, does not re-import committed assets. Absent on a hand-authored rig (no source).
-    struct SkeletonImportInfo
-    {
-        std::string Source;
-        uint64_t    SourceHash = 0;
-    };
-
     struct SkeletonAssetData
     {
         /// The text asset header (T7e, SKEL 1), FIRST so the registry reads it without parsing the bones: Kind
@@ -37,7 +28,7 @@ namespace Desert::Assets::Serialization
         // and 0 is the value SkinnedMeshAsset already reads as "no rig claimed".
         uint64_t                                 Signature = 0;
         std::vector<Desert::Animation::BoneInfo> Bones;
-        std::optional<SkeletonImportInfo>        Import;
+        std::optional<ImportSourceInfo>          Import; // absent on a hand-authored rig
     };
 
     [[nodiscard]] inline std::span<const Common::Content::SubsystemVersion> SkeletonTextSubsystems()

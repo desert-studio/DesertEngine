@@ -1,3 +1,4 @@
+#include <Editor/Core/Control/PointerDrag.hpp>
 #include <array>
 #include "ViewportPanel.hpp"
 #include <Editor/Core/DragPayloads.hpp>
@@ -16,11 +17,14 @@
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
 #include <Editor/Import/MeshDnD.hpp>
+#include <Editor/Import/ImportOptionsDialog.hpp>
+#include <Common/Content/ImportRecord.hpp>
 #include <Editor/Import/MeshMaterial.hpp>
 #include <Editor/Import/AsyncMeshLoader.hpp>
 #include <filesystem>
 #include <Engine/Graphic/Render2D/Transform2D.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
+#include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Animation/Skeleton.hpp>
@@ -294,28 +298,49 @@ namespace Desert::Editor
     }
 
     Common::BoolResultStr ViewportPanel::DropMeshIntoActiveViewport( const std::string&       path,
-                                                                     std::optional<glm::vec3> at )
+                                                                     const ActorDrop::Target& target )
     {
         ViewportPanel* viewport = ActiveViewport();
         if ( viewport == nullptr )
             return Common::MakeFormattedError<bool>( "'{}': no viewport is live to drop it into", path );
-        return viewport->DropMeshAsset( path, at );
+        return viewport->DropMeshAsset( path, target );
     }
 
-    Common::BoolResultStr ViewportPanel::DropMeshAsset( const std::string& path, std::optional<glm::vec3> at )
+    Common::BoolResultStr ViewportPanel::DropMeshAsset( const std::string& path, const ActorDrop::Target& target )
     {
         if ( !m_Scene || m_AssetManager == nullptr || !m_AsyncLoader )
             return Common::MakeFormattedError<bool>( "'{}': this viewport has no scene or no asset manager",
                                                      path );
+
+        // A FILE NEVER IMPORTED (no import record) asks for its options first, as UE's drop runs the FBX
+        // factory and its options window before the actor exists: nothing is placed now, and the confirmed
+        // import places it at the same point (a cancelled one places nothing). This is the one entrance for
+        // every door - the mouse, the palette, the control channel.
+        if ( std::error_code ec;
+             !std::filesystem::is_regular_file( Common::Content::ImportRecordPathFor( path ), ec ) )
+        {
+            // The closure (a std::string and an ActorDrop::Target, moved into std::function) throws nothing the
+            // check can name: it flags the closure's implicit constructor, not the drop.
+            ImportOptions::Request(
+                 path,
+                 // NOLINTNEXTLINE(bugprone-exception-escape)
+                 [path, target]
+                 {
+                     if ( const auto placed = DropMeshIntoActiveViewport( path, target ); !placed )
+                         LOG_ERROR( "[Viewport] '{}' imported but not placed: {}", path, placed.GetError() );
+                 } );
+            LOG_INFO( "[Viewport] '{}' is new: confirm the Import Options window to place it", path );
+            return BOOLSUCCESS;
+        }
 
         // ASYNC spawn: create the (empty) entity NOW and cook the mesh on a worker thread so a heavy FBX
         // doesn't hitch the editor. UpdateAsyncLoads() assigns the mesh once the cook finishes.
         const std::string name = std::filesystem::path( path ).stem().string();
         auto&             e    = m_Scene->CreateNewEntity( std::string( name ) );
         e.AddComponent<ECS::StaticMeshComponent>(); // pending: no MeshHandle until the cook completes
-        if ( at )
-            e.GetComponent<ECS::TransformComponent>().Translation = *at;
+        e.GetComponent<ECS::TransformComponent>().Translation = target.Point;
         const auto uuid = e.GetComponent<ECS::UUIDComponent>().UUID;
+        m_PendingDrops[static_cast<uint64_t>( uuid )]         = target;
         Core::SelectionManager::SetSelected( uuid );
         Commands::NotifyCreated( { uuid } ); // undo removes the pending entity; the async cook no-ops when
                                              // its target entity is gone
@@ -334,6 +359,12 @@ namespace Desert::Editor
             // The cook finished on the worker -> the main-thread register is now fast (already cooked). Spawn
             // the matching component: a rigged source becomes a SkinnedMesh (+ Animation) so a character can be
             // animated; everything else stays a StaticMesh + gets the pack's sidecar material.
+            std::optional<ActorDrop::Target> dropTarget;
+            if ( const auto pending = m_PendingDrops.find( done.UserData ); pending != m_PendingDrops.end() )
+            {
+                dropTarget = pending->second;
+                m_PendingDrops.erase( pending );
+            }
             const auto resolved = MeshDnD::ResolveOrImportMesh( mgr, done.SourcePath );
             if ( resolved.Handle.IsNull() )
                 continue;
@@ -363,6 +394,15 @@ namespace Desert::Editor
                         e.GetComponent<ECS::StaticMeshComponent>().MeshHandle = resolved.Handle;
                     ApplySidecarMaterial( e, done.SourcePath );
                 }
+                // THE BOUNDS REST ON THE SURFACE (UE FActorPositioning): the mesh is resident now (the
+                // closure was awaited), so its box - skinned ones in their baked bind pose - is known. An
+                // entity the user already moved off the drop point keeps where they put it.
+                auto& transform = e.GetComponent<ECS::TransformComponent>();
+                if ( dropTarget && transform.Translation == dropTarget->Point )
+                    if ( const auto* meshAsset =
+                              Runtime::ResourceRegistry::GetMeshService()->GetAsset( resolved.Handle ) )
+                        transform.Translation = ActorDrop::PlacedOrigin(
+                             *dropTarget, Geometry::LocalBounds( meshAsset->GetSubmeshes() ), transform.Scale );
             }
         }
 
@@ -1471,6 +1511,10 @@ namespace Desert::Editor
         // Render scene
         m_UIHelper->Image( m_Scene->GetFinalImage( ViewIndex() ),
                            { m_ViewportData.Size.x, m_ViewportData.Size.y } );
+        Control::PointerInjection::PublishTarget( Control::Subject::Viewport,
+                                                  { ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y,
+                                                    ImGui::GetItemRectSize().x, ImGui::GetItemRectSize().y,
+                                                    ImGui::GetWindowViewport()->ID, ImGui::GetFrameCount() } );
 
         // UI Preview vs Design. Preview: publish the viewport pointer/keyboard so the EditorUIPass drives the
         // canvas with real input (buttons interactive) and SKIP the authoring overlays/handles. Design: the
@@ -1562,10 +1606,7 @@ namespace Desert::Editor
             {
                 const std::string path( static_cast<const char*>( payload->Data ),
                                         payload->DataSize > 0 ? payload->DataSize - 1 : 0 );
-                std::optional<glm::vec3> at;
-                if ( const auto surface = SurfaceAtCursor() )
-                    at = surface->Point;
-                if ( const auto dropped = DropMeshAsset( path, at ); !dropped )
+                if ( const auto dropped = DropMeshAsset( path, DropTargetAtCursor() ); !dropped )
                     LOG_ERROR( "[Viewport] mesh drop of '{}' refused: {}", path, dropped.GetError() );
             }
 
@@ -2503,6 +2544,21 @@ namespace Desert::Editor
         if ( !m_Scene->Raycast( ray, hit ) )
             return std::nullopt;
         return hit;
+    }
+
+    ActorDrop::Target ViewportPanel::DropTargetAtCursor() const
+    {
+        const auto camera = ViewCamera();
+        if ( !camera || !m_Scene )
+            return ActorDrop::Target{};
+        const auto ray = Common::Math::Ray::FromScreenPosition(
+             { m_ViewportData.MousePosition.x, m_ViewportData.MousePosition.y }, camera->GetProjectionMatrix(),
+             camera->GetViewMatrix(), camera->GetPosition(), static_cast<uint32_t>( m_ViewportData.Size.x ),
+             static_cast<uint32_t>( m_ViewportData.Size.y ) );
+        ::Desert::Core::RaycastHit hit;
+        const bool                 met = m_Scene->Raycast( ray, hit );
+        return ActorDrop::TargetFor( met ? std::optional<glm::vec3>( hit.Point ) : std::nullopt, hit.Normal,
+                                     ray.Origin, ray.Direction );
     }
 
     void ViewportPanel::AssignMaterialAtCursor( const std::string& materialPath )

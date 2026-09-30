@@ -30,6 +30,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <string_view>
 
 using Common::Math::AABB;
 using Desert::Core::Frustum;
@@ -352,20 +353,26 @@ TEST( FrustumCulling, NoSurfaceShaderMovesAVertexOffItsAuthoredBounds )
             continue; // Skybox / UI / Volume / Terrain are not drawn through the mesh queues
         }
 
-        // The graph shaders declare no vertex body of their own; they include the one shared stage.
-        // Follow it, so the assertion lands on the code that runs rather than on the include line.
-        std::string vertexSource = text;
-        if ( text.find( "#include <Common/GraphVertex.glslh>" ) != std::string::npos )
+        // A surface template (a Surface block: every shader graph, StandardSurface) declares no vertex stage
+        // of its own — the engine's Vertex_<Path>.glslh is its vertex stage, and the author's function cannot
+        // reach gl_Position. Follow it to the static path (the one culled on the mesh's authored box), so the
+        // assertion lands on the code that runs: its world position is the mesh's own a_Position, transformed.
+        std::string      vertexSource = text;
+        std::string_view anchor       = "gl_Position =";
+        if ( text.find( "EvaluateSurface" ) != std::string::npos )
         {
-            vertexSource = ReadFile( shaderRoot / "Common" / "GraphVertex.glslh" );
+            EXPECT_EQ( text.find( "gl_Position" ), std::string::npos ) << entry.path().string();
+            vertexSource = ReadFile( shaderRoot / "Mesh" / "Surface" / "Vertex_Static.glslh" );
+            anchor       = "worldPos =";
         }
 
-        const std::size_t at = vertexSource.find( "gl_Position =" );
-        ASSERT_NE( at, std::string::npos ) << entry.path().string() << " has no gl_Position";
+        const std::size_t at = vertexSource.find( anchor );
+        ASSERT_NE( at, std::string::npos ) << entry.path().string() << " has no " << anchor;
         const std::size_t semicolon = vertexSource.find( ';', at );
         ASSERT_NE( semicolon, std::string::npos ) << entry.path().string();
 
-        const std::string rhs         = squash( vertexSource.substr( at + 13, semicolon - at - 13 ) );
+        const std::size_t from        = at + anchor.size();
+        const std::string rhs         = squash( vertexSource.substr( from, semicolon - from ) );
         const std::string undisplaced = "*vec4(a_Position,1.0)";
         ASSERT_GE( rhs.size(), undisplaced.size() ) << entry.path().string();
         EXPECT_EQ( rhs.substr( rhs.size() - undisplaced.size() ), undisplaced )

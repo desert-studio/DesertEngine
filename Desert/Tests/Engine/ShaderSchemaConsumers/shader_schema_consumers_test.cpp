@@ -298,9 +298,8 @@ namespace
     };
 
     constexpr const char* kParamRow  = "Desert/Desert/Source/Engine/Core/Formats/MaterialParamRow.hpp";
-    constexpr const char* kFactory   = "Desert/Desert/Source/Engine/Graphic/Materials/MaterialFactory.cpp";
+    constexpr const char* kFactory   = "Desert/Desert/Source/Engine/Runtime/Services/Material/MaterialService.cpp";
     constexpr const char* kMaterial  = "Desert/Desert/Source/Engine/Graphic/Materials/Material.cpp";
-    constexpr const char* kDDM       = "Desert/Desert/Source/Engine/Graphic/Materials/DataDrivenMaterial.hpp";
     constexpr const char* kPipeline  = "Desert/Desert/Source/Engine/Graphic/PipelineCache.hpp";
     constexpr const char* kMeshRend  = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp";
     constexpr const char* kShaderSvc = "Desert/Desert/Source/Engine/Runtime/Services/Shader/ShaderService.cpp";
@@ -334,14 +333,19 @@ namespace
          { "ShaderParam", "Widget", kMatEdit, nullptr },
          { "ShaderParam", "IsTexture", kParamRow, nullptr },
          { "ShaderParam", "AssetKind", kMatEdit, nullptr },
-         { "ShaderParam", "IsCubeTexture", kFactory, nullptr },
+         { "ShaderParam", "IsCubeTexture", kParamRow, nullptr },
          { "ShaderParam", "Min", kMatEdit, nullptr },
          { "ShaderParam", "Max", kMatEdit, nullptr },
-         { "ShaderParam", "Default", kDDM, nullptr },
+         { "ShaderParam", "Default", "Desert/Desert/Source/Engine/Core/Formats/MaterialLayout.hpp", nullptr },
 
          // The row this suite was born from. Read since М9 by Material::BindSchemaDefaultTexture, which
          // is what makes an empty texture slot expressible at all.
          { "ShaderParam", "DefaultTexture", kMaterial, nullptr },
+
+         // The template's sampler state for a Texture2D slot (wrap U/V, filter). Read by
+         // BindManifestSamplers, which hands it to MaterialData::SlotSampler as the default a .demat
+         // slot's own Sampler overrides.
+         { "ShaderParam", "Sampler", kFactory, nullptr },
 
          // ---- ShaderRenderState: all fifteen land in the pipeline specification ----------------------
          { "ShaderRenderState", "Cull", kPipeline, nullptr },
@@ -370,6 +374,14 @@ namespace
          // ShaderService is the consumer: it recognises a medium at registration, keeps its text, and
          // hands it to the cloud renderer as the substitution for one virtual include.
          { "ShaderProgramMeta", "MediumSource", kShaderSvc, nullptr },
+         // Binding(n)/TextureBinding(n): BuildMaterialLayout derives the row and texture layout from them,
+         // on a shader-map cache hit as on a parse (MAT1h-2).
+         { "ShaderProgramMeta", "LayoutBindings", "Desert/Desert/Source/Engine/Core/Formats/MaterialLayout.hpp",
+           nullptr },
+         // A surface template's BlendMode (UE EBlendMode): MeshRenderer reads it off the material's schema to
+         // route a Translucent material to the forward translucent pass (its pipeline blends src-alpha over
+         // the scene) and to give a Masked material its own shadow-caster cell (SURF2).
+         { "ShaderProgramMeta", "Blend", kMeshRend, nullptr },
 
          // ---- The parser's own result ---------------------------------------------------------------
 
@@ -389,6 +401,14 @@ namespace
          { "DShaderParseResult", "Meta", kPreproc, nullptr },
          { "DShaderParseResult", "Stages", kPreproc, nullptr },
          { "DShaderParseResult", "Passes", kParser, nullptr },
+         // The generator writes the row and the samplers FROM this (BuildAutoDeclarations); MeshVertexPath
+         // reconciles it with every compiled stage (Core/Formats/MaterialLayout.hpp).
+         { "DShaderParseResult", "Layout", kParser, nullptr },
+         // The expanded `Surface` block (SURF1a). The parser reads its Blend and TwoSided back when it
+         // builds the cells — Masked demands the clip parameter and adds the discard, TwoSided turns the
+         // cells' cull off — and publishes the cells as named passes (Meta.PassNames), which is how
+         // ShaderService registers them; MeshShaderFor names the ones a mesh pass draws with.
+         { "DShaderParseResult", "Surface", kParser, nullptr },
 
          { "DShaderPass", "Name", kParser, nullptr },
          { "DShaderPass", "State", kPreproc, nullptr },
@@ -579,7 +599,11 @@ TEST( ShaderSchemaConsumers, TheDeadCountIsStatedSoAShrinkageIsVisible )
     // which is a program FRAGMENT rather than a program: ShaderService recognises it at registration and
     // hands its text to the cloud renderer as one virtual include. (Forty since O1 added
     // `ShaderParam::Timing`, when an edit to a parameter reaches the picture.)
-    EXPECT_EQ( std::size( k_Census ), 41u )
+    // FORTY-SIX since SURF2 added `ShaderProgramMeta::Blend` (read by MeshRenderer's pass routing).
+    // FORTY-FIVE since SURF1c added `DShaderParseResult::Surface` (read by the cell expansion in
+    // DShaderParser.cpp). FORTY-FOUR since MAT1s added `ShaderParam::Sampler` (read by BindManifestSamplers).
+    // FORTY-THREE since MAT1h-2 added `ShaderProgramMeta::LayoutBindings` (read by BuildMaterialLayout).
+    EXPECT_EQ( std::size( k_Census ), 46u )
          << "the shader schema gained or lost a field; the count is quoted so that is a reviewable edit";
 }
 
@@ -855,13 +879,9 @@ TEST( ShaderSchemaConsumers, EveryTexturePropertyHasASamplerToBindTo )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    // The known drift, with the reason and the owner. StaticMeshPBR's schema offers seven texture slots
-    // and the shader samples three; the four below are persisted by `PBRSurfaceParams` (the mesh importer
-    // fills them from FBX/glTF) and read by no stage of any PBR shader. Deleting them throws away import
-    // data the engine may want; wiring them is a shading-model change. Either way it is not a tidy-up,
-    // and М9 found it rather than owning it.
-    static const std::set<std::string> knownUnsampled = { "u_MetallicTexture", "u_RoughnessTexture", "u_AOTexture",
-                                                          "u_EmissiveTexture" };
+    // The known drift, with the reason and the owner. Empty since MAT1b: the importer packs glTF's
+    // metallic-roughness and occlusion into u_ORMTexture, and the three separate map slots are gone.
+    static const std::set<std::string> knownUnsampled = {};
     std::set<std::string>              seenUnsampled;
 
     const fs::path shadersDir = fs::path( root ) / "Editor" / "Resources" / "Shaders";

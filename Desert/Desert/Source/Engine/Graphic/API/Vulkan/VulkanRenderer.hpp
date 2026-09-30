@@ -111,6 +111,11 @@ namespace Desert::Graphic::API::Vulkan
          * otherwise write the same line thousands of times a second and the log would stop being read.
          */
         NO_DISCARD bool BindGraphicsPipeline( const GraphicsPipeline* pipeline );
+        // The shared buffer a mesh without vertex streams binds at binding 1 (white, UV1 0,0 in every vertex),
+        // grown to hold `capacity` stream vertices (MeshVertexLayout.hpp DefaultVertexStreamsFor).
+        const std::shared_ptr<VertexBuffer>& DefaultVertexStreams( uint32_t capacity );
+        std::shared_ptr<VertexBuffer>        m_DefaultVertexStreams;
+        uint32_t                             m_DefaultVertexStreamsCapacity = 0;
 
     private:
         // THE ONE QUESTION EVERY RECORDING ENTRY POINT ASKS. BeginFrame is gated, but a loss can be noted

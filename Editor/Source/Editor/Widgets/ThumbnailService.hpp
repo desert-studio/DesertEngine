@@ -4,12 +4,16 @@
 #include <Editor/Widgets/AssetThumbnailRenderer.hpp>
 #include <Editor/Widgets/ThumbnailEncode.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Widgets/ThumbnailPreview.hpp>
+
+#include <Engine/Assets/AssetRootPin.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
 #include <chrono>
 #include <filesystem>
 #include <future>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -36,8 +40,9 @@ namespace Desert::Editor
      * PHOTOGRAPHED — an offscreen scene, a camera, one of six slots, ~370 ms. The four cloud formats are
      * PAINTED from their own bytes on a JobSystem worker (Editor/Widgets/CloudThumbnail.hpp), which needs
      * no device at all. Which of the two a format uses is not decided here and not decided at the call
-     * site either: it is a column of Editor/Widgets/ThumbnailFormats.hpp, the census that also makes a
-     * format with NO producer a red test rather than a silent grey icon.
+     * site either: it is the chain extension -> FileType -> ThumbnailProducers::Producer
+     * (Editor/Widgets/ThumbnailProducers.hpp), whose census makes a format with NO row a red test rather
+     * than a silent grey icon.
      *
      * ONLY WHAT IS ON SCREEN IS CAPTURED, as in UE's content browser. Requests arrive from the panels
      * that draw a tile and from nowhere else: there is no project-wide sweep any more (owner decision В4,
@@ -91,11 +96,46 @@ namespace Desert::Editor
         // startup log. `ThumbnailSubject::PreviewRouteFor` is the one place that answers it.
         std::string RequestMaterial( const Assets::AssetHandle& material, const std::string& assetPath,
                                      ThumbnailSubject::Preview how );
+        // The resolved subject whole (ThumbnailSubject::ResolveMaterial): the only form that can carry a
+        // preview mesh, so the only one a Preview::Mesh material is photographed through. The three-argument
+        // form with How == Mesh is refused at dispatch, by name.
+        std::string RequestMaterial( const ThumbnailSubject::Material& material, const std::string& assetPath );
+        // A material a panel already holds LOADED (Details slot, mesh row): the route and PreviewMesh are
+        // resolved (ThumbnailSubject::ResolveLoadedMaterial) only when a capture is owed, so a fresh picture
+        // costs no record read per frame. A refusal is logged once and answers "" (no rendered picture).
+        std::string RequestLoadedMaterial( Assets::AssetManager&                                manager,
+                                           const std::shared_ptr<Assets::SurfaceMaterialAsset>& asset,
+                                           const std::string&                                   assetPath );
+
+        // An asset a panel could not even ROUTE (ThumbnailSubject refused it: a domain no producer draws, an
+        // instance whose chain names no template, an unreadable file). Logged ONCE with @p reason and entered
+        // in the failure set, so the card keeps its type icon for a stated reason — never silently (THM1n-10).
+        void Refuse( const std::string& assetPath, const std::string& reason );
 
         // Queue a mesh preview, optionally with the material to apply to every slot.
         std::string
         RequestMesh( const Assets::AssetHandle& mesh, const std::string& assetPath,
                      const Assets::AssetHandle& material = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
+        // Queue a posed picture (THM1n-6, THM-FIXB), keyed and judged like RequestMesh on @p pose.CookedPath —
+        // the subject's own file (.skmesh, .skeleton, .anim; ThumbnailPose::ResolvePoseSubject) — the preview
+        // mesh in pose.Handle, the clip (null: bind pose) in pose.Clip. The same enqueue as RequestMesh.
+        std::string RequestPose( const ThumbnailSubject::Mesh& pose );
+
+        /// Queue a SKYBOX picture (ThumbnailProducers::Producer::RenderedSky): the panorama `.detex` @p assetPath
+        /// (the skybox row's file) drawn by the scene's skybox under the dome camera. Keyed on the asset path
+        /// and judged by its content hash, like a material; every shower (Content Browser tile, Details Skybox
+        /// row) asks this and draws the PNG exactly when JudgeSkyboxPicture says Show.
+        std::string RequestSkybox( const Assets::AssetHandle& skybox, const std::string& assetPath );
+        [[nodiscard]] static ThumbnailFreshness::Verdict JudgeSkyboxPicture( const std::string& assetPath );
+
+        /// THE ONE JUDGEMENT OF A MESH PICTURE (UE: ThumbnailTools' one freshness answer per asset key). Every
+        /// shower of a static, skinned or posed mesh picture — the Content Browser tile, the Details slots —
+        /// asks this and draws the PNG exactly when it says Show; RequestMesh/RequestPose gate their enqueue on
+        /// the same key (MeshRequestOf) and the same hash (SourceHash), so a shower that says Capture is a
+        /// service that queues, and a repeated request of a queued picture is a no-op.
+        [[nodiscard]] static ThumbnailFreshness::Verdict JudgeMeshPicture( const std::string& cookedPath );
+        /// The same for a material picture: RequestMaterial's key (the asset path) and hash (its content).
+        [[nodiscard]] static ThumbnailFreshness::Verdict JudgeMaterialPicture( const std::string& assetPath );
 
         /**
          * @brief Queue a picture that is PAINTED ON THE CPU from the file's own bytes — the four cloud
@@ -134,10 +174,44 @@ namespace Desert::Editor
         /// Queue a capture of a material the OPEN SCENE uses, ahead of everything the browser asked for
         /// (THUMB3; UE renders what is on screen first). Already queued -> moved forward; already fresh on
         /// disk, failed or in flight -> nothing. These are the only captures the splash may run.
-        void WarmMaterial( const Assets::AssetHandle& material, const std::string& assetPath,
-                           ThumbnailSubject::Preview how );
+        void WarmMaterial( const ThumbnailSubject::Material& material, const std::string& assetPath );
+        /// The same for a mesh (THM1m): the open scene's meshes and the opening folder's uncaptured mesh tiles
+        /// are photographed on the splash too, keyed on the cooked form as RequestMesh keys them.
+        void WarmMesh( const ThumbnailSubject::Mesh& mesh );
+        /// The same for a skinned mesh's pose (ThumbnailPose::ResolveSkinnedMesh's answer).
+        void WarmPose( const ThumbnailSubject::Mesh& mesh );
+        /// The same for a skybox (THM-FIXH): RequestSkybox's request — key the `.detex` path, freshness its
+        /// content hash — at the front, so the splash photographs every skybox of the project as it does every
+        /// material.
+        void WarmSkybox( const Assets::AssetHandle& skybox, const std::string& assetPath );
+        /// THM1n-13: a painted picture of the project warmed on the splash — RequestPainted, counted in
+        /// SceneWarmPending until it lands, and painted before the hand-over (TickCapture(SceneWarmOnly) runs the
+        /// paint queue while its front is a warm one).
+        void WarmPainted( const std::string& assetPath );
         /// Scene-warm captures still queued or in flight: what holds the hand-over within its budget.
         [[nodiscard]] std::size_t SceneWarmPending() const;
+
+        /**
+         * @brief THE LIVE PREVIEW of Edit Thumbnail (UE renders the tile in real time with the orbit being
+         *        dragged): a capture of the subject seen from @p orbit, an orbit NOT stated anywhere yet.
+         *
+         * Through the same renderer and the same dispatch as every capture - no second renderer - but into
+         * ThumbnailKey::PreviewPath, never recorded, never judged fresh and never the cached thumbnail. One slot,
+         * the last request wins (ThumbnailPreview::Slot), dispatched ahead of the background queue because a
+         * person is dragging. Returns the preview PNG to draw once it exists (ThumbnailCache re-decodes it on
+         * every rewrite). The gesture's end is EndPreview; the orbit it settles on is written by
+         * ThumbnailEdit::EditOrbit and re-shot by freshness like any edit.
+         */
+        std::string RequestPreviewMaterial( const ThumbnailSubject::Material& material,
+                                            const std::string& assetPath, const Assets::ThumbnailOrbit& orbit );
+        std::string RequestPreviewMesh( const ThumbnailSubject::Mesh& mesh, const Assets::ThumbnailOrbit& orbit );
+        /// The same for a posed picture (a skinned source's .skmesh, ThumbnailPose::ResolvePoseSubject): captured
+        /// as RequestPose captures it, keyed on @p pose.CookedPath.
+        std::string RequestPreviewPose( const ThumbnailSubject::Mesh& pose, const Assets::ThumbnailOrbit& orbit );
+        /// The gesture on @p assetPath ended: a waiting preview is dropped (one in flight still lands).
+        void EndPreview( const std::string& assetPath );
+        /// A preview of @p assetPath has landed since its gesture began: the PreviewPath file is this gesture's.
+        [[nodiscard]] bool PreviewLanded( const std::string& assetPath ) const;
 
         // Forget a cached/failed result, e.g. after the asset was edited.
         void Invalidate( const std::string& assetPath );
@@ -176,7 +250,7 @@ namespace Desert::Editor
 
         [[nodiscard]] bool HasWork() const
         {
-            return !m_Queue.empty() || ( m_Renderer && m_Renderer->HasPending() ) || !m_PaintQueue.empty() ||
+            return CaptureOwed() || ( m_Renderer && m_Renderer->HasPending() ) || !m_PaintQueue.empty() ||
                    m_PaintInFlight.valid();
         }
 
@@ -184,7 +258,9 @@ namespace Desert::Editor
         enum class Kind
         {
             Material,
-            Mesh
+            Mesh,
+            Pose,  // a skinned mesh posed (AssetThumbnailRenderer::RequestPose)
+            Skybox // a skybox's HDR under the dome camera (AssetThumbnailRenderer::RequestSkybox)
         };
         struct Request
         {
@@ -199,17 +275,66 @@ namespace Desert::Editor
             std::string Png;
             // Materials only: which of the three pictures this is. See ThumbnailSubject::Preview.
             ThumbnailSubject::Preview How = ThumbnailSubject::Preview::Sphere;
+            // Materials with How == Mesh only: the mesh they are photographed on (ThumbnailSubject::Material).
+            Assets::AssetHandle PreviewMesh{ static_cast<uint64_t>( 0 ) };
+            // THE ASSET'S THUMBNAIL INFO, carried to the renderer (the only thing it frames by): a material's
+            // whole info, a mesh's orbit in Thumbnail.Orbit (its primitive and PreviewMesh unused).
+            Assets::ThumbnailInfo Thumbnail;
+            // Poses only: the clip whose middle frame is photographed (an .anim's); null for the bind pose.
+            // Held here, so the clip is resident until the capture is taken.
+            std::shared_ptr<Assets::AnimationAsset> Clip;
         };
+
+        // The renderer's own dispatch of @p req (a mesh, a material, a material on its preview mesh).
+        Common::BoolResultStr Dispatch( const Request& req );
+        // The live preview (RequestPreview*): one slot, last wins, never recorded.
+        ThumbnailPreview::Slot<Request> m_Preview;
+        // Dispatch or settle the preview. True when it used this tick's renderer turn.
+        bool TickPreview( ThumbnailWarmup::CaptureScope scope );
+        // Anything the renderer still owes: the background queue or the preview.
+        [[nodiscard]] bool CaptureOwed() const
+        {
+            return !m_Queue.empty() || m_Preview.Waiting() || m_Preview.InFlight();
+        }
 
         // Shared by both Request* entry points: decides whether the work is needed at all. Takes the
         // asset's IDENTITY (ThumbnailKey::Identity), never a raw path — the sets below are keyed on it.
-        bool ShouldQueue( const std::string& identity, const std::string& png, const std::string& source );
+        bool ShouldQueue( const std::string& identity, const std::string& png, std::optional<uint64_t> current );
+        // THE ONE REQUEST SHAPE of a mesh-like capture (Mesh, Pose): keyed and judged on the cooked file, so the
+        // browser tile, the splash and every kind ask for one picture of one file.
+        static Request MeshRequestOf( Kind kind, const Assets::AssetHandle& mesh, const std::string& cookedPath,
+                                      const Assets::AssetHandle& material );
+        // THE ONE REQUEST SHAPE of a material capture (queued, warmed, previewed): its preview primitive or mesh
+        // and its whole thumbnail info, keyed under @p identity and written to @p png.
+        static Request MaterialRequestOf( const ThumbnailSubject::Material& material, std::string identity,
+                                          std::string source, std::string png );
+        // THE ORBIT FROM THE MESH'S PACKAGE (its import record) into @p req, read only when a capture is owed;
+        // an unreadable record is said and the asset marked failed (false).
+        bool ReadMeshOrbit( Request& req );
+        // RequestMesh and RequestPose: one enqueue, one deduplication.
+        std::string EnqueueMeshLike( Request req );
         // Identities WarmMaterial queued; an entry leaves with its m_Queued one (settled, failed or skipped).
         std::unordered_set<std::string> m_SceneWarm;
 
+        // THE SUBJECT OF A QUEUED CAPTURE IS HELD RESIDENT, as UE's thumbnail renderer holds the object it
+        // photographs (THM1n). A request names handles, and the eviction sweep that follows a scene load
+        // releases every asset no scene names — which is every folder tile and a warmed mesh the scene does
+        // not place: base/base_basic_pbr/base_basic_shaded were resolved on the splash, dropped by the sweep
+        // ("Dropped 3 built mesh(es)") and then refused at dispatch as "not built in the MeshService", for
+        // the rest of the session. One set of pins per identity, from the moment it is queued until it leaves
+        // m_Queued (settled, failed, skipped or invalidated) — reconciled by HoldSubjects.
+        std::unordered_map<std::string, std::vector<std::unique_ptr<Assets::AssetRootPin>>> m_Held;
+        void                                                                                HoldSubjects();
+        // The one queue-front insertion both Warm* entry points share.
+        void Warm( Request req );
+
         // The identity-free half of the question: is the PICTURE on disk missing or out of date? Split out
         // because dispatch asks it a second time, when the dedup sets deliberately still hold the entry.
-        static bool NeedsCapture( const std::string& png, const std::string& source );
+        static bool NeedsCapture( const std::string& png, std::optional<uint64_t> current );
+
+        // WHAT A PICTURE OF @p source IS JUDGED AGAINST: the file's bytes, and for a mesh also the orbit its
+        // import record states (MeshThumbnailFreshness) - an edit of the record re-shoots it (UE: Edit Thumbnail).
+        static std::optional<uint64_t> SourceHash( Kind type, const std::string& source );
 
         /**
          * @brief Build the renderer — but only if a background job is entitled to a slot right now.
@@ -238,10 +363,10 @@ namespace Desert::Editor
         // Keyed on ThumbnailKey::Identity, not on a path spelling, so two panels naming one asset
         // differently cannot each hold their own entry (see Invalidate).
         std::unordered_set<std::string> m_Queued; // asset identities currently queued or in flight
-        std::unordered_set<std::string> m_Failed; // gave up: do not retry every frame
-        // The dispatched capture, kept past a give-up so a late PNG still gets its record (TH1c).
+        std::unordered_set<std::string>
+             m_Failed; // the renderer refused or wrote nothing: do not retry every frame
+        // The dispatched capture, from dispatch until the renderer answers (ThumbnailFreshness::Capture).
         ThumbnailFreshness::Capture    m_Capture;
-        int                            m_InFlightTicks = 0;
         int                            m_IdleTicks     = 0; // consecutive frames with no work
         ThumbnailEncode::CaptureBudget m_Budget;            // paces dispatch by main-thread ms (TH3)
         // Already said out loud that there was no slot to spare. Latched so the warning is one line per

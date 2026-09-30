@@ -1,0 +1,19 @@
+// Surface cell pass: shadow depth, the R32F target Programs/Shadow/Shadow*.shader write. An opaque template's
+// cell reads no varyings and evaluates no surface — its layout is Shadow*'s; a Masked one evaluates the surface
+// only for its clip, so it carries the surface's bindings and the varyings.
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+DESERT_SURFACE_VARYINGS( in )
+#endif
+
+layout( location = 0 ) out vec4 o_Depth;
+
+void main()
+{
+#ifdef DESERT_SURFACE_MASKED
+    const SurfaceOutput s =
+         EvaluateSurface( DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
+                              v_Surface.VertexColor ) );
+    DESERT_SURFACE_CLIP( s );
+#endif
+    o_Depth = vec4( gl_FragCoord.z, 0.0, 0.0, 1.0 );
+}

@@ -51,10 +51,12 @@
 // #line directives so shaderc errors point at the original .shader lines.
 
 #include <Engine/Core/Formats/Shader.hpp>
+#include <Engine/Core/Formats/MaterialLayout.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <array>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -69,18 +71,111 @@ namespace Desert::Core::Preprocess
         std::unordered_map<Core::Formats::ShaderStage, std::string> Stages;
     };
 
+    // ─── Surface templates ──────────────────────────────────────────────────────────────────────────
+    // A `Domain Surface` template may carry a `Surface { SurfaceOutput EvaluateSurface( SurfaceInput ) }`
+    // block instead of stage blocks. The parser expands it into one CELL per (vertex path × pass), named
+    // `<Path>.<Pass>`, each a named pass of the program: the engine's vertex header for the path, the
+    // engine's pass header for the pass and the author's surface function between them. These tables are
+    // the one home of the cell set and of the headers a cell is built from — the parser writes the cells
+    // from them and ComputeShaderMapKey hashes the same headers, so the two cannot disagree.
+    inline constexpr std::array<std::string_view, 3> kSurfaceVertexPaths = { "Static", "Instanced", "Skinned" };
+    inline constexpr std::array<std::string_view, 3> kSurfaceCellPasses  = { "Forward", "GBuffer", "ShadowDepth" };
+    inline constexpr std::string_view                kSurfaceTypesInclude = "Mesh/Surface/SurfaceTypes.glslh";
+    // A template has no program of its own besides its cells, so its DEFAULT program (the empty pass name,
+    // what the boot content compiles and what a lookup by shader name returns) is this one cell, by name.
+    inline constexpr std::string_view kSurfaceDefaultCell = "Static.Forward";
+    // THE DEFAULT PROGRAM AND THE DEFAULT CELL ARE ONE PROGRAM (UE: one FMaterialShaderMap entry per cell, not a
+    // copy for the lookup by name). Every consumer that enumerates a template's cells — ShaderService's
+    // registration, the boot content's shader maps, the package cook, the shader map key — compiles the default
+    // program once and answers "<Template>/<kSurfaceDefaultCell>" with it. @p isSurfaceTemplate is the caller's
+    // knowledge of the program (a parse's Surface.Cells, or MayDeclareSurface on its text).
+    constexpr bool IsSurfaceDefaultCell( const bool isSurfaceTemplate, const std::string_view passName )
+    {
+        return isSurfaceTemplate && passName == kSurfaceDefaultCell;
+    }
+    // The pass whose opaque cells never evaluate the surface: their fragment stage is the pass header alone (no
+    // surface function, no material row, no push block), so the cell's layout is the shadow shader's.
+    inline constexpr std::string_view kSurfaceDepthPass = "ShadowDepth";
+
+    // The template's blend mode lives on the program metadata (Core/Formats/ShaderProgramMeta.hpp), where the
+    // renderer reads it. Masked: the pass headers discard below u_Material.<kSurfaceMaskClipParam>. Translucent:
+    // the template has Forward cells only, built on the translucency pass header (kSurfaceTranslucentPassInclude).
+    using SurfaceBlendMode = Formats::SurfaceBlendMode;
+
+    // The shading model of a template, as UE's EMaterialShadingModel: a property of the TEMPLATE, read by the pass
+    // headers when the parser builds a cell. DefaultLit is the engine's lighting (Pass_Forward/Pass_GBuffer);
+    // Unlit emits s.Emissive and nothing else — its forward cell declares no lighting resource and its G-buffer
+    // cell writes emission only. The depth cell is the same for both.
+    //
+    // The enumerator's VALUE is the ShadingModelID the G-buffer carries (GBufferC.w, low four bits) and the
+    // deferred composite branches on — UE's numbering, MSM_Unlit = 0, MSM_DefaultLit = 1. The shader half of
+    // the table is kShadingModelsInclude, whose SHADING_MODEL_ID_<GlslName> defines ShaderCacheKey holds equal
+    // to these values, row by row.
+    enum class SurfaceShadingModel : std::uint8_t
+    {
+        Unlit      = 0,
+        DefaultLit = 1,
+    };
+
+    struct SurfaceShadingModelRow
+    {
+        SurfaceShadingModel Model;
+        std::string_view    GlslName; // SHADING_MODEL_ID_<GlslName> in kShadingModelsInclude
+    };
+
+    // Every shading model, once: the id table's one home on the C++ side (four bits of id: at most 16 rows).
+    inline constexpr std::array<SurfaceShadingModelRow, 2> kSurfaceShadingModels{ {
+         { SurfaceShadingModel::Unlit, "UNLIT" },
+         { SurfaceShadingModel::DefaultLit, "DEFAULT_LIT" },
+    } };
+
+    inline constexpr std::string_view kShadingModelsInclude = "Mesh/Surface/ShadingModels.glslh";
+
+    // The threshold of a Masked template is a material PARAMETER (per material, like UE's Opacity Mask Clip
+    // Value); a Masked template that does not declare it is refused.
+    inline constexpr std::string_view kSurfaceMaskClipParam = "OpacityMaskClipValue";
+
+    std::string SurfaceCellName( std::string_view path, std::string_view pass );
+    std::string SurfaceVertexInclude( std::string_view path );
+    std::string SurfacePassInclude( std::string_view pass, SurfaceShadingModel model, SurfaceBlendMode blend );
+    // The translucency pass header: a Translucent template's Forward cells are lit and composited by it.
+    inline constexpr std::string_view kSurfaceTranslucentPassInclude =
+         "Mesh/Surface/Pass_Forward_Translucent.glslh";
+    // Whether a template of this blend mode has a cell in @p pass: a Translucent surface is drawn by the
+    // translucency pass alone (UE: no depth or base-pass G-buffer write), so it has Forward cells only.
+    bool SurfaceBlendHasPass( SurfaceBlendMode blend, std::string_view pass );
+    // Every engine header any cell of a surface template compiles: the key hashes all of them.
+    std::vector<std::string> SurfaceTemplateIncludes();
+
+    // What the `Surface` block declared; empty Cells = not a surface template.
+    struct SurfaceTemplateInfo
+    {
+        bool                     TwoSided = false;
+        SurfaceBlendMode         Blend    = SurfaceBlendMode::Opaque;
+        SurfaceShadingModel      Shading  = SurfaceShadingModel::DefaultLit;
+        std::vector<std::string> Cells; // `<Path>.<Pass>`, in kSurfaceVertexPaths × kSurfaceCellPasses order
+    };
+
     struct DShaderParseResult
     {
         std::string                                                 Name;
         Core::Formats::ShaderProgramMeta                            Meta;   // default pass meta (+ PassNames)
         std::unordered_map<Core::Formats::ShaderStage, std::string> Stages; // default pass GLSL
         std::vector<DShaderPass>                                    Passes; // all passes; [0] is the default
+        // The row and texture layout the generated GLSL was written from (Core/Formats/MaterialLayout.hpp);
+        // its push fields stay empty until ReconcileMaterialLayout reads them off a compiled cell.
+        Core::Formats::MaterialLayout Layout;
+        SurfaceTemplateInfo           Surface; // the expanded `Surface` block; Cells empty for any other shader
 
-        // nullptr when the pass doesn't exist. Empty name = the default pass.
+        // nullptr when the pass doesn't exist. Empty name = the default pass; for a surface template that is
+        // the cell named kSurfaceDefaultCell (the parser refuses a template without it) — by name, never "the
+        // first pass", so the default program and its lookup are the same cell by construction.
         const DShaderPass* FindPass( const std::string& name ) const
         {
+            const std::string_view wanted =
+                 name.empty() && !Surface.Cells.empty() ? kSurfaceDefaultCell : std::string_view( name );
             for ( const auto& p : Passes )
-                if ( p.Name == name )
+                if ( p.Name == wanted )
                     return &p;
             return nullptr;
         }
@@ -112,5 +207,9 @@ namespace Desert::Core::Preprocess
         // "parse to find out". ShaderService asks this of every shader it registers, and the answer is
         // what lets a warm start register a program without parsing its text at all.
         static bool MayDeclareMedium( std::string_view source );
+
+        // Cheap precheck for the shader map key, which must not parse: false = the text certainly declares
+        // no `Surface { ... }` block. A false positive only hashes the surface headers needlessly.
+        static bool MayDeclareSurface( std::string_view source );
     };
 } // namespace Desert::Core::Preprocess

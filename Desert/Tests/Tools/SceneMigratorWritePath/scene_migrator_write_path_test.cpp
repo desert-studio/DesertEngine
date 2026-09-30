@@ -13,6 +13,7 @@
 // which writing the scene in place would still SUCCEED, so the first test is red against the old
 // code (mutation-checked), not merely untested against it.
 
+#include <format>
 #include <MigratorMain.hpp>
 #include <SceneMigration.hpp>
 #include <SettingsCanonical.hpp>
@@ -34,6 +35,7 @@
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Utilities/Crc32c.hpp>
+#include <Engine/World/Landscape/LandscapeEditLayers.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 
 #include <gtest/gtest.h>
@@ -149,6 +151,10 @@ TEST( SceneMigratorWritePath, AVersionOneLandscapeTileFailsByPathAndNumberAndIsL
     ASSERT_TRUE( created.IsSuccess() ) << created.GetError();
     LS::LandscapeTileData tile = std::move( created.GetValue() );
     tile.SetSample( 1, 1, 40000u );
+    // Every tile carries at least the Base edit layer; a layerless one fails (L10b3).
+    const auto based =
+         tile.SetEditLayer( { Common::UUID( LS::kLandscapeBaseEditLayerGuid ), tile.Samples(), {} } );
+    ASSERT_TRUE( based.IsSuccess() ) << based.GetError();
     std::vector<unsigned char> blob = LS::EncodeLandscapeTile( tile );
     const fs::path             v2   = dir / "current.dlht";
     std::ofstream( v2, std::ios::binary )
@@ -157,7 +163,8 @@ TEST( SceneMigratorWritePath, AVersionOneLandscapeTileFailsByPathAndNumberAndIsL
     std::string report;
     std::string errors;
     EXPECT_EQ( RunTool( { "--check", v2.string() }, report, errors ), 0 ) << report << errors;
-    EXPECT_NE( report.find( "ok     " + v2.string() + " — already at tile v2, heights crc " ), std::string::npos )
+    EXPECT_NE( report.find( std::format( "ok     {} — already at tile v3, heights crc ", v2.string() ) ),
+               std::string::npos )
          << report;
 
     // The v1 form: version 1, no weight-count word, fresh checksum.

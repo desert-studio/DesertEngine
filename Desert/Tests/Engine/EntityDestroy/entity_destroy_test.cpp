@@ -160,7 +160,8 @@ namespace
         auto&             rb = reg.emplace<ECS::RigidBodyComponent>( e );
         Physics::BodyDesc desc;
         desc.Position  = { x, 0.0f, 0.0f };
-        rb.RuntimeBody = world.CreateBody( desc );
+        const auto created = world.CreateBody( desc );
+        rb.RuntimeBody     = created.GetValue();
         return e;
     }
 

@@ -3,14 +3,221 @@
 
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
-#include <Engine/Graphic/Materials/MaterialFactory.hpp>
-#include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
+#include <Engine/Assets/Shader/ShaderAsset.hpp>
+#include <Engine/Project/ProjectContext.hpp>
+#include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
+#include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
+#include <Engine/Graphic/MaterialPipelineStates.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
 #include <Common/Core/Logger.hpp>
 
 namespace Desert::Runtime
 {
+    namespace
+    {
+        // Every `Texture2D` slot the template's manifest declares gets a value on every application: the
+        // image the `.demat` names for it, or — for a slot the file does not name, has just stopped naming,
+        // whose texture is still being read, or whose handle nobody has — the slot's schema default
+        // (`setSlot(name, nullptr)`). THE LOOP IS OVER THE SCHEMA, NOT OVER THE FILE (М9): walking the file
+        // visits only the slots it mentions, and this runs again over a LIVE material when the `.demat`
+        // changes (AssetHotReload), so a slot the file stopped naming would keep drawing its old texture.
+        // One function for every template: a slot a shader adds is bound by name, with no line to add here.
+        template <class SetSlot>
+        void BindManifestTextures( const Core::Formats::ShaderProgramMeta& meta,
+                                   const Assets::SurfaceMaterialAsset& asset, const std::string& shaderName,
+                                   SetSlot&& setSlot )
+        {
+            const auto& data = asset.Data();
+            Core::Formats::ForEachMaterialTextureSlot(
+                 meta, [&data]( const std::string& name ) { return data.GetTexture( name ); },
+                 [&]( const Core::Formats::ShaderParam& param, uint64_t handle )
+                 {
+                     if ( handle == 0 )
+                     {
+                         setSlot( param.Name, nullptr ); // an empty slot is an authored decision
+                         return;
+                     }
+
+                     auto* textures = ResourceRegistry::GetTextureService();
+                     if ( auto* tex = textures->Get( Common::UUID( handle ) ) )
+                     {
+                         if ( auto* image = ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() );
+                              image != nullptr )
+                         {
+                             auto* img = dynamic_cast<Graphic::Image2D*>( image );
+                             if ( img == nullptr )
+                                 LOG_ERROR(
+                                      "[Materials] '{0}' binds texture handle {1} in its '{2}' slot, and that "
+                                      "texture's image is not a 2D image, so '{3}' samples the slot's "
+                                      "schema default instead.",
+                                      asset.GetMetadata().Filepath.string(), handle, param.Name, shaderName );
+                             setSlot( param.Name, img );
+                             return;
+                         }
+                     }
+
+                     // PENDING IS NOT MISSING (AL1-4): the slot shows its default until the texture lands,
+                     // and the texture service rebuilds this material then, bound.
+                     setSlot( param.Name, nullptr );
+                     if ( textures->Require( Common::UUID( handle ) ).IsPending() )
+                     {
+                         textures->RebuildWhenReady( Common::UUID( handle ), asset.GetMetadata().Handle );
+                         return;
+                     }
+
+                     // DC §1.4: a `.demat` names its textures by number and by nothing else, so a reference
+                     // that stops resolving produces a surface that is merely untextured — nothing in the log
+                     // a search can start from. This is the only place that knows the material, the slot and
+                     // the number together.
+                     LOG_ERROR( "[Materials] '{0}' names texture handle {1} in its '{2}' slot and no texture "
+                                "with that handle is registered, so '{3}' samples that slot's schema default "
+                                "instead. A texture's handle is HandleForGuid of its .detex header GUID, which "
+                                "the slot names, so this means that texture asset is not in the project "
+                                "(deleted, or never imported); re-import it or re-assign the slot.",
+                                asset.GetMetadata().Filepath.string(), handle, param.Name, shaderName );
+                 } );
+        }
+
+        // Every Texture2D slot of the schema gets its sampling state on every application, for the same
+        // reason BindManifestTextures walks the schema: a .demat that stops stating a clamp must go back to
+        // the template's state on hot reload, not keep the clamp.
+        void BindManifestSamplers( const Core::Formats::ShaderProgramMeta& meta, const Assets::MaterialData& data,
+                                   const Graphic::Material& material )
+        {
+            for ( const auto& param : meta.Params )
+            {
+                if ( !param.IsTexture || param.IsCubeTexture || param.IsAssetRef() )
+                    continue;
+                if ( auto* prop = material.Get<Graphic::Texture2DProperty>( param.Name ) )
+                    prop->SetSamplerState( data.SlotSampler( param.Name, param.Sampler ) );
+            }
+        }
+    } // namespace
+
+    void ApplySurfaceAsset( Graphic::DataDrivenMaterial& material, const Assets::SurfaceMaterialAsset& asset )
+    {
+        // Seed schema defaults, then overlay the asset's persisted parameter values.
+        material.ApplyDefaults();
+
+        const auto& data = asset.Data();
+        for ( const auto& p : data.Params )
+            material.SetParamRaw( p.Name, p.Value );
+        // The template's `Surface { TwoSided }` is the material's DEFAULT (UE: the parent material's TwoSided);
+        // the asset states it only to override. The parser publishes it as the default cell's Cull None
+        // (DShaderParser: Meta.State = the default cell's state), so every draw path — including the batched
+        // static one, whose pipeline is built from the pass shader and not from the template's cells — reaches
+        // it through the same CullPermutation.
+        const bool templateTwoSided = material.GetSchema().State.Cull == Core::Formats::StateCull::None;
+        material.SetTwoSided( data.TwoSided.value_or( templateTwoSided ) );
+
+        // `MaterialData::Textures` holds the sampler slots only since MATL 3 (the cloud material's asset
+        // slots have a list of their own), but the SHADER SCHEMA still says what each name is: a `Texture2D`
+        // sampler, a `TextureCube` (bound by MaterialSkybox, not here), or a non-texture asset reference a
+        // different service consumes. Asking the schema is what lets the miss below be an ERROR, not noise.
+        const auto& schema   = material.GetSchema();
+        const auto  paramFor = [&schema]( const std::string& name ) -> const Core::Formats::ShaderParam*
+        {
+            for ( const auto& p : schema.Params )
+                if ( p.Name == name )
+                    return &p;
+            return nullptr;
+        };
+
+        BindManifestTextures( schema, asset, material.GetShaderName(),
+                              [&material]( const std::string& name, Graphic::Image2D* image )
+                              { material.SetTexture( name, image ); } );
+        BindManifestSamplers( schema, data, material );
+
+        // The file's side of the same relation: a name the material carries that the shader no longer
+        // declares. It cannot be found by the loop above (which only walks names the shader HAS), and it
+        // is the one thing that loop can no longer report.
+        if ( !schema.Params.empty() )
+        {
+            for ( const auto& t : data.Textures )
+            {
+                if ( t.Guid.empty() || paramFor( t.Name ) != nullptr )
+                    continue;
+
+                LOG_WARN( "[Materials] '{0}' carries a value for '{1}', which the shader '{2}' does not "
+                          "declare. The value is ignored — the slot was renamed or removed from the "
+                          "shader since this material was authored.",
+                          asset.GetMetadata().Filepath.string(), t.Name, material.GetShaderName() );
+            }
+        }
+    }
+
+    // The material's cells are its template's, by the one rule (Graphic::TemplateCellShader) asked of the
+    // registered shaders. CreateSurfaceMaterial builds by it and MaterialService::CellOf answers by it, so "can
+    // this draw here" and "what draws here" cannot disagree.
+    // @p asset is a BASE material (an instance's cells are its base's); the error names material, template, cell.
+    static Common::ResultStr<std::string> CellShaderOf( const Assets::MaterialAsset& asset,
+                                                        Graphic::MeshVertexPath path, Graphic::MeshPass pass )
+    {
+        const std::string templateName = asset.GetShaderName();
+        auto              cell         = Graphic::TemplateCellShader(
+             templateName, path, pass, []( std::string_view name )
+             { return ResourceRegistry::GetShaderService()->GetByName( std::string( name ) ) != nullptr; } );
+        if ( !cell )
+            return Common::MakeError<std::string>( std::format(
+                 "Material '{}' uses the template '{}', which has no ({} x {}) cell — a shader without a Surface "
+                 "block carries no skinning, instancing or G-buffer stage.",
+                 asset.GetMetadata().Filepath.generic_string(), templateName, Graphic::MeshVertexPathName( path ),
+                 Graphic::MeshPassName( pass ) ) );
+        return Common::MakeSuccess( std::move( *cell ) );
+    }
+
+    std::shared_ptr<Graphic::DataDrivenMaterial> CreateSurfaceMaterial( const Assets::MaterialAsset* asset,
+                                                                        Graphic::MeshVertexPath      path,
+                                                                        Graphic::MeshPass            pass )
+    {
+        if ( asset == nullptr )
+            return nullptr;
+
+        // ROUTED BY THE TEMPLATE'S HANDLE (its GUID identity), never by its name: the name is display text
+        // and renaming a shader must not change which template draws it.
+        if ( asset->GetShaderHandle().IsNull() )
+        {
+            LOG_ERROR( "[Materials] Material '{}' has no resolved surface template (its \"Shader\" GUID is "
+                       "missing or names no loaded shader) — it draws nothing; there is no default template.",
+                       asset->GetMetadata().Filepath.generic_string() );
+            return nullptr;
+        }
+
+        // ONE PATH FOR EVERY TEMPLATE. There used to be a branch here: the template declaring `Role
+        // PBRSurface` was built as the C++ PBR class and every other one as a DataDrivenMaterial,
+        // with two appliers that had to be kept saying the same thing. A material is one template cell's
+        // descriptor sets plus a parameter row, whatever the template shades like; the scene's part of the
+        // draw is declared by the template's resources (Core::Formats::MaterialLayout::SceneReads), so the
+        // C++ class has nothing left to add.
+        //
+        // THERE IS DELIBERATELY NO DOMAIN CHECK HERE: this function does not know its consumer. A Terrain
+        // material is legitimately built by the terrain, the Material Editor and the File Explorer; the
+        // refusal lives in MeshRenderer::DrawGenericMeshes, which asks Core::Formats::DrawnByMeshPath().
+        const auto cell = CellShaderOf( *asset, path, pass );
+        if ( !cell )
+        {
+            LOG_WARN( "[Materials] {} The mesh asking for it falls back to the default surface material; assign a "
+                      "material whose template has that cell, or give the template a Surface block.",
+                      cell.GetError() );
+            return nullptr;
+        }
+
+        const std::string& shaderName = cell.GetValue();
+        auto               material   = std::make_shared<Graphic::DataDrivenMaterial>( shaderName );
+        // ON LOAD, not at the first draw (AL1-12, UE's PSO precache): every renderer starts this shader's
+        // pipeline compile on a worker from its next frame, so it has usually landed before the mesh is seen.
+        // The request is for the GENERIC path's pipeline; a mesh-table cell is never drawn there (the mesh
+        // system routes it to the batched path by the same MeshCellPath question), so asking for one built a
+        // forward pipeline of a G-buffer shader nobody draws with, and validation flagged its unused outputs.
+        if ( !Graphic::MeshCellPath( shaderName ) )
+            Graphic::MaterialPipelineRequests::Get().Request( shaderName );
+        if ( const auto* surface = dynamic_cast<const Assets::SurfaceMaterialAsset*>( asset ) )
+            ApplySurfaceAsset( *material, *surface );
+        return material;
+    }
+
     Common::BoolResultStr MaterialService::Register( const std::shared_ptr<Assets::MaterialAsset>& materialAsset )
     {
         if ( !materialAsset->GetMetadata().IsValid() )
@@ -26,8 +233,8 @@ namespace Desert::Runtime
         // that asks for them: a scene with no skinned geometry must not pay for a skinned descriptor set
         // per material, a forward scene must not pay for a G-buffer one, and a cell built eagerly for an
         // asset nobody draws that way is a resource with no reader.
-        auto material = Graphic::MaterialFactory::CreateMaterial(
-             materialAsset.get(), Graphic::MeshVertexPath::Static, Graphic::MeshPass::Forward );
+        auto material = CreateSurfaceMaterial( materialAsset.get(), Graphic::MeshVertexPath::Static,
+                                               Graphic::MeshPass::Forward );
 
         // The same file re-registering (RefuseOnCollision lets that through deliberately) replaces the
         // cell, so the material this overwrites stops existing. Its address would otherwise stay in the
@@ -67,6 +274,43 @@ namespace Desert::Runtime
         // The mesh->material link resolves by EXTERNAL id, so the map must exist before any build.
         m_ExternalToInternal[materialAsset->GetMaterialUUID()] = handle;
         return BOOLSUCCESS;
+    }
+
+    Common::ResultStr<std::string> MaterialService::DefaultSurfaceTemplate() const
+    {
+        const auto assets = m_Assets.lock();
+        if ( !assets )
+            return Common::MakeError<std::string>(
+                 std::string( "no asset manager is bound, so no template declares 'Default Surface' yet" ) );
+        const auto handle = Assets::FindDefaultSurfaceTemplate(
+             *assets, Project::ProjectContext::DefaultSurfaceTemplate(), Project::ProjectContext::FilePath() );
+        if ( !handle )
+            return Common::MakeError<std::string>( handle.GetError() );
+        const auto shader = assets->FindByHandle<Assets::ShaderAsset>( handle.GetValue() );
+        if ( shader == nullptr )
+            return Common::MakeError<std::string>( std::string( "the 'Default Surface' template is not loaded" ) );
+        return Common::MakeSuccess( shader->GetMetadata().Filepath.stem().string() );
+    }
+
+    Common::ResultStr<std::string> MaterialService::DefaultSurfaceShader( Graphic::MeshVertexPath path,
+                                                                          Graphic::MeshPass       pass ) const
+    {
+        auto templateName = DefaultSurfaceTemplate();
+        if ( !templateName )
+            return templateName;
+        auto shader = Graphic::MeshShaderFor( templateName.GetValue(), path, pass );
+        if ( !shader )
+            return Common::MakeError<std::string>( std::format(
+                 "the default surface template '{}' has no ({} x {}) cell — no mesh shader exists for that pair",
+                 templateName.GetValue(), Graphic::MeshVertexPathName( path ), Graphic::MeshPassName( pass ) ) );
+        return Common::MakeSuccess( std::move( *shader ) );
+    }
+
+    void MaterialService::PinDefaultSurfaceTemplate( const Common::AssetHandle& handle )
+    {
+        m_DefaultSurfacePin = std::make_unique<Assets::AssetRootPin>(
+             handle,
+             "the engine's Default Surface template: every slotless mesh and every new material draws with it" );
     }
 
     void MaterialService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
@@ -150,7 +394,7 @@ namespace Desert::Runtime
             return BOOLSUCCESS;
 
         // ONE LOADING PATH (AL1-4, plan §2.4(c)). The walks that need the data NOW (CreateRuntimeInstance,
-        // ResolveOverrides, ShaderNameOf, the editor) go through the same request Get() starts, finished on
+        // ResolveOverrides, ShaderHandleOf, the editor) go through the same request Get() starts, finished on
         // this thread by FlushOne: no second read of a file a worker is already reading, the shader resolved
         // by the one completion, and SyncLoadLedger counting it as the synchronous load it is.
         const auto handle = asset->GetMetadata().Handle;
@@ -248,9 +492,9 @@ namespace Desert::Runtime
             if ( !RequestIfUnread( ait->second ) )
                 return nullptr;
 
-            auto material = Graphic::MaterialFactory::CreateMaterial( ait->second.get(), path, pass );
+            auto material = CreateSurfaceMaterial( ait->second.get(), path, pass );
             if ( !material )
-                return nullptr; // MaterialFactory named the material and the cell it refused
+                return nullptr; // CreateSurfaceMaterial named the material and the cell it refused
             auto* raw           = material.get();
             m_BuiltToAsset[raw] = current;
             raw->ClaimOwnership( Graphic::ResourceOwner::AssetService, current );
@@ -260,8 +504,9 @@ namespace Desert::Runtime
         return nullptr;
     }
 
-    Graphic::MaterialPBR* MaterialService::GetVariant( const Graphic::MaterialPBR* built,
-                                                       Graphic::MeshVertexPath path, Graphic::MeshPass pass ) const
+    Graphic::DataDrivenMaterial* MaterialService::GetVariant( const Graphic::Material* built,
+                                                              Graphic::MeshVertexPath  path,
+                                                              Graphic::MeshPass        pass ) const
     {
         if ( !built )
             return nullptr;
@@ -274,7 +519,47 @@ namespace Desert::Runtime
         // the renderer owns whether this draw is instanced. What is NOT the caller's is the asset, and
         // that is the one thing this function supplies — the sibling is the same `.demat`, so it carries
         // the same parameters and the same textures by construction.
-        return dynamic_cast<Graphic::MaterialPBR*>( Get( it->second, path, pass ) );
+        // Every material the service builds is a DataDrivenMaterial (CreateSurfaceMaterial); a sibling that is
+        // not one was not built here, and is refused by its cell rather than drawn as the wrong class.
+        Graphic::Material* sibling = Get( it->second, path, pass );
+        auto*              surface = dynamic_cast<Graphic::DataDrivenMaterial*>( sibling );
+        if ( sibling != nullptr && surface == nullptr )
+            LOG_ERROR(
+                 "[MaterialService] the ({} x {}) sibling of a service material is not a DataDrivenMaterial; "
+                 "refusing it",
+                 Graphic::MeshVertexPathName( path ), Graphic::MeshPassName( pass ) );
+        return surface;
+    }
+
+    Graphic::DataDrivenMaterial* MaterialService::GetViewVariant( const Graphic::Material* built,
+                                                                  Graphic::MeshVertexPath  path,
+                                                                  Graphic::MeshPass pass, uint32_t view ) const
+    {
+        // The sibling first: it resolves the asset (instance chain, unread shell, cell refusal) once, and a
+        // view variant exists only where the plain one does.
+        const auto* sibling = GetVariant( built, path, pass );
+        if ( sibling == nullptr )
+            return nullptr;
+        const auto owner = m_BuiltToAsset.find( sibling );
+        if ( owner == m_BuiltToAsset.end() )
+            return nullptr;
+
+        const size_t slot  = VariantSlot( path, pass );
+        auto&        views = m_ViewMaterials[owner->second];
+        for ( const auto& v : views )
+            if ( v.Slot == slot && v.View == view )
+                return v.Material.get();
+
+        const auto ait = m_MaterialAssets.find( owner->second );
+        if ( ait == m_MaterialAssets.end() )
+            return nullptr;
+        auto material = CreateSurfaceMaterial( ait->second.get(), path, pass );
+        if ( !material )
+            return nullptr; // CreateSurfaceMaterial named the material and the cell it refused
+        auto* raw = material.get();
+        raw->ClaimOwnership( Graphic::ResourceOwner::AssetService, owner->second );
+        views.push_back( ViewVariant{ slot, view, std::move( material ) } );
+        return raw;
     }
 
     bool MaterialService::Owns( const Graphic::Material* material ) const
@@ -291,6 +576,11 @@ namespace Desert::Runtime
         for ( const auto& variant : it->second )
             if ( variant )
                 out.push_back( variant.get() );
+        // The per-view copies are the same `.demat`: an edit that misses them leaves a cascade casting the old
+        // mask while the surface shows the new one.
+        if ( const auto views = m_ViewMaterials.find( handle ); views != m_ViewMaterials.end() )
+            for ( const auto& v : views->second )
+                out.push_back( v.Material.get() );
         return out;
     }
 
@@ -332,8 +622,13 @@ namespace Desert::Runtime
 
         auto instance = base->CreateInstance();
         for ( auto it = chain.rbegin(); it != chain.rend(); ++it )
+        {
             for ( const auto& p : ( *it )->Data().Params )
                 instance->SetParamFromVec4( p.Name, p.Value );
+            // The childmost instance that states TwoSided wins, as its parameters do.
+            if ( ( *it )->Data().TwoSided.has_value() )
+                instance->SetTwoSidedOverride( ( *it )->Data().TwoSided );
+        }
         return instance;
     }
 
@@ -397,31 +692,49 @@ namespace Desert::Runtime
         return true;
     }
 
-    std::string MaterialService::ShaderNameOf( const Assets::AssetHandle& handle ) const
+    const Assets::SurfaceMaterialAsset* MaterialService::BaseOf( const Assets::AssetHandle& handle ) const
     {
-        // Same chain walk as ResolveOverrides — an instance names no program of its own, so the answer is
-        // always the base's. Depth-capped for the same cycle reason.
+        // An instance names no program of its own, so every question about its template is the base's.
         Assets::AssetHandle current = handle;
         for ( int depth = 0; depth < 8; ++depth )
         {
             auto it = FindOrDiscover( current );
             if ( it == m_MaterialAssets.end() )
-                return {};
+                return nullptr;
             (void)EnsureLoaded( it->second );
-            auto* surf = dynamic_cast<Assets::SurfaceMaterialAsset*>( it->second.get() );
+            const auto* surf = dynamic_cast<const Assets::SurfaceMaterialAsset*>( it->second.get() );
             if ( !surf )
-                return {};
+                return nullptr;
             const auto parentId = surf->Data().InstanceParentId();
             if ( !parentId.has_value() )
-            {
-                return surf->GetShaderName();
-            }
+                return surf;
             const auto parent = GetAssetHandleByExternal( *parentId );
             if ( parent.IsNull() || parent == current )
-                return surf->GetShaderName();
+                return surf;
             current = parent;
         }
-        return {};
+        return nullptr;
+    }
+
+    MaterialService::MaterialTemplate MaterialService::ShaderHandleOf( const Assets::AssetHandle& handle ) const
+    {
+        const auto* base = BaseOf( handle );
+        if ( base == nullptr )
+            return MaterialTemplate{};
+        return MaterialTemplate{ base->GetShaderHandle(), base->GetShaderName() };
+    }
+
+    Common::BoolResultStr MaterialService::CellOf( const Assets::AssetHandle& handle, Graphic::MeshVertexPath path,
+                                                   Graphic::MeshPass pass ) const
+    {
+        const auto* base = BaseOf( handle );
+        if ( base == nullptr )
+            return Common::MakeFormattedError( "material {} (or a parent in its instance chain) is not registered "
+                                               "or not readable, so it has no cell to draw with",
+                                               static_cast<uint64_t>( handle ) );
+        if ( const auto cell = CellShaderOf( *base, path, pass ); !cell )
+            return Common::MakeFormattedError( "{}", cell.GetError() );
+        return BOOLSUCCESS;
     }
 
     void MaterialService::Clear()
@@ -429,12 +742,14 @@ namespace Desert::Runtime
         // Was an empty body. The graveyard goes with the rest: at shutdown there is no next frame to
         // collect it, and its materials own descriptor pools that must not outlive the device.
         m_Materials.clear();
+        m_ViewMaterials.clear();
         m_BuiltToAsset.clear();
         m_MaterialAssets.clear();
         m_Requests.clear();
         m_ReportedMissing.clear();
         m_ExternalToInternal.clear();
         m_Graveyard.Clear();
+        m_DefaultSurfacePin.reset();
     }
 
     void MaterialService::Invalidate( const Assets::AssetHandle& handle )
@@ -462,6 +777,13 @@ namespace Desert::Runtime
                                   Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
             }
         m_Materials.erase( it );
+        if ( auto views = m_ViewMaterials.find( handle ); views != m_ViewMaterials.end() )
+        {
+            for ( auto& v : views->second )
+                m_Graveyard.Park( std::move( v.Material ),
+                                  Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+            m_ViewMaterials.erase( views );
+        }
         ++m_InvalidationVersion; // cached instance sets rebuild on their next system tick
     }
 

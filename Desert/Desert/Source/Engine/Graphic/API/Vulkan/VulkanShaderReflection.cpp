@@ -1,7 +1,9 @@
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
+#include <Engine/Graphic/Materials/SceneResources.hpp>
 
 #include <algorithm>
 #include <format>
+#include <iterator>
 #include <map>
 #include <utility>
 
@@ -185,7 +187,7 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             // Populate fields once; multi-stage shaders call ReflectStage() per stage, avoid duplicates.
             if ( ub.Fields.empty() )
             {
-                for ( uint32_t i = 0; i < (uint32_t)structType.member_types.size(); ++i )
+                for ( uint32_t i = 0; i < static_cast<uint32_t>( structType.member_types.size() ); ++i )
                 {
                     ShaderResources::ShaderLayout::ShaderFieldLayout field;
                     field.Name   = compiler.get_member_name( resource.base_type_id, i );
@@ -319,7 +321,7 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         {
             const auto&    res          = resources.push_constant_buffers[0];
             auto&          type         = compiler.get_type( res.base_type_id );
-            const uint32_t declaredSize = (uint32_t)compiler.get_declared_struct_size( type );
+            const auto     declaredSize = static_cast<uint32_t>( compiler.get_declared_struct_size( type ) );
             if ( !data.PushConstantRanges )
             {
                 ShaderResources::ShaderLayout::PushConstantRange range;
@@ -331,19 +333,143 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             }
             else
             {
+                // One pipeline, one block: the SIZE is not merged here. ReconcileCellLayout refuses a cell
+                // whose stages declare different blocks, and VulkanShader::BuildFromSpirv sets the range to
+                // the reconciled MaterialLayout::PushSize — there is no "the larger wins" to hide a stage
+                // that declared a shorter block (the T1b 72-vs-68 regression).
                 data.PushConstantRanges->ShaderStage = ( Core::Formats::ShaderStage )(
                      (uint32_t)data.PushConstantRanges->ShaderStage | (uint32_t)stage );
-                // Different stages may declare the same push-constant block but glslang strips members
-                // a stage doesn't use, so each reports a different declared size. The pipeline-layout
-                // range must span the largest, or a stage's access lands outside the range.
-                if ( declaredSize > data.PushConstantRanges->Size )
-                {
-                    data.PushConstantRanges->Size = declaredSize;
-                }
             }
         }
 
+        if ( stage == Core::Formats::ShaderStage::Vertex )
+            data.VertexInputLocations = ReflectVertexInputLocations( spirv );
+
         return diagnostics;
+    }
+
+    std::vector<uint32_t> ReflectVertexInputLocations( const std::vector<uint32_t>& spirv )
+    {
+        const spirv_cross::Compiler        compiler( spirv );
+        const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
+
+        std::vector<uint32_t> locations;
+        for ( const auto& input : resources.stage_inputs )
+        {
+            const uint32_t first = compiler.get_decoration( input.id, spv::DecorationLocation );
+            const auto&    type  = compiler.get_type( input.type_id );
+            uint32_t       count = std::max( type.columns, 1u );
+            for ( const uint32_t length : type.array )
+                count *= std::max( length, 1u );
+            for ( uint32_t i = 0; i < count; ++i )
+                locations.push_back( first + i );
+        }
+        std::sort( locations.begin(), locations.end() );
+        locations.erase( std::unique( locations.begin(), locations.end() ), locations.end() );
+        return locations;
+    }
+
+    VkFormat VertexAttributeFormat( const ShaderDataType type )
+    {
+        switch ( type )
+        {
+            case ShaderDataType::Float:
+                return VK_FORMAT_R32_SFLOAT;
+            case ShaderDataType::Float2:
+                return VK_FORMAT_R32G32_SFLOAT;
+            case ShaderDataType::Float3:
+                return VK_FORMAT_R32G32B32_SFLOAT;
+            case ShaderDataType::Float4:
+                return VK_FORMAT_R32G32B32A32_SFLOAT;
+            case ShaderDataType::Int:
+                return VK_FORMAT_R32_SINT;
+            case ShaderDataType::Int2:
+                return VK_FORMAT_R32G32_SINT;
+            case ShaderDataType::Int3:
+                return VK_FORMAT_R32G32B32_SINT;
+            case ShaderDataType::Int4:
+                return VK_FORMAT_R32G32B32A32_SINT;
+            case ShaderDataType::Bool:
+                return VK_FORMAT_R8_UINT;
+            case ShaderDataType::UNorm8x4:
+                return VK_FORMAT_R8G8B8A8_UNORM;
+            case ShaderDataType::None:
+                break;
+        }
+        return VK_FORMAT_UNDEFINED;
+    }
+
+    bool VertexInputState::HasBinding( const uint32_t binding ) const
+    {
+        return std::ranges::any_of( Bindings, [binding]( const VkVertexInputBindingDescription& b )
+                                    { return b.binding == binding; } );
+    }
+
+    bool VertexInputState::HasLocation( const uint32_t location ) const
+    {
+        return std::ranges::any_of( Attributes, [location]( const VkVertexInputAttributeDescription& a )
+                                    { return a.location == location; } );
+    }
+
+    VertexInputState BuildVertexInput( const VertexBufferLayout&    layout,
+                                       const std::vector<uint32_t>& consumedLocations )
+    {
+        VertexInputState state;
+        const auto       consumed = [&consumedLocations]( const uint32_t location )
+        { return std::ranges::binary_search( consumedLocations, location ); };
+
+        // Every location the layout feeds, whether or not the stage reads it: what is left of
+        // consumedLocations after this is input the stage reads and no stream provides.
+        std::vector<uint32_t> fed;
+        const auto            addAttribute =
+             [&]( const VertexBufferElement& element, const uint32_t location, const uint32_t binding )
+        {
+            fed.push_back( location );
+            if ( !consumed( location ) )
+                return false;
+            const VkFormat format = VertexAttributeFormat( element.Type );
+            if ( format == VK_FORMAT_UNDEFINED )
+            {
+                state.Errors.push_back( std::format( "vertex attribute '{}' (location {}) has no Vulkan format",
+                                                     element.Name, location ) );
+                return false;
+            }
+            state.Attributes.push_back(
+                 { .location = location, .binding = binding, .format = format, .offset = element.Offset } );
+            return true;
+        };
+
+        state.Bindings.push_back(
+             { .binding = 0, .stride = layout.GetStride(), .inputRate = VK_VERTEX_INPUT_RATE_VERTEX } );
+        for ( uint32_t location = 0; const auto& element : layout )
+            addAttribute( element, location++, 0 );
+
+        // Binding 1 (VertexBufferLayout::WithStreams) only when the stage reads at least one stream.
+        bool streamRead = false;
+        for ( uint32_t    location = layout.GetStreamFirstLocation();
+              const auto& element : layout.GetStreamElements() )
+            streamRead = addAttribute( element, location++, 1 ) || streamRead;
+        if ( streamRead )
+            state.Bindings.push_back(
+                 { .binding = 1, .stride = layout.GetStreamStride(), .inputRate = VK_VERTEX_INPUT_RATE_VERTEX } );
+
+        for ( const uint32_t location : consumedLocations )
+        {
+            if ( std::ranges::find( fed, location ) == fed.end() )
+                state.Errors.push_back( std::format(
+                     "the vertex stage reads location {}, which the vertex layout does not feed", location ) );
+        }
+        return state;
+    }
+
+    std::optional<std::string> VertexInputRefusal( const VertexInputState& state )
+    {
+        if ( state.Errors.empty() )
+            return std::nullopt;
+        std::string reasons;
+        for ( const auto& error : state.Errors )
+            std::format_to( std::back_inserter( reasons ), "{}{}", reasons.empty() ? "" : "; ", error );
+        return reasons;
     }
 
     std::vector<VkDescriptorSetLayoutBinding> BuildLayoutBindings( const ShaderResource::ShaderDescriptorSet& set )
@@ -391,6 +517,78 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         for ( const auto& binding : bindings )
             total += binding.descriptorCount;
         return total;
+    }
+
+    Core::Formats::ReflectedMaterialStage ReflectMaterialStage( const std::vector<uint32_t>& spirv,
+                                                                Core::Formats::ShaderStage   stage )
+    {
+        Core::Formats::ReflectedMaterialStage out;
+        out.Stage = stage;
+
+        spirv_cross::Compiler compiler( spirv );
+        const auto            resources = compiler.get_shader_resources();
+
+        const auto membersOf = [&]( const spirv_cross::SPIRType& structType, spirv_cross::TypeID typeId )
+        {
+            std::vector<Core::Formats::ReflectedLayoutMember> members;
+            for ( uint32_t i = 0; i < static_cast<uint32_t>( structType.member_types.size() ); ++i )
+                members.push_back(
+                     { compiler.get_member_name( typeId, i ), compiler.type_struct_member_offset( structType, i ),
+                       static_cast<uint32_t>( compiler.get_declared_struct_member_size( structType, i ) ) } );
+            return members;
+        };
+
+        for ( const auto& resource : resources.storage_buffers )
+        {
+            const auto& block = compiler.get_type( resource.base_type_id );
+            if ( compiler.get_name( resource.base_type_id ) != Core::Formats::kMaterialRowBlockName &&
+                 resource.name != Core::Formats::kMaterialRowBlockName )
+                continue;
+            if ( block.member_types.empty() )
+                continue;
+            out.RowBinding    = compiler.get_decoration( resource.id, spv::DecorationBinding );
+            const auto& array = compiler.get_type( block.member_types[0] );
+            out.RowStride     = compiler.type_struct_member_array_stride( block, 0 );
+            // A runtime array's element type is its parent; the member names live on that struct type.
+            const spirv_cross::TypeID rowId =
+                 array.array.empty() ? spirv_cross::TypeID( array.self ) : array.parent_type;
+            const auto& row = compiler.get_type( rowId );
+            if ( row.basetype == spirv_cross::SPIRType::Struct )
+                out.RowMembers = membersOf( row, rowId );
+        }
+
+        for ( const auto& resource : resources.sampled_images )
+            out.Samplers.push_back(
+                 { resource.name, compiler.get_decoration( resource.id, spv::DecorationBinding ), 0 } );
+
+        for ( const auto* list :
+              { &resources.uniform_buffers, &resources.storage_buffers, &resources.sampled_images } )
+            for ( const auto& resource : *list )
+                out.ResourceNames.push_back( resource.name );
+
+        if ( !resources.push_constant_buffers.empty() )
+        {
+            const auto& res  = resources.push_constant_buffers[0];
+            const auto& type = compiler.get_type( res.base_type_id );
+            out.PushSize     = static_cast<uint32_t>( compiler.get_declared_struct_size( type ) );
+            out.PushMembers  = membersOf( type, res.base_type_id );
+        }
+        return out;
+    }
+
+    ReconciledCellLayout ReconcileCellLayout( const Core::Formats::ShaderProgramMeta&  meta,
+                                              const std::vector<Core::ShaderMapStage>& stages,
+                                              std::string_view templateName, std::string_view cellName )
+    {
+        ReconciledCellLayout                               out{ Core::Formats::BuildMaterialLayout( meta ), {} };
+        std::vector<Core::Formats::ReflectedMaterialStage> reflected;
+        reflected.reserve( stages.size() );
+        for ( const auto& stage : stages )
+            reflected.push_back( ReflectMaterialStage( stage.Spirv, stage.Stage ) );
+        out.Errors = Core::Formats::ReconcileMaterialLayout( out.Layout, templateName, cellName, reflected );
+        for ( const auto& stage : reflected )
+            out.Layout.SceneReads = out.Layout.SceneReads | SceneResources::Classify( stage.ResourceNames );
+        return out;
     }
 
 } // namespace Desert::Graphic::API::Vulkan::ShaderReflection

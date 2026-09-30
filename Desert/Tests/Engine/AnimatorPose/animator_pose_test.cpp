@@ -3,6 +3,7 @@
 // playback ignores it — only ApplyLocalPose() renders it.
 
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/AnimatorForSkeleton.hpp>
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 
@@ -224,6 +225,63 @@ TEST( AnimatorPose, AZeroWeightSectionReachesThePoseThePlaybackProduces )
     unchanged.SetTime( 0.0f );
     EXPECT_TRUE( MatNear( unsectioned, unchanged.GetPose().Matrices[1] ) )
          << "a full-weight Absolute section is what the whole corpus migrated to; it must be invisible";
+}
+
+// A REIMPORTED RIG IS THE SAME SKELETON OBJECT WITH OTHER BONES (SkeletonAsset::LoadFromFile rewrites it in
+// place, AssetEviction.AReloadedRigKeepsItsAddressAndTakesTheNewBones). The Animator's `const Skeleton&` stays
+// valid, but its bind pose and buffers were sized from the old list: only the signature stamp can tell, and
+// EnsureAnimatorFor is the one rule AnimationECSSystem and the editor preview rebuild by.
+TEST( AnimatorPose, AnAnimatorIsRebuiltWhenItsSkeletonIsRewrittenWithAnExtraBone )
+{
+    std::vector<BoneInfo> one( 1 );
+    one[0].Name               = "root";
+    one[0].LocalBindTransform = glm::mat4( 1.0f );
+    one[0].OffsetMatrix       = glm::mat4( 1.0f );
+    Skeleton rig( std::move( one ) );
+
+    std::unique_ptr<Animator> animator;
+    uint64_t                  built = 0;
+    ASSERT_TRUE( Desert::Animation::EnsureAnimatorFor( animator, built, rig ) ) << "no Animator was built";
+    animator->ApplyLocalPose();
+    ASSERT_EQ( animator->GetPose().Matrices.size(), 1U );
+    const Animator* const first = animator.get();
+    EXPECT_FALSE( Desert::Animation::EnsureAnimatorFor( animator, built, rig ) )
+         << "an unchanged rig rebuilt the Animator, which throws away its live pose every frame";
+    EXPECT_EQ( animator.get(), first );
+
+    rig = MakeChain(); // the reimport: same object, one more bone
+    ASSERT_TRUE( Desert::Animation::EnsureAnimatorFor( animator, built, rig ) )
+         << "the rig gained a bone and the Animator built on one bone was kept";
+    EXPECT_EQ( &animator->GetSkeleton(), &rig );
+    EXPECT_EQ( built, rig.GetContentSignature() ) << "the stamp is the rig's content (names + binds)";
+    animator->ApplyLocalPose();
+    EXPECT_EQ( animator->GetPose().Matrices.size(), 2U ) << "the rebuilt pose does not have the new bone";
+    EXPECT_EQ( animator->GetLocalPose().Size(), 2U );
+}
+
+// THM1l-b19: A RIG REREAD WITH THE SAME BONE NAMES AND OTHER BINDS (a reimport at another Uniform Scale) is
+// another rig to the Animator: the name signature stays, the content signature moves, and EnsureAnimatorFor
+// builds a new Animator. Kept across it, the old one posed Fox.glb's rescaled mesh with the old binds.
+TEST( AnimatorPose, ARigRereadWithOtherBindsRebuildsTheAnimator )
+{
+    Skeleton                                     skeleton = MakeChain();
+    std::unique_ptr<Desert::Animation::Animator> animator;
+    uint64_t                                     built = 0;
+    ASSERT_TRUE( Desert::Animation::EnsureAnimatorFor( animator, built, skeleton ) );
+    EXPECT_FALSE( Desert::Animation::EnsureAnimatorFor( animator, built, skeleton ) )
+         << "an unchanged rig rebuilt";
+
+    std::vector<BoneInfo> scaled = skeleton.GetBones();
+    for ( auto& bone : scaled )
+    {
+        bone.LocalBindTransform[3] = glm::vec4( 10.0f * glm::vec3( bone.LocalBindTransform[3] ), 1.0f );
+        bone.OffsetMatrix[3]       = glm::vec4( 10.0f * glm::vec3( bone.OffsetMatrix[3] ), 1.0f );
+    }
+    const uint64_t names = skeleton.GetSignature();
+    skeleton             = Skeleton( std::move( scaled ) ); // SkeletonAsset::LoadFromFile: the same address
+    EXPECT_EQ( skeleton.GetSignature(), names );
+    EXPECT_TRUE( Desert::Animation::EnsureAnimatorFor( animator, built, skeleton ) )
+         << "the Animator kept the old binds across a reread";
 }
 
 int main( int argc, char** argv )

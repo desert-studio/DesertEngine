@@ -60,8 +60,9 @@ namespace Desert::Graphic::System
             const LandscapeTileDraw& l = t.Landscape;
 
             TerrainInstance instance;
-            instance.Params = glm::vec4( static_cast<float>( l.QuadsPerTile ) * l.SpacingCm, lod.Center, 0.0f,
-                                         std::floor( lod.Center ) );
+            instance.Params =
+                 glm::vec4( static_cast<float>( l.QuadsPerTile ) * l.SpacingCm, lod.Center,
+                            static_cast<float>( t.Weights.VisibilityLayer + 1 ), std::floor( lod.Center ) );
             instance.Params2        = glm::vec4(
                  1.0f / std::max( 0.01f, kLandscapeLodBlendRange ), static_cast<float>( t.Weights.LayerCount ),
                  static_cast<float>( World::Landscape::LandscapeWeightmapPageCount( t.Weights.LayerCount ) ),
@@ -177,6 +178,13 @@ namespace Desert::Graphic::System
     Common::BoolResultStr
     TerrainRenderer::CreateShadowPipeline( const std::shared_ptr<Framebuffer>& cascadeFramebuffer )
     {
+        // A renderer BUILT WITHOUT CASCADES (Graphic::kNoShadowQuality — every asset thumbnail and preview)
+        // asks nothing of its casters: the mesh renderer registers no cascade pass, so there is nothing to
+        // cast into and no pipeline to build. The budget the SceneRenderer was built with is the one source
+        // (MeshRenderer::SetupShadowPass reads the same count); only a missing target UNDER a non-zero
+        // budget is a failure.
+        if ( m_SceneRenderer->GetShadowQuality().CascadeCount == 0 )
+            return BOOLSUCCESS;
         if ( !cascadeFramebuffer )
             return Common::MakeError( "TerrainRenderer: no cascade target to build the shadow caster against" );
 
@@ -280,7 +288,11 @@ namespace Desert::Graphic::System
                 surface->SetTexture( "u_Heightmap", t.Heightmap );
                 materials.Shadow->SetTexture( "u_Heightmap", t.Heightmap );
                 if ( t.Weights.Weightmap != nullptr )
+                {
                     surface->SetTexture( "u_Weightmap", t.Weights.Weightmap );
+                    // The caster reads the visibility channel too: a hole must not cast a shadow.
+                    materials.Shadow->SetTexture( "u_Weightmap", t.Weights.Weightmap );
+                }
             }
             FrameGroup&         group   = m_FrameGroups[it->second];
             DataDrivenMaterial* surface = deferred ? materials.GBuffer.get() : materials.Forward.get();

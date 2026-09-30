@@ -10,6 +10,7 @@
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
+#include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Import/TextureDnD.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
@@ -28,8 +29,6 @@
 #include <Engine/Core/ShaderCompiler/ShaderGraphMedium.hpp>
 #include <Engine/Graphic/Clouds/CloudMaterialValues.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
-#include <Engine/Graphic/Materials/MaterialFactory.hpp>
-#include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -50,6 +49,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <filesystem>
+#include <format>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -169,7 +169,7 @@ namespace Desert::Editor
                                               const std::shared_ptr<Assets::AssetManager>& assetManager )
          : ISubjectDocument( MaterialDocumentName( material, assetManager ),
                              AssetSubject( material, static_cast<uint32_t>( Assets::AssetTypeID::Material ) ) ),
-           m_AssetManager( assetManager )
+           m_AssetManager( assetManager ), m_SubjectPin( material, "open in the Material Editor" )
     {
         // Start level with the world: a rebuild that happened before this window existed left nothing here to
         // invalidate, and treating it as pending would drop pipelines that were never built.
@@ -327,8 +327,9 @@ namespace Desert::Editor
 
         // A SHADER change is not a re-valuing. The runtime material's CLASS follows the shader, so the
         // cached one cannot be handed the new values — it has to be dropped and rebuilt from the asset.
-        // Read BEFORE the copy, because afterwards the two names agree by construction.
-        const bool shaderChanged = subject->GetShaderName() != m_WorkingCopy->GetShaderName();
+        // Read BEFORE the copy, because afterwards the two templates agree by construction. By HANDLE: the
+        // template's identity; its name is display text.
+        const bool shaderChanged = subject->GetShaderHandle() != m_WorkingCopy->GetShaderHandle();
 
         MaterialEdit::CopyAuthoredValues( subject->Data(), m_WorkingCopy->Data() );
         subject->ResolveDependencies( *m_AssetManager );
@@ -351,7 +352,7 @@ namespace Desert::Editor
         if ( !m_WorkingCopy || !subject )
             return false;
 
-        const bool shaderChanged = subject->GetShaderName() != m_WorkingCopy->GetShaderName();
+        const bool shaderChanged = subject->GetShaderHandle() != m_WorkingCopy->GetShaderHandle();
 
         MaterialEdit::CopyAuthoredValues( m_WorkingCopy->Data(), subject->Data() );
         m_WorkingCopy->ResolveDependencies( *m_AssetManager );
@@ -376,9 +377,9 @@ namespace Desert::Editor
         if ( !asset )
             return {};
 
-        // Through the parent for an instance — see the header. SurfaceMaterialAsset::GetShaderName() answers
-        // "StaticMeshPBR" for a material that names none, which is right for a base asset and wrong for a
-        // child, whose shader is simply somewhere else.
+        // Through the parent for an instance — see the header: a child states no template, its template is
+        // the parent's. The answer is the ShaderService compile key of the drawn template (display and
+        // program lookup only; the template's identity is its handle).
         if ( auto parent = ResolveParent( *asset ) )
             return parent->GetShaderName();
         return asset->GetShaderName();
@@ -894,7 +895,23 @@ namespace Desert::Editor
                                      m_Preview->ResetView();
                              } } );
         PreviewEnvironment::AppendActions( actions );
+        // The Thumbnail section's Primitive combo, reachable without the mouse (same function).
+        if ( m_WorkingCopy )
+            for ( const Assets::ThumbnailPrimitive primitive : Assets::kThumbnailPrimitives )
+                actions.push_back( { std::format( "Material Thumbnail: primitive {}",
+                                                  Assets::ThumbnailPrimitiveName( primitive ) ),
+                                     [this, primitive]() { SetThumbnailPrimitive( primitive ); } } );
         return actions;
+    }
+
+    void MaterialEditorPanel::SetThumbnailPrimitive( Assets::ThumbnailPrimitive primitive )
+    {
+        if ( !m_WorkingCopy )
+            return;
+        auto&                 data = m_WorkingCopy->Data();
+        Assets::ThumbnailInfo info = data.ThumbnailOrDefault();
+        info.Primitive             = primitive;
+        data.SetThumbnail( info );
     }
 
     void MaterialEditorPanel::DrawToolbar( Assets::SurfaceMaterialAsset* working, bool isInstance )
@@ -1015,7 +1032,10 @@ namespace Desert::Editor
             return false;
         }
 
-        const std::string current = asset.GetShaderName();
+        // The template's identity is its HANDLE; `current` (its file stem) is the display text and the
+        // ShaderService compile key the domain is read through.
+        const Common::AssetHandle currentHandle = asset.GetShaderHandle();
+        const std::string         current       = asset.GetShaderName();
 
         // THE DOMAIN COMES FROM THE MATERIAL, and everything below follows from it. See the header for
         // what the hardcoded `Surface` filter did to a Terrain material.
@@ -1058,11 +1078,13 @@ namespace Desert::Editor
                                 DomainName( domain ) );
         }
 
-        // Sorted, because GetAllNames() walks an unordered_map: without this the same project shows the
-        // same shaders in a different order every run, and the entry under the cursor moves between
-        // sessions.
-        std::vector<std::string> names = shaderService->GetAllNames();
-        std::sort( names.begin(), names.end() );
+        // The rows are the registry's shader ROWS (ContentRegistry::Rows, not the loaded objects) — a row is
+        // picked by its handle, the name is its label. Sorted by label so the entry under the cursor stays put
+        // between sessions.
+        std::vector<std::pair<std::string, Common::AssetHandle>> rows;
+        for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Shader ) )
+            rows.emplace_back( row.Path.stem().string(), row.Handle );
+        std::sort( rows.begin(), rows.end(), []( const auto& a, const auto& b ) { return a.first < b.first; } );
 
         bool shaderChanged = false;
         ImGui::SetNextItemWidth( -FLT_MIN );
@@ -1070,7 +1092,7 @@ namespace Desert::Editor
         const bool hovered = ImGui::IsItemHovered(); // the combo itself; after EndCombo this is the popup
         if ( open )
         {
-            for ( const auto& name : names )
+            for ( const auto& [name, handle] : rows )
             {
                 auto candidate = shaderService->GetByName( name );
                 if ( !candidate )
@@ -1080,27 +1102,26 @@ namespace Desert::Editor
                 // Same domain when the material has one; every assignable domain when it does not, which
                 // is the only way out of a material pointing at an engine shader.
                 const bool offer = assignable ? ( meta.Domain == domain ) : meta.IsUserAssignable();
-                if ( !offer && name != current )
+                if ( !offer && handle != currentHandle )
                     continue;
 
                 // The current entry is listed even when it would not otherwise qualify. A combo that
                 // cannot reproduce the value it is displaying is the defect this function was rewritten
                 // for, and a shader that fails to compile keeps its name precisely so it stays visible.
-                const bool selected = ( name == current );
+                const bool        selected = ( handle == currentHandle );
                 const std::string label    = candidate->IsCompiled() ? name : name + "  (does not compile)";
 
                 if ( ImGui::Selectable( label.c_str(), selected ) && !selected )
                 {
                     // Params always belong to a shader's schema — a switch clears them; the
                     // schema editor reseeds defaults on the next draw.
-                    // By GUID (MATL 4): the picked shader's header GUID and stable path, resolved back to the
-                    // name GetShaderName answers.
+                    // By HANDLE: the picked row's shader, stated by its header GUID and stable path.
                     if ( m_AssetManager == nullptr )
                     {
                         LOG_ERROR( "[MaterialEditor] cannot state shader '{}': no asset manager", name );
                     }
-                    else if ( const auto stated = Assets::SurfaceMaterialAsset::StateShaderByName(
-                                   asset.Data(), *m_AssetManager, name );
+                    else if ( const auto stated = Assets::SurfaceMaterialAsset::StateShader(
+                                   asset.Data(), *m_AssetManager, handle );
                               !stated )
                     {
                         LOG_ERROR( "[MaterialEditor] cannot state shader: {}", stated.GetError() );
@@ -2193,6 +2214,73 @@ namespace Desert::Editor
                 ImGui::TextDisabled( "This material fills every slot of that mesh." );
             }
         }
+
+        // UE's material "Thumbnail" category: Primitive Type, Preview Mesh and the orbit, all in
+        // MaterialData::Thumbnail (SetThumbnail: the default info is written as no key). Saved with the material;
+        // the saved .demat's bytes re-shoot the picture (ThumbnailFreshness).
+        if ( m_WorkingCopy && ImGui::CollapsingHeader( "Thumbnail", ImGuiTreeNodeFlags_DefaultOpen ) )
+        {
+            auto& data = m_WorkingCopy->Data();
+            {
+                Assets::ThumbnailInfo info    = data.ThumbnailOrDefault();
+                bool                  changed = false;
+                if ( ImGui::BeginCombo( "Primitive##thumbnail_primitive",
+                                        std::string( Assets::ThumbnailPrimitiveName( info.Primitive ) ).c_str() ) )
+                {
+                    for ( const Assets::ThumbnailPrimitive primitive : Assets::kThumbnailPrimitives )
+                        if ( ImGui::Selectable( std::string( Assets::ThumbnailPrimitiveName( primitive ) ).c_str(),
+                                                primitive == info.Primitive ) )
+                        {
+                            SetThumbnailPrimitive( primitive );
+                            info.Primitive = primitive;
+                        }
+                    ImGui::EndCombo();
+                }
+                changed |= ImGui::DragFloat( "Pitch##thumbnail_pitch", &info.Orbit.Pitch, 0.5f, -89.0f, 89.0f );
+                changed |= ImGui::DragFloat( "Yaw##thumbnail_yaw", &info.Orbit.Yaw, 0.5f, -180.0f, 180.0f );
+                changed |= ImGui::DragFloat( "Zoom##thumbnail_zoom", &info.Orbit.Zoom, 0.01f, -0.9f, 4.0f );
+                if ( changed && Assets::IsValidThumbnailOrbit( info.Orbit ) )
+                    data.SetThumbnail( info );
+            }
+            const Assets::ThumbnailInfo shown = data.ThumbnailOrDefault();
+            const std::string           label =
+                 shown.PreviewMesh ? shown.PreviewMesh->Path
+                                             : std::format( "<{}>", Assets::ThumbnailPrimitiveName( shown.Primitive ) );
+            ImGui::Button( std::format( "{}##thumbnail_mesh", label ).c_str(), ImVec2( -FLT_MIN, 0.0f ) );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Drop an imported static mesh: the material's thumbnail is taken on it." );
+            if ( ImGui::BeginDragDropTarget() )
+            {
+                const char* types[] = { ::Desert::Editor::DragPayloads::MeshAsset,
+                                        ::Desert::Editor::DragPayloads::AssetFile };
+                for ( const char* t : types )
+                {
+                    if ( const ImGuiPayload* pl = ImGui::AcceptDragDropPayload( t ) )
+                    {
+                        const std::string path( static_cast<const char*>( pl->Data ) );
+                        if ( auto ref = PreviewMeshRefFor( path ) )
+                        {
+                            Assets::ThumbnailInfo info = data.ThumbnailOrDefault();
+                            info.PreviewMesh           = ref.GetValue();
+                            data.SetThumbnail( info );
+                        }
+                        else
+                            LOG_WARN( "[MaterialEditor] '{}' cannot be the thumbnail mesh: {}", path,
+                                      ref.GetError() );
+                        break;
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+            ImGui::BeginDisabled( !data.ThumbnailOrDefault().PreviewMesh.has_value() );
+            if ( ImGui::Button( "Back to the primitive##thumbnail_mesh_clear" ) )
+            {
+                Assets::ThumbnailInfo info = data.ThumbnailOrDefault();
+                info.PreviewMesh.reset();
+                data.SetThumbnail( info );
+            }
+            ImGui::EndDisabled();
+        }
     }
 
     void MaterialEditorPanel::PublishToRuntime( Assets::SurfaceMaterialAsset& asset, bool isInstance )
@@ -2236,10 +2324,8 @@ namespace Desert::Editor
         {
             for ( auto* runtime : materialService->GetBuiltVariants( asset.GetMetadata().Handle ) )
             {
-                if ( auto* pbr = dynamic_cast<Graphic::MaterialPBR*>( runtime ) )
-                    Graphic::MaterialFactory::ApplyPBRAsset( *pbr, asset );
-                else if ( auto* ddm = dynamic_cast<Graphic::DataDrivenMaterial*>( runtime ) )
-                    Graphic::MaterialFactory::ApplyShaderAsset( *ddm, asset );
+                if ( auto* ddm = dynamic_cast<Graphic::DataDrivenMaterial*>( runtime ) )
+                    Runtime::ApplySurfaceAsset( *ddm, asset );
             }
         }
 
@@ -2382,7 +2468,7 @@ namespace Desert::Editor
             return false;
 
         // The publish is what makes the ball show the inherited value again, and it is the SAME publish an
-        // ordinary edit makes. For a base material MaterialFactory::ApplyShaderAsset seeds every schema
+        // ordinary edit makes. For a base material Runtime::ApplySurfaceAsset seeds every schema
         // default before overlaying what the asset stores, so a removed entry genuinely reverts on the GPU
         // rather than leaving the last written value behind; for an instance the global stamp drops the
         // cached MaterialInstances and they are rebuilt from the chain, which is where the parent's value

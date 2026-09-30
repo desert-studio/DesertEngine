@@ -55,6 +55,7 @@ namespace Desert::Graphic::System
         void                          RegisterPasses( RenderGraphBuilder& builder ) override;
 
         // The caster pipeline is built against the cascade targets, which the mesh renderer owns and makes.
+        // Under a zero-cascade budget there are none and none is built (RecordShadowCascade is never reached).
         Common::BoolResultStr CreateShadowPipeline( const std::shared_ptr<Framebuffer>& cascadeFramebuffer );
 
         // Before the render graph records: resolves every queued terrain's material, packs the rows and

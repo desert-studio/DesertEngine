@@ -36,8 +36,13 @@ namespace Desert::Assets
     /// shaders in their constructors, so these must exist before any of them is built. A material's own
     /// shader graph is still compiled on demand when the material is. @p stop is asked before each program;
     /// true ends the compile there and leaves the rest unregistered (the splash's close button).
-    void CompileEngineShaders( const std::shared_ptr<AssetManager>& manager, const ItemProgress& progress = {},
-                               const StopRequested& stop = {} );
+    /// REFUSED when no loaded shader is the `Default Surface` template (or the project's DefaultSurfaceTemplate
+    /// names none): the engine's slot-less meshes and every new material are authored on it, so an engine without
+    /// it is refused at its start, naming the role, rather than carrying a null default into the renderer (the
+    /// "no config = error" rule). A stop request ends the compile with success — the host is closing.
+    [[nodiscard]] Common::BoolResultStr CompileEngineShaders( const std::shared_ptr<AssetManager>& manager,
+                                                              const ItemProgress&                  progress = {},
+                                                              const StopRequested&                 stop     = {} );
 
     /// The animation library indexed from the registry's clip rows plus the built-in procedural clips.
     /// Nothing is read: a clip is loaded when an animator first names it (AL1-6). Also the re-index behind

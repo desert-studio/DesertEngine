@@ -7,23 +7,21 @@
 #include <Engine/Assets/Serialization/Mesh.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
-#include <Engine/Assets/Mesh/PBRSurfaceParams.hpp>
+#include <Editor/Import/MaterialImportContract.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 
 namespace Desert::Editor
 {
-    // A material extracted from a source file, ready to cook into a .demat. Name is the human-readable
-    // source material name (-> the .demat filename, no handle in it). Guid is the material's one identity,
-    // stated by the .demat's header; mesh submeshes reference its handle (MaterialData::HandleOf). It sits
-    // beside Data, not in it, because PBRSurfaceParams is the parameter block and carries no identity.
+    // A material extracted from a source file, as the SOURCE'S OWN DICTIONARY (MAT1b adapters): the template it
+    // becomes, and which of its keys fill which Property, are chosen when the .demat is written
+    // (ImportManager::SerializeMaterialAsset). Name is the human-readable source material name (-> the .demat
+    // filename, no handle in it). Guid is the material's one identity, stated by the .demat's header; mesh
+    // submeshes reference its handle (MaterialData::HandleOf).
     struct ImportedMaterial
     {
-        std::string             Name;
-        Assets::PBRSurfaceParams   Data;
+        std::string                Name;
+        SourceMaterial             Source;
         Common::Content::AssetGuid Guid;
-        // The texture slots, by each texture asset's header GUID (MATL 3). Data's typed texture handles cannot
-        // say this: a handle is a fold of a GUID, not a way back to it.
-        std::vector<Assets::MaterialAssetRef> Textures;
     };
 
     struct ImportResult
@@ -32,5 +30,8 @@ namespace Desert::Editor
         std::optional<Desert::Assets::Serialization::SkeletonAssetData> Skeleton;
         std::vector<Desert::Assets::Serialization::AnimationAssetData>  Animations;
         std::vector<ImportedMaterial>                                   Materials;
+        // The name of the source node that placed each submesh of Mesh, one per submesh in order (the first node
+        // when a mesh is instanced). What NodeMeshSplit groups by when Combine Meshes is off (UE's default).
+        std::vector<std::string> SubmeshNodes;
     };
 } // namespace Desert::Editor

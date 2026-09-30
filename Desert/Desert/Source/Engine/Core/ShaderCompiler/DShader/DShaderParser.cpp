@@ -1,9 +1,14 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
+#include <Common/Content/ShaderAssetHeader.hpp>
+
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <charconv>
+#include <format>
 #include <functional>
+#include <optional>
 #include <regex>
 #include <span>
 #include <set>
@@ -283,47 +288,6 @@ namespace Desert::Core::Preprocess
             return true;
         }
 
-        // GLSL declaration type for an auto-generated material-parameter field.
-        const char* GlslTypeOf( const ShaderParam& p )
-        {
-            switch ( p.Type )
-            {
-                case ShaderValueType::Float:
-                    return "float";
-                case ShaderValueType::Float2:
-                    return "vec2";
-                case ShaderValueType::Float3:
-                    return "vec3";
-                case ShaderValueType::Float4:
-                    return "vec4";
-                case ShaderValueType::Int:
-                    return "int";
-                case ShaderValueType::Bool:
-                    return "int";
-                default:
-                    return "vec4";
-            }
-        }
-
-        // How many floats of tail padding a parameter needs to fill its whole 16-byte slot. See
-        // Core/Formats/MaterialParamRow.hpp for why every parameter owns a slot instead of being packed:
-        // it makes "parameter i is at 16*i" true by construction, so the C++ packer implements no layout
-        // rules and cannot disagree with the GLSL about one.
-        uint32_t GlslSlotPaddingFloats( const ShaderParam& p )
-        {
-            switch ( p.Type )
-            {
-                case ShaderValueType::Float4:
-                    return 0;
-                case ShaderValueType::Float3:
-                    return 1;
-                case ShaderValueType::Float2:
-                    return 2;
-                default: // float, int, bool — 4 bytes of value, 12 of slot
-                    return 3;
-            }
-        }
-
         // ─── Section parsers ────────────────────────────────────────────────────────
 
         // 2D-vs-cube for the auto-generated samplers comes from ShaderParam::IsCubeTexture itself; the
@@ -398,10 +362,45 @@ namespace Desert::Core::Preprocess
                     if ( !Expect( c, ')', err, "closing Timing" ) )
                         return false;
                 }
+                // THE TEMPLATE'S SAMPLER FOR A TEXTURE SLOT — `Sampler(WrapU, WrapV, Filter)`, unquoted
+                // enumerators (Repeat|Clamp|Mirror, Linear|Nearest) for the same reason as Timing: a misspelling
+                // is a parse error at load, not a free-text field that silently means Repeat.
+                else if ( attr == "sampler" )
+                {
+                    if ( !param.IsTexture || param.IsCubeTexture )
+                    {
+                        err = { c.Line, std::format( "Sampler(...) on '{}', which is not a Texture2D property",
+                                                     param.Name ) };
+                        return false;
+                    }
+                    if ( !Expect( c, '(', err, "after Sampler" ) )
+                        return false;
+                    std::string words[3];
+                    for ( int i = 0; i < 3; ++i )
+                    {
+                        if ( i > 0 && !Expect( c, ',', err, "in Sampler" ) )
+                            return false;
+                        SkipTrivia( c );
+                        words[i] = Lower( ReadIdent( c ) );
+                    }
+                    const auto wrapU  = ParseSamplerWrap( words[0] );
+                    const auto wrapV  = ParseSamplerWrap( words[1] );
+                    const auto filter = ParseSamplerFilter( words[2] );
+                    if ( !wrapU || !wrapV || !filter )
+                    {
+                        err = { c.Line, std::format( "Sampler({}, {}, {}) on '{}': expected (Repeat|Clamp|Mirror, "
+                                                     "Repeat|Clamp|Mirror, Linear|Nearest)",
+                                                     words[0], words[1], words[2], param.Name ) };
+                        return false;
+                    }
+                    param.Sampler = { *wrapU, *wrapV, *filter };
+                    if ( !Expect( c, ')', err, "closing Sampler" ) )
+                        return false;
+                }
                 else
                 {
                     err = { c.Line, "unknown property attribute '" + attr +
-                                         "' (expected Range, Category, Tooltip or Timing)" };
+                                         "' (expected Range, Category, Tooltip, Timing or Sampler)" };
                     return false;
                 }
                 SkipTrivia( c );
@@ -472,6 +471,81 @@ namespace Desert::Core::Preprocess
             if ( !ReadNumber( c, v, err ) )
                 return false;
             param.Default[0] = v;
+            return true;
+        }
+
+        // One `Import` row with the line it came from; checked against Properties once the whole file is read
+        // (the block may come before Properties).
+        struct PendingImport
+        {
+            uint32_t                          Line = 0;
+            Common::Content::ShaderImportLine Row;
+        };
+
+        // `Import { <row per line> }` — the template's import contract. The row grammar has ONE home,
+        // Common::Content::ParseShaderImportLine, which ReadShaderManifest also reads the block with.
+        bool ParseImportBlock( Cursor& c, std::vector<PendingImport>& out, ParseError& err )
+        {
+            if ( !Expect( c, '{', err, "opening the Import block" ) )
+                return false;
+            while ( true )
+            {
+                if ( c.AtEnd() )
+                {
+                    err = { c.Line, "unterminated Import block" };
+                    return false;
+                }
+                const uint32_t line = c.Line;
+                std::string    text;
+                while ( !c.AtEnd() && c.Peek() != '\n' )
+                    text.push_back( c.Advance() );
+                if ( !c.AtEnd() )
+                    c.Advance();
+                if ( const auto comment = text.find( "//" ); comment != std::string::npos )
+                    text.erase( comment );
+                const auto first = text.find_first_not_of( " \t\r" );
+                if ( first == std::string::npos )
+                    continue;
+                text = text.substr( first, text.find_last_not_of( " \t\r" ) - first + 1 );
+                if ( text == "}" )
+                    return true;
+                auto row = Common::Content::ParseShaderImportLine( text );
+                if ( !row )
+                {
+                    err = { line, row.GetError() };
+                    return false;
+                }
+                out.push_back( { line, row.GetValue() } );
+            }
+        }
+
+        // Every mapped Property must be one this shader declares, and only a texture takes source channels.
+        bool CheckImportRows( const std::vector<PendingImport>& rows, const ShaderProgramMeta& meta,
+                              ParseError& err )
+        {
+            for ( const auto& pending : rows )
+            {
+                if ( pending.Row.IsRequires )
+                    continue;
+                const auto& row   = pending.Row.Row;
+                const auto  param = std::find_if( meta.Params.begin(), meta.Params.end(),
+                                                  [&]( const ShaderParam& p ) { return p.Name == row.Property; } );
+                if ( param == meta.Params.end() )
+                {
+                    err = {
+                         pending.Line,
+                         std::format( "Import maps \"{}\" to '{}', which this shader's Properties do not declare",
+                                      row.SourceKey, row.Property ) };
+                    return false;
+                }
+                if ( !row.Channels.empty() && !param->IsTexture )
+                {
+                    err = { pending.Line, std::format( "Import maps \"{}\" to '{}.{}', but '{}' is not a texture: "
+                                                       "only a texture takes source channels",
+                                                       row.SourceKey, row.Property, row.Channels, row.Property ) };
+                    return false;
+                }
+            }
             return true;
         }
 
@@ -836,51 +910,37 @@ namespace Desert::Core::Preprocess
         // The push constant carrying the row index is an INCLUDE and not text emitted here, because it is
         // identical in every shader in the engine and the offsets have to stay identical too — the same
         // reason the generator emits structure and lets `.glslh` files carry boilerplate.
-        std::string BuildAutoDeclarations( const ShaderProgramMeta& meta, const PropertiesInfo& info )
+        //
+        // THE LAYOUT IS THE INPUT. Every declaration below is written from Core::Formats::MaterialLayout (the
+        // one builder, kept on the parse result), so the GLSL cannot name a parameter, an offset or a binding
+        // the layout does not have — and ReconcileMaterialLayout holds the compiled SPIR-V to the same object.
+        std::string BuildAutoDeclarations( const MaterialLayout& layout )
         {
             std::ostringstream out;
 
-            if ( info.UBBinding )
+            if ( layout.RowBinding )
             {
-                bool any = false;
-                for ( const auto& p : meta.Params )
-                    if ( !p.IsTexture && !p.IsAssetRef() )
-                        any = true;
-
-                if ( any )
+                out << "#include <" << kParserInjectedIncludes[0] << ">\n";
+                out << "struct MaterialParams\n{\n";
+                uint32_t slot = 0;
+                for ( const auto& p : layout.Params )
                 {
-                    out << "#include <" << kParserInjectedIncludes[0] << ">\n";
-                    out << "struct MaterialParams\n{\n";
-                    uint32_t slot = 0;
-                    for ( const auto& p : meta.Params )
-                    {
-                        if ( p.IsTexture )
-                            continue;
-                        out << "    " << GlslTypeOf( p ) << " " << p.Name << ";\n";
-                        // The pad is a float ARRAY (std430 stride 4), so the value plus its pad is
-                        // exactly one 16-byte slot whatever the value's own type is.
-                        if ( const uint32_t pad = GlslSlotPaddingFloats( p ); pad > 0 )
-                            out << "    float _slotPad" << slot << "[" << pad << "];\n";
-                        ++slot;
-                    }
-                    out << "};\n";
-                    out << "layout( std430, binding = " << *info.UBBinding << " ) readonly buffer Materials\n"
-                        << "{\n    MaterialParams u_Materials[];\n};\n";
-                    out << "#define u_Material u_Materials[m_PushConstants.MaterialIndex]\n";
+                    out << "    " << MaterialLayoutGlslType( p.Type ) << " " << p.Name << ";\n";
+                    // The pad is a float ARRAY (std430 stride 4), so the value plus its pad is exactly one
+                    // 16-byte slot whatever the value's own type is (see Core/Formats/MaterialParamRow.hpp).
+                    if ( const uint32_t pad = ( kMaterialParamSlotSize - p.Size ) / 4; pad > 0 )
+                        out << "    float _slotPad" << slot << "[" << pad << "];\n";
+                    ++slot;
                 }
+                out << "};\n";
+                out << "layout( std430, binding = " << *layout.RowBinding << " ) readonly buffer Materials\n"
+                    << "{\n    MaterialParams u_Materials[];\n};\n";
+                out << "#define u_Material u_Materials[m_PushConstants.MaterialIndex]\n";
             }
 
-            if ( info.TextureBinding )
-            {
-                uint32_t binding = *info.TextureBinding;
-                for ( const auto& p : meta.Params )
-                {
-                    if ( !p.IsTexture )
-                        continue;
-                    out << "layout( binding = " << binding++ << " ) uniform "
-                        << ( p.IsCubeTexture ? "samplerCube" : "sampler2D" ) << " " << p.Name << ";\n";
-                }
-            }
+            for ( const auto& t : layout.Textures )
+                out << "layout( binding = " << t.Binding << " ) uniform "
+                    << ( t.IsCube ? "samplerCube" : "sampler2D" ) << " " << t.Name << ";\n";
 
             return out.str();
         }
@@ -1252,6 +1312,41 @@ namespace Desert::Core::Preprocess
             return out.str();
         }
 
+        // One stage of one surface CELL. The vertex stage is the path's engine header alone (a surface
+        // function does not move vertices yet); the fragment stage is the author's surface function between
+        // the shared types and the pass's engine header, which owns main(). `#line` puts glslang's errors in
+        // the surface function on the .shader's own lines. BOTH stages see which pass and blend mode the cell
+        // is (DESERT_SURFACE_PASS_<Pass>, DESERT_SURFACE_MASKED): an opaque depth cell's vertex header declares
+        // the shadow pass's push block and no varyings, so the cell's layout is the shadow shader's.
+        std::string AssembleSurfaceCellStage( ShaderStage stage, std::string_view path, std::string_view pass,
+                                              const RawBlock& surface, const RawBlock& include,
+                                              const std::string& autoDecls, const SurfaceBlendMode blend,
+                                              const SurfaceShadingModel shading )
+        {
+            const bool        masked  = blend == SurfaceBlendMode::Masked;
+            const std::string defines = std::format( "#define DESERT_SURFACE_PASS_{} 1\n{}", pass,
+                                                     masked ? "#define DESERT_SURFACE_MASKED 1\n" : "" );
+            RawBlock          code;
+            code.StartLine = 1;
+            if ( stage == ShaderStage::Vertex )
+                code.Content = std::format( "{}#include <{}>\n#include <{}>\n", defines, kSurfaceTypesInclude,
+                                            SurfaceVertexInclude( path ) );
+            else if ( pass == kSurfaceDepthPass && !masked )
+            {
+                // Reflection keeps a declared binding whether or not it is read, so an opaque depth cell must
+                // not declare the surface's bindings at all: the pass header alone, no material declarations.
+                code.Content = std::format( "{}#include <{}>\n#include <{}>\n", defines, kSurfaceTypesInclude,
+                                            SurfacePassInclude( pass, shading, blend ) );
+                return AssembleStage( stage, code, include, std::string() );
+            }
+            else
+                code.Content =
+                     std::format( "{}#include <{}>\n#line {}\n{}\n#include <{}>\n", defines, kSurfaceTypesInclude,
+                                  surface.StartLine > 0 ? surface.StartLine - 1 : 0, surface.Content,
+                                  SurfacePassInclude( pass, shading, blend ) );
+            return AssembleStage( stage, code, include, autoDecls );
+        }
+
     } // namespace
 
     // ─── Public API ─────────────────────────────────────────────────────────────────
@@ -1280,6 +1375,72 @@ namespace Desert::Core::Preprocess
                 return true;
         }
         return false;
+    }
+
+    bool DShaderParser::MayDeclareSurface( const std::string_view source )
+    {
+        constexpr std::string_view keyword = "surface";
+        for ( size_t i = 0; i + keyword.size() <= source.size(); ++i )
+        {
+            if ( i > 0 && IsIdentChar( source[i - 1] ) )
+                continue;
+            size_t matched = 0;
+            while ( matched < keyword.size() &&
+                    std::tolower( static_cast<unsigned char>( source[i + matched] ) ) == keyword[matched] )
+                ++matched;
+            if ( matched != keyword.size() )
+                continue;
+            size_t next = i + matched;
+            while ( next < source.size() && std::isspace( static_cast<unsigned char>( source[next] ) ) != 0 )
+                ++next;
+            if ( next < source.size() && source[next] == '{' )
+                return true;
+        }
+        return false;
+    }
+
+    std::string SurfaceCellName( const std::string_view path, const std::string_view pass )
+    {
+        return std::format( "{}.{}", path, pass );
+    }
+
+    std::string SurfaceVertexInclude( const std::string_view path )
+    {
+        return std::format( "Mesh/Surface/Vertex_{}.glslh", path );
+    }
+
+    bool SurfaceBlendHasPass( const SurfaceBlendMode blend, const std::string_view pass )
+    {
+        return blend != SurfaceBlendMode::Translucent || pass == "Forward";
+    }
+
+    std::string SurfacePassInclude( const std::string_view pass, const SurfaceShadingModel model,
+                                    const SurfaceBlendMode blend )
+    {
+        // The blend mode picks the pass before the shading model does: a translucent surface is shaded and
+        // composited over the scene by the translucency pass header (UE's translucency base pass).
+        if ( blend == SurfaceBlendMode::Translucent && pass == "Forward" )
+            return std::string( kSurfaceTranslucentPassInclude );
+        // The shading model picks the pass header, so an Unlit cell does not even NAME the lighting texts (the
+        // include collector is textual: an #ifdef inside one header would still pull them into the key and the
+        // layout). Depth is shading-independent: one header for both models.
+        if ( model == SurfaceShadingModel::Unlit && pass != kSurfaceDepthPass )
+            return std::format( "Mesh/Surface/Pass_{}_Unlit.glslh", pass );
+        return std::format( "Mesh/Surface/Pass_{}.glslh", pass );
+    }
+
+    std::vector<std::string> SurfaceTemplateIncludes()
+    {
+        std::vector<std::string> includes{ std::string( kSurfaceTypesInclude ) };
+        for ( const std::string_view path : kSurfaceVertexPaths )
+            includes.push_back( SurfaceVertexInclude( path ) );
+        for ( const SurfaceShadingModelRow& row : kSurfaceShadingModels )
+            for ( const std::string_view pass : kSurfaceCellPasses )
+                if ( std::string header = SurfacePassInclude( pass, row.Model, SurfaceBlendMode::Opaque );
+                     std::find( includes.begin(), includes.end(), header ) == includes.end() )
+                    includes.push_back( std::move( header ) );
+        includes.emplace_back( kSurfaceTranslucentPassInclude );
+        return includes;
     }
 
     std::string DShaderParser::TranslateSugar( const std::string& source )
@@ -1322,9 +1483,16 @@ namespace Desert::Core::Preprocess
         };
 
         PropertiesInfo           propInfo;
+        std::vector<PendingImport> importRows;
+        bool                       sawImport = false;
         RawBlock                 includeBlock;
         PendingPass              defaultPass; // top-level stage blocks
         std::vector<PendingPass> namedPasses;
+        // The `Surface` block, expanded into cells after the loop; the line of the first TwoSided/BlendMode
+        // names the error when those settings arrive without a block to shape.
+        std::optional<RawBlock> surfaceBlock;
+        uint32_t                surfaceLine        = 0;
+        uint32_t                surfaceSettingLine = 0;
 
         // Reads one stage block into the given pass. Returns false + err on problems.
         const auto readStageBlock = [&]( Cursor& cur, PendingPass& pass, ShaderStage stage,
@@ -1387,6 +1555,37 @@ namespace Desert::Core::Preprocess
                     return fail();
                 }
             }
+            // The template MANIFEST (`Role <Name>`, `Default Surface`) is not program schema: its one reader is
+            // Common::Content::ReadShaderManifest (ShaderAsset, the asset registry's Role tag). The compiler
+            // only checks the lines are well formed, so a malformed manifest fails the compile by line too.
+            else if ( lower == "role" )
+            {
+                if ( ReadIdent( c ).empty() )
+                {
+                    err = { line, "Role needs a name ('Role <Name>')" };
+                    return fail();
+                }
+            }
+            else if ( lower == "default" )
+            {
+                const std::string v = Lower( ReadIdent( c ) );
+                if ( v != "surface" )
+                {
+                    err = { line, std::format( "unknown Default '{}' (the only one is 'Default Surface')", v ) };
+                    return fail();
+                }
+            }
+            else if ( lower == "import" )
+            {
+                if ( sawImport )
+                {
+                    err = { line, "a second Import block: a template has one import contract" };
+                    return fail();
+                }
+                sawImport = true;
+                if ( !ParseImportBlock( c, importRows, err ) )
+                    return fail();
+            }
             else if ( lower == "properties" )
             {
                 if ( !ParsePropertiesBlock( c, result.Meta, propInfo, err ) )
@@ -1431,6 +1630,66 @@ namespace Desert::Core::Preprocess
                     return fail();
                 }
                 result.Meta.MediumSource = std::move( medium.Content );
+            }
+            else if ( lower == "surface" )
+            {
+                if ( surfaceBlock )
+                {
+                    err = { line, "duplicate Surface block" };
+                    return fail();
+                }
+                RawBlock block;
+                if ( !ReadBlock( c, block.Content, block.StartLine, err ) )
+                    return fail();
+                if ( block.Content.find( "#version" ) != std::string::npos )
+                {
+                    err = { block.StartLine, "a Surface block must not declare #version — every cell's stages "
+                                             "are assembled around it" };
+                    return fail();
+                }
+                if ( block.Content.find( "EvaluateSurface" ) == std::string::npos )
+                {
+                    err = { block.StartLine, "a Surface block must define "
+                                             "'SurfaceOutput EvaluateSurface( SurfaceInput )'" };
+                    return fail();
+                }
+                surfaceLine  = line;
+                surfaceBlock = std::move( block );
+            }
+            else if ( lower == "twosided" )
+            {
+                result.Surface.TwoSided = true;
+                surfaceSettingLine      = surfaceSettingLine != 0 ? surfaceSettingLine : line;
+            }
+            else if ( lower == "blendmode" )
+            {
+                const std::string v = Lower( ReadIdent( c ) );
+                if ( v == "opaque" )
+                    result.Surface.Blend = SurfaceBlendMode::Opaque;
+                else if ( v == "masked" )
+                    result.Surface.Blend = SurfaceBlendMode::Masked;
+                else if ( v == "translucent" )
+                    result.Surface.Blend = SurfaceBlendMode::Translucent;
+                else
+                {
+                    err = { line, std::format( "unknown BlendMode '{}' (Opaque | Masked | Translucent)", v ) };
+                    return fail();
+                }
+                surfaceSettingLine = surfaceSettingLine != 0 ? surfaceSettingLine : line;
+            }
+            else if ( lower == "shadingmodel" )
+            {
+                const std::string v = Lower( ReadIdent( c ) );
+                if ( v == "defaultlit" )
+                    result.Surface.Shading = SurfaceShadingModel::DefaultLit;
+                else if ( v == "unlit" )
+                    result.Surface.Shading = SurfaceShadingModel::Unlit;
+                else
+                {
+                    err = { line, std::format( "unknown ShadingModel '{}' (DefaultLit | Unlit)", v ) };
+                    return fail();
+                }
+                surfaceSettingLine = surfaceSettingLine != 0 ? surfaceSettingLine : line;
             }
             else if ( lower == "pass" )
             {
@@ -1508,16 +1767,44 @@ namespace Desert::Core::Preprocess
             }
         }
 
+        if ( !CheckImportRows( importRows, result.Meta, err ) )
+            return fail();
+
         // A MEDIUM-ONLY SHADER IS LEGAL AND IS THE ONE EXCEPTION. It has no stages because it is not a
         // program: it is the body compiled into four other programs. Every other file without a stage
         // block is still the error it always was — a shader that draws nothing.
-        if ( defaultPass.Blocks.empty() && namedPasses.empty() && !result.Meta.IsMediumProgram() )
+        if ( surfaceBlock )
+        {
+            if ( result.Meta.Domain != ShaderDomain::Surface )
+            {
+                err = { surfaceLine, "a Surface block needs 'Domain Surface'" };
+                return fail();
+            }
+            // A surface template's programs ARE its cells; a stage block beside them would be a program
+            // no mesh pass ever selects.
+            if ( !defaultPass.Blocks.empty() || !namedPasses.empty() )
+            {
+                err = { surfaceLine, "a Surface template must not also declare stage blocks or Pass blocks — "
+                                     "its programs are its cells" };
+                return fail();
+            }
+        }
+        else if ( surfaceSettingLine != 0 )
+        {
+            err = { surfaceSettingLine,
+                    "TwoSided, BlendMode and ShadingModel shape a Surface block, and this shader has none" };
+            return fail();
+        }
+
+        if ( defaultPass.Blocks.empty() && namedPasses.empty() && !result.Meta.IsMediumProgram() && !surfaceBlock )
         {
             err = { c.Line, "shader defines no stage blocks (Vertex/Fragment/Compute...)" };
             return fail();
         }
 
-        const std::string autoDecls = BuildAutoDeclarations( result.Meta, propInfo );
+        result.Meta.LayoutBindings  = MaterialLayoutBindings{ propInfo.UBBinding, propInfo.TextureBinding };
+        result.Layout               = BuildMaterialLayout( result.Meta );
+        const std::string autoDecls = BuildAutoDeclarations( result.Layout );
 
         const auto assemblePass = [&]( const PendingPass& pending, const ShaderRenderState& state )
         {
@@ -1528,6 +1815,57 @@ namespace Desert::Core::Preprocess
                 out.Stages.emplace( stage, AssembleStage( stage, block, includeBlock, autoDecls ) );
             return out;
         };
+
+        if ( surfaceBlock )
+        {
+            const bool masked = result.Surface.Blend == SurfaceBlendMode::Masked;
+            // The translucency pass lights the surface itself (Pass_Forward_Translucent): it has no unlit form.
+            if ( result.Surface.Blend == SurfaceBlendMode::Translucent &&
+                 result.Surface.Shading != SurfaceShadingModel::DefaultLit )
+            {
+                err = { surfaceSettingLine, "BlendMode Translucent is lit by the translucency pass and needs "
+                                            "ShadingModel DefaultLit" };
+                return fail();
+            }
+            result.Meta.Blend = result.Surface.Blend;
+            if ( masked )
+            {
+                const auto clip =
+                     std::find_if( result.Meta.Params.begin(), result.Meta.Params.end(), []( const ShaderParam& p )
+                                   { return p.Name == kSurfaceMaskClipParam && !p.IsTexture; } );
+                if ( clip == result.Meta.Params.end() || clip->Type != ShaderValueType::Float ||
+                     !result.Layout.RowBinding )
+                {
+                    err = { surfaceSettingLine,
+                            std::format( "BlendMode Masked needs a Float '{}' in a 'Properties Binding(n)' block "
+                                         "— the clip threshold is a material parameter",
+                                         kSurfaceMaskClipParam ) };
+                    return fail();
+                }
+            }
+
+            ShaderRenderState cellOverride;
+            if ( result.Surface.TwoSided )
+                cellOverride.Cull = StateCull::None;
+            const ShaderRenderState cellState = MergeState( defaultPass.State, cellOverride );
+
+            for ( const std::string_view path : kSurfaceVertexPaths )
+                for ( const std::string_view pass : kSurfaceCellPasses )
+                {
+                    if ( !SurfaceBlendHasPass( result.Surface.Blend, pass ) )
+                        continue;
+                    DShaderPass cell;
+                    cell.Name  = SurfaceCellName( path, pass );
+                    cell.State = cellState;
+                    for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                        cell.Stages.emplace( stage, AssembleSurfaceCellStage(
+                                                         stage, path, pass, *surfaceBlock, includeBlock, autoDecls,
+                                                         result.Surface.Blend, result.Surface.Shading ) );
+                    result.Meta.PassNames.push_back( cell.Name );
+                    result.Surface.Cells.push_back( cell.Name );
+                    result.Passes.push_back( std::move( cell ) );
+                }
+        }
 
         // The default program is the top-level stage set; when a shader consists solely of
         // named passes, the first pass doubles as the default program.
@@ -1540,9 +1878,20 @@ namespace Desert::Core::Preprocess
             result.Meta.PassNames.push_back( pass.Name );
         }
 
+        // A surface template's default program is NAMED, never positional: kSurfaceDefaultCell. A template
+        // whose cell set lost it is refused here by name, rather than having some other cell stand in for it.
+        if ( !result.Surface.Cells.empty() )
+        {
+            const DShaderPass* defaultCell = result.FindPass( std::string( kSurfaceDefaultCell ) );
+            if ( defaultCell == nullptr )
+                return Common::MakeFormattedError<DShaderParseResult>(
+                     "DShader '{}': surface template has no default cell '{}'", result.Name, kSurfaceDefaultCell );
+            result.Meta.State = defaultCell->State;
+            result.Stages     = defaultCell->Stages;
+        }
         // Guarded, because a medium-only shader has no passes at all and `front()` on an empty vector is
         // the kind of crash that reads as a corrupt file rather than as a missing branch.
-        if ( !result.Passes.empty() )
+        else if ( !result.Passes.empty() )
         {
             result.Meta.State = result.Passes.front().State;
             result.Stages     = result.Passes.front().Stages;

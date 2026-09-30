@@ -9,6 +9,7 @@
 // moment this file was edited at all: "no type named 'AnimationLibrary'", and two static_casts between
 // classes "not related by inheritance" because only the forward declarations were visible.
 #include <Engine/Animation/AnimationLibrary.hpp>
+#include <Engine/Animation/AnimatorForSkeleton.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Animation/TwoBoneIKControl.hpp>
@@ -89,12 +90,18 @@ namespace Desert::ECS
 
                 auto skinnedMeshPtr = static_cast<Desert::SkinnedMesh*>( meshBase );
 
-                if ( !anim.Animator )
-                {
-                    anim.Animator = std::make_unique<Animation::Animator>( skinnedMeshPtr->GetSkeleton() );
-                }
-
                 const Animation::Skeleton& skeleton = skinnedMeshPtr->GetSkeleton();
+
+                // A REIMPORTED RIG IS THE SAME OBJECT WITH OTHER BONES (SkeletonAsset::LoadFromFile), so the
+                // signature, not the pointer, says the Animator was built on something that no longer
+                // exists. Rebuilt BEFORE any stage below reads it; the rig stage died with the old Animator,
+                // so its stamps go too and SyncControlRig attaches a fresh one.
+                if ( Animation::EnsureAnimatorFor( anim.Animator, anim.BuiltSkeletonSignature, skeleton ) )
+                {
+                    anim.BuiltRigSource    = 0;
+                    anim.BuiltRigRevision  = 0;
+                    anim.BuiltRigSignature = 0;
+                }
 
                 // FIRST OF THE THREE SYNCS, because it is first in the pipeline it feeds: a retarget
                 // changes which rig the SOURCE stage samples, and everything below reads the pose that

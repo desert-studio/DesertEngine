@@ -47,7 +47,8 @@ namespace Desert::Graphic::System
     // instead of one checked).
     struct TerrainInstance
     {
-        // x = tile extent (cm), y = the tile's continuous LOD (LandscapeLodFromScreenSize), z = std430 padding,
+        // x = tile extent (cm), y = the tile's continuous LOD (LandscapeLodFromScreenSize), z = the tile's
+        // visibility layer + 1 (0 = no holes; LandscapeWeightDraw::VisibilityLayer, LandscapeVisibility),
         // w = the LOD whose grid the tile is drawn with (floor of y; the vertex count is that grid's).
         glm::vec4 Params{ 0.0f };
         // x = 1 / LOD blend range (UE's InvLODBlendRange), y = the tile's weight layer count (0 = no weightmap
@@ -108,6 +109,9 @@ namespace Desert::Graphic::System
         // The root's first layer colour (rgb) with a = 1, or a = 0 when the root names no layer - drawn
         // where the tile has no weightmap or its layers leave a pixel unclaimed.
         glm::vec4 Ground{ 0.0f };
+        // The tile layer that is its visibility mask (LandscapeWeightChannels::Visibility), -1 for none: the
+        // surface and the shadow caster discard where it reaches 0.5 (UE's Landscape Visibility Mask).
+        int32_t VisibilityLayer = -1;
     };
 
     // Where one landscape tile sits, in the form the seam needs. The ROOT's origin and the tile's first

@@ -314,8 +314,12 @@ namespace Desert::Graphic::API::Vulkan
         if ( sets == nullptr )
             return;
 
-        auto       descriptorImageInfo = vulkanImage->GetDescriptorImageInfo();
-        const auto handle              = std::bit_cast<uint64_t>( descriptorImageInfo.imageView );
+        auto descriptorImageInfo = vulkanImage->GetDescriptorImageInfo();
+        // A slot with a stated sampling state (clamp, mirror, nearest) samples through the shared state
+        // sampler; the default state keeps the image's own, which the global filter setting recreates live.
+        if ( textureProp->GetSamplerState() != Core::Formats::SamplerState{} )
+            descriptorImageInfo.sampler = AcquireSlotSampler( textureProp->GetSamplerState() );
+        const auto handle = std::bit_cast<uint64_t>( descriptorImageInfo.imageView );
 
         // A set that already points at this image view with this version has nothing to learn; a new set
         // (a view that first records now, however late) has an empty record and takes the write.

@@ -27,11 +27,19 @@ namespace Desert::Core
         void VisitFields( Self& p, Fn&& fn )
         {
             auto& [name, displayName, category, tooltip, type, widget, isTexture, timing, assetKind, isCube, lo,
-                   hi, defaultValue, defaultTexture] = p;
+                   hi, defaultValue, defaultTexture, sampler] = p;
             fn( name ), fn( displayName ), fn( category ), fn( tooltip ), fn( type ), fn( widget ),
                  fn( isTexture );
             fn( timing ), fn( assetKind ), fn( isCube ), fn( lo ), fn( hi ), fn( defaultValue ),
-                 fn( defaultTexture );
+                 fn( defaultTexture ), fn( sampler );
+        }
+
+        template <class Self, class Fn>
+            requires std::is_same_v<std::remove_const_t<Self>, Formats::SamplerState>
+        void VisitFields( Self& s, Fn&& fn )
+        {
+            auto& [wrapU, wrapV, filter] = s;
+            fn( wrapU ), fn( wrapV ), fn( filter );
         }
 
         template <class Self, class Fn>
@@ -49,8 +57,17 @@ namespace Desert::Core
             requires std::is_same_v<std::remove_const_t<Self>, Formats::ShaderProgramMeta>
         void VisitFields( Self& m, Fn&& fn )
         {
-            auto& [params, state, domain, passNames, mediumSource] = m;
-            fn( params ), fn( state ), fn( domain ), fn( passNames ), fn( mediumSource );
+            auto& [params, state, domain, passNames, mediumSource, layoutBindings, blend] = m;
+            fn( params ), fn( state ), fn( domain ), fn( passNames ), fn( mediumSource ), fn( layoutBindings ),
+                 fn( blend );
+        }
+
+        template <class Self, class Fn>
+            requires std::is_same_v<std::remove_const_t<Self>, Formats::MaterialLayoutBindings>
+        void VisitFields( Self& b, Fn&& fn )
+        {
+            auto& [row, firstTexture] = b;
+            fn( row ), fn( firstTexture );
         }
 
         template <class T>

@@ -1,6 +1,6 @@
 #include "EngineStats.hpp"
 
-#include <GLFW/glfw3.h>
+#include <Engine/Core/Glfw.hpp>
 
 #include <spdlog/fmt/fmt.h>
 

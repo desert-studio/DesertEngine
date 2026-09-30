@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <limits>
 #include <span>
 
 namespace Desert::Physics
@@ -24,6 +25,21 @@ namespace Desert::Physics
         Box,
         Sphere,
         Capsule,
+        // UE's "complex as simple": the render triangles themselves. Jolt's MeshShape has no volume, so it
+        // cannot carry mass — static and kinematic bodies only; a dynamic one is refused by name.
+        Mesh,
+        // UE's "simple" convex: the hull of the mesh's points, for anything that moves. Jolt's hull builder
+        // caps the hull at ConvexHullShape::cMaxPointsInHull (256) and simplifies past it on its own.
+        ConvexHull,
+    };
+
+    // The body-local axis a capsule's cylinder runs along. Jolt's capsule is built along Y; any other axis is
+    // Jolt's capsule rotated onto it.
+    enum class CapsuleAxis
+    {
+        X,
+        Y,
+        Z,
     };
 
     struct BodyDesc
@@ -32,6 +48,12 @@ namespace Desert::Physics
         glm::vec3 HalfExtents = { 0.5f, 0.5f, 0.5f }; // Box
         float     Radius      = 0.5f;                 // Sphere / Capsule
         float     HalfHeight  = 0.5f;                 // Capsule (cylinder half-height, excl. caps)
+        CapsuleAxis Axis        = CapsuleAxis::Y;       // Capsule
+        glm::vec3   Center      = { 0.0f, 0.0f, 0.0f }; // Box / Sphere / Capsule: body-local offset of the shape
+        // Mesh / ConvexHull: body-local points, scale already applied. Mesh also takes MeshIndices, three per
+        // triangle; ConvexHull ignores them. Read during CreateBody only — the world keeps its own cooked copy.
+        std::span<const glm::vec3> MeshPoints;
+        std::span<const uint32_t>  MeshIndices;
 
         BodyType  Type        = BodyType::Dynamic;
         float     Mass        = 1.0f;  // dynamic only (<=0 => density-derived)
@@ -74,9 +96,14 @@ namespace Desert::Physics
         glm::vec3              Position    = { 0.0f, 0.0f, 0.0f };
         uint32_t               SampleCount = 0u; ///< Per side; a multiple of kHeightFieldBlockSize, >= 2 blocks.
         float                  SpacingCm   = 100.0f;
-        std::span<const float> HeightsCm; ///< SampleCount², row-major, X fastest.
+        std::span<const float>
+             HeightsCm; ///< SampleCount², row-major, X fastest; kHeightFieldNoCollision = a hole.
         float                  Friction = 0.5f;
     };
+
+    /// A height that is no height: every triangle touching such a sample has no collision (Jolt's
+    /// HeightFieldShapeConstants::cNoCollisionValue, stored as cNoCollisionValue16 — a landscape hole).
+    inline constexpr float kHeightFieldNoCollision = std::numeric_limits<float>::max();
 
     /// The heightfield's compression block. Jolt patches heights only in whole blocks, so an update's
     /// rectangle is widened to this alignment before it is handed over.
@@ -119,7 +146,13 @@ namespace Desert::Physics
         // Advance the simulation by dt seconds (fixed-step accumulated internally).
         void Step( float dt );
 
-        BodyHandle CreateBody( const BodyDesc& desc );
+        /// Refused by name: a Mesh on a dynamic body, a Mesh or ConvexHull without points, an index out of
+        /// range, a shape Jolt cannot cook. Mesh and ConvexHull shapes are cooked once per content (the points,
+        /// the indices, the kind) and shared by every body built from the same data.
+        Common::ResultStr<BodyHandle> CreateBody( const BodyDesc& desc );
+
+        /// How many distinct Mesh / ConvexHull shapes the world has cooked — the measure of the shape cache.
+        [[nodiscard]] uint32_t GetCookedShapeCount() const;
         void       RemoveBody( BodyHandle handle );
 
         /// A static heightfield body (NON_MOVING layer). Refuses a grid Jolt cannot build, naming the numbers.

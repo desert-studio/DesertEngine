@@ -6,6 +6,7 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
 #include <chrono>
+#include <format>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -213,7 +214,15 @@ namespace Desert::Core
         uint64_t key = kFnvOffset;
         FnvMix( key, kOptionsFingerprint );
         if ( spirvDebugInfo )
+        {
             FnvMix( key, "|debuginfo" ); // debug info changes the binary — keep configs apart
+            // ...and names the file it was compiled from (OpSource/OpString carry the path shaderc was
+            // given), so two files with the same stage text get different binaries. Without the path, the
+            // artifact under one key depended on which file compiled it first: a serial build and a job
+            // system build of the same programs disagreed (SHC1). Without debug info the path is not in
+            // the binary, and identical text keeps sharing one entry.
+            FnvMix( key, requestingFile.generic_string() );
+        }
         key ^= static_cast<uint64_t>( stage );
         key *= kFnvPrime;
         FnvMix( key, source );
@@ -251,7 +260,12 @@ namespace Desert::Core
         FnvMix( key, kOptionsFingerprint );
         FnvMix( key, spirvDebugInfo ? "|debuginfo" : "|nodebuginfo" );
         FnvMix( key, "|pass:" );
-        FnvMix( key, passName );
+        // ONE KEY PER CELL: a surface template's default cell and its default program are one program
+        // (IsSurfaceDefaultCell), so asking by either name finds the same map.
+        FnvMix( key, Preprocess::IsSurfaceDefaultCell(
+                          Preprocess::DShaderParser::MayDeclareSurface( programSource ), passName )
+                          ? std::string_view()
+                          : std::string_view( passName ) );
         FnvMix( key, "|" );
         const uint64_t variantHash = variant.Hash();
         FnvMix( key, std::string_view( reinterpret_cast<const char*>( &variantHash ), sizeof variantHash ) );
@@ -262,6 +276,10 @@ namespace Desert::Core
         std::string scanned = programSource;
         for ( const std::string_view injected : Preprocess::kParserInjectedIncludes )
             scanned.append( "\n#include <" ).append( injected ).append( ">\n" );
+        // A surface template's cells compile engine headers its text never names (DShaderParser.hpp).
+        if ( Preprocess::DShaderParser::MayDeclareSurface( programSource ) )
+            for ( const std::string& header : Preprocess::SurfaceTemplateIncludes() )
+                scanned.append( std::format( "\n#include <{}>\n", header ) );
         for ( const auto& include : CollectShaderIncludes( scanned, programPath, variant ) )
         {
             FnvMix( key, include.generic_string() );

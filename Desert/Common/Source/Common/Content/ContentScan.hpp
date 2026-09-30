@@ -65,6 +65,8 @@ namespace Common::Content
         // AssetRegistryEntry::RigSignature: a skeleton's stated signature, a skinned mesh header's rig, a clip's
         // stated SkeletonSignature.
         uint64_t RigSignature = 0;
+        // AssetRegistryEntry::Role: the role a shader's manifest declares (`Role <Name>`).
+        std::string Role;
     };
 
     // The file at `file`, of `kind`: its size and its header, read the way the registry cook reads it.

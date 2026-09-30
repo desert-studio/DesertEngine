@@ -1,7 +1,9 @@
 #pragma once
 
+#include <Engine/Assets/AssetGuidRef.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
+#include <Engine/Assets/ThumbnailInfo.hpp>
 #include <Engine/Assets/Serialization/Mesh.hpp>
 
 #include <filesystem>
@@ -50,6 +52,18 @@ namespace Desert::Editor
     // Bytes, not times: a `touch` or a fresh checkout does not re-import.
     bool ImportedMeshAssetIsFresh( const std::filesystem::path& source );
 
+    // True when every material slot of @p source's cached envelope has its .demat on disk
+    // (MaterialAdoption::MaterialAssetPath). The envelope being fresh says nothing about the materials: they are
+    // editable content written beside it by the same import, and a deleted .demat left the mesh drawing the
+    // default material for good, because a fresh envelope skipped the import that writes it (THM1a4). Each
+    // missing material is logged by name and path.
+    bool ImportedMaterialsPresent( const std::filesystem::path& source );
+
+    // THE IMPORT'S "UP TO DATE" FOR A STATIC MESH SOURCE (ImportManager::Import skips the re-parse on true): the
+    // envelope is cached for @p source's current bytes AND every material it names has its .demat. The one
+    // place both halves are asked together, so the decision is testable without Assimp.
+    bool ImportedMeshAssetIsCurrent( const std::filesystem::path& source );
+
     // THE GATE EVERY READER OF A STATIC MESH SOURCE NEEDS BEFORE TREATING IT AS "COOKED" (AF4h). @p cooked
     // existing on disk covers a hand-authored `.stmesh` (no import involved, so nothing else applies) and a
     // legacy beside-source file not yet overwritten by a re-import; @p source having a fresh DDC envelope
@@ -58,6 +72,34 @@ namespace Desert::Editor
     // the generic type icon (or, for MeshDnD::ResolveOrImport, failing the drop outright) with nothing in
     // the log to say why.
     bool StaticMeshCookAvailable( const std::filesystem::path& cooked, const std::filesystem::path& source );
+
+    // THE THUMBNAIL ORBIT OF THE MESH WHOSE FILE IS @p meshFile (ThumbnailFreshness::MeshFreshnessSource: the raw
+    // source of a combined import, or a node's `.stmesh`), read from its one home, the import record
+    // (ImportRecordData::Thumbnail). A combined mesh: the source's own record, keyed by the source's name. A node
+    // mesh: the record beside it whose `Nodes` wrote it (NodeMeshAssetPath), keyed by the `.stmesh` name. A mesh
+    // no import wrote (a hand-authored `.stmesh`) has no package to state one and answers the default orbit.
+    // An error naming the record when it is unreadable.
+    [[nodiscard]] Common::ResultStr<Assets::ThumbnailOrbit>
+    MeshThumbnailOrbit( const std::filesystem::path& meshFile );
+
+    // THE HOME OF @p meshFile's orbit: the raw source whose import record states it (the source itself for a
+    // combined mesh, the source whose `Nodes` wrote a node `.stmesh`); nullopt for a mesh no import wrote. The
+    // node lookup is remembered per process (a browser asks per visible tile per frame) and re-done when that
+    // record is gone.
+    [[nodiscard]] Common::ResultStr<std::optional<std::filesystem::path>>
+    MeshThumbnailHome( const std::filesystem::path& meshFile );
+
+    // EDIT THUMBNAIL'S ONE WRITER FOR A MESH (UE: FAssetThumbnail edit writes USceneThumbnailInfo): @p orbit into
+    // the record MeshThumbnailHome names, keyed like MeshThumbnailOrbit reads it; the default orbit removes the
+    // entry. An error for a mesh with no import record (nowhere to state it) or an orbit the record refuses.
+    [[nodiscard]] Common::BoolResultStr SetMeshThumbnailOrbit( const std::filesystem::path&  meshFile,
+                                                               const Assets::ThumbnailOrbit& orbit );
+
+    // WHAT A MESH PICTURE IS JUDGED AGAINST (ThumbnailFreshness::WithInfo): the bytes of
+    // ThumbnailFreshness::MeshFreshnessSource( @p cooked ) and the orbit its record states, so an edit of the
+    // orbit re-shoots it. A default orbit leaves the bytes' hash alone. Empty when the file or the record is
+    // unreadable.
+    [[nodiscard]] std::optional<uint64_t> MeshThumbnailFreshness( const std::filesystem::path& cooked );
 
     // What a re-import does to the file at CookPaths::MeshAsset( @p source ): removes it. Either a legacy file
     // from a build before AF4h (never read, removed silently) or an EDITED import (Assets::IsEditedImportedMesh,
@@ -79,4 +121,10 @@ namespace Desert::Editor
     Common::ResultStr<MeshAssetWrite> WriteImportedMeshAsset( const Assets::Serialization::MeshAssetData& imported,
                                                               std::span<const Assets::MeshMaterialSlot>   named,
                                                               const std::filesystem::path&                source );
+    // THE THUMBNAIL MESH A MATERIAL NAMES (UE: UMaterial::ThumbnailInfo / PreviewMesh), authored by a drop in the
+    // Material Editor - an import never writes one (THM1j): the static mesh imported from @p source, by the GUID
+    // its import record states, located by @p source relative to the working directory (the spelling the browser
+    // and ThumbnailSubject::ResolveMesh use). An error when the record is missing - it is written by
+    // WriteImportedMeshAsset, so the mesh is written first.
+    Common::ResultStr<Assets::AssetGuidRef> PreviewMeshRefFor( const std::filesystem::path& source );
 } // namespace Desert::Editor

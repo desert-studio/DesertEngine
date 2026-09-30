@@ -1011,7 +1011,10 @@ TEST( AssetHandleStability, AMaterialsIdComesFromItsFileAndSurvivesTheProjectMov
         std::ofstream out( scratch );
         ASSERT_TRUE( out.is_open() ) << "could not write the fixture at " << scratch.string();
         out << R"({"Header":{"Kind":"Material","Guid":"45d579b03cc0d0a8df2e4cb025d6bea5",)"
-               R"("Versions":{"MATL":4},"Dependencies":[]},"Params":[],"Textures":[],"CloudAssets":[]})";
+               R"("Versions":{"MATL":4},"Dependencies":["4f1cac6af403a010c792d835dd6f7d44"]},)"
+               R"("Shader":{"Guid":"4f1cac6af403a010c792d835dd6f7d44",)"
+               R"("Path":"engine:Shaders/Programs/PBR/StandardSurface.shader"},)"
+               R"("Params":[],"Textures":[],"CloudAssets":[]})";
     }
 
     ProjectRootGuard guard;
@@ -1818,12 +1821,17 @@ TEST( ShaderAssetIdentity, EveryCommittedGraphShaderKeepsItsGuidOnRecompile )
     }
     ASSERT_FALSE( graphShaders.empty() )
          << "no Editor/Resources/Shaders/Programs/Graph above " << std::filesystem::current_path();
-    int seen = 0;
+    // A register, not a count: every graph shader the corpus commits, by name. A walk that found nothing
+    // (wrong root) or lost one of these fails by the missing name; a new graph adds its row here.
+    // NewShaderGraph.shader left the corpus with SURF1f-2 (graph surfaces lit through Pass_Forward).
+    static constexpr std::array<std::string_view, 4> kCommitted = { "MatConst", "MatLitConst", "MatProbe",
+                                                                    "MatProbeUnlit" };
+    std::set<std::string>                            seen;
     for ( const auto& entry : std::filesystem::directory_iterator( graphShaders ) )
     {
         if ( entry.path().extension() != ".shader" )
             continue;
-        ++seen;
+        seen.insert( entry.path().stem().string() );
         std::ifstream     in( entry.path(), std::ios::binary );
         const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
         const auto        stated = CC::ReadShaderHeader( text );
@@ -1833,7 +1841,8 @@ TEST( ShaderAssetIdentity, EveryCommittedGraphShaderKeepsItsGuidOnRecompile )
         ASSERT_FALSE( !rewritten ) << rewritten.GetError();
         EXPECT_EQ( rewritten.GetValue().Guid, stated.GetValue().Guid ) << entry.path();
     }
-    EXPECT_GE( seen, 5 );
+    for ( const auto name : kCommitted )
+        EXPECT_TRUE( seen.contains( std::string( name ) ) ) << name << ".shader is not in " << graphShaders;
 }
 
 // ─── T7k: the shader a material names, by GUID; the name the renderer binds is the file stem ───────────
@@ -1872,7 +1881,7 @@ TEST( ShaderAssetIdentity, AShaderDeclaringAnotherNameThanItsFileIsRefusedByName
 
 // ResolveDependencies finds the shader by the GUID the material states - a moved shader keeps its GUID, so
 // the stated Path is only a locator - and names it by the file stem; an unknown GUID resolves to no name
-// (logged), an absent shader to the standard surface.
+// (logged), and a material stating no shader is refused.
 TEST( ShaderAssetIdentity, AMaterialResolvesItsShaderNameByGuidAndNotByPath )
 {
     namespace CC   = Common::Content;
@@ -1909,10 +1918,12 @@ TEST( ShaderAssetIdentity, AMaterialResolvesItsShaderNameByGuidAndNotByPath )
     lost.ResolveDependencies( manager );
     EXPECT_TRUE( lost.GetShaderName().empty() ) << "an unknown GUID must not fall back to a shader by name";
 
-    Desert::Assets::SurfaceMaterialAsset plain( materialAt( "plain.demat", std::nullopt ) );
-    ASSERT_TRUE( plain.Load().IsSuccess() );
-    plain.ResolveDependencies( manager );
-    EXPECT_EQ( plain.GetShaderName(), "StaticMeshPBR" );
-    EXPECT_FALSE( plain.UsesCustomShader() );
+    // No template stated and no parent: refused on load by path — there is no standard surface by absence.
+    const auto                           plainFile = materialAt( "plain.demat", std::nullopt );
+    Desert::Assets::SurfaceMaterialAsset plain( plainFile );
+    const auto                           plainLoaded = plain.Load();
+    ASSERT_FALSE( plainLoaded.IsSuccess() );
+    EXPECT_NE( plainLoaded.GetError().find( plainFile.generic_string() ), std::string::npos )
+         << plainLoaded.GetError();
     std::filesystem::remove_all( dir );
 }

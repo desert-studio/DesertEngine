@@ -5,7 +5,11 @@
         "Versions": {
             "MATL": 4
         },
-        "Dependencies": ["c6ff26d3abf50030251f7dad63b62142"]
+        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "c6ff26d3abf50030251f7dad63b62142"]
+    },
+    "Shader": {
+        "Guid": "4f1cac6af403a010c792d835dd6f7d44",
+        "Path": "engine:Shaders/Programs/PBR/StandardSurface.shader"
     },
     "Params": [
         {
@@ -37,18 +41,6 @@
             "Value": [0.0, 0.0, 0.0, 0.0]
         },
         {
-            "Name": "Transmission",
-            "Value": [0.0, 0.0, 0.0, 0.0]
-        },
-        {
-            "Name": "IOR",
-            "Value": [1.5, 0.0, 0.0, 0.0]
-        },
-        {
-            "Name": "GlassTint",
-            "Value": [1.0, 1.0, 1.0, 1.0]
-        },
-        {
             "Name": "UVTiling",
             "Value": [1.0, 1.0, 0.0, 0.0]
         }
@@ -66,21 +58,6 @@
         },
         {
             "Name": "u_OpacityTexture",
-            "Guid": "",
-            "Path": ""
-        },
-        {
-            "Name": "u_MetallicTexture",
-            "Guid": "",
-            "Path": ""
-        },
-        {
-            "Name": "u_RoughnessTexture",
-            "Guid": "",
-            "Path": ""
-        },
-        {
-            "Name": "u_AOTexture",
             "Guid": "",
             "Path": ""
         },

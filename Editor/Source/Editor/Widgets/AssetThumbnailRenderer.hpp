@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include <Editor/Widgets/ThumbnailSubject.hpp>
 
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -9,11 +11,17 @@
 #include <Engine/Assets/Common.hpp>
 
 #include <Common/Core/ResultStr.hpp>
+#include <Editor/Widgets/ThumbnailFraming.hpp>
 
 #include <chrono>
 #include <future>
 #include <memory>
 #include <string>
+
+namespace Desert::Assets
+{
+    class AnimationAsset;
+}
 
 namespace Desert::Editor
 {
@@ -46,14 +54,24 @@ namespace Desert::Editor
          * RequestMesh for why these answer instead of returning void.
          *
          * @p how is NOT a preference and is not chosen here: it is the material's shader DOMAIN, decided
-         * once by `ThumbnailSubject::PreviewRouteFor`. A ball, a camera-facing card, or the SKY the
+         * once by `ThumbnailSubject::PreviewRouteFor`. A ball, or the SKY the
          * material authors. This entry point used to take `bool flatPreview` and therefore had no way to
          * express the third picture, so every Volume-domain material in the project was queued as a mesh
          * draw and photographed as an empty sphere.
          */
-        [[nodiscard]] Common::BoolResultStr RequestMaterial( const Assets::AssetHandle& materialHandle,
-                                                             const std::string&         outPng,
-                                                             ThumbnailSubject::Preview  how );
+        [[nodiscard]] Common::BoolResultStr RequestMaterial( const Assets::AssetHandle&   materialHandle,
+                                                             const std::string&           outPng,
+                                                             ThumbnailSubject::Preview    how,
+                                                             const Assets::ThumbnailInfo& thumbnail );
+
+        /**
+         * @brief Queue a SKYBOX asset (a panorama `.detex` under the Skybox root) to outPng: its HDR drawn by
+         *        the scene's skybox from the dome camera — the picture a Skybox-domain material's dome shows,
+         *        with the skybox named directly instead of through a material's cube slot (UE: the
+         *        TextureCube thumbnail renderer). Refuses a null handle or a capture already in flight.
+         */
+        [[nodiscard]] Common::BoolResultStr RequestSkybox( const Assets::AssetHandle& skyboxHandle,
+                                                           const std::string&         outPng );
 
         /**
          * @brief Queue a mesh, auto-framed by its bounds, to outPng. If `material` is non-null it is applied
@@ -73,7 +91,18 @@ namespace Desert::Editor
          */
         [[nodiscard]] Common::BoolResultStr
         RequestMesh( const Assets::AssetHandle& meshHandle, const std::string& outPng,
-                     const Assets::AssetHandle& material = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
+                     const Assets::ThumbnailOrbit& orbit,
+                     const Assets::AssetHandle&    material = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
+
+        /// A SKINNED mesh posed (THM1n-6; UE: USkeletalMesh's thumbnail is the reference pose, UAnimSequence's
+        /// the clip on its preview mesh). No @p clip -> the bind pose; a clip -> its middle frame. The same
+        /// refusals as RequestMesh, plus one: a mesh that is not skinned has no skeleton to pose. The pose is
+        /// built at staging as PreviewViewport builds it (SkinnedMeshComponent + AnimationComponent + Animator).
+        /// @p orbit is the mesh's own (its import record's), as RequestMesh takes it.
+        [[nodiscard]] Common::BoolResultStr RequestPose( const Assets::AssetHandle&            meshHandle,
+                                                         Assets::Asset<Assets::AnimationAsset> clip,
+                                                         const std::string&                    outPng,
+                                                         const Assets::ThumbnailOrbit&         orbit );
 
         // Is a capture in flight? Gates requests to one at a time.
         // Pending until the picture is ON DISK: the GPU copy and the worker's encode are part of the capture.
@@ -95,7 +124,15 @@ namespace Desert::Editor
         /// Put the scene into the shape this capture needs — the object on its ball, or the cloud layer
         /// under the dome camera — and take the other one down. Called every tick of a capture, because
         /// the scene is shared between the three pictures and only one of them may be standing.
-        void StageSubject();
+        // THE PREVIEW SCENE AT ITS BASE: no subject on the target, no cloud deck, no skybox HDR, the procedural
+        // atmosphere on, the object camera active and unpinned. Called ONCE at the start of every capture
+        // (UE: one clean FThumbnailPreviewScene per picture), so nothing one capture staged can reach the next
+        // one's picture — a branch that forgets to take its predecessor's layer down has nothing to forget.
+        void ResetPreviewScene();
+        // Once per capture, after ResetPreviewScene: puts this capture's subject into the base scene.
+        [[nodiscard]] bool StageSubject();  // false: nothing measurable to frame, the capture is abandoned
+        void               StagePose();     // StageSubject's Subject::Pose branch
+        void               PinDomeCamera(); // both dome kinds: pinned so Scene::OnUpdate cannot take the view back
 
         /// True while the dome must keep rendering without counting a warm-up frame: the modelling volume
         /// bakes on a worker and the march accumulates over frames, so an early readback photographs the
@@ -118,6 +155,13 @@ namespace Desert::Editor
         // and its first bake blocks a worker — so a project with no cloud material must not be paying for
         // one by existing. Same argument, and the same lazy creation, as PreviewViewport's layer.
         ECS::Entity m_CloudLayer;
+        // The dome of a SKYBOX-domain material: the HDR it binds, drawn as this scene's skybox. Created on the
+        // first such capture; its handle is cleared for every other one. m_SkyAtmosphere is switched off
+        // while it shows (an enabled atmosphere stays what shows: Graphic::ResolveSkyMode).
+        ECS::Entity m_SkyboxLayer;
+        ECS::Entity m_SkyAtmosphere;
+        // A SkyDome capture of a Skybox-domain material: its HDR skybox (ThumbnailSubject::DomeSkyboxOf).
+        std::optional<Assets::AssetHandle> m_PendingSky;
         // The dome does not orbit and has nothing to fit: it stands on a rise and LOOKS. That is a
         // different camera from the object capture's, not a different pose of it — 96 degrees of vertical
         // field and a 60 km far plane against a fitted subject at arm's length.
@@ -128,6 +172,20 @@ namespace Desert::Editor
 
         Assets::AssetHandle m_PendingHandle{ static_cast<uint64_t>( 0 ) };
         Assets::AssetHandle m_PendingMaterial{ static_cast<uint64_t>( 0 ) }; // mesh's linked material (0 = default)
+        // The mesh's OWN slots, resolved once when the capture was accepted (m_PendingMaterial == 0; Mesh, Pose).
+        // A slot no registered material answers to was refused THERE, with its index — never staged empty,
+        // which the scene draws with its default material: a picture of a material the mesh does not have.
+        // A null handle is an UNASSIGNED slot and is drawn with the engine's default surface material (the
+        // scene's own rule, UE's UMaterial::GetDefaultMaterial); only a slot naming a material no registered
+        // material answers to is refused.
+        std::vector<Assets::AssetHandle> m_PendingSlots;
+        // False from the request until the first tick has reset the scene and staged the subject; staging
+        // is once per capture, not once per frame (re-adding a skinned subject every frame rebuilt its
+        // components under every warm-up frame).
+        bool m_Staged = false;
+        // The frame an object capture is re-fitted to on every warm-up tick (the camera's matrices are read
+        // each frame); empty for a dome, whose camera is pinned.
+        std::optional<ThumbnailFraming::Frame> m_FitFrame;
         std::string         m_PendingPng;
         // WHAT IS BEING PHOTOGRAPHED. A named question rather than the bool this replaced: "not a mesh"
         // is not the same statement as "a material", and the branch that reads it should not have to know
@@ -135,11 +193,25 @@ namespace Desert::Editor
         enum class Subject
         {
             Material,
-            Mesh
+            Mesh,
+            Pose, // a skinned mesh posed: m_PendingHandle + m_PendingClip (null = the bind pose)
+            Sky   // a skybox asset: its HDR drawn by the scene's skybox from the dome camera (m_PendingSky)
         };
+        // The dome (the ground camera looking up): a Sky subject, or a SkyDome-domain material.
+        [[nodiscard]] bool IsDomeCapture() const
+        {
+            return m_PendingSubject == Subject::Sky || ( m_PendingSubject == Subject::Material &&
+                                                         m_PendingPreview == ThumbnailSubject::Preview::SkyDome );
+        }
         Subject m_PendingSubject = Subject::Material;
+        // The subject's frame, measured from the asset's own bounds when the capture was accepted (Mesh, Pose).
+        ThumbnailFraming::Frame               m_PendingFrame;
+        Assets::Asset<Assets::AnimationAsset> m_PendingClip;
         // How a MATERIAL capture is drawn. Meaningless unless m_PendingSubject is Material.
         ThumbnailSubject::Preview m_PendingPreview = ThumbnailSubject::Preview::Sphere;
+        // THE ASSET'S THUMBNAIL INFO for the pending capture (UE: the renderer reads only UThumbnailInfo): the
+        // primitive a material is drawn on and the orbit FitTarget frames from. Set by both Request* entries.
+        Assets::ThumbnailInfo m_PendingThumbnail;
         int                 m_Phase = 0; // 0 = idle, else = remaining render frames (capture on the last)
 
         // THE CAPTURE AFTER THE LAST RENDER FRAME, off the frame (TH3). The copy is submitted and polled by

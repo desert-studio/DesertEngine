@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Image.hpp>
+#include <Engine/Core/Formats/SamplerState.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 
 #include <vulkan/vulkan.h>
@@ -333,5 +334,11 @@ namespace Desert::Graphic::API::Vulkan
         // the 2D and cube paths; a volume has exactly one view in it.
         std::vector<VkImageView> m_MipViews;
     };
+
+    /// The one VkSampler for a material slot's sampling state (MAT1s) under the current global texture
+    /// filter; created on first ask, shared by every slot with that state, destroyed by ReleaseSlotSamplers.
+    [[nodiscard]] VkSampler AcquireSlotSampler( const Core::Formats::SamplerState& state );
+    /// Device teardown: destroys every slot sampler. Called before the logical device goes.
+    void ReleaseSlotSamplers();
 
 } // namespace Desert::Graphic::API::Vulkan

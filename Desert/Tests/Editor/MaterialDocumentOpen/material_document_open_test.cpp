@@ -7,8 +7,10 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 
 #include <gtest/gtest.h>
 
@@ -119,7 +121,12 @@ TEST( MaterialDocumentOpen, ARecordIsLoadedByTheEditorsOwnPreparationNotByTheRou
 {
     const TempMaterial   tmp;
     Assets::AssetManager manager;
-    const auto           written = Assets::WriteMaterialFile( tmp.File, Assets::MaterialData{} );
+    // A material names its template by GUID (no default by absence); no manager here needs to hold it.
+    Assets::MaterialData data;
+    const auto           shaderGuid = Common::Content::AssetGuidFromText( "4f1cac6af403a010c792d835dd6f7d44" );
+    ASSERT_TRUE( shaderGuid ) << shaderGuid.GetError();
+    data.SetShader( shaderGuid.GetValue(), "engine:Shaders/Programs/PBR/StandardSurface.shader" );
+    const auto written = Assets::WriteMaterialFile( tmp.File, data );
     ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
 
     // A record only — what a scene's material slot names before anything has drawn it.
@@ -222,4 +229,58 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// THM1l-c7: SAVING A MATERIAL KEEPS ITS IDENTITY (UE: a package's GUID never changes on save). Live, a Material
+// Editor save rewrote CB_Glass.demat's header GUID: the sweep had evicted the subject (no window pinned it), its
+// MaterialData emptied, and the write minted a fresh GUID. Load -> edit -> write states the GUID the file had.
+TEST( MaterialDocumentOpen, SavingAnEditedMaterialKeepsTheGuidItsFileStates )
+{
+    const TempMaterial   tmp;
+    Assets::AssetManager manager;
+    Assets::MaterialData data;
+    const auto           shaderGuid = Common::Content::AssetGuidFromText( "4f1cac6af403a010c792d835dd6f7d44" );
+    ASSERT_TRUE( shaderGuid ) << shaderGuid.GetError();
+    data.SetShader( shaderGuid.GetValue(), "engine:Shaders/Programs/PBR/StaticMeshPBR.shader" );
+    const auto written = Assets::WriteMaterialFile( tmp.File, data );
+    ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
+    const auto fileGuid = Assets::ReadTextHeaderGuid( Common::Filepath( tmp.File ) );
+    ASSERT_FALSE( fileGuid.IsNull() );
+
+    auto record = manager.CreateAsset<Assets::SurfaceMaterialAsset>( Common::Filepath( tmp.File ), false );
+    ASSERT_TRUE( record );
+    const auto ready = EnsureMaterialLoaded( manager, record->GetMetadata().Handle );
+    ASSERT_TRUE( ready.IsSuccess() ) << ready.GetError();
+
+    ready.GetValue()->Data().SetParam( "Roughness", glm::vec4( 0.25f, 0.0f, 0.0f, 0.0f ) );
+    const auto saved = ready.GetValue()->Save();
+    ASSERT_TRUE( saved.IsSuccess() ) << saved.GetError();
+    const auto reparsed = Assets::ParseMaterialJson( tmp.File.generic_string(), saved.GetValue() );
+    ASSERT_TRUE( reparsed.IsSuccess() ) << reparsed.GetError();
+    const auto& header = reparsed.GetValue().Header;
+    if ( !header.has_value() )
+        FAIL() << "the saved material lost its header";
+    EXPECT_EQ( header->Guid, Common::Content::AssetGuidToText( fileGuid ) );
+}
+
+// The other half: an EVICTED material holds no authored values and no header, so it refuses to write rather than
+// replace the file with defaults under a new GUID.
+TEST( MaterialDocumentOpen, AnEvictedMaterialRefusesToSaveInsteadOfMintingANewGuid )
+{
+    const TempMaterial   tmp;
+    Assets::AssetManager manager;
+    Assets::MaterialData data;
+    const auto           shaderGuid = Common::Content::AssetGuidFromText( "4f1cac6af403a010c792d835dd6f7d44" );
+    ASSERT_TRUE( shaderGuid ) << shaderGuid.GetError();
+    data.SetShader( shaderGuid.GetValue(), "engine:Shaders/Programs/PBR/StaticMeshPBR.shader" );
+    ASSERT_TRUE( Assets::WriteMaterialFile( tmp.File, data ).IsSuccess() );
+
+    auto record = manager.CreateAsset<Assets::SurfaceMaterialAsset>( Common::Filepath( tmp.File ), false );
+    ASSERT_TRUE( record );
+    ASSERT_TRUE( EnsureMaterialLoaded( manager, record->GetMetadata().Handle ).IsSuccess() );
+    ASSERT_TRUE( record->Unload().IsSuccess() );
+    ASSERT_FALSE( record->IsReadyForUse() );
+
+    const auto saved = record->Save();
+    EXPECT_FALSE( saved.IsSuccess() );
 }

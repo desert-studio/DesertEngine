@@ -65,8 +65,28 @@ namespace Desert::Animation
              [this, handle] { m_Requests.erase( handle ); } );
     }
 
+    void AnimationLibrary::CatchUpWrites() const
+    {
+        const auto written =
+             Assets::ContentRegistry::WrittenSince( Common::Content::ContentKind::Animation, m_SeenWrites );
+        m_SeenWrites = written.Serial;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+        auto* self = const_cast<AnimationLibrary*>( this );
+        for ( const Assets::ContentRegistry::PickerRow& row : written.Rows )
+        {
+            self->Unregister( row.Handle );
+            std::erase_if( m_Unread, [&]( const UnreadRow& r ) { return r.Handle == row.Handle; } );
+            const auto resident = m_AssetManager->ProbeByHandle<Assets::AnimationAsset>( row.Handle );
+            if ( resident && resident->IsReadyForUse() && !m_Requests.contains( row.Handle ) )
+                self->Register( resident );
+            else
+                m_Unread.push_back( { row.Handle, row.DisplayName } );
+        }
+    }
+
     void AnimationLibrary::RequestUnread( const std::string& clipName ) const
     {
+        CatchUpWrites();
         // Copied: a read that completes inside Request would edit m_Unread under the loop.
         const std::vector<UnreadRow> unread = m_Unread;
         for ( const UnreadRow& row : unread )
@@ -97,6 +117,8 @@ namespace Desert::Animation
 
     size_t AnimationLibrary::IndexRegistryRows()
     {
+        // Taken before the rows: a write racing the read is caught up again, never lost.
+        m_SeenWrites   = Assets::ContentRegistry::WriteSerial();
         size_t indexed = 0;
         for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Animation ) )
         {
@@ -112,6 +134,7 @@ namespace Desert::Animation
 
     bool AnimationLibrary::HasPending( const std::string& clipName ) const
     {
+        CatchUpWrites();
         const auto named = [&]( const std::string& name )
         { return clipName.empty() || name.empty() || name == clipName; };
         return std::any_of( m_Unread.begin(), m_Unread.end(),

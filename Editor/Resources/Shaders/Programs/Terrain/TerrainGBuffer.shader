@@ -36,6 +36,7 @@ Shader "TerrainGBuffer"
         Out(3) vec4 oGBufferEmissive; // Emissive.rgb
 
         #include <Programs/Terrain/TerrainSurface.glslh>
+        #include <Mesh/Surface/ShadingModels.glslh>
 
         void main()
         {
@@ -46,8 +47,8 @@ Shader "TerrainGBuffer"
 
             oGBufferA        = vec4( s.Albedo * u_Material.Tint.rgb, 0.0 );
             oGBufferB        = vec4( s.N, roughness );
-            oGBufferC        = vec4( v_WorldPos, 0.0 );
-            oGBufferEmissive = vec4( 0.0, 0.0, 0.0, 1.0 );
+            oGBufferC        = vec4( v_WorldPos, DesertPackShadingWord( SHADING_MODEL_ID_DEFAULT_LIT, 0.0 ) );
+            oGBufferEmissive = vec4( 0.0, 0.0, 0.0, 1.0 ); // no emission; material AO 1 (the ground has none)
         }
     }
 }

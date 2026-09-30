@@ -124,18 +124,24 @@ TEST( AssetMissingFile, AnUnparseableMaterialLoadsUsableAndRefusesToSaveOverItsF
     fs::remove_all( path.parent_path() );
 }
 
-// THE SHADER IS THE ASSET'S ANSWER, not the data's. A material that states no shader draws with the
-// standard surface; one that names a shader draws with exactly that one — and the two engine PBR names are
-// the only ones that are not "custom" (the batched backend), which is what hot reload asks.
-TEST( AssetMissingFile, AMaterialWithoutAShaderResolvesToTheStandardSurface )
+// THERE IS NO DEFAULT TEMPLATE. A material file that names neither a template ("Shader" by GUID) nor a
+// parent is refused on load, and the refusal names the file the user has to fix — it is not drawn as a
+// guessed standard surface. (A MISSING file is a new material, above; the editor states its template.)
+TEST( AssetMissingFile, AMaterialNamingNoTemplateIsRefusedByPath )
 {
-    const fs::path                       path = MissingPath( "no_shader.demat" );
-    Desert::Assets::SurfaceMaterialAsset material( path );
-    ASSERT_TRUE( material.Load().IsSuccess() );
+    const fs::path path = PathWith(
+         "no_shader.demat",
+         R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a003","Versions":{"MATL":4},"Dependencies":[]},"Params":[],"Textures":[],"CloudAssets":[]})" );
 
-    EXPECT_FALSE( material.Data().Shader.has_value() );
-    EXPECT_EQ( material.GetShaderName(), "StaticMeshPBR" );
-    EXPECT_FALSE( material.UsesCustomShader() );
+    Desert::Assets::SurfaceMaterialAsset material( path );
+    const auto                           loaded = material.Load();
+    ASSERT_FALSE( loaded.IsSuccess() ) << "a material naming no template was accepted with a guessed one";
+    EXPECT_NE( loaded.GetError().find( path.generic_string() ), std::string::npos )
+         << "the refusal does not name the file the user has to fix: " << loaded.GetError();
+    EXPECT_EQ( static_cast<uint64_t>( material.GetShaderHandle() ),
+               static_cast<uint64_t>( Common::AssetHandle::Null() ) );
+
+    fs::remove_all( path.parent_path() );
 }
 
 // A material naming a shader resolves its name only against a manager that holds the shader, by GUID:
@@ -144,7 +150,7 @@ TEST( AssetMissingFile, AParsedMaterialSavesNormally )
 {
     const fs::path path = PathWith(
          "fine.demat",
-         R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a001","Versions":{"MATL":4},"Dependencies":[]},"Params":[],"Textures":[],"CloudAssets":[]})" );
+         R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a001","Versions":{"MATL":4},"Dependencies":["4f1cac6af403a010c792d835dd6f7d44"]},"Shader":{"Guid":"4f1cac6af403a010c792d835dd6f7d44","Path":"engine:Shaders/Programs/PBR/StandardSurface.shader"},"Params":[],"Textures":[],"CloudAssets":[]})" );
 
     Desert::Assets::SurfaceMaterialAsset material( path );
     ASSERT_TRUE( material.Load().IsSuccess() );
@@ -172,7 +178,7 @@ TEST( AssetMissingFile, AMaterialHoldingANonNumberRefusesToSaveAndNamesTheParame
 {
     const fs::path path = PathWith(
          "not_a_number.demat",
-         R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a002","Versions":{"MATL":4},"Dependencies":[]},"Params":[],"Textures":[],"CloudAssets":[]})" );
+         R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a002","Versions":{"MATL":4},"Dependencies":["4f1cac6af403a010c792d835dd6f7d44"]},"Shader":{"Guid":"4f1cac6af403a010c792d835dd6f7d44","Path":"engine:Shaders/Programs/PBR/StandardSurface.shader"},"Params":[],"Textures":[],"CloudAssets":[]})" );
 
     for ( const float bad : { std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(),
                               -std::numeric_limits<float>::infinity() } )

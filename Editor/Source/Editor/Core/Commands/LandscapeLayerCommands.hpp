@@ -87,4 +87,41 @@ namespace Desert::Editor::Commands
     /// selected).
     Common::BoolResultStr ExportLandscapeHeightmap( const std::shared_ptr<::Desert::Core::Scene>& scene,
                                                     const std::filesystem::path& path, bool selectedTiles );
+
+    // ── Edit Layers (UE: Landscape Mode → Edit Layers) ──────────────────────────────────────────────────────
+    //
+    // Each call edits the scene's first landscape's stack (LandscapeComponent::EditLayers) as ONE undo entry.
+    // A change the merge reads — visibility, an alpha, removing a layer — re-merges every tile of the landscape
+    // (World::Landscape::MergeLandscapeEditLayers), in the call and in its undo and redo; so it is refused while
+    // a tile of the landscape is unloaded, whose stored samples would keep the old merge. @p layer names a layer
+    // by its Guid; an unknown Guid is refused naming it.
+
+    /// UE's "Create Layer": a new empty layer "Layer N" directly above the editing layer
+    /// (LandscapeSculptState::EditingLayer; the bottom one when none is picked); it becomes the editing layer.
+    /// Returns its Guid. An empty layer changes no sample, so nothing is merged.
+    Common::ResultStr<Common::UUID> AddLandscapeEditLayer( const std::shared_ptr<::Desert::Core::Scene>& scene );
+
+    /// UE's "Delete Layer": the layer leaves the stack and every tile, and the landscape is re-merged; undo puts
+    /// its data back on the same tiles. The last layer is refused — a landscape has at least one. When it was
+    /// the editing layer, the editing layer goes back to the bottom one.
+    Common::BoolResultStr RemoveLandscapeEditLayer( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                                    const Common::UUID&                           layer );
+
+    /// UE's "Rename"; refuses an empty name. Changes no sample.
+    Common::BoolResultStr RenameLandscapeEditLayer( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                                    const Common::UUID& layer, std::string name );
+
+    /// UE's eye: an invisible layer contributes nothing to the merge.
+    Common::BoolResultStr SetLandscapeEditLayerVisible( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                                        const Common::UUID& layer, bool visible );
+
+    /// UE's lock: brushes refuse a locked layer (World::Landscape::CheckLandscapeEditLayerTarget). Changes no
+    /// sample.
+    Common::BoolResultStr SetLandscapeEditLayerLocked( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                                       const Common::UUID& layer, bool locked );
+
+    /// UE's Heightmap / Weightmap alpha (-1..1 and 0..1, refused outside naming the value).
+    Common::BoolResultStr SetLandscapeEditLayerAlpha( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                                      const Common::UUID& layer, float heightAlpha,
+                                                      float weightAlpha );
 } // namespace Desert::Editor::Commands

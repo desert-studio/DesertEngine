@@ -247,7 +247,8 @@ TEST( MaterialPipelines, NoStartupStageCompilesAMaterialPipeline )
          ReadSource( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
     EXPECT_NE( mesh.find( "GetOrCreateMaterial" ), std::string::npos )
          << "the material draw lost its on-demand path";
-    const std::string factory = ReadSource( "Desert/Desert/Source/Engine/Graphic/Materials/MaterialFactory.cpp" );
+    const std::string factory =
+         ReadSource( "Desert/Desert/Source/Engine/Runtime/Services/Material/MaterialService.cpp" );
     EXPECT_NE( factory.find( "MaterialPipelineRequests::Get().Request( shaderName )" ), std::string::npos )
          << "a material's pipeline is requested when it LOADS, not at its first draw";
 }

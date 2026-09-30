@@ -1,5 +1,7 @@
 #include "Material.hpp"
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
+#include <Engine/Graphic/Materials/MaterialBinder.hpp>
+#include <Engine/Graphic/ShaderProtocols/SkinnedMaterialUB.hpp>
 #include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/Image.hpp>
 
@@ -7,26 +9,67 @@
 
 namespace Desert::Graphic
 {
+    bool Material::WritePushField( std::string_view field, const void* value, uint32_t size )
+    {
+        if ( !m_MaterialExecutor || !m_MaterialExecutor->GetShader() )
+            return false;
+        const auto& layout = m_MaterialExecutor->GetShader()->GetMaterialLayout();
+        const auto  slot   = MaterialBinder::ResolvePush( layout, field, size );
+        switch ( slot.Status )
+        {
+            case MaterialBinder::PushWrite::Written:
+                m_MaterialExecutor->PushConstant( value, size, slot.Offset );
+                return true;
+            case MaterialBinder::PushWrite::SizeMismatch:
+                LOG_ERROR( "Material '{}': push field '{}' is {} bytes in the shader, {} written; not written",
+                           m_MaterialExecutor->GetDubugName(), field, layout.FindPush( field )->Size, size );
+                return false;
+            case MaterialBinder::PushWrite::Absent:
+                return false;
+        }
+        return false;
+    }
+
+    const Core::Formats::MaterialLayout& Material::GetMaterialLayout() const
+    {
+        static const Core::Formats::MaterialLayout kNoLayout;
+        if ( !m_MaterialExecutor || !m_MaterialExecutor->GetShader() )
+            return kNoLayout;
+        return m_MaterialExecutor->GetShader()->GetMaterialLayout();
+    }
+
     void Material::SetMaterialIndex( uint32_t index )
     {
-        if ( !m_MaterialExecutor )
-            return;
-        m_MaterialExecutor->PushConstant( &index, sizeof( uint32_t ), Core::Formats::kMaterialIndexPushOffset );
+        WritePushField( "MaterialIndex", &index, sizeof( uint32_t ) );
     }
 
     void Material::SetPushMatrix( const glm::mat4& matrix )
     {
-        if ( !m_MaterialExecutor )
-            return;
-        m_MaterialExecutor->PushConstant( &matrix, sizeof( glm::mat4 ),
-                                          Core::Formats::kMaterialTransformPushOffset );
+        WritePushField( "Transform", &matrix, sizeof( glm::mat4 ) );
     }
 
     void Material::SetInstancedWind( const InstanceWindPush& wind )
     {
-        if ( !m_MaterialExecutor )
+        WritePushField( "WindA", &wind.A, sizeof( glm::vec4 ) );
+        WritePushField( "WindB", &wind.B, sizeof( glm::vec4 ) );
+    }
+
+    // Writes the Bones buffer; tidy sees it as const only because Get<> is const and hands out a mutable
+    // property (PBRSceneFrame pins the non-const signature).
+    // NOLINTNEXTLINE(readability-make-member-function-const)
+    void Material::UploadSkinnedBones( const glm::mat4* matrices, size_t count )
+    {
+        if ( matrices == nullptr || count == 0 )
             return;
-        m_MaterialExecutor->PushConstant( &wind, sizeof( InstanceWindPush ), kInstancedWindPushOffset );
+        auto* bones = Get<StorageBufferProperty>( ShaderProtocols::SkinnedUB::Name );
+        DESERT_VERIFY( bones, "UploadSkinnedBones on a cell with no skinned vertex stage (no Bones buffer)" );
+        bones->SetRawData( matrices, static_cast<uint32_t>( count * sizeof( glm::mat4 ) ) );
+    }
+
+    void Material::SetSkinnedBoneOffset( uint32_t firstBone )
+    {
+        const bool written = WritePushField( "BoneOffset", &firstBone, sizeof( uint32_t ) );
+        DESERT_VERIFY( written, "SetSkinnedBoneOffset on a cell with no skinned vertex stage (no BoneOffset)" );
     }
 
     Material::Material( std::string&& debugName, std::string&& shaderName )

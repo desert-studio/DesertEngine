@@ -1,0 +1,31 @@
+#ifndef DESERT_SHADING_MODELS_GLSLH
+#define DESERT_SHADING_MODELS_GLSLH
+
+// THE shading-model ids the G-buffer carries — UE's EMaterialShadingModel numbering (MSM_Unlit = 0,
+// MSM_DefaultLit = 1). The C++ half is the same table — SurfaceShadingModel and kSurfaceShadingModels in
+// Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp — and ShaderCacheKey's
+// TheShadingModelIdsAreOneTableInCppAndGlsl reads this file and fails on any row that differs.
+// Id 0 is Unlit on purpose, as in UE: a G-buffer writer that forgets the id shades as emission only,
+// which is visible at once, rather than as lit with some other model's inputs.
+#define SHADING_MODEL_ID_UNLIT       0
+#define SHADING_MODEL_ID_DEFAULT_LIT 1
+
+// The packed word of GBufferC.w (RGBA32F): the id in the low four bits, like UE's GBufferB.a
+// (ShadingModelID | SelectiveOutputMask << 4), and the material-complexity proxy — the count of real
+// textures the surface sampled — in the bits above. Every value is a small integer, exact in a 32-bit float.
+float DesertPackShadingWord( int shadingModelId, float sampledTextureCount )
+{
+    return float( shadingModelId + 16 * int( round( sampledTextureCount ) ) );
+}
+
+int DesertShadingModelId( float shadingWord )
+{
+    return int( round( shadingWord ) ) & 15;
+}
+
+float DesertSampledTextureCount( float shadingWord )
+{
+    return float( int( round( shadingWord ) ) >> 4 );
+}
+
+#endif

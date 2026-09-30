@@ -4,6 +4,7 @@
 #include <Editor/Panels/AnimationEditor/AnimationEditorIdentity.hpp>
 #include <Editor/Panels/AnimationEditor/AnimationNotifyTracks.hpp>
 #include <Editor/Panels/AnimationEditor/AnimationTransport.hpp>
+#include <Editor/Widgets/MeshAssetDetails.hpp>
 
 #include <Common/Core/Core.hpp> // Common::Filepath, which AssetMetadata.hpp names without including
 #include <Engine/Assets/AssetMetadata.hpp>
@@ -65,9 +66,10 @@ namespace Desert::Editor
     class AnimationEditorDocument final : public AnimationEditorBase
     {
     public:
-        // @p editors opens the clip picked in the Asset Browser (which lists the content registry's rows).
-        AnimationEditorDocument( const Assets::AssetHandle& clip, Assets::AssetManager* assets,
-                                 const SubjectEditorRegistry* editors );
+        // @p asset is the clip, skeletal mesh or skeleton @p mode is about (Core::PersonaModeFor). @p editors
+        // opens the clip picked in the Asset Browser and the asset a mode button names.
+        AnimationEditorDocument( const Assets::AssetHandle& asset, Core::PersonaMode mode,
+                                 Assets::AssetManager* assets, const SubjectEditorRegistry* editors );
         ~AnimationEditorDocument() override;
 
         [[nodiscard]] glm::vec2 GetDefaultSize() const override
@@ -105,7 +107,15 @@ namespace Desert::Editor
         void DestroyPreview() override;
 
     private:
-        void                                 EnsurePreview();
+        void EnsurePreview();
+        // The rig and the preferred preview mesh of the subject, by mode; false with m_Unavailable set.
+        bool ResolveRig( const std::string& name, std::filesystem::path& preferredMesh );
+        // UE's mode switcher (Skeleton | Mesh | Animation): opens-or-focuses the asset the mode is about.
+        void                                 DrawModeToolbar();
+        [[nodiscard]] Assets::AssetHandle    ModeAsset( Core::PersonaMode mode ) const;
+        void                                 OpenMode( Core::PersonaMode mode );
+        void                                 DrawMeshDetails();
+        void                                 DrawSkeletonDetails();
         void                                 DrawOverlay( const glm::vec2& origin ) const;
         void                                 BuildLayout( unsigned int dockId ) const;
         void                                 DrawViewportPanel();
@@ -172,7 +182,13 @@ namespace Desert::Editor
         // Every registered skeletal mesh on the clip's rig, sorted by path; the preview shows m_MeshIndex.
         // Candidates by the registry's Rig tag, NOT loaded: only the one shown is (ANV1c3 loaded every one).
         std::vector<std::filesystem::path>        m_MeshCandidates;
+        uint64_t                                  m_Signature = 0; // the rig every mode of this window is on
         std::shared_ptr<Assets::SkinnedMeshAsset> m_Mesh;
+        // The Mesh mode's skinning audit, cached against (mesh handle, bone count): a vertex scan per frame is
+        // waste.
+        MeshAssetDetails::SkinningAudit m_SkinningAudit;
+        uint64_t                        m_SkinningAuditOf    = 0;
+        std::size_t                     m_SkinningAuditBones = 0;
         // Notify State edge drag, curve key drag and the curve popups.
         int32_t         m_DragState = -1;
         NotifyStateEdge m_DragEdge  = NotifyStateEdge::End;
@@ -198,12 +214,13 @@ namespace Desert::Editor
         bool                m_Posed        = false;
         int32_t             m_PosedFrame   = 0;
         bool                m_GizmoRotate  = true; // E rotate / W translate, as the level viewport
-        bool                m_GizmoHeld    = false;
-        bool                m_GizmoHovered = false; // last frame's: the orbit must not take the gizmo's drag
+        BoneGizmoGesture    m_BoneGesture;
+        bool                m_GizmoHovered = false; // this frame's: the preview yields the press to the gizmo
     };
 
-    // The `.anim` path opener: find-or-create the AnimationAsset, load it, then open it through the one handle
-    // route, Core::RequestOpenAsset. Any other extension is NotMine.
+    // Persona's path opener for `.anim`, `.skmesh` and `.skeleton` (its three modes): find-or-create the asset
+    // as its type, load it, then open it through the one handle route, Core::RequestOpenAsset. Any other
+    // extension is NotMine.
     [[nodiscard]] SubjectEditorRegistry::PathOpenOutcome
     RequestAnimationEditorDocument( Assets::AssetManager* assets, const std::string& path,
                                     const SubjectEditorRegistry& editors );

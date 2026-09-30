@@ -46,6 +46,7 @@ namespace Desert::Assets
         std::optional<int>                          LODBias;
         std::optional<bool>                         CastShadows;
         std::optional<bool>                         ReceiveShadows;
+        std::optional<int>                          TranslucencySortPriority;
         std::optional<uint64_t>                     HiddenSubmeshes;
     };
 

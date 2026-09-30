@@ -9,6 +9,7 @@
 #include <Engine/Core/EngineContext.hpp>
 
 #include <Engine/Core/ShaderCompiler/ShaderCompiler.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderMapBuild.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.hpp>
 
@@ -54,58 +55,14 @@ namespace Desert::Graphic::API::Vulkan
         auto asset = m_ShaderAsset.lock();
         if ( !asset ) return Common::MakeError( "Shader asset expired" );
 
-        // THE WARM PATH: the shader map is keyed by the raw text + include files, so a hit is the whole
-        // program — metadata and SPIR-V — without parsing the DShader or preprocessing a stage.
-        const std::string&    content = asset->GetShaderContent();
-        uint64_t              mapKey  = 0;
-        Core::ShaderMapLookup lookup;
-        {
-            const Core::ScopedShaderPhase timer( Core::ShaderPhase::ShaderMap );
-            mapKey = Core::ComputeShaderMapKey( content, m_ShaderPath, m_PassName, Core::SpirvDebugInfoThisBuild(),
-                                                m_Variant );
-            lookup = Core::TryLoadShaderMap( mapKey );
-        }
-        if ( lookup.Map )
-        {
-            Core::CountShaderMapHit();
-            m_ProgramMeta = std::move( lookup.Map->Meta );
-            return BuildFromSpirv( lookup.Map->Stages );
-        }
-        Core::CountShaderMapMiss();
-        if ( !lookup.Rejected.empty() )
-            LOG_WARN( "[ShaderMap] '{}': cached entry rejected, rebuilding it ({})", m_ShaderName,
-                      lookup.Rejected );
-
-        std::unordered_map<Core::Formats::ShaderStage, std::string> stages;
-        {
-            const Core::ScopedShaderPhase timer( Core::ShaderPhase::Preprocess );
-            auto                          preprocessed =
-                 Core::Preprocess::ShaderPreprocess::PreProcessPass( content, m_ShaderPath, m_PassName );
-            m_ProgramMeta = std::move( preprocessed.Meta );
-            stages        = std::move( preprocessed.Stages );
-        }
-        if ( m_ProgramMeta.HasParams() || m_ProgramMeta.State.Topology.has_value() )
-        {
-            LOG_INFO( "Shader '{}': parsed {} param(s) + render-state from shader metadata", m_ShaderName,
-                      m_ProgramMeta.Params.size() );
-        }
-
-        Core::ShaderMap built{ m_ProgramMeta, {} };
-        for ( const auto& [stage, source] : stages )
-        {
-            auto spirvResult =
-                 Core::ShaderCompiler::CompileGLSLToSPIRV( stage, source, m_ShaderPath.string(), m_Variant );
-            if ( !spirvResult.IsSuccess() )
-                return Common::MakeError( spirvResult.GetError() );
-            built.Stages.push_back( { stage, std::move( spirvResult.GetValue() ) } );
-        }
-        std::sort( built.Stages.begin(), built.Stages.end(),
-                   []( const Core::ShaderMapStage& a, const Core::ShaderMapStage& b )
-                   { return static_cast<uint32_t>( a.Stage ) < static_cast<uint32_t>( b.Stage ); } );
-        if ( const auto stored = Core::StoreShaderMap( mapKey, built ); !stored )
-            LOG_WARN( "[ShaderMap] '{}': could not store the shader map {:016x}: {}", m_ShaderName, mapKey,
-                      stored.GetError() );
-        return BuildFromSpirv( built.Stages );
+        // The CPU half (shader map cache, preprocess, compile) is Core::BuildShaderMap, shared with the cold-start
+        // build that runs it on the job system (SHC1); only the device half stays here.
+        auto built = Core::BuildShaderMap(
+             { asset->GetShaderContent(), m_ShaderPath, m_PassName, m_Variant, m_ShaderName } );
+        if ( !built.IsSuccess() )
+            return Common::MakeError( built.GetError() );
+        m_ProgramMeta = built.GetValue().Meta;
+        return BuildFromSpirv( built.GetValue().Stages );
     }
 
     Common::BoolResultStr VulkanShader::BuildFromSpirv( const std::vector<Core::ShaderMapStage>& stages )
@@ -166,6 +123,22 @@ namespace Desert::Graphic::API::Vulkan
             }
         }
 
+        // The cell's material layout: the template's row/textures and the push block every stage declares,
+        // held to each other. A disagreement is a load failure naming the template and the cell — the
+        // pipeline would otherwise be built with one stage reading bytes another stage does not lay out.
+        auto cell = ShaderReflection::ReconcileCellLayout( m_ProgramMeta, stages, m_ShaderPath.stem().string(),
+                                                           m_PassName );
+        if ( !cell.Errors.empty() )
+        {
+            for ( const auto& message : cell.Errors )
+                LOG_ERROR( "Shader '{}': {}", m_ShaderName, message );
+            discard();
+            return Common::MakeFormattedError( "Shader '{}': {} material-layout disagreement(s); first: {}",
+                                               m_ShaderName, cell.Errors.size(), cell.Errors.front() );
+        }
+        if ( reflection.PushConstantRanges )
+            reflection.PushConstantRanges->Size = cell.Layout.PushSize;
+
         // Past this line the compile has succeeded, so the old state may go. The modules are ours alone
         // (a pipeline copies what it needs at creation) and are destroyed; the layouts are only
         // RELEASED, because a pipeline layout, a descriptor pool or an allocated set built from one is
@@ -178,6 +151,7 @@ namespace Desert::Graphic::API::Vulkan
         m_ShaderModules                  = std::move( modules );
         m_PipelineShaderStageCreateInfos = std::move( stageInfos );
         m_ReflectionData                 = std::move( reflection );
+        m_MaterialLayout                 = std::move( cell.Layout );
         m_DescriptorSetLayouts.clear();
 
         const Core::ScopedShaderPhase layoutTimer( Core::ShaderPhase::Reflect );

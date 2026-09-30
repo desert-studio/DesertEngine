@@ -12,12 +12,11 @@
 // Fog_Showcase byte-identical across the change.
 //
 // THE .HDR PATH IS NOT THE SAME PATH, and that asymmetry is the thing most likely to be "tidied up" by
-// somebody reading only one of the two functions. There the radiance cube has three live runtime
-// consumers — the skybox draw (`MaterialSkybox::BindInputs`), the entity preview thumbnail
-// (`ScenePropertiesPanel`) and the material editor's cube ball (`MaterialEditorPanel`) — and both
-// measured alternatives to it lose: prefilter mip 0 is visibly blockier (max delta 123/255 at zenith on
-// real content) and sampling the panorama directly crawls under motion (rms 14.33 vs 10.60 at the zenith
-// under a 0.40 deg nudge). So `EnvironmentManager::Create` must keep it.
+// somebody reading only one of the two functions. There the radiance cube has two live runtime
+// consumers — the skybox draw (`MaterialSkybox::BindInputs`) and the material editor's cube ball
+// (`MaterialEditorPanel`) — and both measured alternatives to it lose: prefilter mip 0 is visibly
+// blockier (max delta 123/255 at zenith on real content) and sampling the panorama directly crawls under motion
+// (rms 14.33 vs 10.60 at the zenith under a 0.40 deg nudge). So `EnvironmentManager::Create` must keep it.
 //
 // WHAT A FUTURE MISTAKE LOOKS LIKE, precisely. It is NOT a use-after-free: `ImageService::Resolve` is
 // generation-checked, so a handle whose image has been unregistered answers `nullptr` and never somebody
@@ -207,7 +206,7 @@ TEST( ProceduralEnvironmentCube, TheProceduralBakeFreesTheRadianceCubeAndKeepsNo
 }
 
 // ------------------------------------------------------------------------------------------------
-// 2. The asymmetry: the .hdr path keeps its cube, because three live consumers read it.
+// 2. The asymmetry: the .hdr path keeps its cube, because two live consumers read it.
 // ------------------------------------------------------------------------------------------------
 TEST( ProceduralEnvironmentCube, TheHdrPathKeepsItsRadianceCube )
 {
@@ -220,9 +219,9 @@ TEST( ProceduralEnvironmentCube, TheHdrPathKeepsItsRadianceCube )
 
     EXPECT_EQ( body.find( "Unregister( radianceHandle )" ), std::string::npos )
          << "the .hdr path is freeing its radiance cube the way the procedural path does, and the two "
-            "paths are not the same path. Here the cube has three live runtime consumers: the skybox "
-            "draw (MaterialSkybox::BindInputs), the entity preview thumbnail (ScenePropertiesPanel) and "
-            "the material editor's cube ball (MaterialEditorPanel). Both measured substitutes lose -- "
+            "paths are not the same path. Here the cube has two live runtime consumers: the skybox "
+            "draw (MaterialSkybox::BindInputs) and the material editor's cube ball (MaterialEditorPanel). Both "
+            "measured substitutes lose -- "
             "prefilter mip 0 is blockier (max delta 123/255 at the zenith) and the panorama sampled "
             "directly crawls under motion (rms 14.33 vs 10.60 under a 0.40 deg nudge).";
 }
@@ -304,7 +303,6 @@ TEST( ProceduralEnvironmentCube, NoOneElseNamesTheRadianceCube )
          "Desert/Desert/Source/Engine/Graphic/Environment/OwnedEnvironment.hpp", // releases it with the view that
                                                                                  // baked it
          "Editor/Source/Editor/Panels/MaterialEditor/MaterialEditorPanel.cpp",
-         "Editor/Source/Editor/Panels/SceneProperties/ScenePropertiesPanel.cpp",
          // The skybox viewer shows one .hdr FILE: it reads the SkyboxService's own MaterialSkybox for that
          // asset, never a scene's composed environment, so the cube it samples is the one that is kept.
          "Editor/Source/Editor/Panels/SkyboxViewer/SkyboxViewerDocument.cpp",

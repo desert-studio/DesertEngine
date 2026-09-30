@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iterator>
 #include <optional>
@@ -199,17 +200,18 @@ TEST( CookedAssetRegistry, AMalformedFileIsARefusalAndNotAnEmptyProject )
     EXPECT_FALSE( AssetRegistry::Parse( "DesertContentManifest 1\n" ) ) << "another Desert text format "
                                                                            "was accepted as a registry";
     EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 4\n" ) ) << "the form before the Rig tag was read";
-    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 6\n" ) ) << "a future version was read as "
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 5\n" ) ) << "the form before the Role tag was read";
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 7\n" ) ) << "a future version was read as "
                                                                          "though it were this one";
-    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 5\n512 Material - -\n" ) )
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 6\n512 Material - -\n" ) )
          << "a row missing its key column was accepted";
-    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 5\nbig Material - - - - - assets:M.demat\n" ) )
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 6\nbig Material - - - - - assets:M.demat\n" ) )
          << "a size that is not a number was accepted";
-    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 5\n5 Material - zz - - - assets:M.demat\n" ) )
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 6\n5 Material - zz - - - assets:M.demat\n" ) )
          << "an identity that is neither '-' nor a 16-digit hex handle was accepted";
 
     // And the header alone, with no rows, IS a valid registry — an empty project is a real state.
-    const auto empty = AssetRegistry::Parse( "DesertAssetRegistry 5\n" );
+    const auto empty = AssetRegistry::Parse( "DesertAssetRegistry 6\n" );
     ASSERT_TRUE( empty ) << empty.GetError();
     EXPECT_TRUE( empty.GetValue().Empty() );
 }
@@ -255,7 +257,7 @@ TEST( CookedAssetRegistry, BoundsSurviveARoundTripBitForBit )
     EXPECT_FALSE( none->Bounds.has_value() ) << "a row with no extent came back with one";
 
     EXPECT_EQ( parsed.GetValue().Serialize(), text ) << "a second write of what was read is a different file";
-    EXPECT_EQ( text.rfind( "DesertAssetRegistry 5\n", 0 ), 0u );
+    EXPECT_EQ( text.rfind( "DesertAssetRegistry 6\n", 0 ), 0u );
 }
 
 // AN OLDER FORM IS REFUSED, NOT READ WITH ITS MISSING COLUMNS EMPTY. Versions 1-3 predate the tags column;
@@ -281,7 +283,7 @@ TEST( CookedAssetRegistry, AMalformedBoundsColumnIsRefused )
     const std::string one  = "3f800000";
     const std::string nan  = "7fc00000";
     const auto        row  = []( const std::string& bounds )
-    { return "DesertAssetRegistry 5\n9 StaticMesh - - - " + bounds + " - assets:Meshes/M.stmesh\n"; };
+    { return std::format( "DesertAssetRegistry 6\n9 StaticMesh - - - {} - assets:Meshes/M.stmesh\n", bounds ); };
 
     ASSERT_TRUE(
          AssetRegistry::Parse( row( zero + "," + zero + "," + zero + "," + one + "," + one + "," + one ) ) );
@@ -619,15 +621,37 @@ TEST( CookedAssetRegistry, TheRigTagCarriesTheFullSignatureOnBothRowsAndRefusesA
     EXPECT_EQ( parsed.GetValue().Serialize(), text );
 
     for ( const char* bad : { "Rig=", "Rig=0", "Rig=12x", "Rig=-4" } )
-        EXPECT_FALSE( AssetRegistry::Parse( std::string( "DesertAssetRegistry 5\n9 Skeleton - - - - " ) + bad +
+        EXPECT_FALSE( AssetRegistry::Parse( std::string( "DesertAssetRegistry 6\n9 Skeleton - - - - " ) + bad +
                                             " assets:Meshes/R.skeleton\n" ) )
              << bad;
+}
+
+// MAT1g: the Role tag is a shader's manifest role (`Role <Name>`), so the world cook knows a material's
+// backend from the registry without loading the shader, and never from the shader's name.
+TEST( CookedAssetRegistry, TheRoleTagCarriesAShadersManifestRoleThroughAWriteAndARead )
+{
+    AssetRegistry      written;
+    AssetRegistryEntry shader = Row( "engine:Shaders/Programs/PBR/StandardSurface.shader", "Shader", 22 );
+    shader.Role               = "PBRSurface";
+    ASSERT_TRUE( written.Insert( shader ) );
+
+    const std::string text = written.Serialize();
+    EXPECT_NE( text.find( " Role=PBRSurface engine:Shaders/Programs/PBR/StandardSurface.shader" ),
+               std::string::npos )
+         << text;
+    const auto parsed = AssetRegistry::Parse( text );
+    ASSERT_TRUE( parsed ) << parsed.GetError();
+    EXPECT_EQ( parsed.GetValue().FindByKey( "engine:Shaders/Programs/PBR/StandardSurface.shader" )->Role,
+               "PBRSurface" );
+    EXPECT_EQ( parsed.GetValue().Serialize(), text );
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 6\n9 Shader - - - - Role= engine:S.shader\n" ) )
+         << "an empty role is `-`, never `Role=`";
 }
 
 TEST( CookedAssetRegistry, AMalformedTagsColumnIsRefused )
 {
     const auto row = []( const std::string& tags )
-    { return "DesertAssetRegistry 5\n9 UITheme - - - - " + tags + " assets:UI/Themes/T.detheme\n"; };
+    { return std::format( "DesertAssetRegistry 6\n9 UITheme - - - - {} assets:UI/Themes/T.detheme\n", tags ); };
     ASSERT_TRUE( AssetRegistry::Parse( row( "Name=T" ) ) );
     EXPECT_FALSE( AssetRegistry::Parse( row( "Colour=Red" ) ) ) << "an unknown tag was skipped, not refused";
     EXPECT_FALSE( AssetRegistry::Parse( row( "Name=" ) ) ) << "an empty name is `-`, never `Name=`";
@@ -648,12 +672,12 @@ TEST( CookedAssetRegistry, AnOlderRegistryCacheIsRefusedSoTheGatherRebuildsIt )
 
 TEST( CookedAssetRegistry, AMalformedHeaderColumnIsRefused )
 {
-    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 5\n5 Material zz - - - - assets:M.demat\n" ) );
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 6\n5 Material zz - - - - assets:M.demat\n" ) );
     EXPECT_FALSE( AssetRegistry::Parse(
-         "DesertAssetRegistry 5\n5 Material 00000000000000000000000000000000; - - - - assets:M.demat\n" ) )
+         "DesertAssetRegistry 6\n5 Material 00000000000000000000000000000000; - - - - assets:M.demat\n" ) )
          << "a null GUID is no identity";
     EXPECT_FALSE( AssetRegistry::Parse(
-         "DesertAssetRegistry 5\n5 Material b7de7b6da944bded0382e39126712944;MATL - - - - assets:M.demat\n" ) );
+         "DesertAssetRegistry 6\n5 Material b7de7b6da944bded0382e39126712944;MATL - - - - assets:M.demat\n" ) );
 }
 
 TEST( CookedAssetRegistry, ARowWhoseGuidIsNotTheFilesHeaderIsReported )

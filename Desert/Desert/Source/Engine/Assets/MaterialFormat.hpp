@@ -16,6 +16,9 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <format>
+#include <fstream>
+#include <iterator>
 #include <span>
 #include <string>
 #include <string_view>
@@ -165,7 +168,7 @@ namespace Desert::Assets
                 return Common::MakeError<MaterialData>(
                      "[Material] '" + std::string( source ) + "': Shader states no GUID (path '" +
                      material.Shader->Path + "'); leave Shader out for the standard surface" );
-            const MaterialAssetRef shaderRef{ "Shader", material.Shader->Guid, material.Shader->Path };
+            const MaterialAssetRef shaderRef{ "Shader", material.Shader->Guid, material.Shader->Path, {} };
             if ( const auto ok = Detail::CheckStatedRef( source, "shader", shaderRef, deps ); !ok )
                 return Common::MakeError<MaterialData>( ok.GetError() );
         }
@@ -175,6 +178,46 @@ namespace Desert::Assets
         for ( const auto& ref : material.CloudAssets )
             if ( const auto ok = Detail::CheckStatedRef( source, "cloud asset", ref, deps ); !ok )
                 return Common::MakeError<MaterialData>( ok.GetError() );
+        // A stated thumbnail: a valid orbit, and a preview mesh that is never empty ("draw the primitive" is said
+        // by stating none) and is named by the header like every other reference.
+        if ( material.Thumbnail.has_value() )
+        {
+            const ThumbnailInfo thumb = material.ThumbnailOrDefault();
+            if ( !IsValidThumbnailOrbit( thumb.Orbit ) )
+                return Common::MakeError<MaterialData>( std::format(
+                     "[Material] '{}': Thumbnail.Orbit is not finite or its Zoom is not above -1", source ) );
+            if ( thumb.PreviewMesh.has_value() )
+            {
+                const MaterialAssetRef meshRef{
+                     "PreviewMesh", thumb.PreviewMesh->Guid, thumb.PreviewMesh->Path, {} };
+                if ( thumb.PreviewMesh->Guid.empty() )
+                    return Common::MakeError<MaterialData>(
+                         std::format( "[Material] '{}': Thumbnail.PreviewMesh states no GUID (path '{}'); leave "
+                                      "PreviewMesh out for the primitive",
+                                      source, thumb.PreviewMesh->Path ) );
+                if ( const auto ok = Detail::CheckStatedRef( source, "preview mesh", meshRef, deps ); !ok )
+                    return Common::MakeError<MaterialData>( ok.GetError() );
+            }
+        }
         return Common::MakeSuccess( parsed.ExtractValue() );
+    }
+    // EDIT THUMBNAIL'S ONE WRITER FOR A MATERIAL (UE: the material's ThumbnailInfo): the .demat at @p file read,
+    // its Thumbnail replaced by @p info (MaterialData::SetThumbnail) and written back atomically; untouched when
+    // the info is what it states already. A refusal naming the file when it is unreadable or not a material.
+    [[nodiscard]] inline Common::ResultStr<bool> SetMaterialFileThumbnail( const std::filesystem::path& file,
+                                                                           const ThumbnailInfo&         info )
+    {
+        std::ifstream in( file, std::ios::binary );
+        if ( !in )
+            return Common::MakeFormattedError<bool>( "[Material] '{}' cannot be opened", file.generic_string() );
+        const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+        auto              parsed = ParseMaterialJson( file.generic_string(), text );
+        if ( !parsed )
+            return Common::MakeError<bool>( parsed.GetError() );
+        MaterialData material = parsed.GetValue();
+        if ( material.ThumbnailOrDefault() == info )
+            return Common::MakeSuccess( true );
+        material.SetThumbnail( info );
+        return WriteMaterialFile( file, material );
     }
 } // namespace Desert::Assets

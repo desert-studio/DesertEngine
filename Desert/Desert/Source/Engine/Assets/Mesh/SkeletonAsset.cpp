@@ -43,7 +43,17 @@ namespace Desert::Assets
 
         auto data = read.ExtractValue();
 
-        m_Skeleton = std::make_unique<Animation::Skeleton>( std::move( data.Bones ) );
+        // A RIG THAT IS LOADED IS RE-READ AT THE SAME ADDRESS (UE: Reimport rewrites the USkeleton in its own
+        // UObject). Its readers hold the object itself — SkinnedMesh's `const Skeleton*`, Animator's
+        // `const Skeleton&` — so replacing it would leave every one of them on freed memory. What tells them
+        // the bones moved is the signature below: AnimationECSSystem rebuilds an Animator whose
+        // `AnimationComponent::BuiltSkeletonSignature` no longer matches. `Load()` on a loaded rig IS the
+        // reload (ImportOptionsDialog's ReloadLoaded), exactly as it is for AnimationAsset's clip; `Unload`
+        // first would free the object. Written only after the file parsed, so a failed reload keeps the rig.
+        if ( m_Skeleton )
+            *m_Skeleton = Animation::Skeleton( std::move( data.Bones ) );
+        else
+            m_Skeleton = std::make_unique<Animation::Skeleton>( std::move( data.Bones ) );
         // Taken from the bones that were just read, never from `data.Signature`: the file's own field is
         // what a cook WROTE, and this is what the rig in memory IS. A mesh is matched against the second.
         m_Signature = m_Skeleton->GetSignature();

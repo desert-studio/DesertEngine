@@ -9,12 +9,14 @@
 // zeros for it.
 
 #include <Engine/World/Landscape/LandscapeData.hpp>
+#include <Engine/World/Landscape/LandscapeEditLayers.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -72,6 +74,11 @@ namespace Desert::World::Landscape
     {
     public:
         LandscapeHeightCache( const LandscapeRoot& root, LandscapeTileLookup lookup );
+        /// A cache over edit layer @p layer.Layer (UE: the cache of the editing layer): it reads that layer's
+        /// heights (mid where the layer holds none) and SetCachedData writes them into the layer and re-merges
+        /// each tile (WriteLandscapeEditLayerHeights). A tile carrying no edit layers is refused.
+        LandscapeHeightCache( const LandscapeRoot& root, LandscapeTileLookup lookup,
+                              LandscapeEditLayerTarget layer );
 
         /**
          * @brief UE's CacheData: extends the cached region to the bounding box of itself and X1..X2 × Z1..Z2.
@@ -129,6 +136,7 @@ namespace Desert::World::Landscape
 
         LandscapeRoot       m_Root;
         LandscapeTileLookup m_Lookup;
+        std::optional<LandscapeEditLayerTarget> m_Layer;
 
         bool                  m_Valid = false;
         int32_t               m_X1    = 0;

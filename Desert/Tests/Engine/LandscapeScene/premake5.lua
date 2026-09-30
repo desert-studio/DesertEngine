@@ -17,13 +17,18 @@ project(test_name)
         -- calls them on a real save, reaches the renderer through Scene.hpp and no suite compiles it —
         -- so the trip is asserted on the pieces it is made of, through the text and bytes on disk.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeEditLayerStack.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeTileFiles.cpp",
+        -- The Edit Layers commands' scene-free half and the merge it runs (landscape_edit_layer_edits_test.cpp).
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeEditLayers.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/Commands/LandscapeEditLayerEdits.cpp",
     }
 
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",
         -- LandscapeData.cpp compiles Shaders/Common/LandscapeHeight.glslh as C++.
         "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
     }

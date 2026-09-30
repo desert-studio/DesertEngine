@@ -90,6 +90,13 @@ namespace Desert::Assets::Serialization
     /// cooked mesh storing them would store data nothing reads. A version-1 file IS a version-2 file with
     /// that section absent, so ReadMeshAssetData reads both and a v1 file comes back with no polygroups;
     /// there is no second reader, only a section count that depends on the version.
+    ///
+    /// Version 3 (AF7) moves the table behind the asset GUID (MeshBinaryHeader.hpp).
+    ///
+    /// Version 4 (MAT1v) appends TWO sections, `Colors` (linear RGBA8, 4 B) and `UV1` (vec2, 8 B): each one
+    /// entry per vertex or none, the optional vertex streams of UE's FColorVertexBuffer and second UV channel.
+    /// They are separate streams and not vertex fields so a mesh without them pays nothing. A v3 file IS a v4
+    /// file with both absent, read by the same function; no corpus migration exists or is needed.
     using Common::Content::kMeshBinaryVersion; // the header layout lives in Common (MeshBinaryHeader.hpp)
 
     using Common::Content::kMeshBinaryMagic;

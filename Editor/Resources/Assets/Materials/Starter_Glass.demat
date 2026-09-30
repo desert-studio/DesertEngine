@@ -5,13 +5,13 @@
         "Versions": {
             "MATL": 4
         },
-        "Dependencies": []
+        "Dependencies": ["2cd21e52ff88b0c7a42c25d9a6ab4238"]
+    },
+    "Shader": {
+        "Guid": "2cd21e52ff88b0c7a42c25d9a6ab4238",
+        "Path": "engine:Shaders/Programs/PBR/StaticMeshGlass.shader"
     },
     "Params": [
-        {
-            "Name": "Transmission",
-            "Value": [0.8999999761581421, 0.0, 0.0, 0.0]
-        },
         {
             "Name": "IOR",
             "Value": [1.5, 0.0, 0.0, 0.0]

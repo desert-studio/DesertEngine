@@ -5,6 +5,7 @@
 #endif
 #include <rflcpp/rfl.hpp>
 #include <Editor/Core/DragPayloads.hpp>
+#include <Editor/Import/TextureDnD.hpp>
 #include <Common/Json/Json.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
@@ -13,16 +14,17 @@
 
 #include <Editor/Core/AssetReferences.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
+#include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
 #include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/MeshDnD.hpp>
 #include <Editor/Import/MeshMaterial.hpp>
 #include <Editor/Import/ImportManager.hpp>
+#include <Editor/Import/TextureChannelPack.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
-#include <Engine/Assets/Mesh/PBRSurfaceParams.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 // The reflection rules for glm types and for the .demat schema. Needed HERE because this file now
 // reads a .demat back — it has to recover the material's existing identity so re-cooking one produces
@@ -157,7 +159,7 @@ namespace Desert::Editor
             {
                 if ( !path || path->empty() )
                     return Common::UUID::Null();
-                return importer.ImportAndRegisterTexture( mgr, *path );
+                return TextureDnD::ImportAndRegister( importer, mgr, *path );
             };
 
             // Dereferenced through a local empty list rather than `*manifest.Materials`: the early
@@ -218,10 +220,31 @@ namespace Desert::Editor
                 // because nothing re-cooks them.
                 const Assets::AssetHandle albedo    = resolveTex( mat.Albedo );
                 const Assets::AssetHandle normal    = resolveTex( mat.Normal );
-                const Assets::AssetHandle roughness = resolveTex( mat.Roughness );
-                const Assets::AssetHandle metallic  = resolveTex( mat.Metallic );
-                const Assets::AssetHandle ao        = resolveTex( mat.AO );
                 const Assets::AssetHandle opacity   = resolveTex( mat.Opacity );
+
+                // ONE ORM SLOT (MAT1a): the PBR templates read occlusion, roughness and metal from u_ORMTexture
+                // (.r / .g / .b). A collection names the three as separate images, so they are packed into one
+                // derived texture beside them — the importer's own packer, so the name, the GUID (kept by path)
+                // and the "unchanged inputs are not rewritten" rule are the ones a mesh import gets.
+                ImportedTextureSlot orm{
+                     .Slot = "u_ORMTexture", .Parts = {}, .Sampler = std::nullopt, .TemplateChannels = "rgb" };
+                for ( const auto& [source, channel] :
+                      { std::pair{ &mat.AO, "r" }, std::pair{ &mat.Roughness, "g" },
+                        std::pair{ &mat.Metallic, "b" } } )
+                    if ( *source && !( *source )->empty() )
+                        orm.Parts.push_back( { std::filesystem::path( **source ), channel } );
+                Assets::AssetHandle ormTexture = Common::UUID::Null();
+                if ( !orm.Parts.empty() )
+                {
+                    const std::filesystem::path packedPath = PackedTexturePath( orm );
+                    if ( const auto packed = PackTextureChannels( orm, packedPath ); packed )
+                        ormTexture = resolveTex( packedPath.generic_string() );
+                    else
+                    {
+                        LOG_ERROR( "[Collections] material '{}': {}; its ORM slot stays empty", mat.Name,
+                                   packed.GetError() );
+                    }
+                }
 
                 const std::string key = "meshes/" + SanitizeName( mat.Name ) +
                                         std::string( Common::Constants::Extensions::MATERIAL_EXTENSION );
@@ -235,18 +258,19 @@ namespace Desert::Editor
                     if ( const auto parsed = Assets::ParseMaterialJson( key, at->second ); parsed )
                         header = parsed.GetValue().Header;
 
-                Assets::PBRSurfaceParams p;
-                p.AlbedoTexture    = albedo;
-                p.NormalTexture    = normal;
-                p.RoughnessTexture = roughness;
-                p.MetallicTexture  = metallic;
-                p.AOTexture        = ao;
-                p.OpacityTexture   = opacity;
-                p.AlphaCutoff      = mat.AlphaCutoff.value_or( mat.Opacity ? 0.5f : 0.0f );
-
-                Assets::MaterialData data = p.ToMaterialData();
-                // The texture slots, by each imported asset's header GUID (MATL 3): the typed view's handles
-                // are folds of those GUIDs and cannot be turned back into them.
+                // ONLY WHAT THE SOURCE STATES, by the template's parameter names: every other value is the
+                // template's own default, answered by its MaterialLayout at bind time — no C++ copy of the
+                // template's Properties restates them here.
+                Assets::MaterialData data;
+                // The map is the value (factor x map, glTF's rule): a stated map runs at factor 1.
+                if ( mat.Roughness )
+                    data.SetParam( "RoughnessFactor", glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) );
+                if ( mat.Metallic )
+                    data.SetParam( "MetallicFactor", glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) );
+                if ( const float cutoff = mat.AlphaCutoff.value_or( mat.Opacity ? 0.5f : 0.0f ); cutoff > 0.0f )
+                    data.SetParam( "AlphaCutoff", glm::vec4( cutoff, 0.0f, 0.0f, 0.0f ) );
+                // The texture slots, by each imported asset's header GUID (MATL 3): a runtime handle is a fold
+                // of that GUID and cannot be turned back into it.
                 const auto stateTexture = [&]( const char* sampler, const Assets::AssetHandle& handle )
                 {
                     if ( static_cast<uint64_t>( handle ) == 0 )
@@ -262,9 +286,7 @@ namespace Desert::Editor
                 };
                 stateTexture( "u_AlbedoTexture", albedo );
                 stateTexture( "u_NormalTexture", normal );
-                stateTexture( "u_RoughnessTexture", roughness );
-                stateTexture( "u_MetallicTexture", metallic );
-                stateTexture( "u_AOTexture", ao );
+                stateTexture( "u_ORMTexture", ormTexture );
                 stateTexture( "u_OpacityTexture", opacity );
                 data.Header = header;
                 data        = Assets::StampMaterialHeader( std::move( data ) );
@@ -636,8 +658,7 @@ namespace Desert::Editor
         // capture keep showing the old shape, and — because ThumbnailService used to ask the same
         // impoverished question — never get a new one (Editor/Widgets/ThumbnailFreshness.hpp).
         if ( m_UIHelper && m_Thumbs &&
-             ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( pngPath, cookedStr ) ) ==
-                  ThumbnailFreshness::Verdict::Show )
+             ThumbnailService::JudgeMeshPicture( cookedStr ) == ThumbnailFreshness::Verdict::Show )
         {
             if ( auto image = m_Thumbs->Get( pngPath ) )
             {

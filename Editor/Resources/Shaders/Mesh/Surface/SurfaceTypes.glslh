@@ -1,0 +1,113 @@
+#ifndef DESERT_SURFACE_TYPES_GLSLH
+#define DESERT_SURFACE_TYPES_GLSLH
+
+// The contract between a surface template and the engine (Core/ShaderCompiler/DShader/DShaderParser.hpp):
+// the author writes `SurfaceOutput EvaluateSurface( SurfaceInput )`, the engine's vertex header for the
+// path fills the varyings, and the engine's pass header builds the input, calls the function and writes
+// the pass's targets. Every cell of every template compiles this file, so it is hashed into their keys.
+//
+// The parser defines, in BOTH stages of a cell: DESERT_SURFACE_PASS_<Pass> (Forward | GBuffer | ShadowDepth)
+// and, for `BlendMode Masked`, DESERT_SURFACE_MASKED. The headers shape their declarations on these so each
+// cell declares exactly what the shader it replaces declared (SurfaceTemplate holds them equal by reflection).
+
+// The source-to-surface arithmetic a surface function is written in (UV transform, base colour, ORM, normal
+// strength, emission, tangent-normal decode) — the same text the PBR shaders compiled.
+#include <Common/TangentNormal.glslh>
+#include <Common/PBRSurfaceInputs.glslh>
+
+struct SurfaceInput
+{
+    vec3 WorldPosition;
+    vec3 Normal; // world space, normalized: the geometric normal
+    vec2 UV0;
+    mat3 TBN; // tangent -> world; SurfaceOutput.Normal goes through it
+    vec2 UV1;         // the mesh's second UV set; (0,0) when it has none
+    vec4 VertexColor; // linear RGBA; white when the mesh has none (UE's VertexColor node)
+};
+
+struct SurfaceOutput
+{
+    vec3  BaseColor; // linear
+    float Metallic;
+    float Roughness; // the pass clamps it to 0.04 so the GGX lobe stays finite
+    vec3  Emissive;  // linear, HDR, added unlit
+    float Opacity;   // read only by BlendMode Masked, against u_Material.OpacityMaskClipValue
+    vec3  Normal;    // TANGENT space, as UE's Normal pin: (0,0,1) is the geometric normal
+    float AmbientOcclusion;
+    // The sun-shadow receive half the material owns (the renderer zeroes a mesh's row value when its Receive
+    // Shadows toggle is off; a template that exposes it forwards u_Material.ReceiveSunShadows here). < 0.5 =
+    // the cascades do not shadow this surface.
+    float ReceiveSunShadows;
+    // The material-complexity proxy the deferred debug view heat-maps (G-buffer C.w): real textures sampled.
+    float SampledTextureCount;
+    float Refraction; // index of refraction (UE's Refraction pin), read only by the translucency pass
+};
+
+// What an author starts from, so a surface that sets only BaseColor still returns a defined value.
+SurfaceOutput DefaultSurfaceOutput()
+{
+    SurfaceOutput s;
+    s.BaseColor           = vec3( 1.0 );
+    s.Metallic            = 0.0;
+    s.Roughness           = 0.5;
+    s.Emissive            = vec3( 0.0 );
+    s.Opacity             = 1.0;
+    s.Normal              = vec3( 0.0, 0.0, 1.0 );
+    s.AmbientOcclusion    = 1.0;
+    s.ReceiveSunShadows   = 1.0;
+    s.SampledTextureCount = 0.0;
+    s.Refraction          = 1.0;
+    return s;
+}
+
+// Whether this cell's stages talk at all: a shadow-depth cell of an opaque template writes gl_FragCoord.z
+// and nothing else, exactly as Programs/Shadow/Shadow*.shader.
+#if !defined( DESERT_SURFACE_PASS_ShadowDepth ) || defined( DESERT_SURFACE_MASKED )
+#define DESERT_SURFACE_HAS_VARYINGS 1
+#endif
+
+// The one interface between a cell's two stages; `q` is `out` in the vertex header, `in` in the pass header.
+// The PBR shaders' five `Vertex` members first, in the same order, then UV1 and VertexColor — so a cell's fragment
+// inputs sit at the locations the shader it replaces read them from.
+#define DESERT_SURFACE_VARYINGS( q ) \
+    layout( location = 0 ) q SurfaceVaryings \
+    { \
+        vec3 WorldPosition; \
+        vec3 Normal; \
+        vec2 UV0; \
+        mat3 TBN; \
+        vec3 CameraPosition; \
+        vec2 UV1; \
+        vec4 VertexColor; \
+    } v_Surface;
+
+SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3 tbn, vec2 uv1, vec4 vertexColor )
+{
+    SurfaceInput i;
+    i.WorldPosition = worldPosition;
+    i.Normal        = normalize( normal );
+    i.UV0           = uv0;
+    i.TBN           = tbn;
+    i.UV1           = uv1;
+    i.VertexColor   = vertexColor;
+    return i;
+}
+
+// The shading normal: the tangent-space output through the interpolated TBN. For the default (0,0,1) this is
+// the TBN's third column, the interpolated geometric normal — what the PBR shaders used without a normal map.
+vec3 DesertSurfaceWorldNormal( SurfaceInput i, SurfaceOutput s )
+{
+    return normalize( i.TBN * s.Normal );
+}
+
+// BlendMode Masked: the parser defines DESERT_SURFACE_MASKED and has already refused a template without the
+// Float parameter the threshold is read from.
+#ifdef DESERT_SURFACE_MASKED
+#define DESERT_SURFACE_CLIP( s ) \
+    if ( ( s ).Opacity < u_Material.OpacityMaskClipValue ) \
+        discard
+#else
+#define DESERT_SURFACE_CLIP( s )
+#endif
+
+#endif

@@ -22,9 +22,11 @@
 #include <assimp/scene.h>
 #include <assimp/version.h>
 
+#include <Editor/Import/Assimp/VertexStreams.hpp>
 #include <Editor/Import/ImportUnits.hpp>
 
 #include <algorithm>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -513,4 +515,89 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// MAT1v: glTF COLOR_0 and TEXCOORD_1 become the asset's optional colour and UV1 streams. The file is written
+// here - a .gltf and its .bin in a temporary folder - with two meshes, only the first carrying the streams,
+// so the neutral fill of the second is asserted too.
+TEST( AssimpLibraryPin, GltfColourZeroAndTexcoordOneBecomeTheVertexStreams )
+{
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "mat1v_vertex_streams";
+    std::filesystem::create_directories( dir );
+
+    const float positions[9] = { 0, 0, 0, 1, 0, 0, 0, 1, 0 };
+    const float uv0[6]       = { 0, 0, 1, 0, 0, 1 };
+    const float uv1[6]       = { 0.25f, 0.5f, 0.75f, 1.0f, -2.0f, 3.0f };
+    // Each channel is k / 255, so the RGBA8 stream must hold exactly k.
+    const float colours[12] = { 51 / 255.f, 0, 1, 1, 0, 128 / 255.f, 0, 204 / 255.f, 1, 1 / 255.f, 1, 0 };
+    std::string bin;
+    const auto  appendBytes = [&bin]( const auto& array )
+    {
+        const std::size_t at = bin.size();
+        bin.resize( at + sizeof( array ) );
+        std::memcpy( &bin[at], &array, sizeof( array ) );
+    };
+    appendBytes( positions );
+    appendBytes( uv0 );
+    appendBytes( uv1 );
+    appendBytes( colours );
+    std::ofstream( dir / "mock.bin", std::ios::binary ) << bin;
+
+    const std::string gltf = R"({
+  "asset": { "version": "2.0" },
+  "scene": 0,
+  "scenes": [ { "nodes": [ 0, 1 ] } ],
+  "nodes": [ { "mesh": 0 }, { "mesh": 1 } ],
+  "meshes": [
+    { "primitives": [ { "attributes": { "POSITION": 0, "TEXCOORD_0": 1, "TEXCOORD_1": 2, "COLOR_0": 3 } } ] },
+    { "primitives": [ { "attributes": { "POSITION": 0 } } ] }
+  ],
+  "buffers": [ { "uri": "mock.bin", "byteLength": 132 } ],
+  "bufferViews": [
+    { "buffer": 0, "byteOffset": 0, "byteLength": 36 },
+    { "buffer": 0, "byteOffset": 36, "byteLength": 24 },
+    { "buffer": 0, "byteOffset": 60, "byteLength": 24 },
+    { "buffer": 0, "byteOffset": 84, "byteLength": 48 }
+  ],
+  "accessors": [
+    { "bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3", "min": [ 0, 0, 0 ], "max": [ 1, 1, 0 ] },
+    { "bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC2" },
+    { "bufferView": 2, "componentType": 5126, "count": 3, "type": "VEC2" },
+    { "bufferView": 3, "componentType": 5126, "count": 3, "type": "VEC4" }
+  ]
+})";
+    ASSERT_EQ( bin.size(), 132u );
+    std::ofstream( dir / "mock.gltf" ) << gltf;
+
+    Assimp::Importer importer;
+    const aiScene*   scene = importer.ReadFile( ( dir / "mock.gltf" ).string(), aiProcess_Triangulate );
+    ASSERT_NE( scene, nullptr ) << importer.GetErrorString();
+    ASSERT_EQ( scene->mNumMeshes, 2u );
+
+    const Desert::Editor::SceneVertexStreams streams = Desert::Editor::StreamsOf( *scene );
+    EXPECT_TRUE( streams.Colors );
+    EXPECT_TRUE( streams.UV1 );
+
+    std::vector<std::array<uint8_t, 4>> colourStream;
+    std::vector<glm::vec2>              uv1Stream;
+    for ( unsigned m = 0; m < scene->mNumMeshes; ++m )
+        Desert::Editor::AppendVertexStreams( *scene->mMeshes[m], streams, colourStream, uv1Stream );
+    ASSERT_EQ( colourStream.size(), 6u );
+    ASSERT_EQ( uv1Stream.size(), 6u );
+
+    // The mesh that carries the streams comes first; its vertices in the file's order (assimp keeps it for a
+    // single triangle).
+    const aiMesh&                carrying        = *scene->mMeshes[0];
+    const std::array<uint8_t, 4> expectColour[3] = { { 51, 0, 255, 255 }, { 0, 128, 0, 204 }, { 255, 1, 255, 0 } };
+    for ( int v = 0; v < 3; ++v )
+    {
+        EXPECT_EQ( colourStream[v], expectColour[v] ) << "vertex " << v;
+        // U as written; V as assimp hands layer 1 over (its glTF reader may flip V, and does so for UV 0 alike).
+        EXPECT_EQ( uv1Stream[v].x, uv1[2 * static_cast<std::size_t>( v )] ) << "vertex " << v;
+        EXPECT_EQ( uv1Stream[v].y, carrying.mTextureCoords[1][v].y ) << "vertex " << v;
+        // The second mesh states neither stream: white and UV (0, 0), one per vertex.
+        EXPECT_EQ( colourStream[3 + v], ( std::array<uint8_t, 4>{ 255, 255, 255, 255 } ) );
+        EXPECT_EQ( uv1Stream[3 + v], glm::vec2( 0.0f ) );
+    }
+    std::filesystem::remove_all( dir );
 }

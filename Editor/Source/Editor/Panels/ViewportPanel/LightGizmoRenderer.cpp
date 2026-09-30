@@ -1,3 +1,4 @@
+#include <Editor/Core/GizmoIdScope.hpp>
 #include "LightGizmoRenderer.hpp"
 #include <Editor/Core/GizmoState.hpp>
 
@@ -409,6 +410,7 @@ namespace Desert::Editor
         // frame's write so the rising edge captures the pose the gesture started from.
         if ( chosen < hierarchy.Size() && !m_ControlDrag.Active() )
         {
+            const Core::GizmoIdScope gizmoId( "LevelControlRig" );
             ImGuizmo::SetOrthographic( false );
             ImGuizmo::SetDrawlist();
             ImGuizmo::SetRect( xpos, ypos, width, height );

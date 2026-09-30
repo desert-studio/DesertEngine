@@ -55,6 +55,11 @@ namespace Desert::Graphic::API::Vulkan
             return m_ProgramMeta;
         }
 
+        [[nodiscard]] const Core::Formats::MaterialLayout& GetMaterialLayout() const override
+        {
+            return m_MaterialLayout;
+        }
+
         const std::vector<VkPipelineShaderStageCreateInfo>& GetPipelineShaderStageCreateInfos() const
         {
             return m_PipelineShaderStageCreateInfos;
@@ -160,6 +165,12 @@ namespace Desert::Graphic::API::Vulkan
             return m_ReflectionData.PushConstantRanges;
         }
 
+        // The input locations the vertex stage declares (ShaderReflection::ReflectVertexInputLocations).
+        [[nodiscard]] const std::vector<uint32_t>& GetVertexInputLocations() const
+        {
+            return m_ReflectionData.VertexInputLocations;
+        }
+
         auto& GetVulkanDescriptorSetInfo() const
         {
             return m_DescriptorSetInfo;
@@ -201,6 +212,7 @@ namespace Desert::Graphic::API::Vulkan
         ShaderVariant m_Variant;
 
         Core::Formats::ShaderProgramMeta             m_ProgramMeta;
+        Core::Formats::MaterialLayout                m_MaterialLayout;
 
         ShaderResource::ReflectionData      m_ReflectionData;
         std::vector<DescriptorSetLayoutRef> m_DescriptorSetLayouts; // indexed by set

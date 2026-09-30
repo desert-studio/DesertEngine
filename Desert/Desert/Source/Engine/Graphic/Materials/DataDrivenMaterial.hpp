@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Materials/Material.hpp>
+#include <Engine/Graphic/Materials/MaterialBinder.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -13,8 +14,8 @@ namespace Desert::Graphic
     class Image2D;
 
     // Generic, data-driven material built from ANY shader by name — no per-shader C++ class. Parameters
-    // come from the shader's `Properties` schema (UI metadata + defaults + declaration ORDER), and the
-    // order is the whole mapping: parameter i is slot i of the row the shader reads. This is what makes
+    // come from the shader's `Properties` schema (UI metadata + defaults), and the cell's MaterialLayout
+    // (MaterialBinder) says where each lands in the row the shader reads. This is what makes
     // arbitrary shaders assignable with dynamic params.
     //
     // WHAT THIS CLASS NO LONGER IS. It used to write its parameters into a per-material `uniform
@@ -22,7 +23,7 @@ namespace Desert::Graphic
     // one set of values — and the renderer keys ONE material per shader, so several objects drawn with
     // one graph shader all rendered the values of whichever draw wrote last. It now holds a ROW instead,
     // and the renderer packs every draw's row into one `Materials[]` storage buffer and names each draw's
-    // row with a push constant, exactly as MaterialPBR has always done. See
+    // row with a push constant, exactly as the old PBR class did. See
     // Engine/Core/Formats/MaterialParamRow.hpp for the measurement, the probe scene and the layout rule.
     //
     // A CONSEQUENCE WORTH STATING: the row is plain CPU memory, so none of the frame-in-flight machinery
@@ -38,7 +39,6 @@ namespace Desert::Graphic
             if ( auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( shaderName ) )
                 m_Schema = shader->GetProgramMeta();
 
-            m_Row.resize( Core::Formats::MaterialParamSlotCount( m_Schema ) );
             ApplyDefaults();
         }
 
@@ -61,14 +61,10 @@ namespace Desert::Graphic
         // Write a scalar/vector param by name. The whole slot is written whatever the parameter's
         // declared width: the components past it are the generated struct's own padding, so there is
         // nothing there to damage, and the alternative — a per-type byte count — is a second statement of
-        // a layout that MaterialParamRow.hpp deliberately has only one of.
+        // a layout that the cell's MaterialLayout deliberately has only one of.
         bool SetParam( const std::string& name, const glm::vec4& value )
         {
-            const auto slot = Core::Formats::MaterialParamSlot( m_Schema, name );
-            if ( !slot )
-                return false;
-            m_Row[*slot] = value;
-            return true;
+            return MaterialBinder::WriteRowParam( GetMaterialLayout(), m_Row, name, value );
         }
 
         // The name the override producers use. Identical to SetParam now — it was a separate entry point
@@ -106,16 +102,10 @@ namespace Desert::Graphic
             return false;
         }
 
-        // Seed every numeric param with its `Properties ... = default` value.
+        // Seed every numeric param with its `Properties ... = default` value, at the cell layout's offset.
         void ApplyDefaults()
         {
-            uint32_t slot = 0;
-            for ( const auto& p : m_Schema.Params )
-            {
-                if ( p.IsTexture )
-                    continue;
-                m_Row[slot++] = p.Default;
-            }
+            m_Row = MaterialBinder::DefaultRow( GetMaterialLayout() );
         }
 
     private:

@@ -1239,6 +1239,8 @@ namespace Desert::Core::Serialize
                     meshSer.CastShadows = smc.CastShadows;
                 if ( !smc.ReceiveShadows )
                     meshSer.ReceiveShadows = smc.ReceiveShadows;
+                if ( smc.TranslucencySortPriority != 0 )
+                    meshSer.TranslucencySortPriority = smc.TranslucencySortPriority;
                 if ( smc.HiddenSubmeshes != 0 )
                     meshSer.HiddenSubmeshes = smc.HiddenSubmeshes;
 
@@ -1284,6 +1286,8 @@ namespace Desert::Core::Serialize
                 smc.LODBias         = meshData.LODBias.value_or( smc.LODBias );
                 smc.CastShadows     = meshData.CastShadows.value_or( smc.CastShadows );
                 smc.ReceiveShadows  = meshData.ReceiveShadows.value_or( smc.ReceiveShadows );
+                smc.TranslucencySortPriority =
+                     meshData.TranslucencySortPriority.value_or( smc.TranslucencySortPriority );
                 smc.HiddenSubmeshes = meshData.HiddenSubmeshes.value_or( smc.HiddenSubmeshes );
 
                 if ( meshData.EditMesh )
@@ -1477,12 +1481,19 @@ namespace Desert::Core::Serialize
                 if ( data.Shader.has_value() )
                 {
                     const std::string context = EntityContext( entity );
-                    if ( auto name = Assets::FindShaderNameByRef( assetManager, *data.Shader,
-                                                                  { "shader", "Material.Shader", context } ) )
-                        mc.ShaderName = name.ExtractValue();
-                    else
+                    // An override only: a reference naming the PBRSurface template is REFUSED with its path, not
+                    // dropped (Assets::FindOverrideShaderNameByRef); the entity keeps no shader, not a guess.
+                    auto name = Assets::FindOverrideShaderNameByRef( assetManager, *data.Shader,
+                                                                     { "shader", "Material.Shader", context } );
+                    if ( !name )
+                    {
+                        issues.push_back( Common::Json::Issue{
+                             "Material.Shader", "an override template's {Guid, Path}", name.GetError() } );
                         LOG_ERROR( "[Scene] {} - the entity draws with no shader until it names one",
                                    name.GetError() );
+                    }
+                    else
+                        mc.ShaderName = name.ExtractValue();
                 }
 
                 if ( data.Params.has_value() )

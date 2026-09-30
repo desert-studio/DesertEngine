@@ -16,13 +16,12 @@ namespace Desert::Geometry
                  mesh.VertexCount() );
 
         const EditMeshAttributes& attributes = mesh.Attributes();
-        if ( attributes.Colors() != nullptr )
-            return Common::MakeError<Ser::MeshAssetData>(
-                 "the mesh carries a vertex colour layer and a .stmesh vertex has no colour; writing it would "
-                 "drop the layer" );
-        if ( attributes.UVLayerCount() > 1 )
+        // The colour layer and UV layer 1 travel as the file's optional streams (MeshBinary v4); layers past
+        // 1 have no stream, and writing the mesh would drop them.
+        if ( attributes.UVLayerCount() > 2 )
             return Common::MakeFormattedError<Ser::MeshAssetData>(
-                 "the mesh carries {} UV layers and a .stmesh vertex has one; writing it would drop layers 1..{}",
+                 "the mesh carries {} UV layers and a .stmesh stores two (UV 0 and UV 1); writing it would drop "
+                 "layers 2..{}",
                  attributes.UVLayerCount(), attributes.UVLayerCount() - 1 );
 
         auto converted = ToRenderMesh( mesh );

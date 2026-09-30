@@ -8,6 +8,7 @@
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/AnimatorForSkeleton.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 
 #include "UIHelper/ImGuiUI.hpp"
@@ -872,7 +873,9 @@ namespace Desert::Editor
         // The static half first: it clears the target's StaticMeshComponent and resets the framing, and it
         // drops any earlier skinned components, so the target carries exactly one mesh.
         SetMesh( Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
-        if ( static_cast<uint64_t>( mesh ) == 0 || !clip )
+        // No clip is Persona's Skeleton and Mesh modes: the animator is still built (the Skeleton Tree and the
+        // bones read it) and stands in the bind pose, which is what those modes show.
+        if ( static_cast<uint64_t>( mesh ) == 0 )
             return;
         EnsureInit();
 
@@ -891,7 +894,7 @@ namespace Desert::Editor
         // the playhead is SetAnimationTime, and ApplyAnimationTime builds the animator (Playing = false and
         // CurrentClip keep that true should the component ever reach a scene that does run the system).
         auto& anim       = m_Target.AddComponent<ECS::AnimationComponent>();
-        anim.CurrentClip = clip->GetClip().AnimationName;
+        anim.CurrentClip = clip ? clip->GetClip().AnimationName : std::string();
         anim.Playing     = false;
         anim.Loop        = true;
 
@@ -961,27 +964,45 @@ namespace Desert::Editor
 
     bool PreviewViewport::ApplyAnimationTime()
     {
-        if ( !m_Clip || !m_Target || !m_Target.HasComponent<ECS::AnimationComponent>() )
+        if ( !m_Target || !m_Target.HasComponent<ECS::AnimationComponent>() )
             return true;
         auto& anim = m_Target.GetComponent<ECS::AnimationComponent>();
-        if ( !anim.Animator )
         {
             // THIS SCENE HAS NO AnimationECSSystem (it needs the editor's AnimationLibrary and AssetManager,
             // and its clock would fight the scrub), so nothing else ever builds the animator: waiting for "the
             // system's next update" left GetAnimator() null forever, which hid the bones, the Skeleton Tree
             // and every "Select Bone" command. The preview builds it itself, the same way the system does,
             // once the skinned mesh has resolved; until then the bind pose renders and the caller keeps
-            // rendering.
+            // rendering. And REBUILDS it the same way: a reimported rig is the same Skeleton with other bones,
+            // so the signature stamp, not the pointer, says the Animator is stale.
             Desert::Mesh* mesh = m_Target.HasComponent<ECS::SkinnedMeshComponent>()
                                       ? Runtime::ResourceRegistry::GetMeshService()->Get(
                                              m_Target.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle )
                                       : nullptr;
             if ( mesh == nullptr || !mesh->IsSkinned() )
-                return false;
-            // IsSkinned() above is the mesh's own type tag: a skinned mesh IS a SkinnedMesh.
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
-            const auto* skinned = static_cast<Desert::SkinnedMesh*>( mesh );
-            anim.Animator       = std::make_unique<Animation::Animator>( skinned->GetSkeleton() );
+            {
+                if ( !anim.Animator )
+                    return false;
+            }
+            else
+            {
+                // IsSkinned() above is the mesh's own type tag: a skinned mesh IS a SkinnedMesh.
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+                const Animation::Skeleton& skeleton = static_cast<Desert::SkinnedMesh*>( mesh )->GetSkeleton();
+                (void)Animation::EnsureAnimatorFor( anim.Animator, anim.BuiltSkeletonSignature, skeleton );
+            }
+        }
+        if ( !m_Clip )
+        {
+            // The bind pose (or the owner's authoring pose over it): with no clip the pipeline's source stage
+            // produces the bind pose, and a zero step evaluates it into the skinning matrices.
+            anim.Animator->Update( Common::Timestep( 0.0f ) );
+            if ( m_PoseOverride )
+            {
+                anim.Animator->ApplyLocalPose();
+                ++m_ContentRevision;
+            }
+            return true;
         }
         const auto& clip    = m_Clip->GetClip();
         const auto* current = anim.Animator->GetCurrentClip();
@@ -1175,9 +1196,14 @@ namespace Desert::Editor
         const ImVec2 origin = ImGui::GetCursorScreenPos();
 
         // The interactive item comes FIRST and the image is painted into it, because UIHelper::Image is not
-        // an ImGui item and so can't be hovered or dragged.
-        ImGui::InvisibleButton( "##preview_viewport", drawSize,
-                                ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight );
+        // an ImGui item and so can't be hovered or dragged. Yielded submits a plain Dummy instead: it takes
+        // no hover id, so the tool over the picture (ImGuizmo refuses a press while any item is hovered, this
+        // frame or the last) gets the press.
+        if ( mode == PreviewInteraction::Yielded )
+            ImGui::Dummy( drawSize );
+        else
+            ImGui::InvisibleButton( "##preview_viewport", drawSize,
+                                    ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight );
         const bool hovered = ImGui::IsItemHovered();
         const bool active  = ImGui::IsItemActive();
         // Claimed on the item itself, right after it is submitted (SetItemUsingMouseWheel reads the LAST
@@ -1334,19 +1360,15 @@ namespace Desert::Editor
         if ( input.Reframe )
             ResetView();
 
-        if ( hovered )
+        if ( hovered && mode != PreviewInteraction::Yielded )
         {
             ImGui::SetMouseCursor( ImGuiMouseCursor_Hand );
             // One sentence per camera, because they genuinely do different things: a promise of panning and
-            // zoom in a view that has neither would be describing a different widget, and a Static row that
-            // advertised dragging would be describing the editor window it opens.
-            if ( mode == PreviewInteraction::Static )
-                ImGui::SetTooltip( "Double-click to open" );
-            else
-                ImGui::SetTooltip( dome ? "Drag to look around - hold L and drag to move the sun - double-click "
-                                          "to reset"
-                                        : "Drag to orbit - right-drag to pan - wheel to zoom - hold L and drag "
-                                          "to move the sun - double-click to reset" );
+            // zoom in a view that has neither would be describing a different widget.
+            ImGui::SetTooltip( dome ? "Drag to look around - hold L and drag to move the sun - double-click "
+                                      "to reset"
+                                    : "Drag to orbit - right-drag to pan - wheel to zoom - hold L and drag "
+                                      "to move the sun - double-click to reset" );
         }
 
         return input;

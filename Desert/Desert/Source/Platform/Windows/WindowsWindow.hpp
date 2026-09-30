@@ -1,6 +1,6 @@
 #pragma once
 
-#include <GLFW/glfw3.h>
+#include <Engine/Core/Glfw.hpp>
 
 #include <Engine/Core/Window.hpp>
 
@@ -72,6 +72,11 @@ namespace Desert::Platform::Windows
         virtual void SetEventCallback( const EventCallbackFn& e ) override
         {
             m_Data.EventCallback = e;
+        }
+
+        void DispatchEvent( Common::Event& e ) override
+        {
+            m_Data.EventCallback( e );
         }
 
         virtual Common::ResultStr<bool> SetupSwapChain() override;

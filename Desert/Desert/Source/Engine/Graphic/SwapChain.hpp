@@ -1,6 +1,6 @@
 #pragma once
 
-#include <GLFW/glfw3.h>
+#include <Engine/Core/Glfw.hpp>
 
 #include <Engine/Core/Device.hpp>
 

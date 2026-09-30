@@ -118,9 +118,9 @@ TEST( CookedRegistryGate, WithNoCacheAndNoCookedRegistryTheScanFindsTheShaders )
 
     bool staticMeshPBR = false;
     for ( const Common::Utils::AssetRegistryEntry* row : gathered.Registry.OfKind( "Shader" ) )
-        staticMeshPBR = staticMeshPBR || row->Key.find( "StaticMeshPBR" ) != std::string::npos;
+        staticMeshPBR = staticMeshPBR || row->Key.find( "StandardSurface" ) != std::string::npos;
     EXPECT_TRUE( staticMeshPBR ) << "the header scan found " << gathered.Registry.OfKind( "Shader" ).size()
-                                 << " shader row(s) and none is StaticMeshPBR";
+                                 << " shader row(s) and none is StandardSurface";
 }
 
 TEST( CookedRegistryGate, TheRegistryFromTheScanIsTheRegistryFromTheCache )
@@ -492,9 +492,9 @@ TEST( CookedRegistryGate, ACacheOfAnotherRowFormIsRebuiltWithoutBeingDeleted )
     EXPECT_FALSE( Common::Content::ParseRegistryCache( firstLine + "0" + body ) );
     // An older registry form embedded in a current cache would hand back rows without their header columns.
     std::string olderRegistry = current;
-    const auto  at            = olderRegistry.find( "\nDesertAssetRegistry 5" );
+    const auto  at            = olderRegistry.find( "\nDesertAssetRegistry 6" );
     ASSERT_NE( at, std::string::npos );
-    olderRegistry.replace( at, std::string( "\nDesertAssetRegistry 5" ).size(), "\nDesertAssetRegistry 4" );
+    olderRegistry.replace( at, std::string( "\nDesertAssetRegistry 6" ).size(), "\nDesertAssetRegistry 5" );
     EXPECT_FALSE( Common::Content::ParseRegistryCache( olderRegistry ) );
 
     // And what the editor does with a refused cache: an empty one, i.e. every header read afresh.

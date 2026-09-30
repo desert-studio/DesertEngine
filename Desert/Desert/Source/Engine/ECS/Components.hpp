@@ -19,7 +19,8 @@
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Projection.hpp>
-#include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
+#include <Engine/Graphic/Materials/Material.hpp>
+#include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 
 #include <Engine/Animation/Animator.hpp>
 
@@ -35,6 +36,7 @@
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
+#include <Engine/World/Landscape/LandscapeEditLayers.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 
 namespace Desert::Geometry
@@ -79,8 +81,9 @@ namespace Desert::ECS
     };
 
     // "Reflected render-data block": editable, reflected fields the editor draws and the renderer maps
-    // to its GPU representation. This is the general concept — a surface Material (PBRSurfaceParams) is
-    // just ONE specialization; camera and lights are others. NOT a material, hence the member is `Data`.
+    // to its GPU representation. This is the general concept — a surface material (its template's
+    // MaterialLayout) is just ONE specialization; camera and lights are others. NOT a material, hence the member
+    // is `Data`.
     struct CameraData
     {
         REFLECT()
@@ -147,6 +150,10 @@ namespace Desert::ECS
         int  LODBias        = 0;    // shifts the AUTO-picked LOD (+coarser, -finer); ignored when ForcedLOD >= 0
         bool CastShadows    = true; // false = skipped by the shadow (depth) passes
         bool ReceiveShadows = true; // false = sun shadows are not applied to this mesh (forward path)
+        // Translucency pass order override (UE's TranslucencySortPriority): a LOWER value draws first, i.e.
+        // behind a higher one whatever their distances; within one value the pass sorts back to front
+        // (Graphic::System::TranslucentSortOrder). Only meaningful for a Translucent-blend material.
+        int TranslucencySortPriority = 0;
         // Per-submesh visibility: bit i set = submesh i is HIDDEN (skipped at draw). 0 = all visible. Up to
         // 64 submeshes; edited per Element in the Materials panel.
         uint64_t HiddenSubmeshes = 0;
@@ -293,6 +300,10 @@ namespace Desert::ECS
         // ULandscapeLayerInfoObject). Every tile's weight plane is keyed by the asset's LayerName, and the
         // paint stroke reads its Hardness/NoWeightBlend (Runtime::LandscapeLayerInfoService resolves them).
         std::vector<Assets::AssetHandle> Layers;
+        // UE edit layers (ALandscape's stack), bottom first: order, name, visibility, lock and alphas. Each
+        // layer's data lives on the tiles it touched (LandscapeTileData::EditLayers, in the DLHT blob), and a
+        // tile's samples are their merge (MergeLandscapeEditLayers).
+        World::Landscape::LandscapeEditLayerStack EditLayers;
     };
 
     // ONE TILE OF A LANDSCAPE (UE: ALandscapeStreamingProxy of one component).
@@ -342,6 +353,10 @@ namespace Desert::ECS
     // Assigns an arbitrary shader (by program name) to whatever renderer draws this entity, with its
     // parameters edited generically in Details (built from the shader's #pragma param schema). The
     // renderer builds a DataDrivenMaterial from ShaderName and applies these overrides.
+    // ShaderName is the ShaderService COMPILE KEY of a template that is NOT `Role PBRSurface`, resolved from
+    // the template's handle by whoever sets it (scene load, a role lookup); empty = no override, the mesh
+    // draws its PBR material slots and Params are only the slot-0 hand-off buffer. No decision compares it
+    // to a template's name.
     struct MaterialComponent
     {
         std::string                          ShaderName;
@@ -477,6 +492,18 @@ namespace Desert::ECS
         uint64_t BuiltRigSource    = 0;
         uint32_t BuiltRigRevision  = 0;
         uint64_t BuiltRigSignature = 0;
+
+        /**
+         * @brief The signature of the skeleton `Animator` was constructed on. TRANSIENT, same shape as the
+         *        stamps above.
+         *
+         * A reimport re-reads the rig AT THE SAME ADDRESS (SkeletonAsset::LoadFromFile), so the Animator's
+         * `const Skeleton&` stays valid while its bind pose, pose buffers and clip bindings were all sized
+         * from the OLD bone list. The address cannot tell a reimported rig from the one it was built on; the
+         * signature can. AnimationECSSystem rebuilds the Animator when this differs (UE: the anim instance is
+         * re-initialised when the skeleton changes).
+         */
+        uint64_t BuiltSkeletonSignature = 0;
 
         AnimationComponent() = default;
 
@@ -2501,6 +2528,14 @@ namespace Desert::ECS
 
         PROPERTY( DisplayName( "Half Height" ), Category( "Collider" ), Range( 1.0f, 5000.0f ), Length )
         float HalfHeight = 50.0f; // Capsule
+
+        PROPERTY( DisplayName( "Capsule Axis" ), Category( "Collider" ) )
+        Physics::CapsuleAxis Axis =
+             Physics::CapsuleAxis::Y; // Capsule: the body-local axis its cylinder runs along
+
+        PROPERTY( DisplayName( "Center" ), Category( "Collider" ), Length )
+        glm::vec3 Center = { 0.0f, 0.0f,
+                             0.0f }; // Box / Sphere / Capsule: body-local offset (UE FKShapeElem Center)
     };
 
     struct ColliderComponent

@@ -37,12 +37,24 @@ namespace Desert::Graphic
         // Those methods are now `BindInputs`; a new material that binds attachments spells it that way.
         virtual void Bind( const MaterialInstance* instance );
 
+        // The asset's TwoSided (MaterialData::TwoSided): the renderer draws this material through the Cull None
+        // permutation of the pass's pipeline (MeshRenderer::CullPermutation). An instance may override it.
+        void SetTwoSided( const bool twoSided )
+        {
+            m_TwoSided = twoSided;
+        }
+        [[nodiscard]] bool IsTwoSided() const
+        {
+            return m_TwoSided;
+        }
+
         // Name the row of the shared `Materials[]` storage buffer that the NEXT recorded draw reads.
         //
         // ON `Material` AND NOT ON ITS SUBCLASSES BECAUSE THERE IS ONE TRANSPORT. A PBR surface, a shader
         // graph, the terrain and the SDF text all deliver their parameters as a row indexed by a push
-        // constant at Core::Formats::kMaterialIndexPushOffset — so this writes that one offset for all of
-        // them, and there is no second place a second offset could be written. (There used to be a second
+        // constant — the push field `MaterialIndex`, found BY NAME in the shader's reconciled MaterialLayout
+        // (Graphic/Materials/MaterialBinder.hpp) — so this writes that one field for all of them, and there
+        // is no second place a second offset could be written. (There used to be a second
         // transport, a uniform block per material, and it could not give two objects different values at
         // all; MaterialParamRow.hpp records what that cost and how it was measured.)
         //
@@ -53,7 +65,7 @@ namespace Desert::Graphic
         void SetMaterialIndex( uint32_t index );
 
         // The MATRIX half of that same push block — the slot Common/MaterialTransport.glslh declares as
-        // `mat4 Transform` at Core::Formats::kMaterialTransformPushOffset. What the matrix MEANS belongs
+        // `mat4 Transform`, written by name like the index. What the matrix MEANS belongs
         // to the drawing path, not to the material: a model matrix on the mesh path, the batcher's
         // pixel -> clip projection on the UI path (Common/UIVertex.glslh).
         //
@@ -64,9 +76,27 @@ namespace Desert::Graphic
         // had nowhere else to write it from.
         void SetPushMatrix( const glm::mat4& matrix );
 
-        // The instanced vertex stages' wind tail (Graphic/InstanceWind.hpp, at kInstancedWindPushOffset after
-        // the 68-byte block above). Every instanced draw writes it, a still one with zeros (FO-7).
+        // The instanced vertex stages' wind tail (Graphic/InstanceWind.hpp): the push fields WindA/WindB.
+        // Every instanced draw writes it, a still one with zeros (FO-7); a cell without them writes nothing.
         void SetInstancedWind( const InstanceWindPush& wind );
+
+        // The SKINNED vertex path's two inputs — the vertex factory's, not the surface's, so they live here
+        // on every material and not on a surface class: the packed bone palette of every skinned draw this
+        // frame, in the path's `Bones` storage buffer (MeshPathOwnBinding(Skinned)), and where THIS draw's
+        // bones start in it, the push field `BoneOffset`. The offset is a PUSH value, written straight into
+        // the push block like the index: Vulkan snapshots it at record time, so the next draw's offset
+        // cannot clobber this one before the GPU runs it. A cell without the buffer or the field (static,
+        // instanced) is a caller bug and says so — a pose uploaded there would vanish without a trace.
+        void UploadSkinnedBones( const glm::mat4* matrices, size_t count );
+        void SetSkinnedBoneOffset( uint32_t firstBone );
+
+        // The cell's reconciled layout (Graphic::Shader::GetMaterialLayout) — what the row, the textures and
+        // the push fields are placed by (MaterialBinder). An empty layout when the shader failed to load.
+        [[nodiscard]] const Core::Formats::MaterialLayout& GetMaterialLayout() const;
+
+        // Writes one push field BY NAME through the shader's reconciled layout (MaterialBinder). False when
+        // the cell does not declare the field — nothing is written then — or when `size` is not its size.
+        bool WritePushField( std::string_view field, const void* value, uint32_t size );
 
         // Public for editor introspection (PropertyEditorBuilder reads reflected properties to build UI).
         const std::vector<IProperty*>& GetRegisteredProperties() const
@@ -175,5 +205,6 @@ namespace Desert::Graphic
 
     private:
         ResourceOwnership m_Accounting;
+        bool              m_TwoSided = false;
     };
 } // namespace Desert::Graphic

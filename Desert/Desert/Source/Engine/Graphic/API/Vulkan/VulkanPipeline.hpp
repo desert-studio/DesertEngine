@@ -1,7 +1,10 @@
 #pragma once
 
+#include <array>
+
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
 
 #include <vulkan/vulkan.hpp>
 
@@ -65,6 +68,13 @@ namespace Desert::Graphic::API::Vulkan
         {
             return GetBuildState() == BuildState::Built ? m_Pipeline : VK_NULL_HANDLE;
         }
+        // The pipeline's vertex input describes the optional streams binding (binding 1) — the layout has
+        // streams AND the vertex stage reads one of them (ShaderReflection::BuildVertexInput): the draw
+        // must bind a buffer there, and must not otherwise.
+        [[nodiscard]] bool HasVertexStreams() const
+        {
+            return m_VertexInput.HasBinding( 1 );
+        }
 
         VkPipelineLayout GetVkPipelineLayout() const
         {
@@ -78,7 +88,7 @@ namespace Desert::Graphic::API::Vulkan
         VkStencilOpState ConvertStencilOpState( const StencilOpState& state );
 
         void CreatePipelineLayout();
-        void CreateVertexInputState();
+        [[nodiscard]] bool CreateVertexInputState(); // false = refused (reason logged)
         void CreateInputAssemblyState();
         void CreateDynamicState();
         void CreateViewportState();
@@ -103,7 +113,7 @@ namespace Desert::Graphic::API::Vulkan
         GraphicsPipelineSpecification m_Specification;
 
         VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
-        VkPipeline       m_Pipeline= VK_NULL_HANDLE;
+        VkPipeline       m_Pipeline       = VK_NULL_HANDLE;
 
         // The descriptor set layouts m_PipelineLayout was built from, held so they outlive it. A shader
         // recompile replaces the shader's references; this pipeline keeps its own until it is rebuilt.
@@ -116,10 +126,10 @@ namespace Desert::Graphic::API::Vulkan
         VkPipelineRasterizationStateCreateInfo m_Rasterizer{};
         VkPipelineMultisampleStateCreateInfo   m_Multisampling{};
         VkPipelineDepthStencilStateCreateInfo  m_DepthStencil{};
-        VkPipelineColorBlendStateCreateInfo    m_ColorBlending{};
-        VkVertexInputBindingDescription m_VertexInputBinding;
+        VkPipelineColorBlendStateCreateInfo            m_ColorBlending{};
+        // Layout ∩ vertex-stage inputs; m_VertexInputInfo points into it.
+        ShaderReflection::VertexInputState m_VertexInput;
 
-        std::vector<VkVertexInputAttributeDescription>   m_VertexAttributes;
         std::vector<VkDynamicState>                      m_DynamicStates;
         std::vector<VkPipelineColorBlendAttachmentState> m_ColorBlendAttachments;
 

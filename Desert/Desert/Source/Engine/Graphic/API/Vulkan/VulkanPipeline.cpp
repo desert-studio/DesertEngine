@@ -95,27 +95,6 @@ namespace Desert::Graphic::API::Vulkan
                 default: return VK_CULL_MODE_BACK_BIT;
             }
         }
-
-        static VkFormat ShaderDataTypeToVulkanFormat( ShaderDataType type )
-        {
-            switch ( type )
-            {
-                case ShaderDataType::Float:  return VK_FORMAT_R32_SFLOAT;
-                case ShaderDataType::Float2: return VK_FORMAT_R32G32_SFLOAT;
-                case ShaderDataType::Float3: return VK_FORMAT_R32G32B32_SFLOAT;
-                case ShaderDataType::Float4: return VK_FORMAT_R32G32B32A32_SFLOAT;
-                case ShaderDataType::Int:    return VK_FORMAT_R32_SINT;
-                case ShaderDataType::Int2:   return VK_FORMAT_R32G32_SINT;
-                case ShaderDataType::Int3:   return VK_FORMAT_R32G32B32_SINT;
-                case ShaderDataType::Int4:   return VK_FORMAT_R32G32B32A32_SINT;
-                case ShaderDataType::Bool:   return VK_FORMAT_R8_UINT;
-                default:
-                {
-                    DESERT_VERIFY( false, "Unknown ShaderDataType!" );
-                    return VK_FORMAT_UNDEFINED;
-                }
-            }
-        }
     }
 
     VulkanPipeline::VulkanPipeline( const GraphicsPipelineSpecification& specification ) 
@@ -218,8 +197,15 @@ namespace Desert::Graphic::API::Vulkan
             return;
         }
 
+        // The vertex input is decided before anything is created: a stage reading a location the layout does
+        // not feed (or an attribute with no Vulkan format) is a refusal, like the missing VERTEX stage above —
+        // the pipeline stays unbuilt and nothing draws, rather than being built over undefined input.
+        if ( !CreateVertexInputState() )
+        {
+            m_State.store( BuildState::Failed, std::memory_order_release );
+            return;
+        }
         CreatePipelineLayout();
-        CreateVertexInputState();
         CreateInputAssemblyState();
         CreateDynamicState();
         CreateViewportState();
@@ -259,8 +245,9 @@ namespace Desert::Graphic::API::Vulkan
                               ->GetVulkanLogicalDevice();        VK_CHECK_RESULT( vkCreatePipelineLayout( device, &layoutInfo, nullptr, &m_PipelineLayout ) );
     }
 
-    void VulkanPipeline::CreateVertexInputState()
+    bool VulkanPipeline::CreateVertexInputState()
     {
+        m_VertexInput = {};
         if ( m_Specification.PullingConfig )
         {
             m_VertexInputInfo = VkPipelineVertexInputStateCreateInfo{
@@ -269,7 +256,7 @@ namespace Desert::Graphic::API::Vulkan
                  .pVertexBindingDescriptions      = nullptr,
                  .vertexAttributeDescriptionCount = 0,
                  .pVertexAttributeDescriptions    = nullptr };
-            return;
+            return true;
         }
 
         if ( !m_Specification.Layout || m_Specification.Layout->GetElementCount() == 0 )
@@ -280,31 +267,32 @@ namespace Desert::Graphic::API::Vulkan
                  .pVertexBindingDescriptions      = nullptr,
                  .vertexAttributeDescriptionCount = 0,
                  .pVertexAttributeDescriptions    = nullptr };
-            return;
+            return true;
         }
 
-        m_VertexInputBinding = VkVertexInputBindingDescription{ .binding   = 0,
-                                                                .stride    = m_Specification.Layout->GetStride(),
-                                                                .inputRate = VK_VERTEX_INPUT_RATE_VERTEX };
-
-        m_VertexAttributes.clear();
-        const auto& layout = m_Specification.Layout.value();
-        for ( uint32_t location = 0; const auto& element : layout )
+        // Layout ∩ what the vertex stage reads (ShaderReflection::BuildVertexInput): no attribute for a
+        // location the shader does not declare, no binding 1 when none of its streams is read.
+        const auto* vulkanShader =
+             std::static_pointer_cast<Graphic::API::Vulkan::VulkanShader>( m_Specification.Shader ).get();
+        m_VertexInput = ShaderReflection::BuildVertexInput( m_Specification.Layout.value(),
+                                                            vulkanShader->GetVertexInputLocations() );
+        if ( const auto refusal = ShaderReflection::VertexInputRefusal( m_VertexInput ) )
         {
-            m_VertexAttributes.push_back(
-                 VkVertexInputAttributeDescription{ .location = location,
-                                                    .binding  = 0,
-                                                    .format   = ShaderDataTypeToVulkanFormat( element.Type ),
-                                                    .offset   = element.Offset } );
-            location++;
+            LOG_ERROR( "[Pipeline] '{}' not created: shader '{}' does not match its vertex layout ({}). The "
+                       "draws using it are skipped.",
+                       m_Specification.DebugName, m_Specification.Shader->GetName(), *refusal );
+            return false;
         }
 
         m_VertexInputInfo = VkPipelineVertexInputStateCreateInfo{
              .sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-             .vertexBindingDescriptionCount   = 1,
-             .pVertexBindingDescriptions      = &m_VertexInputBinding,
-             .vertexAttributeDescriptionCount = static_cast<uint32_t>( m_VertexAttributes.size() ),
-             .pVertexAttributeDescriptions    = m_VertexAttributes.data() };
+             .pNext                           = nullptr,
+             .flags                           = 0,
+             .vertexBindingDescriptionCount   = static_cast<uint32_t>( m_VertexInput.Bindings.size() ),
+             .pVertexBindingDescriptions      = m_VertexInput.Bindings.data(),
+             .vertexAttributeDescriptionCount = static_cast<uint32_t>( m_VertexInput.Attributes.size() ),
+             .pVertexAttributeDescriptions    = m_VertexInput.Attributes.data() };
+        return true;
     }
 
     void VulkanPipeline::CreateInputAssemblyState()

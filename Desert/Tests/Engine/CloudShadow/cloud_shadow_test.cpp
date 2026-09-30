@@ -952,10 +952,10 @@ TEST( CloudShadowReceiver, EverySunLitShaderReachesTheOneSharedFactor )
     // and is asserted separately below.
     const char* kConsumers[] = {
          "Programs/Deferred/DeferredLighting.shader",   // the deferred composite
-         "Programs/PBR/StaticMeshPBR.shader",           // the forward sun
-         "Programs/PBR/StaticMeshPBR_Instanced.shader", // foliage / instanced statics
-         "Programs/PBR/SkinnedMeshPBR.shader",          // drawn FORWARD even in Deferred
-         "Programs/PBR/StaticMeshGlass.shader",         // drawn FORWARD over the composite
+         "Mesh/Surface/Pass_Forward.glslh",             // every forward surface cell: static, instanced, skinned
+         "Mesh/Surface/Pass_Forward_Translucent.glslh", // every translucent cell (the glass template), drawn
+                                                        // FORWARD over the composite; StaticMeshGlass.shader
+                                                        // is only its surface function since SURF2-glass
          "Programs/Terrain/Terrain.shader",             // drawn by neither mesh path
          // Programs/Grass/Grass.shader was the seventh row until Г25. It shaded the PROCEDURAL grass
          // blades, which had to take the same cloud shadow as the ground beneath them or a field became

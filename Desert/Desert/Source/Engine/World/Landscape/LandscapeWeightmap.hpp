@@ -65,6 +65,9 @@ namespace Desert::World::Landscape
         uint32_t Count = 0u;
         /// Tile layers the root no longer names: kept on the tile (LandscapeWeightLayer), reported by the caller.
         std::vector<std::string> Unknown;
+        /// The tile layer that is its visibility mask (kLandscapeVisibilityLayerName), -1 when it has none. That
+        /// channel is never drawn as a colour (Colors[i] stays vec4(0)): the shader reads it only to discard.
+        int32_t Visibility = -1;
     };
 
     /**
@@ -81,6 +84,13 @@ namespace Desert::World::Landscape
         out.Count = static_cast<uint32_t>( std::min<size_t>( layers.size(), kLandscapeMaxWeightLayers ) );
         for ( uint32_t c = 0; c < out.Count; ++c )
         {
+            // Checked before the root: the visibility layer is no root layer, and a root layer that happened to
+            // carry the reserved name must not turn the holes into a colour.
+            if ( layers[c].Name == kLandscapeVisibilityLayerName )
+            {
+                out.Visibility = static_cast<int32_t>( c );
+                continue;
+            }
             bool named = false;
             for ( const auto& info : root )
             {

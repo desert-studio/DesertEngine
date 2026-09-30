@@ -66,7 +66,11 @@ namespace Desert::Editor
                 // turns into programs at startup.
                 std::vector<std::string> passes = { "" };
                 const auto meta = Preprocess::ShaderPreprocess::ParseProgramMetaForPass( content, "" );
-                passes.insert( passes.end(), meta.PassNames.begin(), meta.PassNames.end() );
+                // A surface template's default cell IS the default program: cooked once, as "".
+                const bool surfaceTemplate = Preprocess::DShaderParser::MayDeclareSurface( content );
+                for ( const std::string& pass : meta.PassNames )
+                    if ( !Preprocess::IsSurfaceDefaultCell( surfaceTemplate, pass ) )
+                        passes.push_back( pass );
 
                 for ( const std::string& passName : passes )
                 {

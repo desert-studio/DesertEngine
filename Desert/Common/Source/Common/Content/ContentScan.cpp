@@ -3,6 +3,7 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/AssetRedirector.hpp>
 #include <Common/Content/ImportRecord.hpp>
+#include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -18,6 +19,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 #include <cstdio>
 
 namespace Common::Content
@@ -286,6 +288,26 @@ namespace Common::Content
             return document ? document.GetValue().SkeletonSignature : 0;
         }
 
+        // An import record's `Nodes` member (THM1j): present when the last import split the source into node
+        // meshes
+        // (<stem>_<node>.stmesh beside it) and wrote NO combined mesh. Such a source is not a StaticMesh row of
+        // its own - its node meshes are, each an asset file the scan lists from disk.
+        struct StatedImportNodes
+        {
+            std::optional<std::vector<std::string>> Nodes;
+        };
+        DESERT_JSON_LENIENT( StatedImportNodes, "reads the one Nodes member of a whole import record; the source, "
+                                                "settings and bounds are the rest of that record, not damage" )
+        bool ImportRecordStatesNodes( const std::filesystem::path& record )
+        {
+            const auto text =
+                 Utils::FileSystem::ReadFileContentPrefix( record, Utils::FileSystem::GetFileSize( record ) );
+            if ( !text )
+                return false;
+            const auto document = Json::Read<StatedImportNodes>( text.GetValue() );
+            return document && document.GetValue().Nodes.has_value();
+        }
+
         ResultStr<MeshHeaderBounds> ReadStatedPrefabBounds( const std::filesystem::path& file )
         {
             const auto text =
@@ -317,6 +339,21 @@ namespace Common::Content
                 return {};
             const auto name = value.value().to_string();
             return name ? name.value() : std::string();
+        }
+    } // namespace
+
+    namespace
+    {
+        // The template role the shader's manifest declares; a manifest that does not parse states none here
+        // (ShaderAsset refuses that file by name when it loads).
+        std::string StatedShaderRole( const std::filesystem::path& file )
+        {
+            const auto text =
+                 Utils::FileSystem::ReadFileContentPrefix( file, Utils::FileSystem::GetFileSize( file ) );
+            if ( !text )
+                return {};
+            const auto manifest = ReadShaderManifest( text.GetValue() );
+            return manifest ? manifest.GetValue().Role : std::string();
         }
     } // namespace
 
@@ -357,6 +394,8 @@ namespace Common::Content
             described.RigSignature = StatedRigSignature( file );
         if ( kind == ContentKind::Animation )
             described.RigSignature = StatedClipRigSignature( file );
+        if ( kind == ContentKind::Shader )
+            described.Role = StatedShaderRole( file );
         // RECORD ONLY: the versions are the loading build's to judge, not this walk's (see the context).
         const AssetHeaderReadContext context{ {}, true };
         auto                         stated = ReadAssetHeaderIfStated( file, context );
@@ -420,6 +459,19 @@ namespace Common::Content
                         std::error_code             ec;
                         if ( std::filesystem::exists( asset, ec ) || KindOfContentFile( asset ) != kind )
                             continue;
+                        // A split source's meshes are its nodes; the source itself is no mesh asset (THM1k).
+                        if ( ImportRecordStatesNodes( candidate ) )
+                            continue;
+                        // Only a static file's record stands for a mesh: a skinned source's (or a skeleton's
+                        // and clips') states its own kind and names no static mesh (ImportRecord.hpp).
+                        if ( const auto stated =
+                                  ReadAssetHeaderIfStated( candidate, AssetHeaderReadContext{ {}, true } );
+                             stated )
+                        {
+                            const auto& header = stated.GetValue();
+                            if ( header.has_value() && header->Kind != ContentKind::StaticMesh )
+                                continue;
+                        }
                         if ( const std::string key = AssetHandle::StableKeyForPath( asset ); !key.empty() )
                             visit( candidate, kind, key );
                         continue;
@@ -537,6 +589,7 @@ namespace Common::Content
         entry.DisplayName  = file.DisplayName;
         entry.Skinned      = file.Skinned;
         entry.RigSignature = file.RigSignature;
+        entry.Role         = file.Role;
         return MakeSuccess( std::move( entry ) );
     }
 

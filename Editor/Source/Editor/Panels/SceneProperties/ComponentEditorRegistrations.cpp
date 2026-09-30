@@ -15,6 +15,7 @@
 #include <Editor/Panels/Sequencer/SequencerPanel.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
+#include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
@@ -27,7 +28,6 @@
 #include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
-#include <Engine/Graphic/Clouds/CloudMaterialValues.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/Shader.hpp>
 #include <Editor/Import/MeshDnD.hpp>
@@ -205,8 +205,10 @@ namespace Desert::Editor
         // the one every future editor run resolves to.
         {
             ::Desert::Assets::MaterialData data;
-            if ( const auto stated =
-                      ::Desert::Assets::SurfaceMaterialAsset::StateShaderByName( data, *assetMgr, "Terrain" );
+            const auto terrain = ::Desert::Assets::FindTemplateByRole( *assetMgr, Common::Content::kTerrainRole );
+            if ( const auto stated = terrain ? ::Desert::Assets::SurfaceMaterialAsset::StateShader(
+                                                    data, *assetMgr, terrain.GetValue() )
+                                             : Common::MakeError( terrain.GetError() );
                  !stated )
             {
                 LOG_ERROR( "[Landscape] material '{}': {}", path.string(), stated.GetError() );
@@ -377,8 +379,9 @@ namespace Desert::Editor
     // Collider fitting lives in Editor/Core/ColliderFit.hpp — the toolbar's Collision menu measures the
     // same mesh the same way, and a warning that disagrees with the button that silences it is worse than
     // no warning.
+    using ::Desert::Editor::Core::ColliderHalfSpan;
     using ::Desert::Editor::Core::FitColliderToMesh;
-    using ::Desert::Editor::Core::MeshHalfExtents;
+    using ::Desert::Editor::Core::FitEntityCollider;
 
     // Collider editor: same auto-built reflected UI as the one-liner, PLUS a one-time auto-fit on Add and
     // a manual "Fit to Mesh Bounds" button.
@@ -671,8 +674,11 @@ namespace Desert::Editor
         // same order CreateLandscapeMaterial documents, and for the same handle-adoption reason.
         {
             ::Desert::Assets::MaterialData data;
-            if ( const auto stated = ::Desert::Assets::SurfaceMaterialAsset::StateShaderByName(
-                      data, *assetMgr, ::Desert::Graphic::kCloudMaterialShaderName );
+            const auto                     cloud =
+                 ::Desert::Assets::FindTemplateByRole( *assetMgr, Common::Content::kCloudMaterialRole );
+            if ( const auto stated = cloud ? ::Desert::Assets::SurfaceMaterialAsset::StateShader(
+                                                  data, *assetMgr, cloud.GetValue() )
+                                           : Common::MakeError( cloud.GetError() );
                  !stated )
             {
                 LOG_ERROR( "[Clouds] material '{}': {}", path.string(), stated.GetError() );
@@ -914,30 +920,27 @@ namespace Desert::Editor
 
             // A collider that disagrees with the mesh it is supposed to wrap is invisible until something
             // walks into thin air — the greybox house shipped with double-size colliders for exactly this
-            // reason (see the world-units commit). Say it here, next to the button that fixes it.
-            if ( !ctx.FieldFilter )
+            // reason (see the world-units commit). Say it here, next to the button that fixes it. A Mesh or
+            // ConvexHull collider is cut from that mesh, so it cannot disagree with it.
+            const bool fromMesh = c.Data.Shape == ::Desert::Physics::ShapeType::Mesh ||
+                                  c.Data.Shape == ::Desert::Physics::ShapeType::ConvexHull;
+            if ( ctx.FieldFilter == nullptr && !fromMesh )
             {
-                if ( const auto meshHalf = MeshHalfExtents( en ) )
+                if ( const auto fit = FitEntityCollider( en, c.Data.Shape ); fit.IsSuccess() )
                 {
-                    const glm::vec3 colliderHalf =
-                         c.Data.Shape == ::Desert::Physics::ShapeType::Box
-                              ? c.Data.HalfExtents
-                              : glm::vec3( c.Data.Radius,
-                                           c.Data.Shape == ::Desert::Physics::ShapeType::Capsule
-                                                ? c.Data.HalfHeight + c.Data.Radius
-                                                : c.Data.Radius,
-                                           c.Data.Radius );
+                    const glm::vec3 colliderHalf = ColliderHalfSpan( c.Data );
+                    const glm::vec3 meshHalf     = ColliderHalfSpan( fit.GetValue() );
 
                     // Relative on purpose: 5 cm matters on a doorknob and not on a hillside.
-                    const glm::vec3 ref   = glm::max( *meshHalf, glm::vec3( 1.0f ) );
-                    const glm::vec3 delta = glm::abs( colliderHalf - *meshHalf ) / ref;
+                    const glm::vec3 ref   = glm::max( meshHalf, glm::vec3( 1.0f ) );
+                    const glm::vec3 delta = glm::abs( colliderHalf - meshHalf ) / ref;
                     const float     worst = glm::max( delta.x, glm::max( delta.y, delta.z ) );
                     if ( worst > 0.25f )
                     {
                         ImGui::PushStyleColor( ImGuiCol_Text, ::Desert::Editor::ThemeManager::GetWarningColor() );
                         ImGui::TextWrapped( ICON_MDI_ALERT " Collision is %.0f%% off the mesh bounds "
-                                                           "(mesh half-extents %.0f x %.0f x %.0f cm)",
-                                            worst * 100.0f, meshHalf->x, meshHalf->y, meshHalf->z );
+                                                           "(fitted half-span %.0f x %.0f x %.0f cm)",
+                                            worst * 100.0f, meshHalf.x, meshHalf.y, meshHalf.z );
                         ImGui::PopStyleColor();
                     }
                 }

@@ -53,6 +53,7 @@
 #include <Engine/Animation/Rig/ControlKeyer.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -410,6 +411,45 @@ namespace Desert::Editor
         /// Last frame's authoring pose while nothing is open. See the baseline note above.
         Animation::LocalPose m_Baseline;
         bool                 m_BaselineValid = false;
+    };
+
+    /**
+     * @brief The Animation Editor's bone gizmo gesture: ONE undo entry per press-drag-release.
+     *
+     * The bone-gizmo twin of `ControlGizmoGesture`. ImGuizmo reports only "held this frame" and every held
+     * frame writes the bone, so the edges live here, where a suite can drive them, rather than in the
+     * document's draw code: an explicit transaction opens on the rising edge over the pose the drag starts
+     * from, and closes on the falling edge, pushing at most one entry. A press that moves nothing pushes
+     * nothing — `PoseEditTransaction::End` compares by value.
+     *
+     * The pose source is a callback because the document must only switch its preview into posing on a
+     * real press; asking for the animator every frame the gizmo is merely drawn would take the preview off
+     * the clip.
+     */
+    class BoneGizmoGesture
+    {
+    public:
+        /// Call once per frame after the gizmo reported whether it is held and BEFORE this frame's write is
+        /// applied. @p startPose is called on the rising edge only and returns the animator whose authoring
+        /// pose the drag starts from (nullptr refuses the gesture).
+        /// @return entries pushed this frame: 1 on the release of a gesture that changed the pose, else 0.
+        [[nodiscard]] Common::ResultStr<uint32_t> Step( PoseEditTransaction& transaction, bool held,
+                                                        const std::function<Animation::Animator*()>& startPose,
+                                                        Animation::AnimationClip*                    clip );
+
+        [[nodiscard]] bool Active() const noexcept
+        {
+            return m_Active;
+        }
+
+        /// Forget the gesture without recording it; the owner cancels the transaction itself.
+        void Abandon() noexcept
+        {
+            m_Active = false;
+        }
+
+    private:
+        bool m_Active = false;
     };
 
     /// `Begin` + `End` around one statement, for the instantaneous edits (a "Key" button, a lane's "+").
