@@ -60,7 +60,6 @@
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/ProceduralCharacterFactory.hpp>
 #include <Engine/Animation/Animator.hpp>
-#include <Engine/Animation/ProceduralCharacterAnimations.hpp>
 #include <Engine/Animation/Rig/ControlHierarchy.hpp>
 #include <Engine/Animation/Rig/ControlRigStage.hpp>
 #include <Engine/Assets/AssetEviction.hpp>
@@ -129,6 +128,10 @@
 
 // 3. Editor Panels
 #include "Editor/Panels/SceneHierarchy/SceneHierarchyPanel.hpp"
+#include <Editor/Core/SkeletonAssignPalette.hpp>
+#include <Editor/Panels/AnimationEditor/SkeletonReferenceSlots.hpp>
+#include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
+#include <Engine/Assets/Serialization/AnimationClipWrite.hpp>
 #include "Editor/Panels/SceneProperties/ScenePropertiesPanel.hpp"
 #include "Editor/Panels/Debug/ShaderLibraryPanel.hpp"
 #include "Editor/Panels/Debug/UIDebuggerPanel.hpp"
@@ -4531,6 +4534,47 @@ namespace Desert::Editor
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr EditorLayer::AssignSkeletonFromPalette( const std::string& subject,
+                                                                  const std::string& skeleton ) const
+    {
+        using Common::Content::ContentKind;
+        std::optional<Common::Content::AssetGuid> guid;
+        for ( const auto& row : Assets::ContentRegistry::Rows( ContentKind::Skeleton ) )
+            if ( row.Guid && row.Path.generic_string() == skeleton )
+                guid = *row.Guid;
+        if ( !guid )
+            return Common::MakeError(
+                 std::format( "Assign Skeleton: '{}' is not a registered .skeleton", skeleton ) );
+        const std::filesystem::path path( subject );
+        auto                        load = [&]<typename T>() -> Common::ResultStr<std::shared_ptr<T>>
+        {
+            auto asset = m_AssetManager->FindByPath<T>( path );
+            if ( !asset )
+                asset = m_AssetManager->CreateAsset<T>( path, false );
+            if ( !asset )
+                return Common::MakeError<std::shared_ptr<T>>(
+                     std::format( "Assign Skeleton: '{}' could not be registered", subject ) );
+            if ( const auto loaded = asset->EnsureLoaded( *m_AssetManager ); !loaded )
+                return Common::MakeError<std::shared_ptr<T>>(
+                     std::format( "Assign Skeleton: '{}' would not load: {}", subject, loaded.GetError() ) );
+            return Common::MakeSuccess( std::shared_ptr<T>( std::move( asset ) ) );
+        };
+        if ( path.extension() == ".skmesh" )
+        {
+            const auto mesh = load.template operator()<Assets::SkinnedMeshAsset>();
+            if ( !mesh )
+                return Common::MakeError( mesh.GetError() );
+            return SkeletonSlots::AssignMeshSkeleton( *m_AssetManager, *mesh.GetValue(), *guid );
+        }
+        const auto clip = load.template operator()<Assets::AnimationAsset>();
+        if ( !clip )
+            return Common::MakeError( clip.GetError() );
+        if ( auto assigned = SkeletonSlots::AssignClipSkeleton( *m_AssetManager, *clip.GetValue(), *guid );
+             !assigned )
+            return assigned;
+        return Assets::Serialization::SaveClipToFile( path, clip.GetValue()->GetClip() );
+    }
+
     std::vector<PaletteCommand> EditorLayer::BuildPaletteCommands()
     {
         std::vector<PaletteCommand> commands;
@@ -4590,6 +4634,22 @@ namespace Desert::Editor
                                       return Common::MakeError( "rename: the Assets window does not exist" );
                                   return m_FileExplorerPanel->RenameSelected();
                               } } );
+        // ASSIGN SKELETON (UE's Assign Skeleton on a mesh / clip): the selected .skmesh / .anim against each
+        // registered .skeleton, through the Details slot's CheckSkeletonAssignment path — a refusal lists the
+        // missing and mis-parented bones and writes nothing. A clip's reference lives in its .anim, so an
+        // accepted clip is saved here, as the Animation Editor saves it after the same assignment.
+        {
+            std::vector<std::string> skeletons;
+            for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Skeleton ) )
+                if ( row.Guid )
+                    skeletons.push_back( row.Path.generic_string() );
+            const std::vector<std::string> selected = m_FileExplorerPanel != nullptr
+                                                           ? m_FileExplorerPanel->SelectionPaths()
+                                                           : std::vector<std::string>{};
+            for ( PaletteCommand& command : Editor::SkeletonAssignPaletteCommands(
+                       selected, skeletons, std::bind_front( &EditorLayer::AssignSkeletonFromPalette, this ) ) )
+                commands.push_back( std::move( command ) );
+        }
         // One command per entry the Assets window shows, as a click would reach it (AF10c). Bound, not a
         // lambda: `bugprone-exception-escape` fires on a parameter-less lambda here (see RunDocumentAction).
         if ( m_FileExplorerPanel != nullptr )
@@ -5621,6 +5681,24 @@ namespace Desert::Editor
                                   if ( ms.ActiveTool != Core::ModelingState::Tool::CreateShape )
                                       return PaletteCommandOutcome( false, "the Create Shape tool is not active" );
                                   ms.ReqPlaceCentre = true;
+                                  return PaletteCommandDone();
+                              } } );
+        // The outliner's Add > Animation > Character (Procedural), through the same spawn.
+        commands.push_back( { "Scene", "Spawn Procedural Humanoid", [this]
+                              {
+                                  if ( !m_MainScene )
+                                      return PaletteCommandOutcome( false, "no scene is open" );
+                                  (void)Editor::SceneHierarchyPanel::SpawnProceduralHumanoid( *m_MainScene );
+                                  return PaletteCommandDone();
+                              } } );
+        // The humanoid's mesh and clips are engine content GENERATED from the factory: run once, commit the files.
+        commands.push_back( { "Tools", "Generate Humanoid Engine Assets", []
+                              {
+                                  const auto written = Geometry::ProceduralCharacterFactory::WriteEngineAssets();
+                                  if ( !written )
+                                      return PaletteCommandOutcome( false, written.GetError() );
+                                  for ( const auto& file : written.GetValue() )
+                                      LOG_INFO( "[Humanoid] wrote engine asset '{}'", file.generic_string() );
                                   return PaletteCommandDone();
                               } } );
         // ADD SHAPE: the outliner's Add > Shapes, one entry per authorable primitive, through the same spawn.
@@ -10484,9 +10562,9 @@ namespace Desert::Editor
         // bottom. An AnimationComponent is attached so it animates once idle/walk/run clips are registered.
         {
             auto& body = m_MainScene->CreateNewEntity( "PlayerBody" );
-            body.AddComponent<ECS::SkinnedMeshComponent>().MeshHandle =
-                 Geometry::ProceduralCharacterFactory::GetHumanoidMesh();
-            body.AddComponent<ECS::AnimationComponent>();
+            body.AddComponent<ECS::SkinnedMeshComponent>().MeshHandle = Geometry::HumanoidMeshHandle();
+            body.AddComponent<ECS::AnimationComponent>().CurrentClip =
+                 std::string( Geometry::kHumanoidDefaultClip );
             body.GetComponent<ECS::TransformComponent>().Translation =
                  Common::Units::Metres( 1.0f ) * glm::vec3( 0.0f, -0.9f, 0.0f );
             m_MainScene->Attach( player, body );

@@ -492,9 +492,9 @@ TEST( CookedRegistryGate, ACacheOfAnotherRowFormIsRebuiltWithoutBeingDeleted )
     EXPECT_FALSE( Common::Content::ParseRegistryCache( firstLine + "0" + body ) );
     // An older registry form embedded in a current cache would hand back rows without their header columns.
     std::string olderRegistry = current;
-    const auto  at            = olderRegistry.find( "\nDesertAssetRegistry 6" );
+    const auto  at            = olderRegistry.find( "\nDesertAssetRegistry 7" );
     ASSERT_NE( at, std::string::npos );
-    olderRegistry.replace( at, std::string( "\nDesertAssetRegistry 6" ).size(), "\nDesertAssetRegistry 5" );
+    olderRegistry.replace( at, std::string( "\nDesertAssetRegistry 7" ).size(), "\nDesertAssetRegistry 6" );
     EXPECT_FALSE( Common::Content::ParseRegistryCache( olderRegistry ) );
 
     // And what the editor does with a refused cache: an empty one, i.e. every header read afresh.

@@ -68,8 +68,8 @@ project "SceneMigrator"
         -- THE MESH ASSET READER, since MIG1: a `.stmesh`/`.skmesh` stamped 'MSAS' (AF4d) is judged by the
         -- engine's own DecodeMeshSourceAsset rather than refused as "not DESTMESH"; pure bytes, no GPU.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/MeshSourceAsset.cpp",
-        -- THE .anim STEP ANIM v4 -> v5 (ANIM-I8a): the engine's one clip writer and the Timeline it writes,
-        -- plus the evaluator VerifyLift proves the lift with. Generation 3 itself is this tool's (Source/).
+        -- THE .anim STEP ANIM v4/5 -> v6 (ANIM-I8a, SKEL-TREE): the engine's one clip writer and the Timeline it
+        -- writes, plus the evaluator VerifyLift proves the lift with. Generation 3 itself is this tool's (Source/).
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Channel.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Timeline/Binding.cpp",
@@ -81,6 +81,13 @@ project "SceneMigrator"
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
+        -- SKEL-TREE: ANIM 4 and MeshBinary 3/4 -> 5 resolve the bone hash to the one .skeleton with it
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/SkeletonReference.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp",
+        -- SKEL-fixa: a skinned import's record states its source's hash (Source/ImportRecordSourceHash) through
+        -- the engine's own record reader/writer and the one source hash (HashMeshSourceFile); Common only.
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/ImportRecord.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/MeshDerivedData.cpp",
     }
 
     dependson { "Desert" }

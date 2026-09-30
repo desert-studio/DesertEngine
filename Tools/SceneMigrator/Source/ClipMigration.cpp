@@ -8,11 +8,16 @@
 #include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
 
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
+
+#include <rflcpp/rfl/Flatten.hpp>
 
 #include <algorithm>
 #include <format>
 #include <optional>
+#include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -80,88 +85,43 @@ namespace Desert::Migration
 
     namespace
     {
-        // The clip around a sequence this tool read itself (a TMLN v1 block, which the engine's reader
-        // refuses), written by the one writer: the GUID and import record stay, the writer restamps ANIM/TMLN.
-        Common::ResultStr<std::string> WriteClip( const Assets::Serialization::AnimationAssetData& source,
-                                                  Animation::Timeline::Sequence                    sequence )
+        // Generation 3 as ANIM 4 and 5 wrote it: ANIM 4 named its rig by the bone hash, ANIM 5 by `Skeleton`.
+        struct GenerationThreeFile
         {
-            using namespace Assets::Serialization;
-            if ( sequence.Host != Animation::Timeline::SequenceHost::AnimationClip )
-                return Common::MakeFormattedError<std::string>( "clip '{}': its timeline block is a {} sequence",
-                                                                source.Name,
-                                                                Animation::Timeline::ToString( sequence.Host ) );
-            Animation::AnimationClip clip;
-            clip.AnimationName     = source.Name;
-            clip.SkeletonSignature = source.SkeletonSignature;
-            clip.Sequence          = std::move( sequence );
-            auto data              = BuildAssetDataFromClip( clip );
-            if ( !data )
-                return Common::MakeFormattedError<std::string>( "{}", data.GetError() );
-            AnimationAssetData out = data.ExtractValue();
-            out.Header             = source.Header;
-            out.Import             = source.Import;
-            return Common::Content::CanonicalJsonTextOfWriterOutput( WriteAnimationJson( out ) );
-        }
+            std::optional<uint64_t>                      SkeletonSignature;
+            rfl::Flatten<ClipGen3::AnimationAssetData> Rest;
+        };
     } // namespace
 
-    Common::ResultStr<InterpShiftOutcome> MigrateClipInterpShift( const std::string& text )
+    Common::ResultStr<ClipMigrationOutcome> MigrateClipGeneration3( const std::string_view path, const std::string& text,
+                                                                    const std::span<const Animation::SkeletonCandidate> skeletons )
     {
-        using namespace Assets::Serialization;
-        // The strict reader refuses a v5 header, and must: the body parses with the current layout (v6
-        // changed what a key's mode MEANS, not where it is written). Its block states TMLN v1.
-        auto parsed = Common::Json::Read<AnimationAssetData>( text );
-        if ( !parsed )
-            return Common::MakeFormattedError<InterpShiftOutcome>( "not an ANIM v5 clip: {}", parsed.GetError() );
-        const AnimationAssetData& source = parsed.GetValue();
-        auto                      shifted = ShiftTimelineV1( Common::Json::Write( source.Sequence ) );
-        if ( !shifted )
-            return Common::MakeFormattedError<InterpShiftOutcome>( "clip '{}': {}", source.Name,
-                                                                   shifted.GetError() );
-        TimelineShift      shift = shifted.ExtractValue();
-        InterpShiftOutcome outcome;
-        outcome.KeyLists      = shift.KeyLists;
-        outcome.SamplesProved = shift.SamplesProved;
-        auto written          = WriteClip( source, std::move( shift.Shifted ) );
-        if ( !written )
-            return Common::MakeFormattedError<InterpShiftOutcome>( "{}", written.GetError() );
-        outcome.Text = written.ExtractValue();
-        return Common::MakeSuccess( std::move( outcome ) );
-    }
-
-    Common::ResultStr<std::optional<std::string>> MigrateClipTimelineV1ToV2( const std::string& text )
-    {
-        using namespace Assets::Serialization;
-        auto parsed = Common::Json::Read<AnimationAssetData>( text );
-        if ( !parsed )
-            return Common::MakeFormattedError<std::optional<std::string>>( "not an ANIM v6 clip: {}",
-                                                                           parsed.GetError() );
-        const AnimationAssetData& source = parsed.GetValue();
-        const std::string         block  = Common::Json::Write( source.Sequence );
-        const auto                stated = StatedTimelineVersion( block );
-        if ( !stated )
-            return Common::MakeFormattedError<std::optional<std::string>>( "clip '{}': {}", source.Name,
-                                                                           stated.GetError() );
-        if ( stated.GetValue() != Animation::Timeline::kTimelineLastArrivingInterpVersion )
-            return Common::MakeSuccess( std::optional<std::string>{} );
-        // ANIM v6 already shifted the modes (MigrateClipInterpShift, LiftClip): the number alone moves.
-        auto sequence = ReadTimelineV1( block );
-        if ( !sequence )
-            return Common::MakeFormattedError<std::optional<std::string>>( "clip '{}': {}", source.Name,
-                                                                           sequence.GetError() );
-        auto written = WriteClip( source, sequence.ExtractValue() );
-        if ( !written )
-            return Common::MakeFormattedError<std::optional<std::string>>( "{}", written.GetError() );
-        return Common::MakeSuccess( std::optional<std::string>( written.ExtractValue() ) );
-    }
-
-    Common::ResultStr<ClipMigrationOutcome> MigrateClipGeneration3( const std::string& text )
-    {
-        auto parsed = Common::Json::Read<ClipGen3::AnimationAssetData>( text );
+        auto parsed = Common::Json::Read<GenerationThreeFile>( text );
         if ( !parsed )
             return Common::MakeFormattedError<ClipMigrationOutcome>( "not a generation-3 clip: {}", parsed.GetError() );
-        const ClipGen3::AnimationAssetData& source = parsed.GetValue();
+        ClipGen3::AnimationAssetData source = parsed.GetValue().Rest.get();
         if ( !source.Header )
             return Common::MakeFormattedError<ClipMigrationOutcome>( "generation-3 clip states no header" );
+        const auto stated = source.Header->Versions.find( "ANIM" );
+        if ( stated == source.Header->Versions.end() ||
+             stated->second > Assets::Serialization::kAnimationLastChannelsVersion || stated->second < 4u )
+            return Common::MakeFormattedError<ClipMigrationOutcome>( "'{}': this step lifts ANIM 4 and 5 only", path );
+        if ( stated->second == 4u )
+        {
+            // ANIM 4 -> 5 (SKEL-TREE): the bone hash becomes the GUID of the one .skeleton stating it.
+            const auto guid =
+                 Animation::MigrateSkeletonReference( path, parsed.GetValue().SkeletonSignature.value_or( 0 ), skeletons );
+            if ( !guid )
+                return Common::MakeError<ClipMigrationOutcome>( guid.GetError() );
+            std::string rigPath;
+            for ( const auto& candidate : skeletons )
+                if ( candidate.Guid == guid.GetValue() )
+                    rigPath = candidate.Path;
+            source.Skeleton = Assets::AssetGuidRef{ Common::Content::AssetGuidToText( guid.GetValue() ), rigPath };
+        }
+        else if ( parsed.GetValue().SkeletonSignature )
+            return Common::MakeFormattedError<ClipMigrationOutcome>(
+                 "'{}' states ANIM 5 and a bone-hash SkeletonSignature; ANIM 5 names its skeleton by GUID only", path );
 
         auto built = ClipGen3::BuildClip( source );
         if ( !built )
@@ -176,15 +136,15 @@ namespace Desert::Migration
                                                                      clip.AnimationName, proved.GetError() );
 
         Animation::AnimationClip current;
-        current.AnimationName     = clip.AnimationName;
-        current.SkeletonSignature = clip.SkeletonSignature;
-        current.Sequence          = lifted.ExtractValue();
+        current.AnimationName = clip.AnimationName;
+        current.Sequence      = lifted.ExtractValue();
         auto data = Assets::Serialization::BuildAssetDataFromClip( current );
         if ( !data )
             return Common::MakeFormattedError<ClipMigrationOutcome>( "{}", data.GetError() );
         Assets::Serialization::AnimationAssetData out = data.ExtractValue();
         out.Header = source.Header; // the GUID stays the clip's identity; the writer restamps the versions
-        out.Import = source.Import;
+        out.Import   = source.Import;
+        out.Skeleton = source.Skeleton; // SKEL-TREE: the GUID and its path, as generation 3 stated them
         auto canonical =
              Common::Content::CanonicalJsonTextOfWriterOutput( Assets::Serialization::WriteAnimationJson( out ) );
         if ( !canonical )

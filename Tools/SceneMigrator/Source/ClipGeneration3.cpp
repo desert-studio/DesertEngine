@@ -440,7 +440,6 @@ namespace Desert::Migration::ClipGen3
         clip.DurationTicks     = FrameNumber{ data.DurationTicks };
         clip.TickRate          = tickRate;
         clip.DisplayRate       = displayRate;
-        clip.SkeletonSignature = data.SkeletonSignature;
         clip.Tracks.reserve( data.Channels.size() );
 
         std::unordered_set<std::string> claimed;

@@ -76,8 +76,8 @@ namespace
     AnimationClip ClipWith( float rootY, float childY, bool includeChild )
     {
         // A5: the clip states a length in TICKS on the project grid.
-        AnimationClip clip     = ClipFixture::Clip( "Probe", FrameNumber{ PROJECT_TICK_RATE.Numerator } );
-        clip.SkeletonSignature = 0;
+        AnimationClip clip = ClipFixture::Clip( "Probe", FrameNumber{ PROJECT_TICK_RATE.Numerator } );
+        clip.Skeleton      = {}; // the probe names no skeleton asset; it is bound by bone names only
 
         (void)ClipFixture::AddStaticBone( clip, "Root", glm::vec3( 0.0f, rootY, 0.0f ) );
         if ( includeChild )

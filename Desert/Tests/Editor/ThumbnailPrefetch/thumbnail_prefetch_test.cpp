@@ -20,6 +20,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -499,7 +500,11 @@ TEST( ThumbnailPrefetch, AFolderOfResidentPicturesDecodesNothingWhenEntered )
           at             = panel.find( "ThumbnailPrefetch::Get().Request(", at + 1 ) )
     {
         ++requests;
-        if ( panel.compare( at, 64, "ThumbnailPrefetch::Get().Request( ThumbnailPrefetch::Unresident(" ) == 0 )
+        // The argument may sit on the next line (clang-format breaks the call there): skip the whitespace.
+        const std::size_t argument = panel.find_first_not_of(
+             " \t\r\n", at + std::string_view( "ThumbnailPrefetch::Get().Request(" ).size() );
+        if ( argument != std::string::npos &&
+             panel.compare( argument, 30, "ThumbnailPrefetch::Unresident(" ) == 0 )
             ++filtered;
     }
     EXPECT_GT( requests, 0u );

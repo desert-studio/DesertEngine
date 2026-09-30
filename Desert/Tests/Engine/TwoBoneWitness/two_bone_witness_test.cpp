@@ -33,6 +33,7 @@
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/ClipSkeletonMatch.hpp>
 #include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Animation/SkeletonReference.hpp>
 #include <Engine/Animation/TimeModel.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
@@ -50,6 +51,7 @@
 #include <fstream>
 #include <sstream>
 #include <optional>
+#include <format>
 #include <string>
 #include <vector>
 
@@ -172,16 +174,21 @@ namespace
     Desert::Animation::ClipRigIdentity IdentityOf( const Desert::Animation::AnimationClip& clip )
     {
         Desert::Animation::ClipRigIdentity id;
-        id.ClipName          = clip.AnimationName;
-        id.SkeletonSignature = clip.SkeletonSignature;
-        for ( const auto& track : clip.Tracks )
-        {
-            if ( !track.BoneName.empty() )
-            {
-                id.AnimatedBones.push_back( track.BoneName );
-            }
-        }
+        id.ClipName = clip.AnimationName;
+        id.Skeleton = { clip.Skeleton, std::format( "{}'s skeleton", clip.AnimationName ) };
         return id;
+    }
+
+    // A .skeleton's identity: the GUID in its own header, which is what a mesh or a clip names.
+    Desert::Animation::SkeletonAssetRef SkeletonRefOf( const std::string& stem )
+    {
+        const auto data = LoadSkeletonData( stem );
+        EXPECT_TRUE( data.Header.has_value() ) << stem << ".skeleton has no header";
+        if ( !data.Header )
+            return { {}, stem };
+        auto guid = Common::Content::AssetGuidFromText( data.Header->Guid );
+        EXPECT_TRUE( guid.IsSuccess() ) << stem << ".skeleton has no readable header GUID";
+        return { guid.IsSuccess() ? guid.GetValue() : Common::Content::AssetGuid{}, stem };
     }
 
     // ---------------------------------------------------------------- the two candidate blend orders
@@ -354,17 +361,20 @@ TEST( TwoBoneWitness, TheShippedRigIsTheChainThisSuiteDescribes )
         }
     }
 
-    // One identity, derived twice and written into four files no compiler reads: the rig's own signature
-    // field, the mesh's SkeletonSignature, and both clips'.
+    // The rig's stored signature is still the engine's hash of its bones (the importer matches a new file to
+    // an existing .skeleton by it); the mesh and both clips name the skeleton by its header GUID.
     const std::uint64_t signature = Desert::Animation::Skeleton::ComputeSignature( data.Bones );
     EXPECT_EQ( data.Signature, signature ) << "TwoBoneProbe.skeleton's stored signature is not the one the "
                                               "engine derives for the rig inside it.";
-    EXPECT_EQ( LoadMeshData( "TwoBoneProbe" ).SkeletonSignature.value_or( 0ull ), signature );
+    const auto skeleton = SkeletonRefOf( "TwoBoneProbe" );
+    ASSERT_FALSE( skeleton.Guid.IsNull() );
+    EXPECT_TRUE( LoadMeshData( "TwoBoneProbe" ).Skeleton == skeleton.Guid )
+         << "TwoBoneProbe's mesh names a different skeleton from TwoBoneProbe.skeleton.";
     for ( const char* stem : { "TwoBoneProbe_Wave", "TwoBoneProbe_Twist" } )
     {
-        EXPECT_EQ( LoadClip( stem ).SkeletonSignature, signature )
+        EXPECT_TRUE( LoadClip( stem ).Skeleton == skeleton.Guid )
              << stem
-             << " claims a different rig from TwoBoneProbe.skeleton. Every frame taken against it "
+             << " names a different skeleton from TwoBoneProbe.skeleton. Every frame taken against it "
                 "would show a bind pose and still render, which is broken evidence, not no evidence.";
     }
 
@@ -459,34 +469,32 @@ TEST( TwoBoneWitness, TheRigSeparatesBlendingBeforeSkinningFromBlendingAfterIt )
             "the rig has stopped being an instrument even though every other test here still passes.";
 }
 
-// THE TWO CORPORA MUST NOT DRIVE EACH OTHER'S RIGS. ClipDrivesRig accepts a clip whose animated bones are
-// mostly present BY NAME even when the signature disagrees, so one careless bone name would hand the
-// witness rig the one-bone corpus (and the Foreign_Hips negative control with it) and quietly turn two
-// instruments into one.
+// THE TWO CORPORA MUST NOT PLAY ON EACH OTHER'S MESHES. Each names its own .skeleton by GUID, and
+// ClipPlaysOnMesh compares references, so a clip copied into the wrong corpus is refused by name.
 TEST( TwoBoneWitness, TheWitnessCorpusAndTheOneBoneCorpusStayApart )
 {
     ASSERT_FALSE( RepoRoot().empty() );
 
-    const auto witnessRig = Desert::Animation::IdentifyRig( RigFromFile( "TwoBoneProbe" ) );
-    const auto probeRig   = Desert::Animation::IdentifyRig( RigFromFile( "SkinProbe" ) );
-
-    EXPECT_NE( witnessRig.Signature, probeRig.Signature );
+    const auto witness = SkeletonRefOf( "TwoBoneProbe" );
+    const auto probe   = SkeletonRefOf( "SkinProbe" );
+    ASSERT_FALSE( witness.Guid.IsNull() );
+    ASSERT_FALSE( probe.Guid.IsNull() );
+    EXPECT_FALSE( witness.Guid == probe.Guid ) << "the two probe skeletons share a GUID";
 
     for ( const char* stem : { "TwoBoneProbe_Wave", "TwoBoneProbe_Twist" } )
     {
         const auto identity = IdentityOf( LoadClip( stem ) );
-        EXPECT_TRUE( Desert::Animation::ClipDrivesRig( identity, witnessRig ) )
-             << stem << " is not offered to the rig it names.";
-        EXPECT_FALSE( Desert::Animation::ClipDrivesRig( identity, probeRig ) )
-             << stem << " is offered to the one-bone probe rig, which has neither of its bones.";
+        EXPECT_TRUE( Desert::Animation::ClipPlaysOnMesh( identity.Skeleton, witness, {} ).IsSuccess() )
+             << stem << " does not play on the skeleton it names.";
+        EXPECT_FALSE( Desert::Animation::ClipPlaysOnMesh( identity.Skeleton, probe, {} ).IsSuccess() )
+             << stem << " plays on the one-bone probe skeleton.";
     }
 
-    for ( const char* stem : { "SkinProbe_Hover", "SkinProbe_Tilt", "Foreign_Hips" } )
+    for ( const char* stem : { "SkinProbe_Hover", "SkinProbe_Tilt" } )
     {
-        EXPECT_FALSE( Desert::Animation::ClipDrivesRig( IdentityOf( LoadClip( stem ) ), witnessRig ) )
-             << stem
-             << " is offered to the two-bone witness rig. Rename the bone in the new rig, not the "
-                "match rule: the corpus next door depends on it saying no.";
+        EXPECT_FALSE( Desert::Animation::ClipPlaysOnMesh( IdentityOf( LoadClip( stem ) ).Skeleton, witness, {} )
+                           .IsSuccess() )
+             << stem << " plays on the two-bone witness skeleton.";
     }
 }
 

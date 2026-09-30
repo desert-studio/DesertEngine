@@ -21,7 +21,13 @@ tree_state() {
 # appears in the tree can be traced to the suites that were running when it was born.
 run_one() {
     date +%s >"$2/$(basename "$1").t0"
-    dev_capped 300 "$1" </dev/null >"$2/$(basename "$1").log" 2>&1; echo $? >"$2/$(basename "$1").rc"
+    # Each suite runs in its own emptied scratch directory, exactly as CI's RunTests.sh does: from the tree root a
+    # suite that reads tracked files relative to the working directory passed here and failed in CI (int/thm, 5 suites).
+    local bin log scratch
+    bin="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"; log="$(cd "$2" && pwd)"
+    scratch="$PWD/build/TestScratch/Debug/$(basename "$1")"
+    rm -rf "$scratch" && mkdir -p "$scratch"
+    (cd "$scratch" && dev_capped 300 "$bin" </dev/null >"$log/$(basename "$1").log" 2>&1); echo $? >"$log/$(basename "$1").rc"
     date +%s >"$2/$(basename "$1").t1"
 }
 

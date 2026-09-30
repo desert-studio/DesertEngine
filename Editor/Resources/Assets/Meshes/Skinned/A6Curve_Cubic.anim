@@ -3,110 +3,79 @@
         "Kind": "Animation",
         "Guid": "ec838680efeee3ada2b232f3cfec5d67",
         "Versions": {
-            "ANIM": 6
+            "ANIM": 5
         },
-        "Dependencies": []
+        "Dependencies": ["e2d99946999e4f5e83d40477c2056500"]
     },
     "Name": "A6Curve_Cubic",
-    "SkeletonSignature": 9748021389765177955,
-    "Sequence": {
-        "Header": {
-            "Kind": "",
-            "Guid": "",
-            "Versions": {
-                "TMLN": 2
-            },
-            "Dependencies": []
-        },
-        "Host": 0,
-        "TickRate": [24000, 1],
-        "DisplayRate": [30, 1],
-        "Start": 0,
-        "End": 48000,
-        "Bindings": [
-            {
-                "Guid": "cb0c9023aa34c133a3eb1d7bc9e77529",
-                "Kind": 1,
-                "Locator": "IK_Shoulder",
-                "Label": "IK_Shoulder",
-                "Parent": ""
-            }
-        ],
-        "Tracks": [
-            {
-                "Binding": "cb0c9023aa34c133a3eb1d7bc9e77529",
-                "Property": "",
-                "Kind": 3,
-                "Muted": false,
-                "Sections": [
-                    {
-                        "Start": 0,
-                        "End": 48000,
-                        "Blend": 0,
-                        "Weight": [],
-                        "Row": 0,
-                        "Name": "Whole clip",
-                        "Channel": {
-                            "Kind": 3,
-                            "Components": [
-                                {
-                                    "Keys": [
-                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 0],
-                                        [24000, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 0],
-                                        [48000, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 0]
-                                    ],
-                                    "Default": 0.0
-                                },
-                                {
-                                    "Keys": [
-                                        [0, 150.0, 0.0, 0.0, 0.0, 0.0, 2, 0],
-                                        [24000, 260.0, 0.0, 0.0, 0.0, 0.0, 2, 0],
-                                        [48000, 150.0, 0.0, 0.0, 0.0, 0.0, 2, 0]
-                                    ],
-                                    "Default": 0.0
-                                },
-                                {
-                                    "Keys": [
-                                        [0, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 0],
-                                        [24000, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 0],
-                                        [48000, 0.0, 0.0, 0.0, 0.0, 0.0, 2, 0]
-                                    ],
-                                    "Default": 0.0
-                                },
-                                {
-                                    "Keys": [],
-                                    "Default": 0.0
-                                },
-                                {
-                                    "Keys": [],
-                                    "Default": 0.0
-                                },
-                                {
-                                    "Keys": [],
-                                    "Default": 0.0
-                                },
-                                {
-                                    "Keys": [],
-                                    "Default": 1.0
-                                },
-                                {
-                                    "Keys": [],
-                                    "Default": 1.0
-                                },
-                                {
-                                    "Keys": [],
-                                    "Default": 1.0
-                                },
-                                {
-                                    "Keys": [],
-                                    "Default": 1.0
-                                }
-                            ],
-                            "Events": []
-                        }
-                    }
-                ]
-            }
-        ]
-    }
+    "TickRate": {
+        "Numerator": 24000,
+        "Denominator": 1
+    },
+    "DisplayRate": {
+        "Numerator": 30,
+        "Denominator": 1
+    },
+    "DurationTicks": 48000,
+    "Skeleton": {
+        "Guid": "e2d99946999e4f5e83d40477c2056500",
+        "Path": "Meshes/Skinned/IKProbe.skeleton"
+    },
+    "Channels": [
+        {
+            "BoneName": "IK_Shoulder",
+            "Positions": [
+                {
+                    "Tick": 0,
+                    "Value": [0.0, 150.0, 0.0],
+                    "Shape": {
+                        "Interp": 2,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    },
+                    "ArriveTangent": [0.0, 0.0, 0.0],
+                    "LeaveTangent": [0.0, 0.0, 0.0]
+                },
+                {
+                    "Tick": 24000,
+                    "Value": [0.0, 260.0, 0.0],
+                    "Shape": {
+                        "Interp": 2,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    },
+                    "ArriveTangent": [0.0, 0.0, 0.0],
+                    "LeaveTangent": [0.0, 0.0, 0.0]
+                },
+                {
+                    "Tick": 48000,
+                    "Value": [0.0, 150.0, 0.0],
+                    "Shape": {
+                        "Interp": 2,
+                        "Mode": 0,
+                        "ArriveWeight": 0.0,
+                        "LeaveWeight": 0.0
+                    },
+                    "ArriveTangent": [0.0, 0.0, 0.0],
+                    "LeaveTangent": [0.0, 0.0, 0.0]
+                }
+            ],
+            "Rotations": [],
+            "Scales": []
+        }
+    ],
+    "Notifies": [],
+    "Sections": [
+        {
+            "Name": "Whole clip",
+            "StartTick": 0,
+            "EndTick": 48000,
+            "Blend": 0,
+            "Tracks": [],
+            "Weight": []
+        }
+    ],
+    "Curves": []
 }

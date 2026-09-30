@@ -18,8 +18,9 @@
 # project able to see them.
 #
 # Now three things travel and each has a rule rather than a list:
-#   1. the ENGINE resource trees — Shaders, Fonts, Icons. Whole, because the engine's own services
-#      SCAN them (Engine/Runtime/Services/ServiceScanRoots.hpp) rather than naming files; that is the
+#   1. the ENGINE resource trees — Engine (the engine's content mount, ENGINE_CONTENT_PATH: the
+#      built-in humanoid's skeleton, mesh and clips), Shaders, Fonts, Icons. Whole, because the engine's
+#      own services SCAN them (Engine/Runtime/Services/ServiceScanRoots.hpp) rather than naming files; that is the
 #      same census PackagedContentTrees() ships for a game, and Desert/Tests/Editor/PackagedContent
 #      asserts the two agree.
 #   2. the sandbox descriptor, Desert.deproj.
@@ -74,7 +75,7 @@ done
 # out fresh too, which is why no CI artifact ever carried one and why this could stay invisible: it
 # only ever affected a drop packaged on a developer's own machine, which is the one a developer
 # hands to somebody.
-for tree in Branding Shaders Fonts Icons Splash; do
+for tree in Branding Engine Shaders Fonts Icons Splash; do
     if [ ! -d "$ROOT/Editor/Resources/$tree" ]; then
         echo "Package.sh: engine resource tree Editor/Resources/$tree is missing" >&2
         exit 1
@@ -137,6 +138,6 @@ if [ ! -f "$OUT/Resources/Splash/Splash.tex" ]; then
 fi
 
 echo "Package.sh: packaged -> $OUT"
-echo "  engine resources: Branding + Shaders + Fonts + Icons + Splash (its picture is committed there)"
+echo "  engine resources: Branding + Engine + Shaders + Fonts + Icons + Splash (its picture is committed there)"
 echo "  project assets:   $COPIED files, the closure of $(basename "$PROJECT")'s DefaultScene"
 du -sh "$OUT"

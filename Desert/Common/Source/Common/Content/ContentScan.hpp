@@ -62,9 +62,9 @@ namespace Common::Content
         // package and fails at load, never hides it).
         std::string DisplayName;
         bool        Skinned = false;
-        // AssetRegistryEntry::RigSignature: a skeleton's stated signature, a skinned mesh header's rig, a clip's
-        // stated SkeletonSignature.
-        uint64_t RigSignature = 0;
+        // AssetRegistryEntry::Skeleton: a skeleton's own header GUID, the skeleton GUID a skinned mesh header
+        // names, the GUID a clip's `Skeleton` reference states. Null = the file names none.
+        Content::AssetGuid Skeleton;
         // AssetRegistryEntry::Role: the role a shader's manifest declares (`Role <Name>`).
         std::string Role;
     };

@@ -12,14 +12,18 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstddef>
+#include <Engine/Animation/SkeletonReference.hpp>
+
 #include <optional>
+#include <span>
+#include <string_view>
 #include <string>
 
 namespace Desert::Migration
 {
     struct ClipMigrationOutcome
     {
-        std::string Text; ///< the canonical ANIM v5 text
+        std::string Text; ///< the canonical text of the current ANIM generation (TMLN body + Skeleton GUID)
         std::size_t BoneTracks = 0;
         std::size_t Curves     = 0;
         std::size_t Notifies   = 0;
@@ -32,21 +36,11 @@ namespace Desert::Migration
     [[nodiscard]] Common::BoolResultStr VerifyLift( const ClipGen3::AnimationClip&    clip,
                                                     const Animation::Timeline::Sequence& lift );
 
-    [[nodiscard]] Common::ResultStr<ClipMigrationOutcome> MigrateClipGeneration3( const std::string& text );
+    /// ANIM 4/5 -> 6: generation 3 (per-bone Channels) lifted to the TMLN body, proved by VerifyLift. The skeleton
+    /// is the one ANIM 5 names by GUID; ANIM 4's bone hash `SkeletonSignature` is resolved against @p skeletons
+    /// (Animation::MigrateSkeletonReference: exactly one .skeleton with that signature, else its refusal).
+    [[nodiscard]] Common::ResultStr<ClipMigrationOutcome>
+    MigrateClipGeneration3( std::string_view path, const std::string& text,
+                            std::span<const Animation::SkeletonCandidate> skeletons );
 
-    // THE `.anim` STEP ANIM v5 -> v6 (ANIM-I8b-6): every key's mode moves to the segment LEAVING it (UE's
-    // rule, ClipInterpShift.hpp), proved bit for bit on every tick of every channel, written by the one writer.
-    struct InterpShiftOutcome
-    {
-        std::string Text; ///< the canonical ANIM v6 text
-        std::size_t KeyLists      = 0;
-        std::size_t SamplesProved = 0;
-    };
-
-    [[nodiscard]] Common::ResultStr<InterpShiftOutcome> MigrateClipInterpShift( const std::string& text );
-
-    // THE `.anim` STEP TMLN v1 -> v2 (ANIM-FMT) of an ANIM v6 clip: its modes were shifted at v6, so only the
-    // block's number moves. Empty when the block already states v2.
-    [[nodiscard]] Common::ResultStr<std::optional<std::string>>
-    MigrateClipTimelineV1ToV2( const std::string& text );
 } // namespace Desert::Migration

@@ -16,6 +16,10 @@
 // The current on-disk shape and the two head version integers. Owned by the ENGINE because the engine's
 // saver writes it and its loader parses it; read here because a migration whose input is "the parsed tree"
 // needs the tree's type, and a second copy of that struct is a format that can silently fork.
+#include <Engine/Animation/SkeletonReference.hpp>
+#include <filesystem>
+#include <span>
+#include <string_view>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 
 // The `.deprefab` payload and its gate. A prefab's entities ARE Core::SceneSerialized::Entities - the
@@ -323,6 +327,33 @@ namespace Desert::Migration
     // MinimumLayerWeight) at UE's defaults, the header's GUID kept. A file that does not state FOLT 1, or
     // whose v1 body does not read, is an error naming why. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateFoliageTypeV1ToV2( const std::string& text );
+
+    // The SKEL 3 text of a SKEL 1 or 2 `.skeleton`: header GUID, signature, bones, PreviewMesh and
+    // CompatibleSkeletons kept (SKEL 1 stated neither: null, []); the dead `Import` provenance dropped (SKEL 3).
+    // A file that does not state SKEL 1 or 2 is an error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateSkeletonToV3( const std::string& text );
+
+    // SKEL-TREE (Engine/Animation/SkeletonReference.hpp): what the two raises below resolve a legacy bone hash
+    // against - one .skeleton's header GUID, Signature and path (relative to its `Assets` root, the form an
+    // AssetGuidRef states). A file that does not read as the current SKEL is an error naming it.
+    Common::ResultStr<Animation::SkeletonCandidate> ReadSkeletonCandidate( const std::filesystem::path& path,
+                                                                           const std::string&           text );
+
+    // MeshBinary 3/4 -> 5: the 64-byte header's bone hash becomes the 80-byte header's SkeletonGuid (same rule);
+    // the table and payloads shift behind the longer prefix, v3 gains the empty Colors/UV1 rows. The result is
+    // judged by the engine's DecodeMeshBinary and re-stated by EncodeMeshBinary. PURE.
+    Common::ResultStr<std::string>
+    MigrateMeshBinaryToV5( std::string_view path, std::string_view bytes,
+                           std::span<const Animation::SkeletonCandidate> skeletons );
+
+    // MSAS SRCE 2 -> 3 (a `.stmesh` / `.skmesh` mesh source asset): the skin's bone signature (U64) becomes its
+    // skeleton's GUID (Hi, Lo; same rule as above) and the header's dependencies gain it after the materials; a
+    // static source changes its SRCE version only. Every other section and byte is kept. The result is judged
+    // by the engine's DecodeMeshSourceAsset. A source that does not state SRCE 2 is an error naming what it
+    // states. PURE.
+    Common::ResultStr<std::string>
+    MigrateMeshSourceToV3( std::string_view path, std::string_view bytes,
+                           std::span<const Animation::SkeletonCandidate> skeletons );
 
     // The v3 text of a v2 `.defoliage`: every v2 number kept, CullDistance at UE's default {0, 0} (never
     // culled), the header's GUID kept. A file that does not state FOLT 2 is an error naming what it states.

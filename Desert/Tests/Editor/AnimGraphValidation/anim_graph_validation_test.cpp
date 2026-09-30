@@ -855,8 +855,10 @@ TEST( AnimGraphValidation, TheClipListIsDerivedOnceForThePickerAndForTheValidato
     }
     EXPECT_EQ( uses, 2u ) << "the draw and the document actions no longer share one clip list (found " << uses
                           << " uses)";
-    EXPECT_NE( source.find( "m_Library->GetForSkeleton( anim.Animator->GetSkeleton() )" ), std::string::npos )
-         << "the one derivation no longer asks the library the way AnimationECSSystem does";
+    EXPECT_NE( source.find( "m_Library->GetForMesh( m_Library->IdentifyMeshHandle( ResolveMeshHandle() ) )" ),
+               std::string::npos )
+         << "the one derivation no longer asks the library by the mesh's skeleton reference, the way "
+            "AnimationECSSystem does (IdentifyMeshHandle -> GetForMesh)";
 }
 
 int main( int argc, char** argv )

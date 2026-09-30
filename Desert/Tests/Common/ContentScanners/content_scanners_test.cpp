@@ -22,7 +22,7 @@
 // script picker — walked the literal relative path "Resources" from the PROCESS's working directory,
 // and following that thread found something the register could not have said: the six example scripts
 // it offered lived in the ENGINE resource tree (Resources/Scripts/Examples), which is not one of the
-// five trees PackagedContentTrees() builds an archive from. So every .lua this editor has ever offered
+// six trees PackagedContentTrees() builds an archive from. So every .lua this editor has ever offered
 // was UNPACKAGEABLE, three committed scenes named one, and a packaged game would have loaded none of
 // them. The picker's bad path was not sloppiness beside the real defect; it was the only thing making
 // a folder outside the project's content look like content. The scripts were moved under the assets

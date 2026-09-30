@@ -97,6 +97,8 @@ namespace Desert::Assets::Serialization
     /// entry per vertex or none, the optional vertex streams of UE's FColorVertexBuffer and second UV channel.
     /// They are separate streams and not vertex fields so a mesh without them pays nothing. A v3 file IS a v4
     /// file with both absent, read by the same function; no corpus migration exists or is needed.
+    /// Version 5 (SKEL-TREE) states the mesh's skeleton by GUID in an 80-byte header (the bone-hash
+    /// `SkeletonSignature` is gone); the reader reads version 5 only, Tools/SceneMigrator raises 3 and 4.
     using Common::Content::kMeshBinaryVersion; // the header layout lives in Common (MeshBinaryHeader.hpp)
 
     using Common::Content::kMeshBinaryMagic;
