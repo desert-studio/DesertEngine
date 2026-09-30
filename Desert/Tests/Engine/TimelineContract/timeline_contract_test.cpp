@@ -660,3 +660,10 @@ TEST( LinkedAnimLayer, UnlinkedIsTheDefaultAndAHalfImplementationIsRefused )
     table.Unlink( locomotion.Guid );
     EXPECT_TRUE( table.Resolve( node ).IsNull() );
 }
+}
+
+int main( int argc, char** argv )
+{
+    testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}
