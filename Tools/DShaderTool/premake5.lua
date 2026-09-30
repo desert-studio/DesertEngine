@@ -43,5 +43,8 @@ project "DShaderTool"
 
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
+        -- The shading-model set is read through Common's FileSystem (VFS-aware), and Common's macOS
+        -- FileSystem is Objective-C (the file dialog): linking it needs AppKit + the ObjC runtime.
+        links { "Cocoa.framework", "Foundation.framework" }
 
     filter {}
