@@ -702,8 +702,9 @@ TEST( AnimatorBlending, ACurveIsSampledBetweenKeysByTheLaterKeysInterpolation )
         Animation::ScalarKey last;
         last.Tick   = At( 1.0 );
         last.Value  = 10.0F;
-        last.Interp = interp;
-        keys        = { first, last };
+        first.Interp = interp; // the segment's mode is its earlier key's (UE's rule, ANIM v6)
+        last.Interp  = interp;
+        keys         = { first, last };
         Animation::AutoSetTangents( keys, PROJECT_TICK_RATE ); // end keys are flat
         ClipFixture::AddCurve( clip, name, std::move( keys ) );
     };

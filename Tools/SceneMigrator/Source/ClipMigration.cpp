@@ -1,4 +1,5 @@
 #include "ClipMigration.hpp"
+#include "ClipInterpShift.hpp"
 
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/Skeleton.hpp>
@@ -41,7 +42,16 @@ namespace Desert::Migration
                 return Common::MakeFormattedError<bool>( "tick {}: {}", tick, evaluated.GetError() );
             for ( std::size_t b = 0; b < clip.Tracks.size(); ++b )
             {
-                const BoneTransform expected = clip.SampleTrack( clip.Tracks[b], at, reference );
+                BoneTransform expected = clip.SampleTrack( clip.Tracks[b], at, reference );
+                // THE ONE STATED DIVERGENCE: generation 3's rotation read the PREVIOUS key on the tick of a
+                // Constant key; the sequence reads that key there (a key's tick reads the key, I8b-4b) —
+                // asserted to be the key's own value, not skipped.
+                for ( std::size_t k = 1; k < clip.Tracks[b].RotationKeys.size(); ++k )
+                {
+                    const auto& key = clip.Tracks[b].RotationKeys[k];
+                    if ( key.Tick.Value == tick && key.Interp == Animation::KeyInterp::Constant )
+                        expected.Rotation = key.Rotation;
+                }
                 if ( pose[b].Translation != expected.Translation || pose[b].Rotation != expected.Rotation ||
                      pose[b].Scale != expected.Scale )
                     return Common::MakeFormattedError<bool>( "bone '{}' differs at tick {}", clip.Tracks[b].BoneName,
@@ -57,17 +67,48 @@ namespace Desert::Migration
                 if ( curve == nullptr )
                     return Common::MakeFormattedError<bool>( "curve '{}' has no source", track.Property );
                 const float got = std::get<float>( value.Value );
-                const auto  key = std::find_if( curve->Keys.begin(), curve->Keys.end(),
-                                                [&]( const Animation::ScalarKey& k ) { return k.Tick.Value == tick; } );
-                const bool constantKey = key != curve->Keys.begin() && key != curve->Keys.end() &&
-                                         key->Interp == Animation::KeyInterp::Constant;
-                const float expected = constantKey ? ( key - 1 )->Value : curve->Evaluate( at, clip.TickRate );
+                const float expected = curve->Evaluate( at, clip.TickRate );
                 if ( got != expected )
                     return Common::MakeFormattedError<bool>( "curve '{}' differs at tick {} ({} != {})",
                                                              track.Property, tick, got, expected );
             }
         }
         return Common::MakeSuccess( true );
+    }
+
+    Common::ResultStr<InterpShiftOutcome> MigrateClipInterpShift( const std::string& text )
+    {
+        using namespace Assets::Serialization;
+        // The strict reader refuses a v5 header, and must: the body parses with the current layout (v6
+        // changed what a key's mode MEANS, not where it is written).
+        auto parsed = Common::Json::Read<AnimationAssetData>( text );
+        if ( !parsed )
+            return Common::MakeFormattedError<InterpShiftOutcome>( "not an ANIM v5 clip: {}", parsed.GetError() );
+        const AnimationAssetData& source = parsed.GetValue();
+        auto                      built  = BuildClipFromAssetData( source );
+        if ( !built )
+            return Common::MakeFormattedError<InterpShiftOutcome>( "{}", built.GetError() );
+        Animation::AnimationClip                clip = built.ExtractValue();
+        const Animation::Timeline::Sequence     v5   = clip.Sequence;
+        InterpShiftOutcome                      outcome;
+        outcome.KeyLists = ShiftInterpToLeavingKey( clip.Sequence );
+        auto proved      = VerifyInterpShift( v5, clip.Sequence );
+        if ( !proved )
+            return Common::MakeFormattedError<InterpShiftOutcome>(
+                 "clip '{}': the mode shift is not the identity: {}", clip.AnimationName, proved.GetError() );
+        outcome.SamplesProved = proved.GetValue();
+
+        auto data = BuildAssetDataFromClip( clip );
+        if ( !data )
+            return Common::MakeFormattedError<InterpShiftOutcome>( "{}", data.GetError() );
+        AnimationAssetData out = data.ExtractValue();
+        out.Header             = source.Header; // the GUID stays; the writer restamps ANIM to v6
+        out.Import             = source.Import;
+        auto canonical = Common::Content::CanonicalJsonTextOfWriterOutput( WriteAnimationJson( out ) );
+        if ( !canonical )
+            return Common::MakeFormattedError<InterpShiftOutcome>( "{}", canonical.GetError() );
+        outcome.Text = canonical.ExtractValue();
+        return Common::MakeSuccess( std::move( outcome ) );
     }
 
     Common::ResultStr<ClipMigrationOutcome> MigrateClipGeneration3( const std::string& text )

@@ -27,9 +27,20 @@ namespace Desert::Migration
     };
 
     /// On every tick of [0, Duration]: `EvaluatePose` == `SampleTrack` and each curve == `Evaluate`, bit for
-    /// bit (the one stated divergence — a Constant key's own tick on a curve — asserted, not skipped).
+    /// bit (the one stated divergence — a Constant rotation key's own tick — asserted, not skipped).
     [[nodiscard]] Common::BoolResultStr VerifyLift( const ClipGen3::AnimationClip&    clip,
                                                     const Animation::Timeline::Sequence& lift );
 
     [[nodiscard]] Common::ResultStr<ClipMigrationOutcome> MigrateClipGeneration3( const std::string& text );
+
+    // THE `.anim` STEP ANIM v5 -> v6 (ANIM-I8b-6): every key's mode moves to the segment LEAVING it (UE's
+    // rule, ClipInterpShift.hpp), proved bit for bit on every tick of every channel, written by the one writer.
+    struct InterpShiftOutcome
+    {
+        std::string Text; ///< the canonical ANIM v6 text
+        std::size_t KeyLists      = 0;
+        std::size_t SamplesProved = 0;
+    };
+
+    [[nodiscard]] Common::ResultStr<InterpShiftOutcome> MigrateClipInterpShift( const std::string& text );
 } // namespace Desert::Migration

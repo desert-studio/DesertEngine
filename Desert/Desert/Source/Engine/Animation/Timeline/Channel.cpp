@@ -30,9 +30,10 @@ namespace Desert::Animation::Timeline
         /**
          * The segment a sample falls in: the keys either side, and how far through it the sample sits.
          *
-         * THE SEGMENT IS (prev, next] — the rule `BoneTrack` samples by today, kept so that lifting every
-         * clip in the corpus is bit-exact (a key tick is the END of the segment arriving at it, which is
-         * also what `KeyInterp` on the later key means). `next` is the first key at or after the sample as
+         * THE SEGMENT IS (prev, next]: a key's own tick reads that key (every mode reaches `next.Value` at
+         * factor 1). The segment's SHAPE is `prev.Interp` — UE's rule (FRichCurve / FMovieSceneFloatChannel,
+         * FBX): a key's mode governs the segment LEAVING it, Constant holding the key's value up to the next
+         * key (ANIM v6; SceneMigrator shifts v5 modes one key back). `next` is the first key at or after the sample as
          * a REAL tick count, not as the whole tick: a sample a sub-tick past a key is inside the segment
          * that key starts, never a factor above 1 in the one before it.
          */
@@ -93,7 +94,7 @@ namespace Desert::Animation::Timeline
             }
             const ScalarKey& prev = keys[bracket.Next - 1];
             const ScalarKey& next = keys[bracket.Next];
-            return EvaluateSegment( prev.Value, prev.LeaveTangent, next.Value, next.ArriveTangent, next.Interp,
+            return EvaluateSegment( prev.Value, prev.LeaveTangent, next.Value, next.ArriveTangent, prev.Interp,
                                     bracket.SpanSeconds, bracket.Factor );
         }
 
@@ -288,8 +289,9 @@ namespace Desert::Animation::Timeline
                 break;
         }
         const glm::quat prev = QuatAt( channel, bracket.Next - 1 );
-        // CONSTANT OR SLERP — RotationKeyFrame's two shapes; `Cubic` is refused by Validate until squad.
-        if ( keys[bracket.Next].Interp == KeyInterp::Constant )
+        // CONSTANT OR SLERP — RotationKeyFrame's two shapes; `Cubic` is refused by Validate until squad. The
+        // segment's mode is the EARLIER key's (UE's rule, as `SampleKeys`).
+        if ( keys[bracket.Next - 1].Interp == KeyInterp::Constant )
         {
             // Held until the later key, and that key's own tick reads it (as `EvaluateSegment` does).
             return bracket.Factor < 1.0F ? prev : QuatAt( channel, bracket.Next );
@@ -615,8 +617,9 @@ namespace Desert::Animation::Timeline
         end.ArriveTangent  = tangentAt( 1.0 );
         end.Mode           = TangentMode::User;
         // Linear is the one preset that is not a Hermite: its keys say so, which is what the curve
-        // editor draws and what a later key edit keeps.
-        end.Interp = preset == EasingPreset::Linear ? KeyInterp::Linear : KeyInterp::Cubic;
+        // editor draws and what a later key edit keeps. The segment's mode is its START key's (UE's rule);
+        // the end key's mode shapes the segment after it and is not this preset's to change.
+        start.Interp = preset == EasingPreset::Linear ? KeyInterp::Linear : KeyInterp::Cubic;
 
         result.InsertedKeys = static_cast<uint32_t>( inner.size() );
         keys.insert( keys.begin() + static_cast<std::ptrdiff_t>( endKey ), inner.begin(), inner.end() );
