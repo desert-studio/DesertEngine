@@ -293,7 +293,8 @@ namespace
         AnimationClip clip        = ClipFixture::Clip( "ForeignArm_Swing", FrameNumber{ kClipDurationTicks } );
         clip.Sequence.TickRate    = FrameRate{ 24000, 1 };
         clip.Sequence.DisplayRate = FrameRate{ 8, 1 };
-        clip.Skeleton             = Common::Content::AssetGuidFromText( kSourceRigGuid ).GetValue();
+        const auto skeleton       = Common::Content::AssetGuidFromText( kSourceRigGuid );
+        clip.Skeleton             = skeleton.GetValue();
         (void)ClipFixture::AddBoneChannel(
              clip, rig.Bones[0].Name,
              SwingChannel( rig.Bones[0], glm::vec3( 0.0F, 0.0F, 1.0F ), kShoulderSwingDeg, kRootLiftCm ) );

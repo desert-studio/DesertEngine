@@ -31,6 +31,7 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Engine/Animation/AnimationClip.hpp>
+#include <Engine/Animation/ClipSkeletonMatch.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Animation/SkeletonReference.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>

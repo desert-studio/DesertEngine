@@ -82,7 +82,8 @@ namespace
     Anim::AnimationClip SampleClip()
     {
         Anim::AnimationClip clip  = ClipFixture::Clip( "Walk", Anim::FrameNumber{ 60000 } );
-        clip.Skeleton             = Common::Content::AssetGuidFromText( "123456789abcdef00fedcba987654321" ).GetValue();
+        const auto skeleton       = Common::Content::AssetGuidFromText( "123456789abcdef00fedcba987654321" );
+        clip.Skeleton             = skeleton.GetValue();
         clip.Sequence.DisplayRate = Anim::FrameRate{ 30, 1 };
 
         Timeline::TransformChannel hips;
