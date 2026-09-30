@@ -4,6 +4,8 @@
 
 #include <Common/Settings/MachineSettings.hpp>
 
+#include <Engine/Core/Scene.hpp>
+#include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
 
 #include <algorithm>
@@ -32,20 +34,41 @@ namespace Desert::Editor
             // alternatives, and the sample count is a second control shown only under MSAA — a count that
             // moves nothing in the current method would be a dead setting. Every change applies on the next
             // frame: SceneRenderer recreates its target at the new count, so there is no restart note.
+            //
+            // MSAA ONLY WHERE IT WORKS (AA2, as UE): a deferred scene lists None / FXAA / SMAA, and a stored
+            // MSAA choice shows as what the frame runs there (FXAA, MachineSettings::EffectiveAA) with a line
+            // saying why. The stored choice is not rewritten by looking: it applies again in a forward scene.
             auto&     quality = Common::Settings::MachineSettings::Get();
             const int maxMsaa = Graphic::RenderConfig::MaxMSAASamples.load();
 
+            const auto scene = m_Scene.lock();
+            const bool forwardScene =
+                 !scene || Desert::Core::RenderPathSupportsMSAA( scene->GetSettings().RenderingPath );
+            const Common::Settings::EffectiveAntiAliasing effective = quality.EffectiveAA( forwardScene );
+
             const char* methods[] = { "None", "FXAA", "SMAA", "MSAA" };
-            int         current   = static_cast<int>( quality.AAMethod );
-            if ( ImGui::Combo( "Anti-Aliasing Method", &current, methods, IM_ARRAYSIZE( methods ) ) )
+            const int   offered   = forwardScene ? IM_ARRAYSIZE( methods ) : IM_ARRAYSIZE( methods ) - 1;
+            int         current =
+                 static_cast<int>( effective.MSAAUnavailableOnPath ? effective.Method : quality.AAMethod );
+            if ( ImGui::Combo( "Anti-Aliasing Method", &current, methods, offered ) )
             {
                 quality.AAMethod = static_cast<Common::Settings::AntiAliasingMethod>( current );
                 Common::Settings::MachineSettings::Save();
             }
-            Utils::ImGuiUtilities::Tooltip( "FXAA and SMAA filter the finished image; MSAA renders the scene at "
-                                            "several samples per pixel. Applies on the next frame." );
+            Utils::ImGuiUtilities::Tooltip(
+                 forwardScene ? "FXAA and SMAA filter the finished image; MSAA renders the scene "
+                                "at several samples per pixel. Applies on the next frame."
+                              : "FXAA and SMAA filter the finished image. MSAA is offered in "
+                                "forward scenes only: deferred lighting shades one sample per "
+                                "pixel, so MSAA would not smooth solid objects here." );
+            if ( effective.MSAAUnavailableOnPath )
+                ImGui::TextDisabled( "%s",
+                                     std::format( "MSAA {}x applies to forward scenes; this scene is deferred: "
+                                                  "using FXAA.",
+                                                  quality.MSAASamples )
+                                          .c_str() );
 
-            if ( quality.AAMethod == Common::Settings::AntiAliasingMethod::MSAA )
+            if ( forwardScene && quality.AAMethod == Common::Settings::AntiAliasingMethod::MSAA )
             {
                 const char* levels[] = { "2x", "4x", "8x" };
                 const int   values[] = { 2, 4, 8 };

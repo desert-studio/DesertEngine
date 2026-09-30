@@ -165,6 +165,7 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -213,7 +214,7 @@ namespace
 
         // The type's own member functions through which consumers read this field, when the field is
         // never meant to be read raw (AAMethod/MSAASamples: MSAASamples means nothing unless the method is
-        // MSAA, so every reader goes through EffectiveMSAASamples/PostProcessAA). A call of one of these on
+        // MSAA, so every reader goes through EffectiveAA). A call of one of these on
         // a value of the census type in `Where` counts as the read ONLY because `ViaImpl`, the file that
         // defines them, is checked to read the field inside each getter's own body.
         std::array<const char*, 2> Via{};
@@ -380,8 +381,8 @@ namespace
     // game also runs. One kind, two audiences, two files — and one SCHEMA, whose location is a parameter.
     //
     // The consumer named is SceneRenderer.cpp for the fields the renderer reads per frame. AAMethod and
-    // MSAASamples reach it only through MachineSettings::EffectiveMSAASamples/PostProcessAA (AA1), the one
-    // place the pair is interpreted; the rows name those getters and the test checks their bodies.
+    // MSAASamples reach it only through MachineSettings::EffectiveAA (AA1/AA2), the one
+    // place the pair is interpreted; the rows name that getter and the test checks their bodies.
     // ------------------------------------------------------------------------------------------------
 
     constexpr const char* kSceneRendererImpl = "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp";
@@ -390,17 +391,13 @@ namespace
     constexpr Row kMachineSettingsRows[] = {
          // A per-machine cost (sample count of every scene target), which is exactly the property that
          // makes it the machine's and not the level's. Applied on the next frame since AA1.
-         { "MSAASamples", Owner::Machine, kSceneRendererImpl, { "EffectiveMSAASamples" }, kMachineSettingsImpl },
+         { "MSAASamples", Owner::Machine, kSceneRendererImpl, { "EffectiveAA" }, kMachineSettingsImpl },
 
          // The five К3 took out of the level file. Each passes the mis-authored/rendered-worse test on the
          // "rendered worse" side: MeshLOD off is byte-identical geometry near the camera, Anisotropy 1 and
          // Nearest filtering and AA None are the same picture blurrier or harsher, and CloudQuality High
          // reproduces the calibrated constants to the digit.
-         { "AAMethod",
-           Owner::Machine,
-           kSceneRendererImpl,
-           { "EffectiveMSAASamples", "PostProcessAA" },
-           kMachineSettingsImpl },
+         { "AAMethod", Owner::Machine, kSceneRendererImpl, { "EffectiveAA" }, kMachineSettingsImpl },
          { "MeshLOD", Owner::Machine, kSceneRendererImpl },
          { "TextureFilterMode", Owner::Machine, kSceneRendererImpl },
          { "Anisotropy", Owner::Machine, kSceneRendererImpl },
@@ -1359,8 +1356,8 @@ TEST( ConfigOwnership, RetiredMsaaCountBecomesTheMsaaMethod )
     const auto settings = ReadMigrated( R"({"MSAASamples":4,"AA":"None","MeshLOD":true})" );
     EXPECT_EQ( settings.AAMethod, Common::Settings::AntiAliasingMethod::MSAA );
     EXPECT_EQ( settings.MSAASamples, 4 );
-    EXPECT_EQ( settings.EffectiveMSAASamples(), 4 );
-    EXPECT_EQ( settings.PostProcessAA(), Common::Settings::AntiAliasingMethod::None );
+    EXPECT_EQ( settings.EffectiveAA( true ).Samples, 4 );
+    EXPECT_EQ( settings.EffectiveAA( true ).PostProcess, Common::Settings::AntiAliasingMethod::None );
 
     const std::string written = Common::Json::Write( settings );
     EXPECT_EQ( written.find( "\"AA\"" ), std::string::npos ) << written;
@@ -1378,13 +1375,13 @@ TEST( ConfigOwnership, RetiredPostAAWithoutMsaaBecomesThatMethod )
 {
     const auto smaa = ReadMigrated( R"({"MSAASamples":1,"AA":"SMAA"})" );
     EXPECT_EQ( smaa.AAMethod, Common::Settings::AntiAliasingMethod::SMAA );
-    EXPECT_EQ( smaa.EffectiveMSAASamples(), 1 );
-    EXPECT_EQ( smaa.PostProcessAA(), Common::Settings::AntiAliasingMethod::SMAA );
+    EXPECT_EQ( smaa.EffectiveAA( true ).Samples, 1 );
+    EXPECT_EQ( smaa.EffectiveAA( true ).PostProcess, Common::Settings::AntiAliasingMethod::SMAA );
     EXPECT_EQ( smaa.MSAASamples, 4 );
 
     const auto none = ReadMigrated( R"({"MSAASamples":1,"AA":"None"})" );
     EXPECT_EQ( none.AAMethod, Common::Settings::AntiAliasingMethod::None );
-    EXPECT_EQ( none.EffectiveMSAASamples(), 1 );
+    EXPECT_EQ( none.EffectiveAA( true ).Samples, 1 );
 }
 
 TEST( ConfigOwnership, AnOlderBuildsRetiredKeyNeverOverridesTheMethod )
@@ -1392,6 +1389,96 @@ TEST( ConfigOwnership, AnOlderBuildsRetiredKeyNeverOverridesTheMethod )
     const auto settings = ReadMigrated( R"({"AAMethod":"FXAA","MSAASamples":8,"AA":"SMAA"})" );
     EXPECT_EQ( settings.AAMethod, Common::Settings::AntiAliasingMethod::FXAA );
     // A count kept for MSAA is not a sample count under any other method.
-    EXPECT_EQ( settings.EffectiveMSAASamples(), 1 );
+    EXPECT_EQ( settings.EffectiveAA( true ).Samples, 1 );
     EXPECT_EQ( settings.UnknownKeys.size(), 0u );
+}
+
+// AA2: MSAA only where it works — the forward path. The whole table of stored method x render path.
+TEST( ConfigOwnership, EffectiveAntiAliasingFollowsTheRenderPath )
+{
+    using Common::Settings::AntiAliasingMethod;
+    using Common::Settings::EffectiveAntiAliasing;
+
+    struct Case
+    {
+        AntiAliasingMethod    Stored;
+        bool                  Forward;
+        EffectiveAntiAliasing Expected;
+    };
+    const Case cases[] = {
+         { AntiAliasingMethod::None, true, { AntiAliasingMethod::None, 1, AntiAliasingMethod::None, false } },
+         { AntiAliasingMethod::None, false, { AntiAliasingMethod::None, 1, AntiAliasingMethod::None, false } },
+         { AntiAliasingMethod::FXAA, true, { AntiAliasingMethod::FXAA, 1, AntiAliasingMethod::FXAA, false } },
+         { AntiAliasingMethod::FXAA, false, { AntiAliasingMethod::FXAA, 1, AntiAliasingMethod::FXAA, false } },
+         { AntiAliasingMethod::SMAA, true, { AntiAliasingMethod::SMAA, 1, AntiAliasingMethod::SMAA, false } },
+         { AntiAliasingMethod::SMAA, false, { AntiAliasingMethod::SMAA, 1, AntiAliasingMethod::SMAA, false } },
+         { AntiAliasingMethod::MSAA, true, { AntiAliasingMethod::MSAA, 4, AntiAliasingMethod::None, false } },
+         { AntiAliasingMethod::MSAA, false, { AntiAliasingMethod::FXAA, 1, AntiAliasingMethod::FXAA, true } },
+    };
+    for ( const Case& c : cases )
+    {
+        Common::Settings::MachineSettings settings;
+        settings.AAMethod    = c.Stored;
+        settings.MSAASamples = 4;
+        EXPECT_EQ( settings.EffectiveAA( c.Forward ), c.Expected )
+             << static_cast<int>( c.Stored ) << ( c.Forward ? " forward" : " deferred" );
+        // The stored choice is never rewritten by the fallback.
+        EXPECT_EQ( settings.AAMethod, c.Stored );
+        EXPECT_EQ( settings.MSAASamples, 4 );
+    }
+    EXPECT_TRUE( Desert::Core::RenderPathSupportsMSAA( Desert::Core::RenderPath::Forward ) );
+    EXPECT_FALSE( Desert::Core::RenderPathSupportsMSAA( Desert::Core::RenderPath::Deferred ) );
+}
+
+// AA2: no multisampled scene target in a deferred scene, for every method and every count a machine can
+// store; and SceneRenderer sizes its target from EffectiveAA and from nothing else.
+TEST( ConfigOwnership, NoMultisampledSceneTargetOnTheDeferredPath )
+{
+    using Common::Settings::AntiAliasingMethod;
+    for ( const AntiAliasingMethod method : { AntiAliasingMethod::None, AntiAliasingMethod::FXAA,
+                                              AntiAliasingMethod::SMAA, AntiAliasingMethod::MSAA } )
+        for ( const int samples : { 1, 2, 4, 8 } )
+        {
+            Common::Settings::MachineSettings settings;
+            settings.AAMethod    = method;
+            settings.MSAASamples = samples;
+            const auto deferred  = settings.EffectiveAA(
+                 Desert::Core::RenderPathSupportsMSAA( Desert::Core::RenderPath::Deferred ) );
+            EXPECT_EQ( deferred.Samples, 1 ) << static_cast<int>( method ) << " " << samples;
+            EXPECT_NE( deferred.Method, AntiAliasingMethod::MSAA );
+        }
+
+    const std::string text = ReadAll( RepoRoot() + kSceneRendererImpl );
+    ASSERT_FALSE( text.empty() );
+    // The initial target is single-sampled; the per-frame count comes from the EffectiveAA result.
+    EXPECT_TRUE( std::regex_search( text, std::regex( R"(fbSpec\.Samples\s*=\s*1;)" ) ) );
+    EXPECT_NE( text.find( "ApplySceneSampleCount( SupportedSceneSamples( aa.Samples ) );" ), std::string::npos );
+    size_t calls = 0;
+    for ( size_t at = text.find( "ApplySceneSampleCount(" ); at != std::string::npos;
+          at        = text.find( "ApplySceneSampleCount(", at + 1 ) )
+        ++calls;
+    // The definition and the one call.
+    EXPECT_EQ( calls, 2u );
+}
+
+// AA2: the fallback line is written once per scene, not per frame, and again only when something changed.
+TEST( ConfigOwnership, TheMsaaFallbackIsLoggedOncePerScene )
+{
+    using Common::Settings::AntiAliasingMethod;
+    Common::Settings::MachineSettings msaa;
+    msaa.AAMethod                              = AntiAliasingMethod::MSAA;
+    const auto                        fellBack = msaa.EffectiveAA( false );
+    const auto                        forward  = msaa.EffectiveAA( true );
+    Common::Settings::MachineSettings fxaa;
+    const auto                        plain = fxaa.EffectiveAA( false );
+
+    Common::Settings::AntiAliasingFallbackNotice notice;
+    EXPECT_TRUE( notice.Observe( 1, fellBack ) ); // first frame of a deferred scene under MSAA
+    for ( int frame = 0; frame < 100; ++frame )
+        EXPECT_FALSE( notice.Observe( 1, fellBack ) ); // same scene: silent from here on
+    EXPECT_TRUE( notice.Observe( 2, fellBack ) );      // another deferred scene: said again
+    EXPECT_FALSE( notice.Observe( 3, forward ) );      // a forward scene runs MSAA: nothing to say
+    EXPECT_FALSE( notice.Observe( 4, plain ) );        // FXAA chosen: nothing to say
+    EXPECT_TRUE( notice.Observe( 4, fellBack ) );      // MSAA picked again in the same deferred scene
+    EXPECT_FALSE( notice.Observe( 4, fellBack ) );
 }
