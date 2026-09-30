@@ -289,9 +289,10 @@ namespace Desert::Editor
                 found.erase( it );
             }
         }
-        // A skinned import's file (`.skmesh`, `.skeleton`, `<stem>_<clip>.anim`): the record of the source the
-        // file itself states (ImportedAssetSource::SkinnedAssetSource) - never the name, which has no inverse for
-        // a clip. No stated source, or a source with no record beside it: no import to state the orbit.
+        // A skinned import's file (`.skmesh`, `.skeleton`, `<stem>_<clip>.anim`): the record of the source that
+        // wrote it (ImportedAssetSource::SkinnedAssetSource: a clip's own `Import`, the record beside a mesh or a
+        // rig) - never the name alone, which has no inverse for a clip. No source, or a source with no record
+        // beside it: no import to state the orbit.
         if ( CookPaths::IsSkinnedAssetFile( meshFile ) )
         {
             const auto stated = ImportedAssetSource::SkinnedAssetSource( meshFile );
@@ -307,12 +308,9 @@ namespace Desert::Editor
         }
 
         const std::string stem = meshFile.stem().string();
-        for ( const auto& entry : std::filesystem::directory_iterator( meshFile.parent_path(), ec ) )
+        for ( const std::filesystem::path& source : Common::Content::SourcesRecordedIn( meshFile.parent_path() ) )
         {
-            if ( !Common::Content::IsImportRecord( entry.path() ) )
-                continue;
-            const std::filesystem::path source = entry.path().parent_path() / entry.path().stem();
-            const std::string           prefix = std::format( "{}_", source.stem().string() );
+            const std::string prefix = std::format( "{}_", source.stem().string() );
             if ( stem.size() <= prefix.size() || stem.compare( 0, prefix.size(), prefix ) != 0 )
                 continue;
             const auto record = Ser::ReadImportRecord( source );

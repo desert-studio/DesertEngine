@@ -84,7 +84,8 @@ namespace Desert::Editor
 
     // THE HOME OF @p meshFile's orbit: the raw source whose import record states it (the source itself for a
     // combined mesh, the source whose `Nodes` wrote a node `.stmesh`, the skinned source whose import wrote a
-    // `.skmesh` / `.skeleton` / `.anim`, as that file states it (ImportedAssetSource::SkinnedAssetSource));
+    // `.skmesh` / `.skeleton` / `.anim` (ImportedAssetSource::SkinnedAssetSource: a clip's `Import`, the record
+    // beside a mesh or a rig));
     // nullopt for a mesh no import wrote. The node lookup is remembered per process (a browser asks per visible
     // tile per frame) and re-done when that record is gone.
     [[nodiscard]] Common::ResultStr<std::optional<std::filesystem::path>>

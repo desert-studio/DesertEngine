@@ -539,8 +539,9 @@ namespace Desert::Editor::ImportOptions
 
     std::optional<std::filesystem::path> ImportSourceOfAsset( const std::filesystem::path& assetPath )
     {
-        // A skinned import's file names its source inside (ImportedAssetSource::SkinnedAssetSource): a clip's
-        // `<stem>_<clip>.anim` has no inverse, and the rig states the extension the name cannot.
+        // A skinned import's file is traced to its source by what the import wrote (ImportedAssetSource::
+        // SkinnedAssetSource): a clip's own `Import` (`<stem>_<clip>.anim` has no inverse), the record beside a
+        // mesh or a rig (it states the extension the name cannot).
         if ( CookPaths::IsSkinnedAssetFile( assetPath ) )
         {
             const auto stated = ImportedAssetSource::SkinnedAssetSource( assetPath );
