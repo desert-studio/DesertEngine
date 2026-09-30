@@ -5,6 +5,7 @@
 #define NOMINMAX
 
 #include "FileExplorerPanel.hpp"
+#include <Editor/Platform/DesktopPlatform.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/SceneOpenRequest.hpp>
 #include <Editor/Panels/Clouds/CloudDocumentOpen.hpp>
@@ -2273,8 +2274,8 @@ namespace Desert::Editor
 
     void FileExplorerPanel::ImportExternalTexture()
     {
-        const auto picked = Common::Utils::FileSystem::OpenFileDialog(
-             "Images\0*.png;*.tga;*.jpg;*.jpeg;*.bmp;*.hdr\0All\0*.*\0" );
+        const auto picked =
+             DesktopPlatform::OpenFileDialog( "Images\0*.png;*.tga;*.jpg;*.jpeg;*.bmp;*.hdr\0All\0*.*\0" );
         if ( !picked.empty() )
             ImportExternalFile( picked );
     }
@@ -2434,8 +2435,8 @@ namespace Desert::Editor
                         LOG_ERROR( "[Import] {}", done.GetError() );
                 if ( ImGui::MenuItem( "Reimport with New File..." ) )
                 {
-                    const auto chosen = Common::Utils::FileSystem::OpenFileDialog(
-                         "Meshes\0*.fbx;*.glb;*.gltf;*.obj\0All\0*.*\0" );
+                    const auto chosen =
+                         DesktopPlatform::OpenFileDialog( "Meshes\0*.fbx;*.glb;*.gltf;*.obj\0All\0*.*\0" );
                     if ( !chosen.empty() )
                         if ( const auto done = ImportOptions::ReimportWithNewFile( entry.AssetPath, chosen );
                              !done )

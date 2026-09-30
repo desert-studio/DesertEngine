@@ -46,9 +46,6 @@ project(test_name)
     -- the key this suite is about into the id a .demat carries. Optick: Common's JobSystem registers its
     -- worker threads with the profiler.
     links { "Common", "Optick" }
-    -- MaterialAdoption reads the .demat through Common's FileSystem, whose macOS half is Objective-C.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

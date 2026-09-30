@@ -36,11 +36,6 @@ project(test_name)
 
     links { "Common", "Optick" }
 
-    -- Linking Common on macOS brings its Objective-C half (the Cocoa file panels) into the link
-    -- even though nothing here opens a dialog; the frameworks are what satisfies the linker.
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
-
     filter {}
 
     filter "configurations:Debug"

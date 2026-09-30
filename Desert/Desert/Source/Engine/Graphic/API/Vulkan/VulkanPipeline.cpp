@@ -150,6 +150,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanPipeline::Build( const CompileOn where )
     {
         Release();
+        RecordShaderCodeGeneration();
 
         // THE DEVICE-FREE HALF OF THE RULE, ASKED AGAIN AT THE ONE PLACE EVERY PIPELINE PASSES THROUGH.
         // GraphicsPipeline::Create asks CheckGraphicsPipelineSpecification before it constructs this

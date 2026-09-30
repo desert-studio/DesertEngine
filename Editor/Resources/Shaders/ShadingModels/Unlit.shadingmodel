@@ -1,0 +1,19 @@
+// Unlit — UE's MSM_Unlit: the surface reflects no light at all. Both functions return zero, so the pass's
+// Emissive, which it adds for every model, is the whole colour. Index 0 always (ShadingModelRegistry.hpp).
+Guid 6633879868943240298;
+Payload
+{
+}
+Inputs
+{
+}
+
+vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    return vec3( 0.0 );
+}
+
+vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
+{
+    return vec3( 0.0 );
+}

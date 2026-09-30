@@ -138,16 +138,21 @@ project "Editor"
         -- that keeps the socket file to its owner. HERE AND NOT IN THE ENGINE -- the shipped game has no
         -- control channel and must not link a socket library for one it does not have.
         links { "ws2_32", "advapi32" }
+        -- The system file dialogs (Editor/Platform/Windows/DesktopPlatformWindows.cpp): GetOpenFileNameA /
+        -- GetSaveFileNameA, SHBrowseForFolderA, CoTaskMemFree. The editor's and not Common's -- see
+        -- Editor/Platform/DesktopPlatform.hpp.
+        links { "comdlg32", "shell32", "ole32" }
 
     -- THE START-UP SPLASH HAS ONE IMPLEMENTATION PER PLATFORM (Editor/Splash/SplashScreen.hpp). The
     -- Source/** glob above picks the Windows one up everywhere, so it is dropped where it cannot build;
     -- the macOS one is Objective-C++, which the glob does not match at all and is added by name.
+    -- The system file dialogs (Editor/Platform/DesktopPlatform.hpp) follow the same shape.
     filter "system:not windows"
-        removefiles { "Source/Editor/Splash/Windows/**" }
+        removefiles { "Source/Editor/Splash/Windows/**", "Source/Editor/Platform/Windows/**" }
 
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
-        files { "Source/Editor/Splash/MacOS/**.mm" }
+        files { "Source/Editor/Splash/MacOS/**.mm", "Source/Editor/Platform/MacOS/**.mm" }
 
         -- Unlike Visual Studio, gmake does not link static-lib dependencies
         -- transitively — the executable has to pull in everything the engine

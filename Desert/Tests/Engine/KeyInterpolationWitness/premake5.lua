@@ -43,11 +43,6 @@ project(test_name)
 
     links { "Common", "Optick" } -- Common's JobSystem registers worker threads with Optick
 
-    -- AnimationClipWrite.cpp reaches Common::Utils::FileSystem, and Common's file dialog is Objective-C,
-    -- so the ObjC runtime + AppKit link too. (That link cost is also the argument recorded in
-    -- Tools/FbxMeshSplitter for why that one tool keeps a local close-and-check instead.)
-    filter "system:macosx"
-        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "configurations:Debug"

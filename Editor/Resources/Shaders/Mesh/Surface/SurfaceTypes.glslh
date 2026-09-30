@@ -6,8 +6,9 @@
 // path fills the varyings, and the engine's pass header builds the input, calls the function and writes
 // the pass's targets. Every cell of every template compiles this file, so it is hashed into their keys.
 //
-// The parser defines, in BOTH stages of a cell: DESERT_SURFACE_PASS_<Pass> (Forward | GBuffer | ShadowDepth)
-// and, for `BlendMode Masked`, DESERT_SURFACE_MASKED. The headers shape their declarations on these so each
+// The parser defines, in BOTH stages of a cell: DESERT_SURFACE_PASS_<Pass> (Forward | GBuffer | ShadowDepth),
+// DESERT_SHADING_MODEL_INDEX (the template's model, a SHADING_MODEL_INDEX_<NAME> of the generated
+// ShadingModels/ShadingModels.generated.glslh) and, for `BlendMode Masked`, DESERT_SURFACE_MASKED. The headers shape their declarations on these so each
 // cell declares exactly what the shader it replaces declared (SurfaceTemplate holds them equal by reflection).
 
 // The source-to-surface arithmetic a surface function is written in (UV transform, base colour, ORM, normal
@@ -41,6 +42,11 @@ struct SurfaceOutput
     // The material-complexity proxy the deferred debug view heat-maps (G-buffer C.w): real textures sampled.
     float SampledTextureCount;
     float Refraction; // index of refraction (UE's Refraction pin), read only by the translucency pass
+    // The shading model's payload (UE's CustomData0/1 pins), in [0, 1]: the floats a model's `Payload` block names
+    // (ShadingModels/ShadingModelContract.glslh). They reach the model as DesertPayload, through GBufferC.w's
+    // 8-bit fields in the deferred path and quantized the same way in the forward one.
+    float CustomData0;
+    float CustomData1;
 };
 
 // What an author starts from, so a surface that sets only BaseColor still returns a defined value.
@@ -57,6 +63,8 @@ SurfaceOutput DefaultSurfaceOutput()
     s.ReceiveSunShadows   = 1.0;
     s.SampledTextureCount = 0.0;
     s.Refraction          = 1.0;
+    s.CustomData0         = 0.0;
+    s.CustomData1         = 0.0;
     return s;
 }
 
