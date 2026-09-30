@@ -4,6 +4,7 @@
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 
 #include "CookPaths.hpp"
+#include "ImportedAssetSource.hpp"
 #include "MaterialAdoption.hpp"
 #include "NodeMeshSplit.hpp"
 
@@ -288,33 +289,21 @@ namespace Desert::Editor
                 found.erase( it );
             }
         }
-        // A skinned import's file (`.skmesh`, `.skeleton`, `<stem>_<clip>.anim`, SkinnedAsset): the record of the
-        // skinned source beside it whose name wrote it; of two that fit an `.anim`, the longer stem (the nearer
-        // name). A static record never wrote one.
+        // A skinned import's file (`.skmesh`, `.skeleton`, `<stem>_<clip>.anim`): the record of the source the
+        // file itself states (ImportedAssetSource::SkinnedAssetSource) - never the name, which has no inverse for
+        // a clip. No stated source, or a source with no record beside it: no import to state the orbit.
         if ( CookPaths::IsSkinnedAssetFile( meshFile ) )
         {
-            std::optional<std::filesystem::path> best;
-            for ( const auto& entry : std::filesystem::directory_iterator( meshFile.parent_path(), ec ) )
-            {
-                if ( !Common::Content::IsImportRecord( entry.path() ) )
-                    continue;
-                const std::filesystem::path source = entry.path().parent_path() / entry.path().stem();
-                if ( !CookPaths::IsSkinnedAssetOf( source, meshFile ) )
-                    continue;
-                const auto kind = Ser::ReadImportRecordKind( source );
-                if ( !kind )
-                    return Common::MakeError<Home>( kind.GetError() );
-                if ( kind.GetValue() == Common::Content::ContentKind::StaticMesh )
-                    continue;
-                if ( !best || source.stem().string().size() > best->stem().string().size() )
-                    best = source;
-            }
-            if ( best )
-            {
-                const std::lock_guard lock( mutex );
-                found[key] = *best;
-            }
-            return Common::MakeSuccess( Home{ best } );
+            const auto stated = ImportedAssetSource::SkinnedAssetSource( meshFile );
+            if ( !stated )
+                return Common::MakeError<Home>( stated.GetError() );
+            const auto& source = stated.GetValue();
+            if ( !source ||
+                 !std::filesystem::is_regular_file( Common::Content::ImportRecordPathFor( *source ), ec ) )
+                return Common::MakeSuccess( Home{} );
+            const std::lock_guard lock( mutex );
+            found[key] = *source;
+            return Common::MakeSuccess( Home{ source } );
         }
 
         const std::string stem = meshFile.stem().string();

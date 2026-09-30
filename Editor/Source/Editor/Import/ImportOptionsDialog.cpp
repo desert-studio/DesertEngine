@@ -1,6 +1,8 @@
 #include "ImportOptionsDialog.hpp"
 
+#include "CookPaths.hpp"
 #include "ImportManager.hpp"
+#include "ImportedAssetSource.hpp"
 #include "ImportSettingsEdits.hpp"
 
 #include <Common/Content/ImportRecord.hpp>
@@ -484,25 +486,17 @@ namespace Desert::Editor::ImportOptions
 
     std::optional<std::filesystem::path> ImportSourceOfAsset( const std::filesystem::path& assetPath )
     {
-        if ( assetPath.extension() == ".anim" ) // `<stem>_<clip>.anim` has no inverse: the clip names its source
+        // A skinned import's file names its source inside (ImportedAssetSource::SkinnedAssetSource): a clip's
+        // `<stem>_<clip>.anim` has no inverse, and the rig states the extension the name cannot.
+        if ( CookPaths::IsSkinnedAssetFile( assetPath ) )
         {
-            const auto text = Common::Utils::FileSystem::ReadFileContentIfExists( assetPath );
-            if ( !text )
+            const auto stated = ImportedAssetSource::SkinnedAssetSource( assetPath );
+            if ( !stated || !stated.GetValue() )
                 return std::nullopt;
-            const auto& contents = text.GetValue();
-            if ( !contents.has_value() )
+            std::error_code ec;
+            if ( !std::filesystem::is_regular_file( *stated.GetValue(), ec ) )
                 return std::nullopt;
-            const auto clip = Assets::Serialization::ReadAnimationJson( *contents );
-            if ( !clip )
-                return std::nullopt;
-            const auto& import = clip.GetValue().Import;
-            if ( !import.has_value() || import->Source.empty() )
-                return std::nullopt;
-            std::filesystem::path source = assetPath.parent_path() / import->Source;
-            std::error_code       ec;
-            if ( !std::filesystem::is_regular_file( source, ec ) )
-                return std::nullopt;
-            return source;
+            return *stated.GetValue();
         }
         if ( auto beside = Common::Content::MeshSourceBeside( assetPath ) )
             return beside;

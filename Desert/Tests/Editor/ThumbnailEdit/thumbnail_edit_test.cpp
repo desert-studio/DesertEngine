@@ -8,10 +8,16 @@
 #include <gtest/gtest.h>
 
 #include <Editor/Import/CookPaths.hpp>
+#include <Editor/Import/ImportedAssetSource.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
 #include <Editor/Widgets/ThumbnailProducers.hpp>
 #include <Editor/Widgets/ThumbnailOrbitEdit.hpp>
 #include <Editor/Widgets/ThumbnailPreview.hpp>
+
+#include <filesystem>
+#include <format>
+#include <fstream>
+#include <string>
 
 namespace
 {
@@ -151,23 +157,57 @@ TEST( ThumbnailOrbitKinds, EveryRenderedPictureHasAnOrbitAndNoOtherDoes )
         EXPECT_FALSE( TP::HasThumbnailOrbit( type ) ) << static_cast<int>( type );
 }
 
-// A posed picture's orbit lives in the record of the skinned source whose import wrote the file
-// (MeshThumbnailHome): the name rule that finds it.
-TEST( ThumbnailOrbitKinds, ASkinnedImportsFilesAreFoundByTheirSourcesName )
+// A posed picture's orbit lives in the record of the source the skinned file STATES (MeshThumbnailHome via
+// ImportedAssetSource::SkinnedAssetSource), never the one its name suggests: `Fox_Extra_Walk.anim` is clip
+// "Extra_Walk" of Fox.glb here although Fox_Extra.glb, the longer matching stem, sits beside it (MCP-CMD2's
+// "longest stem wins" filed it under Fox_Extra.glb).
+TEST( ThumbnailOrbitKinds, ASkinnedFileIsFiledUnderTheSourceItStates )
 {
-    namespace CP                    = Desert::Editor::CookPaths;
-    const std::filesystem::path fox = "Assets/Meshes/Fox.glb";
-    EXPECT_TRUE( CP::IsSkinnedAssetOf( fox, "Assets/Meshes/Fox.skmesh" ) );
-    EXPECT_TRUE( CP::IsSkinnedAssetOf( fox, "Assets/Meshes/Fox.skeleton" ) );
-    EXPECT_TRUE( CP::IsSkinnedAssetOf( fox, "Assets/Meshes/Fox_Walk.anim" ) );
-    EXPECT_FALSE( CP::IsSkinnedAssetOf( fox, "Assets/Meshes/Fox_.anim" ) ) << "a clip has a name";
-    EXPECT_FALSE( CP::IsSkinnedAssetOf( fox, "Assets/Meshes/Foxy.skmesh" ) );
-    EXPECT_FALSE( CP::IsSkinnedAssetOf( fox, "Assets/Other/Fox.skmesh" ) ) << "written beside the source only";
-    EXPECT_FALSE( CP::IsSkinnedAssetOf( fox, "Assets/Meshes/Fox.stmesh" ) );
+    namespace IAS    = Desert::Editor::ImportedAssetSource;
+    namespace Ser    = Desert::Assets::Serialization;
+    namespace CP     = Desert::Editor::CookPaths;
+    const auto  root = std::filesystem::temp_directory_path() / "ThumbnailEdit_SkinnedAssetSource";
+    std::error_code ec;
+    std::filesystem::remove_all( root, ec );
+    std::filesystem::create_directories( root );
+    const auto write = [&]( const std::string& name, const std::string& text )
+    { std::ofstream( root / name, std::ios::binary ) << text; };
+    const auto clip = [&]( const std::string& name, const std::string& source )
+    {
+        Ser::AnimationAssetData data;
+        data.Name   = name;
+        data.Import = Ser::ImportSourceInfo{ source, 1 };
+        write( std::format( "{}.anim", name ), Ser::WriteAnimationJson( data ) );
+    };
+    clip( "Fox_Extra_Walk", "Fox.glb" );
+    clip( "Fox_Extra_Idle", "Fox_Extra.glb" );
+    Ser::SkeletonAssetData rig;
+    rig.Import = Ser::ImportSourceInfo{ "Fox.glb", 2 };
+    write( "Fox.skeleton", Ser::WriteSkeletonJson( rig ) );
+    Ser::AnimationAssetData authored;
+    authored.Name = "Hand";
+    write( "Hand.anim", Ser::WriteAnimationJson( authored ) );
+
+    const auto source = [&]( const std::string& name ) { return IAS::SkinnedAssetSource( root / name ); };
+    ASSERT_TRUE( source( "Fox_Extra_Walk.anim" ) ) << source( "Fox_Extra_Walk.anim" ).GetError();
+    EXPECT_EQ( source( "Fox_Extra_Walk.anim" ).GetValue(), root / "Fox.glb" ) << "the clip's own Import";
+    ASSERT_TRUE( source( "Fox_Extra_Idle.anim" ) );
+    EXPECT_EQ( source( "Fox_Extra_Idle.anim" ).GetValue(), root / "Fox_Extra.glb" );
+    ASSERT_TRUE( source( "Fox.skeleton" ) );
+    EXPECT_EQ( source( "Fox.skeleton" ).GetValue(), root / "Fox.glb" );
+    ASSERT_TRUE( source( "Fox.skmesh" ) ) << "the mesh reads the rig its import wrote beside it";
+    EXPECT_EQ( source( "Fox.skmesh" ).GetValue(), root / "Fox.glb" );
+    ASSERT_TRUE( source( "Hand.anim" ) );
+    EXPECT_FALSE( source( "Hand.anim" ).GetValue().has_value() ) << "a hand-authored clip states no source";
+    EXPECT_FALSE( source( "Missing.anim" ) ) << "a missing file is an error naming it, not a guess";
+    EXPECT_FALSE( source( "Wolf.skmesh" ) ) << "a mesh with no rig beside it is refused";
+    EXPECT_FALSE( source( "Fox.stmesh" ) ) << "not a skinned import's file";
+
     EXPECT_TRUE( CP::IsSkinnedAssetFile( "a/Fox.skmesh" ) );
     EXPECT_TRUE( CP::IsSkinnedAssetFile( "a/Fox_Walk.anim" ) );
     EXPECT_FALSE( CP::IsSkinnedAssetFile( "a/Fox.stmesh" ) );
     EXPECT_FALSE( CP::IsSkinnedAssetFile( "a/Fox.glb" ) );
+    std::filesystem::remove_all( root, ec );
 }
 
 int main( int argc, char** argv )
