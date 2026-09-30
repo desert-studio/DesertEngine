@@ -29,6 +29,8 @@
 // code on a headless device it creates itself.
 namespace Desert::Graphic::API::Vulkan
 {
+    class VulkanRdgTransientAllocator; // VulkanRdgTransient.hpp
+
     struct VulkanRdgDevice
     {
         VkDevice     Device    = VK_NULL_HANDLE;
@@ -131,6 +133,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_Desc;
         }
+        // The same description and usage: an image created for one can stand in for the other.
+        bool Matches( const RDG::TextureDesc& desc, uint32_t accessMask ) const;
         uint32_t GetAccessMask() const
         {
             return m_AccessMask;
@@ -249,82 +253,6 @@ namespace Desert::Graphic::API::Vulkan
         uint64_t               m_Frame = 1;
     };
 
-    // RDG-CONTRACTS A(1). The Vulkan ITransientAllocator; REPLACES VulkanRdgPool for every non-extracted
-    // transient (the pool survives only for extracted transients, which need a dedicated allocation).
-    // Responsibility: per frame slot and graph, one VkDeviceMemory block per TransientHeapDesc (vmaAllocateMemory
-    // with MemoryTypeBits = the heap's intersection, size = Bytes, alignment = Alignment), and images / buffers
-    // created with the same create info VulkanRdgMemoryRequirements measured (so the plan's size is the size
-    // bound) and bound with vmaBindImageMemory2 / vmaBindBufferMemory2 at the allocation's offset. Placed
-    // resources are cached per (slot, graph, heap, offset, desc, usage) so an unchanged plan reuses its VkImage
-    // objects; a changed plan destroys the stale ones at the slot's next BeginFrameSlot.
-    // Who calls it: VulkanRdgBackend::BeginGraph / EndGraph / AbandonGraph, and the renderer's frame loop
-    // (BeginFrameSlot, right after the frames-in-flight fence wait - where VulkanRdgPool::BeginFrame is called
-    // today). Never: free or rebind memory a submitted, unwaited frame may use; bind two live resources of the
-    // same graph to intersecting bytes unless the plan's lifetimes are disjoint.
-    class VulkanRdgTransientAllocator final : public RDG::ITransientAllocator
-    {
-    public:
-        VulkanRdgTransientAllocator( const VulkanRdgDevice& device, uint32_t frameSlots );
-        ~VulkanRdgTransientAllocator() override;
-        VulkanRdgTransientAllocator( const VulkanRdgTransientAllocator& )            = delete;
-        VulkanRdgTransientAllocator& operator=( const VulkanRdgTransientAllocator& ) = delete;
-
-        void                                                      BeginFrameSlot( uint32_t slot ) override;
-        Common::BoolResultStr                                     ReserveHeaps( std::string_view                        graph,
-                                                                                std::span<const RDG::TransientHeapDesc> heaps ) override;
-        Common::ResultStr<std::shared_ptr<RDG::IPhysicalTexture>> PlaceTexture( const RDG::Allocation&  allocation,
-                                                                                const RDG::TextureDesc& desc,
-                                                                                uint32_t                accessMask,
-                                                                                std::string_view name ) override;
-        Common::ResultStr<std::shared_ptr<RDG::IPhysicalBuffer>>  PlaceBuffer( const RDG::Allocation& allocation,
-                                                                               const RDG::BufferDesc& desc,
-                                                                               uint32_t               accessMask,
-                                                                               std::string_view name ) override;
-        void                                                      EndGraph( std::string_view graph ) override;
-        RDG::TransientAllocatorStats                              GetStats() const override;
-
-    private:
-        struct Heap
-        {
-            RDG::TransientHeapDesc Desc;
-            VmaAllocation          Memory = nullptr;
-        };
-        struct PlacedTexture
-        {
-            uint32_t                          Heap       = 0;
-            uint64_t                          Offset     = 0;
-            uint32_t                          AccessMask = 0;
-            RDG::TextureDesc                  Desc;
-            std::shared_ptr<VulkanRdgTexture> Resource;
-            bool                              UsedThisFrame = false;
-        };
-        struct PlacedBuffer
-        {
-            uint32_t                         Heap       = 0;
-            uint64_t                         Offset     = 0;
-            uint32_t                         AccessMask = 0;
-            RDG::BufferDesc                  Desc;
-            std::shared_ptr<VulkanRdgBuffer> Resource;
-            bool                             UsedThisFrame = false;
-        };
-        struct GraphHeaps
-        {
-            std::string                Graph;
-            std::vector<Heap>          Heaps;
-            std::vector<PlacedTexture> Textures;
-            std::vector<PlacedBuffer>  Buffers;
-        };
-        struct Slot
-        {
-            std::vector<GraphHeaps>    Graphs;
-            std::vector<VmaAllocation> RetiredHeaps; // grown-out heaps, freed at this slot's next BeginFrameSlot
-        };
-
-        const VulkanRdgDevice& m_Device;
-        std::vector<Slot>      m_Slots;
-        uint32_t               m_Slot = 0;
-    };
-
     // RDG-CONTRACTS B(3). The queues the graph records onto and the per-frame-slot objects that sync them.
     // Responsibility: the graphics and (when distinct) compute VkQueue + family, a command pool per (slot, pipe)
     // from which a segment's command buffer is allocated, and one binary VkSemaphore per CrossPipeSync per slot
@@ -363,19 +291,35 @@ namespace Desert::Graphic::API::Vulkan
     class VulkanRdgPassDescriptors
     {
     public:
+        VulkanRdgPassDescriptors( VkDevice device, uint32_t frameSlots );
+        ~VulkanRdgPassDescriptors();
+        VulkanRdgPassDescriptors( const VulkanRdgPassDescriptors& )            = delete;
+        VulkanRdgPassDescriptors& operator=( const VulkanRdgPassDescriptors& ) = delete;
+
         Common::ResultStr<VkDescriptorSet> Allocate( VkDescriptorSetLayout layout );
-        Common::BoolResultStr              WriteTexture( VkDescriptorSet set, uint32_t binding,
-                                                         const RDG::TextureBinding& texture, RDG::SubresourceRange range,
-                                                         VkImageLayout layout, VkSampler sampler = VK_NULL_HANDLE );
-        Common::BoolResultStr              WriteBuffer( VkDescriptorSet set, uint32_t binding,
-                                                        const RDG::BufferBinding& buffer );
+        // @p type is the layout binding's type: SAMPLED_IMAGE, STORAGE_IMAGE or COMBINED_IMAGE_SAMPLER (with
+        // @p sampler) - a layout alone does not say whether an image in GENERAL is sampled or stored.
+        Common::BoolResultStr WriteTexture( VkDescriptorSet set, uint32_t binding, VkDescriptorType type,
+                                            const RDG::TextureBinding& texture, RDG::SubresourceRange range,
+                                            VkImageLayout layout, VkSampler sampler = VK_NULL_HANDLE );
+        // @p type: UNIFORM_BUFFER or STORAGE_BUFFER; the whole buffer is bound.
+        Common::BoolResultStr WriteBuffer( VkDescriptorSet set, uint32_t binding, VkDescriptorType type,
+                                           const RDG::BufferBinding& buffer );
         // The frame loop, after the slot's fence: resets that slot's pool.
         void BeginFrameSlot( uint32_t slot );
 
     private:
-        VkDevice                      m_Device = VK_NULL_HANDLE;
-        std::vector<VkDescriptorPool> m_Pools; // one per frame slot
-        uint32_t                      m_Slot = 0;
+        struct SlotPools
+        {
+            std::vector<VkDescriptorPool> Pools; // Pools[Current] allocates; a full one is followed by a new one
+            size_t                        Current = 0;
+        };
+
+        Common::ResultStr<VkDescriptorPool> AddPool( SlotPools& slot );
+
+        VkDevice               m_Device = VK_NULL_HANDLE;
+        std::vector<SlotPools> m_Slots; // one per frame slot
+        uint32_t               m_Slot = 0;
     };
 
     // Memory requirements from the device, for Compile's aliasing plan: the same create info the pool uses,
@@ -449,6 +393,8 @@ namespace Desert::Graphic::API::Vulkan
         // A(3): the per-frame descriptor sets an exec lambda binds transients with.
         static Common::ResultStr<VulkanRdgPassDescriptors*> DescriptorsOf( const RDG::PassContext& context );
 
+        // The allocator BeginFrame bound: every Execute follows a BeginFrame, so a call before the first one
+        // is a programming error and aborts.
         RDG::ITransientAllocator&     GetTransientAllocator() override;
         RDG::PipeCapabilities         GetPipeCapabilities() const override;
         RDG::AsyncComputeFallbackLog& GetAsyncComputeFallbackLog() override;
@@ -477,6 +423,12 @@ namespace Desert::Graphic::API::Vulkan
         VulkanRdgPool&              m_Pool;
         VulkanRdgMemoryRequirements m_Memory;
         VkCommandBuffer             m_CommandBuffer = VK_NULL_HANDLE;
+        // Bound by BeginFrame for the frame being recorded (A1: transients and descriptors; B2: queues).
+        uint32_t                     m_FrameSlot   = 0;
+        const VulkanRdgQueueSet*     m_Queues      = nullptr;
+        VulkanRdgTransientAllocator* m_Transients  = nullptr;
+        VulkanRdgPassDescriptors*    m_Descriptors = nullptr;
+        std::string                  m_GraphName; // the graph between BeginGraph and EndGraph / AbandonGraph
 
         std::vector<std::shared_ptr<VulkanRdgTexture>> m_Textures; // by resource index, this graph only
         std::vector<std::shared_ptr<VulkanRdgBuffer>>  m_Buffers;
