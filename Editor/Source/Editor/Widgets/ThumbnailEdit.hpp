@@ -14,7 +14,9 @@
 // MeshThumbnailFreshness), not by a call from here.
 namespace Desert::Editor::ThumbnailEdit
 {
-    /// The orbit @p asset (a .demat, or a static mesh's source or .stmesh as the browser lists it) states now.
+    /// The orbit @p asset states now: a .demat; a static mesh's source or .stmesh as the browser lists it; or the
+    /// file a posed picture is filed under (.skmesh, .skeleton, .anim), whose orbit its skinned source's import
+    /// record states. A skinned SOURCE is asked through its picture's file (the browser's MeshPictureFor).
     [[nodiscard]] Common::ResultStr<Assets::ThumbnailOrbit> ReadOrbit( const std::filesystem::path& asset );
 
     /// Writes @p orbit into @p asset's home with no undo record: what Undo/Redo call. EditOrbit for an edit.

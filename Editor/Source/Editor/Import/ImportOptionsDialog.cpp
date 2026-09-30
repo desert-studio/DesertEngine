@@ -1,6 +1,8 @@
 #include "ImportOptionsDialog.hpp"
 
+#include "CookPaths.hpp"
 #include "ImportManager.hpp"
+#include "ImportedAssetSource.hpp"
 #include "ImportSettingsEdits.hpp"
 
 #include <Common/Content/ImportRecord.hpp>
@@ -537,23 +539,17 @@ namespace Desert::Editor::ImportOptions
 
     std::optional<std::filesystem::path> ImportSourceOfAsset( const std::filesystem::path& assetPath )
     {
-        if ( assetPath.extension() == ".anim" ) // `<stem>_<clip>.anim` has no inverse: the clip names its source
+        // A skinned import's file is traced to its source by what the import wrote (ImportedAssetSource::
+        // SkinnedAssetSource): a clip's own `Import` (`<stem>_<clip>.anim` has no inverse), the record beside a
+        // mesh or a rig (it states the extension the name cannot).
+        if ( CookPaths::IsSkinnedAssetFile( assetPath ) )
         {
-            const auto text = Common::Utils::FileSystem::ReadFileContentIfExists( assetPath );
-            if ( !text )
+            const auto stated = ImportedAssetSource::SkinnedAssetSource( assetPath );
+            if ( !stated )
                 return std::nullopt;
-            const auto& contents = text.GetValue();
-            if ( !contents.has_value() )
-                return std::nullopt;
-            const auto clip = Assets::Serialization::ReadAnimationJson( *contents );
-            if ( !clip )
-                return std::nullopt;
-            const auto& import = clip.GetValue().Import;
-            if ( !import.has_value() || import->Source.empty() )
-                return std::nullopt;
-            std::filesystem::path source = assetPath.parent_path() / import->Source;
-            std::error_code       ec;
-            if ( !std::filesystem::is_regular_file( source, ec ) )
+            const std::optional<std::filesystem::path>& source = stated.GetValue();
+            std::error_code                             ec;
+            if ( !source.has_value() || !std::filesystem::is_regular_file( source.value(), ec ) )
                 return std::nullopt;
             return source;
         }

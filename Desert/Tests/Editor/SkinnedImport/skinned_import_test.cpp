@@ -13,7 +13,9 @@
 //  - the rig and its clip are written before the mesh that names them (ImportManager.cpp
 //    CreateAssetsFromImport, by the registry's write journal), and the record states Kind = SkinnedMesh.
 
+#include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/ImportManager.hpp>
+#include <Editor/Import/ImportedAssetSource.hpp>
 #include <Editor/Import/MaterialAdoption.hpp>
 #include <Editor/Import/MaterialImportContract.hpp>
 
@@ -306,6 +308,29 @@ TEST_F( SkinnedImport, TheClipNamesTheSourceItWasImportedFrom )
     const auto hash = Assets::HashMeshSourceFile( m_Source );
     ASSERT_TRUE( hash.IsSuccess() ) << hash.GetError();
     EXPECT_EQ( stated.SourceHash, hash.GetValue() );
+}
+
+// SKEL 3 dropped the rig's `Import`: which source wrote a `.skmesh` / `.skeleton` is the import record beside it
+// (ImportedAssetSource::SkinnedAssetSource), and a real import is traced back to its source through every file it
+// wrote. Live after SKEL-TREE: the Editor no longer compiled (the lookup read the rig's `Import`).
+TEST_F( SkinnedImport, EveryFileTheImportWroteTracesBackToItsSource )
+{
+    namespace IAS                              = Desert::Editor::ImportedAssetSource;
+    std::vector<std::filesystem::path> written = {
+         Desert::Editor::CookPaths::SkinnedAsset( m_Source, ".skmesh" ) };
+    written.insert( written.end(), m_Outcome.WrittenSkeletons.begin(), m_Outcome.WrittenSkeletons.end() );
+    written.insert( written.end(), m_Outcome.WrittenClips.begin(), m_Outcome.WrittenClips.end() );
+    ASSERT_FALSE( m_Outcome.WrittenSkeletons.empty() ) << "the first import of the file writes its own rig";
+    ASSERT_FALSE( m_Outcome.WrittenClips.empty() );
+    for ( const auto& file : written )
+    {
+        const auto source = IAS::SkinnedAssetSource( file );
+        ASSERT_TRUE( source.IsSuccess() ) << file.generic_string() << ": " << source.GetError();
+        const std::optional<std::filesystem::path>& traced = source.GetValue();
+        ASSERT_TRUE( traced.has_value() ) << file.generic_string() << " traces to no source";
+        EXPECT_EQ( traced.value_or( std::filesystem::path{} ).lexically_normal(), m_Source.lexically_normal() )
+             << file.generic_string();
+    }
 }
 
 // THM1l-b19: the texture EMBEDDED in the file ("*0" to assimp, a data-URI image here, a bufferView image in a
@@ -681,6 +706,85 @@ TEST( SkinnedImportCorpus, TheCommittedTwoJointProbeIsCurrentAndItsImportWritesN
         EXPECT_TRUE( found->second == bytes ) << name << " was rewritten";
     }
     Assets::ContentRegistry::ResetForTest();
+}
+
+// A posed picture's orbit lives in the record of the source that WROTE the skinned file (MeshThumbnailHome,
+// ImportOptions::ImportSourceOfAsset via ImportedAssetSource::SkinnedAssetSource), never the one its name
+// suggests: `Fox_Extra_Walk.anim` is clip "Extra_Walk" of Fox.glb here although Fox_Extra.glb, the longer matching
+// stem, sits beside it (MCP-CMD2's "longest stem wins" filed it under Fox_Extra.glb). A clip states its source; a
+// mesh and a rig state none (SKEL 3: the rig is a shared asset), so the import record beside them that wrote them
+// answers - by its Kind, not by the first record with the stem (Fox.fbx, a static import beside, wrote no
+// `.skmesh`).
+TEST( ThumbnailOrbitKinds, ASkinnedFileIsFiledUnderTheSourceThatWroteIt )
+{
+    namespace IAS        = Desert::Editor::ImportedAssetSource;
+    namespace Ser        = Desert::Assets::Serialization;
+    using Kind           = Common::Content::ContentKind;
+    const auto      root = std::filesystem::temp_directory_path() / "SkinnedImport_SkinnedAssetSource";
+    std::error_code ec;
+    std::filesystem::remove_all( root, ec );
+    std::filesystem::create_directories( root );
+    const auto write = [&]( const std::filesystem::path& path, const std::string& text )
+    { std::ofstream( path, std::ios::binary ) << text; };
+    const auto clip = [&]( const std::string& name, const std::string& source )
+    {
+        Ser::AnimationAssetData data;
+        data.Name   = name;
+        data.Import = Ser::ImportSourceInfo{ source, 1 };
+        write( root / std::format( "{}.anim", name ), Ser::WriteAnimationJson( data ) );
+    };
+    const auto record = [&]( const std::string& source, const Kind kind )
+    {
+        Ser::ImportRecordData data;
+        data.Source = source;
+        // A record that imports a mesh states its box (DIMP 2); a skeleton import has no mesh and states none.
+        if ( kind == Kind::StaticMesh || kind == Kind::SkinnedMesh )
+            data.Bounds = Ser::ImportRecordData::Box{ { -1.0f, -1.0f, -1.0f }, { 1.0f, 1.0f, 1.0f } };
+        const auto recorded = Ser::WriteImportRecord( data, kind );
+        ASSERT_TRUE( recorded ) << recorded.GetError();
+        write( Common::Content::ImportRecordPathFor( root / source ), recorded.GetValue() );
+    };
+    clip( "Fox_Extra_Walk", "Fox.glb" );
+    clip( "Fox_Extra_Idle", "Fox_Extra.glb" );
+    write( root / "Fox.skeleton", Ser::WriteSkeletonJson( Ser::SkeletonAssetData{} ) );
+    write( root / "Fox.skmesh", "mesh" );
+    record( "Fox.glb", Kind::SkinnedMesh );
+    record( "Fox.fbx", Kind::StaticMesh );
+    write( root / "Rig.skeleton", Ser::WriteSkeletonJson( Ser::SkeletonAssetData{} ) );
+    write( root / "Rig.skmesh", "mesh" );
+    record( "Rig.gltf", Kind::Skeleton );
+    write( root / "Wolf.skmesh", "mesh" );
+    write( root / "Twice.skeleton", Ser::WriteSkeletonJson( Ser::SkeletonAssetData{} ) );
+    record( "Twice.glb", Kind::SkinnedMesh );
+    record( "Twice.fbx", Kind::Skeleton );
+    Ser::AnimationAssetData authored;
+    authored.Name = "Hand";
+    write( root / "Hand.anim", Ser::WriteAnimationJson( authored ) );
+
+    const auto source = [&]( const std::string& name ) { return IAS::SkinnedAssetSource( root / name ); };
+    // The source each file came from; the error text when it cannot be read for one.
+    const auto stated = [&]( const std::string& name ) -> std::string
+    {
+        const auto found = source( name );
+        if ( !found )
+            return std::format( "error: {}", found.GetError() );
+        return found.GetValue() ? found.GetValue()->generic_string() : std::string( "none" );
+    };
+    const std::string fox = ( root / "Fox.glb" ).generic_string();
+    EXPECT_EQ( stated( "Fox_Extra_Walk.anim" ), fox ) << "the clip's own Import, not the longer stem";
+    EXPECT_EQ( stated( "Fox_Extra_Idle.anim" ), ( root / "Fox_Extra.glb" ).generic_string() );
+    EXPECT_EQ( stated( "Fox.skeleton" ), fox ) << "the skinned record wrote the rig; the static Fox.fbx did not";
+    EXPECT_EQ( stated( "Fox.skmesh" ), fox ) << "the skinned record wrote the mesh; the static Fox.fbx did not";
+    EXPECT_EQ( stated( "Rig.skeleton" ), ( root / "Rig.gltf" ).generic_string() ) << "a rig-only import";
+    EXPECT_EQ( stated( "Rig.skmesh" ), "none" ) << "a Skeleton import writes no mesh";
+    EXPECT_EQ( stated( "Wolf.skmesh" ), "none" ) << "no record beside it wrote it";
+    EXPECT_EQ( stated( "Hand.anim" ), "none" ) << "a hand-authored clip states no source";
+    EXPECT_FALSE( source( "Twice.skeleton" ) ) << "two records claiming one file are an error, not the first";
+    EXPECT_FALSE( source( "Missing.anim" ) ) << "a missing file is an error naming it, not a guess";
+    EXPECT_FALSE( source( "Missing.skmesh" ) ) << "a missing file is an error naming it, not a guess";
+    EXPECT_FALSE( source( "Fox.stmesh" ) ) << "not a skinned import's file";
+
+    std::filesystem::remove_all( root, ec );
 }
 
 int main( int argc, char** argv )
