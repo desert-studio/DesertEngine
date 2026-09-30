@@ -26,7 +26,7 @@ namespace Desert::ECS
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer&,
                      const Common::Timestep& ) override
         {
-            if ( !m_Scene || m_Scene->GetState() != Core::Scene::SceneState::Play )
+            if ( !m_Scene || !m_Scene->TicksGameplay() ) // Play, or a paused frame skip
                 return;
 
             auto view = registry.view<CharacterControllerComponent>();

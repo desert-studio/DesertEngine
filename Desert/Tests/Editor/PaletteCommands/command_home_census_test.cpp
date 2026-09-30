@@ -7,6 +7,7 @@
 // tables (compiled in) and the census that the surfaces call the commands rather than a second copy of the
 // body (read from the sources, as LandscapePaletteCensus does).
 
+#include <Editor/Core/PlayWorldCommands.hpp>
 #include <Editor/Panels/FileExplorer/ContentBrowserCommands.hpp>
 #include <Editor/Panels/ViewportPanel/ViewportCommands.hpp>
 
@@ -134,6 +135,34 @@ TEST( CommandHome, TheTransportButtonsRunTheCommands )
         EXPECT_NE( transport.find( std::string( "transportButton( TransportCommand::" ) + name ),
                    std::string::npos )
              << name << " has no button";
+}
+
+// UI-FIX2a: the toolbar had a Pause button and the palette had no Pause - a script could not pause, resume
+// or step the world. UE FPlayWorldCommands: every slot of the playback group is a command.
+TEST( CommandHome, PlayWorldCommandsHaveStableAddresses )
+{
+    std::set<std::string> labels;
+    for ( const PlayWorldCommand command : kPlayWorldCommandOrder )
+    {
+        EXPECT_EQ( CommandInfo( command ).Context, "Action" ) << "the channel address `Action \"<label>\"` moved";
+        EXPECT_TRUE( labels.insert( std::string( CommandInfo( command ).Label ) ).second );
+    }
+    for ( const char* label : { "Play", "Play from Here", "Pause", "Resume", "Next Frame", "Stop" } )
+        EXPECT_TRUE( labels.contains( label ) ) << label << " is not a command";
+}
+
+TEST( CommandHome, ThePlaybackGroupRunsThePlayWorldCommands )
+{
+    const std::string layer = ReadFile( kLayer );
+    EXPECT_NE( layer.find( "Editor::kPlayWorldCommandOrder" ), std::string::npos ) << "the palette lost them";
+    const std::string group = FunctionBody( layer, "void EditorLayer::DrawPlaybackGroup(", "EditorLayer::" );
+    ASSERT_FALSE( group.empty() );
+    for ( const char* body : { "OnScenePlay(", "SetState(", "m_PendingSceneStop", "RequestSingleFrame(" } )
+        EXPECT_EQ( group.find( body ), std::string::npos ) << body << " is a second home of a play-world command";
+    for ( const char* name : { "Play )", "PlayFromHere )", "NextFrame )", "Stop )" } )
+        EXPECT_NE( group.find( std::string( "run( Command::" ) + name ), std::string::npos )
+             << name << " has no button";
+    EXPECT_NE( group.find( "run( pauseOrResume )" ), std::string::npos );
 }
 
 TEST( CommandHome, TheViewportKeysRunTheCommands )

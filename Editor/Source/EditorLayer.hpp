@@ -14,6 +14,7 @@
 #include "Editor/Widgets/UIHelper/ImGuiUI.hpp"
 #include "Editor/Panels/IPanel.hpp"
 #include "Editor/Core/CommandPalette.hpp"
+#include "Editor/Core/PlayWorldCommands.hpp"
 #include "Editor/Core/Control/ControlPipeline.hpp"
 #include "Editor/Core/Control/ControlProtocol.hpp"
 #include "Editor/Core/Control/ControlSocket.hpp"
@@ -222,7 +223,10 @@ namespace Desert::Editor
         // @p playerStartTag: the tagged PlayerStart to use (Core::PlayRequest::PlayerStartTag); empty = the rule.
         void OnScenePlay( bool fromHere = false, const std::string& playerStartTag = {} );
         void OnSceneStop();
-        void OnScenePauseToggle();
+        // The ONE executor of the play-session commands (Editor/Core/PlayWorldCommands.hpp): the toolbar's
+        // playback group, its Play-options menu and the palette / control channel all call this. The
+        // result says whether the world moved, and why not when it did not.
+        [[nodiscard]] Common::BoolResultStr RunPlayWorldCommand( Editor::PlayWorldCommand command );
 
         // Builds a ready-to-Play demo: a WASD character (Jolt CharacterVirtual) with a 3rd-person child
         // camera, a ground floor, a sun light, and obstacles. (Remove the call in OnAttach for a blank scene.)

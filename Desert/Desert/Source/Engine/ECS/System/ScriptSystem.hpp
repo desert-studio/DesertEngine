@@ -49,7 +49,11 @@ namespace Desert::ECS
             EnsureDestroyHook( registry );
 
             using SceneState = Core::Scene::SceneState;
-            const bool playing = m_Scene && m_Scene->GetState() == SceneState::Play;
+            // Scripts tick in Play and on a paused world's stepped frame (Scene::TicksGameplay); the
+            // cursor is CAPTURED only in Play - a frame skip is driven from the editor's toolbar, so the
+            // mouse that pressed it must stay free.
+            const bool playing   = m_Scene && m_Scene->TicksGameplay();
+            const bool possessed = m_Scene && m_Scene->GetState() == SceneState::Play;
 
             if ( !playing )
             {
@@ -78,7 +82,7 @@ namespace Desert::ECS
                 m_LookSuspended = !m_LookSuspended;
             m_AltPrev = toggleDown;
 
-            const bool wantLock = !m_LookSuspended;
+            const bool wantLock = possessed && !m_LookSuspended;
             bool       toggled  = false;
             if ( wantLock != m_CursorLocked )
             {

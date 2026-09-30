@@ -60,7 +60,7 @@ namespace Desert::ECS
             using SceneState = Core::Scene::SceneState;
 
             const SceneState state   = m_Scene ? m_Scene->GetState() : SceneState::Edit;
-            const bool       playing = ( state == SceneState::Play );
+            const bool       playing = m_Scene && m_Scene->TicksGameplay(); // Play, or a paused frame skip
             const bool       active  = ( state == SceneState::Play || state == SceneState::Paused );
 
             if ( !active )
@@ -195,7 +195,7 @@ namespace Desert::ECS
             }
 
             if ( !playing )
-                return; // Paused: bodies exist but time is frozen.
+                return; // Paused (and not stepping): bodies exist but time is frozen.
 
             m_World->Step( ts.GetSeconds() );
 
