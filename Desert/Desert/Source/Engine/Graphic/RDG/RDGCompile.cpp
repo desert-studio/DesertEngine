@@ -840,7 +840,14 @@ namespace Desert::Graphic::RDG
                         // Externals enter every graph owned by Graphics; the run's fork pass releases it.
                         // A fork from the graph start releases it in the prologue (slot executedCount).
                         const int32_t fork = runs[static_cast<size_t>( runAt[position] )].ForkPosition;
-                        crossPipes( sub.GroupBefore,
+                        // The host is not a queue family: no ownership transfer may name the HOST stage. The
+                        // host's accesses to an external (a readback of an earlier frame) all happen before
+                        // this graph's submission, which orders them before every command in it, so the
+                        // transfer's source scope is the device part of the state alone.
+                        AccessState entered = sub.GroupBefore;
+                        entered.Stages &= ~static_cast<PipelineStageFlags>( PipelineStage_Host );
+                        entered.Memory &= ~static_cast<MemoryAccessFlags>( MemoryAccess_HostRead );
+                        crossPipes( entered,
                                     fork == kRdgForkAtGraphStart ? executedCount : static_cast<uint32_t>( fork ),
                                     Pipe::Graphics );
                     }
