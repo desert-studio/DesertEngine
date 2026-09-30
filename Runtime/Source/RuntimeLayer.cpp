@@ -74,7 +74,6 @@
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 #include <Engine/Core/Input.hpp>
 
-#include <Common/Core/Events/Event.hpp>
 #include <Common/Core/Events/MouseEvents.hpp>
 #include <Common/Core/Events/KeyEvents.hpp>
 #include <Common/Core/KeyCodes.hpp>
@@ -957,68 +956,57 @@ namespace Desert::Player
         return BOOLSUCCESS;
     }
 
-    void RuntimeLayer::OnEvent( Common::Event& e )
+    bool RuntimeLayer::OnMouseScrolled( Common::MouseScrolledEvent& scroll )
     {
-        Common::EventManager mgr( e );
+        m_ScrollAccum += scroll.GetYOffset();
+        return false;
+    }
 
-        // Mouse wheel -> ScrollView. Consumed + reset each present.
-        mgr.Notify<Common::MouseScrolledEvent>(
-             [this]( Common::MouseScrolledEvent& ev )
-             {
-                 m_ScrollAccum += ev.GetYOffset();
-                 return false;
-             } );
+    bool RuntimeLayer::OnKeyTyped( Common::KeyTypedEvent& typed )
+    {
+        const unsigned int cp = typed.GetCodepoint();
+        if ( cp < 0x80 )
+            m_TypedText += static_cast<char>( cp );
+        else if ( cp < 0x800 )
+        {
+            m_TypedText += static_cast<char>( 0xC0 | ( cp >> 6 ) );
+            m_TypedText += static_cast<char>( 0x80 | ( cp & 0x3F ) );
+        }
+        else if ( cp < 0x10000 )
+        {
+            m_TypedText += static_cast<char>( 0xE0 | ( cp >> 12 ) );
+            m_TypedText += static_cast<char>( 0x80 | ( ( cp >> 6 ) & 0x3F ) );
+            m_TypedText += static_cast<char>( 0x80 | ( cp & 0x3F ) );
+        }
+        else
+        {
+            m_TypedText += static_cast<char>( 0xF0 | ( cp >> 18 ) );
+            m_TypedText += static_cast<char>( 0x80 | ( ( cp >> 12 ) & 0x3F ) );
+            m_TypedText += static_cast<char>( 0x80 | ( ( cp >> 6 ) & 0x3F ) );
+            m_TypedText += static_cast<char>( 0x80 | ( cp & 0x3F ) );
+        }
+        return false;
+    }
 
-        // Text input -> the focused InputField. Encode the codepoint as UTF-8 (the default SDF atlas covers
-        // ASCII; other codepoints are stored but render as blanks until the atlas is extended).
-        mgr.Notify<Common::KeyTypedEvent>(
-             [this]( Common::KeyTypedEvent& ev )
-             {
-                 const unsigned int cp = ev.GetCodepoint();
-                 if ( cp < 0x80 )
-                     m_TypedText += static_cast<char>( cp );
-                 else if ( cp < 0x800 )
-                 {
-                     m_TypedText += static_cast<char>( 0xC0 | ( cp >> 6 ) );
-                     m_TypedText += static_cast<char>( 0x80 | ( cp & 0x3F ) );
-                 }
-                 else if ( cp < 0x10000 )
-                 {
-                     m_TypedText += static_cast<char>( 0xE0 | ( cp >> 12 ) );
-                     m_TypedText += static_cast<char>( 0x80 | ( ( cp >> 6 ) & 0x3F ) );
-                     m_TypedText += static_cast<char>( 0x80 | ( cp & 0x3F ) );
-                 }
-                 else
-                 {
-                     m_TypedText += static_cast<char>( 0xF0 | ( cp >> 18 ) );
-                     m_TypedText += static_cast<char>( 0x80 | ( ( cp >> 12 ) & 0x3F ) );
-                     m_TypedText += static_cast<char>( 0x80 | ( ( cp >> 6 ) & 0x3F ) );
-                     m_TypedText += static_cast<char>( 0x80 | ( cp & 0x3F ) );
-                 }
-                 return false;
-             } );
-
-        mgr.Notify<Common::KeyPressedEvent>(
-             [this]( Common::KeyPressedEvent& ev )
-             {
-                 switch ( ev.GetKeyCode() )
-                 {
-                     case Common::KeyCode::Backspace:
-                         m_Backspace = true;
-                         break;
-                     case Common::KeyCode::Tab:
-                         m_TabPressed = true;
-                         break;
-                     case Common::KeyCode::Enter:
-                         m_SubmitPressed = true;
-                         break;
-                     case Common::KeyCode::Escape:
-                         m_EscapePressed = true;
-                         break;
-                     default:
-                         break;
-                 }
-                 return false;
-             } );
+    bool RuntimeLayer::OnKeyPressed( Common::KeyPressedEvent& key )
+    {
+        switch ( key.GetKeyCode() )
+        {
+            case Common::KeyCode::Backspace:
+                m_Backspace = true;
+                break;
+            case Common::KeyCode::Tab:
+                m_TabPressed = true;
+                break;
+            case Common::KeyCode::Enter:
+                m_SubmitPressed = true;
+                break;
+            case Common::KeyCode::Escape:
+                m_EscapePressed = true;
+                break;
+            default:
+                break;
+        }
+        return false;
     }
 } // namespace Desert::Player

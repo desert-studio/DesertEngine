@@ -94,7 +94,7 @@ namespace Desert::Editor
         ~FileExplorerPanel() override;
         void OnUIRender() override;
         void OnPreUpdate() override; // polls the current dir for external changes -> auto-refresh
-        void OnEvent( Common::Event& e ) override; // OS file drop -> import into the current dir
+        bool OnWindowFileDropped( Common::EventWindowFileDrop& drop );
 
         /// THE SPLASH'S UPLOAD PASS (THUMB2, THM1n-13). Every picture this panel asked a worker for — the
         /// opening folder's and the whole project's (WarmProjectThumbnails) — that a worker has finished goes
@@ -458,8 +458,6 @@ namespace Desert::Editor
         // File watcher: cheap throttled poll of the current dir's entry signature -> QueueRefresh on change.
         int    m_PollCounter   = 0;
         size_t m_DirSignature  = 0;
-
-        bool m_IsHovered = false; // is the Assets window hovered this frame (gates OS file-drop import)
 
         // Copy an external image into Resources/Textures, then import+register it (Import button).
         void ImportExternalTexture();

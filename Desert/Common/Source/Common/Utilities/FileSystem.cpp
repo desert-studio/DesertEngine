@@ -11,6 +11,8 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <system_error>
+#include <thread>
 #include <unordered_set>
 #include <vector>
 
@@ -22,6 +24,44 @@ namespace fs = std::filesystem;
 
 namespace Common::Utils
 {
+    namespace
+    {
+        // THE ONE PLATFORM SEAM OF THE ATOMIC WRITE (UE: IFileManager::Move over the platform file's
+        // MoveFile, retried). std::filesystem::rename is rename(2) on POSIX and MoveFileExW with
+        // MOVEFILE_REPLACE_EXISTING on MSVC; both replace an existing target in one step. What differs is
+        // the failure set: on Windows the replace is refused while another handle holds the target
+        // without FILE_SHARE_DELETE — a parallel writer's replace of the same path in flight, a reader, an
+        // antivirus or indexer scan — and that refusal is TRANSIENT (ERROR_ACCESS_DENIED,
+        // ERROR_SHARING_VIOLATION and ERROR_LOCK_VIOLATION all map to errc::permission_denied). POSIX
+        // rename(2) does not care about open handles, so there a failure is final.
+        [[nodiscard]] bool IsTransientReplaceFailure( const std::error_code& ec )
+        {
+#if defined( _WIN32 )
+            return ec == std::errc::permission_denied || ec == std::errc::device_or_resource_busy;
+#else
+            return ec == std::errc::device_or_resource_busy;
+#endif
+        }
+
+        // Replaces @p to by @p from; a transient refusal is retried a bounded number of times with a short
+        // growing pause (~0.5 s in all), then the last error is returned. @p attempts reports how many
+        // replaces were tried, for the caller's message.
+        [[nodiscard]] std::error_code ReplaceFileWithRetry( const fs::path& from, const fs::path& to,
+                                                            int& attempts )
+        {
+            constexpr int   kMaxAttempts = 10;
+            std::error_code ec;
+            for ( attempts = 1;; ++attempts )
+            {
+                ec.clear();
+                fs::rename( from, to, ec );
+                if ( !ec || !IsTransientReplaceFailure( ec ) || attempts == kMaxAttempts )
+                    return ec;
+                std::this_thread::sleep_for( std::chrono::milliseconds( 10 * attempts ) );
+            }
+        }
+    } // namespace
+
     bool FileSystem::Exists( const std::filesystem::path& filepath )
     {
         return fs::exists( filepath ) || VFS::Exists( filepath );
@@ -373,16 +413,18 @@ namespace Common::Utils
                                                content.size(), workingFile.string() );
         }
 
-        std::error_code renameEc;
-        fs::rename( workingFile, filepath, renameEc ); // POSIX rename(2) / MoveFileExW: replaces atomically
+        int                   attempts = 0;
+        const std::error_code renameEc = ReplaceFileWithRetry( workingFile, filepath, attempts );
         if ( renameEc )
         {
-            LOG_ERROR( "[FileSystem] Atomic write failed: renaming {} over {}: {} (original untouched)",
-                       workingFile.string(), filepath.string(), renameEc.message() );
+            LOG_ERROR(
+                 "[FileSystem] Atomic write failed: renaming {} over {} ({} attempt(s)): {} (original untouched)",
+                 workingFile.string(), filepath.string(), attempts, renameEc.message() );
             std::error_code removeEc;
             fs::remove( workingFile, removeEc );
-            return Common::MakeFormattedError( "could not rename {} over {}: {} (the original is unchanged)",
-                                               workingFile.string(), filepath.string(), renameEc.message() );
+            return Common::MakeFormattedError(
+                 "could not rename {} over {} ({} attempt(s)): {} (the original is unchanged)",
+                 workingFile.string(), filepath.string(), attempts, renameEc.message() );
         }
         return BOOLSUCCESS;
     }

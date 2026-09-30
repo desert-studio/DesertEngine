@@ -2,9 +2,8 @@
 
 #include <string>
 
-#include <Common/Core/Events/Event.hpp>
+#include <Common/Core/Events/EventTree.hpp>
 #include <Common/Core/ResultStr.hpp>
-#include <Common/Core/EventRegistry.hpp>
 
 #include <Engine/Graphic/SwapChain.hpp>
 
@@ -43,15 +42,13 @@ namespace Desert
         bool Visible = true;
     };
 
-    class Window : public Common::EventHandler
+    class Window
     {
     public:
         virtual ~Window()                   = default;
         virtual Common::ResultStr<bool> Init() = 0;
 
         virtual void ProcessEvents() = 0;
-
-        using EventCallbackFn = std::function<void( Common::Event& )>;
 
         // ===== The window's own frame, for an application that draws its title bar itself ==========
         //
@@ -140,11 +137,22 @@ namespace Desert
 
         virtual std::shared_ptr<Graphic::SwapChain> GetWindowSwapChain() = 0;
 
-        virtual void SetEventCallback( const EventCallbackFn& e ) = 0;
+        virtual void                             SetEventTree( Common::EventTree& events ) = 0;
+        [[nodiscard]] virtual Common::EventTree* GetEventTree() const                      = 0;
 
-        /// Hands @p e to the same callback the OS events reach, so a synthetic input (the control
-        /// channel's pointer drag) arrives at the layers by the one route a real click takes.
-        virtual void DispatchEvent( Common::Event& e ) = 0;
+        template <Common::RoutedEvent E>
+        Common::EventReply Route( E& event )
+        {
+            Common::EventTree* events = GetEventTree();
+            return events != nullptr ? events->Route( event ) : Common::EventReply{};
+        }
+
+        bool OnWindowResized( Common::EventWindowResize& resize )
+        {
+            if ( const std::shared_ptr<Graphic::SwapChain> swapChain = GetWindowSwapChain() )
+                swapChain->RequestRebuild( resize.width, resize.height );
+            return false;
+        }
 
         virtual Common::ResultStr<bool>
         SetupSwapChain( ) = 0;

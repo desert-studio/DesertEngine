@@ -2304,7 +2304,7 @@ namespace Desert::Editor
         std::sort( tips2.begin(), tips2.end(), []( const Tip& l, const Tip& r ) { return l.Depth < r.Depth; } );
 
         // Clickable: a tip under the cursor snaps the editor camera to view FROM that axis end (forward =
-        // -worldDir). Hover state suppresses picking (see OnMousePressed). Nearest-to-cursor tip wins.
+        // -worldDir). Hover state suppresses picking (see OnMouseButtonPressed). Nearest-to-cursor tip wins.
         const ImVec2 mouse = ::ImGui::GetMousePos();
         auto*        editorCam =
              m_Scene ? dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() ) : nullptr;
@@ -2352,22 +2352,7 @@ namespace Desert::Editor
             editorCam->SnapToDirection( -tips2[hotTip].WorldDir );
     }
 
-    void ViewportPanel::OnEvent( Common::Event& e )
-    {
-        // NO EventWindowResize SUBSCRIPTION. There was one, and it called an `OnWindowResize` whose whole
-        // body was two commented-out lines naming members this class does not have (`m_ImGuiLayer`,
-        // `m_EditorCamera`) and a `return false`. A viewport takes its size from its ImGui window, not
-        // from the OS window; the handler and the subscription are both gone rather than left looking
-        // like the resize is being handled somewhere.
-        Common::EventManager eventManager( e );
-        eventManager.Notify<Common::MouseButtonPressedEvent>( [this]( Common::MouseButtonPressedEvent& e )
-                                                              { return OnMousePressed( e ); } );
-
-        eventManager.Notify<Common::KeyPressedEvent>( [this]( Common::KeyPressedEvent& e )
-                                                      { return OnKeyPressedEvent( e ); } );
-    }
-
-    bool ViewportPanel::OnMousePressed( Common::MouseButtonPressedEvent& e )
+    bool ViewportPanel::OnMouseButtonPressed( Common::MouseButtonPressedEvent& e )
     {
         // LMB picks/selects ONLY in Select mode and when no brush is active (terrain brush / Foliage paint
         // both consume LMB in OnUIRender instead).
@@ -2491,17 +2476,19 @@ namespace Desert::Editor
         return false;
     }
 
-    bool ViewportPanel::OnKeyPressedEvent( Common::KeyPressedEvent& e )
+    bool ViewportPanel::OnKeyPressed( Common::KeyPressedEvent& e )
     {
+        if ( const std::optional<ViewportCommand> command = ViewportCommandForKey( e.GetKeyCode() ) )
+        {
+            if ( *command == ViewportCommand::SelectNone &&
+                 m_Gizmo.GetOperation() != Tools::GizmoController::Operation::None )
+                m_Gizmo.SetOperation( Tools::GizmoController::Operation::None );
+            else if ( const auto ran = RunCommand( *command ); !ran )
+                LOG_WARN( "[Viewport] {}", ran.GetError() );
+            return false;
+        }
         switch ( e.GetKeyCode() )
         {
-            case Common::KeyCode::Escape:
-                // First Esc turns the gizmo off; a second Esc (gizmo already off) clears the selection.
-                if ( m_Gizmo.GetOperation() == Tools::GizmoController::Operation::None )
-                    (void)RunCommand( ViewportCommand::SelectNone );
-                else
-                    m_Gizmo.SetOperation( Tools::GizmoController::Operation::None );
-                break;
             case Common::KeyCode::T:
                 m_Gizmo.SetOperation( Tools::GizmoController::Operation::Translate );
                 break;
@@ -2526,11 +2513,6 @@ namespace Desert::Editor
                         LOG_WARN( "[Animation] the control manipulator mode was not changed: {}", set.GetError() );
                     }
                 }
-                break;
-            case Common::KeyCode::F:
-                // Frame the selected entity (UE's Focus Selected).
-                if ( const auto focused = RunCommand( ViewportCommand::FocusSelected ); !focused )
-                    LOG_WARN( "[Viewport] {}", focused.GetError() );
                 break;
             // A `default` and not 115 empty cases: this is a KEYBOARD, and the shortcuts it handles are a
             // deliberately small set. Enumerating the rest would make every key an editing decision and
@@ -2629,3 +2611,6 @@ namespace Desert::Editor
     }
 
 } // namespace Desert::Editor
+
+static_assert( Common::HandlesEvent<Desert::Editor::ViewportPanel, Common::MouseButtonPressedEvent> &&
+               Common::HandlesEvent<Desert::Editor::ViewportPanel, Common::KeyPressedEvent> );

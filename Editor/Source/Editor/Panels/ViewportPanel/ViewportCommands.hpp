@@ -1,10 +1,12 @@
 #pragma once
 
+#include <Common/Core/KeyCodes.hpp>
 #include <Editor/Core/UICommandInfo.hpp>
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 namespace Desert::Editor
 {
@@ -32,5 +34,24 @@ namespace Desert::Editor
     [[nodiscard]] constexpr const UICommandInfo& CommandInfo( ViewportCommand command )
     {
         return kViewportCommandInfos[static_cast<std::size_t>( command )];
+    }
+
+    struct ViewportCommandKey
+    {
+        Common::KeyCode Key;
+        ViewportCommand Command;
+    };
+
+    inline constexpr std::array<ViewportCommandKey, 2> kViewportCommandKeys{ {
+         { Common::KeyCode::F, ViewportCommand::FocusSelected },
+         { Common::KeyCode::Escape, ViewportCommand::SelectNone },
+    } };
+
+    [[nodiscard]] constexpr std::optional<ViewportCommand> ViewportCommandForKey( Common::KeyCode key )
+    {
+        for ( const ViewportCommandKey& binding : kViewportCommandKeys )
+            if ( binding.Key == key )
+                return binding.Command;
+        return std::nullopt;
     }
 } // namespace Desert::Editor

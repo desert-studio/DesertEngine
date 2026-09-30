@@ -1,6 +1,7 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
 #include <Engine/World/Landscape/LandscapeData.hpp>
+#include <Editor/Core/Control/InputInjection.hpp>
 #include <Editor/Core/Control/PointerDrag.hpp>
 #include <Engine/Core/Glfw.hpp>
 #include <Engine/Core/PlayerStart.hpp>
@@ -721,6 +722,9 @@ namespace Desert::Editor
 
     [[nodiscard]] Common::BoolResultStr EditorLayer::OnAttach()
     {
+        if ( Common::EventTree* events = Events() )
+            m_Panels.JoinEvents( *events, EventNode() );
+
         // THE CONTROL CHANNEL, IF ONE WAS ASKED FOR. Before anything else, so a client that started this
         // editor can connect and watch the boot rather than guessing how long to wait for the socket.
         //
@@ -2249,7 +2253,8 @@ namespace Desert::Editor
         // whole subject of the sequence this document exists to prove.
         const bool waitsForAFrame =
              response.Ok() && ( request.Operation == Control::Op::Run || request.Operation == Control::Op::Set ||
-                                request.Operation == Control::Op::Drag || Control::IsShot( request.Operation ) );
+                                request.Operation == Control::Op::Drag ||
+                                request.Operation == Control::Op::Input || Control::IsShot( request.Operation ) );
 
         if ( !waitsForAFrame )
         {
@@ -2325,7 +2330,8 @@ namespace Desert::Editor
         // frame AFTER it is performed, because the frame that performs a nudge is not the frame that
         // draws it -- see Editor/Core/ControlNudgeRequest.hpp.
         quiescence.Set( Control::PendingWork::ControlNudge, Core::ControlNudgeRequests::HasPending() );
-        quiescence.Set( Control::PendingWork::PointerDrag, Control::PointerInjection::Playing() );
+        quiescence.Set( Control::PendingWork::PointerDrag,
+                        Control::PointerInjection::Playing() || Control::InputInjection::Playing() );
         // Asked of the run itself: it stays running until FinishCreateLandscape has applied it. Background work:
         // Create answers "started" at once and a client polls `state` until idle before photographing it.
         quiescence.Set( Control::BackgroundWork::LandscapeGenerate, Commands::IsCreatingLandscape() );
@@ -2640,6 +2646,42 @@ namespace Desert::Editor
                 if ( !plan.IsSuccess() )
                     return Control::Response::Failure( request.Id, plan.GetError() );
                 if ( const auto armed = Control::PointerInjection::Arm( plan.GetValue() ); !armed.IsSuccess() )
+                    return Control::Response::Failure( request.Id, armed.GetError() );
+                return Control::Response::Success( request.Id );
+            }
+
+            case Control::Op::Input:
+            {
+                const ImGuiViewport* mainViewport = ::ImGui::GetMainViewport();
+                ImVec2               origin( 0.0f, 0.0f );
+                if ( !request.Panel.empty() )
+                {
+                    const ImGuiWindow* window = nullptr;
+                    for ( const auto& panel : m_Panels )
+                    {
+                        if ( panel->GetVisibility() && ( panel->GetName() == request.Panel ||
+                                                         PanelShownName( panel->GetName() ) == request.Panel ) )
+                            window = ::ImGui::FindWindowByName( PanelDisplayTitle( panel->GetName() ).c_str() );
+                    }
+                    if ( window == nullptr || !window->WasActive )
+                        return Control::Response::Failure(
+                             request.Id, std::format( "no open panel named '{}' was drawn in the last frame.",
+                                                      request.Panel ) );
+                    if ( request.InputKind != "key" &&
+                         ( request.Value[0] < 0.0f || request.Value[1] < 0.0f ||
+                           request.Value[0] >= window->Size.x || request.Value[1] >= window->Size.y ) )
+                        return Control::Response::Failure(
+                             request.Id,
+                             std::format( "({}, {}) lies outside '{}', which is {}x{} points.", request.Value[0],
+                                          request.Value[1], request.Panel, window->Size.x, window->Size.y ) );
+                    origin = ImVec2( window->Pos.x - mainViewport->Pos.x, window->Pos.y - mainViewport->Pos.y );
+                }
+                auto plan =
+                     Control::PlanInput( request.InputKind, origin.x + request.Value[0],
+                                         origin.y + request.Value[1], request.Button, request.Key, request.Paths );
+                if ( !plan.IsSuccess() )
+                    return Control::Response::Failure( request.Id, plan.GetError() );
+                if ( const auto armed = Control::InputInjection::Arm( plan.ExtractValue() ); !armed.IsSuccess() )
                     return Control::Response::Failure( request.Id, armed.GetError() );
                 return Control::Response::Success( request.Id );
             }
@@ -4406,8 +4448,10 @@ namespace Desert::Editor
                 DESERT_PROFILE_SCOPE_DYNAMIC( panel->GetName().c_str() );
                 panel->OnUIRender();
             }
+            panel->TrackWindowInteraction();
             ImGui::End();
         }
+        FollowImGuiWithEvents();
 
         // The well BEFORE the documents: it reads back the dock node id the documents are about to be
         // docked into, and a document opened this frame would otherwise float once and settle next frame.
@@ -9059,7 +9103,7 @@ namespace Desert::Editor
         //
         // THE KEYS NAMED HERE ARE THE KEYS THAT WORK. These three tooltips read "(W)", "(E)" and "(R)"
         // — UE's bindings — while the only handler in the editor binds T, R and C
-        // (ViewportPanel::OnKeyPressedEvent). So the rail advertised three shortcuts that did nothing,
+        // (ViewportPanel::OnKeyPressed). So the rail advertised three shortcuts that did nothing,
         // and the viewport strip's own tooltips (Move (T) / Rotate (R) / Scale (C)) said the true thing
         // eight inches away. A UI string is a promise about the tree, and this one was not kept.
         //
@@ -11099,20 +11143,22 @@ namespace Desert::Editor
         // the asset manager, cooked caches and panels — relaunch through the Project Hub instead.
     }
 
-    void EditorLayer::OnEvent( Common::Event& event )
+    void EditorLayer::FollowImGuiWithEvents()
     {
-        for ( auto& panel : m_Panels )
+        Common::EventTree* events = Events();
+        if ( events == nullptr )
+            return;
+        Common::EventNodeId focus   = EventNode();
+        Common::EventNodeId pointer = EventNode();
+        for ( const auto& panel : m_Panels )
         {
-            if ( event.m_Handled )
-                break;
-            panel->OnEvent( event );
+            if ( panel->HoldsKeyboardFocus() )
+                focus = panel->EventNode();
+            if ( panel->IsUnderPointer() )
+                pointer = panel->EventNode();
         }
-        for ( auto& document : m_OpenDocuments )
-        {
-            if ( event.m_Handled )
-                break;
-            document->OnEvent( event );
-        }
+        events->SetFocus( focus );
+        events->SetHovered( pointer );
     }
 
     Common::BoolResultStr EditorLayer::OnDetach()

@@ -53,7 +53,7 @@ namespace Desert::Editor
         AnchorMax
     };
 
-    class ViewportPanel : public IPanel, public Common::EventHandler
+    class ViewportPanel : public IPanel
     {
     public:
         // `title` is the ImGui window title/id. Multi-scene editing spawns extra viewports, so each needs
@@ -119,8 +119,6 @@ namespace Desert::Editor
             return { 0.0f, 0.0f };
         }
         void OnPreUpdate() override;
-
-        void OnEvent( Common::Event& e ) override;
 
         // THE VIEW `scene`'s RENDERER MUST BE GIVEN THIS FRAME: the user's persisted answer (`user`,
         // which is EditorPreferences::DebugView), minus whatever the viewports looking at that scene are
@@ -202,6 +200,9 @@ namespace Desert::Editor
         static Common::BoolResultStr DropMeshIntoActiveViewport( const std::string&       path,
                                                                  const ActorDrop::Target& target );
 
+        bool OnMouseButtonPressed( Common::MouseButtonPressedEvent& e );
+        bool OnKeyPressed( Common::KeyPressedEvent& e );
+
     private:
         // THE VIEWPORT THE USER IS WORKING IN: the most recently FOCUSED one, else the first live one.
         // Null only when no viewport exists at all.
@@ -226,9 +227,6 @@ namespace Desert::Editor
         // Aim THIS viewport's camera. Refuses with a reason when the view has no editor camera — a
         // closed view, or Play mode, where the camera is the scene's and not the user's to orbit.
         NO_DISCARD Common::BoolResultStr ApplyCameraPreset( ViewportCameraPreset preset );
-
-        bool OnMousePressed( Common::MouseButtonPressedEvent& e );
-        bool OnKeyPressedEvent( Common::KeyPressedEvent& e );
 
     private:
         // Viewport data access
@@ -289,7 +287,7 @@ namespace Desert::Editor
         ViewportData m_ViewportData;
 
         // True while the cursor is over the corner view-axis gizmo — set in DrawViewAxisGizmo, read in
-        // OnMousePressed to suppress scene picking (a click there snaps the camera, it doesn't select).
+        // OnMouseButtonPressed to suppress scene picking (a click there snaps the camera, it doesn't select).
         bool m_ViewAxisGizmoHovered = false;
 
         // Pilot/Eject session of THIS viewport, and whether the cursor is on its overlay (the Eject
