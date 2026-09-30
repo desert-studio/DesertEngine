@@ -152,6 +152,10 @@ namespace Desert::Graphic::API::Vulkan
                                                                            const RDG::BufferDesc& desc,
                                                                            uint32_t               accessMask,
                                                                            std::string_view       name );
+        // The graph's handle on an engine buffer it does not own (Renderer::ImportBuffer): it records the
+        // barriers and binds @p buffer, and never destroys it; the engine buffer outlives every graph that
+        // imports it because its own frames-in-flight release waits for them.
+        static std::shared_ptr<VulkanRdgBuffer> Wrap( VkBuffer buffer, uint64_t size );
         ~VulkanRdgBuffer() override;
 
         RDG::BackendKind GetBackendKind() const override

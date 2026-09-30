@@ -3,6 +3,7 @@
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 #include <Engine/ShaderResources/BufferGrowth.hpp>
 #include <Engine/ShaderResources/API/Vulkan/VulkanMappedBufferCopy.hpp>
+#include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <memory>
 #include <vector>
@@ -46,6 +47,23 @@ namespace Desert::ShaderResources::API::Vulkan
 
         NO_DISCARD const void* GetData() const override;
 
+        // What the render graph knows about the copy it last imported (VulkanRendererAPI::ImportBuffer):
+        // that copy's id, the graph's non-owning handle on its VkBuffer, and the state the last graph left
+        // it in. A persistent buffer has one copy, so its state carries from frame to frame (a simulation
+        // written last frame is waited on before this frame writes it again). A per-frame buffer binds a
+        // different copy each frame; a copy the record does not name starts untouched, which is the truth:
+        // the frames-in-flight fence finished its last GPU use and submit makes the host writes visible.
+        struct GraphRecord
+        {
+            uint64_t                                               CopyId = 0;
+            std::shared_ptr<Desert::Graphic::RDG::IPhysicalBuffer> Physical;
+            Desert::Graphic::RDG::AccessState                      State;
+        };
+        GraphRecord& GetGraphRecord()
+        {
+            return m_GraphRecord;
+        }
+
     private:
         bool IsPersistent() const
         {
@@ -78,6 +96,8 @@ namespace Desert::ShaderResources::API::Vulkan
         // failed to build must answer every later question with the CAUSE — see VulkanUniformBuffer.
         // Always success for a per-frame buffer: its copies are made, and refused, at the write or bind.
         Common::BoolResultStr m_Built = Common::MakeError<bool>( "storage buffer has not been built" );
+
+        GraphRecord m_GraphRecord;
 
         const uint32_t    m_Binding;
         const std::string m_BufferName;

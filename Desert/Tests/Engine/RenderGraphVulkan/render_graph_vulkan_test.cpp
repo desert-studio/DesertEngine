@@ -1345,3 +1345,245 @@ int main( int argc, char** argv )
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
+
+// Renderer::ImportImage of a VulkanImage3D and Renderer::ImportBuffer of a persistent StorageBuffer, on the
+// device: a volume and a buffer the graph does not own (VulkanRdgTexture::Wrap / VulkanRdgBuffer::Wrap), a
+// compute pass that writes both, then a copy that reads the volume into the buffer. Two frames: the second
+// starts from the states the first wrote back, so its compute write waits on last frame's copy. Validation
+// (synchronization validation included) must stay silent, and the buffer holds the volume's texels.
+TEST( RenderGraphVulkan, AnImportedVolumeAndStorageBufferAreWrittenByComputeAndReadBackValidationClean )
+{
+    constexpr uint32_t kEdge  = 4;
+    constexpr uint32_t kBytes = kEdge * kEdge * kEdge * 4;
+    Gpu&               gpu    = GetGpu();
+    ASSERT_TRUE( gpu.Error.empty() ) << gpu.Error;
+    const VkDevice device = gpu.Device.device;
+
+    constexpr const char* kWrite = R"(#version 450
+layout( local_size_x = 4, local_size_y = 4, local_size_z = 4 ) in;
+layout( set = 0, binding = 0, rgba8 ) uniform writeonly image3D volume;
+layout( set = 0, binding = 1 ) buffer Particles { uint Values[]; };
+void main()
+{
+    ivec3 p = ivec3( gl_GlobalInvocationID );
+    imageStore( volume, p, vec4( 1.0, 0.0, float( p.z ) / 255.0, 1.0 ) );
+    Values[p.x + 4 * p.y + 16 * p.z] = 7u;
+})";
+    auto                  code   = CompileGlsl( kWrite, shaderc_compute_shader, "volume.comp" );
+    ASSERT_TRUE( code ) << code.GetError();
+
+    VkImageCreateInfo info{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+    info.imageType     = VK_IMAGE_TYPE_3D;
+    info.format        = VK_FORMAT_R8G8B8A8_UNORM;
+    info.extent        = { kEdge, kEdge, kEdge };
+    info.mipLevels     = 1;
+    info.arrayLayers   = 1;
+    info.samples       = VK_SAMPLE_COUNT_1_BIT;
+    info.tiling        = VK_IMAGE_TILING_OPTIMAL;
+    info.usage         = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VmaAllocationCreateInfo imageMemory{};
+    imageMemory.usage        = VMA_MEMORY_USAGE_AUTO;
+    VkImage       image      = VK_NULL_HANDLE;
+    VmaAllocation imageAlloc = nullptr;
+    ASSERT_EQ( vmaCreateImage( gpu.Allocator, &info, &imageMemory, &image, &imageAlloc, nullptr ), VK_SUCCESS );
+
+    // The engine's persistent storage buffer: host-visible, mapped, storage + transfer destination.
+    VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    bufferInfo.size  = kBytes;
+    bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    VmaAllocationCreateInfo bufferMemory{};
+    bufferMemory.usage       = VMA_MEMORY_USAGE_AUTO;
+    bufferMemory.flags       = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    VkBuffer          buffer = VK_NULL_HANDLE;
+    VmaAllocation     bufferAlloc = nullptr;
+    VmaAllocationInfo mapped{};
+    ASSERT_EQ( vmaCreateBuffer( gpu.Allocator, &bufferInfo, &bufferMemory, &buffer, &bufferAlloc, &mapped ),
+               VK_SUCCESS );
+
+    RDG::TextureDesc volumeDesc = Target();
+    volumeDesc.Size             = { kEdge, kEdge, kEdge };
+    volumeDesc.Dim              = RDG::TextureDim::Tex3D;
+    volumeDesc.Mips             = 1;
+    volumeDesc.Layers           = 1;
+    std::shared_ptr<VulkanRdgTexture> wrappedImage =
+         VulkanRdgTexture::Wrap( device, image, VK_FORMAT_R8G8B8A8_UNORM, volumeDesc );
+    const std::shared_ptr<VulkanRdgBuffer> wrappedBuffer = VulkanRdgBuffer::Wrap( buffer, kBytes );
+    const Common::ResultStr<VkImageView>   view =
+         wrappedImage->GetView( RDG::SubresourceRange{ 0, 1, 0, 1 }, false );
+    ASSERT_TRUE( view ) << view.GetError();
+
+    const std::array<VkDescriptorSetLayoutBinding, 2> bindings = {
+         VkDescriptorSetLayoutBinding{ 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT,
+                                       nullptr },
+         VkDescriptorSetLayoutBinding{ 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT,
+                                       nullptr } };
+    VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+    layoutInfo.bindingCount         = static_cast<uint32_t>( bindings.size() );
+    layoutInfo.pBindings            = bindings.data();
+    VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
+    ASSERT_EQ( vkCreateDescriptorSetLayout( device, &layoutInfo, nullptr, &setLayout ), VK_SUCCESS );
+    VkPipelineLayoutCreateInfo pipeLayoutInfo{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+    pipeLayoutInfo.setLayoutCount = 1;
+    pipeLayoutInfo.pSetLayouts    = &setLayout;
+    VkPipelineLayout pipeLayout   = VK_NULL_HANDLE;
+    ASSERT_EQ( vkCreatePipelineLayout( device, &pipeLayoutInfo, nullptr, &pipeLayout ), VK_SUCCESS );
+    const VkShaderModule        module_ = Module( device, code.GetValue() );
+    VkComputePipelineCreateInfo pipeInfo{ VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
+    pipeInfo.stage        = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
+    pipeInfo.stage.stage  = VK_SHADER_STAGE_COMPUTE_BIT;
+    pipeInfo.stage.module = module_;
+    pipeInfo.stage.pName  = "main";
+    pipeInfo.layout       = pipeLayout;
+    VkPipeline pipeline   = VK_NULL_HANDLE;
+    ASSERT_EQ( vkCreateComputePipelines( device, VK_NULL_HANDLE, 1, &pipeInfo, nullptr, &pipeline ), VK_SUCCESS );
+    const std::array<VkDescriptorPoolSize, 2> sizes = {
+         VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1 },
+         VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 } };
+    VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+    poolInfo.maxSets             = 1;
+    poolInfo.poolSizeCount       = static_cast<uint32_t>( sizes.size() );
+    poolInfo.pPoolSizes          = sizes.data();
+    VkDescriptorPool descriptors = VK_NULL_HANDLE;
+    ASSERT_EQ( vkCreateDescriptorPool( device, &poolInfo, nullptr, &descriptors ), VK_SUCCESS );
+    VkDescriptorSetAllocateInfo setInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+    setInfo.descriptorPool     = descriptors;
+    setInfo.descriptorSetCount = 1;
+    setInfo.pSetLayouts        = &setLayout;
+    VkDescriptorSet set        = VK_NULL_HANDLE;
+    ASSERT_EQ( vkAllocateDescriptorSets( device, &setInfo, &set ), VK_SUCCESS );
+    const VkDescriptorImageInfo  imageDescriptor{ VK_NULL_HANDLE, view.GetValue(), VK_IMAGE_LAYOUT_GENERAL };
+    const VkDescriptorBufferInfo bufferDescriptor{ buffer, 0, kBytes };
+    std::array<VkWriteDescriptorSet, 2> writes{};
+    for ( VkWriteDescriptorSet& write : writes )
+    {
+        write                 = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        write.dstSet          = set;
+        write.descriptorCount = 1;
+    }
+    writes[0].dstBinding     = 0;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    writes[0].pImageInfo     = &imageDescriptor;
+    writes[1].dstBinding     = 1;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[1].pBufferInfo    = &bufferDescriptor;
+    vkUpdateDescriptorSets( device, static_cast<uint32_t>( writes.size() ), writes.data(), 0, nullptr );
+
+    // The engine images' and buffers' own records, as VulkanImage3D and VulkanStorageBuffer keep them.
+    std::vector<RDG::AccessState> imageStates( 1, RDG::GetAccessState( RDG::Access::None ) );
+    RDG::AccessState              bufferState = RDG::GetAccessState( RDG::Access::None );
+    {
+        VulkanRdgPool    pool( gpu.Rdg, 1 );
+        VulkanRdgBackend backend( gpu.Rdg, pool );
+        for ( int frame = 0; frame < 2; ++frame )
+        {
+            RDG::ExternalTexture volume;
+            volume.Desc              = volumeDesc;
+            volume.SubresourceStates = imageStates;
+            volume.Physical          = wrappedImage;
+            volume.RecordFinalStates = [&]( const std::vector<RDG::AccessState>& states ) -> Common::BoolResultStr
+            {
+                imageStates = states;
+                return Common::MakeSuccess( true );
+            };
+            RDG::ExternalBuffer particles( RDG::BufferDesc{ kBytes }, RDG::Access::None );
+            particles.State            = bufferState;
+            particles.Physical         = wrappedBuffer;
+            int bufferWriteBacks       = 0;
+            particles.RecordFinalState = [&]( const RDG::AccessState& state ) -> Common::BoolResultStr
+            {
+                ++bufferWriteBacks;
+                bufferState = state;
+                return Common::MakeSuccess( true );
+            };
+
+            RDG::Builder          graph( "volume" );
+            const RDG::TextureRef volumeRef = graph.RegisterExternal( volume, "Volume" );
+            const RDG::BufferRef  bufferRef = graph.RegisterExternal( particles, "Particles" );
+            graph.AddPass(
+                 "Simulate", RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     pass.Write( volumeRef, RDG::Access::StorageWrite );
+                     pass.Write( bufferRef, RDG::Access::StorageWrite );
+                 },
+                 [&]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     const Common::ResultStr<VkCommandBuffer> cmd = VulkanRdgBackend::CommandBufferOf( context );
+                     if ( !cmd )
+                         return Common::MakeError( cmd.GetError() );
+                     vkCmdBindPipeline( cmd.GetValue(), VK_PIPELINE_BIND_POINT_COMPUTE, pipeline );
+                     vkCmdBindDescriptorSets( cmd.GetValue(), VK_PIPELINE_BIND_POINT_COMPUTE, pipeLayout, 0, 1,
+                                              &set, 0, nullptr );
+                     vkCmdDispatch( cmd.GetValue(), 1, 1, 1 );
+                     return Common::MakeSuccess( true );
+                 } );
+            graph.AddPass(
+                 "Gather", RDG::PassFlags::Copy,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     pass.Read( volumeRef, RDG::Access::CopySrc );
+                     pass.Write( bufferRef, RDG::Access::CopyDst );
+                 },
+                 [&]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     const Common::ResultStr<VkCommandBuffer> cmd = VulkanRdgBackend::CommandBufferOf( context );
+                     if ( !cmd )
+                         return Common::MakeError( cmd.GetError() );
+                     VkBufferImageCopy region{};
+                     region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+                     region.imageExtent      = { kEdge, kEdge, kEdge };
+                     vkCmdCopyImageToBuffer( cmd.GetValue(), image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer,
+                                             1, &region );
+                     return Common::MakeSuccess( true );
+                 } );
+
+            VkCommandBuffer             cmd = VK_NULL_HANDLE;
+            VkCommandBufferAllocateInfo allocate{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+            allocate.commandPool        = gpu.CommandPool;
+            allocate.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocate.commandBufferCount = 1;
+            vkAllocateCommandBuffers( device, &allocate, &cmd );
+            VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+            begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            vkBeginCommandBuffer( cmd, &begin );
+            pool.BeginFrame( 0 );
+            backend.SetCommandBuffer( cmd );
+            const Common::BoolResultStr executed = graph.Execute( backend );
+            vkEndCommandBuffer( cmd );
+            ASSERT_TRUE( executed ) << executed.GetError();
+            VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+            submit.commandBufferCount = 1;
+            submit.pCommandBuffers    = &cmd;
+            vkQueueSubmit( gpu.Queue, 1, &submit, VK_NULL_HANDLE );
+            vkQueueWaitIdle( gpu.Queue );
+            vkFreeCommandBuffers( device, gpu.CommandPool, 1, &cmd );
+
+            EXPECT_EQ( bufferWriteBacks, 1 ) << "frame " << frame;
+            EXPECT_EQ( bufferState, RDG::GetAccessState( RDG::Access::CopyDst ) ) << "frame " << frame;
+            EXPECT_EQ( imageStates.front(), RDG::GetAccessState( RDG::Access::CopySrc ) ) << "frame " << frame;
+            vmaInvalidateAllocation( gpu.Allocator, bufferAlloc, 0, VK_WHOLE_SIZE );
+            const auto* texel = static_cast<const uint8_t*>( mapped.pMappedData );
+            ASSERT_NE( texel, nullptr );
+            // The copy overwrote the compute's 7u with the volume's texels: red, blue = slice, alpha.
+            EXPECT_EQ( std::vector<uint8_t>( texel, texel + 4 ), ( std::vector<uint8_t>{ 255, 0, 0, 255 } ) )
+                 << "frame " << frame;
+            const uint8_t* last = texel + kBytes - 4;
+            EXPECT_EQ( std::vector<uint8_t>( last, last + 4 ), ( std::vector<uint8_t>{ 255, 0, kEdge - 1, 255 } ) )
+                 << "frame " << frame;
+        }
+        vkDeviceWaitIdle( device );
+    }
+    vkDestroyDescriptorPool( device, descriptors, nullptr );
+    vkDestroyPipeline( device, pipeline, nullptr );
+    vkDestroyShaderModule( device, module_, nullptr );
+    vkDestroyPipelineLayout( device, pipeLayout, nullptr );
+    vkDestroyDescriptorSetLayout( device, setLayout, nullptr );
+    // The graph's handles own nothing: the engine's owners release the image and the buffer. The wrapped
+    // texture destroys only the view it made, so it goes first.
+    wrappedImage.reset();
+    vmaDestroyImage( gpu.Allocator, image, imageAlloc );
+    vmaDestroyBuffer( gpu.Allocator, buffer, bufferAlloc );
+    const std::vector<Message> messages = TakeMessages();
+    EXPECT_TRUE( messages.empty() ) << messages.size() << " validation message(s):" << Join( messages );
+}

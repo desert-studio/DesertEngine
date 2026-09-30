@@ -1691,6 +1691,138 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
 // graph.AddPass as Compute | NeverCull, not through a legacy wrapper. It declares no graph resource because the
 // particle state lives in engine storage buffers the renderer cannot import into the graph; NeverCull is what
 // keeps such a node, and a graph with only it runs it once with no barrier planned.
+// A volume (an engine VulkanImage3D imported through Renderer::ImportImage) is ONE layer of Depth slices: its
+// barriers cover every mip of layer 0, never Depth "layers", and the depth is carried in the description.
+TEST( RenderGraphCompile, AVolumeTextureGetsBarriersOverItsMipsOfOneLayer )
+{
+    TextureDesc volumeDesc;
+    volumeDesc.Size   = { 8, 8, 4 };
+    volumeDesc.Format = ImageFormat::RGBA16F;
+    volumeDesc.Mips   = 3;
+    volumeDesc.Layers = 1;
+    volumeDesc.Dim    = TextureDim::Tex3D;
+    ExternalTexture  volume( volumeDesc, Access::None );
+    ExternalBuffer   sink( BufferDesc{ 256 }, Access::None );
+    Builder          graph( "volume" );
+    const TextureRef ref     = graph.RegisterExternal( volume, "Volume" );
+    const BufferRef  sinkRef = graph.RegisterExternal( sink, "Sink" );
+    graph.AddPass(
+         "Inject", PassFlags::Compute, [&]( PassBuilder& pass ) { pass.Write( ref, Access::StorageWrite ); }, Ok );
+    graph.AddPass(
+         "March", PassFlags::Compute,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( ref, Access::SampledCompute );
+             pass.Write( sinkRef, Access::StorageWrite );
+         },
+         Ok );
+
+    const CompileResult result = CompileOrFail( graph );
+    ASSERT_EQ( result.Passes.size(), 2u );
+    ASSERT_EQ( volume.SubresourceStates.size(), 3u ) << "a volume has Mips x 1 subresources, not Mips x Depth";
+    const std::vector<Barrier> into = BarriersOn( result.FindPass( "Inject" ), ref.Index );
+    ASSERT_EQ( into.size(), 1u );
+    EXPECT_EQ( into[0].Range, ( SubresourceRange{ 0, 3, 0, 1 } ) );
+    EXPECT_EQ( into[0].After.Layout, GetAccessState( Access::StorageWrite ).Layout );
+    const std::vector<Barrier> read = BarriersOn( result.FindPass( "March" ), ref.Index );
+    ASSERT_EQ( read.size(), 1u );
+    EXPECT_EQ( read[0].Kind, ResourceKind::Texture );
+    EXPECT_EQ( read[0].Range, ( SubresourceRange{ 0, 3, 0, 1 } ) );
+    EXPECT_EQ( read[0].Before, GetAccessState( Access::StorageWrite ) );
+    EXPECT_EQ( read[0].After, GetAccessState( Access::SampledCompute ) );
+    ASSERT_TRUE( ExecuteRecorded( graph ).IsSuccess() );
+    EXPECT_EQ( volume.Desc.Size.Depth, 4u );
+    EXPECT_EQ( volume.Desc.Dim, TextureDim::Tex3D );
+}
+
+// An engine buffer imported into the graph (Renderer::ImportBuffer): a compute write then vertex/compute and
+// indirect reads plan ONE buffer barrier whose destination covers every reading stage, and Execute hands the
+// final state to RecordFinalState, so the next frame's graph waits on this one's reads before it writes.
+TEST( RenderGraphCompile, AnImportedBufferWrittenThenReadGetsABufferBarrierAndCarriesItsState )
+{
+    std::vector<AccessState> recorded;
+    ExternalBuffer           particles( BufferDesc{ 4096 }, Access::None );
+    particles.RecordFinalState = [&recorded]( const AccessState& state )
+    {
+        recorded.push_back( state );
+        return Common::BoolResultStr( Common::MakeSuccess( true ) );
+    };
+    ExternalBuffer sink( BufferDesc{ 256 }, Access::None );
+    {
+        Builder         graph( "frame0" );
+        const BufferRef ref     = graph.RegisterExternal( particles, "Particles" );
+        const BufferRef sinkRef = graph.RegisterExternal( sink, "Sink" );
+        graph.AddPass(
+             "Simulate", PassFlags::Compute, [&]( PassBuilder& pass ) { pass.Write( ref, Access::StorageWrite ); },
+             Ok );
+        graph.AddPass(
+             "Draw", PassFlags::Compute,
+             [&]( PassBuilder& pass )
+             {
+                 pass.Read( ref, Access::StorageRead );
+                 pass.Write( sinkRef, Access::StorageWrite );
+             },
+             Ok );
+        graph.AddPass(
+             "DrawIndirect", PassFlags::Compute,
+             [&]( PassBuilder& pass )
+             {
+                 pass.Read( ref, Access::IndirectArgs );
+                 pass.Write( sinkRef, Access::StorageWrite );
+             },
+             Ok );
+
+        const CompileResult result = CompileOrFail( graph );
+        ASSERT_EQ( result.Passes.size(), 3u );
+        // Nothing used the buffer before: its first write waits on nothing.
+        EXPECT_TRUE( BarriersOn( result.FindPass( "Simulate" ), ref.Index ).empty() );
+        const std::vector<Barrier> raw = BarriersOn( result.FindPass( "Draw" ), ref.Index );
+        ASSERT_EQ( raw.size(), 1u );
+        EXPECT_EQ( raw[0].Kind, ResourceKind::Buffer );
+        EXPECT_EQ( raw[0].Before, GetAccessState( Access::StorageWrite ) );
+        EXPECT_NE( raw[0].Before.Stages & PipelineStage_ComputeShader, 0u );
+        EXPECT_NE( raw[0].After.Stages & PipelineStage_VertexShader, 0u )
+             << "a storage read covers the vertex stage";
+        EXPECT_NE( raw[0].After.Stages & PipelineStage_ComputeShader, 0u );
+        EXPECT_NE( raw[0].After.Stages & PipelineStage_DrawIndirect, 0u )
+             << "the indirect read merges into the barrier before the first reader";
+        EXPECT_TRUE( BarriersOn( result.FindPass( "DrawIndirect" ), ref.Index ).empty() );
+        ASSERT_TRUE( ExecuteRecorded( graph ).IsSuccess() );
+    }
+    ASSERT_EQ( recorded.size(), 1u );
+    EXPECT_NE( recorded[0].Stages & PipelineStage_DrawIndirect, 0u );
+    EXPECT_TRUE( recorded[0].IsReadOnly() );
+    EXPECT_EQ( particles.State, recorded[0] );
+
+    // Next frame: the simulation's write waits on last frame's reads (WAR), from the state written back.
+    Builder         graph( "frame1" );
+    const BufferRef ref = graph.RegisterExternal( particles, "Particles" );
+    graph.AddPass(
+         "Simulate", PassFlags::Compute, [&]( PassBuilder& pass ) { pass.Write( ref, Access::StorageWrite ); },
+         Ok );
+    const CompileResult        result = CompileOrFail( graph );
+    const std::vector<Barrier> war    = BarriersOn( result.FindPass( "Simulate" ), ref.Index );
+    ASSERT_EQ( war.size(), 1u );
+    EXPECT_EQ( war[0].Before, recorded[0] );
+    EXPECT_EQ( war[0].After, GetAccessState( Access::StorageWrite ) );
+}
+
+TEST( RenderGraphCompile, AFailedBufferStateWriteBackFailsExecuteNamingTheBuffer )
+{
+    ExternalBuffer particles( BufferDesc{ 4096 }, Access::None );
+    particles.RecordFinalState = []( const AccessState& )
+    { return Common::BoolResultStr( Common::MakeError( "buffer gone" ) ); };
+    Builder         graph( "import" );
+    const BufferRef ref = graph.RegisterExternal( particles, "Particles" );
+    graph.AddPass(
+         "Simulate", PassFlags::Compute, [&]( PassBuilder& pass ) { pass.Write( ref, Access::StorageWrite ); },
+         Ok );
+    const Common::BoolResultStr executed = ExecuteRecorded( graph );
+    ASSERT_FALSE( executed.IsSuccess() );
+    EXPECT_NE( executed.GetError().find( "Particles" ), std::string::npos ) << executed.GetError();
+    EXPECT_NE( executed.GetError().find( "buffer gone" ), std::string::npos ) << executed.GetError();
+}
+
 TEST( RenderGraphCompile, ParticleSimulationIsAComputeNodeTheGraphKeeps )
 {
     const fs::path root = RepoRoot();
@@ -1709,16 +1841,56 @@ TEST( RenderGraphCompile, ParticleSimulationIsAComputeNodeTheGraphKeeps )
          body.find( "graph.AddPass(\"Particles:Simulate\",RDG::PassFlags::Compute|RDG::PassFlags::NeverCull" ),
          std::string::npos );
 
-    Builder graph( "particles" );
-    int     runs = 0;
-    graph.AddPass(
-         "Particles: Simulate", PassFlags::Compute | PassFlags::NeverCull, []( PassBuilder& ) {},
-         [&runs]( PassContext& )
-         {
-             ++runs;
-             return Common::MakeSuccess( true );
-         } );
-    RecordingBackend backend;
-    ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
-    EXPECT_EQ( runs, 1 );
+    // The node declares the emitters' buffers: imported through Renderer::ImportBuffer, written StorageWrite.
+    EXPECT_NE( body.find( "particles->ImportSimulationBuffers(graph)" ), std::string::npos )
+         << "the simulation node does not import the emitters' buffers";
+    EXPECT_NE( body.find( "pass.Write(buffer,RDG::Access::StorageWrite)" ), std::string::npos )
+         << "the simulation node does not declare its writes";
+    EXPECT_EQ( body.find( "[](RDG::PassBuilder&){}" ), std::string::npos )
+         << "the simulation node declares nothing";
+
+    std::ifstream particleFile(
+         root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
+    ASSERT_TRUE( particleFile );
+    std::string particleText( ( std::istreambuf_iterator<char>( particleFile ) ),
+                              std::istreambuf_iterator<char>() );
+    particleText.erase( std::remove_if( particleText.begin(), particleText.end(),
+                                        []( unsigned char c ) { return std::isspace( c ) != 0; } ),
+                        particleText.end() );
+    const size_t importAt = particleText.find( "ParticleRenderer::ImportSimulationBuffers(RDG::Builder&graph)" );
+    ASSERT_NE( importAt, std::string::npos );
+    const std::string importBody =
+         particleText.substr( importAt, particleText.find( "voidParticleRenderer::", importAt ) - importAt );
+    EXPECT_NE( importBody.find( "renderer.ImportBuffer(fe.Gpu->Particles,fe.ParticlesImport)" ),
+               std::string::npos );
+    EXPECT_NE( importBody.find( "renderer.ImportBuffer(fe.Gpu->Counter,fe.CounterImport)" ), std::string::npos );
+    // An emitter the graph was not told about is not dispatched.
+    const size_t simulateAt = particleText.find( "voidParticleRenderer::SimulateInFrame(" );
+    ASSERT_NE( simulateAt, std::string::npos );
+    EXPECT_NE( particleText.find( "if(!fe.Declared)continue;", simulateAt ), std::string::npos );
+
+    // The same shape in a graph: two frames of a persistent buffer written by the node. The second frame's
+    // write waits on the first's, from the state the first graph wrote back.
+    ExternalBuffer state( BufferDesc{ 4096 }, Access::None );
+    int            runs = 0;
+    for ( int frame = 0; frame < 2; ++frame )
+    {
+        Builder         graph( "particles" );
+        const BufferRef ref = graph.RegisterExternal( state, "ParticleState0" );
+        graph.AddPass(
+             "Particles: Simulate", PassFlags::Compute | PassFlags::NeverCull,
+             [&]( PassBuilder& pass ) { pass.Write( ref, Access::StorageWrite ); },
+             [&runs]( PassContext& )
+             {
+                 ++runs;
+                 return Common::MakeSuccess( true );
+             } );
+        const CompileResult        result   = CompileOrFail( graph );
+        const std::vector<Barrier> barriers = BarriersOn( result.FindPass( "Particles: Simulate" ), ref.Index );
+        EXPECT_EQ( barriers.size(), frame == 0 ? 0u : 1u ) << "frame " << frame;
+        RecordingBackend backend;
+        ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
+    }
+    EXPECT_EQ( runs, 2 );
+    EXPECT_EQ( state.State, GetAccessState( Access::StorageWrite ) );
 }

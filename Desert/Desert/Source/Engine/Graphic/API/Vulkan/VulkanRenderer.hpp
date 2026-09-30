@@ -37,6 +37,8 @@ namespace Desert::Graphic::API::Vulkan
         std::shared_ptr<RDG::IPhysicalTexture> WrapLegacyImage( Image2D& image ) override;
         Common::BoolResultStr                  ImportImage( const std::shared_ptr<Image>& image,
                                                             RDG::ExternalTexture&         into ) override;
+        Common::BoolResultStr ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
+                                            RDG::ExternalBuffer&                                   into ) override;
 
         virtual void RenderMesh( const GraphicsPipeline* pipeline, const Mesh* mesh, const glm::mat4 transform,
                                  const MaterialExecutor* materialExecutor, uint32_t instanceCount = 1,

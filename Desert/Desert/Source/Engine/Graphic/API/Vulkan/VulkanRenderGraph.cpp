@@ -444,9 +444,18 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( std::move( buffer ) );
     }
 
+    std::shared_ptr<VulkanRdgBuffer> VulkanRdgBuffer::Wrap( VkBuffer buffer, uint64_t size )
+    {
+        std::shared_ptr<VulkanRdgBuffer> wrapped( new VulkanRdgBuffer() );
+        wrapped->m_Buffer = buffer;
+        wrapped->m_Size   = size;
+        return wrapped;
+    }
+
     VulkanRdgBuffer::~VulkanRdgBuffer()
     {
-        if ( m_Buffer != VK_NULL_HANDLE )
+        // A wrapped engine buffer has no allocator: its owner destroys it.
+        if ( m_Allocator != nullptr && m_Buffer != VK_NULL_HANDLE )
             vmaDestroyBuffer( m_Allocator, m_Buffer, m_Allocation );
     }
 

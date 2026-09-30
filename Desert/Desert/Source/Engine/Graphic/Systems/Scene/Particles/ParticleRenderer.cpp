@@ -5,6 +5,7 @@
 #include <Engine/Graphic/Materials/Particles/MaterialParticleBillboard.hpp>
 #include <Engine/Graphic/RenderPhase.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Engine/Core/Scene.hpp>
@@ -15,6 +16,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <format>
 #include <cstdint>
 
 namespace Desert::Graphic::System
@@ -298,18 +300,55 @@ namespace Desert::Graphic::System
         auto& renderer = Renderer::GetInstance();
         for ( auto& fe : m_FrameEmitters )
         {
+            // An emitter whose buffers the graph does not know (ImportSimulationBuffers refused them, and said
+            // why) is not written: its barrier against the previous frame's simulation would be missing.
+            if ( !fe.Declared )
+                continue;
             m_SimPipeline->SetStorageBuffer( 0, fe.Gpu->Particles.get() );
             m_SimPipeline->SetStorageBuffer( 1, fe.Gpu->Counter.get() );
             m_SimPipeline->SetPushConstants( &fe.Push, sizeof( fe.Push ) );
 
             const uint32_t groups =
                  ( static_cast<uint32_t>( fe.Gpu->MaxParticles ) + kParticleLocalSize - 1 ) / kParticleLocalSize;
-            // DispatchComputeCull (not InFrame): its barrier makes the writes visible to the VERTEX stage that
-            // the billboard shader reads the particle buffer from. It stays here, not in the frame graph, because
-            // the graph node that runs this ("Particles: Simulate") cannot declare the buffer: the renderer has
-            // no import of an engine StorageBuffer into the graph (Renderer::ImportImage takes an Image2D only).
+            // The graph node that runs this ("Particles: Simulate") declares both buffers StorageWrite, so the
+            // graph orders this write after the previous frame's. The READER, the billboard draw, is still
+            // inside the Transparency bridge and declares nothing until L5 makes ParticlePass a node with
+            // Read(particles, StorageRead). Until then DispatchComputeCull (not InFrame) keeps its own
+            // compute -> vertex|indirect barrier; L5 removes that barrier together with adding the declaration.
             renderer.DispatchComputeCull( m_SimPipeline.get(), groups, 1, 1 );
         }
+    }
+
+    std::vector<RDG::BufferRef> ParticleRenderer::ImportSimulationBuffers( RDG::Builder& graph )
+    {
+        std::vector<RDG::BufferRef> written;
+        written.reserve( m_FrameEmitters.size() * 2 );
+        auto& renderer = Renderer::GetInstance();
+        for ( size_t i = 0; i < m_FrameEmitters.size(); ++i )
+        {
+            FrameEmitter& fe                      = m_FrameEmitters[i];
+            fe.Declared                           = false;
+            const Common::BoolResultStr particles = renderer.ImportBuffer( fe.Gpu->Particles, fe.ParticlesImport );
+            if ( !particles )
+            {
+                LOG_ERROR( "[Particles] emitter {} sits out this frame, its state buffer is not in the frame "
+                           "graph: {}",
+                           i, particles.GetError() );
+                continue;
+            }
+            const Common::BoolResultStr counter = renderer.ImportBuffer( fe.Gpu->Counter, fe.CounterImport );
+            if ( !counter )
+            {
+                LOG_ERROR( "[Particles] emitter {} sits out this frame, its spawn counter is not in the frame "
+                           "graph: {}",
+                           i, counter.GetError() );
+                continue;
+            }
+            written.push_back( graph.RegisterExternal( fe.ParticlesImport, std::format( "ParticleState{}", i ) ) );
+            written.push_back( graph.RegisterExternal( fe.CounterImport, std::format( "ParticleSpawn{}", i ) ) );
+            fe.Declared = true;
+        }
+        return written;
     }
 
     void ParticleRenderer::RegisterPasses( RenderGraphBuilder& builder )

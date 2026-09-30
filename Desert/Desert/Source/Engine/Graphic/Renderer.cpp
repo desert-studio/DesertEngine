@@ -236,6 +236,12 @@ namespace Desert::Graphic
         return s_RendererAPI->ImportImage( image, into );
     }
 
+    Common::BoolResultStr Renderer::ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
+                                                  RDG::ExternalBuffer&                                   into )
+    {
+        return s_RendererAPI->ImportBuffer( buffer, into );
+    }
+
     std::shared_ptr<RDG::IPhysicalTexture> Renderer::WrapLegacyImage( Image2D& image )
     {
         return s_RendererAPI->WrapLegacyImage( image );

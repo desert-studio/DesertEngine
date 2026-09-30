@@ -6,6 +6,7 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/Materials/Particles/MaterialParticleBillboard.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
+#include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <glm/glm.hpp>
 
@@ -17,6 +18,11 @@
 namespace Desert::Core
 {
     class Scene;
+}
+
+namespace Desert::Graphic::RDG
+{
+    class Builder;
 }
 
 namespace Desert::Graphic::System
@@ -67,6 +73,16 @@ namespace Desert::Graphic::System
         // system reads no clock of its own - the ParticleTimestep suite holds it to that.
         void SimulateInFrame( float frameSeconds );
 
+        // Imports every emitter of this frame's particle-state and spawn-counter buffers into @p graph
+        // (Renderer::ImportBuffer) and returns their handles, which the node that runs SimulateInFrame
+        // ("Particles: Simulate") declares as StorageWrite: the graph then places the barrier against the
+        // previous graph's use of the same buffer (last frame's simulation of the persistent state). An
+        // emitter whose buffers cannot be imported is logged and sits the frame out: SimulateInFrame
+        // dispatches only emitters whose writes the graph was told about. Call once per frame graph, after
+        // PrepareFrame. The ExternalBuffers live in m_FrameEmitters, which the graph points at until its
+        // Execute ends; only the next PrepareFrame refills it.
+        std::vector<RDG::BufferRef> ImportSimulationBuffers( RDG::Builder& graph );
+
     private:
         // Push constant for ParticleSimulate (must match the shader's 128-byte block).
         struct SimPush
@@ -106,6 +122,11 @@ namespace Desert::Graphic::System
             bool        Additive  = true;
             float       SpawnRate = 0.0f; // particles/s; turned into this frame's budget by SimulateInFrame
             bool        Looping   = true;
+            // This frame's graph imports of Gpu->Particles and Gpu->Counter (ImportSimulationBuffers), and
+            // whether both were imported: SimulateInFrame dispatches only a declared emitter.
+            RDG::ExternalBuffer ParticlesImport;
+            RDG::ExternalBuffer CounterImport;
+            bool                Declared = false;
         };
 
         bool        CreatePipelines();

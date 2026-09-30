@@ -26,6 +26,7 @@ namespace Desert::Graphic
         class Builder;
         class IPhysicalTexture;
         struct ExternalTexture;
+        struct ExternalBuffer;
     } // namespace RDG
 
     class Renderer : public Common::Singleton<Renderer>
@@ -45,6 +46,8 @@ namespace Desert::Graphic
         Common::BoolResultStr                  ExecuteGraph( RDG::Builder& graph );
         std::shared_ptr<RDG::IPhysicalTexture> WrapLegacyImage( Image2D& image );
         Common::BoolResultStr ImportImage( const std::shared_ptr<Image>& image, RDG::ExternalTexture& into );
+        Common::BoolResultStr ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
+                                            RDG::ExternalBuffer&                                   into );
         void EndDebugLabel();
         void RenderMesh( const GraphicsPipeline* pipeline, const Mesh* mesh, const glm::mat4 transform,
                          const MaterialExecutor* materialExecutor, uint32_t instanceCount = 1,

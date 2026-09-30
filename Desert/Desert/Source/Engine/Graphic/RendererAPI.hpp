@@ -21,6 +21,7 @@ namespace Desert::Graphic
         class Builder;
         class IPhysicalTexture;
         struct ExternalTexture;
+        struct ExternalBuffer;
     } // namespace RDG
 
     enum class RendererAPIType : uint8_t
@@ -78,6 +79,15 @@ namespace Desert::Graphic
         // the graph has no name for.
         virtual Common::BoolResultStr ImportImage( const std::shared_ptr<Image>& image,
                                                    RDG::ExternalTexture&         into ) = 0;
+
+        // Imports the copy of @p buffer bound for this frame and the active view into @p into for one graph:
+        // its size, the graph's non-owning handle on it, the state the last graph that imported the same copy
+        // left it in (untouched for a copy no graph has seen), and the hook through which Execute records the
+        // final state back. The same shape as ImportImage: a pass that dispatches or draws with the buffer
+        // declares its storage/vertex/indirect access on the imported handle, and the graph places the
+        // buffer barriers. Fails when the buffer's copy for this frame cannot be bound.
+        virtual Common::BoolResultStr ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
+                                                    RDG::ExternalBuffer& into ) = 0;
 
         // @p instanceCount > 1 issues a hardware-instanced draw (the instanced pipeline's vertex shader
         // reads the per-instance model matrix from an InstanceTransforms SSBO by gl_InstanceIndex).

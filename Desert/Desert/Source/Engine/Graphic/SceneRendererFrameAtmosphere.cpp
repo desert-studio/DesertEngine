@@ -41,20 +41,28 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameParticlesSimulate( RDG::Builder& graph, const UpdateInfo& sceneRenderInfo )
     {
         // Particle simulation: one compute dispatch per emitter, outside any render pass, BEFORE the billboard
-        // draw reads the integrated particle buffer in its vertex stage. A Compute node, NeverCull because it
-        // declares no graph resource: what it writes are the emitters' storage buffers
-        // (ShaderResources::StorageBuffer), and the renderer can import an engine Image2D into the graph
-        // (Renderer::ImportImage) but has no import for an engine buffer. So the graph cannot place the
-        // compute-write -> vertex-read barrier on them, and DispatchComputeCull keeps it (ParticleRenderer.cpp,
-        // SimulateInFrame). The graph executes before OnUpdate returns, so the frame's UpdateInfo outlives this
-        // pass.
+        // draw reads the integrated particle buffer in its vertex stage. A Compute node that imports every
+        // emitter's state and spawn-counter buffers (ParticleRenderer::ImportSimulationBuffers, through
+        // Renderer::ImportBuffer) and declares StorageWrite on them, so the graph places the barrier against the
+        // previous graph's write of the persistent state. The simulation reads its buffers only through that
+        // read-modify-write, so StorageWrite is every access it makes. The billboard draw that reads the result
+        // is in the Transparency bridge and declares nothing yet: L5 makes ParticlePass a node with
+        // Read(particles, StorageRead), and removes DispatchComputeCull's own compute -> vertex barrier then.
+        // NeverCull stays: the node also advances the particle clock on a frame with no emitter, a write the
+        // graph cannot see. The graph executes before OnUpdate returns, so the frame's UpdateInfo, and the
+        // imports held by the renderer's frame emitters, outlive this pass.
         auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
         if ( !particles )
             return;
-        const float seconds = static_cast<float>( sceneRenderInfo.Timestep.GetSeconds() );
+        const float                       seconds = static_cast<float>( sceneRenderInfo.Timestep.GetSeconds() );
+        const std::vector<RDG::BufferRef> written = particles->ImportSimulationBuffers( graph );
         graph.AddPass(
              "Particles: Simulate", RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
-             []( RDG::PassBuilder& ) {},
+             [&written]( RDG::PassBuilder& pass )
+             {
+                 for ( const RDG::BufferRef buffer : written )
+                     pass.Write( buffer, RDG::Access::StorageWrite );
+             },
              [particles, seconds]( RDG::PassContext& ) -> Common::BoolResultStr
              {
                  particles->SimulateInFrame( seconds );

@@ -639,6 +639,13 @@ namespace Desert::Graphic::RDG
                 ExternalBuffer* target = record.ExternalBuf ? record.ExternalBuf : record.ExtractBuf;
                 target->Desc           = record.Buffer;
                 target->State          = final.SubresourceStates.front();
+                if ( target->RecordFinalState )
+                {
+                    Common::BoolResultStr recorded = target->RecordFinalState( target->State );
+                    if ( !recorded && recordError.empty() )
+                        recordError =
+                             std::format( "graph '{}' buffer '{}': {}", m_Name, record.Name, recorded.GetError() );
+                }
                 if ( !record.IsExternal() )
                     target->Physical = std::move( extractedBuffers[final.Resource] );
             }

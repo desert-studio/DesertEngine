@@ -617,6 +617,10 @@ namespace Desert::Graphic::API::Vulkan
 
         // Make the cull's storage writes (visible-instance buffer + the indirect args' instanceCount)
         // available + visible to the VERTEX stage (reads visible[]) and to the DRAW_INDIRECT stage.
+        // Its one caller is the particle simulation, whose node ("Particles: Simulate") declares its buffers
+        // StorageWrite; the reader, the billboard draw, is still in the Transparency bridge and declares
+        // nothing. L5 makes ParticlePass a node with Read(particles, StorageRead) and removes THIS barrier in
+        // the same change (the graph then places it); until then removing it leaves the draw unsynchronised.
         VkMemoryBarrier barrier{ .sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
                                  .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
                                  .dstAccessMask = VK_ACCESS_SHADER_READ_BIT |
@@ -811,6 +815,51 @@ namespace Desert::Graphic::API::Vulkan
             }
             if ( !states.empty() )
                 target->RecordLayout( RdgVulkanLayout( states.front().Layout ) );
+            return Common::MakeSuccess( true );
+        };
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr
+    VulkanRendererAPI::ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
+                                     RDG::ExternalBuffer&                                   into )
+    {
+        using ShaderResources::API::Vulkan::VulkanStorageBuffer;
+        const std::shared_ptr<VulkanStorageBuffer> vulkanBuffer =
+             std::dynamic_pointer_cast<VulkanStorageBuffer>( buffer );
+        if ( !vulkanBuffer )
+            return Common::MakeError( "ImportBuffer: not a Vulkan storage buffer" );
+        ShaderResources::API::Vulkan::ViewCopyBinding binding;
+        const Common::BoolResultStr                   bound =
+             vulkanBuffer->BindActiveCopy( Engine::FrameManager::GetInstance().GetCurrentFrameIndex(), binding );
+        if ( !bound )
+            return Common::MakeError( std::format( "ImportBuffer: {}", bound.GetError() ) );
+        if ( binding.Info.buffer == VK_NULL_HANDLE || binding.Info.range == 0 )
+            return Common::MakeError( "ImportBuffer: the buffer's copy for this frame has no VkBuffer" );
+
+        // The record names the copy the last graph imported; a different copy (a per-frame buffer's next
+        // frame, or a copy rebuilt after a resize) starts untouched with a fresh handle.
+        VulkanStorageBuffer::GraphRecord& record = vulkanBuffer->GetGraphRecord();
+        if ( record.CopyId != binding.CopyId || !record.Physical )
+        {
+            record.CopyId   = binding.CopyId;
+            record.Physical = VulkanRdgBuffer::Wrap( binding.Info.buffer, binding.Info.range );
+            record.State    = RDG::GetAccessState( RDG::Access::None );
+        }
+        into.Desc.Bytes                               = binding.Info.range;
+        into.Physical                                 = record.Physical;
+        into.State                                    = record.State;
+        const std::weak_ptr<VulkanStorageBuffer> weak = vulkanBuffer;
+        const uint64_t                           copy = binding.CopyId;
+        into.RecordFinalState = [weak, copy]( const RDG::AccessState& state ) -> Common::BoolResultStr
+        {
+            const std::shared_ptr<VulkanStorageBuffer> target = weak.lock();
+            if ( !target )
+                return Common::MakeError( "the imported buffer was destroyed before its graph finished" );
+            VulkanStorageBuffer::GraphRecord& record = target->GetGraphRecord();
+            // Another graph imported a different copy since: this state belongs to a copy no longer recorded.
+            if ( record.CopyId == copy )
+                record.State = state;
             return Common::MakeSuccess( true );
         };
         return Common::MakeSuccess( true );

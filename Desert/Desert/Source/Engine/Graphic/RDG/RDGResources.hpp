@@ -170,6 +170,10 @@ namespace Desert::Graphic::RDG
         BufferDesc                       Desc;
         AccessState                      State;
         std::shared_ptr<IPhysicalBuffer> Physical;
+        // Set when the buffer is imported from an engine buffer that carries its state across graphs
+        // (Renderer::ImportBuffer): Execute hands it the final state, so the next frame's graph starts
+        // from the truth. An error it returns fails Execute.
+        std::function<Common::BoolResultStr( const AccessState& )> RecordFinalState;
 
         ExternalBuffer() = default;
         ExternalBuffer( const BufferDesc& desc, Access initial ) : Desc( desc ), State( GetAccessState( initial ) )
