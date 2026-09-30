@@ -60,6 +60,14 @@ namespace Desert::Runtime
         }
     }
 
+    Common::ResultStr<std::string> MaterialTemplateNameOf( const Assets::AssetHandle& material )
+    {
+        auto* service = Materials();
+        if ( service == nullptr )
+            return Common::MakeError<std::string>( "there is no material service to walk the parent chain" );
+        return Common::MakeSuccess( service->ShaderHandleOf( material ).CompileName );
+    }
+
     void EnsureMeshRegistered( const Assets::Asset<Assets::MeshAsset>& mesh, Assets::AssetManager& registry )
     {
         auto* service = Meshes();

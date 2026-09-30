@@ -166,12 +166,12 @@ namespace
     {
     protected:
         // The mock's material needs a template to go to, as in the editor after its shaders load: the shipped
-        // PBR and Unlit shaders, read by the importer's own reader and published through the same seam the
-        // registry uses (run from the tree root, before the sandbox moves the process).
+        // StandardSurface and Unlit templates, read by the importer's own reader and published through the same
+        // seam the registry uses (run from the tree root, before the sandbox moves the process).
         static void SetUpTestSuite()
         {
             std::vector<Editor::ImportTemplate> shipped;
-            for ( const char* file : { "Editor/Resources/Shaders/Programs/PBR/StaticMeshPBR.shader",
+            for ( const char* file : { "Editor/Resources/Shaders/Programs/PBR/StandardSurface.shader",
                                        "Editor/Resources/Shaders/Programs/Unlit/Unlit.shader" } )
             {
                 const auto text = Common::Utils::FileSystem::ReadFileContent( file );
@@ -289,10 +289,11 @@ TEST_F( SkinnedImport, TheClipNamesTheSourceItWasImportedFrom )
     ASSERT_TRUE( clip.IsSuccess() ) << clip.GetError();
     const auto& import = clip.GetValue().Import;
     ASSERT_TRUE( import.has_value() );
-    EXPECT_EQ( import->Source, m_Source.filename().generic_string() );
+    const auto& stated = import.value(); // checked access: the ASSERT above is invisible to the analyzer
+    EXPECT_EQ( stated.Source, m_Source.filename().generic_string() );
     const auto hash = Assets::HashMeshSourceFile( m_Source );
     ASSERT_TRUE( hash.IsSuccess() ) << hash.GetError();
-    EXPECT_EQ( import->SourceHash, hash.GetValue() );
+    EXPECT_EQ( stated.SourceHash, hash.GetValue() );
 }
 
 // THM1l-b19: the texture EMBEDDED in the file ("*0" to assimp, a data-URI image here, a bufferView image in a

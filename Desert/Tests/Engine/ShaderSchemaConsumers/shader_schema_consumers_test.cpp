@@ -378,6 +378,10 @@ namespace
          // on a shader-map cache hit as on a parse (MAT1h-2).
          { "ShaderProgramMeta", "LayoutBindings", "Desert/Desert/Source/Engine/Core/Formats/MaterialLayout.hpp",
            nullptr },
+         // A surface template's BlendMode (UE EBlendMode): MeshRenderer reads it off the material's schema to
+         // route a Translucent material to the forward translucent pass (its pipeline blends src-alpha over
+         // the scene) and to give a Masked material its own shadow-caster cell (SURF2).
+         { "ShaderProgramMeta", "Blend", kMeshRend, nullptr },
 
          // ---- The parser's own result ---------------------------------------------------------------
 
@@ -595,10 +599,11 @@ TEST( ShaderSchemaConsumers, TheDeadCountIsStatedSoAShrinkageIsVisible )
     // which is a program FRAGMENT rather than a program: ShaderService recognises it at registration and
     // hands its text to the cloud renderer as one virtual include. (Forty since O1 added
     // `ShaderParam::Timing`, when an edit to a parameter reaches the picture.)
+    // FORTY-SIX since SURF2 added `ShaderProgramMeta::Blend` (read by MeshRenderer's pass routing).
     // FORTY-FIVE since SURF1c added `DShaderParseResult::Surface` (read by the cell expansion in
     // DShaderParser.cpp). FORTY-FOUR since MAT1s added `ShaderParam::Sampler` (read by BindManifestSamplers).
     // FORTY-THREE since MAT1h-2 added `ShaderProgramMeta::LayoutBindings` (read by BuildMaterialLayout).
-    EXPECT_EQ( std::size( k_Census ), 45u )
+    EXPECT_EQ( std::size( k_Census ), 46u )
          << "the shader schema gained or lost a field; the count is quoted so that is a reviewable edit";
 }
 
