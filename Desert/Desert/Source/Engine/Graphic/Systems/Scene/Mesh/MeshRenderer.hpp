@@ -421,6 +421,15 @@ namespace Desert::Graphic::System
                                                                   bool useLoadPass );
         void RegisterSilhouettePass( RenderGraphBuilder& builder );
         void RegisterShadowPass( RenderGraphBuilder& builder );
+        // A caster whose material is Masked draws through its OWN template's (path x ShadowDepth) cell
+        // (ShadowCasterCellFor), on a per-cascade copy of that material (MaterialService::GetViewVariant) —
+        // its mask texture and clip threshold with it. The cascade material of the draw, or null when the
+        // caster takes the shared program (opaque, or no batched-path material).
+        DataDrivenMaterial* MaskedCasterMaterial( const DataDrivenMaterial* material, MeshVertexPath path,
+                                                  uint32_t cascade ) const;
+        // The pipeline of one masked caster cell: the shared caster's state for @p path with the cell's shader,
+        // built on first use and kept per cell shader. Null (logged once per shader) when it cannot.
+        GraphicsPipeline* MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path );
 #if DESERT_DEV_INSTRUMENTS
         bool SetupDebugLinePass();
         bool SetupOverdrawPass(); // overdraw accumulation pipeline + FB + fullscreen heat resolve
@@ -741,6 +750,31 @@ namespace Desert::Graphic::System
         std::vector<ObjDraw>        m_ScratchSingles;
         std::vector<ShadowBatch>    m_ScratchShadowBatches;
         std::vector<const StaticMeshRenderData*> m_ScratchShadowSingles;
+        // Masked casters of one cascade: per cascade copy, its rows / instance transforms / bone poses end to
+        // end (each uploaded once before the copy's draws are recorded), and the draws naming their slice.
+        struct MaskedCasterSet
+        {
+            DataDrivenMaterial*    Caster = nullptr;
+            std::vector<glm::vec4> Rows;
+            std::vector<glm::mat4> Transforms; // Instanced path: InstanceTransforms; Skinned path: Bones
+        };
+        struct MaskedCasterDraw
+        {
+            MaskedCasterSet*  Set       = nullptr;
+            MeshVertexPath    Path      = MeshVertexPath::Static;
+            Desert::Mesh*     Mesh      = nullptr;
+            glm::mat4         Transform = glm::mat4( 1.0f );
+            MaterialInstance* Instance  = nullptr;
+            uint32_t          Row       = 0;
+            uint32_t          Count     = 1; // instances (Instanced path)
+            uint32_t          First     = 0; // first instance transform / first bone
+            uint32_t          LodLevel  = 0;
+            InstanceWindPush  Wind;
+        };
+        std::vector<std::unique_ptr<MaskedCasterSet>> m_ScratchMaskedSets;
+        std::vector<MaskedCasterDraw>                 m_ScratchMaskedDraws;
+        std::unordered_map<std::string, std::shared_ptr<GraphicsPipeline>>
+                                                                  m_MaskedCasterPipelines; // null = refused
         std::vector<GenericDraw>                 m_ScratchGenericDraws;
         std::vector<std::pair<DataDrivenMaterial*, MaterialRows>> m_ScratchGenericRows;
     };

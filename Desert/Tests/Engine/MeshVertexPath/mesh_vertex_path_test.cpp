@@ -958,6 +958,45 @@ TEST( MeshCellPath, EveryCellOfAnyTemplateRoutesToThePathItWasAllocatedFor )
     EXPECT_FALSE( Desert::Graphic::MeshCellPath( "" ).has_value() );
 }
 
+// THE CASTER IS CHOSEN BY BLEND MODE (SURF2-mask). A Masked material casts through ITS template's ShadowDepth
+// cell, the only program that evaluates its OpacityMask and clips; every other caster shares the default
+// surface template's. The defect this pins: the cascade pass drew every static caster with one shared
+// pipeline, so a leaf card or a grass blade cast its whole quad. Asserted as a RELATION between two
+// materials on two templates, on every path: the masked caster differs from the shared one and is the masked
+// template's own cell; the opaque (and translucent) one IS the shared one, whatever template it names.
+TEST( ShadowCaster, MaskedCastsThroughItsOwnTemplateCellOpaqueThroughTheSharedOne )
+{
+    using Desert::Core::Formats::SurfaceBlendMode;
+    constexpr std::string_view kDefault = "StandardSurface";
+    constexpr std::string_view kFoliage = "FoliageSurface";
+    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Masked ),
+               Desert::Graphic::ShadowCasterCell::Own );
+    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Opaque ),
+               Desert::Graphic::ShadowCasterCell::Shared );
+    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Translucent ),
+               Desert::Graphic::ShadowCasterCell::Shared );
+    for ( const auto path : kAllPaths )
+    {
+        const auto shared = Desert::Graphic::MeshShaderFor( kDefault, path, MeshPass::ShadowDepth );
+        ASSERT_TRUE( shared.has_value() ) << MeshVertexPathName( path );
+
+        const auto masked =
+             Desert::Graphic::ShadowCasterShaderFor( kFoliage, kDefault, SurfaceBlendMode::Masked, path );
+        ASSERT_TRUE( masked.has_value() ) << MeshVertexPathName( path );
+        EXPECT_NE( *masked, *shared ) << "a masked caster on " << MeshVertexPathName( path )
+                                      << " draws through the shared program and casts its whole quad";
+        EXPECT_EQ( *masked, Desert::Graphic::MeshShaderFor( kFoliage, path, MeshPass::ShadowDepth ) );
+
+        for ( const auto blend : { SurfaceBlendMode::Opaque, SurfaceBlendMode::Translucent } )
+        {
+            const auto caster = Desert::Graphic::ShadowCasterShaderFor( kFoliage, kDefault, blend, path );
+            ASSERT_TRUE( caster.has_value() );
+            EXPECT_EQ( *caster, *shared ) << "a non-masked caster on " << MeshVertexPathName( path )
+                                          << " must share the one position-only program and batch by mesh";
+        }
+    }
+}
+
 // THE TABLE NAMES NO TEMPLATE (UE: the shader map is the MATERIAL's). No entry of the cell table carries a
 // "<Template>/" prefix, and no shipped template's name appears in it: which template draws is the material's.
 TEST_F( ShaderRootFixture, TheTableNamesNoTemplate )

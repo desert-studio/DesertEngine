@@ -15,12 +15,14 @@
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexLayout.hpp>
 #include <Engine/Graphic/Materials/Mesh/InstancedRecorder.hpp>
+#include <Engine/Graphic/ShaderProtocols/SkinnedMaterialUB.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/Units.hpp>
 
 #include <type_traits>
 #include <variant>
 #include <chrono>
+#include <format>
 #include <cmath>
 #include <algorithm>
 #include <unordered_set>
@@ -2266,6 +2268,55 @@ namespace Desert::Graphic::System
         }
     }
 
+    DataDrivenMaterial* MeshRenderer::MaskedCasterMaterial( const DataDrivenMaterial* material,
+                                                            MeshVertexPath path, uint32_t cascade ) const
+    {
+        auto* caster = Runtime::ResourceRegistry::GetMaterialService()->GetViewVariant(
+             material, path, MeshPass::ShadowDepth, cascade );
+        if ( !caster )
+        {
+            // Not drawn through the shared program instead: that is the square shadow this route exists to end.
+            static std::unordered_set<const DataDrivenMaterial*> s_Refused;
+            if ( s_Refused.insert( material ).second )
+                LOG_ERROR( "[Shadows] a Masked material ('{}') has no ({} x ShadowDepth) caster of its own; its "
+                           "objects cast NO shadow on that path (MaterialService named the cell it refused).",
+                           material->GetShaderName(), MeshVertexPathName( path ) );
+        }
+        return caster;
+    }
+
+    GraphicsPipeline* MeshRenderer::MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path )
+    {
+        const auto& name = caster.GetShaderName();
+        if ( const auto found = m_MaskedCasterPipelines.find( name ); found != m_MaskedCasterPipelines.end() )
+            return found->second.get(); // null = refused before (said once, below)
+        auto& slot = m_MaskedCasterPipelines[name];
+
+        // The shared caster's state for this path (vertex layout, standard-Z depth, the cascade target) — only
+        // the program differs, which is the whole difference between an opaque and a masked caster.
+        const GraphicsPipeline* shared = path == MeshVertexPath::Instanced ? m_ShadowInstancedPipeline.get()
+                                         : path == MeshVertexPath::Skinned ? m_ShadowSkinnedPipeline.get()
+                                                                           : m_ShadowPipeline.get();
+        auto                    shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( name );
+        if ( !shared || !shader )
+        {
+            LOG_ERROR( "[Shadows] masked caster '{}' will not draw: {}", name,
+                       !shader ? "no such shader is registered" : "the path has no shared caster pipeline" );
+            return nullptr;
+        }
+        GraphicsPipelineSpecification spec = shared->GetSpecification();
+        spec.DebugName                     = std::format( "ShadowPipelineMasked {}", name );
+        spec.Shader                        = shader;
+        const auto pipeline                = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+        if ( !pipeline )
+        {
+            LOG_ERROR( "[Shadows] masked caster '{}' will not draw: {}", name, pipeline.GetError() );
+            return nullptr;
+        }
+        slot = pipeline.GetValue();
+        return slot.get();
+    }
+
     void MeshRenderer::RegisterShadowPass( RenderGraphBuilder& builder )
     {
         // Same guard as the geometry pass: the cascade pass reads m_ShadowPipeline's spec, and
@@ -2338,11 +2389,60 @@ namespace Desert::Graphic::System
                          byMesh.emplace_back( mesh, std::vector<const StaticMeshRenderData*>{} );
                          return byMesh.back().second;
                      };
+                     // MASKED CASTERS, by the material's blend mode (ShadowCasterCellFor): each draws through
+                     // its own template's ShadowDepth cell on a per-cascade copy of its material, with its
+                     // mask texture and clip threshold. One set per copy: its rows, instance transforms or
+                     // bone poses end to end, uploaded once before the copy's draws are recorded.
+                     m_ScratchMaskedDraws.clear();
+                     std::size_t maskedSetCount = 0;
+                     const auto  maskedSetFor   = [&]( DataDrivenMaterial* caster ) -> MaskedCasterSet&
+                     {
+                         for ( std::size_t i = 0; i < maskedSetCount; ++i )
+                             if ( m_ScratchMaskedSets[i]->Caster == caster )
+                                 return *m_ScratchMaskedSets[i];
+                         if ( maskedSetCount == m_ScratchMaskedSets.size() )
+                             m_ScratchMaskedSets.push_back( std::make_unique<MaskedCasterSet>() );
+                         auto& set  = *m_ScratchMaskedSets[maskedSetCount++];
+                         set.Caster = caster;
+                         set.Rows.clear();
+                         set.Transforms.clear();
+                         return set;
+                     };
+                     const auto isMasked = []( const DataDrivenMaterial* material ) {
+                         return material != nullptr &&
+                                ShadowCasterCellFor( material->GetSchema().Blend ) == ShadowCasterCell::Own;
+                     };
+
                      for ( const auto& rd : m_StaticQueue )
-                         if ( rd.Mesh != nullptr && rd.CastShadows &&
-                              IsVisibleInView( cascadeFrustum, rd.Transform,
-                                               Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
+                     {
+                         if ( rd.Mesh == nullptr || !rd.CastShadows ||
+                              !IsVisibleInView( cascadeFrustum, rd.Transform,
+                                                Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
+                             continue;
+                         MaterialInstance* inst =
+                              rd.MaterialSlots ? FirstPBRSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
+                                               : nullptr;
+                         const auto* mat =
+                              inst ? static_cast<const DataDrivenMaterial*>( inst->GetParentMaterial() ) : nullptr;
+                         if ( !isMasked( mat ) )
+                         {
                              bucketFor( rd.Mesh ).push_back( &rd );
+                             continue;
+                         }
+                         auto* caster = MaskedCasterMaterial( mat, MeshVertexPath::Static, c );
+                         if ( !caster )
+                             continue; // refused by name, once
+                         auto&            set = maskedSetFor( caster );
+                         MaskedCasterDraw d;
+                         d.Set       = &set;
+                         d.Path      = MeshVertexPath::Static;
+                         d.Mesh      = rd.Mesh;
+                         d.Transform = rd.Transform;
+                         d.Instance  = inst;
+                         d.Row       = AppendRow( set.Rows, EffectiveRow( mat, inst ) );
+                         d.LodLevel  = ComputeLOD( rd.Transform, rd.Mesh, rd.ForcedLOD, rd.LODBias );
+                         m_ScratchMaskedDraws.push_back( d );
+                     }
 
                      // Pack all instanced-batch transforms contiguously; each batch reads its slice via
                      // firstInstance. Upload the SSBO ONCE (final size) before any instanced draw is recorded.
@@ -2428,6 +2528,40 @@ namespace Desert::Graphic::System
                              if ( visible.empty() )
                                  continue;
 
+                             // A MASKED ISM — foliage, grass cards — casts through its own template's
+                             // (Instanced x ShadowDepth) cell, never the shared batch that casts whole quads.
+                             MaterialInstance* ismInst = ism.Material.get();
+                             const auto*       ismMat =
+                                  ismInst ? static_cast<const DataDrivenMaterial*>( ismInst->GetParentMaterial() )
+                                                : nullptr;
+                             if ( isMasked( ismMat ) )
+                             {
+                                 auto* caster = MaskedCasterMaterial( ismMat, MeshVertexPath::Instanced, c );
+                                 if ( !caster )
+                                     continue; // refused by name, once
+                                 auto&          set = maskedSetFor( caster );
+                                 const uint32_t row = AppendRow( set.Rows, EffectiveRow( ismMat, ismInst ) );
+                                 for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                                 {
+                                     const auto first = static_cast<uint32_t>( set.Transforms.size() );
+                                     for ( std::size_t i = 0; i < visible.size(); ++i )
+                                         if ( levels[i] == level )
+                                             set.Transforms.push_back( visible[i] );
+                                     MaskedCasterDraw d;
+                                     d.Set      = &set;
+                                     d.Path     = MeshVertexPath::Instanced;
+                                     d.Mesh     = ism.Mesh;
+                                     d.Instance = ismInst;
+                                     d.Row      = row;
+                                     d.Count    = static_cast<uint32_t>( set.Transforms.size() ) - first;
+                                     d.First    = first;
+                                     d.LodLevel = level;
+                                     d.Wind     = PackInstanceWind( ism.Wind );
+                                     m_ScratchMaskedDraws.push_back( d );
+                                 }
+                                 continue;
+                             }
+
                              for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
                              {
                                  const auto first = static_cast<uint32_t>( instTransforms.size() );
@@ -2494,6 +2628,26 @@ namespace Desert::Graphic::System
                          {
                              if ( !sd.Mesh || !sd.CastShadows || sd.BoneMatrices.empty() )
                                  continue;
+                             if ( isMasked( sd.Material ) )
+                             {
+                                 // Hair cards, cloth fringes: the (Skinned x ShadowDepth) cell of ITS template.
+                                 auto* caster = MaskedCasterMaterial( sd.Material, MeshVertexPath::Skinned, c );
+                                 if ( !caster )
+                                     continue; // refused by name, once
+                                 auto&            set = maskedSetFor( caster );
+                                 MaskedCasterDraw d;
+                                 d.Set       = &set;
+                                 d.Path      = MeshVertexPath::Skinned;
+                                 d.Mesh      = sd.Mesh;
+                                 d.Transform = sd.Transform;
+                                 d.Instance  = sd.Instance;
+                                 d.Row       = AppendRow( set.Rows, EffectiveRow( sd.Material, sd.Instance ) );
+                                 d.First     = static_cast<uint32_t>( set.Transforms.size() );
+                                 set.Transforms.insert( set.Transforms.end(), sd.BoneMatrices.begin(),
+                                                        sd.BoneMatrices.end() );
+                                 m_ScratchMaskedDraws.push_back( d );
+                                 continue;
+                             }
                              casters.emplace_back( &sd, static_cast<uint32_t>( skinBones.size() ) );
                              skinBones.insert( skinBones.end(), sd.BoneMatrices.begin(), sd.BoneMatrices.end() );
                          }
@@ -2526,6 +2680,48 @@ namespace Desert::Graphic::System
                                                   instMat->GetMaterialExecutor(), b.Count, b.First,
                                                   /*hiddenSubmeshMask*/ 0, b.LodLevel );
                          }
+                     }
+
+                     // Masked casters: each copy's rows and transforms uploaded once, its camera set to THIS
+                     // cascade (the copy is this cascade's alone), then the draws in collection order.
+                     for ( std::size_t i = 0; i < maskedSetCount; ++i )
+                     {
+                         auto& set = *m_ScratchMaskedSets[i];
+                         WriteLightCamera( *set.Caster, glm::mat4( 1.0f ), m_CascadeVP[c] );
+                         if ( auto* sb = set.Caster->Get<StorageBufferProperty>( "Materials" ) )
+                             sb->SetRawData( set.Rows.data(),
+                                             static_cast<uint32_t>( set.Rows.size() * sizeof( glm::vec4 ) ) );
+                         if ( set.Transforms.empty() )
+                             continue;
+                         // The one binding the path adds (MeshPathOwnBinding): instance matrices or bone poses.
+                         const auto        path = MeshCellPath( set.Caster->GetShaderName() );
+                         const std::string own =
+                              path == MeshVertexPath::Instanced ? std::string( "InstanceTransforms" )
+                              : path == MeshVertexPath::Skinned ? ShaderProtocols::SkinnedUB::Name
+                                                                : std::string();
+                         if ( !own.empty() )
+                             if ( auto* sb = set.Caster->Get<StorageBufferProperty>( own ) )
+                                 sb->SetRawData(
+                                      set.Transforms.data(),
+                                      static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );
+                     }
+                     for ( const auto& d : m_ScratchMaskedDraws )
+                     {
+                         auto* pipeline = MaskedCasterPipeline( *d.Set->Caster, d.Path );
+                         if ( !pipeline )
+                             continue; // refused by name, once
+                         auto&      material  = *d.Set->Caster;
+                         const bool instanced = d.Path == MeshVertexPath::Instanced;
+                         material.SetPushMatrix( d.Transform );
+                         material.SetMaterialIndex( d.Row );
+                         if ( instanced )
+                             material.SetInstancedWind( d.Wind );
+                         if ( d.Path == MeshVertexPath::Skinned )
+                             material.SetSkinnedBoneOffset( d.First );
+                         material.Bind( d.Instance );
+                         renderer.RenderMesh( pipeline, d.Mesh, d.Transform, material.GetMaterialExecutor(),
+                                              instanced ? d.Count : 1, instanced ? d.First : 0,
+                                              /*hiddenSubmeshMask*/ 0, d.LodLevel );
                      }
 
                      // Casters that are not meshes (the tessellated terrain), recorded into THIS pass so the

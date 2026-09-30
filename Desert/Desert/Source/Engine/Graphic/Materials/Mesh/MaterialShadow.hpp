@@ -8,6 +8,11 @@
 
 namespace Desert::Graphic
 {
+    // Writes a cascade's light matrices into @p material's camera block (Projection, View, CameraPos = 0) — the
+    // one statement of how a caster sees the light, shared by the renderer's own caster materials and the
+    // per-cascade copies a Masked material casts through (MaterialService::GetViewVariant).
+    void WriteLightCamera( Material& material, const glm::mat4& view, const glm::mat4& projection );
+
     // Depth-only material for the directional shadow pass. Feeds the LIGHT's view/projection into the
     // shared CameraUB (the per-mesh transform is pushed by Renderer::RenderMesh).
     class MaterialShadow : public Material

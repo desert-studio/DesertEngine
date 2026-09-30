@@ -5,6 +5,11 @@
 #include <string>
 #include <string_view>
 
+namespace Desert::Core::Formats
+{
+    enum class SurfaceBlendMode : uint8_t; // ShaderProgramMeta.hpp
+} // namespace Desert::Core::Formats
+
 namespace Desert::Graphic
 {
     // ── THE THREE AXES OF A MESH DRAW ───────────────────────────────────────────────────────────────
@@ -208,4 +213,26 @@ namespace Desert::Graphic
     // Human-readable, for logs and test failure text. Never parsed.
     const char* MeshVertexPathName( MeshVertexPath path );
     const char* MeshPassName( MeshPass pass );
+
+    // WHICH PROGRAM DRAWS A CASTER INTO THE SHADOW CASCADES, decided by the material's BLEND MODE (UE: the
+    // shadow-depth pass takes an opaque material's position-only shader and a Masked material's own
+    // FShadowDepthPS, which evaluates the OpacityMask and clips). An opaque caster's depth is its position
+    // and nothing else, so every opaque caster shares ONE program — the default surface template's
+    // ShadowDepth cell — and batches by mesh. A Masked caster's depth has HOLES, and only its own template's
+    // ShadowDepth cell (DESERT_SURFACE_MASKED -> EvaluateSurface + DESERT_SURFACE_CLIP) knows where: drawn
+    // through the shared program, a leaf card casts its whole quad. Translucent keeps the shared caster, as
+    // before this existed (no translucent-shadow model yet).
+    enum class ShadowCasterCell : uint8_t
+    {
+        Shared, // the default surface template's (path x ShadowDepth) cell, one pipeline for all casters
+        Own,    // the MATERIAL'S template's (path x ShadowDepth) cell, with its textures and its clip threshold
+    };
+    ShadowCasterCell ShadowCasterCellFor( Core::Formats::SurfaceBlendMode blend );
+
+    // The caster shader of a material on @p materialTemplate with @p blend, drawn on @p path:
+    // MeshShaderFor on the material's template when ShadowCasterCellFor says Own, on @p defaultTemplate (the
+    // template declaring `Default Surface`) when it says Shared. Empty where MeshShaderFor is.
+    std::optional<std::string> ShadowCasterShaderFor( std::string_view                materialTemplate,
+                                                      std::string_view                defaultTemplate,
+                                                      Core::Formats::SurfaceBlendMode blend, MeshVertexPath path );
 } // namespace Desert::Graphic
