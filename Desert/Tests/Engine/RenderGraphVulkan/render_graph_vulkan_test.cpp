@@ -809,8 +809,8 @@ TEST( RenderGraphVulkan, AnImportedFramebufferSharesOneRenderPassAndWritesItsLay
             target.SubresourceStates.assign( target.Desc.SubresourceCount(), RDG::RecordedLayoutState( *from ) );
             target.Physical          = wrapped;
             int writeBacks           = 0;
-            target.RecordStates = [&]( const std::vector<RDG::AccessState>& states,
-                                      bool graphEnded ) -> Common::BoolResultStr
+            target.RecordStates      = [&]( const std::vector<RDG::AccessState>& states,
+                                       bool                                 graphEnded ) -> Common::BoolResultStr
             {
                 if ( !graphEnded )
                     return Common::MakeSuccess( true );
@@ -1020,7 +1020,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
         target.SubresourceStates.assign( target.Desc.SubresourceCount(),
                                          RDG::RecordedLayoutState( RDG::ImageLayout::Undefined ) );
         target.Physical          = VulkanRdgTexture::Wrap( device, image, VK_FORMAT_R8G8B8A8_UNORM, Target() );
-        target.RecordStates = []( const std::vector<RDG::AccessState>&, bool ) -> Common::BoolResultStr
+        target.RecordStates      = []( const std::vector<RDG::AccessState>&, bool ) -> Common::BoolResultStr
         { return Common::MakeSuccess( true ); };
 
         VkCommandBuffer             cmd = VK_NULL_HANDLE;
@@ -1234,7 +1234,7 @@ void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
             external.SubresourceStates.assign( desc.SubresourceCount(),
                                                RDG::RecordedLayoutState( RDG::ImageLayout::Undefined ) );
             external.Physical          = VulkanRdgTexture::Wrap( device, image, VK_FORMAT_R8G8B8A8_UNORM, desc );
-            external.RecordStates = []( const std::vector<RDG::AccessState>&, bool ) -> Common::BoolResultStr
+            external.RecordStates      = []( const std::vector<RDG::AccessState>&, bool ) -> Common::BoolResultStr
             { return Common::MakeSuccess( true ); };
             return external;
         };

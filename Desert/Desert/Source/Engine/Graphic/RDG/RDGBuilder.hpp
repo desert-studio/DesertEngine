@@ -138,7 +138,8 @@ namespace Desert::Graphic::RDG
 
         // Registers the attachments of an engine framebuffer, each carrying the state the engine recorded
         // for it (colour i as "<name>.Color<i>", depth as "<name>.Depth"). @p depth may be null. Execute
-        // writes the final states back through each texture's RecordStates (after every barrier on it and at the end).
+        // writes the final states back through each texture's RecordStates (after every barrier on it and at the
+        // end).
         // @p resolves (by colour slot, multisampled framebuffers only) are registered as "<name>.Resolve<i>".
         ImportedFramebuffer ImportFramebuffer( std::span<ExternalTexture* const> colors, ExternalTexture* depth,
                                                std::string_view                  name,

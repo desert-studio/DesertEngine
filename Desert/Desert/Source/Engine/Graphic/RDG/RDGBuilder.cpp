@@ -539,13 +539,13 @@ namespace Desert::Graphic::RDG
         {
             if ( barrier.Kind != ResourceKind::Texture )
                 continue;
-            const ResourceRecord& record = m_Resources[barrier.Resource];
+            const ResourceRecord&  record   = m_Resources[barrier.Resource];
             ExternalTexture* const external = record.ExternalTex;
             if ( external == nullptr )
                 continue;
-            const TextureDesc& desc  = external->Desc;
-            const uint32_t     mips  = barrier.Range.MipCount == kAllRemaining ? desc.Mips - barrier.Range.BaseMip
-                                                                               : barrier.Range.MipCount;
+            const TextureDesc& desc   = external->Desc;
+            const uint32_t     mips   = barrier.Range.MipCount == kAllRemaining ? desc.Mips - barrier.Range.BaseMip
+                                                                                : barrier.Range.MipCount;
             const uint32_t     layers = barrier.Range.LayerCount == kAllRemaining
                                              ? desc.Layers - barrier.Range.BaseLayer
                                              : barrier.Range.LayerCount;

@@ -998,8 +998,9 @@ TEST( RenderGraphCompile, AFailingPassAbandonsTheGraph )
     ASSERT_FALSE( backend.Calls.empty() );
     EXPECT_EQ( backend.Calls.back(), "AbandonGraph" );
     EXPECT_EQ( std::count( backend.Calls.begin(), backend.Calls.end(), "EndRenderPass" ), 0 );
-    // The external keeps the state it had: nothing was written back.
-    EXPECT_EQ( out.SubresourceStates.front(), GetAccessState( Access::None ) );
+    // The barrier recorded before the failing pass is in the command buffer, so the external holds the state it
+    // left (the record follows every barrier); the end-of-graph write-back did not run.
+    EXPECT_EQ( out.SubresourceStates.front().Layout, ImageLayout::ColorAttachment );
 }
 
 // The aliasing plan takes size, alignment and memory types from the provider, asked with the usage the
@@ -1562,7 +1563,7 @@ TEST( RenderGraphCompile, ImportedFramebufferStartsFromTheRecordedLayoutsAndWrit
 TEST( RenderGraphCompile, AFailedLayoutWriteBackFailsExecuteNamingTheTexture )
 {
     ExternalTexture color   = Recorded( ImageFormat::RGBA8F, ImageLayout::ShaderReadOnly, nullptr );
-    color.RecordStates = []( const std::vector<AccessState>&, bool )
+    color.RecordStates      = []( const std::vector<AccessState>&, bool )
     { return Common::BoolResultStr( Common::MakeError( "record gone" ) ); };
     Builder                   graph( "import" );
     ExternalTexture* const    colors[] = { &color };
