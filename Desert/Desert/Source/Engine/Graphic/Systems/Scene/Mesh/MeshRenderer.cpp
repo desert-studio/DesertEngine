@@ -2419,11 +2419,11 @@ namespace Desert::Graphic::System
                               !IsVisibleInView( cascadeFrustum, rd.Transform,
                                                 Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
                              continue;
-                         MaterialInstance* inst =
-                              rd.MaterialSlots ? FirstPBRSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
-                                               : nullptr;
-                         const auto* mat =
-                              inst ? static_cast<const DataDrivenMaterial*>( inst->GetParentMaterial() ) : nullptr;
+                         const PBRSlot slot = rd.MaterialSlots != nullptr
+                                                   ? FirstPBRSlot( rd.MaterialSlots->Slots, MeshVertexPath::Static )
+                                                   : PBRSlot{};
+                         MaterialInstance*         inst = slot.Instance;
+                         const DataDrivenMaterial* mat  = slot.Surface;
                          if ( !isMasked( mat ) )
                          {
                              bucketFor( rd.Mesh ).push_back( &rd );
@@ -2532,8 +2532,9 @@ namespace Desert::Graphic::System
                              // (Instanced x ShadowDepth) cell, never the shared batch that casts whole quads.
                              MaterialInstance* ismInst = ism.Material.get();
                              const auto*       ismMat =
-                                  ismInst ? static_cast<const DataDrivenMaterial*>( ismInst->GetParentMaterial() )
-                                                : nullptr;
+                                  ismInst != nullptr
+                                       ? dynamic_cast<const DataDrivenMaterial*>( ismInst->GetParentMaterial() )
+                                       : nullptr;
                              if ( isMasked( ismMat ) )
                              {
                                  auto* caster = MaskedCasterMaterial( ismMat, MeshVertexPath::Instanced, c );
