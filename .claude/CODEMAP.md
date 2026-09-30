@@ -26,7 +26,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Assets/Shader` — 2 files, 316 lines: ShaderAsset
 - `Assets/Skybox` — 2 files, 123 lines: SkyboxAsset
 - `Audio` — 2 files, 278 lines: AudioEngine
-- `Core` — 44 files, 6,953 lines: Application, ApplicationInfo, AxisRow, BootTimeline, Camera, CameraEntityView, CellHLOD, CookedWorldStart, Device, DeviceCapabilities, DeviceMemoryHeap, DeviceMemoryReport, … (+33)
+- `Core` — 44 files, 6,996 lines: Application, ApplicationInfo, AxisRow, BootTimeline, Camera, CameraEntityView, CellHLOD, CookedWorldStart, Device, DeviceCapabilities, DeviceMemoryHeap, DeviceMemoryReport, … (+33)
 - `Core/Formats` — 11 files, 3,151 lines: BC6HCeilingCensus, BlockPolicy, Image2DSpecification, Image3DSpecification, ImageCubeSpecification, MaterialLayout, MaterialLayoutBindings, MaterialLayoutParam, MaterialLayoutPushField, MaterialLayoutTexture, MipLevelSpan, ReflectedLayoutMember, … (+6)
 - `Core/IO` — 2 files, 89 lines: ImageReader, ImageReaderGifInfo
 - `Core/Serialize` — 38 files, 10,185 lines: AxisSpan, CellBounds, CellCoord, CellPayload, ComponentLoadingRow, ComponentRegistry, ComponentSerializer, ContainmentEdge, CookedCellSource, CookedFile, CookedWorld, DanglingContainment, … (+56)
@@ -38,7 +38,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Core/Traits` — 1 files, 17 lines
 - `ECS` — 17 files, 4,698 lines: AlwaysLoadedComponent, AnimationComponent, AudioSourceComponent, AudioSourceData, CameraComponent, CameraData, CharacterControllerComponent, CharacterControllerData, CloudSpeciesResolution, ColliderComponent, ColliderData, ControlRigComponent, … (+120)
 - `ECS/System` — 25 files, 4,900 lines: AnimationECSSystem, AtmosphereSunSelection, AttachmentSystem, AudioECSSystem, ColliderMesh, DecomposedTransform, HeightFogECSSystem, LandscapeCollision, LandscapeECSSystem, LocomotionSystem, MeshECSSystem, PhysicsBodyLifetime, … (+13)
-- `Generated` — 1 files, 748 lines
+- `Generated` — 3 files, 774 lines
 - `Geometry` — 74 files, 14,366 lines: BakeOptions, BooleanOutcome, Cell, CleanCounts, CleanOutcome, CollapseEdgeInfo, CollapseSide, CompactMaps, CutPlane, DynamicMesh, EditMesh, EditMeshAttributes, … (+70)
 - `Geometry/Errors` — 1 files, 20 lines
 - `Geometry/MeshCore` — 26 files, 6,410 lines: AxisAlignedBox3, BaseIterator, BaseValueIterator, Block, ConstIterator, DynamicMeshCompactMaps, DynamicMeshEditResult, DynamicMeshEditor, DynamicSubmesh3, DynamicVector, DynamicVectorN, EdgeLoop, … (+35)
@@ -131,6 +131,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Core/Math` — 6 files, 330 lines: AABB, Pcg32, Ray
 - `Core/Memory` — 3 files, 253 lines: Buffer, CommandBuffer
 - `Core/Serialization` — 2 files, 244 lines: ReflType, SerializationProvider
+- `Core/Subsystems` — 2 files, 204 lines: Entry, Holder, HolderOf, SubsystemCollection, WorldSubsystems
 - `Json` — 9 files, 3,263 lines: CarryRule, FormatInfo, HasNoRawPointerMember, Issue, Node, ObjectBuilder, Path, Segment, Template, TemplateSet, TextDocument
 - `Platform` — 1 files, 76 lines
 - `Platform/MacOS` — 1 files, 20 lines
@@ -146,6 +147,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Core/GraphCanvas` — 4 files, 620 lines: CanvasPlan, DeferredFrameAll, ElementIdMap, ElementLedger, PlannedLink, PlannedNode, Resolved
 - `Core/Rigging` — 2 files, 282 lines: Bone, RigBuilder
 - `Core/Selection` — 21 files, 4,106 lines: AuthoringContext, AuthoringContextHost, AuthoringOwner, BooleanToolArgs, FoliagePaint, LandscapeSculptSettings, LandscapeSculptState, LandscapeToolControl, LandscapeToolProperty, MeshElementSelection, MeshOperationArgs, ModelingState, … (+10)
+- `Generated` — 1 files, 13 lines
 - `ImGuiIntegration` — 5 files, 403 lines: ImGuiLayer, VulkanImGui
 - `Import` — 43 files, 7,021 lines: AsyncMeshLoader, BackgroundCookQueue, Completed, Done, IAssetImporter, ImportManager, ImportOutcome, ImportResult, ImportSettingsEdit, ImportTemplate, ImportedMaterial, ImportedMeshSource, … (+15)
 - `Import/Assimp` — 12 files, 1,803 lines: AssimpImporter, SceneVertexStreams, SourceAlpha, SourceMaterialRead, SourceTextureFile
@@ -250,7 +252,8 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `DesertCtl` — 1 files, 63 lines
 - `DesertCtl/Source` — 1 files, 513 lines
 - `DesertCtl/mcp` — 1 files, 367 lines
-- `DesertHeaderTool` — 2 files, 982 lines
+- `DesertHeaderTool` — 2 files, 1,066 lines
+- `DesertHeaderTool/Source` — 2 files, 706 lines: Diagnostic, HeaderModel, RoutedEventName, ScannedFile, SubsystemDeclaration
 - `DomeSheet` — 1 files, 36 lines
 - `DomeSheet/Source` — 2 files, 698 lines: DomeSample, Image, SheetGeometry
 - `FbxMeshSplitter` — 4 files, 687 lines: FbxSplitResult
@@ -569,6 +572,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `ThirdParty/stb/stb_truetype.cpp` — 4: Desert, FontBaker, GamePackager, PackagedContent
 - `ThirdParty/vk-bootstrap/VkBootstrap.cpp` — 1: Desert
 - `Tools/CrashReporter/Source/CrashReport.cpp` — 1: CrashReportParse
+- `Tools/DesertHeaderTool/Source/HeaderScan.cpp` — 1: HeaderToolChecks
 - `Tools/SceneMigrator/Source/ImportRecordSourceHash.cpp` — 1: SceneMigratorWritePath
 - `Tools/SceneMigrator/Source/MigratorMain.cpp` — 1: SceneMigratorWritePath
 - `Tools/SceneMigrator/Source/SceneMigration.cpp` — 4: FoliageTypeMigration, SceneMeshGuidMigration, SceneMigratorWritePath, SceneSettingsHomes
