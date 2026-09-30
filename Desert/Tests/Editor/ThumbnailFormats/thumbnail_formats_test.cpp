@@ -486,3 +486,27 @@ TEST( ThumbnailSubject, APreviewMeshRoutesASurfaceMaterialToTheMeshAndNothingEls
     EXPECT_EQ( TS::PreviewForMaterial( F::kMeshPathDomain, false ), TS::Preview::Sphere );
     EXPECT_EQ( TS::PreviewForMaterial( F::kVolumePathDomain, true ), TS::Preview::SkyDome );
 }
+
+// ---------------------------------------------------------------------------------------------------
+// 3c. A SKYBOX IS ITS OWN KIND WITH A RENDERED PICTURE (THM-FIXG). It shares `.detex` with a texture and is
+// typed by its root; its producer is RenderedSky, and both showers — the browser tile and the Details Skybox
+// row — ask the ONE request (ThumbnailService::RequestSkybox), so they show one picture under one key.
+// ---------------------------------------------------------------------------------------------------
+TEST( ThumbnailFormats, ASkyboxIsItsOwnKindWithARenderedPicture )
+{
+    EXPECT_EQ( Desert::Editor::FileTypeOfContent( "detex", Common::Content::ContentKind::Skybox ), FileType::Skybox );
+    EXPECT_EQ( Desert::Editor::FileTypeOfContent( "detex", Common::Content::ContentKind::Texture ), FileType::Texture );
+    EXPECT_EQ( TP::ProducerOf( FileType::Skybox ), TP::Producer::RenderedSky );
+
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const std::string panel = ReadFile( root + kBrowserTable );
+    EXPECT_NE( panel.find( "case Producer::RenderedSky:" ), std::string::npos )
+         << "the browser no longer draws a skybox tile through its producer";
+    EXPECT_NE( panel.find( "RequestSkybox(" ), std::string::npos ) << "the browser tile no longer asks the service";
+    const std::string details =
+         ReadFile( root + "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkyboxComponent.cpp" );
+    ASSERT_FALSE( details.empty() );
+    EXPECT_NE( details.find( "RequestSkybox(" ), std::string::npos )
+         << "the Details Skybox row no longer asks ThumbnailService for the skybox picture";
+}

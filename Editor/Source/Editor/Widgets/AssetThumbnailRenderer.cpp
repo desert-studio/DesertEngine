@@ -373,6 +373,31 @@ namespace Desert::Editor
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr AssetThumbnailRenderer::RequestSkybox( const Assets::AssetHandle& skyboxHandle,
+                                                                 const std::string&         outPng )
+    {
+        if ( static_cast<uint64_t>( skyboxHandle ) == 0 )
+            return Common::MakeFormattedError( "no skybox handle for '{}'", outPng );
+        if ( m_Phase != 0 )
+            return Common::MakeFormattedError( "a capture is already in flight; '{}' was not queued", outPng );
+        // Required now: the loader delivers it while the dome settles (DomeIsStillSettling waits for it).
+        if ( !Runtime::RequireSkybox( skyboxHandle ) )
+            return Common::MakeFormattedError( "'{}' was not queued: the registry has no skybox {}", outPng,
+                                               static_cast<uint64_t>( skyboxHandle ) );
+        m_PendingSky       = skyboxHandle;
+        m_PendingHandle    = skyboxHandle;
+        m_PendingPng       = outPng;
+        m_PendingSubject   = Subject::Sky;
+        m_PendingThumbnail = {};
+        m_Phase            = kRenderFrames;
+        m_CaptureMainMs    = 0.0;
+        m_CaptureTicks     = 0;
+        m_DomeSettle       = kDomeSettleFrames;
+        m_DomeFrames       = 0;
+        m_Staged           = false;
+        return Common::MakeSuccess( true );
+    }
+
     namespace
     {
         // The mesh's own material slots, resolved through the material service — or REFUSED, naming the slot.
@@ -656,7 +681,7 @@ namespace Desert::Editor
         // Nothing rides the mesh path here — a cloud material has no surface to put on a ball, and the
         // mesh path would refuse it by name anyway (MeshRenderer::DrawGenericMeshes). What is photographed
         // is the SKY it authors, from a camera standing on a rise and looking up.
-        if ( m_PendingSubject == Subject::Material && m_PendingPreview == ThumbnailSubject::Preview::SkyDome )
+        if ( IsDomeCapture() )
         {
             smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
             smc.Primitive.reset();
@@ -772,7 +797,7 @@ namespace Desert::Editor
 
     bool AssetThumbnailRenderer::DomeIsStillSettling()
     {
-        if ( m_PendingSubject != Subject::Material || m_PendingPreview != ThumbnailSubject::Preview::SkyDome )
+        if ( !IsDomeCapture() )
             return false;
 
         if ( m_DomeFrames >= kDomeMaxSettleFrames )

@@ -65,6 +65,15 @@ namespace Desert::Editor
                                                              const Assets::ThumbnailInfo& thumbnail );
 
         /**
+         * @brief Queue a SKYBOX asset (a panorama `.detex` under the Skybox root) to outPng: its HDR drawn by
+         *        the scene's skybox from the dome camera — the picture a Skybox-domain material's dome shows,
+         *        with the skybox named directly instead of through a material's cube slot (UE: the
+         *        TextureCube thumbnail renderer). Refuses a null handle or a capture already in flight.
+         */
+        [[nodiscard]] Common::BoolResultStr RequestSkybox( const Assets::AssetHandle& skyboxHandle,
+                                                           const std::string&         outPng );
+
+        /**
          * @brief Queue a mesh, auto-framed by its bounds, to outPng. If `material` is non-null it is applied
          *        to every slot; otherwise the mesh's own submesh materials are used.
          *
@@ -185,8 +194,15 @@ namespace Desert::Editor
         {
             Material,
             Mesh,
-            Pose // a skinned mesh posed: m_PendingHandle + m_PendingClip (null = the bind pose)
+            Pose, // a skinned mesh posed: m_PendingHandle + m_PendingClip (null = the bind pose)
+            Sky   // a skybox asset: its HDR drawn by the scene's skybox from the dome camera (m_PendingSky)
         };
+        // The dome (the ground camera looking up): a Sky subject, or a SkyDome-domain material.
+        [[nodiscard]] bool IsDomeCapture() const
+        {
+            return m_PendingSubject == Subject::Sky ||
+                   ( m_PendingSubject == Subject::Material && m_PendingPreview == ThumbnailSubject::Preview::SkyDome );
+        }
         Subject                               m_PendingSubject = Subject::Material;
         // The subject's frame, measured from the asset's own bounds when the capture was accepted (Mesh, Pose).
         ThumbnailFraming::Frame               m_PendingFrame;

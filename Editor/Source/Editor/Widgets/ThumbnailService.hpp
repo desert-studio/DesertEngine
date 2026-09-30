@@ -121,6 +121,13 @@ namespace Desert::Editor
         // mesh in pose.Handle, the clip (null: bind pose) in pose.Clip. The same enqueue as RequestMesh.
         std::string RequestPose( const ThumbnailSubject::Mesh& pose );
 
+        /// Queue a SKYBOX picture (ThumbnailProducers::Producer::RenderedSky): the panorama `.detex` @p assetPath
+        /// (the skybox row's file) drawn by the scene's skybox under the dome camera. Keyed on the asset path
+        /// and judged by its content hash, like a material; every shower (Content Browser tile, Details Skybox
+        /// row) asks this and draws the PNG exactly when JudgeSkyboxPicture says Show.
+        std::string RequestSkybox( const Assets::AssetHandle& skybox, const std::string& assetPath );
+        [[nodiscard]] static ThumbnailFreshness::Verdict JudgeSkyboxPicture( const std::string& assetPath );
+
         /// THE ONE JUDGEMENT OF A MESH PICTURE (UE: ThumbnailTools' one freshness answer per asset key). Every
         /// shower of a static, skinned or posed mesh picture — the Content Browser tile, the Details slots —
         /// asks this and draws the PNG exactly when it says Show; RequestMesh/RequestPose gate their enqueue on
@@ -248,7 +255,8 @@ namespace Desert::Editor
         {
             Material,
             Mesh,
-            Pose // a skinned mesh posed (AssetThumbnailRenderer::RequestPose)
+            Pose,  // a skinned mesh posed (AssetThumbnailRenderer::RequestPose)
+            Skybox // a skybox's HDR under the dome camera (AssetThumbnailRenderer::RequestSkybox)
         };
         struct Request
         {

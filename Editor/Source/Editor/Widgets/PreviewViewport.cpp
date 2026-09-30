@@ -1364,12 +1364,8 @@ namespace Desert::Editor
         {
             ImGui::SetMouseCursor( ImGuiMouseCursor_Hand );
             // One sentence per camera, because they genuinely do different things: a promise of panning and
-            // zoom in a view that has neither would be describing a different widget, and a Static row that
-            // advertised dragging would be describing the editor window it opens.
-            if ( mode == PreviewInteraction::Static )
-                ImGui::SetTooltip( "Double-click to open" );
-            else
-                ImGui::SetTooltip( dome ? "Drag to look around - hold L and drag to move the sun - double-click "
+            // zoom in a view that has neither would be describing a different widget.
+            ImGui::SetTooltip( dome ? "Drag to look around - hold L and drag to move the sun - double-click "
                                           "to reset"
                                         : "Drag to orbit - right-drag to pan - wheel to zoom - hold L and drag "
                                           "to move the sun - double-click to reset" );

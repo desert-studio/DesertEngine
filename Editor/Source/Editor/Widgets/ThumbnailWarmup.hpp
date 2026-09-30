@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Common/Content/ContentScan.hpp>
+
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/AssetHandle.hpp>
 
@@ -67,6 +69,7 @@ namespace Desert::Editor::ThumbnailWarmup
                 return WarmKind::Painted;
             case Producer::Decoded:
                 return WarmKind::Decoded;
+            case Producer::RenderedSky: // captured on sight (browser tile, Details row), not warmed at the splash
             case Producer::NotYetProduced:
             case Producer::TypeIcon:
                 return std::nullopt;
@@ -82,7 +85,7 @@ namespace Desert::Editor::ThumbnailWarmup
             extension.erase( 0, 1 );
         std::transform( extension.begin(), extension.end(), extension.begin(),
                         []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
-        return FileTypeOf( extension );
+        return FileTypeOfContent( extension, Common::Content::KindOfContentFile( path ) );
     }
 
     /// EVERY PICTURE OF THE PROJECT (THM1n-13): each row of the content registry, of every kind, whose file

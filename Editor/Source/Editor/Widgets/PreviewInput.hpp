@@ -8,12 +8,10 @@ namespace Desert::Editor
 {
     // WHAT A PREVIEW DOES WITH THE MOUSE, decided apart from the widget that reads the mouse.
     //
-    // Two kinds of preview live in the editor and they want opposite gestures. An asset's own window (the
-    // material editor, a viewer) is where you LOOK at the asset, so dragging orbits and double-click
-    // re-frames. A Static preview keeps one angle and turns double-click into "open" (UE's
-    // SPropertyEditorAsset gesture, Editor/Widgets/AssetFieldOpen.hpp) — for a Details row whose picture
-    // must stay at one angle to mean anything. Details itself no longer draws live previews (THM-FIXF: its
-    // rows are thumbnails), so no production caller asks for Static today.
+    // A preview is an asset's own window (the material editor, a viewer): where you LOOK at the asset, so
+    // dragging orbits and double-click re-frames. Details draws no live preview (THM-FIXF: its rows are
+    // ThumbnailService pictures, and a row's double-click "open" is AssetFieldOpen's), so there is no
+    // one-angle mode here (THM-FIXG removed `Static` with its last caller).
     //
     // A pure function because the decision is the whole feature and ImGui cannot be driven from a test:
     // PreviewViewport::Draw gathers the events, hands them here, and applies what comes back.
@@ -24,7 +22,6 @@ namespace Desert::Editor
     enum class PreviewInteraction : uint8_t
     {
         Interactive,
-        Static,
         Yielded,
     };
 
@@ -63,7 +60,6 @@ namespace Desert::Editor
         glm::vec2 SunDelta{ 0.0f };
         float     Wheel       = 0.0f;
         bool      Reframe     = false; // Interactive double-click: frame the content's bounds again
-        bool      Open        = false; // Static double-click: open the previewed asset in its editor
         bool      Interacting = false; // the user is manipulating the camera or the light this frame
     };
 
@@ -74,14 +70,6 @@ namespace Desert::Editor
 
         if ( mode == PreviewInteraction::Yielded )
             return result;
-
-        if ( mode == PreviewInteraction::Static )
-        {
-            // Nothing but the open gesture: no orbit, pan, zoom or sun, so the picture Details shows is the
-            // same angle every time the row is drawn, whatever the mouse did over it on the way past.
-            result.Open = events.Hovered && events.DoubleClicked;
-            return result;
-        }
 
         // LMB-drag orbits, RMB-drag pans — the main viewport's split, so the muscle memory carries over —
         // and holding L turns either drag into moving the sun.
@@ -121,8 +109,7 @@ namespace Desert::Editor
     // WHO THE WHEEL BELONGS TO over a preview: the preview, exactly when the wheel zooms it. An Interactive
     // preview (the Material Editor, the asset viewers) zooms with it and must CLAIM it, or ImGui also scrolls
     // the window the preview sits in: the model zooms while the whole panel slides away under the cursor. A
-    // Static preview (a Details row) never zooms, and neither does a pane with nothing to zoom (empty, or the
-    // sky dome fill), so there the wheel passes through and keeps scrolling the panel as over any other row.
+    // pane with nothing to zoom (empty, or the sky dome fill) never zooms, so there the wheel passes through and keeps scrolling the panel as over any other row.
     enum class PreviewWheelOwner : uint8_t
     {
         PassThrough, // the parent window scrolls; the preview ignores the wheel

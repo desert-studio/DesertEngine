@@ -5,6 +5,9 @@
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
+#include <Editor/Widgets/ThumbnailCache.hpp>
+#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Widgets/ThumbnailService.hpp>
 
 #include <ImGui/imgui.h>
 
@@ -78,8 +81,9 @@ namespace Desert::Editor
                   // ── THE SKY'S TILE, beside the picker ─────────────────────────────────────────────
                   //
                   // NO LIVE BALL (THM-FIXF). Details holds no render view — UE's Details slots are thumbnails
-                  // from the shared pool, and the live ball lives in the skybox's own window (double-click
-                  // opens it). The pool has no skybox picture kind yet, so the tile is the type icon.
+                  // from the shared pool (THM-FIXG: ThumbnailService::RequestSkybox, the same request and key the
+                  // Content Browser tile uses), and the live ball lives in the skybox's own window
+                  // (double-click opens it). The type icon shows until the picture is on disk and current.
                   constexpr float kTile = 96.0f;
                   {
                       const ImVec2 at = ImGui::GetCursorScreenPos();
@@ -90,10 +94,29 @@ namespace Desert::Editor
                       const ImVec2 br( at.x + kTile, at.y + kTile );
                       ImDrawList*  dl = ImGui::GetWindowDrawList();
                       dl->AddRectFilled( at, br, IM_COL32( 15, 15, 15, 255 ), 2.0f );
-                      const char*  icon = ICON_MDI_IMAGE_FILTER_HDR;
-                      const ImVec2 ts   = ImGui::CalcTextSize( icon );
-                      dl->AddText( ImVec2( at.x + ( kTile - ts.x ) * 0.5f, at.y + ( kTile - ts.y ) * 0.5f ),
-                                   ImGui::GetColorU32( ImGuiCol_TextDisabled ), icon );
+                      static ThumbnailCache              s_Thumbnails;
+                      std::shared_ptr<Graphic::Image2D> thumb;
+                      if ( current )
+                      {
+                          const std::string source = current->Path.generic_string();
+                          const std::string png = ThumbnailService::Get().RequestSkybox( skybox.SkyboxHandle, source );
+                          if ( ThumbnailService::JudgeSkyboxPicture( source ) == ThumbnailFreshness::Verdict::Show )
+                              thumb = s_Thumbnails.Get( png );
+                          else
+                              s_Thumbnails.Invalidate( png );
+                      }
+                      const void* tex = ( thumb && ctx.UIHelper ) ? ctx.UIHelper->GetTextureID( thumb ) : nullptr;
+                      if ( tex )
+                          dl->AddImageRounded( reinterpret_cast<ImTextureID>( const_cast<void*>( tex ) ),
+                                               ImVec2( at.x + 1.0f, at.y + 1.0f ), ImVec2( br.x - 1.0f, br.y - 1.0f ),
+                                               ImVec2( 0, 0 ), ImVec2( 1, 1 ), IM_COL32_WHITE, 2.0f );
+                      else
+                      {
+                          const char*  icon = ICON_MDI_IMAGE_FILTER_HDR;
+                          const ImVec2 ts   = ImGui::CalcTextSize( icon );
+                          dl->AddText( ImVec2( at.x + ( kTile - ts.x ) * 0.5f, at.y + ( kTile - ts.y ) * 0.5f ),
+                                       ImGui::GetColorU32( ImGuiCol_TextDisabled ), icon );
+                      }
                       dl->AddRect( at, br, ImGui::GetColorU32( ImGuiCol_Border ), 2.0f );
                       Utils::ImGuiUtilities::Tooltip( !current ? "No HDR skybox assigned"
                                                                : "Double-click to open the skybox in its viewer" );

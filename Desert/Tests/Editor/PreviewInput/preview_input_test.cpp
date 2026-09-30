@@ -1,6 +1,5 @@
-// What a preview does with the mouse (Editor/Widgets/PreviewInput.hpp). Static (the Details skybox ball): the
-// camera never moves and double-click opens the asset. Interactive (asset windows and the Details Static Mesh
-// row): drag orbits/pans/moves the sun, the wheel zooms, double-click re-frames.
+// What a preview does with the mouse (Editor/Widgets/PreviewInput.hpp). Interactive (asset windows): drag
+// orbits/pans/moves the sun, the wheel zooms, double-click re-frames. Yielded: a tool over the picture has it.
 #include <Editor/Widgets/PreviewInput.hpp>
 #include <Editor/Widgets/PreviewPaneLayout.hpp>
 
@@ -82,60 +81,12 @@ TEST( PreviewInput, AnOrbitThatCrossesTheGizmoKeepsOrbiting )
     EXPECT_EQ( PreviewInteractionUnderTool( false, false, false ), PreviewInteraction::Interactive );
 }
 
-// ── Static: the Details row ─────────────────────────────────────────────────────────────────────────────
-
-TEST( PreviewInput, StaticDragDoesNotOrbit )
-{
-    const PreviewInputResult result = PreviewInput( PreviewInteraction::Static, Drag( 40.0f, -12.0f ) );
-    ExpectStill( result );
-    EXPECT_FALSE( result.Open );
-}
-
-TEST( PreviewInput, StaticRightDragDoesNotPan )
-{
-    PreviewInputEvents events = Drag( 40.0f, -12.0f );
-    events.RightDown          = true;
-    ExpectStill( PreviewInput( PreviewInteraction::Static, events ) );
-}
-
-TEST( PreviewInput, StaticLightDragDoesNotMoveTheSun )
-{
-    PreviewInputEvents events = Drag( 40.0f, -12.0f );
-    events.LightKeyDown       = true;
-    ExpectStill( PreviewInput( PreviewInteraction::Static, events ) );
-}
-
-TEST( PreviewInput, StaticWheelDoesNotZoom )
-{
-    PreviewInputEvents events;
-    events.Hovered = true;
-    events.Wheel   = 3.0f;
-    ExpectStill( PreviewInput( PreviewInteraction::Static, events ) );
-}
-
-TEST( PreviewInput, StaticDoubleClickOpensAndDoesNotReframe )
-{
-    const PreviewInputResult result = PreviewInput( PreviewInteraction::Static, DoubleClick() );
-    EXPECT_TRUE( result.Open );
-    ExpectStill( result );
-}
-
-TEST( PreviewInput, StaticDoubleClickElsewhereOpensNothing )
-{
-    // ImGui reports a double-click wherever it happened; only one over the preview is about this asset.
-    PreviewInputEvents events = DoubleClick();
-    events.Hovered            = false;
-    events.Active             = false;
-    EXPECT_FALSE( PreviewInput( PreviewInteraction::Static, events ).Open );
-}
-
 // ── Interactive: the asset's own window ─────────────────────────────────────────────────────────────────
 
-TEST( PreviewInput, InteractiveDoubleClickReframesAndDoesNotOpen )
+TEST( PreviewInput, InteractiveDoubleClickReframes )
 {
     const PreviewInputResult result = PreviewInput( PreviewInteraction::Interactive, DoubleClick() );
     EXPECT_TRUE( result.Reframe );
-    EXPECT_FALSE( result.Open );
     EXPECT_TRUE( result.Interacting );
 }
 
@@ -182,19 +133,17 @@ TEST( PreviewInput, InteractiveWheelZoomsExceptInTheDome )
 // ── Who owns the wheel ──────────────────────────────────────────────────────────────────────────────────
 
 // The preview claims the wheel exactly when the wheel zooms it; otherwise the panel keeps scrolling. The
-// sky dome and an empty pane never eat the wheel; a Static preview never zooms.
+// sky dome and an empty pane never eat the wheel.
 TEST( PreviewInput, WheelBelongsToThePreviewOnlyWhenItZooms )
 {
     const auto owns = []( PreviewInteraction mode, bool zoomable )
     { return WheelOwner( mode, zoomable, /*hovered=*/true ) == PreviewWheelOwner::Zoom; };
     EXPECT_TRUE( owns( PreviewInteraction::Interactive, /*zoomable=*/true ) );
     EXPECT_FALSE( owns( PreviewInteraction::Interactive, /*zoomable=*/false ) );
-    EXPECT_FALSE( owns( PreviewInteraction::Static, /*zoomable=*/true ) );
-    EXPECT_FALSE( owns( PreviewInteraction::Static, /*zoomable=*/false ) );
 
     // The claim and the zoom are one rule: wherever the preview owns the wheel, a notch zooms it, and
     // wherever it does not, a notch zooms nothing. The dome is the non-zoomable pane PreviewInput can see.
-    for ( const PreviewInteraction mode : { PreviewInteraction::Interactive, PreviewInteraction::Static } )
+    for ( const PreviewInteraction mode : { PreviewInteraction::Interactive } )
         for ( const bool dome : { false, true } )
         {
             PreviewInputEvents events;
@@ -234,7 +183,7 @@ TEST( PreviewInput, PreviewWidgetClaimsTheWheelThroughTheRule )
     const auto claim = source.find( "ImGui::SetItemUsingMouseWheel()" );
     ASSERT_NE( claim, std::string::npos )
          << "the preview no longer claims the wheel: Details scrolls while it zooms";
-    // The claim is gated by the rule, not unconditional — a Static row must leave the wheel to the panel.
+    // The claim is gated by the rule, not unconditional — a pane that does not zoom leaves the wheel to the panel.
     const auto rule = source.rfind( "WheelOwner(", claim );
     ASSERT_NE( rule, std::string::npos );
     EXPECT_LT( claim - rule, 200u );

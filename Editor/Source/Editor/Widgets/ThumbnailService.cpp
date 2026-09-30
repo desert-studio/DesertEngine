@@ -58,7 +58,9 @@ namespace Desert::Editor
     std::optional<uint64_t> ThumbnailService::SourceHash( Kind type, const std::string& source )
     {
         // A posed skinned mesh is a mesh picture: judged by its bytes AND the orbit its import record states.
-        return type == Kind::Material ? ThumbnailFreshness::ContentHash( source ) : MeshThumbnailFreshness( source );
+        // A material and a skybox are pictures of their own file's content.
+        return type == Kind::Material || type == Kind::Skybox ? ThumbnailFreshness::ContentHash( source )
+                                                              : MeshThumbnailFreshness( source );
     }
 
     bool ThumbnailService::NeedsCapture( const std::string& png, std::optional<uint64_t> current )
@@ -276,6 +278,27 @@ namespace Desert::Editor
                     : ThumbnailFreshness::Verdict::Show;
     }
 
+    std::string ThumbnailService::RequestSkybox( const Assets::AssetHandle& skybox, const std::string& assetPath )
+    {
+        const std::string identity = ThumbnailKey::Identity( assetPath );
+        const std::string png      = ThumbnailKey::DiskPath( assetPath );
+        if ( ShouldQueue( identity, png, SourceHash( Kind::Skybox, assetPath ) ) )
+        {
+            m_Queue.push_back( { Kind::Skybox, skybox, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ), identity,
+                                 assetPath, png } );
+            m_Queued.insert( identity );
+            HoldSubjects();
+        }
+        return png;
+    }
+
+    ThumbnailFreshness::Verdict ThumbnailService::JudgeSkyboxPicture( const std::string& assetPath )
+    {
+        return NeedsCapture( ThumbnailKey::DiskPath( assetPath ), SourceHash( Kind::Skybox, assetPath ) )
+                    ? ThumbnailFreshness::Verdict::Capture
+                    : ThumbnailFreshness::Verdict::Show;
+    }
+
     std::string ThumbnailService::EnqueueMeshLike( Request req )
     {
         std::string png = req.Png;
@@ -489,6 +512,8 @@ namespace Desert::Editor
     {
         if ( req.Type == Kind::Mesh )
             return m_Renderer->RequestMesh( req.Handle, req.Png, req.Thumbnail.Orbit, req.Material );
+        if ( req.Type == Kind::Skybox )
+            return m_Renderer->RequestSkybox( req.Handle, req.Png );
         if ( req.Type == Kind::Pose )
             return m_Renderer->RequestPose( req.Handle, req.Clip, req.Png,
                                             req.Thumbnail.Orbit ); // null: bind pose

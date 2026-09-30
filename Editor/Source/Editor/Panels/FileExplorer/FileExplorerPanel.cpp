@@ -34,6 +34,8 @@
 #include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
+#include <Common/Content/ContentScan.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Editor/Widgets/ThumbnailSubject.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
 #include <Engine/Assets/AssetManager.hpp>
@@ -188,6 +190,7 @@ namespace Desert::Editor
          { FileType::FoliageType, "Foliage Type" },
          { FileType::StringTable, "String Table" },
          { FileType::CookedWorld, "Cooked World" },
+         { FileType::Skybox, "Skybox" },
     };
 
     static const std::unordered_map<FileType, ImVec4> s_TypeColors = {
@@ -216,6 +219,7 @@ namespace Desert::Editor
          { FileType::FoliageType, { 0.30f, 0.75f, 0.35f, 1.00f } },
          { FileType::StringTable, { 0.60f, 0.60f, 0.85f, 1.00f } },
          { FileType::CookedWorld, { 0.50f, 0.50f, 0.55f, 1.00f } },
+         { FileType::Skybox, { 0.82f, 0.18f, 0.30f, 1.00f } },
     };
 
     static const std::unordered_map<FileType, const char*> s_FileTypesToIcon = {
@@ -246,6 +250,7 @@ namespace Desert::Editor
          { FileType::FoliageType, ICON_MDI_TREE },
          { FileType::StringTable, ICON_MDI_TRANSLATE },
          { FileType::CookedWorld, ICON_MDI_MAP },
+         { FileType::Skybox, ICON_MDI_IMAGE_FILTER_HDR },
     };
 
     FileExplorerPanel::FileExplorerPanel( const std::filesystem::path&         rootPath,
@@ -443,6 +448,7 @@ namespace Desert::Editor
                     break;
                 case Producer::RenderedMaterial:
                 case Producer::RenderedPose: // a .skmesh is its own cooked form and freshness source
+                case Producer::RenderedSky:  // keyed and judged on the skybox's own file
                 case Producer::Painted:
                     items.push_back( { ThumbnailPngFor( entry->AssetPath ), entry->AssetPath } );
                     break;
@@ -1046,7 +1052,9 @@ namespace Desert::Editor
         }
         else
         {
-            const FileType fileType = FileTypeOf( extension );
+            // Root-aware: a `.detex` under the Skybox root is a Skybox, not a Texture (FileTypeOfContent).
+            const FileType fileType =
+                 FileTypeOfContent( extension, Common::Content::KindOfContentFile( stdPath ) );
 
             directoryInfo->IsFile = true;
             directoryInfo->Type   = fileType;
@@ -1877,6 +1885,25 @@ namespace Desert::Editor
                 return DrawRenderedPoseThumbnail( entry, size, entry->AssetPath );
             case Producer::Painted:
                 return DrawPaintedThumbnail( entry, size );
+            case Producer::RenderedSky:
+            {
+                // The Details Skybox row asks the same request with the same key: one picture per skybox.
+                const Assets::AssetHandle skybox = Runtime::SkyboxHandleAtPath( entry->AssetPath );
+                if ( static_cast<uint64_t>( skybox ) == 0 )
+                    return false;
+                const std::string png = ThumbnailService::Get().RequestSkybox( skybox, entry->AssetPath );
+                if ( ThumbnailService::JudgeSkyboxPicture( entry->AssetPath ) != ThumbnailFreshness::Verdict::Show )
+                {
+                    m_Thumbnails->Invalidate( png );
+                    return false;
+                }
+                if ( auto img = m_Thumbnails->Get( png ) )
+                {
+                    m_UIHelper->ImageButton( "##thumb", img, size );
+                    return true;
+                }
+                return false;
+            }
             case Producer::NotYetProduced:
             case Producer::TypeIcon:
                 return false;
