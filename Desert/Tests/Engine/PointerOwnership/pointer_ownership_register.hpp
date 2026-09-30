@@ -1913,9 +1913,6 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Common/Source/Common/Core/Events/EventTree.hpp",
           "Slot", "Object", Guard::OwningRaw,
           "EVT-2: the node's object, type-erased; Emplace/Adopt set Slot::Destroy = DestroyAs<T> and the tree deletes it in Kill -> DestroyAll (Remove, ~EventTree, FlushGraveyard after a dispatch) or hands it back by Take<T>; Attach leaves Destroy null and the owner removes the node first through the EventNodeLink it holds (Layer/IPanel m_EventNode) or, for Application, by owning the tree" },
-        { "Desert/Common/Source/Common/Core/Events/EventTree.hpp",
-          "Doomed", "Object", Guard::OwningRaw,
-          "EVT-2: an owned object moved out of a dead Slot by Kill, held only in the local list of Remove/~EventTree or in m_Graveyard during a dispatch, and deleted by DestroyAll through Doomed::Destroy" },
 
         };
         return rows;
