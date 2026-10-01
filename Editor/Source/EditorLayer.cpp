@@ -315,82 +315,16 @@ namespace Desert::Editor
     // Cognitive complexity 27 against a threshold of 19, PRE-EXISTING and reported for any edit inside
     // this constructor (Г26 added the autosave-migration call below). Named as debt, not fixed here.
     // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-    namespace
-    {
-        // The splash's cost per item of each weighed stage (EditorLayer::MakeSplashPlan), read off the
-        // "[Startup] ... item(s) in" lines of a Debug start on the M-series development machine.
-        constexpr double kSecondsPerShader = 0.048; // 78 programs in 3.73 s
-        // A texture whose cook is fresh costs its freshness check: 11 in 0.04 s.
-        constexpr double kSecondsPerTextureCheck = 0.0036;
-        constexpr double kSecondsPerClipRow      = 0.0002; // indexing a registry row reads nothing
-        // The settle costs its first frames whether or not a read is outstanding: 0.75 s with none. A read
-        // outstanding at its start adds one shader's worth; no measured start has had one.
-        constexpr double kSecondsSceneSettle  = 0.75;
-        constexpr double kSecondsPerSceneRead = kSecondsPerShader;
-
-    } // namespace
-
     EditorLayer::EditorLayer( Engine::Application* application, const std::string& layerName,
                               std::unique_ptr<Splash::SplashScreen> splash )
-         : Common::Layer( layerName ), m_Application( application ), m_Splash( std::move( splash ) )
+         : Common::Layer( layerName ), m_Application( application ),
+           m_Startup( application, m_AssetManager, m_ImportManager, m_AnimationLibrary, m_Workspace, m_SceneFiles,
+                      m_AssetCompiling, m_RealFrameDrawn, std::move( splash ) )
 
     {
         m_AssetManager = std::make_shared<Assets::AssetManager>();
 
         m_ImportManager = std::make_unique<ImportManager>();
-        // Cook only what's missing/stale (skips the expensive Assimp re-parse on every launch). Collections
-        // hold packs (a character + its animation FBXs), so they're imported too — their skinned assets land
-        // beside each source, where the content registry gathers them (see CookPaths::SkinnedAsset).
-        //
-        // STAGED: this used to run inline here and froze the window for seconds before the first frame.
-        // The stages now execute one-per-frame from OnUpdate, each announced on the splash.
-        // NOTE: shaders are NOT staged — they load synchronously in OnAttach, because the render systems
-        // (MeshECSSystem's default PBR materials) resolve their shaders in their constructors.
-        //
-        // THE MESH AND COLLECTION COOKS ARE NO LONGER STAGES (AL1-11, owner decision V2): they run on the
-        // JobSystem after the reveal (StartBackgroundCook) and the registry lists whatever cook is on the disk.
-        // AND THE LOOSE TEXTURES, WHICH NOTHING COOKED. A texture under `Assets/Textures/` reached its
-        // cooked form only as a mesh's dependency or through a drag-and-drop, so the one cooked texture
-        // this repository then committed had no producer in any automatic path -- and a stale one (a container
-        // version moved, a PNG re-exported) stayed stale until somebody dragged the file back in. The
-        // freshness question costs one CRC-32C pass per source at 8.17 GB/s and answers "nothing
-        // changed" without decoding anything; see TextureImporter.cpp for why it is bytes and not
-        // mtimes.
-        //
-        // AND THE TEXTURES THAT LIVE BESIDE A MESH. `Assets/Meshes/*.png` cook to
-        // their `.detex` assets beside the mesh, and they were written only when the MESH was re-imported --
-        // which the boot scan skips whenever the `.stmesh` is newer than its source. So a container version
-        // bump left four of them stranded at version 1 and every launch printed four load failures that no
-        // automatic path could clear. Both directories are `LooseTextureRoots()`, the list the packager
-        // cooks too. (This stage used to walk `Assets/Meshes/` twice; the second walk found everything
-        // fresh.)
-        m_StartupStages.push_back( { "Importing textures...",
-                                     [this]
-                                     {
-                                         // The editor derives texture platform data on a DDC miss; a packaged game
-                                         // has no builder.
-                                         Assets::SetTexturePlatformDataBuilder(
-                                              &TextureImporter::BuildPlatformData );
-                                         Assets::SetMeshPlatformDataBuilder( &Editor::BuildMeshPlatformData );
-                                         (void)m_ImportManager->ImportLooseTextures( SplashItems() );
-                                     },
-                                     kSecondsPerTextureCheck, [] { return LooseTextureSources().size(); }, nullptr,
-                                     0 } );
-        // THE ONLY CONTENT STAGES LEFT (AL1-9): nothing here creates an asset of any kind. Textures, materials,
-        // meshes, skyboxes and the cloud kinds are created from their content-registry rows when something
-        // names them, and the scene settle below waits for the ones the scene names.
-        m_StartupStages.push_back(
-             { "Indexing animation clips...",
-               [this] { Assets::IndexAnimationClips( *m_AssetManager, *m_AnimationLibrary ); }, kSecondsPerClipRow,
-               [] { return Assets::ContentRegistry::Rows( Common::Content::ContentKind::Animation ).size(); },
-               nullptr, 0 } );
-        // Order-free, and early among the optional stages on purpose: a missing translation shows up on
-        // the very first frame drawn, and its log line is far easier to read before the rest of the
-        // content's lines arrive.
-        m_StartupStages.push_back( { "Requesting string tables...",
-                                     [this] { Assets::RequestStringTables( m_AssetManager ); }, kSecondsPerClipRow,
-                                     nullptr, nullptr, 0 } );
-
         // WHAT THIS MACHINE CAN AFFORD — a different file from editor.json and deliberately so (К3).
         // editor.json is one person's copy of the EDITOR and the packaged game never opens it, while every
         // value in machine.json is read by SceneRenderer, which the packaged game runs; the schema is one
@@ -623,11 +557,10 @@ namespace Desert::Editor
         // Shaders must exist BEFORE the render systems below are constructed (their default materials
         // resolve shaders in the ctor). Meshes/skyboxes are staged instead. The longest single wait of the
         // start, and one call: the splash says what it is before it begins, and cannot say more during it.
-        MakeSplashPlan();
-        BeginSplashStage( m_ShaderStage );
+        m_Startup.BeginShaderStage();
         // The splash's close button, pressed during this one long call, stops it between programs.
         if ( const auto shaders = Assets::CompileEngineShaders(
-                  m_AssetManager, SplashItems(), [this]() { return m_Splash && m_Splash->CloseRequested(); } );
+                  m_AssetManager, m_Startup.SplashItems(), [this]() { return m_Startup.CloseRequested(); } );
              !shaders )
             return Common::MakeFormattedError( "the engine shaders: {}", shaders.GetError() );
         // The imported materials choose among these shaders' Import blocks; every cook below comes after.
@@ -726,6 +659,13 @@ namespace Desert::Editor
             m_Commands.Register( "Scene (view layout)",
                                  [this]( Out& out ) { m_Workspace.AppendViewLayoutCommands( out ); } );
             m_Commands.Register( "Scene (actions)", [this]( Out& out ) { AppendSceneTailCommands( out ); } );
+            m_Commands.Register( "AssetCompiling", [this]( Out& out ) { m_AssetCompiling.AppendActionCommands( out ); } );
+            // SAVE SCENE ANSWERS WHETHER IT SAVED. `(void)SaveOpenScene()` stood here against a
+            // `[[nodiscard]] bool` — the attribute was on the declaration and the cast silenced it — so a
+            // scene that could not be written came back over the channel as a success. This is the same
+            // family as the toast that once said "Saved 'X'" for a file that had not been written
+            // (FileSystem.hpp's note on the write primitive that is gone).
+            m_Commands.Register( "SceneFiles (save)", [this]( Out& out ) { m_SceneFiles.AppendSaveSceneCommand( out ); } );
             m_Commands.Register( "Play", [this]( Out& out ) { m_Play.AppendPlayCommands( out ); } );
             m_Commands.Register( "Edit (Undo, Redo)",
                                  []( Out& out ) { MainMenu::AppendUndoRedoCommands( out ); } );
@@ -748,6 +688,7 @@ namespace Desert::Editor
                  Common::Constants::Path::ASSETS_PATH, &m_Documents.SubjectEditors(), m_AssetManager.get(),
                  m_Workspace.ActiveScene() );
             m_FileExplorerPanel = fileExplorer.get();
+            m_Startup.AttachFileExplorer( m_FileExplorerPanel );
             m_Panels.Adopt( std::move( fileExplorer ) );
         }
         m_Panels.Add<Editor::ModelingPanel>( m_Workspace.ActiveScene() );
@@ -827,7 +768,7 @@ namespace Desert::Editor
         // EditorQuiescence would answer Settled() — every flag false — and the very first request of a
         // session, which is the one a client sends while the editor is still cooking, would be answered
         // from an editor that has read nothing. An unsampled census must not read as a settled editor.
-        m_Control.SampleFrameQuiescence( StartupLoading() || ContentSettling() );
+        m_Control.SampleFrameQuiescence( m_Startup.StartupLoading() || m_Startup.ContentSettling() );
 
         return BOOLSUCCESS;
     }
@@ -862,122 +803,11 @@ namespace Desert::Editor
                 Editor::ToastManager::Push( created->GetError(), Editor::ToastLevel::Error, 6.0f );
         }
 
-        // Staged startup loading: run ONE heavy stage per frame. While loading, the scene is NOT rendered
-        // at all (shaders/assets aren't there yet — rendering before the preload stage crashed on the
-        // missing StaticMeshPBR shader); the frame is ImGui-only and the window it goes to is still hidden.
-        //
-        // THERE USED TO BE A GATE HERE — "only after one frame with the loading overlay has been
-        // presented" — and it existed for the overlay alone: a stage run before that frame froze a blank
-        // window. The overlay is gone (the splash, a window of its own, replaced it), and so is the gate.
-        //
-        // CLOSE ON THE SPLASH ENDS THE START HERE, before the next stage: the editor leaves through the same
-        // Application::Close the window frame's close button and the control channel's `quit` take.
-        const Splash::StartupStep step = Splash::NextStartupStep( m_Splash && m_Splash->CloseRequested(),
-                                                                  m_StartupNext, m_StartupStages.size() );
-        if ( step == Splash::StartupStep::Quit && !m_QuitFromSplash )
+        // Staged startup loading (EditorStartup::RunStartupFrame): ONE heavy stage per frame, and while it runs the
+        // scene is NOT rendered — the frame is ImGui-only and the window it goes to is still hidden.
+        if ( m_Startup.RunStartupFrame() )
         {
-            m_QuitFromSplash = true;
-            LOG_INFO( "[Startup] closed on the splash; {} of {} stage(s) not run",
-                      m_StartupStages.size() - m_StartupNext, m_StartupStages.size() );
-            m_Application->Close( 0 );
-        }
-        if ( step == Splash::StartupStep::RunStage )
-        {
-            {
-                DESERT_PROFILE_SCOPE( "Startup stage" );
-
-                // EVERY STAGE IS TIMED, and the reason is a question nobody could answer. A client
-                // watching a fresh editor over this project saw the command palette's 'Open' group stay
-                // empty for five minutes and had no way to say WHICH of eight stages was spending them:
-                // the only startup line the log ever carried was the shader preload's, which runs in
-                // OnAttach and is not one of these at all. So "the preload finished" was read as "the
-                // startup finished", and the two are minutes apart. Measured here, on an otherwise idle
-                // machine, the eight stages cost 6.0 s of a 51 s boot — the other 45 s is OnAttach's
-                // shader preload, which is exactly the phase the one existing line already reports.
-                //
-                // A phase nobody can name is a phase every brief guesses at, and three of this project's
-                // timed investigations went looking in the wrong one.
-                // THE TIMING AND THE LINE COME FROM `Core::BootTimeline` NOW, not from a chrono pair
-                // here — because the shipping runtime needed the same thing and two copies of an
-                // accumulation rule is how the two numbers stop being comparable. The SCHEDULER stays
-                // here: running one stage per frame behind a progress overlay is this layer's own
-                // arrangement and has nothing to do with timing. See Engine/Core/BootTimeline.hpp.
-                BeginSplashStage( m_StartupStages[m_StartupNext].ProgressStage );
-                const auto stageStart = std::chrono::steady_clock::now();
-                m_StartupStages[m_StartupNext].Run();
-                const double stageMs =
-                     std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - stageStart )
-                          .count();
-                ++m_StartupNext;
-                m_Boot.Record( m_StartupStages[m_StartupNext - 1].Label, stageMs );
-
-                if ( !StartupLoading() )
-                {
-                    // THE SETTLE PHASE GETS ITS OWN LABEL. A splash that says nothing while it waits is
-                    // indistinguishable from an editor that has hung, and this wait is the one the
-                    // demand-driven model introduced.
-                    const auto& loader = Assets::AsyncAssetLoader::Get();
-                    m_SettleBase       = loader.StartedCount() - loader.Outstanding();
-                    BeginSplashStage( m_SettleStage, loader.Outstanding() );
-                    m_Boot.LogSummary();
-                    LOG_INFO( "[Startup] all {} stage(s) done in {:.1f} ms; the editor is now answering "
-                              "about a project it has actually read.",
-                              m_StartupStages.size(), m_Boot.ElapsedMs() );
-                    // AND THE BOOT IS OVER HERE — not at the first frame, which the hidden window has
-                    // been presented for the whole of the staged load. Every synchronous asset load
-                    // after this line reports itself as a hitch. See Engine/Assets/SyncLoadLedger.hpp.
-                    Assets::SyncLoadLedger::NoteBootFinished();
-                    LOG_INFO( "[SyncLoad] boot finished — {}", Assets::SyncLoadLedger::Report() );
-                    LOG_INFO( "[Memory] boot finished — {}", Graphic::MemoryReadout::Take().Report() );
-                    // HOW MANY HANDLES CAN NAME THEIR OWN FILE BY THE TIME THE BOOT IS OVER: the registry's
-                    // rows publish them before anything is created (T2.4), so this is the size of the
-                    // path->handle inverse the engine holds without having created a single content shell.
-                    LOG_INFO( "[AssetPathIndex] boot finished — {} handle(s) can name their own path",
-                              Common::AssetPathIndex::Size() );
-                    // AND WHAT IT COST TO MINT THEM. The line above is only an achievement next to this
-                    // one: the same count reached with directory walks and reached without them are two
-                    // different boots, and nothing else in the process can tell them apart (§T2.4).
-                    LOG_INFO( "[ContentScan] boot finished — {}", Common::Utils::ContentScanLedger::Report() );
-
-                    // AND ONLY NOW THE EDITOR DOES ITS COOK — after the three lines above, which is not
-                    // a tidiness choice. `Refresh` WALKS the content roots (it is the one walk left in
-                    // this engine), and a walk before the `[ContentScan]` line would have made the
-                    // registry a place the cost moved to rather than a place it stopped being paid:
-                    // the number the whole tier is judged by would report the walk it removed.
-                    //
-                    // What it is for: content that arrived on disk without going through this editor —
-                    // a `git pull`, a file dropped into the folder while the editor was closed — has no
-                    // row, and since the boot no longer walks, it is content the engine does not have.
-                    // This enters it, so it is there the NEXT time the project opens, and says how many
-                    // it found. A file authored IN the editor never waits for this: `CreateAsset` notes
-                    // its row the moment it exists.
-                    //
-                    // A REFUSAL IS LOGGED AND THE SESSION CONTINUES, unlike `Load`'s. Nothing in this
-                    // session depends on the cook: the editor is already running over the registry it
-                    // read, and failing to write the next boot's copy is a reason to say so loudly, not
-                    // a reason to stop editing.
-                    if ( const auto cooked = Assets::ContentRegistry::Refresh( *m_AssetManager ); !cooked )
-                    {
-                        LOG_ERROR( "[ContentRegistry] the content registry could not be cooked: {}",
-                                   cooked.GetError() );
-                    }
-                    else
-                    {
-                        // THE COOK'S OWN WALK COST, READ OUT OF THE SAME LEDGER the boot line above
-                        // reports zero from. This is the one number that says what removing the scan
-                        // from the boot actually bought, measured rather than argued: the cook runs
-                        // exactly the content scans the boot used to run, through the same primitive,
-                        // on the same tree, seconds later on the same machine.
-                        LOG_INFO( "[ContentRegistry] {}; the cook itself did {}", cooked.GetValue().Describe(),
-                                  Common::Utils::ContentScanLedger::Report() );
-                    }
-                }
-            }
-            // The browser asked for its opening folder's pictures when it was built (OnAttach): the workers
-            // decode them through the stages too, not only through the settle that follows (THUMB2).
-            if ( Splash::ThumbnailDiskDecodeAllowed( CurrentRevealState() ) )
-                ThumbnailService::TickDiskAndDecode();
-            m_Control.SampleFrameQuiescence( StartupLoading() || ContentSettling() );
+            m_Control.SampleFrameQuiescence( m_Startup.StartupLoading() || m_Startup.ContentSettling() );
             return BOOLSUCCESS;
         }
 
@@ -1005,16 +835,16 @@ namespace Desert::Editor
         Assets::AsyncAssetLoader::Get().Pump();
         // The environment cache's readbacks land here and go to a worker for the encode (AL1-3).
         Graphic::EnvironmentCacheWriter::Get().Pump();
-        UpdateContentSettling();
-        DrainBackgroundCook();
+        m_Startup.UpdateContentSettling();
+        m_AssetCompiling.DrainBackgroundCook();
 
         // Scene loads wait until the startup stages finished (a scene expects cooked/preloaded assets).
         // A load that ran starts the content settle before the refused-load fallback and New Scene.
-        if ( !StartupLoading() )
+        if ( !m_Startup.StartupLoading() )
         {
             if ( m_SceneFiles.ServiceLoadRequest() )
             {
-                BeginContentSettle();
+                m_Startup.BeginContentSettle();
                 m_SceneFiles.InitializeIfLoadRefused();
             }
             m_SceneFiles.ServiceNewRequest();
@@ -1022,7 +852,7 @@ namespace Desert::Editor
 
         // Opening an extra scene view, a second angle or the four-up grid allocates a SceneRenderer + Init()
         // (WaitDeviceIdle + framebuffer creation) — serviced here, between frames, like scene load/stop above.
-        if ( !StartupLoading() )
+        if ( !m_Startup.StartupLoading() )
             m_Workspace.ServiceRequests();
 
         // ...and closing one destroys the same resources, so it is deferred to the same place. It must also
@@ -1153,34 +983,14 @@ namespace Desert::Editor
             }
         }
 
-        // ONE thumbnail capture pump for the whole editor. Panels only request; whether the asset browser
-        // is open, hidden or closed no longer changes whether previews progress, and a request made by one
-        // panel is finished for all of them.
-        //
-        // Two halves, two gates (Editor/Splash/RevealGate.hpp). A PNG already in the disk cache is decoded
-        // on a worker even while the splash is up, so the first frame after the hand-over only uploads it.
-        // A CAPTURE is not: it shares the settle's frames and asset loader — the one thing the splash is
-        // waiting on — so requests made before the hand-over stay queued and are served after it.
-        if ( Splash::ThumbnailDiskDecodeAllowed( CurrentRevealState() ) )
-            ThumbnailService::TickDiskAndDecode();
-        UploadSplashThumbnails();
-        // THE ONE CAPTURE THE SPLASH MAY RUN (THUMB3, THM1m, THM1n-13): the open scene's subjects, then every
-        // uncaptured picture of the project, queued by WarmSplashScene. A warmed mesh still being read when
-        // the window appears keeps being asked for after it (TickWarmMeshes), first in the queue once queued.
-        if ( m_Revealed && m_FileExplorerPanel != nullptr )
-            (void)m_FileExplorerPanel->TickWarmMeshes();
-        if ( Splash::ThumbnailCaptureAllowed( CurrentRevealState() ) )
-            ThumbnailService::Get().TickCapture( ThumbnailWarmup::CaptureScope::Everything );
-        else if ( Splash::SceneThumbnailCaptureAllowed( CurrentRevealState() ) &&
-                  ThumbnailService::Get().SceneWarmPending() > 0 )
-            ThumbnailService::Get().TickCapture( ThumbnailWarmup::CaptureScope::SceneWarmOnly );
+        // The one thumbnail pump, gated by the reveal (EditorStartup::TickThumbnails).
+        m_Startup.TickThumbnails();
 
         UpdateContextualPanels();
 
         // Asset hot-reload: pick up edited .demat/.shader files (runs BEFORE scene rendering so
         // a shader-triggered pipeline invalidation never touches an in-recording frame).
-        if ( m_AssetManager )
-            m_AssetHotReload.Tick( frameTs, *m_AssetManager, m_Workspace.ActiveScene().get() );
+        m_AssetCompiling.TickHotReload( frameTs, m_Workspace.ActiveScene().get() );
 
         // Destroy invalidated runtime materials (shader switched in the editor / hot reload) at
         // the only safe point: before any command recording, behind a device-idle wait. Doing it
@@ -1197,8 +1007,8 @@ namespace Desert::Editor
 
         // Screenshot mode (ShotDirector): `--play` starts the world, then the camera is placed for the frame about
         // to be rendered.
-        m_Shots.BeginPlayIfDue( StartupLoading() );
-        m_Shots.PlaceCamera( StartupLoading() );
+        m_Shots.BeginPlayIfDue( m_Startup.StartupLoading() );
+        m_Shots.PlaceCamera( m_Startup.StartupLoading() );
 
         // WAS ANYTHING STILL OUTSTANDING WHEN THIS FRAME WAS MADE? Sampled HERE, and the position is the
         // whole of its meaning: after every deferred queue above has drained — scene loads, document
@@ -1208,7 +1018,7 @@ namespace Desert::Editor
         // answer has moved on, and the question the control channel needs answered is about the picture:
         // "did this frame have everything the command asked for in it, or was some of it still queued?"
         // Editor/Core/Control/ControlPipeline.hpp is where that question is judged.
-        m_Control.SampleFrameQuiescence( StartupLoading() || ContentSettling() );
+        m_Control.SampleFrameQuiescence( m_Startup.StartupLoading() || m_Startup.ContentSettling() );
 
         // Multi-scene editing: drive EVERY open document each frame so all viewports render live. The active
         // one is m_Workspace.ActiveScene() (rebound on viewport focus); RigBuilder / F9 below act on it only. The
@@ -1227,18 +1037,18 @@ namespace Desert::Editor
 
         if ( const auto& shot = ShotOptions::Get();
              shot.FlightRoute && m_Workspace.ActiveScene() && !m_SceneFiles.HasPendingLoad() &&
-             !StartupLoading() &&
+             !m_Startup.StartupLoading() &&
              m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Play )
-            RecordFlightFrame( !ContentSettling() );
+            m_Profiler.RecordFlightFrame( !m_Startup.ContentSettling() );
 
         // Screenshot mode, SECOND HALF (ShotDirector::CountRenderedFrame). On the capture's last frame the layer
         // adds its own records — the profiler dump, the --flight CSV — and closes with the capture's status.
-        if ( m_Shots.CountRenderedFrame( StartupLoading() || ContentSettling() ) )
+        if ( m_Shots.CountRenderedFrame( m_Startup.StartupLoading() || m_Startup.ContentSettling() ) )
         {
             const auto& shot = ShotOptions::Get();
             if ( shot.GpuProfile )
-                DumpProfilerToLog();
-            if ( shot.FlightRoute && !FinishFlight() )
+                m_Profiler.DumpProfilerToLog();
+            if ( shot.FlightRoute && !m_Profiler.FinishFlight() )
                 m_Shots.MarkFailed();
             m_Application->Close( m_Shots.Finish() );
         }
@@ -1264,7 +1074,7 @@ namespace Desert::Editor
     // `quit` whose reply has gone out comes back as the status to close with.
     void EditorLayer::OnFramePresented()
     {
-        RevealWhenReady();
+        m_Startup.RevealWhenReady();
         if ( const auto quit = m_Control.OnFramePresented() )
             m_Application->Close( *quit );
     }
@@ -1358,7 +1168,7 @@ namespace Desert::Editor
         // person sees until the start is over — and there is no dockspace or panel to draw yet (the
         // viewport panel would touch the not-yet-rendered scene image). The fullscreen ImGui overlay that
         // stood here was replaced by the splash, and deleted with the same change.
-        if ( StartupLoading() || ContentSettling() )
+        if ( m_Startup.StartupLoading() || m_Startup.ContentSettling() )
         {
             m_ImGuiLayer->End();
             return BOOLSUCCESS;
@@ -1778,7 +1588,7 @@ namespace Desert::Editor
         m_Documents.Documents().EndFrame();
 
         if ( !m_Documents.MajorTabActive() )
-            DrawProfilerWindow();
+            m_Profiler.DrawProfilerWindow();
 
         m_StatusBar.Draw();
 
@@ -2019,54 +1829,6 @@ namespace Desert::Editor
                                            "command only knows that no file was produced." );
                                   } } );
         }
-
-        // Actions.
-        //
-        // RELEASING UNUSED ASSETS BY NAME. The sweep runs by itself on every scene change, which is the
-        // policy (Engine/Assets/AssetEviction.hpp) — this is the same request under a name, so that a
-        // person profiling a level can ask for it without changing scene, and so that the control channel
-        // can. A capability reachable only as a side effect of something else is missing from THE
-        // DICTIONARY, and the dictionary is this editor's claim that anything a person can do an agent can
-        // do. It goes through the schedule rather than calling Run directly, so a manual sweep lands at the
-        // same safe point in the frame as an automatic one.
-        commands.push_back( { "Action", "Release unused assets", []
-                              {
-                                  Assets::AssetEvictionSchedule::Request( "asked for from the command "
-                                                                          "palette" );
-                                  return PaletteCommandDone();
-                              } } );
-
-        // REBUILD CONTENT REGISTRY — the remedy every refusal in this subsystem names, reachable
-        // without restarting.
-        //
-        // Since T2.4 neither host scans the content roots at boot: `Cooked/AssetRegistry.dreg` is the
-        // list of what the project has. Content authored IN this editor enters it the moment
-        // `AssetManager::CreateAsset` sees the file, and content the cook writes enters it at the
-        // write — but a file that arrived on disk with nobody looking (a `git pull`, a drop into the
-        // folder while the editor was closed) has no row until something walks. The boot deliberately
-        // does not walk; this is what does, on demand.
-        //
-        // IT IS IN THE DICTIONARY AND NOT ONLY IN A MENU, for the reason "Release unused assets" is:
-        // a capability reachable only as a side effect of something else is missing from the palette,
-        // and the palette is this editor's claim that anything a person can do an agent can do. The
-        // packager refuses to build against a stale registry and its message names this command; a
-        // named remedy that cannot be run is worse than no message.
-        commands.push_back( { "Action", "Rebuild Content Registry", [this]
-                              {
-                                  const auto cooked = Assets::ContentRegistry::Refresh( *m_AssetManager );
-                                  if ( !cooked )
-                                      return Common::MakeFormattedError( "the content registry: {}",
-                                                                         cooked.GetError() );
-                                  LOG_INFO( "[ContentRegistry] {}", cooked.GetValue().Describe() );
-                                  return PaletteCommandDone();
-                              } } );
-
-        // SAVE SCENE ANSWERS WHETHER IT SAVED. `(void)SaveOpenScene()` stood here against a
-        // `[[nodiscard]] bool` — the attribute was on the declaration and the cast silenced it — so a
-        // scene that could not be written came back over the channel as a success. This is the same
-        // family as the toast that once said "Saved 'X'" for a file that had not been written
-        // (FileSystem.hpp's note on the write primitive that is gone).
-        m_SceneFiles.AppendSaveSceneCommand( commands );
     }
 
     void EditorLayer::AppendWindowCommands( std::vector<PaletteCommand>& commands )
@@ -2257,7 +2019,7 @@ namespace Desert::Editor
         // Both are conditional on the window actually being frameless — with a system frame they would be a
         // second set of buttons for the same three actions.
         const float chromeWidth = m_WindowChrome ? UI::WindowChrome::WindowButtonsWidth() : 0.0f;
-        DrawEngineStats( chromeWidth );
+        m_Profiler.DrawEngineStats( chromeWidth );
         if ( m_WindowChrome )
         {
             m_WindowChrome->DrawWindowButtons();
@@ -2308,306 +2070,6 @@ namespace Desert::Editor
             m_FileExplorerPanel->QueueRefresh();
 
         LOG_INFO( "[Editor] Rebuilt cooked assets" );
-    }
-
-    void EditorLayer::BeginContentSettle()
-    {
-        m_Content.BeginWorld( Assets::ContentWorkNow().Started );
-    }
-
-    // SECONDS PER ITEM, MEASURED — so the bar's share of a stage is the share of the wait it is. A Debug
-    // start of this project on the M-series development machine, read off the "[Startup] ... item(s) in"
-    // lines below; a machine twice as fast halves every stage alike and the shares do not move.
-    void EditorLayer::MakeSplashPlan()
-    {
-        m_ShaderStage =
-             m_Progress.AddStage( "Compiling shaders...", kSecondsPerShader, Assets::EngineShaderCount() );
-        for ( StartupStage& stage : m_StartupStages )
-            stage.ProgressStage =
-                 stage.ItemCosts ? m_Progress.AddStage( stage.Label, stage.SecondsPerItem, stage.ItemCosts() )
-                                 : m_Progress.AddStage( stage.Label, stage.SecondsPerItem,
-                                                        stage.CountItems ? stage.CountItems() : 1 );
-        // The scene's reads are started by the scene load and counted only when the settle begins.
-        m_SettleStage =
-             m_Progress.AddStage( "Loading scene content...", kSecondsPerSceneRead, 1, kSecondsSceneSettle );
-    }
-
-    void EditorLayer::BeginSplashStage( const std::size_t stage, const std::optional<std::size_t> items )
-    {
-        const double now =
-             std::chrono::duration<double>( std::chrono::steady_clock::now() - m_ProgressEpoch ).count();
-        if ( const auto finished = m_Progress.BeginStage( stage, now, items ) )
-            LOG_INFO( "[Startup] {} {} item(s) in {:.2f} s", finished->Name, finished->Units, finished->Seconds );
-        PushSplash();
-    }
-
-    void EditorLayer::PushSplash()
-    {
-        if ( m_Splash && !m_Revealed )
-            m_Splash->SetProgress( m_Progress.Snapshot() );
-    }
-
-    Assets::ItemProgress EditorLayer::SplashItems()
-    {
-        return [this]( const std::string& item, const std::size_t done, const std::size_t total )
-        {
-            m_Progress.Step( item, done, total );
-            PushSplash();
-        };
-    }
-
-    // SHOWN AFTER THE FIRST REAL FRAME IS PRESENTED, NOT BEFORE IT IS DRAWN. The window has been presented
-    // loading frames the whole time it was hidden, and a window shown ahead of the first real present would
-    // put the last of those — an empty frame — on screen for as long as that frame takes. Shown here, the
-    // surface it reveals already holds the editor, and the splash crossfades into it from this instant.
-    void EditorLayer::StartBackgroundCook()
-    {
-        m_BackgroundCook = std::make_unique<BackgroundCookQueue>(
-             []( const std::filesystem::path& source )
-             {
-                 // One cooker per worker thread: Assimp importers are not reentrant.
-                 thread_local ImportManager s_ThreadImporter;
-                 return s_ThreadImporter.Import( source );
-             },
-             []( std::function<void()> job ) { Common::JobSystem::Get().Submit( std::move( job ) ); } );
-        m_BackgroundCookStart = std::chrono::steady_clock::now();
-
-        const std::array<std::filesystem::path, 2> roots{ Common::Constants::Path::MESH_PATH,
-                                                          Common::Constants::Path::COLLECTIONS_PATH };
-        for ( const std::filesystem::path& root : roots )
-            for ( const std::filesystem::path& source : ImportManager::MeshSources( root ) )
-                m_BackgroundCook->Enqueue( source );
-        LOG_INFO( "[BackgroundCook] {} mesh source(s) queued on the JobSystem after the reveal; a source whose "
-                  "cache entry is missing or stale stays Pending until its cook lands",
-                  m_BackgroundCook->Total() );
-    }
-
-    void EditorLayer::ReloadRecookedMesh( const std::filesystem::path& source )
-    {
-        // THE PENDING ASSET AND THE COOKED ONE MUST BE THE SAME HANDLE: the scene already names the Pending one,
-        // and nothing rewrites the scene when the cook lands. The handle comes from the asset's path (or a
-        // header stated in the file at that path), never from the envelope the cook minted, so it holds — and a
-        // drift would be a scene pointing at a mesh that never arrives, so it is checked, not assumed.
-        const std::filesystem::path staticPath = CookPaths::MeshAsset( source );
-        std::optional<uint64_t>     pendingHandle;
-        if ( const auto pending = m_AssetManager->FindByPath<Assets::MeshAsset>( staticPath.generic_string() ) )
-        {
-            pendingHandle = static_cast<uint64_t>( pending->GetMetadata().Handle );
-            // The failed load is dropped with the built GPU mesh; the shell stays, so the next draw reads the
-            // fresh entry through the path a first use takes.
-            if ( const auto unloaded = pending->Unload(); !unloaded )
-                LOG_ERROR( "[BackgroundCook] '{}' was cooked but its Pending asset could not be reset: {}",
-                           staticPath.string(), unloaded.GetError() );
-            if ( auto* service = Runtime::ResourceRegistry::GetMeshService() )
-                (void)service->EvictBuilt( pending->GetMetadata().Handle );
-        }
-        const auto resolved = MeshDnD::ResolveOrImportMesh( *m_AssetManager, source.string() );
-        if ( resolved.Handle.IsNull() )
-        {
-            LOG_ERROR( "[BackgroundCook] '{}' cooked but its asset did not resolve; it stays Pending",
-                       source.string() );
-            return;
-        }
-        if ( pendingHandle && *pendingHandle != static_cast<uint64_t>( resolved.Handle ) )
-            LOG_ERROR( "[BackgroundCook] '{}' was Pending as handle {} and resolved as {} after its cook; the "
-                       "scene's reference no longer reaches it",
-                       source.string(), *pendingHandle, static_cast<uint64_t>( resolved.Handle ) );
-        LOG_INFO( "[BackgroundCook] '{}' cooked; its asset now resolves{}", source.string(),
-                  pendingHandle ? " under the handle it was Pending as" : "" );
-    }
-
-    void EditorLayer::DrainBackgroundCook()
-    {
-        if ( !m_BackgroundCook )
-            return;
-        for ( const BackgroundCookQueue::Completed& done : m_BackgroundCook->Drain() )
-        {
-            switch ( DecideCookCompletion( done.Verdict ) )
-            {
-                case CookCompletionAction::Nothing:
-                    break;
-                case CookCompletionAction::ReportFailure:
-                    ++m_BackgroundCookFailed;
-                    LOG_ERROR( "[BackgroundCook] '{}' did not cook; its asset stays Pending (not drawn)",
-                               done.Source.string() );
-                    break;
-                case CookCompletionAction::Reload:
-                    ++m_BackgroundCookChanged;
-                    ReloadRecookedMesh( done.Source );
-                    break;
-            }
-        }
-        if ( !m_BackgroundCookReported && m_BackgroundCook->AllSettled() )
-        {
-            m_BackgroundCookReported = true;
-            LOG_INFO( "[BackgroundCook] {} mesh source(s) checked after the reveal in {} ms: {} cooked, {} failed",
-                      m_BackgroundCook->Total(),
-                      std::chrono::duration_cast<std::chrono::milliseconds>( std::chrono::steady_clock::now() -
-                                                                             m_BackgroundCookStart )
-                           .count(),
-                      m_BackgroundCookChanged, m_BackgroundCookFailed );
-        }
-    }
-
-    void EditorLayer::RevealWhenReady()
-    {
-        if ( !Splash::MayReveal( CurrentRevealState() ) )
-            return;
-        const double now =
-             std::chrono::duration<double>( std::chrono::steady_clock::now() - m_ProgressEpoch ).count();
-        if ( const auto finished = m_Progress.Finish( now ) )
-            LOG_INFO( "[Startup] {} {} item(s) in {:.2f} s", finished->Name, finished->Units, finished->Seconds );
-        PushSplash();
-        m_Revealed = true;
-        if ( const auto& window = m_Application->GetWindow() )
-            window->Show();
-        LOG_INFO( "[Startup] reveal: the scene's content has settled and the editor window is shown" );
-        if ( m_FileExplorerPanel != nullptr )
-            LOG_INFO( "[Thumbnails] {} thumbnails resident, {} captured on splash",
-                      m_FileExplorerPanel->ResidentThumbnails(), m_SplashWarmTotal );
-        StartBackgroundCook();
-        // Starts the crossfade and returns; the splash object stays until this layer is destroyed.
-        m_Splash->Close();
-        LOG_INFO( "[Startup] the splash is closed" );
-        // The counters are cumulative since process start, so this is every shader and pipeline cost paid before
-        // the first real frame, including the pipelines the renderers build after the preload.
-        LOG_INFO( "[Startup] shader work before the first frame: {}",
-                  ::Desert::Core::FormatShaderPhaseTimes( ::Desert::Core::ReadShaderPhaseTimes() ) );
-    }
-
-    Splash::RevealState EditorLayer::CurrentRevealState() const
-    {
-        Splash::RevealState state;
-        state.HasSplash        = m_Splash != nullptr;
-        state.Revealed         = m_Revealed;
-        state.StartupLoading   = StartupLoading();
-        state.SceneLoadPending    = m_SceneFiles.HasPendingLoad();
-        state.ContentSettling  = ContentSettling();
-        state.RealFrameDrawn   = m_RealFrameDrawn;
-        state.ThumbnailsUploading = m_ThumbnailsHoldReveal;
-        return state;
-    }
-
-    void EditorLayer::UploadSplashThumbnails()
-    {
-        if ( m_Splash == nullptr || m_Revealed || m_FileExplorerPanel == nullptr )
-        {
-            m_ThumbnailsHoldReveal = false;
-            return;
-        }
-        WarmSplashScene();
-        // A cold mesh still being read counts too: it is a capture that has not been queued YET (THM1m).
-        const std::size_t warmPending =
-             ThumbnailService::Get().SceneWarmPending() + m_FileExplorerPanel->TickWarmMeshes();
-        m_SplashWarmTotal = std::max( m_SplashWarmTotal, warmPending ); // a late resolve queues after the start
-        // THE CAPTURES' PICTURES ARE UPLOADED TOO (THM1n-13): once every splash capture has landed, the PNGs they
-        // wrote are asked of the workers like the rest, so the window never opens on a picture still on disk.
-        if ( m_SplashWarmStarted && warmPending == 0 && !m_SplashPicturesReasked )
-        {
-            m_SplashPicturesReasked = true;
-            m_FileExplorerPanel->RequestProjectPictures();
-        }
-        // An upload of pixels a worker already decoded from the disk cache: no renderer slot and no capture,
-        // which is why it may run before the hand-over while ThumbnailCaptureAllowed is still false.
-        const std::size_t pending = m_FileExplorerPanel->UploadPrefetchedThumbnails();
-        if ( warmPending != m_SplashWarmShown )
-        {
-            // The splash says what it is waiting on, as every other stage does.
-            m_SplashWarmShown = warmPending;
-            m_Progress.Step( "Scene thumbnails", m_SplashWarmTotal - std::min( warmPending, m_SplashWarmTotal ),
-                             m_SplashWarmTotal );
-            PushSplash();
-        }
-
-        Splash::RevealState rest = CurrentRevealState();
-        rest.ThumbnailsUploading = false;
-        if ( !Splash::MayReveal( rest ) )
-        {
-            m_RevealOtherwiseReadySince.reset();
-            m_ThumbnailsHoldReveal = pending > 0 || warmPending > 0;
-            return;
-        }
-        const auto now = std::chrono::steady_clock::now();
-        if ( !m_RevealOtherwiseReadySince )
-            m_RevealOtherwiseReadySince = now;
-        const double waitedMs =
-             std::chrono::duration<double, std::milli>( now - *m_RevealOtherwiseReadySince ).count();
-        const bool wasHolding  = m_ThumbnailsHoldReveal;
-        m_ThumbnailsHoldReveal =
-             Splash::ThumbnailsHoldReveal( pending ) || Splash::SceneCapturesHoldReveal( warmPending );
-        if ( wasHolding && !m_ThumbnailsHoldReveal )
-        {
-            LOG_INFO( "[Thumbnails] the opening folder's and the scene's pictures held the hand-over {:.0f} ms",
-                      waitedMs );
-        }
-    }
-
-    void EditorLayer::WarmSplashScene()
-    {
-        // Once, when the scene the editor opens on is loaded and the renderer is up: the moment a scene
-        // capture becomes allowed (Splash::SceneThumbnailCaptureAllowed).
-        if ( m_SplashWarmStarted || !m_Workspace.ActiveScene() ||
-             !Splash::SceneThumbnailCaptureAllowed( CurrentRevealState() ) )
-            return;
-        m_SplashWarmStarted = true;
-
-        Assets::AssetRootSet roots;
-        ::Desert::Core::CollectAssetRoots( *m_Workspace.ActiveScene(), roots );
-        const std::vector<ThumbnailWarmup::WarmItem> scene = ThumbnailWarmup::SceneWarmList(
-             roots.Handles(), []( const Common::AssetHandle& handle )
-             { return Common::AssetPathIndex::PathFor( static_cast<uint64_t>( handle ) ); } );
-        // EVERY PICTURE OF THE PROJECT (THM1n-13, owner 09-29): the content registry's rows of every kind, not the
-        // folder the browser opens on — so no folder entered after the hand-over waits for a picture.
-        const std::vector<ThumbnailWarmup::WarmItem> project =
-             ThumbnailWarmup::ProjectWarmList( &Assets::ContentRegistry::FilesOfKind );
-        for ( const ThumbnailWarmup::Unproduced& gap :
-              ThumbnailWarmup::UnproducedKinds( &Assets::ContentRegistry::FilesOfKind ) )
-            LOG_WARN(
-                 "[Thumbnails] {} {} file(s) get no picture on the splash: the kind has no thumbnail producer "
-                 "yet ({})",
-                 gap.Files, Common::Content::KindName( gap.Kind ), gap.Why );
-        m_SplashWarmTotal = m_FileExplorerPanel->WarmProjectThumbnails( scene, project );
-        LOG_INFO( "[Thumbnails] the scene uses {} subject(s) of {} root(s), the project has {} picture(s); {} "
-                  "picture(s) to capture before the hand-over, the rest decode from the disk cache",
-                  scene.size(), roots.Size(), project.size(), m_SplashWarmTotal );
-    }
-
-    void EditorLayer::UpdateContentSettling()
-    {
-        const auto& loader  = Assets::AsyncAssetLoader::Get();
-        const auto  work    = Assets::ContentWorkNow();
-        const bool  settled = m_Content.Tick( work.Outstanding, work.Started );
-        if ( !settled )
-        {
-            // THE SETTLE SAYS HOW MUCH IS LEFT, not only that it is waiting: a count that moves is the
-            // difference between a load and a hang. Pushed only when the count changes.
-            if ( ContentSettling() && !m_Revealed && loader.Outstanding() != m_SplashOutstandingShown )
-            {
-                m_SplashOutstandingShown = loader.Outstanding();
-                const std::size_t items  = loader.StartedCount() - m_SettleBase;
-                m_Progress.Step( "Scene assets", items - loader.Outstanding(), items );
-                PushSplash();
-            }
-            return;
-        }
-
-        LOG_INFO( "[Content] settled after {} frame(s) in {:.1f} ms; {} read(s) have gone to a worker "
-                  "this session. This is the cost that used to be a boot stage, and a scene that asks "
-                  "for nothing pays none of it.",
-                  m_Content.FramesWaited(), m_Content.ElapsedMs(), loader.StartedCount() );
-        // PSO1: the content pipelines went to workers; what they still cost the frame is this line.
-        const auto& pipelines = Graphic::PipelineBuilds::Get();
-        const auto  blocked   = pipelines.CallerBlocked();
-        // AL1-12: the gate waited for the engine's; material ones may still be compiling behind the default
-        // surface.
-        LOG_INFO(
-             "[Content] pipelines: {} engine compiled on workers before the reveal, {} material requested "
-             "on demand ({} still compiling); the frame was blocked {:.1f} ms in total, {:.2f} ms at most for one",
-             pipelines.Started( Graphic::PipelineRole::Engine ),
-             pipelines.Started( Graphic::PipelineRole::Material ),
-             pipelines.Pending( Graphic::PipelineRole::Material ),
-             std::chrono::duration<double, std::milli>( blocked.Total ).count(),
-             std::chrono::duration<double, std::milli>( blocked.Max ).count() );
     }
 
     // THE ONLY PLACE THE OS STILL SHOWS THIS WINDOW'S NAME. With the system frame gone the title is no
@@ -2685,267 +2147,6 @@ namespace Desert::Editor
         if ( ImGui::IsItemHovered() )
             ImGui::SetTooltip( m_BottomCollapsed ? "Expand the bottom drawer (Assets / Logs)"
                                                  : "Collapse the bottom drawer (Assets / Logs)" );
-    }
-
-    // The profiler table as text. Used by the panel's button AND by --gpu-profile, because a headless shot
-    // draws no ImGui and the panel is the only other way these numbers are readable.
-    //
-    // The GPU column comes from the backend's timestamp queries, so it is device time, not the CPU's wait
-    // for it; the two columns disagreeing is the interesting case rather than a fault.
-    void EditorLayer::RecordFlightFrame( bool counted )
-    {
-        const ShotOptions&           shot     = ShotOptions::Get();
-        Common::Profiling::Profiler& profiler = Common::Profiling::Profiler::Get();
-
-        double gpuMs    = Flight::kNotMeasured;
-        double streamMs = 0.0;
-        for ( const Common::Profiling::ScopeResult& scope : profiler.LastFrame() )
-        {
-            if ( scope.Name == Common::Profiling::kGpuFrameTotalScope && profiler.GpuEnabled() )
-                gpuMs = scope.GpuMs;
-            else if ( scope.Name == "WorldStreamer::Tick" )
-                streamMs = scope.TotalMs;
-        }
-        m_FlightLog.TimeLast( profiler.LastFrameMs(), gpuMs, streamMs );
-
-        Flight::FrameRow row;
-        row.Frame    = m_Shots.Frame();
-        row.Kind     = m_Shots.Frame() < Flight::kWarmupFrames ? Flight::Phase::Warmup
-                       : counted                               ? Flight::Phase::Flight
-                                                               : Flight::Phase::Settling;
-        row.Distance = Flight::DistanceAt( m_Shots.Frame(), shot.FlightSpeed, ShotOptions::PlayStepSeconds );
-        row.Position = Flight::PoseAt( *shot.FlightRoute, row.Distance ).Position;
-        row.Entities = m_Workspace.ActiveScene()->GetAllEntities().size();
-        if ( m_Play.Streamer() && m_Play.Streamer()->Streams( *m_Workspace.ActiveScene() ) )
-        {
-            const auto& report   = m_Play.Streamer()->LastTick();
-            row.ResidentRecords  = report.LiveRecords;
-            row.UnitsActivated   = report.Tick.UnitsActivated;
-            row.UnitsDeactivated = report.Tick.UnitsDeactivated;
-            row.RecordsActivated = report.Tick.RecordsActivated;
-            row.RecordsDestroyed = report.Tick.RecordsDestroyed;
-            row.ActivationMs     = report.ActivationMs;
-            row.ActivatedUnits   = report.ActivatedUnits;
-        }
-        row.AssetGpuBytes = Graphic::ResourceLedger::Take().BytesForOwner( Graphic::ResourceOwner::AssetService );
-        m_FlightLog.Append( std::move( row ) );
-    }
-
-    bool EditorLayer::FinishFlight()
-    {
-        const ShotOptions& shot = ShotOptions::Get();
-        const auto         rows = m_FlightLog.Rows();
-        const auto         written =
-             Common::Utils::FileSystem::WriteContentToFileAtomic( shot.FlightCsv, Flight::Csv( rows ) );
-        if ( !written.IsSuccess() )
-        {
-            LOG_ERROR( "[Flight] the CSV was not written to '{}': {}", shot.FlightCsv, written.GetError() );
-            return false;
-        }
-        const auto summary = Flight::Summarise( rows );
-        if ( !summary.IsSuccess() )
-        {
-            LOG_ERROR( "[Flight] '{}': {}", shot.FlightRoute->Spec, summary.GetError() );
-            return false;
-        }
-        LOG_INFO( "[Flight] '{}' at {:.0f} cm/s, {} row(s) in '{}': {}", shot.FlightRoute->Spec, shot.FlightSpeed,
-                  rows.size(), shot.FlightCsv, Flight::Describe( summary.GetValue(), rows ) );
-        return true;
-    }
-
-    void EditorLayer::DumpProfilerToLog()
-    {
-        auto& prof = ::Common::Profiling::Profiler::Get();
-
-        const double frameMs = prof.LastFrameMs();
-        const double fps     = frameMs > 0.0001 ? 1000.0 / frameMs : 0.0;
-
-        const std::string frameTotalScope = ::Common::Profiling::kGpuFrameTotalScope;
-
-        double gpuFrameMs = 0.0;
-        double gpuSumMs   = 0.0;
-        for ( const auto& s : prof.LastFrame() )
-        {
-            if ( s.Name == frameTotalScope )
-                gpuFrameMs = s.GpuMs;
-        }
-
-        LOG_INFO( "[Profiler] ---- per-pass breakdown (averaged over {:.1f} s of frames) ----",
-                  prof.AvgWindowSeconds() );
-        LOG_INFO( "[Profiler] Frame (wall) {:.3f} ms ({:.0f} FPS), GPU frame {:.3f} ms", frameMs, fps,
-                  gpuFrameMs );
-        LOG_INFO( "[Profiler] {:<34} {:>10} {:>6} {:>10} {:>10} {:>6}", "scope", "cpu ms", "x", "gpu ms",
-                  "gpu self", "x" );
-
-        for ( const auto& s : prof.LastFrame() )
-        {
-            LOG_INFO( "[Profiler] {:<34} {:>10.3f} {:>6} {:>10.3f} {:>10.3f} {:>6}", s.Name, s.TotalMs, s.Calls,
-                      s.GpuMs, s.GpuSelfMs, s.GpuCalls );
-            // SELF time is the only summable column — the inclusive one counts a parent's microseconds
-            // again in each child. The frame bracket is the denominator, not a pass, so it stays out.
-            if ( s.GpuCalls > 0 && s.Name != frameTotalScope )
-                gpuSumMs += s.GpuSelfMs;
-        }
-
-        LOG_INFO( "[Profiler] GPU self times sum to {:.3f} ms of a {:.3f} ms GPU frame ({:.1f} %); the "
-                  "remainder is device work no pass is marked around.",
-                  gpuSumMs, gpuFrameMs, gpuFrameMs > 0.0001 ? gpuSumMs / gpuFrameMs * 100.0 : 0.0 );
-
-        // THE DRAW-CALL DETECTOR, READ WITHOUT A WINDOW. The counter itself landed with step 2 of
-        // `Docs/World/PROGRAMME.md`, and its only reader was the viewport's perf HUD — which is ImGui,
-        // which is drawn into the swapchain, which `--shot` does not read. So the one number step 3 is
-        // judged on was unreadable in exactly the mode a measurement is taken in. It joins the profiler
-        // dump rather than getting a flag of its own because it answers the same question the dump does
-        // — what did this frame cost — and because a second flag would be a second thing to remember.
-        const Graphic::DrawCounters drawCounters = Graphic::DrawCounter::LastFrame();
-        LOG_INFO( "[Profiler] draws {} / instances {} (an instanced batch is ONE draw and many instances; "
-                  "the two are printed apart because culling moves them in different proportions)",
-                  drawCounters.Draws, drawCounters.Instances );
-        LOG_INFO( "[Profiler] ---- end ----" );
-    }
-
-    void EditorLayer::DrawProfilerWindow()
-    {
-        namespace ImGui = ::ImGui;
-        auto& prof      = ::Common::Profiling::Profiler::Get();
-
-        if ( !m_ShowProfiler )
-            return;
-
-        const double frameMs = prof.LastFrameMs();
-        const double fps     = frameMs > 0.0001 ? 1000.0 / frameMs : 0.0;
-
-        ImGui::SetNextWindowSize( ImVec2( 420, 460 ), ImGuiCond_FirstUseEver );
-        ImGui::SetNextWindowPos( ImVec2( 700, 120 ), ImGuiCond_FirstUseEver );
-        if ( !ImGui::Begin( "Profiler", &m_ShowProfiler ) ) // X button clears m_ShowProfiler
-        {
-            ImGui::End();
-            return;
-        }
-
-        ImGui::Checkbox( "Enabled", &prof.Enabled() );
-        ImGui::SameLine();
-        ImGui::Checkbox( "Sort by time", &prof.SortByTime() );
-        ImGui::SameLine();
-        // GPU timestamps are OFF by default: they cost ~8 % of a debug frame on MoltenVK, and an
-        // always-on instrument means every later measurement carries the tax. Turning this on is a
-        // deliberate act. See Docs/GPU_TIMESTAMPS.md for the measured price.
-        ImGui::BeginDisabled( prof.GetGpuSink() == nullptr );
-        ImGui::Checkbox( "GPU", &prof.GpuEnabled() );
-        if ( ImGui::IsItemHovered() )
-            ImGui::SetTooltip( "Device timestamps around every pass.\n"
-                               "Costs about 8%% of the frame it measures, so it is off by default." );
-        ImGui::SameLine();
-        ImGui::BeginDisabled( !prof.GpuEnabled() );
-        ImGui::Checkbox( "per-pass", &prof.GpuPassScopes() );
-        ImGui::EndDisabled();
-        if ( ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
-            ImGui::SetTooltip( "Off: time the whole frame only (two timestamps, near-free).\n"
-                               "On: also time every pass, which is what costs." );
-        ImGui::EndDisabled();
-        if ( prof.GetGpuSink() == nullptr && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
-            ImGui::SetTooltip( "This device reports no usable timestamp queries — CPU columns only." );
-
-        ImGui::SetNextItemWidth( 160.0f );
-        ImGui::SliderFloat( "Avg window (s)", &prof.AvgWindowSeconds(), 0.1f, 2.0f, "%.1f" );
-
-        // The whole-frame GPU bracket the backend records around the command buffer. It is the denominator
-        // the per-pass GPU column is checked against: the passes should tile it, not exceed it.
-        double gpuFrameMs = 0.0;
-        for ( const auto& s : prof.LastFrame() )
-            if ( s.Name == ::Common::Profiling::kGpuFrameTotalScope )
-                gpuFrameMs = s.GpuMs;
-
-        ImGui::Text( "Frame: %.3f ms  (%.0f FPS)   [avg]", frameMs, fps );
-        if ( gpuFrameMs > 0.0 )
-        {
-            ImGui::SameLine();
-            ImGui::TextColored( ImVec4( 0.55f, 0.80f, 1.0f, 1.0f ), "GPU: %.3f ms", gpuFrameMs );
-        }
-        ImGui::SameLine();
-        if ( ImGui::Button( "Dump to Log" ) )
-            DumpProfilerToLog();
-
-        ImGui::Separator();
-
-        if ( ImGui::BeginTable( "##prof", 6,
-                                ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders |
-                                     ImGuiTableFlags_SizingStretchProp ) )
-        {
-            // The numeric columns are FIXED width and the name stretches. With six columns sharing the
-            // width proportionally, the panel docked at its usual size truncated every header to
-            // "cp... gp... gpu..." — unreadable, and the two GPU columns are the ones a reader has to
-            // tell apart. A millisecond figure needs a known number of characters, not a share of the
-            // panel, so it gets one.
-            const float kNumWidth = ImGui::CalcTextSize( "0000.000" ).x;
-            ImGui::TableSetupColumn( "scope", ImGuiTableColumnFlags_WidthStretch );
-            ImGui::TableSetupColumn( "cpu", ImGuiTableColumnFlags_WidthFixed, kNumWidth );
-            ImGui::TableSetupColumn( "gpu", ImGuiTableColumnFlags_WidthFixed, kNumWidth );
-            ImGui::TableSetupColumn( "self", ImGuiTableColumnFlags_WidthFixed, kNumWidth );
-            ImGui::TableSetupColumn( "%", ImGuiTableColumnFlags_WidthFixed, ImGui::CalcTextSize( "000" ).x );
-            ImGui::TableSetupColumn( "x", ImGuiTableColumnFlags_WidthFixed, ImGui::CalcTextSize( "000" ).x );
-            ImGui::TableHeadersRow();
-
-            for ( const auto& s : prof.LastFrame() )
-            {
-                const double pct = frameMs > 0.0001 ? ( s.TotalMs / frameMs ) * 100.0 : 0.0;
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted( s.Name.c_str() );
-                // Docked at its usual width the name column clips, and "Clouds: Sha" / "Clouds: Exe" are
-                // two different passes. The full name on hover costs nothing and settles it.
-                if ( ImGui::IsItemHovered() )
-                    ImGui::SetTooltip( "%s", s.Name.c_str() );
-                ImGui::TableNextColumn();
-                ImGui::Text( "%.3f", s.TotalMs );
-                ImGui::TableNextColumn();
-                // A dash, not 0.000: a scope that records no GPU work and a scope the GPU timer could not
-                // reach are different states, and printing zero for both invents a measurement.
-                if ( s.GpuCalls > 0 )
-                    ImGui::TextColored( ImVec4( 0.55f, 0.80f, 1.0f, 1.0f ), "%.3f", s.GpuMs );
-                else
-                    ImGui::TextDisabled( "-" );
-                ImGui::TableNextColumn();
-                // Nested passes subtracted — the column that can be added up.
-                if ( s.GpuCalls > 0 )
-                    ImGui::TextColored( ImVec4( 0.45f, 0.70f, 0.95f, 1.0f ), "%.3f", s.GpuSelfMs );
-                else
-                    ImGui::TextDisabled( "-" );
-                ImGui::TableNextColumn();
-                // Tint hot scopes (>25% of the frame) red.
-                if ( pct > 25.0 )
-                    ImGui::TextColored( ImVec4( 1.0f, 0.45f, 0.35f, 1.0f ), "%.1f", pct );
-                else
-                    ImGui::Text( "%.1f", pct );
-                ImGui::TableNextColumn();
-                ImGui::Text( "%u", s.Calls );
-            }
-            ImGui::EndTable();
-        }
-
-        ImGui::End();
-    }
-
-    void EditorLayer::DrawEngineStats( float rightMargin )
-    {
-        namespace ImGui = ::ImGui;
-
-        const auto text = m_Application->GetEngineStats().GetFormattedStats();
-        auto       size = ImGui::CalcTextSize( text.c_str() );
-
-        ImGui::SameLine( ImGui::GetWindowContentRegionMax().x - rightMargin - size.x -
-                         ImGui::GetStyle().ItemSpacing.x * 2.0f );
-
-        // TextUnformatted, not Text: ImGui::Text takes a printf FORMAT, so this passed runtime-built
-        // engine stats as the format string. Today GetFormattedStats() can only produce
-        // "FPS: 60 | Frame: 16.67ms" and contains no '%', so nothing has gone wrong — but the day any
-        // percentage is added to that line (a GPU utilisation, a budget fraction — the obvious next
-        // additions) ImGui's vsnprintf reads a vararg that was never passed.
-        //
-        // The example above said "16.6ms" while the function was printing SIX decimals — the argument
-        // was right and the sample output was a different program's. It is two decimals now because
-        // GetFormattedStats was fixed, not because the comment was made to agree with it.
-        ImGui::TextUnformatted( text.c_str() );
     }
 
     void EditorLayer::DrawPopups()
@@ -3132,6 +2333,7 @@ namespace Desert::Editor
         // it today" is the weakest guarantee in this audit, because it is about the code that exists
         // rather than about the code. A8-2.
         m_FileExplorerPanel = nullptr;
+        m_Startup.AttachFileExplorer( nullptr );
         m_WorldPartitionPanel = nullptr;
         // Reported and not returned even though OnDetach has a channel: everything below this line still
         // has to run, and an early return would leave the extra documents and their render slots alive.

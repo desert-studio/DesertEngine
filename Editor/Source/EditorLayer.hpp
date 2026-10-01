@@ -2,14 +2,10 @@
 
 #include <Common/Core/Subsystems/SubsystemCollection.hpp>
 #include <Editor/Core/PanelMaximize.hpp>
-#include <Editor/Import/BackgroundCook.hpp>
-#include <Engine/Assets/ContentGate.hpp>
 
-#include <Engine/Core/BootTimeline.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Desert.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
-#include <Engine/Runtime/AssetHotReload.hpp>
 #include <ImGui/imgui.h>
 #include "Editor/ImGuiIntegration/ImGuiLayer.hpp"
 #include "Editor/Widgets/UIHelper/ImGuiUI.hpp"
@@ -21,7 +17,6 @@
 #include "Editor/Core/PlayWorldCommands.hpp"
 #include "Editor/Core/SceneViewIdentity.hpp"
 #include "Editor/Core/Selection/AuthoringContext.hpp"
-#include "Editor/Core/FlightRules.hpp"
 #include "Editor/Core/PanelRegistry.hpp"
 #include "Editor/RenderSystems/RenderRigistry.hpp"
 #include "Editor/LevelEditor/PlaySession.hpp"
@@ -35,11 +30,12 @@
 #include "Editor/LevelEditor/StatusBar.hpp"
 #include "Editor/LevelEditor/ShotDirector.hpp"
 #include "Editor/LevelEditor/ControlService.hpp"
+#include "Editor/LevelEditor/AssetCompiling.hpp"
+#include "Editor/LevelEditor/EditorStartup.hpp"
+#include "Editor/LevelEditor/ProfilerWindow.hpp"
 #include "Editor/Widgets/WindowChrome.hpp"
-#include "Editor/Splash/RevealGate.hpp"
 #include "Editor/Splash/SplashScreen.hpp"
 
-#include <Engine/Assets/ItemProgress.hpp>
 
 #include <chrono>
 #include <optional>
@@ -124,18 +120,6 @@ namespace Desert::Editor
         // camera, a ground floor, a sun light, and obstacles. (Remove the call in OnAttach for a blank scene.)
         // Builds a walkable greybox house (walls + doorway + roof, static colliders) parented under one root.
 
-        /// @p rightMargin is how much of the bar's right-hand end is already spoken for — the window
-        /// buttons — so the stats right-align against them instead of underneath them.
-        void DrawEngineStats( float rightMargin );
-        void DrawProfilerWindow();
-        /// The profiler's CPU+GPU table as log lines — the panel's button and --gpu-profile share it.
-        void DumpProfilerToLog();
-        /// --flight: times the previous frame's row and appends this frame's (Editor/Core/FlightRules.hpp).
-        /// @p counted is whether the capture counts this frame; an uncounted one is a Settling row.
-        void RecordFlightFrame( bool counted );
-        /// --flight, on the last frame: writes the CSV and logs the summary. False when either failed.
-        [[nodiscard]] bool FinishFlight();
-
         // ===== Popups =====
         void DrawPopups();
         void DrawProjectPopup();
@@ -160,9 +144,6 @@ namespace Desert::Editor
         void RebuildCookedAssets();
 
     private:
-        bool m_ShowProfiler = true; // View ▸ Profiler toggles the profiler window
-
-    private:
         Engine::Application* m_Application;
 
         // The window frame the OS no longer draws, because the editor asked for a window without one
@@ -179,13 +160,9 @@ namespace Desert::Editor
         // The library the boot's "Indexing animation clips" stage fills (Assets::IndexAnimationClips).
         std::unique_ptr<Animation::AnimationLibrary> m_AnimationLibrary;
         std::unique_ptr<ImportManager>               m_ImportManager;
-        // The startup mesh cook, run after the reveal (AL1-11); see Editor/Import/BackgroundCook.hpp.
-        std::unique_ptr<BackgroundCookQueue>         m_BackgroundCook;
-        std::chrono::steady_clock::time_point        m_BackgroundCookStart;
-        std::size_t                                  m_BackgroundCookChanged  = 0;
-        std::size_t                                  m_BackgroundCookFailed   = 0;
-        bool                                         m_BackgroundCookReported = false;
-        Runtime::AssetHotReload                      m_AssetHotReload; // .demat/.shader live reload
+        // The mesh cook after the reveal and the .demat/.shader live reload (UE: FAssetCompilingManager). See
+        // Editor/LevelEditor/AssetCompiling.hpp.
+        AssetCompiling m_AssetCompiling{ m_AssetManager };
 
         FileExplorerPanel* m_FileExplorerPanel = nullptr; // non-owning (lives in m_Panels)
         // Non-owning (lives in m_Panels). Kept because the command palette offers the panel's Convert
@@ -237,6 +214,9 @@ namespace Desert::Editor
         // Edit ▸ Preferences... and the toolbar's gear (UE: SSettingsEditor). See
         // Editor/LevelEditor/PreferencesWindow.hpp.
         PreferencesWindow m_Preferences{ m_Workspace };
+        // The profiler window, the menu bar's engine stats and the --flight rows (UE: SProfilerWindow). Before the
+        // menu and the toolbar, which toggle it. See Editor/LevelEditor/ProfilerWindow.hpp.
+        ProfilerWindow m_Profiler{ m_Application, m_Workspace, m_Play, m_Shots };
         // File / Edit / View / Window / Scenes / Graphics / About and the menu's palette entries (UE:
         // FLevelEditorMenu). The layout's two entries and the editor's exit stay with their owners and arrive as
         // actions.
@@ -245,7 +225,7 @@ namespace Desert::Editor
                              m_Documents,
                              m_Panels,
                              m_Preferences,
-                             m_ShowProfiler,
+                             m_Profiler.Shown(),
                              { .RebuildCookedAssets = [this] { RebuildCookedAssets(); },
                                .RequestExit         = [this] { RequestEditorExit(); },
                                .SaveLayoutAs =
@@ -257,10 +237,10 @@ namespace Desert::Editor
                                .ResetLayout = [this] { m_ResetDefaultLayout = true; } } };
         // The strip below the menu bar and the title bar's project / level sections (UE: SLevelEditorToolBar).
         // See Editor/LevelEditor/LevelToolbar.hpp.
-        LevelToolbar m_Toolbar{ m_Workspace, m_SceneFiles, m_Play, m_Preferences, m_ShowProfiler };
+        LevelToolbar m_Toolbar{ m_Workspace, m_SceneFiles, m_Play, m_Preferences, m_Profiler.Shown() };
         // The bottom strip (UE: SStatusBar); the bottom drawer's chevron stays with the dock layout and arrives
         // as an action. See Editor/LevelEditor/StatusBar.hpp.
-        StatusBar m_StatusBar{ m_Workspace, m_SceneFiles, m_Documents, m_BackgroundCook,
+        StatusBar m_StatusBar{ m_Workspace, m_SceneFiles, m_Documents, m_AssetCompiling.CookQueue(),
                                [this] { DrawBottomDrawerToggle(); } };
         // Headless capture: `--shot`, `--play`, `--camera`/`--look` (UE: the automation screenshot director). See
         // Editor/LevelEditor/ShotDirector.hpp.
@@ -287,121 +267,11 @@ namespace Desert::Editor
         void                                    DrawBottomDrawerToggle();
         char                                    m_LayoutNameBuf[64] = {};
 
-        // Staged startup loading: the heavy boot work (mesh cooking, asset preload) runs one stage per
-        // frame from OnUpdate, each announced on the splash, with the main window still hidden.
-        struct StartupStage
-        {
-            std::string           Label;
-            std::function<void()> Run;
-            // What one item of this stage costs on the splash's bar, in measured seconds per item, and how
-            // many items there are — asked when the plan is made, before any stage runs. Empty = one item.
-            double                       SecondsPerItem = 0.01;
-            std::function<std::size_t()> CountItems;
-            // Instead of CountItems, for a stage whose items do not cost alike: each item's own cost, in
-            // the order the stage works through them.
-            std::function<std::vector<double>()> ItemCosts;
-            std::size_t                          ProgressStage = 0; // its id in m_Progress
-        };
-        std::vector<StartupStage> m_StartupStages;
-        size_t                    m_StartupNext = 0;
-
-        // ===== The splash's progress, and the moment the editor is shown =====
-        //
-        // THE BAR IS WEIGHED IN WORK (Splash/SplashProgress.hpp): the engine shader compile (OnAttach — not a
-        // stage, because the render systems resolve their shaders in their constructors), every entry of
-        // m_StartupStages and the settle wait after them, each weighted by its item count times a measured
-        // cost per item. The plan is made once the cooked registry is read, which is what counts the items.
-        void MakeSplashPlan();
-        void BeginSplashStage( std::size_t stage, std::optional<std::size_t> items = std::nullopt );
-        void PushSplash();
-        // The item line of the stage running now, for an engine call that works through a list.
-        Assets::ItemProgress                  SplashItems();
-        Splash::ProgressModel                 m_Progress;
-        std::chrono::steady_clock::time_point m_ProgressEpoch = std::chrono::steady_clock::now();
-        std::size_t                           m_ShaderStage   = 0;
-        std::size_t                           m_SettleStage   = 0;
-        // Scene loads already finished when the settle began: the settle counts only the rest.
-        std::size_t m_SettleBase = 0;
-        // Every condition the splash hand-over depends on, read off this layer for Splash::MayReveal.
-        Splash::RevealState CurrentRevealState() const;
-        // Called at every presented frame; the first one presented after the start is over shows the
-        // hidden main window and closes the splash. Until then the splash is the only window.
-        void RevealWhenReady();
-        // THUMB2: before the hand-over, upload the opening folder's cached thumbnails as workers finish
-        // them, and hold the hand-over until they are all up (no time bound, THM1n).
-        void UploadSplashThumbnails();
-        bool m_ThumbnailsHoldReveal = false;
-        // THUMB3: the open scene's materials — their cached pictures decoded, the missing ones captured on the
-        // splash (Splash::SceneThumbnailCaptureAllowed) within Splash::kSceneCaptureBudgetMs.
-        void        WarmSplashScene();
-        bool        m_SplashWarmStarted = false;
-        std::size_t m_SplashWarmTotal   = 0; // captures queued when the warm-up started
-        std::size_t m_SplashWarmShown   = 0; // what the splash line last said was left
-        bool m_SplashPicturesReasked    = false; // the captures landed and their PNGs were asked for (THM1n-13)
-        // When every other reveal condition first held: the start of the thumbnails' budget.
-        std::optional<std::chrono::steady_clock::time_point> m_RevealOtherwiseReadySince;
-        void StartBackgroundCook();
-        void DrainBackgroundCook();
-        void ReloadRecookedMesh( const std::filesystem::path& source );
-        // KEPT after it is closed, until the layer goes: Close() only starts the crossfade, and the
-        // object's destructor is what waits for its window and thread — at teardown, not on the frame
-        // the editor has just appeared on.
-        std::unique_ptr<Splash::SplashScreen> m_Splash;
-        bool                                  m_Revealed = false;
-        // The pending count the splash last showed during the settle, so the label is pushed on change only.
-        size_t m_SplashOutstandingShown = SIZE_MAX;
-        // The splash's close was acted on (Application::Close asked once, not every frame until it lands).
-        bool m_QuitFromSplash = false;
         // Set by the first OnUIRender that draws the editor rather than a loading frame.
         bool m_RealFrameDrawn = false;
-        // WHERE THE ELAPSED TOTAL LIVES NOW. It used to be a `long long` accumulated here with the
-        // accumulation rule written in this comment; the rule (sum of the stages, NOT wall clock between
-        // the first and the last, because a stage runs one per frame) now lives in `Core::BootTimeline`
-        // alongside the line format, so that the shipping runtime's boot numbers and this one mean the
-        // same thing. Nothing about the per-frame scheduler above moved.
-        ::Desert::Core::BootTimeline m_Boot{ "Editor" };
-        bool                         StartupLoading() const
-        {
-            return m_StartupNext < m_StartupStages.size();
-        }
-
-        // ===== Demand-driven content: the wait that replaced the eager preload =====
-        //
-        // WHY THERE IS A SECOND KIND OF "STILL LOADING". The cloud kinds are no longer read at boot; they
-        // are read when the scene that wants them says so, on `JobSystem` workers, and `AssetRef` is what
-        // makes "not here yet" a state a consumer can branch on. That removes the boot cost (measured:
-        // 1312.7 ms of a 5707.0 ms boot for the noise volumes alone) but it introduces a question the
-        // eager model never had to answer: what does the editor SHOW while the read is in flight?
-        //
-        // The answer is not "the scene without its clouds". A sky that appears several frames after the
-        // rest of the world is exactly the hitch GAP_ANALYSIS §3.1 warns the lazy model moves into the
-        // frame -- it is not a stall, but it is a visible change, and shipping it would be trading a
-        // measurable boot cost for an unmeasurable visual one. So the splash that was already up for the
-        // staged boot stays up until the content the scene asked for has settled, and the cost
-        // stays in the loading screen where it was.
-        //
-        // THE RULE ITSELF IS NOT HERE ANY MORE. It was three fields and two methods in this class, and
-        // the shipping runtime held a hand-copied half of it -- a marker that logged the same condition
-        // and had no state, so the frames it described were presented anyway. One implementation, both
-        // hosts, and the two conditions can be tested without a device: Engine/Assets/ContentGate.hpp.
-        //
-        // `Ready` at construction is correct FOR THIS HOST only: the editor opens on an empty scene
-        // behind its own staged-boot overlay, and the first scene load calls BeginWorld. The runtime
-        // constructs its gate `Loading`.
-        Assets::ContentGate m_Content{ Assets::ContentState::Ready };
-
-        bool ContentSettling() const
-        {
-            return m_Content.Loading();
-        }
-
-        /// A scene has just loaded; whatever it asks for has not been asked for yet. Starts the wait.
-        void BeginContentSettle();
-        /// One tick of the wait: decides whether the frame just rendered closed the chain.
-        void UpdateContentSettling();
-
-        // --flight: one row per frame of Play, written as the CSV when the capture ends.
-        Flight::FlightLog m_FlightLog;
+        // The staged boot, the splash and its hand-over, the content settle (UE: FEditorLoadingScreen), after every
+        // module it reads; built in the constructor, which receives the splash. See Editor/LevelEditor/EditorStartup.hpp.
+        EditorStartup m_Startup;
 
         // The palette providers that hold state or several slots (EDL-2b). Declared after every slot they point
         // at; the census is taken once per build (m_Commands.OnBuildBegin) and read by Assets, Foliage and Open.
