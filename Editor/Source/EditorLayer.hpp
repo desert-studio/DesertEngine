@@ -245,18 +245,6 @@ namespace Desert::Editor
         // control channel's `quit` does not come here — an unattended run has nobody to answer.
         void RequestEditorExit();
 
-        // Does the entity @p owner in the ACTIVE scene carry component T? The presence test every
-        // component-subject registration is built from (SubjectEditorRegistry::Registration::Exists) —
-        // written once, templated, because five copies of the selection-to-entity-to-component dance is
-        // how one of them comes to be missing the null check.
-        template <typename ComponentT>
-        [[nodiscard]] bool EntityHasComponent( const Common::UUID& owner ) const
-        {
-            if ( !m_Workspace.ActiveScene() || owner.IsNull() )
-                return false;
-            const auto entOpt = m_Workspace.ActiveScene()->FindEntityByID( owner );
-            return entOpt && entOpt->get().HasComponent<ComponentT>();
-        }
         // Runs one render frame for a scene (outline aid + Begin/RegistryRender/OnUpdate/End). Called for
         // every open document each frame so all viewports stay live.
         Common::BoolResultStr UpdateSceneFrame( Desert::Core::Scene& scene, Render::RenderRegistry* registry,

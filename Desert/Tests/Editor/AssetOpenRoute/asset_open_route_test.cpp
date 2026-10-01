@@ -228,13 +228,14 @@ namespace
     }
 } // namespace
 
-// THE REGISTER AND THE EDITORS ARE ONE LIST. EditorLayer.cpp (compiled by no suite) registers the asset
-// editors; the types it registers must be exactly the ones AssetOpenRefusal lets through, or an Open is
-// either refused for a type that has a window or promised a window that no registration builds.
-TEST( AssetOpenRegister, MatchesTheAssetEditorsEditorLayerRegisters )
+// THE REGISTER AND THE EDITORS ARE ONE LIST. AssetEditorRegistrations.cpp (compiled by no suite) registers
+// the asset editors; the types it registers must be exactly the ones AssetOpenRefusal lets through, or an Open
+// is either refused for a type that has a window or promised a window that no registration builds.
+TEST( AssetOpenRegister, MatchesTheAssetEditorsTheRegistrationsRegister )
 {
-    const std::string layer = ReadRepoFile( "Editor/Source/EditorLayer.cpp" );
-    ASSERT_FALSE( layer.empty() ) << "Editor/Source/EditorLayer.cpp not found from the working directory";
+    const std::string layer = ReadRepoFile( "Editor/Source/Editor/LevelEditor/AssetEditorRegistrations.cpp" );
+    ASSERT_FALSE( layer.empty() )
+         << "Editor/Source/Editor/LevelEditor/AssetEditorRegistrations.cpp not found from the working directory";
 
     std::set<std::string> registered;
     const std::regex      registration(
