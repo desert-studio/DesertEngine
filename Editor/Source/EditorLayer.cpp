@@ -30,6 +30,7 @@
 #include <functional>
 #include <set>
 
+#include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Engine/Core/SceneAssetRoots.hpp>
 #include <Common/Core/Core.hpp>
