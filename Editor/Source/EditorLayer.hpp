@@ -169,9 +169,7 @@ namespace Desert::Editor
 
         // Builds a ready-to-Play demo: a WASD character (Jolt CharacterVirtual) with a 3rd-person child
         // camera, a ground floor, a sun light, and obstacles. (Remove the call in OnAttach for a blank scene.)
-        void BuildCharacterDemoScene();
         // Builds a walkable greybox house (walls + doorway + roof, static colliders) parented under one root.
-        void BuildHouse( const glm::vec3& origin );
 
         /// @p rightMargin is how much of the bar's right-hand end is already spoken for — the window
         /// buttons — so the stats right-align against them instead of underneath them.
@@ -204,8 +202,6 @@ namespace Desert::Editor
 
         // Startup content is DATA, not code — these build entities into m_Workspace.ActiveScene() so the result
         // can be serialized to a .desce ONCE and loaded like any scene afterwards.
-        void BuildStarterScene();    // fresh Hub project's DefaultScene: sun/ground/cube/light/camera
-        void BuildCornellShowcase(); // sandbox demo: baked into CornellDemo.desce on first launch
 
         // Force re-cook of Cooked/ from sources, re-register cooked assets, refresh the asset panel.
         void RebuildCookedAssets();

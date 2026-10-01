@@ -84,7 +84,6 @@
 #include "Editor/Core/SceneOpenRequest.hpp"
 #include "Editor/Core/SceneSaveRules.hpp"
 #include "Editor/Core/ShotOptions.hpp"
-#include "Editor/Core/DemoMaterials.hpp"
 #include "Editor/Core/MaterialAssetUtils.hpp"
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -451,41 +450,12 @@ namespace Desert::Editor
         // apply immediately; the camera speed is applied on the first frame (the camera exists by then).
         EditorPreferences::Load();
 
-        // Sandbox one-time bake of the Cornell showcase to a loadable scene (File -> Open ->
-        // CornellDemo.desce). Runs BEFORE the default-scene handling below and clears itself, so it
-        // starts from and ends on an empty scene — it never fights the Starter scene the sandbox's
-        // own DefaultScene generates next.
-        if ( ProjectContext::HasProject() && ProjectContext::Current().Name == "Desert Sandbox" )
-        {
-            const auto demoPath =
-                 Common::Constants::Path::SCENE_PATH /
-                 ( "CornellDemo" + std::string( Common::Constants::Extensions::SCENE_EXTENSION ) );
-            std::error_code ec;
-            if ( !std::filesystem::exists( demoPath, ec ) )
-            {
-                m_Workspace.ActiveScene()->Clear();
-                BuildCornellShowcase();
-                // The success line is inside the branch: this bake exists so the demo can be OPENED
-                // later, and announcing a file that is not there sends the next reader looking for a
-                // corrupt scene instead of a failed write.
-                if ( m_SceneFiles.SaveSceneTo( demoPath.generic_string() ) )
-                {
-                    LOG_INFO( "[Editor] Baked the Cornell showcase -> {}", demoPath.string() );
-                }
-                else
-                {
-                    LOG_ERROR( "[Editor] The Cornell showcase was NOT baked to {} — the sandbox has no "
-                               "demo scene to open (see the write failure above).",
-                               demoPath.string() );
-                }
-                m_Workspace.ActiveScene()->Clear();
-            }
-        }
-
         // Launched with --project (Project Hub): adopt the project's name and queue its default scene
         // (loaded through the normal deferred path on the first frame, when the renderer is ready).
-        // A DefaultScene that does not exist yet (a FRESH project, sandbox included) is GENERATED: the
-        // Starter playground built once and saved into the project — startup content is data, not code.
+        // Startup content is DATA: a template's DefaultScene ships in its Payload (Templates/Starter), and the
+        // launcher refuses a template that names a scene it does not carry. A DefaultScene that is not on disk
+        // is therefore an error naming the path, never a scene built in code. With no scene to open, the
+        // editor opens the Basic level template as an untitled scene (UE: EditorStartupMap / TemplateMapInfos).
         // Screenshot mode names its own scene; it is the whole point of the flag.
         if ( const auto& shot = ShotOptions::Get(); !shot.Scene.empty() )
         {
@@ -529,29 +499,18 @@ namespace Desert::Editor
                     m_SceneFiles.RequestLoad( scenePath );
                 else
                 {
-                    BuildStarterScene();
-                    if ( m_SceneFiles.SaveSceneTo( scenePath ) )
-                    {
-                        // It was built AND written, so it is now an open file like any other — a later
-                        // Ctrl+S has to go back to it rather than to a path derived from its name.
-                        m_SceneFiles.AdoptOpenPath( Common::Filepath( scenePath ) );
-                        LOG_INFO( "[Editor] Generated the Starter scene -> {}", scenePath );
-                    }
-                    else
-                    {
-                        // The scene is BUILT and open — only the file is missing. Saying so is the
-                        // difference between "your new project opens empty next time" being a mystery
-                        // and being a known, fixable write failure the user can still Ctrl+S past.
-                        LOG_ERROR( "[Editor] The Starter scene was built but NOT written to {} — this "
-                                   "project will open empty next time unless it is saved.",
-                                   scenePath );
-                        Editor::ToastManager::Push( "The Starter scene could not be written — save it "
-                                                    "before closing (see the log)",
-                                                    Editor::ToastLevel::Error );
-                    }
+                    LOG_ERROR( "[Editor] The project's DefaultScene '{}' does not exist — opening an untitled "
+                               "scene instead. Restore the file or point DefaultScene in the .deproj at a scene "
+                               "that is there.",
+                               scenePath );
+                    Editor::ToastManager::Push( "The project's default scene is missing (see the log)",
+                                                Editor::ToastLevel::Error );
                 }
             }
         }
+        // Nothing to open: the Basic level template, as an untitled scene (SceneFiles::NewSceneInternal).
+        if ( !m_SceneFiles.HasPendingLoad() )
+            m_SceneFiles.RequestNew();
 
         BuiltinMeshRegistry::Init( nullptr );
 
@@ -751,7 +710,7 @@ namespace Desert::Editor
         //
         // Propagated rather than reported: OnAttach owns a channel and Application::PushLayer now reads
         // it, and an editor whose main scene never initialised has no viewport to show anything in.
-        if ( !m_SceneFiles.HasPendingLoad() )
+        if ( !m_SceneFiles.HasPendingLoad() && !m_SceneFiles.HasPendingNew() )
         {
             if ( const auto inited = m_Workspace.ActiveScene()->Init(); !inited.IsSuccess() )
                 return Common::MakeFormattedError( "main scene failed to initialise: {}", inited.GetError() );
@@ -909,31 +868,6 @@ namespace Desert::Editor
         // three other call sites of this line are for.
         if ( m_Workspace.ActiveScene()->IsInitialized() )
             m_Workspace.RebuildRenderRegistry();
-
-        // Boot into an empty "New Scene" — the demo scene (procedural character/house + player_controller.lua)
-        // referenced assets that were cleared out for the from-scratch rebuild. Re-enable to get it back.
-        // BuildCharacterDemoScene();
-
-        // Default scene content: a sun + procedural sky (like UE's default level) so created meshes/primitives
-        // are LIT and have a backdrop (an empty scene with no light renders everything ~black).
-        // ONLY for a genuinely empty boot: the constructor already gave a fresh project its Starter
-        // scene (own sun+sky) and queued any existing project scene for load (brings its own). Adding
-        // a sun here regardless is what produced TWO directional lights — and the engine supports one.
-        const bool sceneLoadPending = m_SceneFiles.HasPendingLoad();
-        const bool hasSun = !m_Workspace.ActiveScene()->GetRegistry().view<ECS::DirectionLightComponent>().empty();
-        if ( !sceneLoadPending && !hasSun )
-        {
-            using namespace ::Desert;
-            auto& sun         = m_Workspace.ActiveScene()->CreateNewEntity( "Sun" );
-            auto& dl          = sun.AddComponent<ECS::DirectionLightComponent>();
-            dl.Data.Color     = { 1.0f, 0.97f, 0.9f };
-            dl.Data.Intensity = 3.0f;
-            sun.GetComponent<ECS::TransformComponent>().Translation = { -0.4f, -1.0f, -0.5f };
-
-            auto& skyEnt    = m_Workspace.ActiveScene()->CreateNewEntity( "Skybox" );
-            auto& sky       = skyEnt.AddComponent<ECS::SkyAtmosphereComponent>();
-            sky.RequestBake = true;
-        }
 
         // THE FIRST SAMPLE IS TAKEN BEFORE THE FIRST FRAME, and without it the readiness gate is wrong in
         // the one case it exists for. ServiceControlChannel runs at the TOP of OnUpdate and judges the
@@ -2427,7 +2361,7 @@ namespace Desert::Editor
         // editor over an empty scene — the queued load runs in the NEXT OnUpdate and only then starts the
         // settle wait — and revealing on it showed the window 3 s before the content had settled
         // (measured on the first run of this change: "on screen" logged before "[Content] settled").
-        if ( !m_SceneFiles.HasPendingLoad() )
+        if ( !m_SceneFiles.HasPendingLoad() && !m_SceneFiles.HasPendingNew() )
             m_RealFrameDrawn = true;
 
         // ---- Global editing shortcuts ----
@@ -4015,208 +3949,6 @@ namespace Desert::Editor
         m_Preferences.Draw();
     }
 
-    void EditorLayer::BuildStarterScene()
-    {
-        // A fresh project's first scene = a TEST PLAYGROUND: procedural sky + sun, a ground slab,
-        // the classic PBR calibration rows (dielectric + metal, roughness 0..1), glass, an emissive
-        // bloom probe, a shadow-caster cluster, coloured fill lights and a playable camera. Only
-        // primitives + REAL material assets (created by name in the project's Materials/), so a new
-        // project has zero external dependencies and every render feature has something to show on.
-        auto prim = [&]( const std::string& name, Geometry::PrimitiveType type, glm::vec3 pos, glm::vec3 scale,
-                         Assets::AssetHandle material = Common::UUID::Null() )
-        {
-            auto& e       = m_Workspace.ActiveScene()->CreateNewEntity( std::string( name ) );
-            auto& smc     = e.AddComponent<ECS::StaticMeshComponent>();
-            smc.Primitive = type;
-            if ( material )
-                smc.MaterialSlots.push_back( material );
-            auto& tf = e.GetComponent<ECS::TransformComponent>();
-            // Demo scenes are authored in METRES for readability; a world unit is a centimetre, so every
-            // position scales up. Scale does NOT: the primitive meshes themselves are one metre now.
-            tf.Translation = pos * Common::Units::UnitsPerMetre;
-            tf.Scale       = scale;
-        };
-        // @p templateGuid: the material's template by shader GUID; empty = the `Default Surface` one.
-        auto mat = [&]( const std::string& name, std::initializer_list<std::pair<const char*, glm::vec4>> params,
-                        std::string_view templateGuid = {} )
-        {
-            // .Handle drops the rest of the answer on purpose: this builder has nothing to do about a
-            // demo material the user has since edited, and the disagreement is already reported by name
-            // and value from inside the call. See Editor/Core/MaterialAssetUtils.hpp.
-            return Editor::MaterialAssetUtils::FindOrCreatePBRMaterialAsset( m_AssetManager.get(), name, params,
-                                                                             templateGuid )
-                 .Handle;
-        };
-
-        // Sun (Translation encodes the direction the light TRAVELS; the sky uses -normalize(T)) + sky.
-        // This is the site that MINTED the upside-down sun the shipped Sandbox/Starter scenes carried:
-        // normalize(-0.35, -0.9, -0.25) reproduces their corrected value [-0.3509, -0.9023, -0.2506]
-        // exactly, so a scene rebuilt from here now matches the one on disk instead of contradicting it.
-        auto& sun = m_Workspace.ActiveScene()->CreateNewEntity( "Sun" );
-        sun.AddComponent<ECS::DirectionLightComponent>();
-        sun.GetComponent<ECS::TransformComponent>().Translation =
-             glm::normalize( glm::vec3( -0.35f, -0.9f, -0.25f ) );
-
-        auto& sky = m_Workspace.ActiveScene()->CreateNewEntity( "Sky" );
-        sky.AddComponent<ECS::SkyAtmosphereComponent>();
-
-        prim( "Ground", Geometry::PrimitiveType::Cube, { 0.0f, -0.1f, 0.0f }, { 24.0f, 0.2f, 24.0f },
-              mat( "Starter_Ground", { { "AlbedoColor", { 0.55f, 0.55f, 0.58f, 1.0f } },
-                                       { "RoughnessFactor", { 0.9f, 0, 0, 0 } } } ) );
-
-        // PBR calibration rows: roughness 0 -> 1 in 6 steps; front row dielectric, back row metal.
-        for ( int i = 0; i < 6; ++i )
-        {
-            const float roughness = static_cast<float>( i ) / 5.0f;
-            const float x         = static_cast<float>( i ) * 1.4f - 3.5f;
-            const auto  suffix    = std::to_string( i * 20 );
-
-            prim( "PBR_Dielectric_" + suffix, Geometry::PrimitiveType::Sphere, { x, 0.6f, -3.0f },
-                  glm::vec3( 0.55f ),
-                  mat( "PBR_D_R" + suffix, { { "AlbedoColor", { 0.85f, 0.20f, 0.15f, 1.0f } },
-                                             { "RoughnessFactor", { roughness, 0, 0, 0 } },
-                                             { "MetallicFactor", { 0.0f, 0, 0, 0 } } } ) );
-            prim( "PBR_Metal_" + suffix, Geometry::PrimitiveType::Sphere, { x, 0.6f, -4.6f }, glm::vec3( 0.55f ),
-                  mat( "PBR_M_R" + suffix, { { "AlbedoColor", { 0.95f, 0.93f, 0.88f, 1.0f } },
-                                             { "RoughnessFactor", { roughness, 0, 0, 0 } },
-                                             { "MetallicFactor", { 1.0f, 0, 0, 0 } } } ) );
-        }
-
-        // Glass probe (refraction path) + emissive probe (bloom path — glows past the threshold).
-        prim( "GlassSphere", Geometry::PrimitiveType::Sphere, { -2.5f, 1.0f, 0.5f }, glm::vec3( 1.2f ),
-              mat( "Starter_Glass", { { "IOR", { 1.5f, 0, 0, 0 } }, { "GlassTint", { 0.8f, 0.95f, 1.0f, 1.0f } } },
-                   Editor::MaterialAssetUtils::kGlassTemplateGuid ) );
-        prim( "EmissiveCube", Geometry::PrimitiveType::Cube, { 2.5f, 0.5f, 0.5f }, glm::vec3( 1.0f ),
-              mat( "Starter_Emissive", { { "AlbedoColor", { 0.1f, 0.1f, 0.1f, 1.0f } },
-                                         { "EmissiveColor", { 0.2f, 0.8f, 1.0f, 1.0f } },
-                                         { "EmissiveIntensity", { 6.0f, 0, 0, 0 } } } ) );
-
-        // Shadow-caster cluster (different silhouettes for the cascades to chew on).
-        const auto clusterMat = mat( "Starter_Prop", { { "AlbedoColor", { 0.80f, 0.45f, 0.20f, 1.0f } },
-                                                       { "RoughnessFactor", { 0.6f, 0, 0, 0 } } } );
-        prim( "Cube", Geometry::PrimitiveType::Cube, { 0.0f, 0.5f, 1.5f }, glm::vec3( 1.0f ), clusterMat );
-        prim( "Cylinder", Geometry::PrimitiveType::Cylinder, { 1.2f, 0.75f, 2.6f }, { 0.6f, 1.5f, 0.6f },
-              clusterMat );
-        prim( "Capsule", Geometry::PrimitiveType::Capsule, { -1.2f, 0.75f, 2.6f }, { 0.6f, 1.5f, 0.6f },
-              clusterMat );
-
-        // Coloured fills (shadowless accents) framing the set.
-        auto pointLight = [&]( const char* name, glm::vec3 pos, glm::vec3 color, float intensity )
-        {
-            auto& e     = m_Workspace.ActiveScene()->CreateNewEntity( std::string( name ) );
-            auto& d     = e.AddComponent<ECS::PointLightComponent>().Data;
-            d.Color     = color;
-            d.Intensity = intensity;
-            d.Radius                                              = Common::Units::Metres( 12.0f );
-            e.GetComponent<ECS::TransformComponent>().Translation = pos * Common::Units::UnitsPerMetre;
-        };
-        pointLight( "FillWarm", { 4.0f, 3.0f, 3.0f }, { 1.0f, 0.85f, 0.6f }, 5.0f );
-        pointLight( "FillCool", { -4.0f, 2.5f, -1.0f }, { 0.4f, 0.6f, 1.0f }, 4.0f );
-
-        // SDF text probe: emissive so it blooms like any emissive surface (no special path).
-        {
-            auto& label          = m_Workspace.ActiveScene()->CreateNewEntity( "Text" );
-            auto& tc             = label.AddComponent<ECS::TextComponent>();
-            tc.Text              = "Desert Engine";
-            tc.Color             = { 0.55f, 0.85f, 1.0f, 1.0f };
-            tc.Size              = Common::Units::Metres( 0.8f );
-            tc.EmissiveIntensity = 2.5f; // past the bloom threshold -> the title glows
-            auto& ttf            = label.GetComponent<ECS::TransformComponent>();
-            ttf.Translation      = Common::Units::Metres( 1.0f ) * glm::vec3( -2.2f, 3.4f, -3.0f );
-        }
-
-        auto& camera = m_Workspace.ActiveScene()->CreateNewEntity( "Camera" );
-        camera.AddComponent<ECS::CameraComponent>();
-        camera.GetComponent<ECS::TransformComponent>().Translation =
-             Common::Units::Metres( 1.0f ) * glm::vec3( 0.0f, 2.5f, 7.0f );
-    }
-
-    void EditorLayer::BuildCornellShowcase()
-    {
-        // Cornell-Box glass + direct-lighting showcase. A clear glass sphere sits in front of an orange
-        // cube (visible THROUGH it); a point light backlights the set. Colours live in REAL material
-        // assets in the mesh slots.
-        //
-        // IT DOES NOT DEMONSTRATE COLOUR BLEED, and this comment used to say it did ("Red/green walls
-        // bleed onto the white objects (SSGI)"). Measured on the shipped scene: the whole screen-space
-        // GI feature moves the frame by a mean of 0.11/255, the isolated indirect buffer reads 0.000 in
-        // every statistic on the floor, and aiming the sun at the red wall changes nothing. The gather
-        // shades each bouncing neighbour with the SUN alone, so a wall lit only by this scene's point
-        // light emits exactly zero; and at the 290 cm from the floor to a wall the softened inverse
-        // square already divides by 9.4 before the estimate is divided by its full sample count.
-        // Bouncing point lights too is the owner's call, not a constant to raise — see
-        // Desert/Tests/Engine/IndirectBounce, which pins the zero on the shipped shader text.
-        // The colours are NOT literals here any more. They are Editor/Core/DemoMaterials.hpp, because a
-        // value that only exists as an argument to a find-or-create is a value nothing can check the
-        // shipped .demat against — which is exactly how CB_Red.demat came to be a chrome mirror while
-        // this site asked for a diffuse red wall, invisibly, for as long as the file existed.
-        auto tinted = [&]( const char* name, glm::vec3 pos, glm::vec3 scale, const char* matName )
-        {
-            auto& e            = m_Workspace.ActiveScene()->CreateNewEntity( std::string( name ) );
-            auto& smc          = e.AddComponent<ECS::StaticMeshComponent>();
-            smc.Primitive      = Geometry::PrimitiveType::Cube;
-            const auto* demo   = Editor::MaterialAssetUtils::FindDemoMaterial( matName );
-            if ( demo == nullptr )
-            {
-                LOG_ERROR( "[Cornell] '{}' is not in the demo material table; '{}' gets no material.", matName,
-                           name );
-            }
-            else
-            {
-                smc.MaterialSlots.push_back( Editor::MaterialAssetUtils::FindOrCreatePBRMaterialAsset(
-                                                  m_AssetManager.get(), matName, demo->Params, demo->Template )
-                                                  .Handle );
-            }
-            auto& tf       = e.GetComponent<ECS::TransformComponent>();
-            tf.Translation = pos * Common::Units::UnitsPerMetre; // authored in metres (see BuildStarterScene)
-            tf.Scale       = scale;
-        };
-        tinted( "CB_Floor", { 0, 0, 0 }, { 6, 0.2f, 6 }, "CB_White" );
-        tinted( "CB_Back", { 0, 3, -3 }, { 6, 6, 0.2f }, "CB_White" );
-        tinted( "CB_LeftRed", { -3, 3, 0 }, { 0.2f, 6, 6 }, "CB_Red" );
-        tinted( "CB_RightGreen", { 3, 3, 0 }, { 0.2f, 6, 6 }, "CB_Green" );
-        // Orange opaque cube directly behind the glass sphere (seen through it).
-        tinted( "CB_OrangeCube", { 0, 1.3f, -1.2f }, { 1.4f, 1.4f, 1.4f }, "CB_Orange" );
-
-        // Clear glass sphere in front of the cube.
-        auto& glass    = m_Workspace.ActiveScene()->CreateNewEntity( std::string( "CB_GlassSphere" ) );
-        auto& gsmc     = glass.AddComponent<ECS::StaticMeshComponent>();
-        gsmc.Primitive = Geometry::PrimitiveType::Sphere;
-        if ( const auto* glassDemo = Editor::MaterialAssetUtils::FindDemoMaterial( "CB_Glass" ) )
-        {
-            gsmc.MaterialSlots.push_back(
-                 Editor::MaterialAssetUtils::FindOrCreatePBRMaterialAsset( m_AssetManager.get(), "CB_Glass",
-                                                                           glassDemo->Params, glassDemo->Template )
-                      .Handle );
-        }
-        auto& gtf       = glass.GetComponent<ECS::TransformComponent>();
-        gtf.Translation = Common::Units::Metres( 1.0f ) * glm::vec3( 0.0f, 1.5f, 0.7f );
-        gtf.Scale       = glm::vec3( 1.6f );
-
-        // Point light BEHIND the objects (backlight / rim).
-        auto& pl      = m_Workspace.ActiveScene()->CreateNewEntity( std::string( "CB_BackLight" ) );
-        auto& pld     = pl.AddComponent<ECS::PointLightComponent>().Data;
-        pld.Color     = glm::vec3( 1.0f, 0.85f, 0.6f );
-        pld.Intensity = 8.0f;
-        pld.Radius    = Common::Units::Metres( 12.0f );
-        pl.GetComponent<ECS::TransformComponent>().Translation =
-             Common::Units::Metres( 1.0f ) * glm::vec3( 0.0f, 2.5f, -2.5f );
-
-        // The baked scene must carry its OWN sun — it no longer piggybacks on startup state.
-        // (Exactly one: a second directional light would overflow the single-light UB.)
-        if ( m_Workspace.ActiveScene()->GetRegistry().view<ECS::DirectionLightComponent>().size() == 0 )
-        {
-            auto& sun = m_Workspace.ActiveScene()->CreateNewEntity( "CB_Sun" );
-            sun.AddComponent<ECS::DirectionLightComponent>();
-            // Translation is the direction the light TRAVELS, so a sun ABOVE the horizon points DOWN.
-            // This site used to author +Y and put its own sun 57.7 degrees underground; the committed
-            // CornellDemo scene carries the corrected value and this now reproduces it exactly
-            // (normalize(0.6, -1, 0.2) == [0.5071, -0.8452, 0.1690]).
-            sun.GetComponent<ECS::TransformComponent>().Translation =
-                 glm::normalize( glm::vec3( 0.6f, -1.0f, 0.2f ) );
-        }
-    }
-
     namespace
     {
         // One static box = mesh (Cube primitive) + Box collider + Static body, as a child of `parent`.
@@ -4243,135 +3975,6 @@ namespace Desert::Editor
     // Builds a walkable greybox HOUSE (floor-less; sits on the demo ground): 4 walls (front wall has a
     // doorway) + a flat roof, each a static collider so the character walks in through the door and is blocked
     // by walls. All parented under one "House" root (a ready prefab root). 2-unit-cube convention: dims = 2*scale.
-    void EditorLayer::BuildHouse( const glm::vec3& origin )
-    {
-        using namespace ::Desert;
-
-        // By VALUE: creating the wall children below reallocates the entity store; a reference would dangle.
-        ECS::Entity house = m_Workspace.ActiveScene()->CreateNewEntity( "House" );
-        house.GetComponent<ECS::TransformComponent>().Translation = origin;
-
-        // Interior ~8x8 m, walls 3 m tall, 0.2 m thick. Half-sizes (= scale, since the cube is 2 units):
-        AddHousePart( m_Workspace.ActiveScene().get(), house, "Wall_Back", { 0.0f, 1.5f, -4.0f },
-                      { 4.0f, 1.5f, 0.1f } );
-        AddHousePart( m_Workspace.ActiveScene().get(), house, "Wall_Left", { -4.0f, 1.5f, 0.0f },
-                      { 0.1f, 1.5f, 4.0f } );
-        AddHousePart( m_Workspace.ActiveScene().get(), house, "Wall_Right", { 4.0f, 1.5f, 0.0f },
-                      { 0.1f, 1.5f, 4.0f } );
-        // Front wall with a centered doorway (1.2 m wide, 2.2 m tall): two side segments + a lintel above.
-        AddHousePart( m_Workspace.ActiveScene().get(), house, "Wall_FrontL", { -2.3f, 1.5f, 4.0f },
-                      { 1.7f, 1.5f, 0.1f } );
-        AddHousePart( m_Workspace.ActiveScene().get(), house, "Wall_FrontR", { 2.3f, 1.5f, 4.0f },
-                      { 1.7f, 1.5f, 0.1f } );
-        AddHousePart( m_Workspace.ActiveScene().get(), house, "Door_Lintel", { 0.0f, 2.6f, 4.0f },
-                      { 0.6f, 0.4f, 0.1f } );
-        // Flat roof (slight overhang).
-        AddHousePart( m_Workspace.ActiveScene().get(), house, "Roof", { 0.0f, 3.1f, 0.0f }, { 4.2f, 0.1f, 4.2f } );
-
-        LOG_INFO( "[Demo] House built at ({}, {}, {}) — walk in through the +Z doorway.", origin.x, origin.y,
-                  origin.z );
-    }
-
-    void EditorLayer::BuildCharacterDemoScene()
-    {
-        using namespace ::Desert;
-
-        // --- Sun (directional light) — DirectionLight stores its DIRECTION in TransformComponent.Translation
-        {
-            auto& sun         = m_Workspace.ActiveScene()->CreateNewEntity( "Sun" );
-            auto& dl          = sun.AddComponent<ECS::DirectionLightComponent>();
-            dl.Data.Color     = { 1.0f, 0.97f, 0.9f };
-            dl.Data.Intensity = 3.0f;
-            sun.GetComponent<ECS::TransformComponent>().Translation = { -0.4f, -1.0f, -0.5f }; // direction
-        }
-
-        // --- Ground: a flat static box the character stands on (mesh + Box collider + Static body)
-        {
-            auto& ground = m_Workspace.ActiveScene()->CreateNewEntity( "Ground" );
-            ground.AddComponent<ECS::StaticMeshComponent>().Primitive = Geometry::PrimitiveType::Cube;
-            auto& gt        = ground.GetComponent<ECS::TransformComponent>();
-            gt.Translation  = Common::Units::Metres( 1.0f ) * glm::vec3( 0.0f, -0.5f, 0.0f ); // top at y=0
-            gt.Scale        = { 20.0f, 0.5f, 20.0f };
-            auto& gcol      = ground.AddComponent<ECS::ColliderComponent>();
-            gcol.Data.Shape = Physics::ShapeType::Box;
-            // Half-extents of the scaled 1 m cube: 50 units per unit of Scale.
-            gcol.Data.HalfExtents = gt.Scale * ( Common::Units::UnitsPerMetre * 0.5f );
-            ground.AddComponent<ECS::RigidBodyComponent>().Data.Type = Physics::BodyType::Static;
-        }
-
-        // --- A few static obstacle boxes to walk into / around
-        for ( int i = 0; i < 3; ++i )
-        {
-            auto& box = m_Workspace.ActiveScene()->CreateNewEntity( "Obstacle" + std::to_string( i ) );
-            box.AddComponent<ECS::StaticMeshComponent>().Primitive = Geometry::PrimitiveType::Cube;
-            auto& bt                                               = box.GetComponent<ECS::TransformComponent>();
-            bt.Translation        = Common::Units::Metres( 1.0f ) * glm::vec3( -4.0f + i * 4.0f, 0.5f, -5.0f );
-            auto& bcol            = box.AddComponent<ECS::ColliderComponent>();
-            bcol.Data.Shape       = Physics::ShapeType::Box;
-            bcol.Data.HalfExtents = glm::vec3( Common::Units::Metres( 0.5f ) );
-            box.AddComponent<ECS::RigidBodyComponent>().Data.Type = Physics::BodyType::Static;
-        }
-
-        // --- Player: a Character Controller (the physics capsule). NO RigidBody/Collider — the controller
-        // IS the physics. The player entity is left UNSCALED so its children (visual body + camera) don't
-        // inherit a non-uniform scale (which would skew/displace a child camera and its gizmo). Starts above
-        // the ground so it drops on Play. By VALUE: creating children below can reallocate the entity store.
-        ECS::Entity player = m_Workspace.ActiveScene()->CreateNewEntity( "Player" );
-        {
-            auto& cc       = player.AddComponent<ECS::CharacterControllerComponent>();
-            cc.Data.Radius = Common::Units::Metres( 0.3f );
-            cc.Data.Height = Common::Units::Metres( 1.8f );
-            // Move/jump/look speeds are the SCRIPT's Properties now (Details ▸ Script), not the controller.
-            player.GetComponent<ECS::TransformComponent>().Translation =
-                 Common::Units::Metres( 1.0f ) * glm::vec3( 0.0f, 3.0f, 0.0f );
-            // Movement + mouse-look are now a Lua SCRIPT (engine only executes the physics it asks for).
-            {
-                ECS::ScriptSlot slot;
-                // NAMES THE SCRIPT THAT EXISTS. This joined the scripts root to a lower-case, underscored
-                // player-controller file name that no tree of this project has ever contained, so the
-                // template's player was created with a slot that could only ever log "script not found"
-                // on Play. The two are now held together by
-                // ContentScanners.EveryLuaFileNamedInTheEditorExists rather than by whoever looks next.
-                // (That test reads raw source, so the dead spelling is described here and not quoted.)
-                // Through StableKeyForPath, like the picker: the slot stores a ROOT-TAGGED KEY, and a
-                // template that stored the rooted spelling would author the very defect I9 migrated
-                // three scenes out of — a reference that resolves here and nowhere a game ships to.
-                slot.ScriptKey = Common::AssetHandle::StableKeyForPath( Common::Constants::Path::SCRIPT_PATH /
-                                                                        "Examples/PlayerController.lua" );
-                player.AddComponent<ECS::ScriptComponent>().Scripts.push_back( std::move( slot ) );
-            }
-        }
-
-        // --- Visual body: a CHILD holding the procedural skinned HUMANOID (head/torso/2 arms/2 legs). Its
-        // mesh origin is at the feet, so we drop it by the capsule half-height (~0.9) to stand on the capsule
-        // bottom. An AnimationComponent is attached so it animates once idle/walk/run clips are registered.
-        {
-            auto& body = m_Workspace.ActiveScene()->CreateNewEntity( "PlayerBody" );
-            body.AddComponent<ECS::SkinnedMeshComponent>().MeshHandle = Geometry::HumanoidMeshHandle();
-            body.AddComponent<ECS::AnimationComponent>().CurrentClip =
-                 std::string( Geometry::kHumanoidDefaultClip );
-            body.GetComponent<ECS::TransformComponent>().Translation =
-                 Common::Units::Metres( 1.0f ) * glm::vec3( 0.0f, -0.9f, 0.0f );
-            m_Workspace.ActiveScene()->Attach( player, body );
-        }
-
-        // --- Camera: a CHILD of the (unscaled) player. Offset behind+above = 3rd person; move it to ~(0,
-        // 0.7, 0) with rotation 0 for 1st person. Follows the player via the hierarchy (WORLD transform).
-        {
-            auto& cam                     = m_Workspace.ActiveScene()->CreateNewEntity( "PlayerCamera" );
-            auto& cd             = cam.AddComponent<ECS::CameraComponent>();
-            cd.Data.AutoActivateForPlayer = true;
-            auto& ct             = cam.GetComponent<ECS::TransformComponent>();
-            ct.Translation       = Common::Units::Metres( 1.0f ) * glm::vec3( 0.0f, 1.5f, 7.0f ); // 3rd person
-            ct.Rotation          = { glm::radians( -10.0f ), 0.0f, 0.0f }; // look slightly down at the player
-            m_Workspace.ActiveScene()->Attach( player, cam );
-        }
-
-        BuildHouse( Common::Units::Metres( 1.0f ) * glm::vec3( 12.0f, 0.0f, 0.0f ) ); // greybox house aside
-
-        LOG_INFO( "[Demo] Character demo scene built — press Play, then WASD to move + Space to jump." );
-    }
-
     void EditorLayer::DrawProjectPopup()
     {
         // Intentionally empty: the editor never opens/switches projects in-session. All content paths

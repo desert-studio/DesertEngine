@@ -80,6 +80,10 @@ namespace Desert::Editor
             m_OpenScenePath = path;
         }
 
+        // THE BASIC LEVEL TEMPLATE (UE: TemplateMapInfos' Basic): a sun and a sky, engine content, which New
+        // Scene and an editor started with nothing to open both open as an untitled scene.
+        static Common::Filepath BasicLevelTemplate();
+
         // Every .desce under the project's scenes root, recursively, sorted by Label.
         static std::vector<Common::Filepath> CollectAvailableScenes();
         // How a scene is NAMED in every picker: its path relative to the scenes root.
@@ -93,7 +97,13 @@ namespace Desert::Editor
         void DrawDialogs();
 
     private:
-        void LoadSceneInternal( const Common::Filepath& requested );
+        // AsUntitled: a level template — the scene is not that file, has no asset identity and is not recent.
+        enum class OpenAs
+        {
+            File,
+            Untitled
+        };
+        void LoadSceneInternal( const Common::Filepath& requested, OpenAs openAs = OpenAs::File );
         void NewSceneInternal();
         // Drops the scene's text header when `destination` is not the file it was opened as (a copy is a new
         // asset with a new GUID); returns the header it had, for a failed save to put back.

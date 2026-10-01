@@ -21,18 +21,17 @@
 //   * the reporting is right — Engine/Assets/MaterialParamDiff.hpp names every disagreeing parameter
 //     with BOTH values, distinguishes "the file says something else" from "the file is silent", and
 //     stays quiet when they agree;
-//   * the corpus is clean — every material in Editor/Core/DemoMaterials.hpp agrees with the .demat that
-//     was generated from it. This is the one that would have caught CB_Red, and it needs no editor, no
+//   * the corpus is clean — every material in CornellDemoMaterials.hpp (beside this file) agrees with
+//     the shipped .demat. This is the one that would have caught CB_Red, and it needs no editor, no
 //     GPU and no human looking at a picture.
 //
-// The table is the SOURCE of those files, not a mirror of them (see DemoMaterials.hpp), so this is a
-// generated-from relation and not the "two copies that must not drift" shape — which is why the failure
-// message tells you to fix the FILE.
+// The table is what the files' author asked for (see CornellDemoMaterials.hpp); the files are the content,
+// which is why the failure message tells you to fix the FILE.
 
 #include <Common/Json/Document.hpp>
 #include <gtest/gtest.h>
 
-#include <Editor/Core/DemoMaterials.hpp>
+#include "CornellDemoMaterials.hpp"
 #include <Engine/Assets/MaterialParamDiff.hpp>
 
 #include <filesystem>
@@ -42,7 +41,7 @@
 #include <vector>
 
 using namespace Desert::Assets;
-using namespace Desert::Editor::MaterialAssetUtils;
+using namespace Desert::Tests::CornellDemo;
 
 namespace
 {
@@ -218,11 +217,11 @@ TEST( MaterialRequestAgreement, EveryShippedDemoMaterialStillSaysWhatItsAuthorAs
             if ( !onDisk.Shader.has_value() )
                 FAIL() << path << " states no template";
             EXPECT_EQ( onDisk.Shader->Guid, demo.Template )
-                 << path << " is authored on a different template than DemoMaterials.hpp names";
+                 << path << " is authored on a different template than CornellDemoMaterials.hpp names";
         }
         const auto divergences = DiffRequestedParams( demo.Params, onDisk );
         EXPECT_TRUE( divergences.empty() )
-             << path << " has drifted from Editor/Core/DemoMaterials.hpp, which is what generated it: "
+             << path << " has drifted from CornellDemoMaterials.hpp, what its author asked for: "
              << DescribeDivergences( divergences )
              << ". Fix the FILE — the table is the source, and the builder cannot rewrite an existing "
                 "material by design.";
