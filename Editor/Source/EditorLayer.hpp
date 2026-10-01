@@ -267,7 +267,8 @@ namespace Desert::Editor
         ShotDirector m_Shots{ m_Workspace, m_SceneFiles, m_Play, m_Capture };
         // The control channel (UE: Remote Control), after every module it reads. See
         // Editor/LevelEditor/ControlService.hpp.
-        ControlService m_Control{ m_Workspace, m_SceneFiles, m_Play, m_Documents, m_Capture, m_Panels, m_Commands };
+        ControlService m_Control{ m_Workspace, m_SceneFiles, m_Play,    m_Documents,
+                                  m_Capture,   m_Panels,     m_Commands };
 
         // Crash recovery: set at startup when the previous session crashed and an autosave was found.
         bool                  m_ShowRecoveryPrompt = false;

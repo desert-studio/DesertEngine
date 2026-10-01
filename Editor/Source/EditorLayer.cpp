@@ -1231,8 +1231,8 @@ namespace Desert::Editor
              m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Play )
             RecordFlightFrame( !ContentSettling() );
 
-        // Screenshot mode, SECOND HALF (ShotDirector::CountRenderedFrame). On the capture's last frame the layer adds
-        // its own records — the profiler dump, the --flight CSV — and closes with the capture's status.
+        // Screenshot mode, SECOND HALF (ShotDirector::CountRenderedFrame). On the capture's last frame the layer
+        // adds its own records — the profiler dump, the --flight CSV — and closes with the capture's status.
         if ( m_Shots.CountRenderedFrame( StartupLoading() || ContentSettling() ) )
         {
             const auto& shot = ShotOptions::Get();
@@ -2711,8 +2711,8 @@ namespace Desert::Editor
         Flight::FrameRow row;
         row.Frame    = m_Shots.Frame();
         row.Kind     = m_Shots.Frame() < Flight::kWarmupFrames ? Flight::Phase::Warmup
-                       : counted                           ? Flight::Phase::Flight
-                                                           : Flight::Phase::Settling;
+                       : counted                               ? Flight::Phase::Flight
+                                                               : Flight::Phase::Settling;
         row.Distance = Flight::DistanceAt( m_Shots.Frame(), shot.FlightSpeed, ShotOptions::PlayStepSeconds );
         row.Position = Flight::PoseAt( *shot.FlightRoute, row.Distance ).Position;
         row.Entities = m_Workspace.ActiveScene()->GetAllEntities().size();

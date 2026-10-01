@@ -476,10 +476,10 @@ namespace Desert::Editor
                              request.Id, fmt::format( "the selected entity {} is not in the scene",
                                                       static_cast<uint64_t>( uuid ) ) );
                     const ECS::Entity entity = ref->get();
-                    auto&       tc     = entity.GetComponent<ECS::TransformComponent>();
-                    tc.Translation     = after.GetValue().Translation;
-                    tc.Rotation        = after.GetValue().Rotation;
-                    tc.Scale           = after.GetValue().Scale;
+                    auto&             tc     = entity.GetComponent<ECS::TransformComponent>();
+                    tc.Translation           = after.GetValue().Translation;
+                    tc.Rotation              = after.GetValue().Rotation;
+                    tc.Scale                 = after.GetValue().Scale;
                     Commands::RecordTransformEdit( uuid, before.Translation, before.Rotation, before.Scale );
                     return Control::Response::Success( request.Id );
                 }
@@ -617,7 +617,7 @@ namespace Desert::Editor
 
     Common::ResultStr<std::pair<Common::UUID, Core::SelectionTransform>> ControlService::SelectedTransform() const
     {
-        using Result = std::pair<Common::UUID, Core::SelectionTransform>;
+        using Result        = std::pair<Common::UUID, Core::SelectionTransform>;
         const auto selected = Core::SelectionManager::GetSelected();
         if ( Core::SelectionManager::Count() != 1 || !selected.has_value() )
             return Common::MakeFormattedError<Result>(
@@ -709,13 +709,13 @@ namespace Desert::Editor
                 continue;
 
             Control::DocumentSnapshot entry;
-            entry.Name               = DocumentDisplayName( document->GetName() );
-            entry.Type               = m_Documents.SubjectEditors().TypeName( subject );
-            entry.Subject            = subject.ToString();
-            entry.HoldsView          = document->HoldsView();
-            entry.ClaimsView         = document->ClaimsView();
-            entry.ViewForecastBytes  = document->ViewForecastBytes();
-            entry.Focused            = ( subject == m_Documents.FocusedDocument() );
+            entry.Name              = DocumentDisplayName( document->GetName() );
+            entry.Type              = m_Documents.SubjectEditors().TypeName( subject );
+            entry.Subject           = subject.ToString();
+            entry.HoldsView         = document->HoldsView();
+            entry.ClaimsView        = document->ClaimsView();
+            entry.ViewForecastBytes = document->ViewForecastBytes();
+            entry.Focused           = ( subject == m_Documents.FocusedDocument() );
 
             // The three states, asked of the document itself. Written out as words here rather than
             // exported as enums, because the wire is read by clients that have none of our headers.

@@ -31,7 +31,8 @@ namespace Desert::Editor
     // Focus backs the camera off along the current view direction by the framing distance, so aiming one
     // framing distance ahead is what lands it exactly on the position asked for; the two uses of that
     // distance are one named constant for that reason.
-    void PlaceEditorCamera( Desert::Core::EditorCamera& camera, const glm::vec3& position, const glm::vec3& forward )
+    void PlaceEditorCamera( Desert::Core::EditorCamera& camera, const glm::vec3& position,
+                            const glm::vec3& forward )
     {
         camera.SnapToDirection( glm::normalize( forward ) );
         camera.Focus( ViewportCameraFocalPoint( position, forward ), kViewportCameraFramingDistance );
@@ -92,8 +93,7 @@ namespace Desert::Editor
         // capture is exactly that case, so `--play` changes what MOVES in the frame and nothing about
         // where the frame is taken from.
         if ( auto& shot = ShotOptions::Get();
-             shot.PlayActive() && !m_SceneFiles.HasPendingLoad() && !startupLoading &&
-             m_Workspace.ActiveScene() &&
+             shot.PlayActive() && !m_SceneFiles.HasPendingLoad() && !startupLoading && m_Workspace.ActiveScene() &&
              m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Edit )
         {
             if ( m_Workspace.ActiveScene()->GetActiveCamera() )
@@ -148,7 +148,8 @@ namespace Desert::Editor
                                               !startupLoading &&
                                               ( !m_ShotCameraPlaced || shot.HasMotion() || shot.FlightRoute ) )
         {
-            if ( ::Desert::Core::EditorCamera* cam = m_Workspace.ActiveEditorCamera(); ( cam != nullptr ) && shot.FlightRoute )
+            if ( ::Desert::Core::EditorCamera* cam = m_Workspace.ActiveEditorCamera();
+                 ( cam != nullptr ) && shot.FlightRoute )
             {
                 const Flight::Pose pose =
                      Flight::PoseAt( *shot.FlightRoute, Flight::DistanceAt( m_ShotFrame, shot.FlightSpeed,
@@ -182,8 +183,7 @@ namespace Desert::Editor
         // the sky, so a low-frame capture would photograph a scene with no clouds in it and file it as
         // the picture of the scene -- the same shape as the blank-PNG trap the verification skill warns
         // about, and just as invisible in a diff of two such frames.
-        if ( auto& shot = ShotOptions::Get();
-             shot.Active() && !m_SceneFiles.HasPendingLoad() && !contentLoading )
+        if ( auto& shot = ShotOptions::Get(); shot.Active() && !m_SceneFiles.HasPendingLoad() && !contentLoading )
         {
             ++m_ShotFrame;
 
