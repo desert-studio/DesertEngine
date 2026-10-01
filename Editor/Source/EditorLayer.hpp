@@ -248,6 +248,12 @@ namespace Desert::Editor
         void DrawProjectPopup();
         void FollowImGuiWithEvents();
 
+        // ===== Asset documents (one window per asset, opened from the browser) =====
+        // Drains Core::SubjectOpenRequests and, per request, focuses the document already open on that subject
+        // or builds a new one through m_AssetEditors. Runs from OnUpdate (between frames) because it adds to
+        // m_OpenDocuments, and REFUSES past the six renderer slots with the census printed by name — a seventh
+        // consumer would otherwise be handed slot 0 to share, which fails silently and days later.
+        void ServiceSubjectOpenRequests();
 
         // The one navigation `run Browse <folder>` and a field's "Show in browser" share.
         Common::BoolResultStr ShowFolderInBrowser( const std::string& folder );
