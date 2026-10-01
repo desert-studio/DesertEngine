@@ -41,7 +41,7 @@ namespace Desert::Editor
         void Append( std::vector<PaletteCommand>& commands );
         // "Collapse selection into Instanced Static Mesh" — its own call because Modeling's Mesh To Collision
         // sits between it and the rest of the group in the palette's order.
-        void AppendCollapse( std::vector<PaletteCommand>& commands );
+        static void AppendCollapse( std::vector<PaletteCommand>& commands );
 
     private:
         /// Turns the authoring context's selected control about its own @p axis and records one undo entry.

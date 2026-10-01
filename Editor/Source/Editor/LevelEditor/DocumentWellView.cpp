@@ -4,6 +4,7 @@
 #include "Editor/Core/IconsMaterialDesignIcons.hpp"
 #include "Editor/Panels/IPanel.hpp"
 #include <cstddef>
+#include <format>
 #include <functional>
 #include <glm/ext/vector_float2.hpp>
 #include <imgui.h>
@@ -33,6 +34,12 @@ namespace Desert::Editor
     // as a tab beside the level viewport (Editor/Core/DocumentPlacement.hpp).
     static constexpr const char* kDocumentWellWindow =
          ICON_MDI_FILE_DOCUMENT_MULTIPLE_OUTLINE "  Documents###documentwell";
+
+    // One row of the well, open or recently closed: the subject's icon, then the visible name.
+    static std::string WellRowLabel( std::string_view icon, std::string_view name )
+    {
+        return std::format( "{}  {}", icon, name );
+    }
 
     const char* DocumentHost::WellWindowTitle()
     {
@@ -209,7 +216,7 @@ namespace Desert::Editor
                 for ( const ClosedDocument& closed : m_DocumentWell.RecentlyClosed() )
                 {
                     ImGui::PushID( static_cast<int>( std::hash<SubjectId>{}( closed.Subject ) & 0x7fffffff ) );
-                    const std::string row = DocumentIcon( closed.Subject ) + "  " + closed.DisplayName;
+                    const std::string row = WellRowLabel( DocumentIcon( closed.Subject ), closed.DisplayName );
                     if ( ImGui::Selectable( row.c_str() ) )
                         Core::SubjectOpenRequests::Request( closed.Subject );
                     if ( ImGui::IsItemHovered() )
@@ -236,13 +243,13 @@ namespace Desert::Editor
         for ( const SubjectId& subject : m_DocumentWell.MostRecentOrder() )
         {
             const ISubjectDocument* document = m_OpenDocuments.Find( subject );
-            if ( !document )
+            if ( document == nullptr )
                 continue;
 
             ImGui::PushID( static_cast<int>( std::hash<SubjectId>{}( subject ) & 0x7fffffff ) );
 
             const std::string row =
-                 DocumentIcon( document->Subject() ) + "  " + DocumentDisplayName( document->GetName() );
+                 WellRowLabel( DocumentIcon( document->Subject() ), DocumentDisplayName( document->GetName() ) );
             if ( ImGui::Selectable( row.c_str(), subject == m_FocusedDocument,
                                     ImGuiSelectableFlags_AllowItemOverlap ) )
                 FocusDocument( subject );
@@ -253,9 +260,11 @@ namespace Desert::Editor
             if ( document->HoldsView() )
                 view = "1 view";
             else if ( document->ClaimsView() )
-                view = "claiming ~" + Engine::ViewBudget::FormatMiB( document->ViewForecastBytes() );
-            const std::string right  = m_SubjectEditors.TypeName( document->Subject() ) + " \xc2\xb7 " + view;
-            const float       rightW = ImGui::CalcTextSize( right.c_str() ).x;
+                view =
+                     std::format( "claiming ~{}", Engine::ViewBudget::FormatMiB( document->ViewForecastBytes() ) );
+            const std::string right =
+                 std::format( "{} \xc2\xb7 {}", m_SubjectEditors.TypeName( document->Subject() ), view );
+            const float rightW = ImGui::CalcTextSize( right.c_str() ).x;
             ImGui::SameLine( ImGui::GetContentRegionMax().x - rightW - 28.0f );
             ImGui::TextDisabled( "%s", right.c_str() );
 
@@ -560,7 +569,7 @@ namespace Desert::Editor
             // A row the user can act on gets a button; the main viewport and the Details preview do not,
             // because neither is a window a person closes to make room. Saying nothing on those rows is
             // the honest version: they are named because they explain where the memory went.
-            if ( consumer.Document && m_OpenDocuments.Find( *consumer.Document ) )
+            if ( consumer.Document && m_OpenDocuments.Find( *consumer.Document ) != nullptr )
             {
                 ImGui::SameLine( ImGui::GetContentRegionMax().x - 64.0f );
                 ImGui::PushID( static_cast<int>( std::hash<SubjectId>{}( *consumer.Document ) & 0x7fffffff ) );

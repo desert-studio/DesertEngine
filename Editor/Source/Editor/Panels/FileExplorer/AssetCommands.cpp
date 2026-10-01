@@ -38,9 +38,9 @@ namespace Desert::Editor
                                   const std::shared_ptr<::Desert::Core::Scene>&          mainScene,
                                   const std::shared_ptr<::Desert::Assets::AssetManager>& assets,
                                   const AssetFileCensus& files, ActiveCamera activeCamera, ShowFolder showFolder )
-        : m_Explorer( &explorer ), m_WorldPartition( &worldPartition ), m_MainSceneSlot( &mainScene ),
-          m_AssetsSlot( &assets ), m_Files( &files ), m_ActiveCamera( std::move( activeCamera ) ),
-          m_ShowFolder( std::move( showFolder ) )
+         : m_Explorer( &explorer ), m_WorldPartition( &worldPartition ), m_MainSceneSlot( &mainScene ),
+           m_AssetsSlot( &assets ), m_Files( &files ), m_ActiveCamera( std::move( activeCamera ) ),
+           m_ShowFolder( std::move( showFolder ) )
     {
     }
 
@@ -74,9 +74,8 @@ namespace Desert::Editor
             for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Skeleton ) )
                 if ( row.Guid )
                     skeletons.push_back( row.Path.generic_string() );
-            const std::vector<std::string> selected = Explorer() != nullptr
-                                                           ? Explorer()->SelectionPaths()
-                                                           : std::vector<std::string>{};
+            const std::vector<std::string> selected =
+                 Explorer() != nullptr ? Explorer()->SelectionPaths() : std::vector<std::string>{};
             for ( PaletteCommand& command : Editor::SkeletonAssignPaletteCommands(
                        selected, skeletons, std::bind_front( &AssetCommands::AssignSkeletonFromPalette, this ) ) )
                 commands.push_back( std::move( command ) );
@@ -85,15 +84,14 @@ namespace Desert::Editor
         // lambda: `bugprone-exception-escape` fires on a parameter-less lambda here (see RunDocumentAction).
         if ( Explorer() != nullptr )
         {
-            for ( const std::string& path : Explorer()->ShownEntries( false ) )
-                commands.push_back( { "Assets", "Select asset " + path,
-                                      std::bind_front( &FileExplorerPanel::SelectEntry,
-                                                       std::to_address( Explorer() ), path ) } );
-            for ( const std::string& path : Explorer()->ShownEntries( true ) )
+            for ( const bool folders : { false, true } )
             {
-                commands.push_back( { "Assets", "Select asset " + path,
-                                      std::bind_front( &FileExplorerPanel::SelectEntry,
-                                                       std::to_address( Explorer() ), path ) } );
+                for ( const std::string& path : Explorer()->ShownEntries( folders ) )
+                {
+                    commands.push_back( { "Assets", std::format( "Select asset {}", path ),
+                                          std::bind_front( &FileExplorerPanel::SelectEntry,
+                                                           std::to_address( Explorer() ), path ) } );
+                }
             }
             // UE "Edit Thumbnail" in steps, for the selected models and materials (the tile's drag is the free
             // form). The file name addresses the entry: the selection lives in one folder, so it is unique.
@@ -136,8 +134,8 @@ namespace Desert::Editor
                 continue;
             const std::string path = file.generic_string();
             const std::string label =
-                 "Drop into the viewport: " +
-                 file.lexically_relative( Common::Constants::Path::ASSETS_PATH ).generic_string();
+                 std::format( "Drop into the viewport: {}",
+                              file.lexically_relative( Common::Constants::Path::ASSETS_PATH ).generic_string() );
             // The same clang-tidy 18 finding as the folder entries below: the closure's implicit copy of
             // `path`, which std::function needs.
             // NOLINTBEGIN(bugprone-exception-escape)
@@ -232,10 +230,10 @@ namespace Desert::Editor
                                       std::bind_front( &FileExplorerPanel::GoToFolder,
                                                        std::to_address( Explorer() ), folder ) } );
             for ( const std::string& file : Explorer()->ContentFiles() )
-                commands.push_back( { std::string( Editor::kContentBrowserContext ),
-                                      Editor::ContentBrowserPathLabel( Editor::kSyncToAssetLabel, file ),
-                                      std::bind_front( &FileExplorerPanel::SyncToAsset,
-                                                       std::to_address( Explorer() ), file ) } );
+                commands.push_back(
+                     { std::string( Editor::kContentBrowserContext ),
+                       Editor::ContentBrowserPathLabel( Editor::kSyncToAssetLabel, file ),
+                       std::bind_front( &FileExplorerPanel::SyncToAsset, std::to_address( Explorer() ), file ) } );
         }
         for ( const float scale : { 0.01f, 0.1f, 1.0f, 10.0f, 100.0f } )
             commands.push_back( { "Assets", std::format( "Import Settings: Uniform Scale {}", scale ),
@@ -287,7 +285,7 @@ namespace Desert::Editor
                 // "Menu" and "Open Scene" entries above and below draw the same finding): it blames the
                 // closure's implicit copy, which std::function needs; nothing in the body throws.
                 // NOLINTBEGIN(bugprone-exception-escape)
-                commands.push_back( { "Assets", "Open folder: " + label,
+                commands.push_back( { "Assets", std::format( "Open folder: {}", label ),
                                       [this, folder] { return ShowFolderInBrowser( folder ); } } );
                 // NOLINTEND(bugprone-exception-escape)
             }
@@ -295,7 +293,7 @@ namespace Desert::Editor
     }
 
     Common::BoolResultStr AssetCommands::AssignSkeletonFromPalette( const std::string& subject,
-                                                                  const std::string& skeleton ) const
+                                                                    const std::string& skeleton ) const
     {
         using Common::Content::ContentKind;
         std::optional<Common::Content::AssetGuid> guid;
@@ -329,8 +327,7 @@ namespace Desert::Editor
         const auto clip = load.template operator()<Assets::AnimationAsset>();
         if ( !clip )
             return Common::MakeError( clip.GetError() );
-        if ( auto assigned = SkeletonSlots::AssignClipSkeleton( *Manager(), *clip.GetValue(), *guid );
-             !assigned )
+        if ( auto assigned = SkeletonSlots::AssignClipSkeleton( *Manager(), *clip.GetValue(), *guid ); !assigned )
             return assigned;
         return Assets::Serialization::SaveClipToFile( path, clip.GetValue()->GetClip() );
     }

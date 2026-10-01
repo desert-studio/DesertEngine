@@ -112,12 +112,12 @@ namespace Desert::Editor
         census.push_back( { "main viewport", true } ); // the primary scene's view exists for the session
 
         for ( const auto& doc : m_Workspace.Documents() )
-            census.push_back( { "scene view '" + doc->Name + "'", true } );
+            census.push_back( { std::format( "scene view '{}'", doc->Name ), true } );
 
         // A second ANGLE holds a view exactly as a second document does — leaving it out of the census
         // would make the refusal's own list disagree with SceneRenderer::LiveHoldings().
         for ( const auto& view : m_Workspace.Viewports() )
-            census.push_back( { "viewport '" + view->Name + "'", view->Renderer != nullptr } );
+            census.push_back( { std::format( "viewport '{}'", view->Name ), view->Renderer != nullptr } );
 
         // NO DETAILS ROW. Details holds no view (THM-FIXF): its asset rows are pictures from the thumbnail pool,
         // as UE's Details slots are, and a live view belongs to an asset window and dies with it.
@@ -130,8 +130,8 @@ namespace Desert::Editor
             // The VISIBLE half of the name. The census tells a user what to close, and they close a window
             // titled "MP_GreenTint", not one titled "MP_GreenTint###docasset:2:3333333333333333333".
             census.push_back(
-                 { m_SubjectEditors.TypeName( document->Subject() ) + " document '" +
-                        DocumentDisplayName( document->GetName() ) + "'",
+                 { std::format( "{} document '{}'", m_SubjectEditors.TypeName( document->Subject() ),
+                                DocumentDisplayName( document->GetName() ) ),
                    document->HoldsView(), document->ClaimsView(),
                    document->ClaimsView() && !document->HoldsView() ? document->ViewForecastBytes() : 0,
                    document->Subject() } );
@@ -152,7 +152,7 @@ namespace Desert::Editor
             if ( const auto entOpt = m_Workspace.ActiveScene()->FindEntityByID( subject.Owner ) )
                 name = entOpt->get().GetComponent<ECS::TagComponent>().Tag;
         }
-        return name + " \xc2\xb7 " + what;
+        return std::format( "{} \xc2\xb7 {}", name, what );
     }
 
     void DocumentHost::ServiceSubjectOpenRequests()
@@ -245,7 +245,7 @@ namespace Desert::Editor
                     else if ( consumer.ClaimsView )
                         state = std::format( "no view yet, will allocate ~{} when it draws",
                                              Engine::ViewBudget::FormatMiB( consumer.ForecastBytes ) );
-                    census += "\n    " + consumer.Name + " — " + state;
+                    census += std::format( "\n    {} — {}", consumer.Name, state );
                 }
                 LOG_ERROR( "[Editor] Refusing to open a document for subject '{}': {} (of which {} is spoken for "
                            "by open documents that have not drawn yet). Close one of these first:{}",
@@ -331,7 +331,7 @@ namespace Desert::Editor
 
     void DocumentHost::RequestDocumentClose( const SubjectId& subject, std::string reason )
     {
-        if ( !m_OpenDocuments.Find( subject ) )
+        if ( m_OpenDocuments.Find( subject ) == nullptr )
             return; // already gone, or never open — a second x on one window in one frame is not an error
 
         const auto queued =
@@ -407,8 +407,7 @@ namespace Desert::Editor
         const bool closes = CloseAfterAnswer( choice, saved );
         if ( closes )
         {
-            RequestDocumentClose( subject,
-                                  question.Reason + " (" + std::string( CloseChoiceName( choice ) ) + ")" );
+            RequestDocumentClose( subject, std::format( "{} ({})", question.Reason, CloseChoiceName( choice ) ) );
         }
         else
         {
@@ -539,8 +538,8 @@ namespace Desert::Editor
 
         for ( const SubjectId& subject : dead )
         {
-            RequestDocumentClose( subject, "the " + m_SubjectEditors.TypeName( subject ) +
-                                                " it was editing no longer exists" );
+            RequestDocumentClose( subject, std::format( "the {} it was editing no longer exists",
+                                                        m_SubjectEditors.TypeName( subject ) ) );
         }
     }
 
@@ -655,7 +654,7 @@ namespace Desert::Editor
     void DocumentHost::FocusDocument( const SubjectId& subject )
     {
         ISubjectDocument* document = m_OpenDocuments.Find( subject );
-        if ( !document )
+        if ( document == nullptr )
             return;
 
         m_DocumentWell.Opened( subject ); // asked for by name: a closed well comes back to show it
@@ -688,7 +687,7 @@ namespace Desert::Editor
             return;
 
         ISubjectDocument* document = m_OpenDocuments.Find( *next );
-        if ( !document )
+        if ( document == nullptr )
             return;
 
         // Focus WITHOUT touching the ring. Committing the new order on every press would make the second
@@ -758,7 +757,8 @@ namespace Desert::Editor
         for ( const auto& document : m_OpenDocuments )
         {
             const SubjectId subject = document->Subject();
-            commands.push_back( { "Document", "Go to " + DocumentDisplayName( document->GetName() ),
+            commands.push_back( { "Document",
+                                  std::format( "Go to {}", DocumentDisplayName( document->GetName() ) ),
                                   [this, subject]
                                   {
                                       FocusDocument( subject );
@@ -788,7 +788,7 @@ namespace Desert::Editor
                 // lambda here that the check accepts. `bind_front` binds the member function directly and
                 // there is nothing for it to analyse.
                 commands.push_back(
-                     { "Document", name + ": " + label,
+                     { "Document", std::format( "{}: {}", name, label ),
                        std::bind_front( &DocumentHost::RunDocumentAction, this, subject, label ) } );
             }
         }
@@ -801,7 +801,8 @@ namespace Desert::Editor
         for ( const auto& document : m_OpenDocuments )
         {
             const SubjectId subject = document->Subject();
-            commands.push_back( { "Document", "Close " + DocumentDisplayName( document->GetName() ),
+            commands.push_back( { "Document",
+                                  std::format( "Close {}", DocumentDisplayName( document->GetName() ) ),
                                   [this, subject]
                                   {
                                       AskDocumentClose( subject, "closed from the command "
@@ -811,7 +812,8 @@ namespace Desert::Editor
             // The Don't Save answer as one command, for runs that cannot click a modal: raises the question
             // if nothing has yet, then answers it through the same path the button takes.
             commands.push_back(
-                 { "Document", DocumentDisplayName( document->GetName() ) + ": Close Discard", [this, subject]
+                 { "Document", std::format( "{}: Close Discard", DocumentDisplayName( document->GetName() ) ),
+                   [this, subject]
                    {
                        if ( m_OpenDocuments.Find( subject ) == nullptr )
                            return Common::MakeError<bool>( "the document to close is no longer "
@@ -857,7 +859,7 @@ namespace Desert::Editor
         for ( const ClosedDocument& closed : m_DocumentWell.RecentlyClosed() )
         {
             const SubjectId subject = closed.Subject;
-            commands.push_back( { "Document", "Reopen " + closed.DisplayName, [subject]
+            commands.push_back( { "Document", std::format( "Reopen {}", closed.DisplayName ), [subject]
                                   {
                                       Core::SubjectOpenRequests::Request( subject );
                                       return PaletteCommandDone();
@@ -896,45 +898,47 @@ namespace Desert::Editor
                                                                   Common::Constants::Path::ASSETS_PATH ) )
         {
             const std::string path = asset.Path;
-            commands.push_back( { "Open", asset.Label, [this, path]
-                                  {
-                                      // THROUGH THE PATH OPENERS, the same route the asset browser's
-                                      // double-click takes. Resolving a path to a subject here would be a
-                                      // second copy of the find-or-create-and-load chain — the exact
-                                      // duplication SubjectEditorRegistry::RegisterPathOpener was
-                                      // introduced to delete, when the browser and EditorLayer each
-                                      // carried one.
-                                      //
-                                      // AND THE OUTCOME IS ANSWERED, WHICH IS A6-2 POINT 1. `(void)` stood
-                                      // here: a `.demat` that would not resolve logged its reason and came
-                                      // back over the channel as `{"ok":true}`, so a script opened nothing
-                                      // and carried on. The opener has already said WHY in the log, with
-                                      // the path — this refuses without repeating a guess at the cause,
-                                      // exactly as PathOpenOutcome::Failed is documented to mean.
-                                      switch ( m_SubjectEditors.OpenPath( path ) )
-                                      {
-                                          case SubjectEditorRegistry::PathOpenOutcome::Requested:
-                                              return PaletteCommandDone();
-                                          case SubjectEditorRegistry::PathOpenOutcome::Failed:
-                                              return Common::MakeFormattedError<bool>(
-                                                   "'{}' is a document this editor opens and it would not "
-                                                   "resolve; the log line above names the reason.",
-                                                   path );
-                                          case SubjectEditorRegistry::PathOpenOutcome::NotMine:
-                                              // The palette offered it, so an opener claimed its
-                                              // extension — NotMine here means the file has GONE since
-                                              // the dictionary was built, which is a fact and not a
-                                              // no-op.
-                                              return Common::MakeFormattedError<bool>(
-                                                   "'{}' is no longer there — no registered opener claims "
-                                                   "it now. It existed when this list was built.",
-                                                   path );
-                                      }
-                                      return Common::MakeFormattedError<bool>(
-                                           "opening '{}' produced an outcome this build does not handle; "
-                                           "that is a defect in the palette, not in the request.",
-                                           path );
-                                  } } );
+            commands.push_back(
+                 { "Open", asset.Label, std::bind_front( &DocumentHost::OpenAssetPath, this, path ) } );
         }
+    }
+
+    // One "Open" palette entry, addressed by path. Named rather than a lambda for the reason
+    // RunDocumentAction gives: `bugprone-exception-escape` fires on a parameter-less lambda here.
+    Common::BoolResultStr DocumentHost::OpenAssetPath( const std::string& path )
+    {
+        // THROUGH THE PATH OPENERS, the same route the asset browser's
+        // double-click takes. Resolving a path to a subject here would be a
+        // second copy of the find-or-create-and-load chain — the exact
+        // duplication SubjectEditorRegistry::RegisterPathOpener was
+        // introduced to delete, when the browser and EditorLayer each
+        // carried one.
+        //
+        // AND THE OUTCOME IS ANSWERED, WHICH IS A6-2 POINT 1. `(void)` stood
+        // here: a `.demat` that would not resolve logged its reason and came
+        // back over the channel as `{"ok":true}`, so a script opened nothing
+        // and carried on. The opener has already said WHY in the log, with
+        // the path — this refuses without repeating a guess at the cause,
+        // exactly as PathOpenOutcome::Failed is documented to mean.
+        switch ( m_SubjectEditors.OpenPath( path ) )
+        {
+            case SubjectEditorRegistry::PathOpenOutcome::Requested:
+                return PaletteCommandDone();
+            case SubjectEditorRegistry::PathOpenOutcome::Failed:
+                return Common::MakeFormattedError<bool>( "'{}' is a document this editor opens and it would not "
+                                                         "resolve; the log line above names the reason.",
+                                                         path );
+            case SubjectEditorRegistry::PathOpenOutcome::NotMine:
+                // The palette offered it, so an opener claimed its
+                // extension — NotMine here means the file has GONE since
+                // the dictionary was built, which is a fact and not a
+                // no-op.
+                return Common::MakeFormattedError<bool>( "'{}' is no longer there — no registered opener claims "
+                                                         "it now. It existed when this list was built.",
+                                                         path );
+        }
+        return Common::MakeFormattedError<bool>( "opening '{}' produced an outcome this build does not handle; "
+                                                 "that is a defect in the palette, not in the request.",
+                                                 path );
     }
 } // namespace Desert::Editor

@@ -29,7 +29,8 @@ namespace Desert::Editor
 {
     EntityCommands::EntityCommands( const std::shared_ptr<::Desert::Core::Scene>& mainScene,
                                     SubjectEditorRegistry& subjectEditors, ActiveCamera activeCamera )
-        : m_MainSceneSlot( &mainScene ), m_SubjectEditors( &subjectEditors ), m_ActiveCamera( std::move( activeCamera ) )
+         : m_MainSceneSlot( &mainScene ), m_SubjectEditors( &subjectEditors ),
+           m_ActiveCamera( std::move( activeCamera ) )
     {
     }
 
@@ -43,7 +44,7 @@ namespace Desert::Editor
                 if ( !entity.HasComponent<ECS::UUIDComponent>() )
                     continue;
                 const Common::UUID uuid = entity.GetComponent<ECS::UUIDComponent>().UUID;
-                std::string        name = entity.HasComponent<ECS::TagComponent>()
+                const std::string  name = entity.HasComponent<ECS::TagComponent>()
                                                ? entity.GetComponent<ECS::TagComponent>().Tag
                                                : std::string( "Entity" );
                 commands.push_back( { "Entity", name, [uuid]
@@ -52,7 +53,7 @@ namespace Desert::Editor
                                           return PaletteCommandDone();
                                       } } );
                 // Ctrl+click: a two-input tool (Boolean, Trim) reads A and B in selection order.
-                commands.push_back( { "Entity", "Add to selection " + name, [uuid]
+                commands.push_back( { "Entity", std::format( "Add to selection {}", name ), [uuid]
                                       {
                                           Core::SelectionManager::AddToSelection( uuid );
                                           return PaletteCommandDone();
@@ -80,7 +81,7 @@ namespace Desert::Editor
                     {
                         continue;
                     }
-                    commands.push_back( { "Open", "Editor: " + typeName + " on " + name, [subject]
+                    commands.push_back( { "Open", std::format( "Editor: {} on {}", typeName, name ), [subject]
                                           {
                                               Core::SubjectOpenRequests::Request( subject );
                                               return PaletteCommandDone();
@@ -97,7 +98,7 @@ namespace Desert::Editor
                 // destroy an entity without a mouse: the channel runs these closures and nothing else. A
                 // gap in the palette is a gap in what an agent can do at all, which is the one claim the
                 // palette exists to make good on.
-                commands.push_back( { "Entity", "Delete " + name, [uuid]
+                commands.push_back( { "Entity", std::format( "Delete {}", name ), [uuid]
                                       {
                                           Commands::DeleteEntity( uuid );
                                           return PaletteCommandDone();
@@ -107,8 +108,8 @@ namespace Desert::Editor
                 // open, so "the viewport shows what the camera sees" can be photographed at all.
                 if ( entity.HasComponent<ECS::CameraComponent>() )
                 {
-                    commands.push_back(
-                         { "Camera", "Pilot " + name, [uuid] { return Editor::PilotCameraEntity( uuid ); } } );
+                    commands.push_back( { "Camera", std::format( "Pilot {}", name ),
+                                          [uuid] { return Editor::PilotCameraEntity( uuid ); } } );
                 }
 
                 // LOCKING ONE IS TOO, and by the paragraph directly above it has to be here. The padlock
@@ -160,12 +161,13 @@ namespace Desert::Editor
                     if ( !m_SubjectEditors->Exists( subject ) )
                         continue;
 
-                    commands.push_back( { "Open", name + " \xc2\xb7 " + m_SubjectEditors->TypeName( type ),
-                                          [subject]
-                                          {
-                                              Core::SubjectOpenRequests::Request( subject );
-                                              return PaletteCommandDone();
-                                          } } );
+                    commands.push_back(
+                         { "Open", std::format( "{} \xc2\xb7 {}", name, m_SubjectEditors->TypeName( type ) ),
+                           [subject]
+                           {
+                               Core::SubjectOpenRequests::Request( subject );
+                               return PaletteCommandDone();
+                           } } );
                 }
             }
         }
@@ -262,21 +264,20 @@ namespace Desert::Editor
                                   ++control )
                             {
                                 const std::string name = hierarchy.Get( control ).Name;
-                                commands.push_back( { "Control Rig", "Select control " + name,
-                                                      [this, subject, control]
-                                                      {
-                                                          // The palette takes the context the way it does for
-                                                          // "Author": after "Viewport mode: Control" the viewport
-                                                          // holds it, and picking a control by name refused.
-                                                          // Focus adopts the holder's mode for the same entity.
-                                                          auto& host = Core::ActiveAuthoringContext();
-                                                          m_PaletteAuthoring.Entity = subject;
-                                                          (void)host.Focus( m_PaletteAuthoringOwner,
-                                                                            m_PaletteAuthoring );
-                                                          return host.SetSelectedControl( m_PaletteAuthoringOwner,
-                                                                                          m_PaletteAuthoring,
-                                                                                          control );
-                                                      } } );
+                                commands.push_back(
+                                     { "Control Rig", std::format( "Select control {}", name ),
+                                       [this, subject, control]
+                                       {
+                                           // The palette takes the context the way it does for
+                                           // "Author": after "Viewport mode: Control" the viewport
+                                           // holds it, and picking a control by name refused.
+                                           // Focus adopts the holder's mode for the same entity.
+                                           auto& host                = Core::ActiveAuthoringContext();
+                                           m_PaletteAuthoring.Entity = subject;
+                                           (void)host.Focus( m_PaletteAuthoringOwner, m_PaletteAuthoring );
+                                           return host.SetSelectedControl( m_PaletteAuthoringOwner,
+                                                                           m_PaletteAuthoring, control );
+                                       } } );
                             }
                         }
                     }

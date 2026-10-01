@@ -8,6 +8,7 @@
 #include <Common/Core/Core.hpp>
 #include <filesystem>
 #include <format>
+#include <functional>
 #include <string>
 #include <vector>
 #include <Engine/World/Landscape/LandscapeData.hpp>
@@ -23,6 +24,18 @@
 
 namespace Desert::Editor
 {
+    // The palette's "Import heightmap as a new landscape" entry, with the panel's current New Landscape settings.
+    // Named and bound rather than a lambda: `bugprone-exception-escape` fires on a parameter-less lambda that
+    // copies a path into its closure (see DocumentHost::RunDocumentAction).
+    static Common::BoolResultStr
+    ImportHeightmapAsNewLandscape( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                   const std::filesystem::path&                  file )
+    {
+        auto made = Commands::ImportLandscapeHeightmapAsNew( scene, file,
+                                                             Core::LandscapeSculptState::Get().NewLandscape );
+        return made.IsSuccess() ? PaletteCommandDone() : PaletteCommandOutcome( false, made.GetError() );
+    }
+
     void AppendLandscapeCommands( std::vector<PaletteCommand>&                  commands,
                                   const std::shared_ptr<::Desert::Core::Scene>& scene )
     {
@@ -90,16 +103,12 @@ namespace Desert::Editor
             {
                 const std::string rel =
                      file.lexically_relative( Common::Constants::Path::ASSETS_PATH ).generic_string();
-                commands.push_back( { "Landscape", "Import heightmap as a new landscape: " + rel, [&scene, file]
-                                      {
-                                          auto made = Commands::ImportLandscapeHeightmapAsNew(
-                                               scene, file, Core::LandscapeSculptState::Get().NewLandscape );
-                                          return made.IsSuccess()
-                                                      ? PaletteCommandDone()
-                                                      : PaletteCommandOutcome( false, made.GetError() );
-                                      } } );
-                commands.push_back( { "Landscape", "Import heightmap into the landscape: " + rel, [&scene, file]
-                                      { return Commands::ImportLandscapeHeightmap( scene, file ); } } );
+                commands.push_back(
+                     { "Landscape", std::format( "Import heightmap as a new landscape: {}", rel ),
+                       std::bind_front( &ImportHeightmapAsNewLandscape, std::cref( scene ), file ) } );
+                commands.push_back(
+                     { "Landscape", std::format( "Import heightmap into the landscape: {}", rel ),
+                       std::bind_front( &Commands::ImportLandscapeHeightmap, std::cref( scene ), file ) } );
             }
             for ( const auto& [name, selected] : std::initializer_list<std::pair<const char*, bool>>{
                        { "Landscape.png", false }, { "Landscape.r16", false }, { "SelectedTiles.png", true } } )
@@ -107,11 +116,11 @@ namespace Desert::Editor
                 const std::filesystem::path file = heightmaps / name;
                 const std::string           rel =
                      file.lexically_relative( Common::Constants::Path::ASSETS_PATH ).generic_string();
-                commands.push_back(
-                     { "Landscape",
-                       ( selected ? "Export heightmap of the selected tiles: " : "Export heightmap: " ) + rel,
-                       [&scene, file, selected]
-                       { return Commands::ExportLandscapeHeightmap( scene, file, selected ); } } );
+                commands.push_back( { "Landscape",
+                                      selected ? std::format( "Export heightmap of the selected tiles: {}", rel )
+                                               : std::format( "Export heightmap: {}", rel ),
+                                      std::bind_front( &Commands::ExportLandscapeHeightmap, std::cref( scene ),
+                                                       file, selected ) } );
             }
         }
         // LANDSCAPE PAINT (UE's Paint tab): the mode, its one tool, the target layer and the "+" of the Target
@@ -236,26 +245,26 @@ namespace Desert::Editor
                 for ( const Assets::AssetHandle& handle : registry.get<ECS::LandscapeComponent>( root ).Layers )
                 {
                     const auto* info = layers.Get( handle );
-                    if ( !info )
+                    if ( info == nullptr )
                         continue;
-                    commands.push_back( { "Landscape", "Target layer: " + info->LayerName,
-                                          [&scene, handle, name = info->LayerName]
-                                          {
-                                              auto&      reg   = scene->GetRegistry();
-                                              const auto id    = ECS::FirstLandscape( reg );
-                                              const auto r     = id ? ECS::FindLandscapeRootEntity( reg, *id )
-                                                                    : entt::entity( entt::null );
-                                              bool       found = false;
-                                              if ( r != entt::null )
-                                                  for ( const auto& l :
-                                                        reg.get<ECS::LandscapeComponent>( r ).Layers )
-                                                      found = found || l == handle;
-                                              if ( !found )
-                                                  return PaletteCommandOutcome( false, "landscape layer '" + name +
-                                                                                            "' no longer exists" );
-                                              Core::LandscapeSculptState::Get().Paint.Layer = name;
-                                              return PaletteCommandDone();
-                                          } } );
+                    commands.push_back(
+                         { "Landscape", std::format( "Target layer: {}", info->LayerName ),
+                           [&scene, handle, name = info->LayerName]
+                           {
+                               auto&      reg = scene->GetRegistry();
+                               const auto id  = ECS::FirstLandscape( reg );
+                               const auto r =
+                                    id ? ECS::FindLandscapeRootEntity( reg, *id ) : entt::entity( entt::null );
+                               bool found = false;
+                               if ( r != entt::null )
+                                   for ( const auto& l : reg.get<ECS::LandscapeComponent>( r ).Layers )
+                                       found = found || l == handle;
+                               if ( !found )
+                                   return PaletteCommandOutcome(
+                                        false, std::format( "landscape layer '{}' no longer exists", name ) );
+                               Core::LandscapeSculptState::Get().Paint.Layer = name;
+                               return PaletteCommandDone();
+                           } } );
                 }
             }
         }

@@ -29,7 +29,7 @@
 
 namespace Desert::Editor
 {
-    void AppendMeshToCollisionCommands( std::vector<PaletteCommand>& commands,
+    void AppendMeshToCollisionCommands( std::vector<PaletteCommand>&                  commands,
                                         const std::shared_ptr<::Desert::Core::Scene>& scene )
     {
         // UE's Mesh To Collision (Modeling panel, Collision palette): the combo's choice and the button in one
@@ -247,7 +247,7 @@ namespace Desert::Editor
                                   } } );
         }
         for ( int power = 0; power <= MS::MaxGridPower; ++power )
-            commands.push_back( { "CubeGrid", "Grid Power " + std::to_string( power ), [power]
+            commands.push_back( { "CubeGrid", std::format( "Grid Power {}", power ), [power]
                                   {
                                       MS::Get().SetGridPower( power );
                                       return PaletteCommandDone();
@@ -263,7 +263,7 @@ namespace Desert::Editor
                                   return PaletteCommandDone();
                               } } );
         for ( const int div : { 2, 4, 10 } )
-            commands.push_back( { "CubeGrid", "Snap Size 1/" + std::to_string( div ) + " block", [div]
+            commands.push_back( { "CubeGrid", std::format( "Snap Size 1/{} block", div ), [div]
                                   {
                                       MS::Get().CornerSnapDiv = div;
                                       return PaletteCommandDone();
@@ -277,16 +277,14 @@ namespace Desert::Editor
         modelingOnOff( "CubeGrid", "Aim at the viewport centre",
                        []( MS& ms, bool on ) { ms.CubeGridAimCentre = on; } );
         for ( const int blocks : { 1, 2, 3, 4 } )
-            commands.push_back(
-                 { "CubeGrid",
-                   "Select " + std::to_string( blocks ) + "x" + std::to_string( blocks ) + " blocks at the aim",
-                   [blocks, needCubeGrid]
-                   {
-                       if ( auto active = needCubeGrid(); !active )
-                           return active;
-                       MS::Get().ReqCubeGridSelectBlocks = blocks;
-                       return PaletteCommandDone();
-                   } } );
+            commands.push_back( { "CubeGrid", std::format( "Select {0}x{0} blocks at the aim", blocks ),
+                                  [blocks, needCubeGrid]
+                                  {
+                                      if ( auto active = needCubeGrid(); !active )
+                                          return active;
+                                      MS::Get().ReqCubeGridSelectBlocks = blocks;
+                                      return PaletteCommandDone();
+                                  } } );
         for ( const auto& [label, dir] : std::initializer_list<std::pair<const char*, int>>{
                    { "Push/Pull out (E)", +1 }, { "Push/Pull in (Q)", -1 } } )
             commands.push_back( { "CubeGrid", label, [dir, needCubeGrid]

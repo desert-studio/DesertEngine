@@ -518,8 +518,8 @@ TEST( PointerOwnership, EditorLayerDeclaresItsHostsBeforeItsPanels )
     // Declarations are column-aligned by clang-format; the order is the fact, not the padding.
     std::string src;
     for ( const char c : raw )
-        if ( !std::isspace( static_cast<unsigned char>( c ) ) || src.empty() || src.back() != ' ' )
-            src.push_back( std::isspace( static_cast<unsigned char>( c ) ) ? ' ' : c );
+        if ( std::isspace( static_cast<unsigned char>( c ) ) == 0 || src.empty() || src.back() != ' ' )
+            src.push_back( std::isspace( static_cast<unsigned char>( c ) ) != 0 ? ' ' : c );
 
     const std::size_t panels = src.find( "PanelRegistry m_Panels" );
     ASSERT_NE( panels, std::string::npos ) << "EditorLayer no longer declares m_Panels -- the twenty "

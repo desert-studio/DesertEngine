@@ -4,6 +4,7 @@
 #include <Editor/Panels/Clouds/CloudsPanel.hpp>
 
 #include <cstdint>
+#include <format>
 #include <string>
 
 namespace Desert::Editor
@@ -19,7 +20,7 @@ namespace Desert::Editor
         for ( uint32_t i = 0; i < kCloudStageCount; ++i )
         {
             const auto stage = static_cast<CloudStage>( i );
-            commands.push_back( { "Clouds", std::to_string( i + 1 ) + " " + CloudStageName( stage ), [stage]
+            commands.push_back( { "Clouds", std::format( "{} {}", i + 1, CloudStageName( stage ) ), [stage]
                                   {
                                       CloudsPanel::OpenAt( stage );
                                       return PaletteCommandDone();

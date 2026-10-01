@@ -35,7 +35,7 @@ namespace Desert::Editor
     {
     public:
         // Walks the content root (loose files and a mounted .dpak alike, ListFilesRecursive).
-        void Take();
+        void                                                    Take();
         [[nodiscard]] const std::vector<std::filesystem::path>& Files() const
         {
             return m_Files;
@@ -55,7 +55,7 @@ namespace Desert::Editor
         using ShowFolder   = std::function<Common::BoolResultStr( const std::string& )>;
 
         AssetCommands( FileExplorerPanel* const& explorer, WorldPartitionPanel* const& worldPartition,
-                       const std::shared_ptr<::Desert::Core::Scene>&        mainScene,
+                       const std::shared_ptr<::Desert::Core::Scene>&          mainScene,
                        const std::shared_ptr<::Desert::Assets::AssetManager>& assets, const AssetFileCensus& files,
                        ActiveCamera activeCamera, ShowFolder showFolder );
 
