@@ -550,8 +550,8 @@ namespace Desert::Editor
         // start, and one call: the splash says what it is before it begins, and cannot say more during it.
         m_Startup.BeginShaderStage();
         // The splash's close button, pressed during this one long call, stops it between programs.
-        if ( const auto shaders = Assets::CompileEngineShaders(
-                  m_AssetManager, m_Startup.SplashItems(), [this]() { return m_Startup.CloseRequested(); } );
+        if ( const auto shaders = Assets::CompileEngineShaders( m_AssetManager, m_Startup.SplashItems(),
+                                                                [this]() { return m_Startup.CloseRequested(); } );
              !shaders )
             return Common::MakeFormattedError( "the engine shaders: {}", shaders.GetError() );
         // The imported materials choose among these shaders' Import blocks; every cook below comes after.
@@ -650,13 +650,15 @@ namespace Desert::Editor
             m_Commands.Register( "Scene (view layout)",
                                  [this]( Out& out ) { m_Workspace.AppendViewLayoutCommands( out ); } );
             m_Commands.Register( "Scene (actions)", [this]( Out& out ) { AppendSceneTailCommands( out ); } );
-            m_Commands.Register( "AssetCompiling", [this]( Out& out ) { m_AssetCompiling.AppendActionCommands( out ); } );
+            m_Commands.Register( "AssetCompiling",
+                                 [this]( Out& out ) { m_AssetCompiling.AppendActionCommands( out ); } );
             // SAVE SCENE ANSWERS WHETHER IT SAVED. `(void)SaveOpenScene()` stood here against a
             // `[[nodiscard]] bool` — the attribute was on the declaration and the cast silenced it — so a
             // scene that could not be written came back over the channel as a success. This is the same
             // family as the toast that once said "Saved 'X'" for a file that had not been written
             // (FileSystem.hpp's note on the write primitive that is gone).
-            m_Commands.Register( "SceneFiles (save)", [this]( Out& out ) { m_SceneFiles.AppendSaveSceneCommand( out ); } );
+            m_Commands.Register( "SceneFiles (save)",
+                                 [this]( Out& out ) { m_SceneFiles.AppendSaveSceneCommand( out ); } );
             m_Commands.Register( "Play", [this]( Out& out ) { m_Play.AppendPlayCommands( out ); } );
             m_Commands.Register( "Edit (Undo, Redo)",
                                  []( Out& out ) { MainMenu::AppendUndoRedoCommands( out ); } );
@@ -794,8 +796,8 @@ namespace Desert::Editor
                 Editor::ToastManager::Push( created->GetError(), Editor::ToastLevel::Error, 6.0f );
         }
 
-        // Staged startup loading (EditorStartup::RunStartupFrame): ONE heavy stage per frame, and while it runs the
-        // scene is NOT rendered — the frame is ImGui-only and the window it goes to is still hidden.
+        // Staged startup loading (EditorStartup::RunStartupFrame): ONE heavy stage per frame, and while it runs
+        // the scene is NOT rendered — the frame is ImGui-only and the window it goes to is still hidden.
         if ( m_Startup.RunStartupFrame() )
         {
             m_Control.SampleFrameQuiescence( m_Startup.StartupLoading() || m_Startup.ContentSettling() );

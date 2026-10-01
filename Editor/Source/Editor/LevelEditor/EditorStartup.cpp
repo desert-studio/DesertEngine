@@ -45,12 +45,13 @@ namespace Desert::Editor
 
     } // namespace
 
-
-    EditorStartup::EditorStartup( Engine::Application* application, std::shared_ptr<Assets::AssetManager>& assetManager,
-                                  std::unique_ptr<ImportManager>&                 importManager,
+    EditorStartup::EditorStartup( Engine::Application*                          application,
+                                  std::shared_ptr<Assets::AssetManager>&        assetManager,
+                                  std::unique_ptr<ImportManager>&               importManager,
                                   std::unique_ptr<Animation::AnimationLibrary>& animationLibrary,
-                                  SceneWorkspace& workspace, SceneFiles& sceneFiles, AssetCompiling& assetCompiling,
-                                  const bool& realFrameDrawn, std::unique_ptr<Splash::SplashScreen> splash )
+                                  SceneWorkspace& workspace, SceneFiles& sceneFiles,
+                                  AssetCompiling& assetCompiling, const bool& realFrameDrawn,
+                                  std::unique_ptr<Splash::SplashScreen> splash )
          : m_Application( application ), m_AssetManager( assetManager ), m_ImportManager( importManager ),
            m_AnimationLibrary( animationLibrary ), m_Workspace( workspace ), m_SceneFiles( sceneFiles ),
            m_AssetCompiling( assetCompiling ), m_RealFrameDrawn( realFrameDrawn ), m_Splash( std::move( splash ) )
@@ -81,18 +82,17 @@ namespace Desert::Editor
         // automatic path could clear. Both directories are `LooseTextureRoots()`, the list the packager
         // cooks too. (This stage used to walk `Assets/Meshes/` twice; the second walk found everything
         // fresh.)
-        m_StartupStages.push_back( { "Importing textures...",
-                                     [this]
-                                     {
-                                         // The editor derives texture platform data on a DDC miss; a packaged game
-                                         // has no builder.
-                                         Assets::SetTexturePlatformDataBuilder(
-                                              &TextureImporter::BuildPlatformData );
-                                         Assets::SetMeshPlatformDataBuilder( &Editor::BuildMeshPlatformData );
-                                         (void)m_ImportManager->ImportLooseTextures( SplashItems() );
-                                     },
-                                     kSecondsPerTextureCheck, [] { return LooseTextureSources().size(); }, nullptr,
-                                     0 } );
+        m_StartupStages.push_back(
+             { "Importing textures...",
+               [this]
+               {
+                   // The editor derives texture platform data on a DDC miss; a packaged game
+                   // has no builder.
+                   Assets::SetTexturePlatformDataBuilder( &TextureImporter::BuildPlatformData );
+                   Assets::SetMeshPlatformDataBuilder( &Editor::BuildMeshPlatformData );
+                   (void)m_ImportManager->ImportLooseTextures( SplashItems() );
+               },
+               kSecondsPerTextureCheck, [] { return LooseTextureSources().size(); }, nullptr, 0 } );
         // THE ONLY CONTENT STAGES LEFT (AL1-9): nothing here creates an asset of any kind. Textures, materials,
         // meshes, skyboxes and the cloud kinds are created from their content-registry rows when something
         // names them, and the scene settle below waits for the ones the scene names.
@@ -339,12 +339,12 @@ namespace Desert::Editor
     Splash::RevealState EditorStartup::CurrentRevealState() const
     {
         Splash::RevealState state;
-        state.HasSplash        = m_Splash != nullptr;
-        state.Revealed         = m_Revealed;
-        state.StartupLoading   = StartupLoading();
+        state.HasSplash           = m_Splash != nullptr;
+        state.Revealed            = m_Revealed;
+        state.StartupLoading      = StartupLoading();
         state.SceneLoadPending    = m_SceneFiles.HasPendingLoad();
-        state.ContentSettling  = ContentSettling();
-        state.RealFrameDrawn   = m_RealFrameDrawn;
+        state.ContentSettling     = ContentSettling();
+        state.RealFrameDrawn      = m_RealFrameDrawn;
         state.ThumbnailsUploading = m_ThumbnailsHoldReveal;
         return state;
     }
@@ -393,7 +393,7 @@ namespace Desert::Editor
             m_RevealOtherwiseReadySince = now;
         const double waitedMs =
              std::chrono::duration<double, std::milli>( now - *m_RevealOtherwiseReadySince ).count();
-        const bool wasHolding  = m_ThumbnailsHoldReveal;
+        const bool wasHolding = m_ThumbnailsHoldReveal;
         m_ThumbnailsHoldReveal =
              Splash::ThumbnailsHoldReveal( pending ) || Splash::SceneCapturesHoldReveal( warmPending );
         if ( wasHolding && !m_ThumbnailsHoldReveal )

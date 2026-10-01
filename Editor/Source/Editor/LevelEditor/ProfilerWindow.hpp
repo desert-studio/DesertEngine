@@ -4,7 +4,8 @@
 // lines (--gpu-profile), the engine stats at the right of the menu bar, and the --flight capture's per-frame rows.
 //
 // A member of EditorLayer BY VALUE; what it reads arrives by reference. It knows nothing of EditorLayer: the
-// layer decides WHEN (a frame of Play under --flight, the capture's last frame, the menu bar) and this decides WHAT.
+// layer decides WHEN (a frame of Play under --flight, the capture's last frame, the menu bar) and this decides
+// WHAT.
 
 #include "Editor/Core/FlightRules.hpp"
 

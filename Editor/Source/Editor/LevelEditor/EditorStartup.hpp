@@ -1,9 +1,9 @@
 #pragma once
 
-// THE EDITOR'S START (UE: FEditorLoadingScreen + the EditorInit staging). The staged boot that runs one heavy stage
-// per frame behind the splash, the splash's progress weighed in work, the content settle the first scene asks for,
-// the thumbnails the hand-over waits on, and the reveal itself: the moment the hidden main window is shown and the
-// splash crossfades out.
+// THE EDITOR'S START (UE: FEditorLoadingScreen + the EditorInit staging). The staged boot that runs one heavy
+// stage per frame behind the splash, the splash's progress weighed in work, the content settle the first scene
+// asks for, the thumbnails the hand-over waits on, and the reveal itself: the moment the hidden main window is
+// shown and the splash crossfades out.
 //
 // A member of EditorLayer BY VALUE, built in the layer's constructor because the splash arrives there. Every
 // collaborator arrives by reference; it knows nothing of EditorLayer. The layer asks it whether the start is
@@ -53,15 +53,17 @@ namespace Desert::Editor
     {
     public:
         // @p splash is the start-up splash CreateApplication put up before the renderer existed; this reports its
-        // steps to it and takes it down on the first real frame (RevealWhenReady). The stages are planned here; the
-        // objects they fill (@p importManager, @p animationLibrary) are created by the layer before the first runs.
+        // steps to it and takes it down on the first real frame (RevealWhenReady). The stages are planned here;
+        // the objects they fill (@p importManager, @p animationLibrary) are created by the layer before the first
+        // runs.
         EditorStartup( Engine::Application* application, std::shared_ptr<Assets::AssetManager>& assetManager,
-                       std::unique_ptr<ImportManager>&                 importManager,
+                       std::unique_ptr<ImportManager>&               importManager,
                        std::unique_ptr<Animation::AnimationLibrary>& animationLibrary, SceneWorkspace& workspace,
                        SceneFiles& sceneFiles, AssetCompiling& assetCompiling, const bool& realFrameDrawn,
                        std::unique_ptr<Splash::SplashScreen> splash );
 
-        // The asset browser the hand-over's thumbnails go through; null until OnAttach builds it and after OnDetach.
+        // The asset browser the hand-over's thumbnails go through; null until OnAttach builds it and after
+        // OnDetach.
         void AttachFileExplorer( FileExplorerPanel* fileExplorer )
         {
             m_FileExplorer = fileExplorer;
@@ -86,14 +88,14 @@ namespace Desert::Editor
         }
 
         // OnAttach: the splash plan, made once the cooked registry is read, and the engine shader compile's stage
-        // begun — the longest single wait of the start, and one call (not a stage: the render systems resolve their
-        // shaders in their constructors).
+        // begun — the longest single wait of the start, and one call (not a stage: the render systems resolve
+        // their shaders in their constructors).
         void BeginShaderStage();
         // The item line of the stage running now, for an engine call that works through a list.
         Assets::ItemProgress SplashItems();
 
-        // Staged startup loading: runs ONE heavy stage per frame. True when this frame belongs to the start (a stage
-        // ran; the scene is not rendered); false once the stages are done or the splash was closed.
+        // Staged startup loading: runs ONE heavy stage per frame. True when this frame belongs to the start (a
+        // stage ran; the scene is not rendered); false once the stages are done or the splash was closed.
         [[nodiscard]] bool RunStartupFrame();
 
         /// A scene has just loaded; whatever it asks for has not been asked for yet. Starts the wait.
@@ -166,7 +168,7 @@ namespace Desert::Editor
         bool        m_SplashWarmStarted    = false;
         std::size_t m_SplashWarmTotal      = 0;     // captures queued when the warm-up started
         std::size_t m_SplashWarmShown      = 0;     // what the splash line last said was left
-        bool        m_SplashPicturesReasked = false; // the captures landed and their PNGs were asked for (THM1n-13)
+        bool m_SplashPicturesReasked       = false; // the captures landed and their PNGs were asked for (THM1n-13)
         // When every other reveal condition first held: the start of the thumbnails' budget.
         std::optional<std::chrono::steady_clock::time_point> m_RevealOtherwiseReadySince;
         // KEPT after it is closed, until the layer goes: Close() only starts the crossfade, and the

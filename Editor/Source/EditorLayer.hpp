@@ -36,7 +36,6 @@
 #include "Editor/Widgets/WindowChrome.hpp"
 #include "Editor/Splash/SplashScreen.hpp"
 
-
 #include <chrono>
 #include <optional>
 
@@ -268,8 +267,9 @@ namespace Desert::Editor
 
         // Set by the first OnUIRender that draws the editor rather than a loading frame.
         bool m_RealFrameDrawn = false;
-        // The staged boot, the splash and its hand-over, the content settle (UE: FEditorLoadingScreen), after every
-        // module it reads; built in the constructor, which receives the splash. See Editor/LevelEditor/EditorStartup.hpp.
+        // The staged boot, the splash and its hand-over, the content settle (UE: FEditorLoadingScreen), after
+        // every module it reads; built in the constructor, which receives the splash. See
+        // Editor/LevelEditor/EditorStartup.hpp.
         EditorStartup m_Startup;
 
         // The palette providers that hold state or several slots (EDL-2b). Declared after every slot they point

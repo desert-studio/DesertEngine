@@ -307,7 +307,8 @@ TEST( ThumbnailPrefetch, NothingSweepsTheProjectForInvisibleAssets )
     EXPECT_NE( panel.find( "ThumbnailPrefetch::Get().Request(" ), std::string::npos )
          << "the Content Browser no longer hands its folder's cached pictures to the worker decode";
 
-    const std::string layer = ReadFile( std::format( "{}Editor/Source/Editor/LevelEditor/EditorStartup.cpp", root ) );
+    const std::string layer =
+         ReadFile( std::format( "{}Editor/Source/Editor/LevelEditor/EditorStartup.cpp", root ) );
     ASSERT_FALSE( layer.empty() );
     EXPECT_NE(
          layer.find(
@@ -381,7 +382,8 @@ TEST( ThumbnailPrefetch, TheSplashUploadsTheFolderTheBrowserOpensOn )
     EXPECT_NE( panel.find( "(void)m_Thumbnails->Get( picture );" ), std::string::npos )
          << "the splash upload does not go through the cache the tiles draw from";
 
-    const std::string layer = ReadFile( std::format( "{}Editor/Source/Editor/LevelEditor/EditorStartup.cpp", root ) );
+    const std::string layer =
+         ReadFile( std::format( "{}Editor/Source/Editor/LevelEditor/EditorStartup.cpp", root ) );
     ASSERT_FALSE( layer.empty() );
     EXPECT_NE(
          layer.find( "            ThumbnailService::TickDiskAndDecode();\n        UploadSplashThumbnails();\n" ),
