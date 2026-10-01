@@ -576,7 +576,8 @@ TEST( TeardownOrder, EditorLayerOwnsExactlyTheSceneRenderersOnDetachReleases )
 
 TEST( TeardownOrder, OnDetachReleasesEverySceneRendererAfterTheSceneLetsGoOfIt )
 {
-    // OnDetach waits for the device, then hands the worlds to SceneWorkspace::Teardown, which is where the order lives.
+    // OnDetach waits for the device, then hands the worlds to SceneWorkspace::Teardown, which is where the order
+    // lives.
     const std::string layer  = StripLineComments( ReadFile( RepoRoot() / "Editor/Source/EditorLayer.cpp" ) );
     const std::string detach = FunctionBody( layer, "EditorLayer::OnDetach" );
     ASSERT_FALSE( detach.empty() ) << "EditorLayer::OnDetach is not in Editor/Source/EditorLayer.cpp any more";

@@ -17,12 +17,12 @@ namespace Desert::Editor::Control
      *
      * THE OBVIOUS FORMULATION IS FALSE, so it is worth saying why rather than only saying what. "Execute
      * at the top of OnUpdate, answer after that frame" sounds exact and is not: EditorLayer's update runs
-     * a block of DEFERRED work — the dismissed scene views' closes, ServiceDocumentCloses, ServiceSubjectOpenRequests,
-     * a pending scene stop — and several commands land in a QUEUE there rather than taking effect where
-     * they were issued. Opening a document goes through Core::SubjectOpenRequests; a document refused for
-     * want of one of the six renderer slots only raises its dialog on the NEXT ImGui frame. For those, a
-     * reply "one frame later" would be a reply about a frame that had not caught up, and it would be right
-     * often enough to be trusted and wrong exactly when something interesting happened.
+     * a block of DEFERRED work — the dismissed scene views' closes, ServiceDocumentCloses,
+     * ServiceSubjectOpenRequests, a pending scene stop — and several commands land in a QUEUE there rather than
+     * taking effect where they were issued. Opening a document goes through Core::SubjectOpenRequests; a document
+     * refused for want of one of the six renderer slots only raises its dialog on the NEXT ImGui frame. For those,
+     * a reply "one frame later" would be a reply about a frame that had not caught up, and it would be right often
+     * enough to be trusted and wrong exactly when something interesting happened.
      *
      * SO THE GATE IS NOT COUNTED IN FRAMES, IT IS CONDITIONED ON QUIESCENCE. The reply leaves after a
      * frame that was both PRESENTED and rendered with NOTHING OUTSTANDING. That is a statement about the

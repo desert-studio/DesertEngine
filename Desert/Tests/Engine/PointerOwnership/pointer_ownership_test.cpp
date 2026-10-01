@@ -616,8 +616,8 @@ TEST( PointerOwnership, EditorLayerSeedsEveryScenePanelAtRegistration )
     // A PANEL THAT FOLLOWS THE ACTIVE SCENE MUST BE BORN WITH ONE (L8e). IPanel::SetScene is called only
     // by EditorLayer::SetActiveScene, which returns early when the scene asked for is already active -- and
     // the primary scene IS active when the panels are registered. So a panel that overrides SetScene but is
-    // constructed without m_Workspace.ActiveScene() holds no scene until the user focuses a second view and comes back.
-    // LandscapePanel was registered that way and drew "no scene" in every normal session, while every
+    // constructed without m_Workspace.ActiveScene() holds no scene until the user focuses a second view and comes
+    // back. LandscapePanel was registered that way and drew "no scene" in every normal session, while every
     // palette command (which reads the scene directly) answered ok. The fact is a relation between two
     // files, so it is asserted over both rather than trusted.
     namespace fs           = std::filesystem;
@@ -653,8 +653,11 @@ TEST( PointerOwnership, EditorLayerSeedsEveryScenePanelAtRegistration )
             continue;
         ++checked;
         sawLandscape = sawLandscape || panel == "LandscapePanel";
-        EXPECT_NE( layer.substr( nameEnd, callEnd - nameEnd ).find( "m_Workspace.ActiveScene()" ), std::string::npos )
-             << panel << " overrides SetScene but EditorLayer registers it without m_Workspace.ActiveScene(); SetActiveScene "
+        EXPECT_NE( layer.substr( nameEnd, callEnd - nameEnd ).find( "m_Workspace.ActiveScene()" ),
+                   std::string::npos )
+             << panel
+             << " overrides SetScene but EditorLayer registers it without m_Workspace.ActiveScene(); "
+                "SetActiveScene "
              << "skips the already-active primary scene, so the panel has NO scene until the user switches "
              << "views. Pass m_Workspace.ActiveScene() to its constructor.";
     }

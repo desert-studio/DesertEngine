@@ -412,9 +412,9 @@ namespace Desert::Editor
         // can be serialized to a .desce ONCE and loaded like any scene afterwards.
         void BuildStarterScene();    // fresh Hub project's DefaultScene: sun/ground/cube/light/camera
         void BuildCornellShowcase(); // sandbox demo: baked into CornellDemo.desce on first launch
-        // Serializes m_Workspace.ActiveScene() to @p path. False when the bytes did not land, with the reason logged;
-        // the file that was there (if any) is unchanged. Both callers generate startup content, so a
-        // false here means the project's own default scene is not on disk.
+        // Serializes m_Workspace.ActiveScene() to @p path. False when the bytes did not land, with the reason
+        // logged; the file that was there (if any) is unchanged. Both callers generate startup content, so a false
+        // here means the project's own default scene is not on disk.
         [[nodiscard]] bool SaveSceneTo( const std::string& path );
         // Drops the scene's text header when `destination` is not the file it was opened as (a copy is a
         // new asset with a new GUID); returns the header it had, for a failed save to put back.
@@ -637,14 +637,14 @@ namespace Desert::Editor
         bool                                    m_BottomCollapsed = false;
         float                                   m_BottomHeight    = 0.0f;
         void                                    DrawBottomDrawerToggle();
-        char                                    m_LayoutNameBuf[64] = {};
+        char                                    m_LayoutNameBuf[64]  = {};
         bool                                    m_OpenScenePopup     = false;
         bool                                    m_SaveSceneRequested = false;
         // Set when "Save and Open" could not write the scene: the modal STAYS OPEN and shows this, so
         // the choice the user is making ("throw this scene away") is made knowing the save did not
         // happen. Cleared whenever the modal is dismissed.
         std::string m_SaveAndOpenError;
-        bool        m_NewSceneRequested     = false;
+        bool        m_NewSceneRequested = false;
 
         // Staged startup loading: the heavy boot work (mesh cooking, asset preload) runs one stage per
         // frame from OnUpdate, each announced on the splash, with the main window still hidden.

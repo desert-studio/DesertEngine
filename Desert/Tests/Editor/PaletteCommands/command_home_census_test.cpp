@@ -62,7 +62,7 @@ namespace
     constexpr const char* kAnimDocument =
          "Editor/Source/Editor/Panels/AnimationEditor/AnimationEditorDocument.cpp";
     constexpr const char* kLayer = "Editor/Source/EditorLayer.cpp";
-    constexpr const char* kPlay  = "Editor/Source/Editor/LevelEditor/PlaySession.cpp";
+    constexpr const char* kPlay          = "Editor/Source/Editor/LevelEditor/PlaySession.cpp";
     constexpr const char* kAssetCommands = "Editor/Source/Editor/Panels/FileExplorer/AssetCommands.cpp";
 } // namespace
 
