@@ -16,6 +16,7 @@
 
 #include <gtest/gtest.h>
 
+#include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
 
 #include <Common/Content/ContentScan.hpp>
@@ -66,16 +67,12 @@ namespace
     // Every .shader under Editor/Resources/Shaders/Programs, parsed ONCE and sorted, so a failure names
     // the same file on every machine and the whole suite pays for one walk rather than one per test
     // (assembling a stage un-sugars every line, which is not free over seventy-odd files). The root is
-    // found by walking up from the test binary in build/Bin/Tests/<config>, as Tests/Engine/ShaderCacheKey
-    // does.
+    // the checkout the build baked in (TestSupport::RepositoryRoot).
     const std::vector<ParsedShader>& ShippedShaders()
     {
         static const std::vector<ParsedShader> shaders = []() -> std::vector<ParsedShader>
         {
-            std::filesystem::path here = std::filesystem::current_path();
-            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" );
-                  ++up )
-                here = here.parent_path();
+            const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
 
             std::vector<std::filesystem::path> files;
             const auto                         root = here / "Editor" / "Resources" / "Shaders" / "Programs";
@@ -459,10 +456,7 @@ namespace
     {
         static const std::vector<std::filesystem::path> files = []()
         {
-            std::filesystem::path here = std::filesystem::current_path();
-            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" );
-                  ++up )
-                here = here.parent_path();
+            const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
 
             std::vector<std::filesystem::path> out;
             const auto                         root = here / "Editor" / "Resources" / "Shaders";
@@ -476,20 +470,13 @@ namespace
         return files;
     }
 
-    // `Editor/Resources/Assets`, found the same way the two walks above find the shader root: by probing
-    // upwards from the test's working directory (build/Bin/Tests/<config>). Empty if it is not there,
-    // which the caller turns into a failure rather than an empty pass.
+    // `Editor/Resources/Assets` of the checkout the build baked in. Empty if it is not there, which the caller
+    // turns into a failure rather than an empty pass.
     std::filesystem::path ShippedAssetsRoot()
     {
-        std::filesystem::path here = std::filesystem::current_path();
-        for ( int up = 0; up < 8; ++up )
-        {
-            const std::filesystem::path candidate = here / "Editor" / "Resources" / "Assets";
-            if ( std::filesystem::exists( candidate / "Scenes" ) )
-                return candidate;
-            here = here.parent_path();
-        }
-        return {};
+        const std::filesystem::path candidate =
+             Desert::TestSupport::RepositoryRoot() / "Editor" / "Resources" / "Assets";
+        return std::filesystem::exists( candidate / "Scenes" ) ? candidate : std::filesystem::path{};
     }
 
     // The handle a `.demat`'s normal slot resolves to (HandleForGuid of the GUID it states, MATL 3), or 0 for
@@ -774,15 +761,9 @@ TEST( ShippedShaderPasses, NoShippedShaderTranslatesItsOwnProse )
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
-    // Parsing a surface template resolves its `ShadingModel` through the shading models of the engine's shader
-    // root, which the engine finds against the working directory; the runner starts the suite in its scratch
-    // directory, so the process works from the engine resources, as the editor does.
-    const Desert::TestSupport::EngineResourcesWorkingDirectory engineResources;
-    if ( !engineResources.Error().empty() )
-    {
-        std::fprintf( stderr, "ShippedShaderPasses: %s\n", engineResources.Error().c_str() );
-        return 1;
-    }
+    // The engine resources (the shader root and its shading models) hang off the engine directory the build baked
+    // in; the working directory is never consulted.
+    const Desert::TestSupport::EngineDirScope engineDir;
     return RUN_ALL_TESTS();
 }
 
@@ -876,9 +857,7 @@ TEST( ShippedShaderPasses, TwoTranslucentTemplatesAreTwoShadersOfTheTranslucency
     EXPECT_NE( glass, water );
     EXPECT_FALSE( Desert::Graphic::MeshShaderFor( "", MeshVertexPath::Static, MeshPass::Glass ).has_value() );
 
-    std::filesystem::path here = std::filesystem::current_path();
-    for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Desert" / "Desert" / "Source" ); ++up )
-        here = here.parent_path();
+    const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
     const std::string source =
          ReadFile( here / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
     ASSERT_FALSE( source.empty() ) << "MeshRenderer.cpp was not found from " << here;
@@ -893,9 +872,7 @@ TEST( ShippedShaderPasses, TwoTranslucentTemplatesAreTwoShadersOfTheTranslucency
 // object is drawn in is a property of its material's template (its blend mode); a parameter's VALUE never is.
 TEST( ShippedShaderPasses, TheMeshRendererPicksNoPassByAParameterName )
 {
-    std::filesystem::path here = std::filesystem::current_path();
-    for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Desert" / "Desert" / "Source" ); ++up )
-        here = here.parent_path();
+    const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
     const std::string source =
          ReadFile( here / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
     ASSERT_FALSE( source.empty() ) << "MeshRenderer.cpp was not found from " << here;

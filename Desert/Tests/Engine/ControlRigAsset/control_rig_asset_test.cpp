@@ -40,6 +40,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 using Desert::Animation::AnimationClip;
 using Desert::Animation::Animator;
@@ -278,27 +279,7 @@ namespace
         return worst;
     }
 
-    // The repository root, found by walking up from the working directory until a marker is seen — the
-    // same trick the AnimGraphScript census uses, because a source-text census has to read the tree.
-    std::string RepoRoot()
-    {
-        std::filesystem::path here = std::filesystem::current_path();
-        for ( int i = 0; i < 12; ++i )
-        {
-            if ( std::filesystem::exists( here / "Desert" / "Desert" / "Source" / "Engine" ) )
-            {
-                return here.string() + "/";
-            }
-            if ( !here.has_parent_path() || here.parent_path() == here )
-            {
-                break;
-            }
-            here = here.parent_path();
-        }
-        return {};
-    }
-
-    std::string ReadFile( const std::string& path )
+    std::string ReadFile( const std::filesystem::path& path )
     {
         const std::ifstream in( path, std::ios::binary );
         if ( !in )
@@ -806,8 +787,8 @@ TEST( ControlRigAssetTest, EveryShapeOfUnusableRigIsRefusedAndTheMessageNamesThe
 
 TEST( ControlRigAssetTest, EveryLinkFromTheFileToTheSkinningMatricesHasACaller )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "could not locate the repository root from the working directory";
+    // The checkout the build baked in, never searched for from the working directory.
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
 
     struct Link
     {
@@ -867,7 +848,7 @@ TEST( ControlRigAssetTest, EveryLinkFromTheFileToTheSkinningMatricesHasACaller )
     for ( const Link& link : links )
     {
         SCOPED_TRACE( std::string( link.File ) + " :: " + link.Needle );
-        const std::string text = ReadFile( root + link.File );
+        const std::string text = ReadFile( root / link.File );
         ASSERT_FALSE( text.empty() ) << "could not read " << link.File;
         EXPECT_NE( text.find( link.Needle ), std::string::npos ) << link.Why;
         ++checked;

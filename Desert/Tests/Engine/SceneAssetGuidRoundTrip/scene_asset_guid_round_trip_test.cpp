@@ -12,6 +12,7 @@
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Constants.hpp>
 
+#include "../../TestSupport/engine_dir.hpp"
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -148,6 +149,7 @@ TEST( SceneAssetGuidRoundTrip, AssetWithNoHeaderGuidIsRefusedNamingTheField )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

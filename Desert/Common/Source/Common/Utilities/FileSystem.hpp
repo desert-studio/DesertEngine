@@ -166,8 +166,8 @@ namespace Common::Utils
         // FFileSystemCacheStore writes to a unique temp): one `.tmp` for two writers let the second
         // rename find the first one's file already gone (Blockout_1/2, 09-30).
         [[nodiscard]] static Common::BoolResultStr
-        WriteBytesToFileAtomic( const std::filesystem::path& filepath, std::span<const std::byte> content,
-                                const std::filesystem::path& workingFile );
+        WriteBytesToFileAtomic( const std::filesystem::path& requestedPath, std::span<const std::byte> content,
+                                const std::filesystem::path& requestedWorkingFile );
 
         [[nodiscard]] static Common::BoolResultStr WriteContentToFileAtomic( const std::filesystem::path& filepath,
                                                                              const std::string& content );
@@ -195,5 +195,18 @@ namespace Common::Utils
 
         // Absolute path of the running executable — for locating content (a .dpak) packaged next to it.
         [[nodiscard]] static std::filesystem::path ExecutablePath();
+
+        // THE PROCESS'S BASE DIRECTORY (UE: FPlatformProcess::BaseDir) — the directory of the running
+        // executable, absolute, symlinks resolved; empty exactly when the OS would not say. The one anchor a
+        // packaged game has: its archives and chunk manifest sit here (GamePackager puts them beside the
+        // player binary in a plain folder), and nothing is read from the working directory, which a Finder
+        // launch sets to `/`.
+        [[nodiscard]] static std::filesystem::path BaseDir();
+
+        // WHERE A PACKAGED GAME'S CONTENT IS, given its BaseDir. Inside a macOS bundle
+        // (`<Name>.app/Contents/MacOS`) it is `Contents/Resources` — Apple's signing rule: Contents/MacOS
+        // holds code only, and a data file there breaks `codesign --verify`. Everywhere else it is the
+        // base directory itself. GamePackager writes to exactly this place (both sides call this).
+        [[nodiscard]] static std::filesystem::path PackagedContentDir( const std::filesystem::path& baseDir );
     };
 } // namespace Common::Utils

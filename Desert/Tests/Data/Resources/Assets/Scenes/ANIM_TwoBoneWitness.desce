@@ -1,14 +1,14 @@
 {
     "Header": {
         "Kind": "Scene",
-        "Guid": "8015c4b560e8c6a22aa75bb696d704a1",
+        "Guid": "9cb37b611894338c89e1778b0b485fe1",
         "Versions": {
             "SCNE": 41,
             "UNIT": 1
         },
         "Dependencies": []
     },
-    "SceneName": "Animation Retarget Witness",
+    "SceneName": "Animation Two-Bone Witness",
     "Entities": [
         {
             "id": 1001,
@@ -100,44 +100,121 @@
             }
         },
         {
-            "id": 2010,
-            "siblingIndex": 3,
-            "Tag": "Retarget_Probe",
-            "Translation": [0.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "SkinnedMesh": {
-                "MeshPath": "Resources/Assets/Meshes/Skinned/IKProbe.skmesh",
-                "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
-            },
-            "Animation": {
-                "CurrentClip": "ForeignArm_Swing",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0
-            },
-            "Retarget": {
-                "Retarget": "Retargets/ForeignArm_To_IKProbe.retarget"
-            }
-        },
-        {
-            "id": 2910,
+            "id": 2000,
             "siblingIndex": 2,
-            "Tag": "Ground_2910",
-            "Translation": [0.0, 120.0, 0.0],
+            "Tag": "Ground",
+            "Translation": [700.0, -60.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [8.0, 0.20000000298023224, 16.0],
+            "Scale": [60.0, 0.20000000298023224, 16.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
+                "MaterialGuids": ["443da08f9e394860b5c2bd3bb619e9cd"],
                 "Primitive": "Cube"
             }
         },
         {
-            "id": 6656845302367858992,
+            "id": 2010,
+            "siblingIndex": 3,
+            "Tag": "L_OneBoneBlend",
+            "Translation": [-1400.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "SkinnedMesh": {
+                "MeshPath": "Resources/Assets/Meshes/Skinned/SkinProbe.skmesh",
+                "MeshGuid": "047623816f024edf9fd7a557f6501f7e",
+                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
+            },
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "EnableRootMotion": false,
+                "Graph": "AnimGraphs/OneBoneBlend.danimgraph"
+            }
+        },
+        {
+            "id": 2020,
             "siblingIndex": 4,
+            "Tag": "R_TwoBoneBlend",
+            "Translation": [0.0, -137.5, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "SkinnedMesh": {
+                "MeshPath": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
+                "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
+                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
+            },
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "EnableRootMotion": false,
+                "Graph": "AnimGraphs/TwoBoneBlend.danimgraph"
+            }
+        },
+        {
+            "id": 2030,
+            "siblingIndex": 5,
+            "Tag": "P_Wave",
+            "Translation": [1400.0, -137.5, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "SkinnedMesh": {
+                "MeshPath": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
+                "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
+                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
+            },
+            "Animation": {
+                "CurrentClip": "TwoBoneProbe_Wave",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "EnableRootMotion": false
+            }
+        },
+        {
+            "id": 2040,
+            "siblingIndex": 6,
+            "Tag": "P_Twist",
+            "Translation": [2800.0, -137.5, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "SkinnedMesh": {
+                "MeshPath": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
+                "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
+                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
+            },
+            "Animation": {
+                "CurrentClip": "TwoBoneProbe_Twist",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "EnableRootMotion": false
+            }
+        },
+        {
+            "id": 9001,
+            "siblingIndex": 7,
+            "Tag": "Camera",
+            "Translation": [0.0, 120.0, 900.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Camera": {
+                "AutoActivateForPlayer": true,
+                "FOV": 35.0,
+                "Near": 10.0,
+                "Far": 5000000.0
+            }
+        },
+        {
+            "id": 10225522544234402177,
+            "siblingIndex": 8,
             "Tag": "PostProcessVolume",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],

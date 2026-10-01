@@ -1,14 +1,14 @@
 {
     "Header": {
         "Kind": "Scene",
-        "Guid": "a8b98e82066b336a19f729bde6b25331",
+        "Guid": "43d90bf109f432210eee3c1119c190d2",
         "Versions": {
             "SCNE": 41,
             "UNIT": 1
         },
         "Dependencies": []
     },
-    "SceneName": "Animation Graph Script Witness",
+    "SceneName": "Animation Clip Probe",
     "Entities": [
         {
             "id": 1001,
@@ -103,120 +103,85 @@
             "id": 2000,
             "siblingIndex": 2,
             "Tag": "Ground",
-            "Translation": [700.0, -60.0, 0.0],
+            "Translation": [0.0, -60.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [60.0, 0.20000000298023224, 16.0],
+            "Scale": [24.0, 0.20000000298023224, 16.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
+                "MaterialGuids": ["443da08f9e394860b5c2bd3bb619e9cd"],
                 "Primitive": "Cube"
             }
         },
         {
             "id": 2010,
             "siblingIndex": 3,
-            "Tag": "G_Driven",
-            "Translation": [0.0, -137.5, 0.0],
+            "Tag": "A_Hover",
+            "Translation": [-150.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
-                "MeshPath": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
-                "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
+                "MeshPath": "Resources/Assets/Meshes/Skinned/SkinProbe.skmesh",
+                "MeshGuid": "047623816f024edf9fd7a557f6501f7e",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
+                "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
             },
             "Animation": {
-                "CurrentClip": "",
+                "CurrentClip": "SkinProbe_Hover",
                 "Playing": true,
                 "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "Graph": "AnimGraphs/ScriptDriven.danimgraph"
-            },
-            "Script": {
-                "Scripts": [
-                    {
-                        "ScriptKey": "assets:Scripts/Examples/DriveAnimGraph.lua",
-                        "Props": [
-                            {
-                                "Name": "Param",
-                                "Type": 2,
-                                "Number": 0.0,
-                                "Bool": false,
-                                "Str": "Go"
-                            },
-                            {
-                                "Name": "Delay",
-                                "Type": 0,
-                                "Number": 0.5,
-                                "Bool": false,
-                                "Str": ""
-                            }
-                        ]
-                    }
-                ]
+                "PlaybackSpeed": 1.0
             }
         },
         {
-            "id": 2020,
+            "id": 2011,
             "siblingIndex": 4,
-            "Tag": "G_Typo",
-            "Translation": [1400.0, -137.5, 0.0],
+            "Tag": "B_StaticTwin",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
+            }
+        },
+        {
+            "id": 2012,
+            "siblingIndex": 5,
+            "Tag": "C_Tilt",
+            "Translation": [150.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
-                "MeshPath": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
-                "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
+                "MeshPath": "Resources/Assets/Meshes/Skinned/SkinProbe.skmesh",
+                "MeshGuid": "047623816f024edf9fd7a557f6501f7e",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
+                "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
             },
             "Animation": {
-                "CurrentClip": "",
+                "CurrentClip": "SkinProbe_Tilt",
                 "Playing": true,
                 "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "Graph": "AnimGraphs/ScriptDriven.danimgraph"
-            },
-            "Script": {
-                "Scripts": [
-                    {
-                        "ScriptKey": "assets:Scripts/Examples/DriveAnimGraph.lua",
-                        "Props": [
-                            {
-                                "Name": "Param",
-                                "Type": 2,
-                                "Number": 0.0,
-                                "Bool": false,
-                                "Str": "Gone"
-                            },
-                            {
-                                "Name": "Delay",
-                                "Type": 0,
-                                "Number": 0.5,
-                                "Bool": false,
-                                "Str": ""
-                            }
-                        ]
-                    }
-                ]
+                "PlaybackSpeed": 1.0
             }
         },
         {
             "id": 9001,
-            "siblingIndex": 5,
+            "siblingIndex": 6,
             "Tag": "Camera",
-            "Translation": [0.0, 120.0, 900.0],
+            "Translation": [0.0, 60.0, 500.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "Camera": {
                 "AutoActivateForPlayer": true,
-                "FOV": 35.0,
+                "FOV": 45.0,
                 "Near": 10.0,
                 "Far": 5000000.0
             }
         },
         {
-            "id": 11895562313227355414,
-            "siblingIndex": 6,
+            "id": 10721375729706439459,
+            "siblingIndex": 7,
             "Tag": "PostProcessVolume",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],

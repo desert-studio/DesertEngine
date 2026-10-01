@@ -2,7 +2,7 @@
 // It shades nothing and declares nothing of its own: every binding it has is the surface's. Every shading model
 // writes through it: the texel carries the template's model index (DESERT_SHADING_MODEL_INDEX, defined by the
 // parser) and payload in the shading word, and the deferred composite lights it through the generated dispatch.
-#include <ShadingModels/ShadingModels.generated.glslh>
+#include <Generated/ShadingModels.glslh>
 
 DESERT_SURFACE_VARYINGS( in )
 

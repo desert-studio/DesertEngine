@@ -57,27 +57,19 @@
 #include <cstdio>
 
 #include <Common/Core/Core.hpp>
+#include "../../TestSupport/scratch_dir.hpp"
 namespace
 {
-    constexpr const char* kCorpusDir = "Editor/Resources/Assets/Meshes/Skinned/";
-    constexpr const char* kProbeRig  = "Editor/Resources/Assets/Meshes/Skinned/SkinProbe.skeleton";
+    constexpr const char* kCorpusDir = "Resources/Assets/Meshes/Skinned/";
+    constexpr const char* kProbeRig  = "Resources/Assets/Meshes/Skinned/SkinProbe.skeleton";
 
-    // The probe rig's one bone. Named here as well as read from the file so that a corpus clip pointing at
-    // a bone the rig does not have is a failure with a readable message rather than a silent non-match.
-    constexpr const char* kProbeBoneName = "Root";
-
-    std::string RepoRoot()
-    {
-        std::string prefix = "./";
-        for ( int up = 0; up < 6; ++up )
-        {
-            std::ifstream probe( prefix + kProbeRig );
-            if ( probe )
-                return prefix;
-            prefix += "../";
-        }
-        return {};
-    }
+    // The checkout and the suite data project (Desert/Tests/Data) are the roots the build baked in
+    // (TestSupport::RepositoryRoot / TestDataDir) — never found from the working directory.
+#if defined( DESERT_PLATFORM_WINDOWS )
+    constexpr const char* kNullDevice = "nul";
+#else
+    constexpr const char* kNullDevice = "/dev/null";
+#endif
 
     // THE CORPUS IS WHAT GIT TRACKS, AND ASKING THE DISK WAS WRONG THREE TIMES.
     //
@@ -98,12 +90,9 @@ namespace
     // the shape this whole class of defect hides behind.
     std::optional<std::vector<std::string>> TrackedClips()
     {
-        const std::string command = "git -C \"" + RepoRoot() + ".\" ls-files -z -- \"*.anim\" 2>" +
-#if defined( DESERT_PLATFORM_WINDOWS )
-                                    std::string( "nul" );
-#else
-                                    std::string( "/dev/null" );
-#endif
+        const std::string command =
+             std::format( R"(git -C "{}" ls-files -z -- "*.anim" 2>{})",
+                          Desert::TestSupport::RepositoryRoot().generic_string(), kNullDevice );
 
 #if defined( DESERT_PLATFORM_WINDOWS )
         FILE* pipe = _popen( command.c_str(), "r" );
@@ -133,7 +122,7 @@ namespace
             if ( c == '\0' )
             {
                 if ( !current.empty() )
-                    clips.push_back( RepoRoot() + current );
+                    clips.push_back( ( Desert::TestSupport::RepositoryRoot() / current ).generic_string() );
                 current.clear();
                 continue;
             }
@@ -142,7 +131,7 @@ namespace
         return clips;
     }
 
-    std::string ReadFile( const std::string& path )
+    std::string ReadFile( const std::filesystem::path& path )
     {
         std::ifstream in( path, std::ios::binary );
         if ( !in )
@@ -157,7 +146,8 @@ namespace
 
     Desert::Animation::AnimationClip LoadClip( const std::string& stem )
     {
-        const std::string path = RepoRoot() + kCorpusDir + stem + ".anim";
+        const std::string path =
+             ( Desert::TestSupport::TestDataDir() / kCorpusDir / std::format( "{}.anim", stem ) ).generic_string();
         const auto        data = Desert::Assets::Serialization::ReadAnimationJson( ReadFile( path ) );
         EXPECT_TRUE( data.IsSuccess() ) << path << ": " << ( data.IsSuccess() ? "" : data.GetError() );
         if ( !data.IsSuccess() )
@@ -180,7 +170,7 @@ namespace
     // The probe skeleton's identity: the GUID in SkinProbe.skeleton's own header, which is what a clip names.
     Common::Content::AssetGuid ProbeSkeletonGuid()
     {
-        const std::string raw  = ReadFile( RepoRoot() + kProbeRig );
+        const std::string raw  = ReadFile( Desert::TestSupport::TestDataDir() / kProbeRig );
         auto              data = Desert::Assets::Serialization::ReadSkeletonJson( raw );
         EXPECT_TRUE( data.IsSuccess() ) << kProbeRig << ": " << ( data.IsSuccess() ? "" : data.GetError() );
         if ( !data.IsSuccess() )
@@ -202,7 +192,7 @@ TEST( AnimationClipCorpus, EveryClipInTheRepositoryIsATimelineClipThatValidates 
     const auto clips = TrackedClips();
     if ( !clips )
     {
-        FAIL() << "git ls-files failed from " << RepoRoot();
+        FAIL() << "git ls-files failed from " << Desert::TestSupport::RepositoryRoot().generic_string();
     }
     std::size_t read = 0;
     for ( const std::string& path : *clips )
@@ -225,7 +215,7 @@ TEST( AnimationClipCorpus, EveryClipInTheRepositoryIsATimelineClipThatValidates 
         EXPECT_FALSE( sequence.Tracks.empty() ) << path << ": a clip that animates nothing";
         ++read;
     }
-    EXPECT_GE( read, 10u ) << "too few clips read from " << RepoRoot();
+    EXPECT_GE( read, 10u ) << "too few clips read from " << Desert::TestSupport::RepositoryRoot().generic_string();
 }
 
 // THE ONE WRITER IS THE FORMAT: each file is exactly what BuildAssetDataFromClip + WriteAnimationJson write
@@ -237,7 +227,7 @@ TEST( AnimationClipCorpus, EveryClipIsWhatTheOneWriterWritesForIt )
     const auto clips = TrackedClips();
     if ( !clips )
     {
-        FAIL() << "git ls-files failed from " << RepoRoot();
+        FAIL() << "git ls-files failed from " << Desert::TestSupport::RepositoryRoot().generic_string();
     }
     for ( const std::string& path : *clips )
     {

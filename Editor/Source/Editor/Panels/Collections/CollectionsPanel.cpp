@@ -545,7 +545,8 @@ namespace Desert::Editor
         if ( m_Collections.empty() )
         {
             ImGui::TextDisabled( "No collections found." );
-            ImGui::TextDisabled( "Drop a pack into Resources/Collections/<Name>/ with a collection.json" );
+            // The directory actually scanned (the project's, off ProjectDir), not a spelling of it.
+            ImGui::TextDisabled( "Drop a pack into %s<Name>/ with a collection.json", CollectionsRoot().c_str() );
             return;
         }
 

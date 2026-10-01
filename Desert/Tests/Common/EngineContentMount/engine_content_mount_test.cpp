@@ -14,6 +14,7 @@
 #include <format>
 #include <optional>
 #include <string>
+#include "../../TestSupport/engine_dir.hpp"
 
 namespace
 {
@@ -25,13 +26,7 @@ namespace
 
     fs::path EditorDir()
     {
-        for ( const char* prefix : { "", "../", "../../", "../../../", "../../../../" } )
-        {
-            const fs::path candidate = fs::path( prefix ) / "Editor/Resources/Engine" / kHumanoid;
-            if ( fs::is_regular_file( candidate ) )
-                return fs::absolute( fs::path( prefix ) / "Editor" ).lexically_normal();
-        }
-        return {};
+        return Desert::TestSupport::EngineDir();
     }
 
     class EngineContentMount : public ::testing::Test
@@ -40,10 +35,10 @@ namespace
         void SetUp() override
         {
             m_Saved               = Path::CurrentProjectRoot();
-            m_Cwd                 = fs::current_path();
+            m_SavedEngineDir      = Common::Constants::Path::EngineDir();
             const fs::path editor = EditorDir();
             ASSERT_FALSE( editor.empty() ) << "Editor/Resources/Engine/" << kHumanoid << " not found";
-            fs::current_path( editor );
+            Common::Constants::Path::SetEngineDir( editor );
 
             // A project whose own assets tree holds nothing at all.
             m_Project = fs::temp_directory_path() /
@@ -56,13 +51,13 @@ namespace
         void TearDown() override
         {
             Path::SetProjectRoot( m_Saved.ProjectDir, m_Saved.AssetsRoot );
-            fs::current_path( m_Cwd );
+            Common::Constants::Path::SetEngineDir( m_SavedEngineDir );
             std::error_code ec;
             fs::remove_all( m_Project, ec );
         }
 
         Path::ProjectRootState m_Saved;
-        fs::path               m_Cwd;
+        fs::path               m_SavedEngineDir;
         fs::path               m_Project;
     };
 } // namespace
@@ -111,6 +106,7 @@ TEST_F( EngineContentMount, TheSandboxWalksItsAssetsAndTheMount )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

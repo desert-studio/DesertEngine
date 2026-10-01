@@ -4,6 +4,7 @@
 
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/ImportRecord.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
@@ -23,7 +24,8 @@ namespace Desert::Editor::ImportedAssetSource
         ClipStatedSource( const std::filesystem::path& clip )
         {
             using Source    = std::optional<std::filesystem::path>;
-            const auto text = Common::Utils::FileSystem::ReadFileContentIfExists( clip );
+            const auto text =
+                 Common::Utils::FileSystem::ReadFileContentIfExists( Common::Constants::Path::FullPath( clip ) );
             if ( !text )
                 return Common::MakeError<Source>( text.GetError() );
             const std::optional<std::string>& content = text.GetValue();
@@ -56,13 +58,18 @@ namespace Desert::Editor::ImportedAssetSource
         RecordedSource( const std::filesystem::path& asset )
         {
             using Source = std::optional<std::filesystem::path>;
-            std::error_code ec;
-            if ( !std::filesystem::is_regular_file( asset, ec ) )
+            // The file and its folder are read off the project (Path::FullPath), never the working directory;
+            // the source named back keeps the asset's own spelling (its folder / the recorded source's name).
+            const std::filesystem::path onDisk = Common::Constants::Path::FullPath( asset );
+            std::error_code             ec;
+            if ( !std::filesystem::is_regular_file( onDisk, ec ) )
                 return Common::MakeFormattedError<Source>( "'{}' does not exist", asset.string() );
             const std::string                  extension = asset.extension().string();
             std::vector<std::filesystem::path> writers;
-            for ( const std::filesystem::path& source : Common::Content::SourcesRecordedIn( asset.parent_path() ) )
+            for ( const std::filesystem::path& recorded :
+                  Common::Content::SourcesRecordedIn( onDisk.parent_path() ) )
             {
+                const std::filesystem::path source = asset.parent_path() / recorded.filename();
                 if ( CookPaths::SkinnedAsset( source, extension ).filename() != asset.filename() )
                     continue;
                 const auto kind = Assets::Serialization::ReadImportRecordKind( source );

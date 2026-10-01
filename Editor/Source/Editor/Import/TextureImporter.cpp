@@ -504,7 +504,7 @@ namespace Desert::Editor
         static std::mutex           s_CookMutex;
         std::lock_guard<std::mutex> cookLock( s_CookMutex );
 
-        auto abs = std::filesystem::weakly_canonical( path ).string();
+        auto abs = std::filesystem::weakly_canonical( Common::Constants::Path::FullPath( path ) ).string();
 
         if ( m_Cache.contains( abs ) )
         {
@@ -900,7 +900,8 @@ namespace Desert::Editor
                        assetPath.string(), authored.Problem );
             settings.Intent = Fmt::TextureIntent::Data;
         }
-        const fs::path rel  = fs::relative( source, Common::Constants::Path::SKYBOX_PATH );
+        const fs::path rel =
+             fs::relative( Common::Constants::Path::FullPath( source ), Common::Constants::Path::SKYBOX_PATH );
         const bool     sky  = !rel.empty() && rel.begin()->string() != "..";
         const auto     kind = sky ? Common::Content::ContentKind::Skybox : Common::Content::ContentKind::Texture;
         const Assets::TextureSourceAsset asset =

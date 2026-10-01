@@ -20,6 +20,7 @@
 // Every assertion is about the SHIPPED TEXT (Mesh/DirectLighting.glslh compiled as C++), and each picks
 // a property a missing 1/PI cannot have.
 
+#include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>
 
 #include "DirectLightingReference.hpp"
@@ -222,9 +223,7 @@ namespace
     std::filesystem::path ShaderRoot()
     {
         // The test binary lives in build/Bin/Tests/<config>; walk up to the repository root.
-        std::filesystem::path root = std::filesystem::current_path();
-        for ( int up = 0; up < 8 && !std::filesystem::exists( root / "Editor" / "Resources" / "Shaders" ); ++up )
-            root = root.parent_path();
+        const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
         return root / "Editor" / "Resources" / "Shaders";
     }
 
@@ -248,7 +247,7 @@ TEST( DirectLighting, EveryDirectLightInTheEngineReachesTheOneSharedBRDF )
 {
     const std::filesystem::path root = ShaderRoot();
     ASSERT_TRUE( std::filesystem::exists( root ) )
-         << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
+         << "could not find Editor/Resources/Shaders above " << Desert::TestSupport::RepositoryRoot();
 
     // Each consumer, the text it must compile and the call it must make. Both passes hand EVERY source (the sun,
     // point and spot lights) as a DesertLight from Mesh/LightSources.glslh to the surface's shading model; the

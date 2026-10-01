@@ -1,5 +1,6 @@
 #include "UIRenderTextureCache.hpp"
 
+#include <Common/Core/Constants.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/Render2D/UIRenderTextureView.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
@@ -105,7 +106,10 @@ namespace Desert::Graphic::Render2D
         // down the running scene: a file that will not load must cost nothing. A SceneRenderer built here
         // and thrown away would have taken — and returned — a slot, and on the way would have allocated
         // its cascades.
-        const auto json = Core::ExternalEntities::ReadSceneFileText( demand.ScenePath );
+        // The authored path is project-relative; the file is opened off ProjectDir(), never off the
+        // working directory (UE: FPaths::ConvertRelativePathToFull). ScenePath stays the identity.
+        const std::string sceneFile = Common::Constants::Path::FullPath( demand.ScenePath ).string();
+        const auto        json      = Core::ExternalEntities::ReadSceneFileText( sceneFile );
         if ( !json )
         {
             if ( ShouldSay( m_Refused, element, "read:" + demand.ScenePath ) )
@@ -115,7 +119,7 @@ namespace Desert::Graphic::Render2D
             }
             return nullptr;
         }
-        auto loadable = Core::ParseLoadableScene( demand.ScenePath, json.GetValue() );
+        auto loadable = Core::ParseLoadableScene( sceneFile, json.GetValue() );
         if ( !loadable )
         {
             if ( ShouldSay( m_Refused, element, "parse:" + demand.ScenePath ) )
@@ -141,7 +145,7 @@ namespace Desert::Graphic::Render2D
         Core::AddSceneRenderCollectors( *capture.Scene );
 
         const Core::SceneSerializer serializer( capture.Scene.get(), &assetManager );
-        if ( const auto loaded = serializer.Deserialize( loadable.ExtractValue(), demand.ScenePath ); !loaded )
+        if ( const auto loaded = serializer.Deserialize( loadable.ExtractValue(), sceneFile ); !loaded )
         {
             if ( ShouldSay( m_Refused, element, "load:" + demand.ScenePath ) )
             {

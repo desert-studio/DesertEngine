@@ -498,11 +498,15 @@ namespace Desert::Editor
             // The RULE itself lives in Editor/Core/CommandLine.hpp as a pure function taking the existence
             // as a parameter, so it is asserted by a test rather than only observable by launching the
             // editor at a path that is not there. This call site supplies the filesystem it cannot.
-            const auto verdict = ValidateSceneForCapture( shot, std::filesystem::exists( shot.Scene ) );
+            //
+            // A relative `--scene` is PROJECT content, so it is read off the project's directory
+            // (FPaths::ProjectDir), never off the working directory — the editor may be started from any
+            // folder. An absolute path is taken as given (operator/ keeps an absolute right-hand side).
+            const std::filesystem::path scenePath = Common::Constants::Path::ProjectDir() / shot.Scene;
+            const auto verdict = ValidateSceneForCapture( shot, std::filesystem::exists( scenePath ) );
             if ( !verdict.IsSuccess() )
             {
-                LOG_ERROR( "[Shot] {} (looked from '{}')", verdict.GetError(),
-                           std::filesystem::current_path().string() );
+                LOG_ERROR( "[Shot] {} (looked for '{}')", verdict.GetError(), scenePath.string() );
                 // NOT std::exit(). The job system's workers are already running by the time this line is
                 // reached, and exit() runs static destructors under them: nine threads threw
                 // "recursive_mutex lock failed: Invalid argument" and the process aborted with 134. A
@@ -513,7 +517,7 @@ namespace Desert::Editor
             }
             else
             {
-                m_SceneFiles.RequestLoad( Common::Filepath( shot.Scene ) );
+                m_SceneFiles.RequestLoad( Common::Filepath( scenePath ) );
             }
         }
         else if ( ProjectContext::HasProject() )
@@ -633,7 +637,7 @@ namespace Desert::Editor
         ::ImGui::CreateContext();
 
         // 2. Initialize Editor Resources (Adds fonts to the atlas)
-        Editor::EditorResources::Initialize( UI::kIconFontFile.string() );
+        Editor::EditorResources::Initialize( UI::IconFontFile().string() );
 
         // 3. Initialize Engine ImGui Layer (Initializes backend and uploads fonts)
         m_ImGuiLayer = ImGui::ImGuiLayer::Create();
@@ -647,7 +651,23 @@ namespace Desert::Editor
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;     // Enable Docking
         io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;   // Enable Multi-Viewport / Platform Windows
 
-        // Before the first frame, which is when ImGui reads imgui.ini.
+        // THE DOCKING LAYOUT FILE, OFF THE PROJECT (UE: <Project>/Saved/Config/EditorLayout.ini) — never ImGui's
+        // default "imgui.ini", which fopen resolves against the working directory: an editor started from /tmp
+        // read and wrote /tmp/imgui.ini and came up with a different layout than one started from Editor/.
+        // Static storage: io.IniFilename is a borrowed C string ImGui reads at the first frame and on every save.
+        {
+            static std::string          s_LayoutIni;
+            const std::filesystem::path configDir = Common::Constants::Path::ProjectDir() / "Saved" / "Config";
+            std::error_code             dirError;
+            std::filesystem::create_directories( configDir, dirError );
+            if ( dirError )
+                return Common::MakeFormattedError( "the editor layout folder '{}' could not be created: {}",
+                                                   configDir.string(), dirError.message() );
+            s_LayoutIni    = ( configDir / "EditorLayout.ini" ).string();
+            io.IniFilename = s_LayoutIni.c_str();
+        }
+
+        // Before the first frame, which is when ImGui reads the layout file.
         m_Documents.RegisterDocumentWellLayoutHandler();
         m_Documents.RegisterDocumentPlacementHandler();
 

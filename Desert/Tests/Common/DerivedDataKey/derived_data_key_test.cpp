@@ -25,6 +25,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/engine_dir.hpp"
 
 namespace fs = std::filesystem;
 
@@ -35,15 +37,7 @@ namespace
 
     fs::path RepoRoot()
     {
-        for ( fs::path dir = fs::current_path(); !dir.empty(); dir = dir.parent_path() )
-        {
-            std::error_code ec;
-            if ( fs::exists( dir / ".gitignore", ec ) && fs::is_directory( dir / "Desert" / "Common", ec ) )
-                return dir;
-            if ( dir == dir.parent_path() )
-                break;
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     std::string ReadText( const fs::path& path )
@@ -381,13 +375,30 @@ TEST( DerivedDataKey, GitIgnoresTheCacheAndNeverReIncludesIt )
 
     // The two lines are unanchored, so they would also swallow SOURCE: a directory of either name inside
     // the source trees is ignored and `git add` skips it without a word (this suite's first name did).
+    //
+    // EXCEPT where the folder is a PROJECT's own output (UE: <Project>/Saved, <Project>/DerivedDataCache):
+    // a directory holding a `.deproj` is a project root — the suite data project Desert/Tests/Data is one —
+    // and the editor opened on it writes exactly these two folders beside the `.deproj`. Ignoring them there
+    // is the line's purpose, not the hazard; any OTHER directory of either name is still source and refused.
+    const auto isProjectRoot = []( const fs::path& dir )
+    {
+        std::error_code listEc;
+        return std::ranges::any_of( fs::directory_iterator( dir, listEc ), []( const fs::directory_entry& entry )
+                                    { return entry.path().extension() == ".deproj"; } );
+    };
     for ( const char* root : { "Desert", "Editor/Source", "Runtime", "Tools" } )
     {
         std::error_code ec;
         for ( const auto& e : fs::recursive_directory_iterator( repo / root, ec ) )
-            if ( e.is_directory( ec ) )
-                EXPECT_TRUE( e.path().filename() != "DerivedDataCache" && e.path().filename() != "Saved" )
-                     << e.path().lexically_relative( repo ).generic_string() << " is ignored by .gitignore";
+        {
+            if ( !e.is_directory( ec ) )
+                continue;
+            const bool generatedName = e.path().filename() == "DerivedDataCache" || e.path().filename() == "Saved";
+            if ( generatedName && isProjectRoot( e.path().parent_path() ) )
+                continue;
+            EXPECT_FALSE( generatedName )
+                 << e.path().lexically_relative( repo ).generic_string() << " is ignored by .gitignore";
+        }
     }
 }
 
@@ -568,6 +579,7 @@ TEST( DerivedDataKey, PackageCookDerivesItsShippedBucketsFromTheRegisterNotALite
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

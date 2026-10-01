@@ -31,6 +31,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include "../../TestSupport/scratch_dir.hpp"
 
 using Common::Math::AABB;
 using Desert::Core::Frustum;
@@ -60,16 +61,7 @@ namespace
 
     fs::path RepoRoot()
     {
-        fs::path p = fs::current_path();
-        for ( int i = 0; i < 8; ++i )
-        {
-            if ( fs::exists( p / "Desert" / "Common" ) && fs::exists( p / "Editor" ) )
-            {
-                return p;
-            }
-            p = p.parent_path();
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     std::string ReadFile( const fs::path& file )

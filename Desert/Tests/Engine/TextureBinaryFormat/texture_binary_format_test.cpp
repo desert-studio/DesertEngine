@@ -61,6 +61,7 @@
 #include <fstream>
 #include <sstream>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 using namespace Desert::Assets::Serialization;
 using Desert::Core::Formats::ImageFormat;
@@ -69,11 +70,7 @@ namespace
 {
     std::filesystem::path RepositoryRoot()
     {
-        std::filesystem::path here = std::filesystem::current_path();
-        for ( int up = 0;
-              up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Assets" / "Textures" ); ++up )
-            here = here.parent_path();
-        return here;
+        return Desert::TestSupport::RepositoryRoot();
     }
 
     std::string ReadFile( const std::filesystem::path& path )

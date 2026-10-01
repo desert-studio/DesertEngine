@@ -16,6 +16,7 @@
 
 #include <filesystem>
 #include <memory>
+#include "../../TestSupport/engine_dir.hpp"
 
 using namespace Desert;
 using namespace Desert::Editor;
@@ -176,21 +177,8 @@ TEST( MaterialDocumentOpen, TheEditorsOwnRouteResolvesAnEngineShaderByGuid )
          editorDir / "Resources" / "Assets" / "Materials" / "M_CubemapCheck.demat";
     ASSERT_TRUE( std::filesystem::exists( material ) ) << material.string();
 
-    // `Common::Constants::Path::RESOURCE_PATH` is a literal relative to the working directory and is
-    // deliberately never remapped, so a test that wants the real engine content must sit in Editor/.
-    struct WorkingDirectoryGuard
-    {
-        std::filesystem::path Previous = std::filesystem::current_path();
-        explicit WorkingDirectoryGuard( const std::filesystem::path& next )
-        {
-            std::filesystem::current_path( next );
-        }
-        ~WorkingDirectoryGuard()
-        {
-            std::error_code ec;
-            std::filesystem::current_path( Previous, ec );
-        }
-    } const cwdGuard( editorDir );
+    // The engine resources hang off the engine directory: the checkout's Editor/ for this test.
+    const Desert::TestSupport::EngineDirScope engineDir( editorDir );
 
     const auto gathered = Assets::ContentRegistry::Gather();
     ASSERT_TRUE( gathered ) << gathered.GetError();

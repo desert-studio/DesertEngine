@@ -77,6 +77,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
@@ -217,22 +219,7 @@ namespace
 
     // ── FINDING THE TREE AND READING IT ─────────────────────────────────────────────────────────────
 
-    // Walk up from wherever the binary was started, exactly as SettingConsumers and the font-baker
-    // suite do, so this need not be run from one precise directory.
-    std::string RepoRoot()
-    {
-        std::string prefix = "./";
-        for ( int up = 0; up < 6; ++up )
-        {
-            std::ifstream probe( prefix + "Desert/Common/Source/Common/Utilities/FileSystem.cpp" );
-            if ( probe )
-                return prefix;
-            prefix += "../";
-        }
-        return {};
-    }
-
-    std::string ReadFile( const std::string& path )
+    std::string ReadFile( const std::filesystem::path& path )
     {
         std::ifstream in( path );
         if ( !in )
@@ -268,11 +255,11 @@ namespace
         return roots;
     }
 
-    std::vector<std::string> FilesThatWalkADirectory( const std::string& root )
+    std::vector<std::string> FilesThatWalkADirectory( const std::filesystem::path& root )
     {
         std::vector<std::string> found;
         std::error_code          ec;
-        for ( auto it = std::filesystem::recursive_directory_iterator( root + "/", ec );
+        for ( auto it = std::filesystem::recursive_directory_iterator( root, ec );
               it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
         {
             if ( ec )
@@ -284,19 +271,19 @@ namespace
             if ( extension != ".cpp" && extension != ".hpp" )
                 continue;
 
-            if ( WalksADirectory( ReadFile( it->path().string() ) ) )
+            if ( WalksADirectory( ReadFile( it->path() ) ) )
                 found.push_back( it->path().generic_string() );
         }
         return found;
     }
 
     // Everything under the scanned roots that walks a directory, as repo-relative generic paths.
-    std::vector<std::string> EveryWalkerInTheTree( const std::string& root )
+    std::vector<std::string> EveryWalkerInTheTree( const std::filesystem::path& root )
     {
         std::vector<std::string> all;
         for ( const std::string& sub : ScannedRoots() )
         {
-            for ( std::string path : FilesThatWalkADirectory( root + sub ) )
+            for ( std::string path : FilesThatWalkADirectory( root / sub ) )
             {
                 // Strip the discovered prefix so the result is comparable with the register's rows.
                 const std::size_t at = path.find( sub );
@@ -314,9 +301,9 @@ namespace
 // walks a directory" - the §1.4 shape applied to a checker. Asserted first and separately.
 TEST( ContentScanners, TheSuiteCanSeeTheRepository )
 {
-    const std::string root = RepoRoot();
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
     ASSERT_FALSE( root.empty() ) << "the repository root was not found from the working directory";
-    EXPECT_FALSE( ReadFile( root + "Desert/Common/Source/Common/Utilities/FileSystem.cpp" ).empty() );
+    EXPECT_FALSE( ReadFile( root / "Desert/Common/Source/Common/Utilities/FileSystem.cpp" ).empty() );
     EXPECT_FALSE( EveryWalkerInTheTree( root ).empty() ) << "no file in the whole tree walks a directory, "
                                                             "which cannot be true while the shared "
                                                             "enumeration is itself one";
@@ -328,7 +315,7 @@ TEST( ContentScanners, TheSuiteCanSeeTheRepository )
 // this rule exists for, and it arrived twice while the rule was only a sentence in a header.
 TEST( ContentScanners, EveryFileThatWalksADirectoryIsInTheRegister )
 {
-    const std::string root = RepoRoot();
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
     ASSERT_FALSE( root.empty() );
 
     std::set<std::string> registered;
@@ -351,12 +338,12 @@ TEST( ContentScanners, EveryFileThatWalksADirectoryIsInTheRegister )
 // ── 2. No stale row ────────────────────────────────────────────────────────────────────────────────
 TEST( ContentScanners, EveryRegisteredFileStillWalksADirectory )
 {
-    const std::string root = RepoRoot();
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
     ASSERT_FALSE( root.empty() );
 
     for ( const ScannerRow& row : kScanners )
     {
-        const std::string source = ReadFile( root + row.File );
+        const std::string source = ReadFile( root / row.File );
         ASSERT_FALSE( source.empty() ) << row.File
                                        << " is in the register and could not be read; it has "
                                           "been moved or deleted and its row is stale.";
@@ -422,13 +409,13 @@ TEST( ContentScanners, ThereIsExactlyOneSharedEnumeration )
 // content root themselves, and one of them decided which scenes went into a package.
 TEST( ContentScanners, TheTwoSceneListsGoThroughTheSharedEnumeration )
 {
-    const std::string root = RepoRoot();
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
     ASSERT_FALSE( root.empty() );
 
     for ( const char* file :
           { "Editor/Source/EditorLayer.cpp", "Editor/Source/Editor/Panels/Build/BuildSettingsPanel.cpp" } )
     {
-        const std::string source = ReadFile( root + file );
+        const std::string source = ReadFile( root / file );
         ASSERT_FALSE( source.empty() ) << file;
         EXPECT_NE( source.find( "ListFilesRecursive" ), std::string::npos )
              << file << " stopped using the shared enumeration; a packaged project would lose its levels.";
@@ -447,13 +434,13 @@ TEST( ContentScanners, TheTwoSceneListsGoThroughTheSharedEnumeration )
 // here left to revert.
 TEST( ContentScanners, TheScannersI8FixedGoThroughTheSharedEnumeration )
 {
-    const std::string root = RepoRoot();
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
     ASSERT_FALSE( root.empty() );
 
     for ( const char* file : { "Editor/Source/Editor/Core/AssetReferencesScan.cpp",
                                "Editor/Source/Editor/Panels/SceneProperties/ComponentEditorRegistrations.cpp" } )
     {
-        const std::string source = ReadFile( root + file );
+        const std::string source = ReadFile( root / file );
         ASSERT_FALSE( source.empty() ) << file;
         EXPECT_NE( Desert::Tests::ConsumerText::StripCommentsAndLiterals( source ).find( "ListFilesRecursive" ),
                    std::string::npos )
@@ -469,11 +456,11 @@ TEST( ContentScanners, TheScannersI8FixedGoThroughTheSharedEnumeration )
 // stood here and what four other defects in this engine have been.
 TEST( ContentScanners, TheScriptPickerAsksThePathCensusWhereScriptsAre )
 {
-    const std::string root = RepoRoot();
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
     ASSERT_FALSE( root.empty() );
 
     std::string code = Desert::Tests::ConsumerText::StripCommentsAndLiterals(
-         ReadFile( root + "Editor/Source/Editor/Panels/SceneProperties/ComponentEditorRegistrations.cpp" ) );
+         ReadFile( root / "Editor/Source/Editor/Panels/SceneProperties/ComponentEditorRegistrations.cpp" ) );
     ASSERT_FALSE( code.empty() );
 
     // THE TWO NAMES TOGETHER, IN ONE CALL — not each of them somewhere in the file. Written as two
@@ -507,22 +494,21 @@ TEST( ContentScanners, TheScriptPickerAsksThePathCensusWhereScriptsAre )
 // exactly what this test is about. Extension-only spellings (".lua") carry no file name and are skipped.
 TEST( ContentScanners, EveryLuaFileNamedInTheEditorExists )
 {
-    const std::string root = RepoRoot();
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
     ASSERT_FALSE( root.empty() );
 
-    // SCRIPT_PATH is relative to the EDITOR'S working directory, which is Editor/ — that is what
-    // RunEditor.sh cds to and what makes "Resources/..." resolve at all. From the repository root the
-    // same file therefore sits one level deeper.
-    const std::string scriptsRoot = "Editor/" + Common::Constants::Path::SCRIPT_PATH.generic_string();
+    // SCRIPT_PATH is absolute: main() set the engine directory to the checkout's Editor/, the sandbox content
+    // root.
+    const std::filesystem::path& scriptsRoot = Common::Constants::Path::SCRIPT_PATH;
 
     std::size_t checked = 0;
-    for ( auto it = std::filesystem::recursive_directory_iterator( root + "Editor/Source" );
+    for ( auto it = std::filesystem::recursive_directory_iterator( root / "Editor/Source" );
           it != std::filesystem::recursive_directory_iterator(); ++it )
     {
         if ( !it->is_regular_file() || it->path().extension() != ".cpp" )
             continue;
 
-        const std::string source = ReadFile( it->path().string() );
+        const std::string source = ReadFile( it->path() );
         for ( std::size_t at = source.find( ".lua\"" ); at != std::string::npos;
               at             = source.find( ".lua\"", at + 1 ) )
         {
@@ -534,9 +520,9 @@ TEST( ContentScanners, EveryLuaFileNamedInTheEditorExists )
                 continue; // an extension test, not a file name
 
             ++checked;
-            EXPECT_TRUE( std::filesystem::exists( root + scriptsRoot + named ) )
+            EXPECT_TRUE( std::filesystem::exists( scriptsRoot / named ) )
                  << it->path().filename().string() << " names the script '" << named
-                 << "', and no such file exists under " << scriptsRoot
+                 << "', and no such file exists under " << scriptsRoot.generic_string()
                  << ". A slot pointing at a script that is not there is created silently and only "
                     "reports itself on Play.";
         }
@@ -549,6 +535,7 @@ TEST( ContentScanners, EveryLuaFileNamedInTheEditorExists )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

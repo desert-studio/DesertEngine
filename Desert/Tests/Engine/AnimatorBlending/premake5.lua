@@ -46,10 +46,6 @@ project(test_name)
         -- T5.5: the stage owns a forwards solve, so the walk links with the stage that runs it.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Rig/RigGraph.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Rig/ControlHierarchy.cpp",
-        -- Timestep's constructor lives in a .cpp, and Animator::Update takes one. libCommon is not among
-        -- the libraries a test suite links (only gtest and the reflect-cpp/optick shims are), so the one
-        -- translation unit that defines it has to be listed here.
-        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source/Common/Core/Timestep.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
         -- The tick grid every clip time now lives on (A5).
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",

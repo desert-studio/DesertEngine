@@ -68,7 +68,7 @@ layout( binding = 21 ) uniform CloudShadowUB
 #include <Mesh/LightSources.glslh>
 // THE lighting of this pass: the template's model (DESERT_SHADING_MODEL_INDEX, defined by the parser) through the
 // dispatch the registry generates. This pass names no model.
-#include <ShadingModels/ShadingModels.generated.glslh>
+#include <Generated/ShadingModels.glslh>
 
 void main()
 {

@@ -1,14 +1,14 @@
 {
     "Header": {
         "Kind": "Scene",
-        "Guid": "61dd81434856d2beae1e32fff4b9a93d",
+        "Guid": "a8b98e82066b336a19f729bde6b25331",
         "Versions": {
             "SCNE": 41,
             "UNIT": 1
         },
         "Dependencies": []
     },
-    "SceneName": "Animation Two-Bone IK Witness",
+    "SceneName": "Animation Graph Script Witness",
     "Entities": [
         {
             "id": 1001,
@@ -100,193 +100,111 @@
             }
         },
         {
+            "id": 2000,
+            "siblingIndex": 2,
+            "Tag": "Ground",
+            "Translation": [700.0, -60.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [60.0, 0.20000000298023224, 16.0],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialGuids": ["443da08f9e394860b5c2bd3bb619e9cd"],
+                "Primitive": "Cube"
+            }
+        },
+        {
             "id": 2010,
             "siblingIndex": 3,
-            "Tag": "IK_Reference",
-            "Translation": [0.0, 0.0, 0.0],
+            "Tag": "G_Driven",
+            "Translation": [0.0, -137.5, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
-                "MeshPath": "Resources/Assets/Meshes/Skinned/IKProbe.skmesh",
-                "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
+                "MeshPath": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
+                "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
+                "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
             },
             "Animation": {
-                "CurrentClip": "IKProbe_Swing",
+                "CurrentClip": "",
                 "Playing": true,
                 "Loop": true,
-                "PlaybackSpeed": 1.0
+                "PlaybackSpeed": 1.0,
+                "Graph": "AnimGraphs/ScriptDriven.danimgraph"
+            },
+            "Script": {
+                "Scripts": [
+                    {
+                        "ScriptKey": "assets:Scripts/Examples/DriveAnimGraph.lua",
+                        "Props": [
+                            {
+                                "Name": "Param",
+                                "Type": 2,
+                                "Number": 0.0,
+                                "Bool": false,
+                                "Str": "Go"
+                            },
+                            {
+                                "Name": "Delay",
+                                "Type": 0,
+                                "Number": 0.5,
+                                "Bool": false,
+                                "Str": ""
+                            }
+                        ]
+                    }
+                ]
             }
         },
         {
             "id": 2020,
-            "siblingIndex": 5,
-            "Tag": "IK_Full",
-            "Translation": [1400.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "SkinnedMesh": {
-                "MeshPath": "Resources/Assets/Meshes/Skinned/IKProbe.skmesh",
-                "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
-            },
-            "Animation": {
-                "CurrentClip": "IKProbe_Swing",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0
-            },
-            "TwoBoneIK": {
-                "EndBone": "IK_Hand",
-                "Goal": [90.0, 150.0, 0.0],
-                "PoleTarget": [45.0, 250.0, 0.0],
-                "Alpha": 1.0
-            }
-        },
-        {
-            "id": 2030,
-            "siblingIndex": 7,
-            "Tag": "IK_Half",
-            "Translation": [2800.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "SkinnedMesh": {
-                "MeshPath": "Resources/Assets/Meshes/Skinned/IKProbe.skmesh",
-                "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
-            },
-            "Animation": {
-                "CurrentClip": "IKProbe_Swing",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0
-            },
-            "TwoBoneIK": {
-                "EndBone": "IK_Hand",
-                "Goal": [90.0, 150.0, 0.0],
-                "PoleTarget": [45.0, 250.0, 0.0],
-                "Alpha": 0.5
-            }
-        },
-        {
-            "id": 2040,
-            "siblingIndex": 9,
-            "Tag": "IK_Zero",
-            "Translation": [4200.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "SkinnedMesh": {
-                "MeshPath": "Resources/Assets/Meshes/Skinned/IKProbe.skmesh",
-                "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
-            },
-            "Animation": {
-                "CurrentClip": "IKProbe_Swing",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0
-            },
-            "TwoBoneIK": {
-                "EndBone": "IK_Hand",
-                "Goal": [90.0, 150.0, 0.0],
-                "PoleTarget": [45.0, 250.0, 0.0],
-                "Alpha": 0.0
-            }
-        },
-        {
-            "id": 2050,
-            "siblingIndex": 11,
-            "Tag": "IK_Reference2",
-            "Translation": [5600.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "SkinnedMesh": {
-                "MeshPath": "Resources/Assets/Meshes/Skinned/IKProbe.skmesh",
-                "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
-            },
-            "Animation": {
-                "CurrentClip": "IKProbe_Swing",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0
-            }
-        },
-        {
-            "id": 2910,
-            "siblingIndex": 2,
-            "Tag": "Ground_2910",
-            "Translation": [40.0, 120.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [8.0, 0.20000000298023224, 16.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
-                "Primitive": "Cube"
-            }
-        },
-        {
-            "id": 2920,
             "siblingIndex": 4,
-            "Tag": "Ground_2920",
-            "Translation": [1440.0, 120.0, 0.0],
+            "Tag": "G_Typo",
+            "Translation": [1400.0, -137.5, 0.0],
             "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [8.0, 0.20000000298023224, 16.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
-                "Primitive": "Cube"
-            }
-        },
-        {
-            "id": 2930,
-            "siblingIndex": 6,
-            "Tag": "Ground_2930",
-            "Translation": [2840.0, 120.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [8.0, 0.20000000298023224, 16.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
-                "Primitive": "Cube"
-            }
-        },
-        {
-            "id": 2940,
-            "siblingIndex": 8,
-            "Tag": "Ground_2940",
-            "Translation": [4240.0, 120.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [8.0, 0.20000000298023224, 16.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
-                "Primitive": "Cube"
-            }
-        },
-        {
-            "id": 2950,
-            "siblingIndex": 10,
-            "Tag": "Ground_2950",
-            "Translation": [5640.0, 120.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [8.0, 0.20000000298023224, 16.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
-                "Primitive": "Cube"
+            "Scale": [1.0, 1.0, 1.0],
+            "SkinnedMesh": {
+                "MeshPath": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
+                "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
+                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
+            },
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "Graph": "AnimGraphs/ScriptDriven.danimgraph"
+            },
+            "Script": {
+                "Scripts": [
+                    {
+                        "ScriptKey": "assets:Scripts/Examples/DriveAnimGraph.lua",
+                        "Props": [
+                            {
+                                "Name": "Param",
+                                "Type": 2,
+                                "Number": 0.0,
+                                "Bool": false,
+                                "Str": "Gone"
+                            },
+                            {
+                                "Name": "Delay",
+                                "Type": 0,
+                                "Number": 0.5,
+                                "Bool": false,
+                                "Str": ""
+                            }
+                        ]
+                    }
+                ]
             }
         },
         {
             "id": 9001,
-            "siblingIndex": 12,
+            "siblingIndex": 5,
             "Tag": "Camera",
-            "Translation": [40.0, 210.0, 660.0],
+            "Translation": [0.0, 120.0, 900.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "Camera": {
@@ -297,8 +215,8 @@
             }
         },
         {
-            "id": 17759086646350753167,
-            "siblingIndex": 13,
+            "id": 11895562313227355414,
+            "siblingIndex": 6,
             "Tag": "PostProcessVolume",
             "Translation": [0.0, 0.0, 0.0],
             "Rotation": [0.0, 0.0, 0.0],

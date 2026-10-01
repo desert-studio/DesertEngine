@@ -123,7 +123,7 @@ namespace Desert::Assets::Serialization
         using Common::Content::AssetGuid;
         const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
         std::error_code             ec;
-        if ( !std::filesystem::is_regular_file( record, ec ) )
+        if ( !std::filesystem::is_regular_file( Common::Constants::Path::FullPath( record ), ec ) )
             return Common::MakeFormattedError<AssetGuid>(
                  "'{}' has no import record '{}': its mesh has no identity until it is imported (the import "
                  "writes the record)",
@@ -194,7 +194,7 @@ namespace Desert::Assets::Serialization
                                          { bounds->Max.x, bounds->Max.y, bounds->Max.z } };
         ImportRecordData            data;
         std::error_code             ec;
-        if ( std::filesystem::is_regular_file( record, ec ) )
+        if ( std::filesystem::is_regular_file( Common::Constants::Path::FullPath( record ), ec ) )
         {
             // The identity is read through the one reader, so a record of another generation or another
             // source is refused here exactly as everywhere else.
@@ -243,7 +243,7 @@ namespace Desert::Assets::Serialization
         using Result                       = std::optional<ImportRecordData>;
         const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
         std::error_code             ec;
-        if ( !std::filesystem::is_regular_file( record, ec ) )
+        if ( !std::filesystem::is_regular_file( Common::Constants::Path::FullPath( record ), ec ) )
             return Common::MakeSuccess( Result{} );
         const auto text = Common::Utils::FileSystem::ReadFileContent( record );
         if ( !text )

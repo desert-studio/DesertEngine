@@ -19,6 +19,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
@@ -32,16 +33,8 @@ namespace
     // a developer from build/Bin/Tests/<cfg>).
     fs::path RepoRoot()
     {
-        for ( const char* prefix : { "", "../", "../../", "../../../", "../../../../" } )
-        {
-            const fs::path candidate = fs::path( prefix ) / "Editor/Source/Editor/Panels";
-            if ( fs::is_directory( candidate ) )
-                return fs::absolute( fs::path( prefix ).empty() ? fs::path( "." ) : fs::path( prefix ) )
-                     .lexically_normal();
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot();
     }
-
     class ProjectRootGuard
     {
     public:
@@ -81,7 +74,8 @@ namespace
 TEST( PickerRegistryRows, NoPanelOrWidgetEnumeratesLoadedObjects )
 {
     const fs::path root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "the editor's sources were not found from " << fs::current_path();
+    ASSERT_FALSE( root.empty() ) << "the editor's sources were not found from "
+                                 << Desert::TestSupport::RepositoryRoot();
 
     std::vector<std::string> offenders;
     std::size_t              scanned = 0;
@@ -180,10 +174,17 @@ TEST( PickerRegistryRows, OnTheCorpusNamesAndTheSkinnedSplitComeFromTheRegistryT
         return "<no row>";
     };
     EXPECT_EQ( nameOf( ContentKind::UITheme, "Desert_Dark.detheme" ), "Desert Dark" );
+    EXPECT_EQ( nameOf( ContentKind::CloudType, "Altocumulus.decloudtype" ), "Altocumulus" );
+    const auto hasKey = []( const auto& rows, std::string_view suffix )
+    { return std::ranges::any_of( rows, [&]( const auto& row ) { return row.Key.ends_with( suffix ); } ); };
+
+    // THE ANIMATION PROBES ARE SUITE DATA, a project of their own (Desert/Tests/Data) — not editor content.
+    Path::SetProjectRoot( Desert::TestSupport::TestDataDir(), "Resources/Assets" );
+    ContentRegistry::ResetForTest();
+    ASSERT_TRUE( ContentRegistry::Gather() );
     EXPECT_EQ( nameOf( ContentKind::ControlRig, "IKProbe_Arm.derig" ), "IKProbe Arm" );
     EXPECT_EQ( nameOf( ContentKind::Retarget, "ForeignArm_To_IKProbe.retarget" ), "ForeignArm to IKProbe" );
     EXPECT_EQ( nameOf( ContentKind::AnimGraph, "OneBoneBlend.danimgraph" ), "OneBoneBlend" );
-    EXPECT_EQ( nameOf( ContentKind::CloudType, "Altocumulus.decloudtype" ), "Altocumulus" );
     // Rigs, retargets and graphs REQUIRE the member; every one of their rows must carry a name.
     for ( const ContentKind kind : { ContentKind::ControlRig, ContentKind::Retarget, ContentKind::AnimGraph } )
     {
@@ -193,8 +194,6 @@ TEST( PickerRegistryRows, OnTheCorpusNamesAndTheSkinnedSplitComeFromTheRegistryT
 
     const auto skinned = ContentRegistry::MeshRows( true );
     const auto statics = ContentRegistry::MeshRows( false );
-    const auto hasKey  = []( const auto& rows, std::string_view suffix )
-    { return std::ranges::any_of( rows, [&]( const auto& row ) { return row.Key.ends_with( suffix ); } ); };
     EXPECT_TRUE( hasKey( statics, "StaticProbe.stmesh" ) );
     EXPECT_FALSE( hasKey( skinned, "StaticProbe.stmesh" ) );
     for ( const char* mesh : { "IKProbe.skmesh", "SkinProbe.skmesh", "TwoBoneProbe.skmesh" } )

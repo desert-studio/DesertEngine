@@ -10,6 +10,7 @@
 #include <format>
 #include <optional>
 #include <string>
+#include "../../TestSupport/engine_dir.hpp"
 
 using Desert::Assets::MaterialAssetRef;
 using Desert::Assets::MaterialData;
@@ -237,6 +238,7 @@ TEST( MaterialFormatV3, ACloudSlotNamedByGuidFindsTheTypeRegisteredUnderThatGuid
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
