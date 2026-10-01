@@ -88,10 +88,10 @@ namespace Desert::Editor
         [[nodiscard]] std::vector<PaletteCommand> BuildPaletteCommands();
         // The palette groups of modules not cut out yet (add shape, the palette's own door, scenes/views):
         // registered in palette order between the subject-owned providers.
-        void AppendAddShapeCommands( std::vector<PaletteCommand>& commands );
-        void AppendPaletteDoorCommand( std::vector<PaletteCommand>& commands );
+        void        AppendAddShapeCommands( std::vector<PaletteCommand>& commands );
+        void        AppendPaletteDoorCommand( std::vector<PaletteCommand>& commands );
         static void AppendSceneCommands( std::vector<PaletteCommand>& commands );
-        void AppendSceneTailCommands( std::vector<PaletteCommand>& commands );
+        void        AppendSceneTailCommands( std::vector<PaletteCommand>& commands );
 
         // Ctrl+P "go to anything": draws the overlay over the dictionary above. No-op unless open.
         void DrawCommandPalette();

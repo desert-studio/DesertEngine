@@ -1,6 +1,7 @@
 {
     "DisplayName": "Starter",
-    "Description": "A test playground: sky and sun, a ground slab, PBR calibration rows, glass, an emissive probe, shadow casters, fill lights and a camera.",
+    "Description":
+         "A test playground: sky and sun, a ground slab, PBR calibration rows, glass, an emissive probe, shadow casters, fill lights and a camera.",
     "Category": "",
     "SortKey": 20,
     "DefaultScene": "Assets/Scenes/Main.desce"
