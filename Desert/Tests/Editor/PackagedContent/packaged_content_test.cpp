@@ -198,7 +198,10 @@ TEST( PackagedContent, PakKeysAreTheRuntimeLookupKeysUnderThePackageRoot )
 
     // Simulate the packaged game's world: Game.deproj opened from the package dir remaps the content
     // trees under it, the launcher cds there, and every resource path resolves against it.
+    // The packaged game's engine directory IS the package root (the launcher sets it there), so the engine
+    // resource trees resolve under it exactly like the project trees.
     const fs::path pkg = fs::temp_directory_path() / "desert_pkgkeys";
+    Common::Constants::Path::SetEngineDir( pkg );
     Common::Constants::Path::SetProjectRoot( pkg, Desert::Editor::kPackagedAssetsRoot );
 
     for ( const auto& t : Desert::Editor::PackagedContentTrees() )
@@ -1788,6 +1791,7 @@ TEST( PackagedContent, EachConfigurationPackagesExactlyTheShaderProgramsItsRunti
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

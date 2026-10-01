@@ -29,6 +29,7 @@
 #include <format>
 #include <memory>
 #include <thread>
+#include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
 
 using namespace Desert;
@@ -316,8 +317,7 @@ TEST( SceneClosure, TheDepsColumnIsWalkedTransitivelyOnceEachAndRootsKeepTheirKi
 TEST_F( MeshServiceResidency, ASkinnedMeshFailedForItsMissingRigIsDrawnOnceTheRigIsWritten )
 {
     namespace fs   = std::filesystem;
-    namespace Path = Common::Constants::Path;
-    const fs::path repo    = Desert::TestSupport::RepositoryRoot();
+    namespace Path         = Common::Constants::Path;
     const fs::path shipped = Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned";
 
     // A snapshot, not a reference: SetProjectRoot below rewrites the state CurrentProjectRoot() refers to, and the
@@ -369,6 +369,7 @@ TEST_F( MeshServiceResidency, ASkinnedMeshFailedForItsMissingRigIsDrawnOnceTheRi
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

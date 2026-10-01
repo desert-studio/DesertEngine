@@ -5,6 +5,7 @@
 //  - the lift is cached by identity until the .stmesh is rewritten;
 //  - no Modeling tool reads StaticMeshComponent::EditableMesh itself (census over the tool sources).
 
+#include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/cooked_static_mesh.hpp"
 
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
@@ -333,6 +334,7 @@ TEST( ModelingToolTargetCensus, NoModelingToolReadsTheEditableMeshItself )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

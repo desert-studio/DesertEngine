@@ -53,6 +53,7 @@
 
 #include <gtest/gtest.h>
 
+#include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/cooked_static_mesh.hpp"
 
 #include <Common/Core/Serialization/GlmReflection.hpp>
@@ -884,6 +885,7 @@ TEST( MeshBinaryFormat, TheImporterWritesTheContainerAndNotJson )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

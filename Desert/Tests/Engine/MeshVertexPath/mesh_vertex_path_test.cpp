@@ -27,9 +27,11 @@
 // No device: the shaders are compiled with shaderc and reflected with the engine's own reflection,
 // exactly as Tests/Engine/PBRSceneFrame and Tests/Engine/ShaderCacheKey do.
 
+#include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>
 
+#include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
@@ -173,48 +175,12 @@ namespace
         return it == stages.end() ? std::string{} : it->second;
     }
 
-    // Resolves `#include <...>` exactly as ShaderIncluder does, so the SPIR-V under test is the SPIR-V the
-    // engine compiles.
-    class Includer final : public shaderc::CompileOptions::IncluderInterface
-    {
-    public:
-        shaderc_include_result* GetInclude( const char* requested, shaderc_include_type type,
-                                            const char* requesting, size_t ) override
-        {
-            const std::filesystem::path full =
-                 type == shaderc_include_type_relative
-                      ? ( std::filesystem::path( requesting ).parent_path() / requested ).lexically_normal()
-                      : ( Common::Constants::Path::SHADERDIR_PATH / requested ).lexically_normal();
-
-            auto* name = new std::string( full.string() );
-            auto* body =
-                 new std::string( Desert::Core::Preprocess::DShaderParser::TranslateSugar( ReadFile( full ) ) );
-
-            auto* result               = new shaderc_include_result;
-            result->source_name        = name->c_str();
-            result->source_name_length = name->size();
-            result->content            = body->c_str();
-            result->content_length     = body->size();
-            result->user_data          = new std::pair<std::string*, std::string*>( name, body );
-            return result;
-        }
-
-        void ReleaseInclude( shaderc_include_result* data ) override
-        {
-            auto* pair = static_cast<std::pair<std::string*, std::string*>*>( data->user_data );
-            delete pair->first;
-            delete pair->second;
-            delete pair;
-            delete data;
-        }
-    };
-
     std::vector<uint32_t> CompileStage( const std::string& source, const std::filesystem::path& path,
                                         shaderc_shader_kind kind )
     {
         shaderc::Compiler       compiler;
         shaderc::CompileOptions options;
-        options.SetIncluder( std::make_unique<Includer>() );
+        options.SetIncluder( std::make_unique<Desert::Core::ShaderIncluder>( path ) );
         options.SetTargetEnvironment( shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_1 );
 
         const auto result = compiler.CompileGlslToSpv( source, kind, path.string().c_str(), options );
@@ -1123,6 +1089,7 @@ TEST( MeshCellPipeline, TwoTemplatesInOnePassAreTwoPipelines )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

@@ -3,6 +3,7 @@
 // maps — metadata and every SPIR-V word — at the same index. Each side runs against its own empty derived
 // data cache, so neither reads what the other compiled.
 
+#include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>
 
@@ -33,7 +34,7 @@ namespace
     {
         static void SetUpTestSuite()
         {
-            // Includes resolve against "Resources/Shaders/", relative: run from Editor/ as the editor does.
+            // Programs are listed and includes resolve off ShaderDir(), derived from this engine directory.
             const std::filesystem::path here = Desert::TestSupport::RepositoryRoot();
             ASSERT_TRUE( std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" ) )
                  << "could not find Editor/Resources/Shaders above " << Desert::TestSupport::RepositoryRoot();
@@ -56,7 +57,7 @@ namespace
         std::vector<std::filesystem::path> files;
         for ( const char* dir : { "FXAA", "Bloom", "Unlit", "SMAA", "Composite", "UI", "Text", "JFA" } )
         {
-            const auto root = std::filesystem::path( "Resources/Shaders/Programs" ) / dir;
+            const auto root = Common::Constants::Path::ShaderDir() / "Programs" / dir;
             if ( !std::filesystem::exists( root ) )
                 continue;
             for ( const auto& entry : std::filesystem::recursive_directory_iterator( root ) )
@@ -291,6 +292,7 @@ TEST_F( ShaderMapBuildFixture, TextThatIsNotAShaderIsAnErrorNamingTheFile )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
