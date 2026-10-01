@@ -7,7 +7,6 @@
 #include <Editor/Core/ContentCreateCommands.hpp>
 #include <Editor/Core/DetailsNavigation.hpp>
 #include <Engine/Graphic/Environment/EnvironmentBake.hpp>
-#include <Engine/Assets/ContentWork.hpp>
 #include <Engine/Assets/BootContent.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
@@ -20,10 +19,7 @@
 
 #include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Utilities/ContentScanLedger.hpp>
-#include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
-#include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
-#include <Engine/Graphic/DrawCounters.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include "EditorLayer.hpp"
 
@@ -35,13 +31,10 @@
 #include <set>
 
 #include <Editor/Widgets/ThumbnailService.hpp>
-#include <Editor/Widgets/ThumbnailWarmup.hpp>
 #include <Engine/Core/SceneAssetRoots.hpp>
 #include <Common/Core/Core.hpp>
 #include <Common/Core/CrashHandler.hpp>
 #include <Common/Core/Profiler.hpp>
-#include <Editor/Import/CookPaths.hpp>
-#include <Editor/Import/MeshDnD.hpp>
 #include <Editor/Import/ImportOptionsDialog.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
@@ -121,7 +114,6 @@
 #include "Editor/Panels/Debug/ShaderLibraryPanel.hpp"
 #include "Editor/Panels/Debug/UIDebuggerPanel.hpp"
 #include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
-#include "Editor/Widgets/ThumbnailEdit.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
 #include "Editor/Panels/ViewportPanel/Tools/ActiveToolBar.hpp"
 #include "Editor/Panels/Scalability/ScalabilityPanel.hpp"
@@ -149,7 +141,6 @@
 #include "Editor/Panels/LuaConsole/LuaConsolePanel.hpp"
 #include "Editor/Panels/Build/BuildSettingsPanel.hpp"
 #include "Editor/Panels/Build/ContentChunksPanel.hpp"
-#include "Editor/Packaging/ProjectChunkScheme.hpp"
 #include "Editor/Panels/History/HistoryPanel.hpp"
 #include "Editor/Panels/Localization/LocalizationPanel.hpp"
 #include "Editor/Panels/Validation/SceneValidationPanel.hpp"
@@ -2031,45 +2022,6 @@ namespace Desert::Editor
         ImGui::EndMainMenuBar();
 
         DrawPopups();
-    }
-
-    void EditorLayer::RebuildCookedAssets()
-    {
-        // Idle first: re-registering rebuilds GPU textures/materials.
-        Graphic::Renderer::GetInstance().WaitDeviceIdle();
-
-        if ( m_ImportManager )
-        {
-            m_ImportManager->ImportAllFromDirectory( Common::Constants::Path::MESH_PATH, /*force=*/true );
-            m_ImportManager->ImportAllFromDirectory( Common::Constants::Path::COLLECTIONS_PATH, /*force=*/true );
-            // AND THE TEXTURES DIRECTORY, WHICH THIS COMMAND DID NOT REACH. Loose textures are cooked
-            // only as a mesh's dependency or by a drag-and-drop, so `Assets/Textures/` — the checker
-            // floor's texture and the sky panoramas — was the one place "Rebuild
-            // Cooked Assets" could not rebuild. Found the day the container's version moved: the menu
-            // entry whose whole job is "the cooked form is stale, make it again" left `T_Checker.tex`
-            // stale, and the only remedy left was to drag the file back into the editor.
-            (void)m_ImportManager->ImportLooseTextures();
-        }
-
-        // The clip rows may have changed with the re-cook; everything else is re-read on demand.
-        if ( m_AnimationLibrary )
-            Assets::IndexAnimationClips( *m_AssetManager, *m_AnimationLibrary );
-
-        // Drop cached per-entity material instances so MeshECSSystem rebuilds them from the freshly
-        // re-registered runtime materials (which now reference the reloaded texture images).
-        if ( m_Workspace.ActiveScene() )
-        {
-            auto& reg = m_Workspace.ActiveScene()->GetRegistry();
-            reg.view<ECS::StaticMeshComponent>().each( []( auto, ECS::StaticMeshComponent& c )
-                                                       { c.RuntimeMaterialInstances.clear(); } );
-            reg.view<ECS::SkinnedMeshComponent>().each( []( auto, ECS::SkinnedMeshComponent& c )
-                                                        { c.RuntimeMaterialInstances.clear(); } );
-        }
-
-        if ( m_FileExplorerPanel )
-            m_FileExplorerPanel->QueueRefresh();
-
-        LOG_INFO( "[Editor] Rebuilt cooked assets" );
     }
 
     // THE ONLY PLACE THE OS STILL SHOWS THIS WINDOW'S NAME. With the system frame gone the title is no

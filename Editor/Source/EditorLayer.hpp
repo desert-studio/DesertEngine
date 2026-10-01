@@ -140,9 +140,6 @@ namespace Desert::Editor
         // Startup content is DATA, not code — these build entities into m_Workspace.ActiveScene() so the result
         // can be serialized to a .desce ONCE and loaded like any scene afterwards.
 
-        // Force re-cook of Cooked/ from sources, re-register cooked assets, refresh the asset panel.
-        void RebuildCookedAssets();
-
     private:
         Engine::Application* m_Application;
 
@@ -162,7 +159,7 @@ namespace Desert::Editor
         std::unique_ptr<ImportManager>               m_ImportManager;
         // The mesh cook after the reveal and the .demat/.shader live reload (UE: FAssetCompilingManager). See
         // Editor/LevelEditor/AssetCompiling.hpp.
-        AssetCompiling m_AssetCompiling{ m_AssetManager };
+        AssetCompiling m_AssetCompiling{ m_AssetManager, m_AnimationLibrary, m_ImportManager };
 
         FileExplorerPanel* m_FileExplorerPanel = nullptr; // non-owning (lives in m_Panels)
         // Non-owning (lives in m_Panels). Kept because the command palette offers the panel's Convert
@@ -220,21 +217,23 @@ namespace Desert::Editor
         // File / Edit / View / Window / Scenes / Graphics / About and the menu's palette entries (UE:
         // FLevelEditorMenu). The layout's two entries and the editor's exit stay with their owners and arrive as
         // actions.
-        MainMenu m_MainMenu{ m_Workspace,
-                             m_SceneFiles,
-                             m_Documents,
-                             m_Panels,
-                             m_Preferences,
-                             m_Profiler.Shown(),
-                             { .RebuildCookedAssets = [this] { RebuildCookedAssets(); },
-                               .RequestExit         = [this] { RequestEditorExit(); },
-                               .SaveLayoutAs =
-                                    [this]
-                               {
-                                   m_LayoutNameBuf[0]    = '\0';
-                                   m_ShowSaveLayoutPopup = true;
-                               },
-                               .ResetLayout = [this] { m_ResetDefaultLayout = true; } } };
+        MainMenu m_MainMenu{
+             m_Workspace,
+             m_SceneFiles,
+             m_Documents,
+             m_Panels,
+             m_Preferences,
+             m_Profiler.Shown(),
+             { .RebuildCookedAssets = [this]
+               { m_AssetCompiling.RebuildCookedAssets( m_Workspace.ActiveScene().get(), m_FileExplorerPanel ); },
+               .RequestExit = [this] { RequestEditorExit(); },
+               .SaveLayoutAs =
+                    [this]
+               {
+                   m_LayoutNameBuf[0]    = '\0';
+                   m_ShowSaveLayoutPopup = true;
+               },
+               .ResetLayout = [this] { m_ResetDefaultLayout = true; } } };
         // The strip below the menu bar and the title bar's project / level sections (UE: SLevelEditorToolBar).
         // See Editor/LevelEditor/LevelToolbar.hpp.
         LevelToolbar m_Toolbar{ m_Workspace, m_SceneFiles, m_Play, m_Preferences, m_Profiler.Shown() };

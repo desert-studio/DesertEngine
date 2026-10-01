@@ -3,11 +3,16 @@
 #include "Editor/Import/CookPaths.hpp"
 #include "Editor/Import/ImportManager.hpp"
 #include "Editor/Import/MeshDnD.hpp"
+#include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
 
 #include <Common/Core/JobSystem.hpp>
+#include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Assets/AssetEviction.hpp>
+#include <Engine/Assets/BootContent.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Core/Scene.hpp>
 #include <Engine/Desert.hpp>
+#include <Engine/ECS/Components.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 
@@ -108,6 +113,45 @@ namespace Desert::Editor
     {
         if ( m_AssetManager )
             m_AssetHotReload.Tick( ts, *m_AssetManager, activeScene );
+    }
+
+    void AssetCompiling::RebuildCookedAssets( Desert::Core::Scene* activeScene, FileExplorerPanel* fileExplorer )
+    {
+        // Idle first: re-registering rebuilds GPU textures/materials.
+        Graphic::Renderer::GetInstance().WaitDeviceIdle();
+
+        if ( m_ImportManager )
+        {
+            m_ImportManager->ImportAllFromDirectory( Common::Constants::Path::MESH_PATH, /*force=*/true );
+            m_ImportManager->ImportAllFromDirectory( Common::Constants::Path::COLLECTIONS_PATH, /*force=*/true );
+            // AND THE TEXTURES DIRECTORY, WHICH THIS COMMAND DID NOT REACH. Loose textures are cooked
+            // only as a mesh's dependency or by a drag-and-drop, so `Assets/Textures/` — the checker
+            // floor's texture and the sky panoramas — was the one place "Rebuild
+            // Cooked Assets" could not rebuild. Found the day the container's version moved: the menu
+            // entry whose whole job is "the cooked form is stale, make it again" left `T_Checker.tex`
+            // stale, and the only remedy left was to drag the file back into the editor.
+            (void)m_ImportManager->ImportLooseTextures();
+        }
+
+        // The clip rows may have changed with the re-cook; everything else is re-read on demand.
+        if ( m_AnimationLibrary )
+            Assets::IndexAnimationClips( *m_AssetManager, *m_AnimationLibrary );
+
+        // Drop cached per-entity material instances so MeshECSSystem rebuilds them from the freshly
+        // re-registered runtime materials (which now reference the reloaded texture images).
+        if ( activeScene )
+        {
+            auto& reg = activeScene->GetRegistry();
+            reg.view<ECS::StaticMeshComponent>().each( []( auto, ECS::StaticMeshComponent& c )
+                                                       { c.RuntimeMaterialInstances.clear(); } );
+            reg.view<ECS::SkinnedMeshComponent>().each( []( auto, ECS::SkinnedMeshComponent& c )
+                                                        { c.RuntimeMaterialInstances.clear(); } );
+        }
+
+        if ( fileExplorer )
+            fileExplorer->QueueRefresh();
+
+        LOG_INFO( "[Editor] Rebuilt cooked assets" );
     }
 
     void AssetCompiling::AppendActionCommands( std::vector<PaletteCommand>& commands )

@@ -28,6 +28,10 @@ namespace Desert::Core
     class Scene;
 }
 
+namespace Desert::Animation
+{
+    class AnimationLibrary;
+}
 namespace Common
 {
     class Timestep;
@@ -35,11 +39,17 @@ namespace Common
 
 namespace Desert::Editor
 {
+    class FileExplorerPanel;
+    class ImportManager;
+
     class AssetCompiling
     {
     public:
-        explicit AssetCompiling( std::shared_ptr<Assets::AssetManager>& assetManager )
-             : m_AssetManager( assetManager )
+        AssetCompiling( std::shared_ptr<Assets::AssetManager>&        assetManager,
+                        std::unique_ptr<Animation::AnimationLibrary>& animationLibrary,
+                        std::unique_ptr<ImportManager>&               importManager )
+             : m_AssetManager( assetManager ), m_AnimationLibrary( animationLibrary ),
+               m_ImportManager( importManager )
         {
         }
 
@@ -54,6 +64,10 @@ namespace Desert::Editor
         // "Release unused assets", "Rebuild Content Registry".
         void AppendActionCommands( std::vector<PaletteCommand>& commands );
 
+        // File > Rebuild Cooked Assets: force re-cook of Cooked/ from sources, re-index the clips, drop the
+        // active scene's cached material instances and refresh the asset panel.
+        void RebuildCookedAssets( Desert::Core::Scene* activeScene, FileExplorerPanel* fileExplorer );
+
         // The queue the status bar reads (empty until the reveal).
         [[nodiscard]] const std::unique_ptr<BackgroundCookQueue>& CookQueue() const
         {
@@ -63,7 +77,9 @@ namespace Desert::Editor
     private:
         void ReloadRecookedMesh( const std::filesystem::path& source );
 
-        std::shared_ptr<Assets::AssetManager>& m_AssetManager;
+        std::shared_ptr<Assets::AssetManager>&        m_AssetManager;
+        std::unique_ptr<Animation::AnimationLibrary>& m_AnimationLibrary;
+        std::unique_ptr<ImportManager>&               m_ImportManager;
 
         std::unique_ptr<BackgroundCookQueue>  m_BackgroundCook;
         std::chrono::steady_clock::time_point m_BackgroundCookStart;
