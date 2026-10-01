@@ -66,7 +66,8 @@ namespace Desert::Editor::ImportedAssetSource
                 return Common::MakeFormattedError<Source>( "'{}' does not exist", asset.string() );
             const std::string                  extension = asset.extension().string();
             std::vector<std::filesystem::path> writers;
-            for ( const std::filesystem::path& recorded : Common::Content::SourcesRecordedIn( onDisk.parent_path() ) )
+            for ( const std::filesystem::path& recorded :
+                  Common::Content::SourcesRecordedIn( onDisk.parent_path() ) )
             {
                 const std::filesystem::path source = asset.parent_path() / recorded.filename();
                 if ( CookPaths::SkinnedAsset( source, extension ).filename() != asset.filename() )
