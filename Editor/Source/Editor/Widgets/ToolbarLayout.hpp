@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstddef>
 #include <span>
+#include <vector>
 
 // The main toolbar's horizontal layout — a pure function, so the rule "playback sits in the centre,
 // is one solid group whose size never changes, and never overlaps a neighbour" is tested without ImGui
@@ -113,8 +114,14 @@ namespace Desert::Editor::ToolbarLayout
         return placement;
     }
 
-    // ToolbarSeparator's advance: SameLine( 0, 8 ), a 1 px line drawn in place, SameLine( 0, 9 ).
-    inline constexpr float kSeparatorAdvance = 8.0f + 9.0f;
+    // A separator between two left groups: a gap, a 1 px line, a gap. The row is PLACED from these numbers and
+    // the line is drawn at SeparatorLineX — there is no ImGui cursor arithmetic for it to disagree with (two
+    // SameLine calls in a row both measure from the previous ITEM, so the old "8 + 9" advanced 9: 24 px over
+    // three separators between the measure and the row the buttons drew).
+    inline constexpr float kSeparatorGapBefore = 8.0f;
+    inline constexpr float kSeparatorLine      = 1.0f;
+    inline constexpr float kSeparatorGapAfter  = 8.0f;
+    inline constexpr float kSeparatorAdvance   = kSeparatorGapBefore + kSeparatorLine + kSeparatorGapAfter;
 
     /// One button of the left groups, measured both ways by the caller (the same text measure the button
     /// draws with). A button whose label is data rather than a name (the snap steps) has Compact ==
@@ -123,21 +130,42 @@ namespace Desert::Editor::ToolbarLayout
     {
         float Labelled       = 0.0f;
         float Compact        = 0.0f;
-        bool  AfterSeparator = false; // a ToolbarSeparator precedes it rather than the item spacing
+        bool  AfterSeparator = false; // a separator precedes it rather than the item spacing
     };
+
+    /// Where each left button's left edge sits, from the row's start: THE placement the toolbar draws at
+    /// (it sets the cursor to these) and the one LeftGroupsWidth reads — the measure and the drawn row are
+    /// one computation.
+    inline std::vector<float> PlaceLeftButtons( const std::span<const LeftButton> buttons, const float itemSpacing,
+                                                const bool compact, const float startX )
+    {
+        std::vector<float> xs;
+        xs.reserve( buttons.size() );
+        float x = startX;
+        for ( std::size_t i = 0; i < buttons.size(); ++i )
+        {
+            if ( i > 0 )
+                x += ( compact ? buttons[i - 1].Compact : buttons[i - 1].Labelled ) +
+                     ( buttons[i].AfterSeparator ? kSeparatorAdvance : itemSpacing );
+            xs.push_back( x );
+        }
+        return xs;
+    }
+
+    /// The separator line before a button placed at @p buttonX (one with AfterSeparator).
+    inline float SeparatorLineX( const float buttonX )
+    {
+        return buttonX - kSeparatorGapAfter - kSeparatorLine;
+    }
 
     /// The width the left groups occupy, from the first button's left edge to the last one's right.
     inline float LeftGroupsWidth( const std::span<const LeftButton> buttons, const float itemSpacing,
                                   const bool compact )
     {
-        float width = 0.0f;
-        for ( std::size_t i = 0; i < buttons.size(); ++i )
-        {
-            if ( i > 0 )
-                width += buttons[i].AfterSeparator ? kSeparatorAdvance : itemSpacing;
-            width += compact ? buttons[i].Compact : buttons[i].Labelled;
-        }
-        return width;
+        if ( buttons.empty() )
+            return 0.0f;
+        const std::vector<float> xs = PlaceLeftButtons( buttons, itemSpacing, compact, 0.0f );
+        return xs.back() + ( compact ? buttons.back().Compact : buttons.back().Labelled );
     }
 
     enum class LeftLabels

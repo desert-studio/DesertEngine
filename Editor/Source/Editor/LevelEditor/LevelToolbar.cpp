@@ -23,6 +23,7 @@
 #include <cmath>
 #include <cstdio>
 #include <format>
+#include <functional>
 #include <string>
 #include <utility>
 
@@ -142,6 +143,12 @@ namespace Desert::Editor
             std::string Label;
         };
 
+        // The popup a snap button opens: one id for the button that opens it and the list that draws it.
+        const char* SnapPopupId( const bool rotation )
+        {
+            return rotation ? "##AngleSnapPopup" : "##GridSnapPopup";
+        }
+
         SnapButtonFace SnapFace( const bool rotation )
         {
             using Gz = ::Desert::Editor::Core::GizmoState;
@@ -190,15 +197,12 @@ namespace Desert::Editor
         return clicked;
     }
 
-    void LevelToolbar::ToolbarSeparator()
+    void LevelToolbar::ToolbarSeparatorAt( const float x, const float y )
     {
         namespace ImGui = ::ImGui;
-        ImGui::SameLine( 0.0f, 8.0f );
-        const ImVec2 p = ImGui::GetCursorScreenPos();
-        const float  h = ImGui::GetFrameHeight();
-        ImGui::GetWindowDrawList()->AddLine( ImVec2( p.x, p.y + 3.0f ), ImVec2( p.x, p.y + h - 3.0f ),
+        const float h   = ImGui::GetFrameHeight();
+        ImGui::GetWindowDrawList()->AddLine( ImVec2( x, y + 3.0f ), ImVec2( x, y + h - 3.0f ),
                                              IM_COL32( 70, 70, 70, 255 ) );
-        ImGui::SameLine( 0.0f, 9.0f );
     }
 
     void LevelToolbar::Draw()
@@ -237,8 +241,7 @@ namespace Desert::Editor
         // The left groups are measured both labelled and icon-only (the same text measure ToolbarButton
         // draws with); when their labels would push the playback group off the middle, the labels collapse
         // to icons (UE's toolbar entries drop labels before the bar clips) and the tooltips name each button.
-        // THIS LIST IS THE LEFT GROUPS' DRAW ORDER BELOW, button for button: the drift check after the snap
-        // controls compares it with the row the buttons really took.
+        // The left groups are ONE table (leftEntries below), measured and drawn from the same placement.
         namespace Layout = ::Desert::Editor::ToolbarLayout;
         struct RightButton
         {
@@ -259,32 +262,101 @@ namespace Desert::Editor
         const float                 contentMinX = origin.x + ImGui::GetWindowContentRegionMin().x;
         const float                 contentMaxX = origin.x + ImGui::GetWindowContentRegionMax().x;
 
-        const bool           spaceLocal = Gz::EffectiveSpace( Gz::Get() ) == Gz::Space::Local;
-        const SnapButtonFace gridFace   = SnapFace( /*rotation=*/false );
-        const SnapButtonFace angleFace  = SnapFace( /*rotation=*/true );
-        const auto measure = []( const char* icon, const char* text, bool afterSeparator, bool collapsible )
+        // ---- THE LEFT GROUPS, AS ONE TABLE ---------------------------------------------------------
+        // Each entry is a button's whole description — face, state, tooltip, action — and the row is both
+        // MEASURED and DRAWN from it: ToolbarLayout::PlaceLeftButtons gives every button's x, the buttons are
+        // drawn there and the separators at SeparatorLineX. There is no second list to drift from the first.
+        struct LeftEntry
         {
-            const float labelled = ToolbarButtonWidth( icon, text );
-            return Layout::LeftButton{ labelled, collapsible ? ToolbarButtonWidth( icon, "" ) : labelled,
-                                       afterSeparator };
+            const char*           Icon;
+            std::string           Label;
+            bool                  Collapsible; // a name collapses to its icon; a value (the snap steps) never
+            bool                  AfterSeparator;
+            bool                  Active;
+            bool                  Enabled;
+            std::string           Tooltip;
+            std::function<void()> OnClick;
         };
-        const std::array<Layout::LeftButton, 13> leftButtons = { {
-             measure( ICON_MDI_CONTENT_SAVE, "Save", false, true ),
-             measure( ICON_MDI_UNDO, "", false, false ),
-             measure( ICON_MDI_REDO, "", false, false ),
-             measure( ICON_MDI_CURSOR_DEFAULT_OUTLINE, "Select", true, true ),
-             measure( ICON_MDI_CUBE_OUTLINE, "Modeling", false, true ),
-             measure( ICON_MDI_GRASS, "Foliage", false, true ),
-             measure( ICON_MDI_TERRAIN, "Landscape", false, true ),
-             measure( ICON_MDI_CURSOR_MOVE, "", true, false ),
-             measure( ICON_MDI_ROTATE_ORBIT, "", false, false ),
-             measure( ICON_MDI_ARROW_EXPAND_ALL, "", false, false ),
-             measure( spaceLocal ? ICON_MDI_AXIS_ARROW : ICON_MDI_EARTH, spaceLocal ? "Local" : "World", false,
-                      true ),
-             measure( gridFace.Icon, gridFace.Label.c_str(), true, false ),
-             measure( angleFace.Icon, angleFace.Label.c_str(), false, false ),
+
+        const bool  dirty     = m_SceneFiles.HasUnsavedChanges();
+        const auto& undoStack = CommandHistory::Get().UndoStack();
+        const auto& redoStack = CommandHistory::Get().RedoStack();
+        // The tooltip NAMES the edit, which is the difference between an undo button and a dare.
+        std::string undoTip = undoStack.empty() ? std::string( "Nothing to undo" )
+                                                : std::format( "Undo {} (Ctrl+Z)", undoStack.back()->GetLabel() );
+        std::string redoTip = redoStack.empty()
+                                   ? std::string( "Nothing to redo" )
+                                   : std::format( "Redo {} (Ctrl+Shift+Z)", redoStack.back()->GetLabel() );
+
+        // Editor modes: one button per EditorMode the editor HAS. Landscape joined when the Landscape mode
+        // landed (L1-L8, LS-10..15); Paint is not a mode (it is the Landscape Paint tab).
+        const EMode mode = Mode::Get();
+
+        // Transform tools. THE KEYS NAMED HERE ARE THE KEYS THAT WORK: the only handler binds T, R and C
+        // (ViewportPanel::OnKeyPressed), so the tooltips name those rather than UE's W/E/R — adopting W/E/R is
+        // a keymap decision (Foliage/Modeling conflicts), not a tooltip edit.
+        const Gz::Operation op = Gz::Get();
+
+        // Transform space: one button that both REPORTS the space and flips it. It asks EffectiveSpace(), not
+        // GetSpace(), because ImGuizmo throws the mode away while scaling (ImGuizmo.cpp:2653) — during a Scale
+        // the honest face is Local, disabled, rather than a "World" the handles will not honour.
+        const bool  forced  = Gz::SpaceIsForced( op );
+        const bool  isLocal = Gz::EffectiveSpace( op ) == Gz::Space::Local;
+        std::string spaceTip =
+             forced ? "Scaling is always along the object's own axes — a world-axis scale of a rotated object "
+                      "is a shear, which a transform cannot hold"
+             : isLocal ? "Transform space: Local — drag along the object's own axes (click for World)"
+                       : "Transform space: World — drag along the world axes (click for Local)";
+
+        // The two snap values: each button REPORTS its step and opens the list that changes it (DrawSnapPopup);
+        // the shared magnet toggle sits at the top of both lists — snapping is one state, read in one place.
+        const SnapButtonFace gridFace  = SnapFace( /*rotation=*/false );
+        const SnapButtonFace angleFace = SnapFace( /*rotation=*/true );
+
+        const std::array<LeftEntry, 13> leftEntries = { {
+             // The file/history group. Save sets the SAME deferred flag the File menu sets: saving from a
+             // toolbar and from a menu must be one code path, or one will grow a step the other forgets.
+             { ICON_MDI_CONTENT_SAVE, "Save", true, false, false, true,
+               dirty ? "Save the scene (Ctrl+S) — there are unsaved changes" : "Save the scene (Ctrl+S)",
+               [this] { m_SceneFiles.RequestSave(); } },
+             { ICON_MDI_UNDO, "", false, false, false, editMode && !undoStack.empty(), std::move( undoTip ),
+               [] { CommandHistory::Get().Undo(); } },
+             { ICON_MDI_REDO, "", false, false, false, editMode && !redoStack.empty(), std::move( redoTip ),
+               [] { CommandHistory::Get().Redo(); } },
+             { ICON_MDI_CURSOR_DEFAULT_OUTLINE, "Select", true, true, mode == EMode::Select, true,
+               "Select — selection and transform tools", [] { Mode::Set( EMode::Select ); } },
+             { ICON_MDI_CUBE_OUTLINE, "Modeling", true, false, mode == EMode::Modeling, true,
+               "Modeling — geometry tools (CubeGrid blockout)", [] { Mode::Set( EMode::Modeling ); } },
+             { ICON_MDI_GRASS, "Foliage", true, false, mode == EMode::Foliage, true,
+               "Foliage — paint instanced vegetation", [] { Mode::Set( EMode::Foliage ); } },
+             { ICON_MDI_TERRAIN, "Landscape", true, false, mode == EMode::Landscape, true,
+               "Landscape — create, sculpt and paint landscapes", [] { Mode::Set( EMode::Landscape ); } },
+             { ICON_MDI_CURSOR_MOVE, "", false, true, op == Gz::Operation::Translate, true, "Translate (T)",
+               [] { Gz::Set( Gz::Operation::Translate ); } },
+             { ICON_MDI_ROTATE_ORBIT, "", false, false, op == Gz::Operation::Rotate, true, "Rotate (R)",
+               [] { Gz::Set( Gz::Operation::Rotate ); } },
+             { ICON_MDI_ARROW_EXPAND_ALL, "", false, false, op == Gz::Operation::Scale, true, "Scale (C)",
+               [] { Gz::Set( Gz::Operation::Scale ); } },
+             { isLocal ? ICON_MDI_AXIS_ARROW : ICON_MDI_EARTH, isLocal ? "Local" : "World", true, false, isLocal,
+               !forced, std::move( spaceTip ),
+               [isLocal] { Gz::SetSpace( isLocal ? Gz::Space::World : Gz::Space::Local ); } },
+             { gridFace.Icon, gridFace.Label, false, true, Gz::PersistentSnap(), true,
+               "Grid snap — click to change the step or toggle snapping",
+               [] { ImGui::OpenPopup( SnapPopupId( /*rotation=*/false ) ); } },
+             { angleFace.Icon, angleFace.Label, false, false, Gz::PersistentSnap(), true,
+               "Angle snap — click to change the step or toggle snapping",
+               [] { ImGui::OpenPopup( SnapPopupId( /*rotation=*/true ) ); } },
         } };
-        const bool                               compact =
+
+        std::array<Layout::LeftButton, leftEntries.size()> leftButtons{};
+        for ( std::size_t i = 0; i < leftEntries.size(); ++i )
+        {
+            const LeftEntry& entry    = leftEntries[i];
+            const float      labelled = ToolbarButtonWidth( entry.Icon, entry.Label.c_str() );
+            leftButtons[i] = { labelled, entry.Collapsible ? ToolbarButtonWidth( entry.Icon, "" ) : labelled,
+                               entry.AfterSeparator };
+        }
+        const bool compact =
              Layout::ChooseLeftLabels( Layout::Row{
                   .ContentMinX = contentMinX,
                   .ContentMaxX = contentMaxX,
@@ -292,114 +364,22 @@ namespace Desert::Editor
                   .CentreWidth = probe.Width,
                   .RightWidth  = rightW,
              } ) == Layout::LeftLabels::IconsOnly;
-        const auto label = [compact]( const char* text ) { return compact ? "" : text; };
 
-        // ---- Left: the file/history group -------------------------------------------------------
-        const bool dirty = m_SceneFiles.HasUnsavedChanges();
-        if ( ToolbarButton( ICON_MDI_CONTENT_SAVE, label( "Save" ), false,
-                            dirty ? "Save the scene (Ctrl+S) — there are unsaved changes"
-                                  : "Save the scene (Ctrl+S)" ) )
+        // UE's toolbar entries drop labels before the bar clips; the tooltips still name each button.
+        const float              rowY   = ImGui::GetCursorScreenPos().y;
+        const std::vector<float> leftXs = Layout::PlaceLeftButtons( leftButtons, spacing, compact, contentMinX );
+        for ( std::size_t i = 0; i < leftEntries.size(); ++i )
         {
-            // The SAME deferred flag the File menu sets, not a second call to Serialize: saving mid-frame
-            // from a toolbar and saving from a menu must be one code path, or one of them will grow a
-            // step (the revision marker, a toast) the other forgets.
-            m_SceneFiles.RequestSave();
+            const LeftEntry& entry = leftEntries[i];
+            if ( entry.AfterSeparator )
+                ToolbarSeparatorAt( Layout::SeparatorLineX( leftXs[i] ), rowY );
+            ImGui::SetCursorScreenPos( ImVec2( leftXs[i], rowY ) );
+            const char* face = compact && entry.Collapsible ? "" : entry.Label.c_str();
+            if ( ToolbarButton( entry.Icon, face, entry.Active, entry.Tooltip.c_str(), entry.Enabled ) )
+                entry.OnClick();
         }
-        ImGui::SameLine();
-
-        const auto& undoStack = CommandHistory::Get().UndoStack();
-        const auto& redoStack = CommandHistory::Get().RedoStack();
-        // The tooltip NAMES the edit, which is the difference between an undo button and a dare.
-        const std::string undoTip = undoStack.empty()
-                                         ? std::string( "Nothing to undo" )
-                                         : std::format( "Undo {} (Ctrl+Z)", undoStack.back()->GetLabel() );
-        const std::string redoTip = redoStack.empty()
-                                         ? std::string( "Nothing to redo" )
-                                         : std::format( "Redo {} (Ctrl+Shift+Z)", redoStack.back()->GetLabel() );
-        if ( ToolbarButton( ICON_MDI_UNDO, "", false, undoTip.c_str(), editMode && !undoStack.empty() ) )
-            CommandHistory::Get().Undo();
-        ImGui::SameLine();
-        if ( ToolbarButton( ICON_MDI_REDO, "", false, redoTip.c_str(), editMode && !redoStack.empty() ) )
-            CommandHistory::Get().Redo();
-        ToolbarSeparator();
-
-        // ---- Editor modes -----------------------------------------------------------------------
-        // One button per EditorMode the editor HAS. Landscape joined when the Landscape mode landed
-        // (L1-L8, LS-10..15); the stale "three modes" comment hid it from the rail while the mode was
-        // reachable only through the palette. Paint is not a mode (it is the Landscape Paint tab).
-        const EMode mode = Mode::Get();
-        if ( ToolbarButton( ICON_MDI_CURSOR_DEFAULT_OUTLINE, label( "Select" ), mode == EMode::Select,
-                            "Select — selection and transform tools" ) )
-            Mode::Set( EMode::Select );
-        ImGui::SameLine();
-        if ( ToolbarButton( ICON_MDI_CUBE_OUTLINE, label( "Modeling" ), mode == EMode::Modeling,
-                            "Modeling — geometry tools (CubeGrid blockout)" ) )
-            Mode::Set( EMode::Modeling );
-        ImGui::SameLine();
-        if ( ToolbarButton( ICON_MDI_GRASS, label( "Foliage" ), mode == EMode::Foliage,
-                            "Foliage — paint instanced vegetation" ) )
-            Mode::Set( EMode::Foliage );
-        ImGui::SameLine();
-        if ( ToolbarButton( ICON_MDI_TERRAIN, label( "Landscape" ), mode == EMode::Landscape,
-                            "Landscape — create, sculpt and paint landscapes" ) )
-            Mode::Set( EMode::Landscape );
-        ToolbarSeparator();
-
-        // ---- Transform tools --------------------------------------------------------------------
-        //
-        // THE KEYS NAMED HERE ARE THE KEYS THAT WORK. These three tooltips read "(W)", "(E)" and "(R)"
-        // — UE's bindings — while the only handler in the editor binds T, R and C
-        // (ViewportPanel::OnKeyPressed). So the rail advertised three shortcuts that did nothing,
-        // and the viewport strip's own tooltips (Move (T) / Rotate (R) / Scale (C)) said the true thing
-        // eight inches away. A UI string is a promise about the tree, and this one was not kept.
-        //
-        // Corrected toward the CODE rather than toward UE, deliberately: adopting W/E/R is a shortcut
-        // decision with a Foliage/Modeling conflict to weigh and belongs to whoever owns the keymap, not
-        // to a tooltip edit. Naming the working key costs nothing and is true today either way.
-        const Gz::Operation op = Gz::Get();
-        if ( ToolbarButton( ICON_MDI_CURSOR_MOVE, "", op == Gz::Operation::Translate, "Translate (T)" ) )
-            Gz::Set( Gz::Operation::Translate );
-        ImGui::SameLine();
-        if ( ToolbarButton( ICON_MDI_ROTATE_ORBIT, "", op == Gz::Operation::Rotate, "Rotate (R)" ) )
-            Gz::Set( Gz::Operation::Rotate );
-        ImGui::SameLine();
-        if ( ToolbarButton( ICON_MDI_ARROW_EXPAND_ALL, "", op == Gz::Operation::Scale, "Scale (C)" ) )
-            Gz::Set( Gz::Operation::Scale );
-        ImGui::SameLine();
-
-        // ---- Transform space -------------------------------------------------------------------
-        // One button that both REPORTS the space and flips it, the same bargain the snap controls make
-        // below. It asks EffectiveSpace(), not GetSpace(), because ImGuizmo throws the mode away while
-        // scaling (ImGuizmo.cpp:2653) — so during a Scale the honest thing to show is Local, disabled,
-        // rather than a "World" the handles will not honour. The button that lies is worse than the
-        // button that is greyed out, and this is the only place the two could have drifted apart.
-        {
-            const bool      forced  = Gz::SpaceIsForced( op );
-            const Gz::Space space   = Gz::EffectiveSpace( op );
-            const bool      isLocal = space == Gz::Space::Local;
-
-            const char* tip = nullptr;
-            if ( forced )
-                tip = "Scaling is always along the object's own axes — a world-axis scale of a rotated object "
-                      "is a shear, which a transform cannot hold";
-            else if ( isLocal )
-                tip = "Transform space: Local — drag along the object's own axes (click for World)";
-            else
-                tip = "Transform space: World — drag along the world axes (click for Local)";
-
-            if ( ToolbarButton( isLocal ? ICON_MDI_AXIS_ARROW : ICON_MDI_EARTH,
-                                label( isLocal ? "Local" : "World" ), isLocal, tip, /*enabled=*/!forced ) )
-                Gz::SetSpace( isLocal ? Gz::Space::World : Gz::Space::Local );
-        }
-        ToolbarSeparator();
-
-        // ---- The two snap values ----------------------------------------------------------------
-        // Each button both REPORTS its step and opens the list that changes it, and the shared magnet
-        // toggle sits at the top of both lists rather than becoming a third button: snapping is one state,
-        // and two buttons for it would be two places to read a single yes/no.
-        DrawSnapControl( /*rotation=*/false );
-        ImGui::SameLine();
-        DrawSnapControl( /*rotation=*/true );
+        DrawSnapPopup( /*rotation=*/false );
+        DrawSnapPopup( /*rotation=*/true );
 
         // ---- Centre: playback; Right: the things you leave the editor through ---------------------
         // ONE placement for both groups (ToolbarLayout::PlaceRow), from widths that are measured rather
@@ -408,18 +388,17 @@ namespace Desert::Editor
         // group sits on the bar's middle whatever the scene state and whatever the left groups read
         // (their labels collapse first, above), and slides only when even their icons would be under it.
         {
-            const float rowY    = ImGui::GetItemRectMin().y;
-            const float leftEnd = ImGui::GetItemRectMax().x;
+            const float leftEnd = contentMinX + Layout::LeftGroupsWidth( leftButtons, spacing, compact );
 
-            // The measured list above must be the row the buttons really took, or the middle is a guess.
-            if ( const float measured = contentMinX + Layout::LeftGroupsWidth( leftButtons, spacing, compact );
-                 std::abs( measured - leftEnd ) > 1.0f )
+            // The buttons were placed from the same table, so only a WIDTH can differ here: ImGui sizing a
+            // button other than ToolbarButtonWidth measures it (a style pushed between measure and draw).
+            if ( const float drawn = ImGui::GetItemRectMax().x; std::abs( drawn - leftEnd ) > 1.0f )
             {
                 static bool reported = false;
                 if ( !std::exchange( reported, true ) )
                     LOG_ERROR( "[Toolbar] the left groups' measure ({:.1f}) is not the row they drew ({:.1f}); "
-                               "DrawToolbar's leftButtons list has drifted from its buttons",
-                               measured, leftEnd );
+                               "ToolbarButtonWidth no longer measures what ToolbarButton draws",
+                               leftEnd, drawn );
             }
 
             const Layout::RowPlacement row = Layout::PlaceRow( Layout::Row{
@@ -448,21 +427,15 @@ namespace Desert::Editor
         ImGui::PopStyleColor();
     }
 
-    void LevelToolbar::DrawSnapControl( bool rotation )
+    void LevelToolbar::DrawSnapPopup( bool rotation )
     {
         namespace ImGui = ::ImGui;
         using Gz        = ::Desert::Editor::Core::GizmoState;
 
-        // The steps are declared once at the top of this file, because the command palette offers exactly
-        // these and a second copy here is how the two lists would drift apart.
-
-        const SnapButtonFace face = SnapFace( rotation );
-        const char*          tip  = rotation ? "Angle snap — click to change the step or toggle snapping"
-                                             : "Grid snap — click to change the step or toggle snapping";
-        if ( ToolbarButton( face.Icon, face.Label.c_str(), Gz::PersistentSnap(), tip ) )
-            ImGui::OpenPopup( rotation ? "##AngleSnapPopup" : "##GridSnapPopup" );
-
-        if ( ImGui::BeginPopup( rotation ? "##AngleSnapPopup" : "##GridSnapPopup" ) )
+        // The steps are declared once (ViewportCommands.hpp), because the command palette offers exactly
+        // these and a second copy here is how the two lists would drift apart. The button that opens this
+        // list is an entry of Draw's left table.
+        if ( ImGui::BeginPopup( SnapPopupId( rotation ) ) )
         {
             bool snapping = Gz::PersistentSnap();
             if ( ImGui::Checkbox( "Snapping", &snapping ) )

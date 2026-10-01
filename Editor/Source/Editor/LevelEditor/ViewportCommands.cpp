@@ -21,7 +21,7 @@ namespace Desert::Editor
         // neither half. The three toolbar popups and the View -> Show menu were the only ways in.
         //
         // THE STEPS ARE THE TOOLBAR'S OWN LISTS, not a copy: kGridSteps and kAngleSteps are declared once
-        // at the top of this file and read by DrawSnapControl as well, so a step added there appears here
+        // at the top of this file and read by DrawSnapPopup as well, so a step added there appears here
         // and the two can never offer different menus.
         //
         // Labels are ASCII on purpose. A client addresses a command by its exact label over the control

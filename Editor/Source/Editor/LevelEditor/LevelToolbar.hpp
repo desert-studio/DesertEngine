@@ -43,10 +43,11 @@ namespace Desert::Editor
         // One toolbar button. `active` is the armed/on state: tinted fill plus a 2px underline.
         static bool ToolbarButton( const char* icon, const char* label, bool active = false,
                                    const char* tooltip = nullptr, bool enabled = true );
-        static void ToolbarSeparator();
-        // A snap step: the button reports the current step and opens the list that changes it, with the
-        // shared snapping toggle at the top. `rotation` picks the angle step over the grid step.
-        static void DrawSnapControl( bool rotation );
+        // The 1 px line between two left groups, at the x ToolbarLayout::SeparatorLineX placed it.
+        static void ToolbarSeparatorAt( float x, float y );
+        // A snap step's list, with the shared snapping toggle at the top; the button that opens it (and
+        // reports the current step) is an entry of Draw's left table. `rotation` picks the angle step.
+        static void DrawSnapPopup( bool rotation );
 
         SceneWorkspace&    m_Workspace;
         SceneFiles&        m_SceneFiles;

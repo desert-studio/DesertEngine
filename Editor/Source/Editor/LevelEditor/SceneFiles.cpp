@@ -82,6 +82,14 @@ namespace Desert::Editor
         }
     }
 
+    bool SceneFiles::RequestReload()
+    {
+        if ( m_OpenScenePath.empty() )
+            return false;
+        Editor::Core::SceneOpenRequest::Request( m_OpenScenePath.string() );
+        return true;
+    }
+
     // Between frames, after the startup stages: the deferred load. True when a load ran — the host starts
     // the content settle then, BEFORE InitializeIfLoadRefused and New Scene (the order OnUpdate always had).
     bool SceneFiles::ServiceLoadRequest()
@@ -324,8 +332,8 @@ namespace Desert::Editor
 
         // Destroy the old registry FIRST: its destructor unregisters the editor passes by name, and
         // assignment would run it after the new registry already re-registered them.
-        m_Workspace.RebuildRenderRegistry();
-        phases.Lap( "rebuild the render registry", incoming );
+        m_Workspace.ActiveSceneReplaced();
+        phases.Lap( "rebuild the render registry, drop the old world's selection", incoming );
         phases.LogSummary();
 
         // THE OPEN SCENE IS NOW THIS FILE, and it is set HERE rather than at the top of the function on

@@ -174,8 +174,8 @@ namespace Desert::Editor
         }
         phases.Lap( "initialise the scene", incoming );
 
-        m_Workspace.RebuildRenderRegistry();
-        phases.Lap( "rebuild the render registry", incoming );
+        m_Workspace.ActiveSceneReplaced();
+        phases.Lap( "rebuild the render registry, drop the old world's selection", incoming );
         phases.LogSummary();
 
         scene->SetState( SceneState::Edit );

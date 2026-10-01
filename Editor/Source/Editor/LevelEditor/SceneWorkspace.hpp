@@ -94,6 +94,13 @@ namespace Desert::Editor
         // after the new registry had already registered them again.
         void RebuildRenderRegistry();
 
+        // THE ACTIVE SCENE'S WORLD WAS REPLACED (Open, New, Stop's snapshot restore): its entities were torn down
+        // and rebuilt. Everything keyed by the old entities follows the world, in ONE place for all three paths:
+        // the render registry is rebuilt and the selection is emptied — as UE's USelection is on a world change.
+        // A UUID that survives the swap (a template opened twice, a snapshot restore) names an entity of a
+        // different world; keeping it would leave Outliner "1 selected" and Details "Entity not found".
+        void ActiveSceneReplaced();
+
         // The standard ECS systems, shared by the primary scene and every extra document.
         void BuildSceneSystems( Desert::Core::Scene& scene );
 

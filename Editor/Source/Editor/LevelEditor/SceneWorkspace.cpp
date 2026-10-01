@@ -54,6 +54,12 @@ namespace Desert::Editor
         m_RenderRegistry = std::make_unique<Render::RenderRegistry>( m_ActiveScene );
     }
 
+    void SceneWorkspace::ActiveSceneReplaced()
+    {
+        RebuildRenderRegistry();
+        Core::SelectionManager::ClearSelection();
+    }
+
     void SceneWorkspace::BuildSceneSystems( Desert::Core::Scene& scene )
     {
         // The nine collectors that turn components into render data, and their order, live in ONE place

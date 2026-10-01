@@ -158,6 +158,43 @@ TEST( ToolbarLayout, LeftGroupsWidthCountsSeparatorsAndSpacing )
                      20.0f + 2.0f + 20.0f + Layout::kSeparatorAdvance + 30.0f );
 }
 
+// THE MEASURE IS THE DRAWN ROW: the toolbar draws each left button at PlaceLeftButtons' x and each separator
+// at SeparatorLineX, so the row's right edge is LeftGroupsWidth and every separator line sits inside its gap,
+// clear of both neighbours. (The row once advanced 9 px per separator against a measured 17: 24 px of drift.)
+TEST( ToolbarLayout, MeasuredWidthIsTheRowThePlacementDraws )
+{
+    const std::vector<Layout::LeftButton> left   = { { 50.0f, 20.0f, false },
+                                                     { 40.0f, 20.0f, false },
+                                                     { 30.0f, 30.0f, true },
+                                                     { 60.0f, 25.0f, false },
+                                                     { 45.0f, 45.0f, true } };
+    constexpr float                       kStart = 8.0f;
+    for ( const bool compact : { false, true } )
+    {
+        const std::vector<float> xs = Layout::PlaceLeftButtons( left, 2.0f, compact, kStart );
+        ASSERT_EQ( xs.size(), left.size() );
+        EXPECT_FLOAT_EQ( xs.front(), kStart );
+        const auto width = [&]( std::size_t i ) { return compact ? left[i].Compact : left[i].Labelled; };
+        EXPECT_FLOAT_EQ( xs.back() + width( left.size() - 1 ),
+                         kStart + Layout::LeftGroupsWidth( left, 2.0f, compact ) );
+        for ( std::size_t i = 1; i < left.size(); ++i )
+        {
+            const float prevRight = xs[i - 1] + width( i - 1 );
+            if ( !left[i].AfterSeparator )
+            {
+                EXPECT_FLOAT_EQ( xs[i] - prevRight, 2.0f );
+                continue;
+            }
+            EXPECT_FLOAT_EQ( xs[i] - prevRight, Layout::kSeparatorAdvance );
+            const float line = Layout::SeparatorLineX( xs[i] );
+            EXPECT_FLOAT_EQ( line - prevRight, Layout::kSeparatorGapBefore );
+            EXPECT_FLOAT_EQ( xs[i] - ( line + Layout::kSeparatorLine ), Layout::kSeparatorGapAfter );
+        }
+    }
+    EXPECT_TRUE( Layout::PlaceLeftButtons( {}, 2.0f, false, kStart ).empty() );
+    EXPECT_FLOAT_EQ( Layout::LeftGroupsWidth( {}, 2.0f, false ), 0.0f );
+}
+
 TEST( ToolbarLayout, PlaybackSitsOnTheMiddleOfANarrowAndAWideWindow )
 {
     // The live defect: in a 3288 px window (1644 pt at 2x) the labelled left groups ended past the

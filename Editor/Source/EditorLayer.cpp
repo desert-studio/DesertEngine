@@ -1076,6 +1076,9 @@ namespace Desert::Editor
 
                 if ( ::ImGui::IsKeyPressed( ImGuiKey_N, false ) )
                     m_SceneFiles.RequestNew(); // Ctrl+N -> fresh empty scene (deferred, see OnUpdate)
+                // Ctrl+R -> the open scene again from its file; an untitled scene has none (the menu greys it).
+                if ( ::ImGui::IsKeyPressed( ImGuiKey_R, false ) )
+                    (void)m_SceneFiles.RequestReload();
 
                 if ( ::ImGui::IsKeyPressed( ImGuiKey_S, false ) )
                 {

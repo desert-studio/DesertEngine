@@ -35,6 +35,10 @@ namespace Desert::Editor
         {
             m_NewSceneRequested = true;
         }
+        // File -> Reload Scene / Ctrl+R (UE: File > Reload Level): the open scene again, from its file, through
+        // the same unsaved-changes gate as any open. False when the scene has no file (untitled) — nothing to
+        // reload.
+        bool RequestReload();
         // Serviced by DrawDialogs, as File -> Save always was.
         void RequestSave()
         {

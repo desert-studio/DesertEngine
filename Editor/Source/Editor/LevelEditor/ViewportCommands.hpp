@@ -7,7 +7,7 @@
 namespace Desert::Editor
 {
     // THE SNAP STEPS A PERSON ACTUALLY USES, named once for the same reason the menu bar's menus are. Read by
-    // DrawSnapControl, which draws them as the magnet popup's list, and by AppendViewportCommands, which
+    // DrawSnapPopup, which draws them as the magnet popup's list, and by AppendViewportCommands, which
     // offers exactly these as commands — so the palette cannot offer a step the toolbar does not, which
     // is the shape a hand-copied second list always ends up in.
     //

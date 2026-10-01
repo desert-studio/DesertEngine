@@ -144,11 +144,6 @@ namespace Desert::Editor
         ImGui::TextDisabled( "  switch projects via the Project Hub" );
         ImGui::Separator();
 
-        if ( ImGui::MenuItem( "Open File" ) )
-        {
-        }
-        ImGui::Separator();
-
         if ( ImGui::MenuItem( "New Scene", "CTRL+N" ) )
         {
             m_SceneFiles.RequestNew();
@@ -157,9 +152,8 @@ namespace Desert::Editor
         {
             m_SceneFiles.RequestSave();
         }
-        if ( ImGui::MenuItem( "Reload Scene", "CTRL+R" ) )
-        {
-        }
+        if ( ImGui::MenuItem( "Reload Scene", "CTRL+R", false, !m_SceneFiles.OpenScenePath().empty() ) )
+            (void)m_SceneFiles.RequestReload(); // disabled for an untitled scene, so it cannot refuse here
 
         m_SceneFiles.DrawOpenSceneMenuItem();
         DrawStyleSubmenu();

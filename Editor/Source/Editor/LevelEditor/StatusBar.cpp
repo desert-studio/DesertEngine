@@ -210,7 +210,7 @@ namespace Desert::Editor
                         ImGui::TextDisabled( ICON_MDI_MAGNET " x%.2f", Gz::ScaleSnap() );
                         break;
                     default:
-                        // CENTIMETRES, and metres only past a metre — the same rule DrawSnapControl
+                        // CENTIMETRES, and metres only past a metre — the same rule DrawSnapPopup
                         // formats the toolbar button with, and it has to be the same rule because the two
                         // labels sit on one screen reading one value. This said "%.2fm" over a value that
                         // is in world units (1 unit = 1 cm), so a 5 m step read "500.00m" three inches
