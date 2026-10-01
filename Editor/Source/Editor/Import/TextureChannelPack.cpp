@@ -1,5 +1,7 @@
 #include <Editor/Import/TextureChannelPack.hpp>
 
+#include <Common/Core/Constants.hpp>
+
 // STB_IMAGE(_WRITE)_IMPLEMENTATION is compiled into stb_image.cpp; declarations only here.
 #include <stb_image/stb_image.h>
 #include <stb_image/stb_image_write.h>
@@ -56,8 +58,8 @@ namespace Desert::Editor
         {
             Pixels& image      = images.emplace_back();
             int     components = 0;
-            image.Data.reset(
-                 stbi_load( part.Source.string().c_str(), &image.Width, &image.Height, &components, 4 ) );
+            image.Data.reset( stbi_load( Common::Constants::Path::FullPath( part.Source ).string().c_str(),
+                                         &image.Width, &image.Height, &components, 4 ) );
             if ( !image.Data )
                 return Common::MakeError<PackOutcome>( std::format( "[Import] slot '{}': cannot read '{}' ({})",
                                                                     slot.Slot, part.Source.generic_string(),
@@ -100,13 +102,16 @@ namespace Desert::Editor
 
     Common::ResultStr<PackOutcome> WriteDerivedTexture( std::string_view bytes, const std::filesystem::path& out )
     {
+        // `out` is a project key (relative) or absolute; the bytes land off the project (FullPath), the root
+        // the texture importer reads that key from - never off the working directory.
+        const std::filesystem::path onDisk = Common::Constants::Path::FullPath( out );
         {
-            std::ifstream existing( out, std::ios::binary );
+            std::ifstream existing( onDisk, std::ios::binary );
             if ( existing && std::string( std::istreambuf_iterator<char>( existing ),
                                           std::istreambuf_iterator<char>() ) == bytes )
                 return Common::MakeSuccess( PackOutcome::Unchanged );
         }
-        std::ofstream file( out, std::ios::binary | std::ios::trunc );
+        std::ofstream file( onDisk, std::ios::binary | std::ios::trunc );
         file.write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) );
         // The verdict is the file's, not the buffer's: close() flushes, and a short write surfaces only there.
         file.close();

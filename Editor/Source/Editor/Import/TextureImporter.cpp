@@ -504,7 +504,7 @@ namespace Desert::Editor
         static std::mutex           s_CookMutex;
         std::lock_guard<std::mutex> cookLock( s_CookMutex );
 
-        auto abs = std::filesystem::weakly_canonical( path ).string();
+        auto abs = std::filesystem::weakly_canonical( Common::Constants::Path::FullPath( path ) ).string();
 
         if ( m_Cache.contains( abs ) )
         {

@@ -41,6 +41,7 @@
 
 #include <glm/gtc/constants.hpp>
 #include <gtest/gtest.h>
+#include "../../TestSupport/committed_projects.hpp"
 #include "../../TestSupport/engine_dir.hpp"
 
 #include <algorithm>
@@ -52,6 +53,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 #include <optional>
@@ -697,8 +699,8 @@ TEST( WorldPartitionComposites, UnrelatedEntitiesAreSeparateCompositesInSeparate
 //   * -1 with WP15c (2479 / 2447): Ramp_EditMesh of M4_RampNormalMap.desce, the corpus's one record whose
 //     StaticMesh block carries its geometry (EditMesh) - now bounded by its own vertices, no registry needed.
 //
-// The mesh references are resolved as the loader resolves them - handle, else path - and a path is
-// relative to the editor's working directory, so the walk runs from there.
+// The mesh references are resolved as the loader resolves them - handle, else path - against the registry of
+// the project the scene belongs to, so each committed project is opened in turn and its own scenes are walked.
 namespace
 {
     // How many mesh-asset records (StaticMesh or SkinnedMesh naming a file) the corpus has, and how many
@@ -717,20 +719,22 @@ namespace
     constexpr std::size_t kCorpusPointOnlyWithRegistry = 2319;
     constexpr std::size_t kCorpusPointOnlyBlind        = 2342;
 
-    // The editor's project, opened the way the editor opens it: cwd = Editor/ (engine resource roots and
-    // scene mesh paths resolve against it) and the project root set from Desert.deproj. Restored on exit.
+    // A committed project (TestSupport/committed_projects.hpp), opened the way the editor opens it: the engine
+    // directory is the checkout's Editor/ and the project root is the .deproj's directory, its assets root read
+    // from the file. Restored on exit.
     class EditorProject
     {
     public:
-        explicit EditorProject( const std::string& repoRoot )
+        EditorProject( const std::string& repoRoot, const std::string_view deproj )
              : m_SavedRoot( Common::Constants::Path::CurrentProjectRoot() ),
                m_EngineDir( std::filesystem::absolute( repoRoot + "Editor" ) )
         {
-            const std::filesystem::path editorDir = std::filesystem::absolute( repoRoot + "Editor" );
-            const auto project = Common::Project::ReadProjectFile( ReadAll( editorDir / "Desert.deproj" ) );
+            const std::filesystem::path projectFile =
+                 std::filesystem::absolute( std::filesystem::path( repoRoot ) / deproj ).lexically_normal();
+            const auto project = Common::Project::ReadProjectFile( ReadAll( projectFile ) );
             if ( !project )
                 return;
-            Common::Constants::Path::SetProjectRoot( editorDir, project.GetValue().AssetsRoot );
+            Common::Constants::Path::SetProjectRoot( projectFile.parent_path(), project.GetValue().AssetsRoot );
             m_Opened = true;
         }
         ~EditorProject()
@@ -756,40 +760,50 @@ TEST( WorldPartitionMeshAssets, TheCorpusHasFewerPointOnlyRecordsWithTheGathered
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    const std::vector<std::filesystem::path> scenes = RepositoryScenes();
-    ASSERT_FALSE( scenes.empty() );
-
-    std::vector<std::filesystem::path> absolute;
-    absolute.reserve( scenes.size() );
-    for ( const auto& scene : scenes )
-        absolute.push_back( std::filesystem::absolute( scene ) );
-    const EditorProject project( root );
-    ASSERT_TRUE( project.Opened() );
-    const Common::Content::GatheredRegistry gathered = Common::Content::GatherContentRegistry( {} );
-    ASSERT_TRUE( gathered.Refused.empty() ) << gathered.Refused.front();
-
-    const Common::Utils::AssetRegistry&          rows    = gathered.Registry;
-    std::size_t                                  asked   = 0;
-    std::size_t                                  answers = 0;
-    const Desert::Core::Rules::AssetBoundsSource source =
-         [&]( const Common::Content::AssetGuid& guid, std::string_view path ) -> std::optional<Common::Math::AABB>
+    // THE CORPUS IS EVERY COMMITTED PROJECT'S SCENES, each planned against the registry of its own project.
+    std::size_t asked   = 0;
+    std::size_t answers = 0;
+    std::size_t blind   = 0;
+    std::size_t seen    = 0;
+    for ( const std::string_view deproj : Desert::TestSupport::kCommittedProjects )
     {
-        ++asked;
-        const Common::Utils::AssetRegistryEntry* row = rows.FindByGuidReference( guid, path );
-        if ( row == nullptr || !row->Bounds.has_value() )
-            return std::nullopt;
-        ++answers;
-        return row->Bounds;
-    };
+        SCOPED_TRACE( std::string( deproj ) );
+        const EditorProject project( root, deproj );
+        ASSERT_TRUE( project.Opened() );
+        const Common::Content::GatheredRegistry gathered = Common::Content::GatherContentRegistry( {} );
+        ASSERT_TRUE( gathered.Refused.empty() ) << gathered.Refused.front();
 
-    std::size_t blind = 0;
-    std::size_t seen  = 0;
-    for ( const auto& path : absolute )
-    {
-        const auto parsed = rfl::json::read<SceneSerialized>( ReadAll( path ) );
-        ASSERT_TRUE( parsed.has_value() ) << path.string();
-        blind += PlanWorldPartition( parsed->Entities, Cells( 12800.0f ) ).PointOnlyRecords;
-        seen += PlanWorldPartition( parsed->Entities, Cells( 12800.0f ), source ).PointOnlyRecords;
+        const Common::Utils::AssetRegistry&          rows = gathered.Registry;
+        const Desert::Core::Rules::AssetBoundsSource source =
+             [&]( const Common::Content::AssetGuid& guid,
+                  std::string_view                  path ) -> std::optional<Common::Math::AABB>
+        {
+            ++asked;
+            const Common::Utils::AssetRegistryEntry* row = rows.FindByGuidReference( guid, path );
+            if ( row == nullptr || !row->Bounds.has_value() )
+                return std::nullopt;
+            ++answers;
+            return row->Bounds;
+        };
+
+        std::vector<std::filesystem::path> scenes;
+        std::error_code                    ec;
+        const std::filesystem::path        sceneRoot = Common::Constants::Path::ASSETS_PATH / "Scenes";
+        for ( auto it = std::filesystem::recursive_directory_iterator( sceneRoot, ec );
+              it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
+        {
+            if ( it->is_regular_file() && it->path().extension() == ".desce" )
+                scenes.push_back( std::filesystem::absolute( it->path() ) );
+        }
+        ASSERT_FALSE( scenes.empty() ) << sceneRoot.string();
+
+        for ( const auto& path : scenes )
+        {
+            const auto parsed = rfl::json::read<SceneSerialized>( ReadAll( path ) );
+            ASSERT_TRUE( parsed.has_value() ) << path.string();
+            blind += PlanWorldPartition( parsed->Entities, Cells( 12800.0f ) ).PointOnlyRecords;
+            seen += PlanWorldPartition( parsed->Entities, Cells( 12800.0f ), source ).PointOnlyRecords;
+        }
     }
 
     EXPECT_EQ( blind, kCorpusPointOnlyBlind );
