@@ -14,6 +14,7 @@
 #include <format>
 #include <optional>
 #include <string>
+#include "../../TestSupport/engine_dir.hpp"
 
 namespace
 {
@@ -25,13 +26,7 @@ namespace
 
     fs::path EditorDir()
     {
-        for ( const char* prefix : { "", "../", "../../", "../../../", "../../../../" } )
-        {
-            const fs::path candidate = fs::path( prefix ) / "Editor/Resources/Engine" / kHumanoid;
-            if ( fs::is_regular_file( candidate ) )
-                return fs::absolute( fs::path( prefix ) / "Editor" ).lexically_normal();
-        }
-        return {};
+        return Desert::TestSupport::EngineDir();
     }
 
     class EngineContentMount : public ::testing::Test
@@ -111,6 +106,7 @@ TEST_F( EngineContentMount, TheSandboxWalksItsAssetsAndTheMount )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

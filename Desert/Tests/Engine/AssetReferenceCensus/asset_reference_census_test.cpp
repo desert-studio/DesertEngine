@@ -72,6 +72,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
 
 using Desert::Assets::MaterialData;
 
@@ -79,21 +81,11 @@ namespace
 {
     namespace fs = std::filesystem;
 
-    // Walks up from the working directory looking for a file only the repository has. Copied in shape from
-    // Desert/Tests/Engine/MaterialIdentity, which needs the same thing for the same reason: the test
-    // runner's working directory is not fixed. (The suites share no header; copy-paste is the convention
-    // this directory already follows.)
+    // The checkout the build baked in (TestSupport::RepositoryRoot, absolute), never searched for from the working
+    // directory: a path built off it resolves the same wherever the runner was started.
     std::string RepoRoot()
     {
-        std::string prefix = "./";
-        for ( int up = 0; up < 6; ++up )
-        {
-            std::ifstream probe( prefix + "Desert/Desert/Source/Engine/Core/SceneSettings.hpp" );
-            if ( probe )
-                return prefix;
-            prefix += "../";
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot().generic_string() + "/";
     }
 
     std::string ReadAll( const fs::path& path )
@@ -785,6 +777,7 @@ TEST( AssetReferenceCensus, NoTwoShippedContentFilesDeriveTheSameHandle )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

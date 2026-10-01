@@ -13,6 +13,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
@@ -127,16 +128,11 @@ TEST( FrameRetireQueue, AMaterialInvalidatedMidRecordingOutlivesTheFrameRecordin
 
 namespace
 {
+    // The checkout the build baked in (TestSupport::RepositoryRoot, absolute), never searched for from the working
+    // directory: a path built off it resolves the same wherever the runner was started.
     std::string RepoRoot()
     {
-        std::string prefix = "./";
-        for ( int up = 0; up < 6; ++up )
-        {
-            if ( std::ifstream( prefix + "Desert/Desert/Source/Engine/Assets/FrameRetireQueue.hpp" ) )
-                return prefix;
-            prefix += "../";
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot().generic_string() + "/";
     }
 
     std::string CodeOf( const std::string& path )

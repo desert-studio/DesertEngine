@@ -56,25 +56,18 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
     namespace fs = std::filesystem;
 
-    // Walks up from the working directory looking for a file only the repository has. Same shape as
-    // AssetReferenceCensus and MaterialIdentity, for the same reason: the runner's working directory is
-    // not fixed, and the suites share no header.
+    // The checkout the build baked in (TestSupport::RepositoryRoot, absolute), never searched for from the working
+    // directory: a path built off it resolves the same wherever the runner was started.
     std::string RepoRoot()
     {
-        std::string prefix = "./";
-        for ( int up = 0; up < 6; ++up )
-        {
-            const std::ifstream probe( prefix + "Desert/Desert/Source/Engine/Core/SceneSettings.hpp" );
-            if ( probe )
-                return prefix;
-            prefix += "../";
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot().generic_string() + "/";
     }
 
     std::string ReadAll( const fs::path& path )
@@ -576,6 +569,7 @@ TEST( AssetHandleInverse, NothingInProductionClearsTheIndex )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

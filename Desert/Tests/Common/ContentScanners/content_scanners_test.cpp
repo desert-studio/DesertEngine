@@ -77,6 +77,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace
 {
@@ -217,19 +219,11 @@ namespace
 
     // ── FINDING THE TREE AND READING IT ─────────────────────────────────────────────────────────────
 
-    // Walk up from wherever the binary was started, exactly as SettingConsumers and the font-baker
-    // suite do, so this need not be run from one precise directory.
+    // The checkout the build baked in (TestSupport::RepositoryRoot, absolute), never searched for from the working
+    // directory: a path built off it resolves the same wherever the runner was started.
     std::string RepoRoot()
     {
-        std::string prefix = "./";
-        for ( int up = 0; up < 6; ++up )
-        {
-            std::ifstream probe( prefix + "Desert/Common/Source/Common/Utilities/FileSystem.cpp" );
-            if ( probe )
-                return prefix;
-            prefix += "../";
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot().generic_string() + "/";
     }
 
     std::string ReadFile( const std::string& path )
@@ -510,10 +504,9 @@ TEST( ContentScanners, EveryLuaFileNamedInTheEditorExists )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    // SCRIPT_PATH is relative to the EDITOR'S working directory, which is Editor/ — that is what
-    // RunEditor.sh cds to and what makes "Resources/..." resolve at all. From the repository root the
-    // same file therefore sits one level deeper.
-    const std::string scriptsRoot = "Editor/" + Common::Constants::Path::SCRIPT_PATH.generic_string();
+    // SCRIPT_PATH is absolute: main() set the engine directory to the checkout's Editor/, the sandbox content
+    // root.
+    const std::filesystem::path& scriptsRoot = Common::Constants::Path::SCRIPT_PATH;
 
     std::size_t checked = 0;
     for ( auto it = std::filesystem::recursive_directory_iterator( root + "Editor/Source" );
@@ -534,9 +527,9 @@ TEST( ContentScanners, EveryLuaFileNamedInTheEditorExists )
                 continue; // an extension test, not a file name
 
             ++checked;
-            EXPECT_TRUE( std::filesystem::exists( root + scriptsRoot + named ) )
+            EXPECT_TRUE( std::filesystem::exists( scriptsRoot / named ) )
                  << it->path().filename().string() << " names the script '" << named
-                 << "', and no such file exists under " << scriptsRoot
+                 << "', and no such file exists under " << scriptsRoot.generic_string()
                  << ". A slot pointing at a script that is not there is created silently and only "
                     "reports itself on Play.";
         }
@@ -549,6 +542,7 @@ TEST( ContentScanners, EveryLuaFileNamedInTheEditorExists )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

@@ -320,6 +320,7 @@ TEST( EngineShaderByGuid, DefaultAndRolesAreDeclaredExactlyOnce )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

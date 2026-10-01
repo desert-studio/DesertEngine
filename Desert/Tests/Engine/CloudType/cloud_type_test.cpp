@@ -57,6 +57,7 @@
 #include <string>
 #include <vector>
 #include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/engine_dir.hpp"
 
 using namespace Desert::Assets;
 using Desert::Graphic::CloudTypeBaseKm;
@@ -1624,6 +1625,7 @@ TEST( CloudLayoutFormat, ABareVersionOneFileIsRefusedNamingTheMigrator )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

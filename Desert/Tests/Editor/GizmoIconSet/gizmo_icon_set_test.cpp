@@ -34,6 +34,7 @@
 #include <string>
 #include <vector>
 #include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/engine_dir.hpp"
 
 namespace fs = std::filesystem;
 
@@ -44,11 +45,12 @@ namespace
         return Desert::TestSupport::RepositoryRoot();
     }
 
-    // The editor resolves Resources/... against ITS working directory, which is the Editor/ folder.
-    // Derived from GizmoIconPath so the suite and the editor cannot disagree about where the artwork is.
+    // GizmoIconPath answers off ICONS_PATH, which derives from the engine directory main() set to the checkout's
+    // Editor/ — the same derivation the editor reads, so the suite and the editor cannot disagree about where the
+    // artwork is.
     fs::path IconPathInRepo( Desert::Editor::GizmoIcon role )
     {
-        return RepoRoot() / "Editor" / Desert::Editor::GizmoIconPath( role );
+        return Desert::Editor::GizmoIconPath( role );
     }
 
     fs::path GizmoIconDirInRepo()
@@ -145,6 +147,7 @@ TEST( GizmoIconSet, TheLicenceIsStillBesideTheArtwork )
 // makefile existed: the link failed with `_main` undefined the first time it was generated.
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

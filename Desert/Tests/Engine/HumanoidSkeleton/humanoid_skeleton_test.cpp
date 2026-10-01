@@ -13,6 +13,7 @@
 #include <sstream>
 #include <string>
 #include <Common/Core/Constants.hpp>
+#include "../../TestSupport/engine_dir.hpp"
 
 namespace
 {
@@ -23,12 +24,7 @@ namespace
 
     fs::path EditorDir()
     {
-        for ( const char* prefix : { "", "../", "../../", "../../../", "../../../../" } )
-        {
-            if ( fs::is_regular_file( fs::path( prefix ) / "Editor" / kHumanoid ) )
-                return fs::absolute( fs::path( prefix ) / "Editor" ).lexically_normal();
-        }
-        return {};
+        return Desert::TestSupport::EngineDir();
     }
 
     class HumanoidSkeleton : public ::testing::Test
@@ -50,7 +46,7 @@ namespace
         // The file read on its own, NOT through ReadSkeletonFile, so the comparison has two sides.
         static Assets::Serialization::SkeletonAssetData FileData()
         {
-            const std::ifstream in( kHumanoid, std::ios::binary );
+            const std::ifstream in( Desert::TestSupport::EngineDir() / kHumanoid, std::ios::binary );
             std::ostringstream  text;
             text << in.rdbuf();
             auto read = Assets::Serialization::ReadSkeletonJson( text.str() );
@@ -113,6 +109,7 @@ TEST_F( HumanoidSkeleton, NoFileMeansNoRigNotAFallback )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

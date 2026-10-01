@@ -45,25 +45,19 @@
 
 #if !defined( _WIN32 )
 #include <sys/wait.h>
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
 #endif
 
 namespace fs = std::filesystem;
 
 namespace
 {
-    // Walk up from wherever the binary was started, exactly as the other tree-reading suites do, so
-    // this need not be run from one precise directory.
+    // The checkout the build baked in (TestSupport::RepositoryRoot, absolute), never searched for from the working
+    // directory: a path built off it resolves the same wherever the runner was started.
     std::string RepoRoot()
     {
-        std::string prefix = "./";
-        for ( int up = 0; up < 6; ++up )
-        {
-            std::ifstream probe( prefix + "Desert/Common/Source/Common/Utilities/FileSystem.cpp" );
-            if ( probe )
-                return prefix;
-            prefix += "../";
-        }
-        return {};
+        return Desert::TestSupport::RepositoryRoot().generic_string() + "/";
     }
 
     std::string ReadFile( const std::string& path )
@@ -528,6 +522,7 @@ TEST( BuildScriptContract, GluedTextGateSeparatesGlueFromFormat )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

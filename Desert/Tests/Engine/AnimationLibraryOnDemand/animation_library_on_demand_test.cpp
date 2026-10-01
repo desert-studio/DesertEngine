@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <format>
 #include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/engine_dir.hpp"
 
 namespace
 {
@@ -197,6 +198,7 @@ TEST_F( AnimationLibraryOnDemand, AClipAnImportWritesAfterPopulationIsOffered )
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

@@ -19,6 +19,15 @@ namespace Desert::TestSupport
         return std::filesystem::path( DESERT_TEST_ENGINE_DIR );
     }
 
+    // The host step itself, first thing in a suite's main() (the editor's Sandbox.hpp, a tool's
+    // ToolEngineDir.hpp): every engine path read after it — the derived content census, FullPath of a relative
+    // spelling — answers off the checkout's Editor/, never off the working directory the runner happened to start
+    // in.
+    inline void SetSuiteEngineDir()
+    {
+        Common::Constants::Path::SetEngineDir( EngineDir() );
+    }
+
     // Points the engine at the checkout's engine directory for this scope and restores the previous one after, so
     // a test that points it at a private copy (a staged package, a scratch shader root) cannot leak into the next.
     class EngineDirScope
@@ -30,7 +39,8 @@ namespace Desert::TestSupport
         }
 
         explicit EngineDirScope( const std::filesystem::path& engineDir )
-            : m_Previous( Common::Constants::Path::EngineDir() )
+             : m_Previous( Common::Constants::Path::HasEngineDir() ? Common::Constants::Path::EngineDir()
+                                                                   : std::filesystem::path{} )
         {
             Common::Constants::Path::SetEngineDir( engineDir );
         }

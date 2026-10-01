@@ -37,6 +37,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "../../TestSupport/engine_dir.hpp"
 
 using Common::Utils::AssetRegistry;
 using Common::Utils::AssetRegistryEntry;
@@ -524,6 +525,7 @@ TEST( CookedAssetRegistry, AKindOrASizeThatDisagreesIsReportedAndTheRowIsStillFo
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
