@@ -397,8 +397,8 @@ TEST_F( SkinnedImport, TheSkinnedMeshNamesTheMaterialTheImportWrote )
                                               m_Outcome.WrittenMeshes.front().string() );
     ASSERT_TRUE( mesh.IsSuccess() ) << mesh.GetError();
     const std::filesystem::path demat = Editor::MaterialAdoption::MaterialAssetPath( m_Source, "Skin" );
-    const auto                  header =
-         Common::Content::ReadAssetHeader( demat, Common::Content::AssetHeaderReadContext{ {}, true } );
+    const auto header = Common::Content::ReadAssetHeader( Common::Constants::Path::FullPath( demat ),
+                                                          Common::Content::AssetHeaderReadContext{ {}, true } );
     ASSERT_TRUE( header.IsSuccess() ) << demat.string() << ": " << header.GetError();
     ASSERT_FALSE( mesh.GetValue().Submeshes.empty() );
     for ( const auto& submesh : mesh.GetValue().Submeshes )

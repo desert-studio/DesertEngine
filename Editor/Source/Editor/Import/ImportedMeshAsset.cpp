@@ -3,6 +3,8 @@
 
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 
+#include <Common/Core/Constants.hpp>
+
 #include "CookPaths.hpp"
 #include "ImportedAssetSource.hpp"
 #include "MaterialAdoption.hpp"
@@ -209,7 +211,7 @@ namespace Desert::Editor
         {
             const std::filesystem::path path = MaterialAdoption::MaterialAssetPath( source, slot.Name );
             std::error_code             ec;
-            if ( std::filesystem::exists( path, ec ) )
+            if ( std::filesystem::exists( Common::Constants::Path::FullPath( path ), ec ) )
                 continue;
             LOG_WARN( "[Import] '{}': material '{}' is missing ('{}' is not on disk), so the source is imported "
                       "again to write it",
@@ -244,7 +246,9 @@ namespace Desert::Editor
                 for ( const auto& slot : asset.GetValue().Source.MaterialSlots )
                 {
                     std::error_code ec;
-                    if ( !std::filesystem::exists( MaterialAdoption::MaterialAssetPath( source, slot.Name ), ec ) )
+                    if ( !std::filesystem::exists( Common::Constants::Path::FullPath(
+                                                        MaterialAdoption::MaterialAssetPath( source, slot.Name ) ),
+                                                   ec ) )
                         return false;
                 }
             }
@@ -263,7 +267,8 @@ namespace Desert::Editor
     bool StaticMeshCookAvailable( const std::filesystem::path& cooked, const std::filesystem::path& source )
     {
         std::error_code ec;
-        return std::filesystem::exists( cooked, ec ) || ImportedMeshAssetIsFresh( source );
+        return std::filesystem::exists( Common::Constants::Path::FullPath( cooked ), ec ) ||
+               ImportedMeshAssetIsFresh( source );
     }
 
     Common::ResultStr<std::optional<std::filesystem::path>>

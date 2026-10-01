@@ -9,6 +9,7 @@
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/AssetPathIndex.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
@@ -413,8 +414,8 @@ namespace Desert::Assets
                 return;
             }
 
-            auto described =
-                 Common::Content::RegistryRowFor( key, Common::Content::DescribeContentFile( file, *kind ) );
+            auto described = Common::Content::RegistryRowFor(
+                 key, Common::Content::DescribeContentFile( Common::Constants::Path::FullPath( file ), *kind ) );
             if ( !described )
             {
                 LOG_ERROR( "[ContentRegistry] '{}' could not enter the cooked asset registry: {}", key,
@@ -465,8 +466,9 @@ namespace Desert::Assets
             if ( const Common::Utils::AssetRegistryEntry* known = state.Registry.FindByKey( key );
                  known != nullptr )
             {
-                auto described =
-                     Common::Content::RegistryRowFor( key, Common::Content::DescribeContentFile( file, *kind ) );
+                auto described = Common::Content::RegistryRowFor(
+                     key,
+                     Common::Content::DescribeContentFile( Common::Constants::Path::FullPath( file ), *kind ) );
                 if ( !described )
                 {
                     LOG_ERROR( "[ContentRegistry] the cook rewrote '{}' and its header refused: {}", key,
@@ -507,8 +509,8 @@ namespace Desert::Assets
                 return;
             }
 
-            auto described =
-                 Common::Content::RegistryRowFor( key, Common::Content::DescribeContentFile( file, *kind ) );
+            auto described = Common::Content::RegistryRowFor(
+                 key, Common::Content::DescribeContentFile( Common::Constants::Path::FullPath( file ), *kind ) );
             if ( !described )
             {
                 LOG_ERROR( "[ContentRegistry] the cook wrote '{}' and its header refused: {}", key,
