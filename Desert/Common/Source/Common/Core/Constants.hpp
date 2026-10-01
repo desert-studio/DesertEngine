@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <stdexcept>
 #include <optional>
 #include <source_location>
@@ -112,18 +113,18 @@ namespace Common::Constants
         inline const std::filesystem::path& ICONS_PATH = Detail::s_Engine.Icons;
 
         // The service's function spellings (UE: FPaths::EngineDir / EngineContentDir / ShaderWorkingDir).
-        inline const std::filesystem::path& EngineDir(
-             const std::source_location reader = std::source_location::current() ) noexcept
+        inline const std::filesystem::path&
+        EngineDir( const std::source_location reader = std::source_location::current() ) noexcept
         {
             return Detail::Checked( Detail::s_EngineDir, "EngineDir()", reader );
         }
-        inline const std::filesystem::path& ShaderDir(
-             const std::source_location reader = std::source_location::current() ) noexcept
+        inline const std::filesystem::path&
+        ShaderDir( const std::source_location reader = std::source_location::current() ) noexcept
         {
             return Detail::Checked( Detail::s_Engine.Shaders, "ShaderDir()", reader );
         }
-        inline const std::filesystem::path& EngineContentDir(
-             const std::source_location reader = std::source_location::current() ) noexcept
+        inline const std::filesystem::path&
+        EngineContentDir( const std::source_location reader = std::source_location::current() ) noexcept
         {
             return Detail::Checked( Detail::s_Engine.EngineContent, "EngineContentDir()", reader );
         }
@@ -353,11 +354,11 @@ namespace Common::Constants
             inline std::array<std::filesystem::path, CONTENT_DIR_COUNT> Derive( const ProjectRootState& state )
             {
                 // The built-in sandbox (no project) IS engine content: it lives in the engine directory.
-                const std::filesystem::path& base   = state.ProjectDir.empty() ? s_EngineDir : state.ProjectDir;
+                const std::filesystem::path& base = state.ProjectDir.empty() ? s_EngineDir : state.ProjectDir;
                 if ( base.empty() )
                     return {}; // neither a project nor the engine dir: nothing to derive (unset is an error)
-                const std::filesystem::path  assets = ( base / state.AssetsRoot ).lexically_normal();
-                const std::filesystem::path  cooked = ( base / COOKED_DIR_NAME ).lexically_normal();
+                const std::filesystem::path assets = ( base / state.AssetsRoot ).lexically_normal();
+                const std::filesystem::path cooked = ( base / COOKED_DIR_NAME ).lexically_normal();
 
                 std::array<std::filesystem::path, CONTENT_DIR_COUNT> dirs;
                 for ( std::size_t i = 0; i < CONTENT_DIR_COUNT; ++i )
@@ -477,8 +478,8 @@ namespace Common::Constants
 
         // The directory project content derives from: the open project's folder, or — for the built-in
         // sandbox — the engine directory. (UE: FPaths::ProjectDir.)
-        inline const std::filesystem::path& ProjectDir(
-             const std::source_location reader = std::source_location::current() ) noexcept
+        inline const std::filesystem::path&
+        ProjectDir( const std::source_location reader = std::source_location::current() ) noexcept
         {
             return Detail::s_ProjectRoot.ProjectDir.empty()
                         ? Detail::Checked( Detail::s_EngineDir, "ProjectDir()", reader )
@@ -492,17 +493,17 @@ namespace Common::Constants
         // called SetEngineDir), THROWN here naming the path and the reader's file:line, rather than silently
         // read off the working directory. (ProjectDir() itself stops the process; FullPath is reached from
         // asset code that a caller may guard, so it reports instead.)
-        inline std::filesystem::path FullPath( const std::filesystem::path& path,
-                                               const std::source_location reader = std::source_location::current() )
+        inline std::filesystem::path
+        FullPath( const std::filesystem::path& path,
+                  const std::source_location   reader = std::source_location::current() )
         {
             if ( path.is_absolute() )
                 return path.lexically_normal();
             const bool rooted = !Detail::s_ProjectRoot.ProjectDir.empty() || !Detail::s_EngineDir.empty();
             if ( !rooted || !ProjectDir( reader ).is_absolute() )
-                throw std::logic_error( "Path::FullPath: '" + path.generic_string() +
-                                        "' is relative and neither the engine directory nor a project is set "
-                                        "(read at " + std::string( reader.file_name() ) + ":" +
-                                        std::to_string( reader.line() ) + ")" );
+                throw std::logic_error( std::format( "Path::FullPath: '{}' is relative and neither the engine "
+                                                     "directory nor a project is set (read at {}:{})",
+                                                     path.generic_string(), reader.file_name(), reader.line() ) );
             return ( ProjectDir( reader ) / path ).lexically_normal();
         }
 

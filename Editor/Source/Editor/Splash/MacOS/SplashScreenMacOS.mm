@@ -177,7 +177,7 @@ namespace Desert::Editor::Splash
             [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
             // A bare executable has no bundle, so the Dock would show the generic "exec" icon. A missing
             // file keeps that generic icon and says so once; it is not a reason to stop the start.
-            if ( NSImage* icon = [[NSImage alloc] initWithContentsOfFile:ToNS( AppIconFile().string() )] )
+            if ( NSImage* const icon = [[NSImage alloc] initWithContentsOfFile:ToNS( AppIconFile().string() )] )
                 [NSApp setApplicationIconImage:icon];
             else
                 LOG_WARN( "[Splash] application icon '{}' not found; the Dock keeps the generic icon",

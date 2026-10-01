@@ -1039,8 +1039,8 @@ namespace Desert::Editor
             // The plain-folder launcher, in the host's own shell: cd and run. It sets no Vulkan
             // environment on either host — on macOS the player picks its MoltenVK manifest itself
             // (VulkanContext.cpp SelectDriverManifest; a plain folder has no Frameworks, so that is the
-            // one the build machine recorded), on Windows the driver installs the loader. Writing the bash version on Windows produced a `run.sh`
-            // nothing there can execute.
+            // one the build machine recorded), on Windows the driver installs the loader. Writing the bash version
+            // on Windows produced a `run.sh` nothing there can execute.
             std::ostringstream run;
             if ( host.Platform == TargetPlatform::Windows )
             {

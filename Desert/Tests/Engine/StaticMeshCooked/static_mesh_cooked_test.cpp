@@ -20,8 +20,8 @@
 // WHY THIS SUITE EXISTS AT ALL, WHICH IS THE OTHER HALF OF THE DEFECT. Until 2026-09-08 not one scene in
 // this repository named a `.stmesh`, and no suite parsed one. The cooked STATIC mesh path was reachable
 // only by importing a file by hand — so a break in it was invisible for as long as nobody imported
-// anything. `Desert/Tests/Data/Resources/Assets/Meshes/StaticProbe.stmesh` (suite data) is the answer: a real static mesh source
-// asset, committed, its render form derived by the editor's builder, placed by
+// anything. `Desert/Tests/Data/Resources/Assets/Meshes/StaticProbe.stmesh` (suite data) is the answer: a real
+// static mesh source asset, committed, its render form derived by the editor's builder, placed by
 // `Desert/Tests/Data/Resources/Assets/Scenes/M10_MeshSlot.desce`, and parsed here.
 //
 // WHY THE PROBE HAS TWO SUBMESHES. One submesh cannot distinguish "the count survived" from "the count is

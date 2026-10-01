@@ -16,6 +16,8 @@
 
 #include <algorithm>
 #include <array>
+#include <format>
+#include <string_view>
 #include <span>
 #include <chrono>
 #include <cmath>
@@ -38,8 +40,8 @@ namespace Desert::WorldGen
             int         Cells;
             int         PerCell;
             int         CellSizeCm;
-            // Furnished from the project's corpus list (WorldCorpus.json) instead of primitive-cube buildings, in districts
-            // of this many cells per side (WorldSpec::DistrictCells).
+            // Furnished from the project's corpus list (WorldCorpus.json) instead of primitive-cube buildings, in
+            // districts of this many cells per side (WorldSpec::DistrictCells).
             bool Corpus;
             int  DistrictCells;
         };
@@ -271,13 +273,16 @@ namespace Desert::WorldGen
         // THE CORPUS THE `corpus` PRESETS ARE FURNISHED FROM IS THE PROJECT'S OWN LIST, <project>/WorldCorpus.json
         // (kCorpusFileName) - the generator names no asset. The streaming-memory instrument is furnished from the
         // suite data project (Desert/Tests/Data/WorldCorpus.json: the skinned and static probes), meshes spelled
-        // relative to the project root, materials relative to the assets root (--assets), as its scenes spell them.
+        // relative to the project root, materials relative to the assets root (--assets), as its scenes spell
+        // them.
         //
         // THEMES ARE CHOSEN FOR WHAT A CELL DEPARTURE CAN FREE (WP13 handover): skinned meshes and
         // custom-shader materials are HLOD-excluded, so their meshes, skeletons, materials and textures are
         // rooted only by the cell that holds them. A static PBR prop is the control - its mesh and material an
         // Instancing HLOD keeps resident after the cell leaves.
         constexpr const char* kCorpusFileName = "WorldCorpus.json";
+        // A corpus list that cannot be read: the path, then the reader's own reason.
+        constexpr std::string_view kCorpusListRefusal = "corpus list '{}': {}";
 
         struct CorpusProp
         {
@@ -301,15 +306,15 @@ namespace Desert::WorldGen
             const std::filesystem::path listPath = projectRoot / kCorpusFileName;
             const auto                  text     = Common::Utils::FileSystem::ReadFileContent( listPath );
             if ( !text.IsSuccess() )
-                return Common::MakeError<std::vector<PropTheme>>( "corpus list '" + listPath.generic_string() +
-                                                                  "': " + text.GetError() );
+                return Common::MakeError<std::vector<PropTheme>>(
+                     std::format( kCorpusListRefusal, listPath.generic_string(), text.GetError() ) );
             const auto list = Common::Json::Read<CorpusList>( text.GetValue() );
             if ( !list )
-                return Common::MakeError<std::vector<PropTheme>>( "corpus list '" + listPath.generic_string() +
-                                                                  "': " + list.GetError() );
+                return Common::MakeError<std::vector<PropTheme>>(
+                     std::format( kCorpusListRefusal, listPath.generic_string(), list.GetError() ) );
             if ( list.GetValue().Props.empty() )
-                return Common::MakeError<std::vector<PropTheme>>( "corpus list '" + listPath.generic_string() +
-                                                                  "' names no prop" );
+                return Common::MakeError<std::vector<PropTheme>>(
+                     std::format( "corpus list '{}' names no prop", listPath.generic_string() ) );
 
             std::vector<PropTheme> themes;
             for ( const auto& row : list.GetValue().Props )
@@ -493,11 +498,15 @@ namespace Desert::WorldGen
 
         if ( projectRoot.empty() && ( assetsRoot.empty() || preset->Corpus ) )
         {
-            err << "WorldGen: no --project. " << ( preset->Corpus ? "Preset '" + presetKey + "' is furnished from "
-                                                                     "the project's corpus list (<project>/WorldCorpus.json; the suite data project "
-                                                                     "Desert/Tests/Data holds one)"
-                                                                   : std::string( "Without --assets the materials "
-                                                                                  "come from the project" ) )
+            err << "WorldGen: no --project. "
+                << ( preset->Corpus
+                          ? std::format(
+                                 "Preset '{}' is furnished from "
+                                 "the project's corpus list (<project>/WorldCorpus.json; the suite data project "
+                                 "Desert/Tests/Data holds one)",
+                                 presetKey )
+                          : std::string( "Without --assets the materials "
+                                         "come from the project" ) )
                 << ", and no project is assumed — pass --project <the folder holding the .deproj> "
                    "(the development project is <checkout>/Editor).\n"
                 << Usage() << "\n";

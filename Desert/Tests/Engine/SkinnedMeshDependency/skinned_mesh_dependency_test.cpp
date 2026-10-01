@@ -74,7 +74,7 @@ namespace
     // THE RIG'S IDENTITY: the header GUID of the shipped SkinProbe.skeleton, which SkinProbe.skmesh names in
     // its header (v5 SkeletonGuid). The scratch rig is written with the same GUID, so every test binds by the
     // identity the shipped files use.
-    constexpr const char* kProbeSkeletonPath = "Resources/Assets/Meshes/Skinned/SkinProbe.skeleton";
+    constexpr const char*                kProbeSkeletonPath = "Resources/Assets/Meshes/Skinned/SkinProbe.skeleton";
     constexpr Common::Content::AssetGuid kProbeSkeletonGuid{ 0xacf475090f8a76b0ull, 0xeac6ee0c3e5d32fdull };
 
     // The identity the shipped scene stores for the shipped probe mesh: MESH_SkinnedProbe.desce names it by

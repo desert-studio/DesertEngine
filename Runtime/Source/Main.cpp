@@ -39,6 +39,7 @@
 #include <Common/Core/Version.hpp>
 
 #include <filesystem>
+#include <format>
 #include <optional>
 
 #include "PackagedContent.hpp"
@@ -188,7 +189,8 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     }
 
     // THE ENGINE DIRECTORY (Common::Constants::Path::SetEngineDir), set before anything reads a path.
-    //   Packaged: the packaged content directory (FileSystem::PackagedContentDir). The engine's resources travel inside the base archive
+    //   Packaged: the packaged content directory (FileSystem::PackagedContentDir). The engine's resources travel
+    //   inside the base archive
     //   (`Resources/Shaders/...`), which is mounted at that directory, so every engine path is a virtual
     //   path under the mount — there is no second tree to find and no `--engine-dir` to pass.
     //   Dev (--project): the checkout this binary was built in, derived from the same executable position
@@ -197,7 +199,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     {
         const Desert::Project::EngineDirLookup engine = Desert::Project::ResolveEngineDir( exeDir, {} );
         if ( !engine.Explanation.empty() )
-            FailStartup( "[Engine] " + engine.Explanation, 1 );
+            FailStartup( std::format( "[Engine] {}", engine.Explanation ), 1 );
         Common::Constants::Path::SetEngineDir( engine.Dir );
     }
     else

@@ -36,8 +36,8 @@
  * The clip drives all three bones AND lifts the root, so all three stages of the pipeline are exercised
  * by the same measurement: pelvis motion, FK chains and the IK tip.
  *
- * `Desert/Tests/Data/Resources/Assets/Meshes/Skinned/ForeignArm.skeleton` and `ForeignArm_Swing.anim` still ship, because
- * `ANIM_RetargetWitness.desce` plays the clip and the `.retarget` names the rig — but they are now a
+ * `Desert/Tests/Data/Resources/Assets/Meshes/Skinned/ForeignArm.skeleton` and `ForeignArm_Swing.anim` still ship,
+ * because `ANIM_RetargetWitness.desce` plays the clip and the `.retarget` names the rig — but they are now a
  * DERIVED artifact of the construction below, pinned to it by
  * `TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstructs`. No measurement in this file reads them.
  */
@@ -94,16 +94,16 @@ namespace
     namespace File     = Desert::Assets::Serialization;
     namespace Timeline = Desert::Animation::Timeline;
 
-    constexpr const char* kTargetRig    = "Resources/Assets/Meshes/Skinned/IKProbe.skeleton";
-    constexpr const char* kSourceRig    = "Resources/Assets/Meshes/Skinned/ForeignArm.skeleton";
-    constexpr const char* kSourceClip   = "Resources/Assets/Meshes/Skinned/ForeignArm_Swing.anim";
+    constexpr const char* kTargetRig  = "Resources/Assets/Meshes/Skinned/IKProbe.skeleton";
+    constexpr const char* kSourceRig  = "Resources/Assets/Meshes/Skinned/ForeignArm.skeleton";
+    constexpr const char* kSourceClip = "Resources/Assets/Meshes/Skinned/ForeignArm_Swing.anim";
 
     /// The clip's skeleton reference (SKEL-TREE: a clip names its .skeleton by GUID, UE UAnimSequence::Skeleton):
     /// the header GUID `kSourceRig` states and its path relative to the assets root. The shipped-corpus test
     /// pins that the file really states this GUID.
     constexpr const char* kSourceRigGuid    = "6e7625493009a5445f91e22e58561d44";
     constexpr const char* kSourceRigRefPath = "Meshes/Skinned/ForeignArm.skeleton";
-    constexpr const char* kRetargetFile = "Resources/Assets/Retargets/ForeignArm_To_IKProbe.retarget";
+    constexpr const char* kRetargetFile     = "Resources/Assets/Retargets/ForeignArm_To_IKProbe.retarget";
 
     /// The clip is 48000 ticks long and its motion is one full sine, so tick 0 and tick 48000 are the rest
     /// and tick 12000 is the extreme. EVERY measurement in this file is taken at the extreme, and there is
@@ -1188,8 +1188,7 @@ TEST( RetargetAssetTest, TheShippedRetargetNamesARigTheProjectHasAndTheWitnessSc
     EXPECT_NE( witness.find( "Retargets/ForeignArm_To_IKProbe.retarget" ), std::string::npos );
     EXPECT_NE( witness.find( "ForeignArm_Swing" ), std::string::npos );
 
-    const std::string control =
-         ReadFile( root + "Resources/Assets/Scenes/ANIM_RetargetWitness_NoRetarget.desce" );
+    const std::string control = ReadFile( root + "Resources/Assets/Scenes/ANIM_RetargetWitness_NoRetarget.desce" );
     ASSERT_FALSE( control.empty() );
     EXPECT_EQ( control.find( "\"Retarget\"" ), std::string::npos )
          << "the control scene must differ from the witness in exactly one thing: the retarget";

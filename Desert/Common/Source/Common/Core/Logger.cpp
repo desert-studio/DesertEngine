@@ -37,7 +37,7 @@ namespace Common::Logger
 
     std::filesystem::path LogFilePath()
     {
-        std::lock_guard lock( s_PathMutex );
+        const std::lock_guard lock( s_PathMutex );
         return s_LogFilePath;
     }
 
@@ -49,7 +49,7 @@ namespace Common::Logger
 
         const std::filesystem::path to = ( directory / kLogFileName ).lexically_normal();
         {
-            std::lock_guard lock( s_PathMutex );
+            const std::lock_guard lock( s_PathMutex );
             if ( s_LogFilePath == to )
                 return;
         }
@@ -96,7 +96,7 @@ namespace Common::Logger
         if ( !previous.empty() )
             std::filesystem::remove( previous, ec ); // the old copy would be a second, stale log
 
-        std::lock_guard lock( s_PathMutex );
+        const std::lock_guard lock( s_PathMutex );
         s_LogFilePath = to;
     }
 } // namespace Common::Logger

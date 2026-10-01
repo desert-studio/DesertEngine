@@ -42,7 +42,8 @@ namespace Common::Logger
         auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
         auto early_sink   = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>( Detail::kEarlyLineCapacity );
 
-        spdlog::set_default_logger(std::make_shared<spdlog::logger>("desert", spdlog::sinks_init_list{console_sink, early_sink}));
+        spdlog::set_default_logger(
+             std::make_shared<spdlog::logger>( "desert", spdlog::sinks_init_list{ console_sink, early_sink } ) );
         // Millisecond timestamps (%e): startup-phase costs — a shader compile, an atlas bake — are
         // tens-to-hundreds of ms each, and a 1-second clock cannot attribute them to anything.
         spdlog::set_pattern( "%^[%T.%e][%l][Desert]: %v%$" );

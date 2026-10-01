@@ -15,6 +15,8 @@
 #include <array>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
+#include <iterator>
 #include <string_view>
 #include <vulkan/vulkan.h>
 
@@ -42,10 +44,11 @@ namespace Desert::Graphic::API::Vulkan
         Common::ResultStr<std::filesystem::path> SelectDriverManifest()
         {
             for ( const char* variable : { "VK_DRIVER_FILES", "VK_ICD_FILENAMES" } )
+                // NOLINTNEXTLINE(concurrency-mt-unsafe): read at device creation, before any worker thread exists
                 if ( const char* set = std::getenv( variable ); set != nullptr && *set != '\0' )
                     return Common::MakeSuccess( std::filesystem::path( set ) );
 
-            const std::filesystem::path exeDir = Common::Utils::FileSystem::ExecutablePath().parent_path();
+            const std::filesystem::path        exeDir = Common::Utils::FileSystem::ExecutablePath().parent_path();
             std::vector<std::filesystem::path> candidates = {
                  ( exeDir / ".." / "Resources" / "vulkan" / "icd.d" / "MoltenVK_icd.json" ).lexically_normal(),
                  exeDir / "vulkan" / "icd.d" / "MoltenVK_icd.json",
@@ -59,10 +62,11 @@ namespace Desert::Graphic::API::Vulkan
                 std::error_code ec;
                 if ( std::filesystem::is_regular_file( manifest, ec ) )
                 {
+                    // NOLINTNEXTLINE(concurrency-mt-unsafe): written at device creation, before any worker thread
                     ::setenv( "VK_DRIVER_FILES", manifest.c_str(), 1 );
                     return Common::MakeSuccess( manifest );
                 }
-                looked += "\n    " + manifest.string();
+                std::format_to( std::back_inserter( looked ), "\n    {}", manifest.string() );
             }
             return Common::MakeFormattedError<std::filesystem::path>(
                  "no MoltenVK driver manifest (MoltenVK_icd.json) was found; looked at:{}\n  A packaged game "

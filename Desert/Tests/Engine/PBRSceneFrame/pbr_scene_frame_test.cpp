@@ -66,9 +66,9 @@ using namespace Desert::Graphic::API::Vulkan;
 
 namespace
 {
-    // The engine resolves `#include <...>` against Common::Constants::Path::SHADERDIR_PATH, which is
-    // relative ("Resources/Shaders/"). The editor runs with its own directory as the working one; the
-    // test does the same so the include walk resolves the same files the runtime would.
+    // The engine resolves `#include <...>` against Common::Constants::Path::ShaderDir(), derived from the engine
+    // directory the host sets. The suite is that host: it sets the checkout's Editor/ and reads every shader
+    // path off ShaderDir(), never off the working directory.
     struct ShaderRootFixture : ::testing::Test
     {
         static void SetUpTestSuite()
@@ -92,7 +92,7 @@ namespace
 
     std::filesystem::path ShaderPath( const char* relative )
     {
-        return std::filesystem::path( "Resources/Shaders/Programs" ) / relative;
+        return ( Common::Constants::Path::ShaderDir() / "Programs" ) / relative;
     }
 
     // The assembled GLSL of one stage, straight out of the engine's own DSL parser.
@@ -450,7 +450,8 @@ namespace
     std::vector<std::filesystem::path> ShadersCompiling( const char* header )
     {
         std::vector<std::filesystem::path> consumers;
-        for ( const auto& entry : std::filesystem::recursive_directory_iterator( "Resources/Shaders/Programs" ) )
+        for ( const auto& entry :
+              std::filesystem::recursive_directory_iterator( Common::Constants::Path::ShaderDir() / "Programs" ) )
         {
             if ( !entry.is_regular_file() || entry.path().extension() != ".shader" )
                 continue;

@@ -1339,7 +1339,7 @@ TEST( RigGraphTest, EveryRigThisBuildShipsParsesAndAtLeastOneOfThemCarriesAGraph
     const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
     ASSERT_TRUE( std::filesystem::exists( root / "Desert" / "Desert" / "Source" / "Engine" ) ) << root;
 
-    const std::filesystem::path rigs = root / "Editor" / "Resources" / "Assets" / "Rigs";
+    const std::filesystem::path rigs = Desert::TestSupport::TestDataDir() / "Resources" / "Assets" / "Rigs";
     ASSERT_TRUE( std::filesystem::exists( rigs ) ) << rigs.string();
 
     size_t read    = 0;

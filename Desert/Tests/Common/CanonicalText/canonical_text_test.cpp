@@ -104,7 +104,8 @@ TEST( CanonicalText, EveryCorpusFileIsCanonicalAndRoundTripsThroughTheSingleLine
 // One field of one entity changed -> exactly one line of the file changed; the rest of the scene is untouched.
 TEST( CanonicalText, ChangingOneFieldOfOneEntityChangesOnlyItsLine )
 {
-    const std::string text = ReadAll( Desert::TestSupport::TestDataDir() / "Resources/Assets/Scenes/ANIM_ClipProbe.desce" );
+    const std::string text =
+         ReadAll( Desert::TestSupport::TestDataDir() / "Resources/Assets/Scenes/ANIM_ClipProbe.desce" );
     ASSERT_FALSE( text.empty() );
     yyjson_doc*     doc      = yyjson_read( text.data(), text.size(), YYJSON_READ_NOFLAG );
     yyjson_mut_doc* mutable_ = yyjson_doc_mut_copy( doc, nullptr );

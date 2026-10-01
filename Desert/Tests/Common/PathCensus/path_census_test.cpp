@@ -12,6 +12,8 @@
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/Constants.hpp>
 
+#include "../../TestSupport/engine_dir.hpp"
+
 #include <gtest/gtest.h>
 
 #include <array>
@@ -105,7 +107,8 @@ TEST( PathCensus, NoRowSurvivesARemapPointingAtThePreviousProject )
 
 TEST( PathCensus, TheSandboxLayoutIsTheHistoricalOne )
 {
-    ProjectRootGuard guard;
+    ProjectRootGuard                          guard;
+    const Desert::TestSupport::EngineDirScope engineDir;
     Path::ResetToSandbox();
 
     // Byte-for-byte the spellings the engine shipped with before the census existed. Every asset
@@ -141,7 +144,8 @@ TEST( PathCensus, TheSandboxLayoutIsTheHistoricalOne )
                    "a census row was added without pinning its sandbox spelling here" );
 
     for ( const auto& [view, spelling] : expected )
-        EXPECT_EQ( view->generic_string(), spelling );
+        // The sandbox IS engine content: each spelling is read off the engine directory, never the working one.
+        EXPECT_EQ( view->generic_string(), ( Path::EngineDir() / spelling ).generic_string() );
 }
 
 TEST( PathCensus, ANamedViewIsTheCensusRowItNames )

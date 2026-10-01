@@ -14,8 +14,8 @@ static int RunTool( int argc, char** argv )
 {
     // `--engine-dir <dir>` belongs to the process, not to the generator: it is taken out here, and the
     // engine directory is resolved from this executable when it is absent (ToolEngineDir.hpp). It is
-    // never a default --project: RunWorldGen refuses a run that needs a project and names none. A tool given both --project and --assets needs none, so only then is a
-    // missing one not a refusal.
+    // never a default --project: RunWorldGen refuses a run that needs a project and names none. A tool given both
+    // --project and --assets needs none, so only then is a missing one not a refusal.
     std::vector<std::string> args;
     std::filesystem::path    engineDirOverride;
     bool                     namesProject = false;

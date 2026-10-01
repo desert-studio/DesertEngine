@@ -168,7 +168,8 @@ namespace Desert::Core
                         const auto  held   = ShadingModels::ShaderRootShadingModels();
                         const auto& models = *held;
                         if ( models.IsSuccess() )
-                            WalkIncludes( models.GetValue().GeneratedGlsl, full, variant, visited, out, depth + 1 );
+                            WalkIncludes( models.GetValue().GeneratedGlsl, full, variant, visited, out,
+                                          depth + 1 );
                         continue;
                     }
                 }

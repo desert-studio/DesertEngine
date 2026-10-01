@@ -365,7 +365,8 @@ TEST( AssimpLibraryPin, TheCommittedModelsImportToTheGeometryTheyCarry )
     // is actually applied — a run with the flags dropped reports 8.
     {
         std::string  error;
-        const Counts counts = ImportCounts( Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/TwoJointProbe.gltf", error );
+        const Counts counts = ImportCounts(
+             Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/TwoJointProbe.gltf", error );
         ASSERT_TRUE( error.empty() ) << "TwoJointProbe.gltf did not import: " << error
                                      << " — if this says the format is unknown, the GLTF row of "
                                         "AssimpImporters.txt is no longer taking effect.";
@@ -415,8 +416,8 @@ TEST( AssimpLibraryPin, TheCommittedModelsImportAtTheSizeTheirUnitStates )
     {
         std::string error;
         auto        source = Desert::Editor::ImportUnits::Source::AssumedCentimetres;
-        const auto  box =
-             ImportInCentimetres( Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/TwoJointProbe.gltf", error, source );
+        const auto  box    = ImportInCentimetres(
+             Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/TwoJointProbe.gltf", error, source );
         ASSERT_TRUE( error.empty() ) << "TwoJointProbe.gltf did not import: " << error;
 
         EXPECT_EQ( source, Desert::Editor::ImportUnits::Source::FixedByFormat );
