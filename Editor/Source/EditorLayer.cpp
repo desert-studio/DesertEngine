@@ -406,7 +406,7 @@ namespace Desert::Editor
         io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;   // Enable Multi-Viewport / Platform Windows
 
         // THE DOCKING LAYOUT FILE, OFF THE PROJECT (DockLayout::BindLayoutFile).
-        if ( const auto bound = m_Dock.BindLayoutFile(); !bound.IsSuccess() )
+        if ( const auto bound = DockLayout::BindLayoutFile(); !bound.IsSuccess() )
             return Common::MakeError( bound.GetError() );
 
         // Before the first frame, which is when ImGui reads the layout file.
@@ -909,7 +909,7 @@ namespace Desert::Editor
         {
             const auto& shot = ShotOptions::Get();
             if ( shot.GpuProfile )
-                m_Profiler.DumpProfilerToLog();
+                ProfilerWindow::DumpProfilerToLog();
             if ( shot.FlightRoute && !m_Profiler.FinishFlight() )
                 m_Shots.MarkFailed();
             m_Application->Close( m_Shots.Finish() );
@@ -1160,7 +1160,7 @@ namespace Desert::Editor
         // Transient bottom-right notifications (save/import/validation). Drawn last so they float on top.
         Editor::ToastManager::Get().Draw();
 
-        m_Dock.EndHost();
+        DockLayout::EndHost();
 
         // The edges the OS frame used to give us. LAST, and outside the dockspace host: these are eight
         // 6px windows of their own, and submitting them here is what puts them above the panels that reach
@@ -1229,7 +1229,7 @@ namespace Desert::Editor
         // Routed through SceneOpenRequest, not through LoadScene, on purpose: that is the path that runs
         // the unsaved-changes gate, and a palette entry is at least as easy to hit by accident as the
         // drag-and-drop it was written for.
-        m_SceneFiles.AppendOpenSceneCommands( commands );
+        SceneFiles::AppendOpenSceneCommands( commands );
 
         // The Level Viewport commands the F / Esc keys run, on the viewport the user works in.
         for ( const Editor::ViewportCommand command : Editor::kViewportCommandOrder )
@@ -1404,7 +1404,7 @@ namespace Desert::Editor
 
         m_MainMenu.DrawMenus();
 
-        m_Toolbar.DrawProjectSection();
+        LevelToolbar::DrawProjectSection();
         m_Toolbar.DrawSceneRenameSection();
         // Play/Pause/Stop now live in the toolbar strip (LevelToolbar::Draw), not the menu bar.
         //

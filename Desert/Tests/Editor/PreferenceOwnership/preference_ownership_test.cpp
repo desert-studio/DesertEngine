@@ -644,8 +644,8 @@ namespace
         const std::string root = RepoRoot();
         EXPECT_FALSE( root.empty() ) << "could not find the repository root from the working directory";
 
-        const std::string src = Text::StripCommentsAndLiterals(
-             ReadWholeFile( root + "Editor/Source/Editor/LevelEditor/PreferencesWindow.cpp" ) );
+        const std::string src = Text::StripCommentsAndLiterals( ReadWholeFile(
+             std::filesystem::path( root ) / "Editor/Source/Editor/LevelEditor/PreferencesWindow.cpp" ) );
 
         std::size_t  at = 0;
         WindowSource out;

@@ -346,6 +346,19 @@ namespace
         return widgets;
     }
 
+    // A palette label is spelled either as a literal glued to its value ("Grid Power " + …) or as the format
+    // string of std::format( "Grid Power {}", … ); a quoted token names the label's text up to the value, so the
+    // label counts as built when the literal is there or when a std::format string starts with that text and a
+    // '{'.
+    bool LayerBuildsLabel( const std::string& layer, const std::string& token )
+    {
+        if ( layer.find( token ) != std::string::npos )
+            return true;
+        if ( token.size() < 2 || token.front() != '"' || token.back() != '"' )
+            return false;
+        return layer.find( "std::format( " + token.substr( 0, token.size() - 1 ) + "{" ) != std::string::npos;
+    }
+
     constexpr const char* kPanel = "Editor/Source/Editor/Panels/Foliage/FoliagePanel.cpp";
     constexpr const char* kLayer = "Editor/Source/Editor/Panels/Foliage/FoliageCommands.cpp";
 } // namespace
@@ -387,7 +400,7 @@ TEST( FoliagePaletteCensus, EveryPaletteRowIsInTheRegistry )
         if ( row.How != Reach::Palette )
             continue;
         for ( const auto& token : row.Tokens )
-            EXPECT_NE( layer.find( token ), std::string::npos )
+            EXPECT_TRUE( LayerBuildsLabel( layer, token ) )
                  << row.Kind << "( " << row.Label << " ) is reached through the palette entry built from '"
                  << token << "', which FoliageCommands.cpp no longer holds";
     }

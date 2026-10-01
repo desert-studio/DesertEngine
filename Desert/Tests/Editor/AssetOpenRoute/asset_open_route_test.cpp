@@ -312,9 +312,16 @@ TEST( SceneOpenRegister, OnlyTheGatedPlacesCallLoadScene )
     // clang-format on
     EXPECT_EQ( LoadSceneCallers( layer ), allowed );
 
-    // And the palette's "Open Scene <file>" entries go through the gate rather than around it.
-    const std::regex palette( R"("Open Scene " \+ Label\( scene \)[^}]*SceneOpenRequest::Request\()" );
-    EXPECT_TRUE( std::regex_search( layer, palette ) );
+    // And the palette's "Open Scene <file>" entries go through the gate rather than around it. The entry binds
+    // a named function (std::bind_front, not a lambda); that function's body is what must call the gate.
+    const std::regex palette(
+         R"(std::format\( "Open Scene \{\}", Label\( scene \) \),\s*std::bind_front\( &(\w+),)" );
+    std::smatch entry;
+    ASSERT_TRUE( std::regex_search( layer, entry, palette ) )
+         << "no palette entry std::format( \"Open Scene {}\", Label( scene ) ) bound to a named function";
+    const std::regex gate( entry[1].str() + R"(\([^)]*\)\s*\{[^}]*SceneOpenRequest::Request\()" );
+    EXPECT_TRUE( std::regex_search( layer, gate ) ) << "the \"Open Scene\" palette entry runs " << entry[1].str()
+                                                    << ", which does not call SceneOpenRequest::Request";
 }
 
 int main( int argc, char** argv )
