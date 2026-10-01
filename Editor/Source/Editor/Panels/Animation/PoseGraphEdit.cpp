@@ -310,15 +310,13 @@ namespace Desert::Editor::Graph
     }
 
     PoseGraphCanvas PlanPoseCanvas( const std::vector<G::PoseNode>& nodes, const std::string& outputPose,
-                                    ElementIdMap& ids )
+                                    const std::pair<float, float> outputPosition, ElementIdMap& ids )
     {
         ids.BeginFrame();
         PoseGraphCanvas canvas;
         canvas.OutPins.assign( nodes.size(), ElementId::Invalid );
         canvas.InPins.resize( nodes.size() );
 
-        float rightmost = 0.0f;
-        float outputY   = 0.0f;
         for ( size_t i = 0; i < nodes.size(); ++i )
         {
             const G::PoseNode& node     = nodes[i];
@@ -338,19 +336,17 @@ namespace Desert::Editor::Graph
             planned.Y            = node.Y;
             planned.PushPosition = resolved.Fresh;
             canvas.Plan.Nodes.push_back( std::move( planned ) );
-            rightmost = std::max( rightmost, node.X );
-            if ( node.Name == outputPose )
-                outputY = node.Y;
         }
 
-        // Output Pose: a sink with no document key of its own; "\x1e" keeps it off every node name.
+        // Output Pose: a node with no name of its own ("\x1e" keeps its key off every node name), placed where
+        // the file says.
         const Resolved sink = ids.Resolve( ElementKind::Node, "\x1eOutputPose" );
         canvas.SinkPin      = ids.Resolve( ElementKind::Pin, "\x1eOutputPose\x1f<" ).Id;
         PlannedNode planned;
         planned.Id           = sink.Id;
         planned.Key          = "Output Pose";
-        planned.X            = rightmost + kPoseGridStepX;
-        planned.Y            = outputY;
+        planned.X            = outputPosition.first;
+        planned.Y            = outputPosition.second;
         planned.PushPosition = sink.Fresh;
         canvas.Plan.Nodes.push_back( std::move( planned ) );
 
@@ -411,7 +407,8 @@ namespace Desert::Editor::Graph
         return {};
     }
 
-    std::pair<float, float> NextPoseNodePosition( const std::vector<G::PoseNode>& nodes )
+    std::pair<float, float> NextPoseNodePosition( const std::vector<G::PoseNode>& nodes,
+                                                  const std::pair<float, float>   outputPosition )
     {
         for ( int cell = 0;; ++cell )
         {
@@ -419,11 +416,11 @@ namespace Desert::Editor::Graph
             const int   row    = cell / kPoseGridCols; // whole rows: the grid is filled row by row
             const float x      = static_cast<float>( column ) * kPoseGridStepX;
             const float y      = static_cast<float>( row ) * kPoseGridStepY;
-            const bool  taken  = std::any_of( nodes.begin(), nodes.end(),
-                                              [&]( const G::PoseNode& n ) {
-                                                return std::abs( n.X - x ) < kPoseGridStepX * 0.5f &&
-                                                       std::abs( n.Y - y ) < kPoseGridStepY * 0.5f;
-                                            } );
+            const auto  covers = [&]( float nx, float ny )
+            { return std::abs( nx - x ) < kPoseGridStepX * 0.5f && std::abs( ny - y ) < kPoseGridStepY * 0.5f; };
+            const bool taken = covers( outputPosition.first, outputPosition.second ) ||
+                               std::any_of( nodes.begin(), nodes.end(),
+                                            [&]( const G::PoseNode& n ) { return covers( n.X, n.Y ); } );
             if ( !taken )
                 return { x, y };
         }

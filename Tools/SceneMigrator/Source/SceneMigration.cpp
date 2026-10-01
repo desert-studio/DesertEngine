@@ -4,6 +4,7 @@
 #include <format>
 #include <fstream>
 #include <sstream>
+#include <tuple>
 #include <map>
 #include <unordered_map>
 #include <unordered_set>
@@ -918,6 +919,84 @@ namespace Desert::Migration
         if ( auto back = Assets::Serialization::ReadSkeletonJson( written ); !back )
             return Common::MakeFormattedError<std::string>( "the raised file does not read as SKEL {}: {}",
                                                             Assets::kSkeletonSchemaVersion, back.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    namespace AnimGraphLegacy
+    {
+        namespace G = Animation::Graph;
+        // ANGR 2: the current layout without the Output Pose node's position.
+        struct AnimLayerGraphV2
+        {
+            std::string              Interface;
+            std::string              Layer;
+            std::vector<G::PoseNode> Nodes;
+            std::string              OutputPose;
+        };
+        struct AnimGraphLayersV2
+        {
+            std::vector<G::AnimLayerInterface> Interfaces;
+            std::vector<AnimLayerGraphV2>      Implemented;
+        };
+        struct AnimGraphV2
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            std::string                                               Name;
+            std::vector<G::Parameter>                                 Parameters;
+            std::vector<G::PoseNode>                                  Nodes;
+            std::string                                               OutputPose;
+            std::optional<AnimGraphLayersV2>                          Layers;
+        };
+    } // namespace AnimGraphLegacy
+
+    Common::ResultStr<std::string> MigrateAnimGraphV2ToV3( const std::string& text )
+    {
+        namespace G     = Animation::Graph;
+        const auto read = Common::Json::Read<AnimGraphLegacy::AnimGraphV2>( text );
+        if ( !read )
+            return Common::MakeFormattedError<std::string>( "ANGR 2 body does not read: {}", read.GetError() );
+        const AnimGraphLegacy::AnimGraphV2& old = read.GetValue();
+        if ( !old.Header )
+            return Common::MakeFormattedError<std::string>( "the file states no header" );
+        const auto stated = old.Header->Versions.find( "ANGR" );
+        if ( stated == old.Header->Versions.end() || stated->second != 2u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states ANGR {}, and this step raises ANGR 2 only",
+                 stated == old.Header->Versions.end() ? std::string( "nothing" )
+                                                      : std::to_string( stated->second ) );
+
+        G::AnimGraph graph;
+        graph.Header                   = old.Header;
+        graph.Header->Versions["ANGR"] = Assets::kAnimGraphSchemaVersion;
+        graph.Name                     = old.Name;
+        graph.Parameters               = old.Parameters;
+        graph.Nodes                    = old.Nodes;
+        graph.OutputPose               = old.OutputPose;
+        std::tie( graph.OutputPoseX, graph.OutputPoseY ) =
+             G::DefaultOutputPosePosition( old.Nodes, old.OutputPose );
+        if ( old.Layers )
+        {
+            G::AnimGraphLayers layers;
+            layers.Interfaces = old.Layers->Interfaces;
+            for ( const AnimGraphLegacy::AnimLayerGraphV2& was : old.Layers->Implemented )
+            {
+                G::AnimLayerGraph layer;
+                layer.Interface  = was.Interface;
+                layer.Layer      = was.Layer;
+                layer.Nodes      = was.Nodes;
+                layer.OutputPose = was.OutputPose;
+                std::tie( layer.OutputPoseX, layer.OutputPoseY ) =
+                     G::DefaultOutputPosePosition( was.Nodes, was.OutputPose );
+                layers.Implemented.push_back( std::move( layer ) );
+            }
+            graph.Layers = std::move( layers );
+        }
+
+        std::string written = G::Serialize( graph );
+        // What the step writes, the engine's reader must read.
+        if ( auto back = G::Deserialize( written ); !back )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as ANGR {}: {}",
+                                                            Assets::kAnimGraphSchemaVersion, back.GetError() );
         return Common::MakeSuccess( std::move( written ) );
     }
 

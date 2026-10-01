@@ -124,10 +124,11 @@ namespace Desert::Editor::Graph
         std::vector<PoseWireRef>            Wires; // parallel to Plan.Links
     };
 
-    /// The canvas of @p nodes and @p outputPose, ids out of @p ids by node NAME. The Output Pose sink is planned
-    /// LAST, right of the rightmost node as UE places it (its position is not part of the file).
+    /// The canvas of @p nodes and @p outputPose, ids out of @p ids by node NAME. The Output Pose node is planned
+    /// LAST, at @p outputPosition - the file's OutputPoseX/Y, a node of the canvas like any other (UE's Root).
     [[nodiscard]] PoseGraphCanvas PlanPoseCanvas( const std::vector<Animation::Graph::PoseNode>& nodes,
-                                                  const std::string& outputPose, ElementIdMap& ids );
+                                                  const std::string&                             outputPose,
+                                                  std::pair<float, float> outputPosition, ElementIdMap& ids );
 
     /// The pin a canvas pin id names; invalid when it is none of this frame's.
     [[nodiscard]] PosePinRef PinOf( const PoseGraphCanvas& canvas, uint64_t pin );
@@ -138,7 +139,9 @@ namespace Desert::Editor::Graph
     /// The wire a canvas link id names; From == -1 when none.
     [[nodiscard]] PoseWireRef WireOf( const PoseGraphCanvas& canvas, ElementId link );
 
-    /// Where a node added to @p nodes should sit so that it covers no other (the state grid's rule).
+    /// Where a node added to @p nodes should sit so that it covers no other, the Output Pose node at
+    /// @p outputPosition included (the state grid's rule).
     [[nodiscard]] std::pair<float, float>
-    NextPoseNodePosition( const std::vector<Animation::Graph::PoseNode>& nodes );
+    NextPoseNodePosition( const std::vector<Animation::Graph::PoseNode>& nodes,
+                          std::pair<float, float>                        outputPosition );
 } // namespace Desert::Editor::Graph
