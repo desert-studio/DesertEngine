@@ -1,5 +1,6 @@
 #include "Editor/LevelEditor/WindowTitles.hpp"
 #include "Editor/Core/IconsMaterialDesignIcons.hpp"
+#include <string>
 
 
 

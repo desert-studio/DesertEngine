@@ -43,7 +43,7 @@ namespace Desert::Editor
         using ShowFolderFn = std::function<Common::BoolResultStr( const std::string& folder )>;
 
         DocumentHost( SceneWorkspace& workspace, std::shared_ptr<Assets::AssetManager>& assetManager,
-                      ShowFolderFn showFolder );
+                      std::string& focusWindow, ShowFolderFn showFolder );
         DocumentHost( const DocumentHost& )            = delete;
         DocumentHost& operator=( const DocumentHost& ) = delete;
 
@@ -327,7 +327,9 @@ namespace Desert::Editor
         // AskCloseAll raised the questions: run this once the last one is answered (UE: the editor's exit
         // waits on the asset editors' close requests).
         std::function<void()> m_AfterCloseQuestions;
-        // The document window to bring forward on the next frame (by its ImGui name); cleared when drawn.
-        std::string m_FocusWindow;
+        // The window to bring forward on the next frame (by its ImGui name); cleared when drawn. ONE slot for
+        // the whole editor, owned by EditorLayer (m_FocusPanel) and shared with the tool panels, so a later
+        // focus request replaces an earlier one whether either names a panel or a document.
+        std::string& m_FocusWindow;
     };
 } // namespace Desert::Editor

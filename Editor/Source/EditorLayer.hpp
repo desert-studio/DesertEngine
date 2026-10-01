@@ -318,7 +318,9 @@ namespace Desert::Editor
         // Opening, focus and closing of the asset documents, the unsaved-close question, the well and its
         // tabs, the refusal past the view budget (UE: UAssetEditorSubsystem + the document half of
         // FGlobalTabmanager). See Editor/LevelEditor/DocumentHost.hpp.
-        DocumentHost m_Documents{ m_Workspace, m_AssetManager,
+        // The window (tool panel or document) to bring to the front of its dock next frame; ONE slot for both.
+        std::string m_FocusPanel;
+        DocumentHost m_Documents{ m_Workspace, m_AssetManager, m_FocusPanel,
                                   [this]( const std::string& folder ) { return ShowFolderInBrowser( folder ); } };
 
         std::shared_ptr<ImGui::ImGuiLayer> m_ImGuiLayer;
@@ -335,8 +337,8 @@ namespace Desert::Editor
         // dangling wholesale at `m_Panels.Clear()`. Removed with its five writes (A8-2), which is the same
         // decision this task took on `CloudNoiseService::GetGeneration` and `InstancesDirty`.
         //
-        // The panel to bring to the front of its dock this frame IS read, and stays.
-        std::string m_FocusPanel;
+        // The panel to bring to the front of its dock this frame IS read, and stays: it lives above
+        // m_Documents, which shares this one slot for the document windows.
 
         // "Maximize panel" / "Restore panel": the one panel lifted out of its dock, and the node it came from.
         PanelMaximize m_PanelMaximize;
