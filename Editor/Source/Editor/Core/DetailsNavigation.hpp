@@ -45,8 +45,10 @@ namespace Desert::Editor
         {
             m_ShownFields  = m_Subject == subject ? std::move( m_DrawingFields ) : std::vector<std::string>{};
             m_ShownPickers = m_Subject == subject ? std::move( m_DrawingPickers ) : std::vector<std::string>{};
+            m_ShownActions = m_Subject == subject ? std::move( m_DrawingActions ) : std::vector<std::string>{};
             m_DrawingFields.clear();
             m_DrawingPickers.clear();
+            m_DrawingActions.clear();
             m_Component.clear();
             if ( m_Subject != subject )
                 m_Pending = {};
@@ -93,6 +95,30 @@ namespace Desert::Editor
             if ( !m_Drawing )
                 return;
             Add( m_DrawingPickers, std::string( picker ) );
+        }
+
+        // A button the Details panel drew this frame (e.g. "New AnimGraph"): the palette presses it by name, and
+        // the button's own draw site runs its own handler — the command is the button, not a copy of it.
+        void NoteAction( std::string_view action )
+        {
+            if ( !m_Drawing )
+                return;
+            Add( m_DrawingActions, std::string( action ) );
+        }
+
+        [[nodiscard]] const std::vector<std::string>& Actions() const
+        {
+            return m_ShownActions;
+        }
+
+        [[nodiscard]] Common::BoolResultStr RequestAction( std::string_view action )
+        {
+            return Request( Kind::Action, action, m_ShownActions, action, "button" );
+        }
+
+        [[nodiscard]] bool TakeAction( std::string_view action )
+        {
+            return Take( Kind::Action, action );
         }
 
         [[nodiscard]] const std::vector<std::string>& Fields() const
@@ -152,7 +178,8 @@ namespace Desert::Editor
         {
             None,
             Reveal,
-            Picker
+            Picker,
+            Action
         };
 
         struct Pending
@@ -171,7 +198,7 @@ namespace Desert::Editor
         }
 
         Common::BoolResultStr Request( Kind kind, std::string_view name, const std::vector<std::string>& shown,
-                                       const char* command, const char* what )
+                                       std::string_view command, const char* what )
         {
             if ( m_Subject == 0 )
                 return Common::MakeError( std::string( command ) +
@@ -205,6 +232,8 @@ namespace Desert::Editor
         std::vector<std::string> m_DrawingPickers;
         std::vector<std::string> m_ShownFields;
         std::vector<std::string> m_ShownPickers;
+        std::vector<std::string> m_DrawingActions;
+        std::vector<std::string> m_ShownActions;
         Pending                  m_Pending;
     };
 
@@ -213,7 +242,7 @@ namespace Desert::Editor
     [[nodiscard]] inline std::vector<PaletteCommand> DetailsPaletteCommands( DetailsNavigation& navigation )
     {
         std::vector<PaletteCommand> commands;
-        commands.reserve( navigation.Fields().size() + navigation.Pickers().size() );
+        commands.reserve( navigation.Fields().size() + navigation.Pickers().size() + navigation.Actions().size() );
         for ( const std::string& field : navigation.Fields() )
             commands.push_back( { "Details", "Show field: " + field,
                                   // clang-tidy 18 reports the closure's implicit move constructor, which only
@@ -226,6 +255,13 @@ namespace Desert::Editor
                                   // moves a std::string (noexcept); nothing on this path can throw.
                                   // NOLINTNEXTLINE(bugprone-exception-escape)
                                   [&navigation, picker] { return navigation.RequestPicker( picker ); } } );
+        // A button is offered under its own caption ("New AnimGraph"), as the author reads it on the panel.
+        for ( const std::string& action : navigation.Actions() )
+            commands.push_back( { "Details", action,
+                                  // clang-tidy 18 reports the closure's implicit move constructor, which only
+                                  // moves a std::string (noexcept); nothing on this path can throw.
+                                  // NOLINTNEXTLINE(bugprone-exception-escape)
+                                  [&navigation, action] { return navigation.RequestAction( action ); } } );
         return commands;
     }
 
@@ -238,4 +274,7 @@ namespace Desert::Editor
     // At a picker's open site: notes the picker; true once when a command asked to open it, and the next
     // popup is then placed under the last drawn item (not at the mouse, which a client never moved).
     [[nodiscard]] bool TakeDetailsPickerRequest( std::string_view picker );
+
+    // At a button's draw site, OR-ed with the click: notes the button; true once when a command pressed it.
+    [[nodiscard]] bool TakeDetailsActionRequest( std::string_view action );
 } // namespace Desert::Editor

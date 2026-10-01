@@ -3,7 +3,7 @@
         "Kind": "AnimGraph",
         "Guid": "291baa80f72b77f73f1a105fda2702cd",
         "Versions": {
-            "ANGR": 2
+            "ANGR": 3
         },
         "Dependencies": []
     },
@@ -50,5 +50,7 @@
             "Y": 0.0
         }
     ],
-    "OutputPose": "StateMachine"
+    "OutputPose": "StateMachine",
+    "OutputPoseX": 260.0,
+    "OutputPoseY": 0.0
 }
