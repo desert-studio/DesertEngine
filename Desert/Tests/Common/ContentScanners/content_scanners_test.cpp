@@ -504,13 +504,14 @@ TEST( ContentScanners, EveryLuaFileNamedInTheEditorExists )
     // root.
     const std::filesystem::path& scriptsRoot = Common::Constants::Path::SCRIPT_PATH;
 
-    std::size_t checked = 0;
+    std::size_t scanned = 0;
     for ( auto it = std::filesystem::recursive_directory_iterator( root / "Editor/Source" );
           it != std::filesystem::recursive_directory_iterator(); ++it )
     {
         if ( !it->is_regular_file() || it->path().extension() != ".cpp" )
             continue;
 
+        ++scanned;
         const std::string source = ReadFile( it->path() );
         for ( std::size_t at = source.find( ".lua\"" ); at != std::string::npos;
               at             = source.find( ".lua\"", at + 1 ) )
@@ -522,7 +523,6 @@ TEST( ContentScanners, EveryLuaFileNamedInTheEditorExists )
             if ( named == ".lua" || named.find( '\n' ) != std::string::npos )
                 continue; // an extension test, not a file name
 
-            ++checked;
             EXPECT_TRUE( std::filesystem::exists( scriptsRoot / named ) )
                  << it->path().filename().string() << " names the script '" << named
                  << "', and no such file exists under " << scriptsRoot.generic_string()
@@ -531,9 +531,10 @@ TEST( ContentScanners, EveryLuaFileNamedInTheEditorExists )
         }
     }
 
-    EXPECT_GT( checked, 0u ) << "no .lua file name was found in the editor's sources, which cannot be "
-                                "true while the New Project template attaches one - the scan is broken, "
-                                "not the tree";
+    // The control is the walk itself: no editor source names a script since the Starter scene became a template
+    // (EDL-1), so an empty match list is the expected state, and only a walk that read nothing is broken.
+    EXPECT_GT( scanned, 100u ) << "the walk over Editor/Source read " << scanned
+                               << " .cpp files - the scan is broken, not the tree";
 }
 
 int main( int argc, char** argv )
