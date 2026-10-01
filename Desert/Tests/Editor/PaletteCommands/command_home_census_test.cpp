@@ -62,6 +62,7 @@ namespace
     constexpr const char* kAnimDocument =
          "Editor/Source/Editor/Panels/AnimationEditor/AnimationEditorDocument.cpp";
     constexpr const char* kLayer = "Editor/Source/EditorLayer.cpp";
+    constexpr const char* kAssetCommands = "Editor/Source/Editor/Panels/FileExplorer/AssetCommands.cpp";
 } // namespace
 
 TEST( CommandHome, EveryCommandHasALabelUniqueInItsContext )
@@ -111,9 +112,10 @@ TEST( CommandHome, TheContentBrowserMenuRowsAreCommands )
 
 TEST( CommandHome, ThePaletteOffersEveryTable )
 {
+    const std::string assets = ReadFile( kAssetCommands );
+    EXPECT_NE( assets.find( "Editor::kContentBrowserCommandOrder" ), std::string::npos );
+    EXPECT_NE( assets.find( "&FileExplorerPanel::RunCommand" ), std::string::npos );
     const std::string layer = ReadFile( kLayer );
-    EXPECT_NE( layer.find( "Editor::kContentBrowserCommandOrder" ), std::string::npos );
-    EXPECT_NE( layer.find( "&FileExplorerPanel::RunCommand" ), std::string::npos );
     EXPECT_NE( layer.find( "Editor::kViewportCommandOrder" ), std::string::npos );
     EXPECT_NE( layer.find( "&Editor::ViewportPanel::RequestCommand" ), std::string::npos );
     // The document's palette actions are the transport commands (and so reach the channel as
@@ -198,10 +200,10 @@ TEST( ContentBrowserNavigation, GoToFolderAndSyncToAssetCarryThePathAndCallTheBr
     EXPECT_EQ( ContentBrowserPathLabel( kSyncToAssetLabel, "Assets/Materials/Fox/fox_material.demat" ),
                "Sync to Asset Assets/Materials/Fox/fox_material.demat" );
 
-    const std::string layer = ReadFile( kLayer );
-    EXPECT_NE( layer.find( "&FileExplorerPanel::GoToFolder" ), std::string::npos );
-    EXPECT_NE( layer.find( "&FileExplorerPanel::SyncToAsset" ), std::string::npos );
-    EXPECT_NE( layer.find( "->ContentFiles()" ), std::string::npos ) << "every file, not the open folder's";
+    const std::string assets = ReadFile( kAssetCommands );
+    EXPECT_NE( assets.find( "&FileExplorerPanel::GoToFolder" ), std::string::npos );
+    EXPECT_NE( assets.find( "&FileExplorerPanel::SyncToAsset" ), std::string::npos );
+    EXPECT_NE( assets.find( "->ContentFiles()" ), std::string::npos ) << "every file, not the open folder's";
 
     const std::string browser = ReadFile( kFileExplorer );
     const std::string sync    = FunctionBody( browser, "FileExplorerPanel::SyncToAsset(", "FileExplorerPanel::" );

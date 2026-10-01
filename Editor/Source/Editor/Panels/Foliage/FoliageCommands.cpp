@@ -24,7 +24,8 @@ namespace Desert::Editor
 {
     void AppendFoliageCommands( std::vector<PaletteCommand>&                  commands,
                                 const std::shared_ptr<::Desert::Core::Scene>& scene,
-                                const std::shared_ptr<Assets::AssetManager>&  assets )
+                                const std::shared_ptr<Assets::AssetManager>&  assets,
+                                const std::vector<std::filesystem::path>&     assetFiles )
     {
         // THE FOLIAGE PALETTE WITHOUT A MOUSE: the mode, and one entry per collection running the palette's own
         // collection drop (FO-2), so a frame can show types that came from a collection unattended.
@@ -57,9 +58,8 @@ namespace Desert::Editor
         }
         // FOLIAGE (FO-3): a type file into the palette, and the stroke a hand gives at the viewport centre.
         {
-            // Through the one content enumeration (loose files and a mounted .dpak alike).
-            for ( const std::filesystem::path& file :
-                  Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::ASSETS_PATH ) )
+            // The palette build's one census of the content root (AssetFileCensus), not a walk of its own.
+            for ( const std::filesystem::path& file : assetFiles )
             {
                 const std::string ext  = file.extension().string();
                 const std::string path = file.generic_string();

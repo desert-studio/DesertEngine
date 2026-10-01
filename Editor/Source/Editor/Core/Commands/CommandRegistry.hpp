@@ -36,6 +36,9 @@ namespace Desert::Editor
         // `owner` names who registered the provider (a module, a panel); it is what a reader of a
         // duplicate or a missing group looks up. Order of calls = order of groups in the palette.
         void Register( std::string owner, Provider provider );
+        // Runs once at the start of every Build(), before any provider: the place for a census several providers
+        // read (the content root's files), so it is taken once per build and never depends on provider order.
+        void OnBuildBegin( std::function<void()> prelude );
         // Appends every provider's entries to `out`, in registration order.
         void Build( std::vector<PaletteCommand>& out ) const;
 
@@ -50,6 +53,7 @@ namespace Desert::Editor
             std::string Owner;
             Provider    Append;
         };
-        std::vector<Entry> m_Providers;
+        std::vector<Entry>                 m_Providers;
+        std::vector<std::function<void()>> m_Preludes;
     };
 } // namespace Desert::Editor

@@ -29,14 +29,18 @@
 
 namespace Desert::Editor
 {
-    void AppendModelingCommands( std::vector<PaletteCommand>&                  commands,
-                                 const std::shared_ptr<::Desert::Core::Scene>& scene )
+    void AppendMeshToCollisionCommands( std::vector<PaletteCommand>& commands,
+                                        const std::shared_ptr<::Desert::Core::Scene>& scene )
     {
         // UE's Mesh To Collision (Modeling panel, Collision palette): the combo's choice and the button in one
         // entry per type, running the button's own path on the selection.
         for ( const auto& shape : Editor::ModelingPanel::kCollisionShapes )
             commands.push_back( { "Modeling", std::string( "Mesh To Collision " ) + shape.Name, [&scene, &shape]
                                   { return Editor::ModelingPanel::MeshToCollision( scene, shape ); } } );
+    }
+
+    void AppendSelectElementsCommand( std::vector<PaletteCommand>& commands )
+    {
         // MESH ELEMENT SELECTION (Modeling Mode). Palette entries for the same reason as the modes above: the
         // selection a later Extrude / Delete works on must be reachable - and photographable - unattended.
         commands.push_back( { "Modeling", "Select Elements tool", []
@@ -45,6 +49,10 @@ namespace Desert::Editor
                                   Core::ViewportMode::Set( Core::EditorMode::Modeling );
                                   return PaletteCommandDone();
                               } } );
+    }
+
+    void AppendCreateShapeCommands( std::vector<PaletteCommand>& commands )
+    {
         // CREATE SHAPE (Modeling Mode -> Create). One entry per shape, and the placement a click makes, at the
         // viewport centre: placing is the whole tool, and a capability the channel cannot reach does not exist
         // for an unattended check.
@@ -69,6 +77,11 @@ namespace Desert::Editor
                                   ms.ReqPlaceCentre = true;
                                   return PaletteCommandDone();
                               } } );
+    }
+
+    void AppendModelingCommands( std::vector<PaletteCommand>&                  commands,
+                                 const std::shared_ptr<::Desert::Core::Scene>& scene )
+    {
         for ( const Geometry::ElementMode mode :
               { Geometry::ElementMode::Vertex, Geometry::ElementMode::Edge, Geometry::ElementMode::Triangle,
                 Geometry::ElementMode::PolyGroup } )
