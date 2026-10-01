@@ -43,6 +43,7 @@
 #include <gtest/gtest.h>
 #include "../../TestSupport/committed_projects.hpp"
 #include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -198,26 +199,11 @@ namespace
         return document.has_value() ? KeysOf( document.value() ) : std::set<std::string>{};
     }
 
-    // Walks up from the working directory looking for a file only the repository has - the test
-    // runner's working directory is not fixed. Same shape as Desert/Tests/Engine/SceneStitch.
-    std::string RepoRoot()
-    {
-        std::string prefix = "./";
-        for ( int up = 0; up < 6; ++up )
-        {
-            std::ifstream probe( prefix + "Desert/Desert/Source/Engine/Core/SceneSettings.hpp" );
-            if ( probe )
-                return prefix;
-            prefix += "../";
-        }
-        return {};
-    }
-
     std::vector<std::filesystem::path> RepositoryScenes()
     {
         std::vector<std::filesystem::path> scenes;
         std::error_code                    ec;
-        const std::filesystem::path        root = RepoRoot() + "Editor/Resources/Assets/Scenes";
+        const std::filesystem::path        root = Desert::TestSupport::EngineDir() / "Resources/Assets/Scenes";
         for ( auto it = std::filesystem::recursive_directory_iterator( root, ec );
               it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
         {
@@ -243,8 +229,8 @@ namespace
     // `Register(` calls, so a third spelling nobody taught this reader shows up as a mismatch.
     std::set<std::string> RegisteredComponentKeys( std::size_t& registrations, std::size_t& keysRead )
     {
-        std::string source =
-             ReadAll( RepoRoot() + "Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp" );
+        std::string source = ReadAll( Desert::TestSupport::RepositoryRoot() /
+                                      "Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp" );
         source = std::regex_replace( source, std::regex( "//[^\n]*" ), "" );
 
         std::set<std::string> keys;
@@ -276,7 +262,8 @@ namespace
         if ( blockCalls != 0 )
         {
             std::string header =
-                 ReadAll( RepoRoot() + "Desert/Desert/Source/Engine/Core/Serialize/ReflectedComponentBlocks.hpp" );
+                 ReadAll( Desert::TestSupport::RepositoryRoot() /
+                          "Desert/Desert/Source/Engine/Core/Serialize/ReflectedComponentBlocks.hpp" );
             header = std::regex_replace( header, std::regex( "//[^\n]*" ), "" );
             const std::regex row( "\\bReflected(?:Member|Whole)Block\\s*<[^>]*>\\s*\\{\\s*\"(\\w+)\"" );
             std::size_t      rows = 0;
@@ -725,12 +712,12 @@ namespace
     class EditorProject
     {
     public:
-        EditorProject( const std::string& repoRoot, const std::string_view deproj )
+        explicit EditorProject( const std::string_view deproj )
              : m_SavedRoot( Common::Constants::Path::CurrentProjectRoot() ),
-               m_EngineDir( std::filesystem::absolute( repoRoot + "Editor" ) )
+               m_EngineDir( Desert::TestSupport::EngineDir() )
         {
             const std::filesystem::path projectFile =
-                 std::filesystem::absolute( std::filesystem::path( repoRoot ) / deproj ).lexically_normal();
+                 ( Desert::TestSupport::RepositoryRoot() / deproj ).lexically_normal();
             const auto project = Common::Project::ReadProjectFile( ReadAll( projectFile ) );
             if ( !project )
                 return;
@@ -757,9 +744,6 @@ namespace
 
 TEST( WorldPartitionMeshAssets, TheCorpusHasFewerPointOnlyRecordsWithTheGatheredRegistry )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() );
-
     // THE CORPUS IS EVERY COMMITTED PROJECT'S SCENES, each planned against the registry of its own project.
     std::size_t asked   = 0;
     std::size_t answers = 0;
@@ -768,7 +752,7 @@ TEST( WorldPartitionMeshAssets, TheCorpusHasFewerPointOnlyRecordsWithTheGathered
     for ( const std::string_view deproj : Desert::TestSupport::kCommittedProjects )
     {
         SCOPED_TRACE( std::string( deproj ) );
-        const EditorProject project( root, deproj );
+        const EditorProject project( deproj );
         ASSERT_TRUE( project.Opened() );
         const Common::Content::GatheredRegistry gathered = Common::Content::GatherContentRegistry( {} );
         ASSERT_TRUE( gathered.Refused.empty() ) << gathered.Refused.front();

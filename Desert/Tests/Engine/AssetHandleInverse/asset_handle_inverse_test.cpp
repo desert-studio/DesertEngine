@@ -63,13 +63,6 @@ namespace
 {
     namespace fs = std::filesystem;
 
-    // The checkout the build baked in (TestSupport::RepositoryRoot, absolute), never searched for from the working
-    // directory: a path built off it resolves the same wherever the runner was started.
-    std::string RepoRoot()
-    {
-        return Desert::TestSupport::RepositoryRoot().generic_string() + "/";
-    }
-
     std::string ReadAll( const fs::path& path )
     {
         const std::ifstream in( path, std::ios::binary );
@@ -309,14 +302,13 @@ namespace
 
 TEST( AssetHandleInverse, EveryContentFileIsNamedBackByItsOwnHandle )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
 
-    const fs::path content = fs::path( root ) / "Editor/Resources/Assets";
+    const fs::path content = root / "Editor/Resources/Assets";
     ASSERT_TRUE( fs::exists( content ) ) << content.string() << " is missing";
 
     const ProjectRootGuard guard;
-    Common::Constants::Path::SetProjectRoot( root + "Editor", "Resources/Assets" );
+    Common::Constants::Path::SetProjectRoot( root / "Editor", "Resources/Assets" );
 
     std::vector<std::string> offences;
     size_t                   files = 0;
@@ -364,14 +356,13 @@ TEST( AssetHandleInverse, EveryContentFileIsNamedBackByItsOwnHandle )
 
 TEST( AssetHandleInverse, EveryPathAndHandleAShippedSceneWritesForOneReferenceAgree )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
 
-    const fs::path scenes = fs::path( root ) / "Editor/Resources/Assets/Scenes";
+    const fs::path scenes = root / "Editor/Resources/Assets/Scenes";
     ASSERT_TRUE( fs::exists( scenes ) ) << scenes.string() << " is missing";
 
     const ProjectRootGuard guard;
-    Common::Constants::Path::SetProjectRoot( root + "Editor", "Resources/Assets" );
+    Common::Constants::Path::SetProjectRoot( root / "Editor", "Resources/Assets" );
 
     std::vector<PathAndGuid> materials;
     std::string              parseError;
@@ -486,8 +477,7 @@ TEST( AssetHandleInverse, PathForIsTheAssertedInverseAndNotASecondSpellingOfIt )
 
 TEST( AssetHandleInverse, EveryIdentityAdoptedFromAFileGoesThroughTheRecordingHelper )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
 
     // `m_Metadata.Handle = <something>` is how a subclass installs an identity that came out of its FILE,
     // over the path-derived one AssetBase's constructor put there. Every such line must also record the
@@ -504,8 +494,8 @@ TEST( AssetHandleInverse, EveryIdentityAdoptedFromAFileGoesThroughTheRecordingHe
     std::vector<std::string> offences;
     size_t                   scanned = 0;
 
-    for ( const fs::path& base : { fs::path( root ) / "Desert/Desert/Source", fs::path( root ) / "Editor/Source",
-                                   fs::path( root ) / "Runtime/Source" } )
+    for ( const fs::path& base :
+          { root / "Desert/Desert/Source", root / "Editor/Source", root / "Runtime/Source" } )
     {
         for ( const fs::path& source : SourcesUnder( base ) )
         {
@@ -536,8 +526,7 @@ TEST( AssetHandleInverse, EveryIdentityAdoptedFromAFileGoesThroughTheRecordingHe
 
 TEST( AssetHandleInverse, NothingInProductionClearsTheIndex )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
 
     // AN ASSET'S IDENTITY OUTLIVES ITS PAYLOAD. That is the whole reason this index is not a cache: a
     // lookup key that dies with the load cut the mesh->rig edge for an entire session once, and
@@ -546,9 +535,8 @@ TEST( AssetHandleInverse, NothingInProductionClearsTheIndex )
     std::vector<std::string> offences;
     size_t                   scanned = 0;
 
-    for ( const fs::path& base :
-          { fs::path( root ) / "Desert/Desert/Source", fs::path( root ) / "Desert/Common/Source",
-            fs::path( root ) / "Editor/Source", fs::path( root ) / "Runtime/Source", fs::path( root ) / "Tools" } )
+    for ( const fs::path& base : { root / "Desert/Desert/Source", root / "Desert/Common/Source",
+                                   root / "Editor/Source", root / "Runtime/Source", root / "Tools" } )
     {
         for ( const fs::path& source : SourcesUnder( base ) )
         {

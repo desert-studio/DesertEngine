@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <memory>
 #include <sstream>
@@ -128,14 +129,7 @@ TEST( FrameRetireQueue, AMaterialInvalidatedMidRecordingOutlivesTheFrameRecordin
 
 namespace
 {
-    // The checkout the build baked in (TestSupport::RepositoryRoot, absolute), never searched for from the working
-    // directory: a path built off it resolves the same wherever the runner was started.
-    std::string RepoRoot()
-    {
-        return Desert::TestSupport::RepositoryRoot().generic_string() + "/";
-    }
-
-    std::string CodeOf( const std::string& path )
+    std::string CodeOf( const std::filesystem::path& path )
     {
         std::ifstream     in( path );
         std::stringstream buffer;
@@ -148,13 +142,14 @@ namespace
 // may idle the device to do it: a WaitDeviceIdle per sweep is a GPU stop per world cell left behind in a flight.
 TEST( FrameRetireQueue, NeitherGpuServiceIdlesTheDeviceToReleaseWhatEvictionDropped )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "the repository root was not found from the working directory";
-    const std::string services = root + "Desert/Desert/Source/Engine/Runtime/Services/";
+    // The checkout the build baked in (TestSupport::RepositoryRoot), never searched for from the working
+    // directory.
+    const std::filesystem::path root     = Desert::TestSupport::RepositoryRoot();
+    const std::filesystem::path services = root / "Desert/Desert/Source/Engine/Runtime/Services/";
     for ( const char* service : { "Mesh/MeshService", "Material/MaterialService", "Texture/TextureService" } )
     {
-        const std::string header = CodeOf( services + service + ".hpp" );
-        const std::string source = CodeOf( services + service + ".cpp" );
+        const std::string header = CodeOf( services / std::format( "{}.hpp", service ) );
+        const std::string source = CodeOf( services / std::format( "{}.cpp", service ) );
         ASSERT_FALSE( header.empty() || source.empty() ) << service << " was not read";
         EXPECT_NE( header.find( "FrameRetireQueue" ), std::string::npos )
              << service << " no longer parks what it drops in a FrameRetireQueue";
@@ -164,12 +159,12 @@ TEST( FrameRetireQueue, NeitherGpuServiceIdlesTheDeviceToReleaseWhatEvictionDrop
 
     // WP14b: the texture service parks what it drops (not resets it), the engine sink forwards the drop to it, and
     // the frame loop collects its queue every frame - each link of the chain that frees a texture's image.
-    const std::string texture = CodeOf( services + "Texture/TextureService.cpp" );
+    const std::string texture = CodeOf( services / "Texture/TextureService.cpp" );
     EXPECT_NE( texture.find( "m_Retiring.Park(" ), std::string::npos ) << "TextureService drops without parking";
-    const std::string sink = CodeOf( root + "Desert/Desert/Source/Engine/Assets/AssetEvictionServices.cpp" );
+    const std::string sink = CodeOf( root / "Desert/Desert/Source/Engine/Assets/AssetEvictionServices.cpp" );
     EXPECT_NE( sink.find( "GetTextureService()->EvictBuilt(" ), std::string::npos )
          << "the engine sink no longer forwards a texture drop to TextureService";
-    const std::string loop = CodeOf( root + "Desert/Desert/Source/Engine/Core/Application.cpp" );
+    const std::string loop = CodeOf( root / "Desert/Desert/Source/Engine/Core/Application.cpp" );
     EXPECT_NE( loop.find( "GetTextureService()->RetireEvicted()" ), std::string::npos )
          << "the frame loop never collects the textures eviction parked, so none is ever freed";
 }

@@ -76,11 +76,9 @@ namespace
 
     // The suite data project (Desert/Tests/Data), baked by the build (DESERT_TEST_DATA_DIR) — never found
     // from the working directory.
-    std::string DataRoot()
-    {
-        return Desert::TestSupport::TestDataDir().generic_string() + "/";
-    }
-    std::string ReadFile( const std::string& path )
+    using Desert::TestSupport::TestDataDir;
+
+    std::string ReadFile( const std::filesystem::path& path )
     {
         const std::ifstream in( path, std::ios::binary );
         if ( !in )
@@ -92,7 +90,7 @@ namespace
 
     std::vector<BoneInfo> BonesFrom( const char* path )
     {
-        const std::string raw = ReadFile( DataRoot() + path );
+        const std::string raw = ReadFile( TestDataDir() / path );
         EXPECT_FALSE( raw.empty() ) << "could not read " << path;
         auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
         EXPECT_TRUE( data.IsSuccess() ) << path << ": " << data.GetError();
@@ -101,7 +99,7 @@ namespace
 
     Desert::Animation::AnimationClip ClipFrom( const char* path )
     {
-        const std::string raw = ReadFile( DataRoot() + path );
+        const std::string raw = ReadFile( TestDataDir() / path );
         EXPECT_FALSE( raw.empty() ) << "could not read " << path;
         const auto data = Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( raw );
         EXPECT_TRUE( data.IsSuccess() ) << path << ": " << data.GetError();

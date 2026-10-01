@@ -81,13 +81,6 @@ namespace
 {
     namespace fs = std::filesystem;
 
-    // The checkout the build baked in (TestSupport::RepositoryRoot, absolute), never searched for from the working
-    // directory: a path built off it resolves the same wherever the runner was started.
-    std::string RepoRoot()
-    {
-        return Desert::TestSupport::RepositoryRoot().generic_string() + "/";
-    }
-
     std::string ReadAll( const fs::path& path )
     {
         std::ifstream      in( path, std::ios::binary );
@@ -347,18 +340,17 @@ namespace
 
 TEST( AssetReferenceCensus, EveryReferenceAShippedMaterialMakesNamesAFileInTheProject )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
 
-    const fs::path materials = root + "Editor/Resources/Assets/Materials";
-    const fs::path content   = root + "Editor/Resources/Assets";
+    const fs::path materials = root / "Editor/Resources/Assets/Materials";
+    const fs::path content   = root / "Editor/Resources/Assets";
     ASSERT_TRUE( fs::exists( materials ) ) << materials.string() << " is missing";
 
     // The derivation reads the project root out of Constants::Path, so it has to be pointed at THIS
     // checkout — otherwise every path falls outside every root and hashes its absolute spelling, which is
     // the machine-dependent identity the whole scheme exists to avoid.
     ProjectRootGuard guard;
-    Common::Constants::Path::SetProjectRoot( root + "Editor", "Resources/Assets" );
+    Common::Constants::Path::SetProjectRoot( root / "Editor", "Resources/Assets" );
 
     std::string parseError;
     const auto  references = ReferencesUnder( materials, &parseError );
@@ -372,7 +364,7 @@ TEST( AssetReferenceCensus, EveryReferenceAShippedMaterialMakesNamesAFileInThePr
     EXPECT_TRUE( meshError.empty() ) << "a shipped mesh source asset does not read: " << meshError;
     // The hand-authored mesh sources (StaticProbe and the skinned probes) are suite data, a project of their own
     // whose scenes name the engine's materials: swept too, and resolved against both trees below.
-    const fs::path suiteContent        = root + "Desert/Tests/Data/Resources/Assets";
+    const fs::path suiteContent        = Desert::TestSupport::TestDataDir() / "Resources/Assets";
     int            suiteMeshesRead     = 0;
     const auto     suiteMeshReferences = MeshReferencesUnder( suiteContent, &meshError, &suiteMeshesRead );
     EXPECT_TRUE( meshError.empty() ) << "a suite-data mesh source asset does not read: " << meshError;
@@ -420,16 +412,15 @@ TEST( AssetReferenceCensus, EveryReferenceAShippedMaterialMakesNamesAFileInThePr
 // run rather than the day somebody breaks a material.
 TEST( AssetReferenceCensus, TheCensusReportsAReferenceThatNamesNothing )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
 
-    const fs::path content = root + "Editor/Resources/Assets";
+    const fs::path content = root / "Editor/Resources/Assets";
     const fs::path scratch = fs::temp_directory_path() / "desert_materialassetreferences_dangling";
     fs::remove_all( scratch );
     fs::create_directories( scratch );
 
     ProjectRootGuard guard;
-    Common::Constants::Path::SetProjectRoot( root + "Editor", "Resources/Assets" );
+    Common::Constants::Path::SetProjectRoot( root / "Editor", "Resources/Assets" );
 
     const auto derived = DerivedHandlesUnder( content );
 
@@ -490,10 +481,9 @@ TEST( AssetReferenceCensus, TheCensusReportsAReferenceThatNamesNothing )
 // falls behind the first, and it would fall behind silently — by passing.
 TEST( AssetReferenceCensus, EveryAssetReferenceInShippedContentIsSpelledAsAString )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
 
-    const fs::path generated = root + "Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp";
+    const fs::path generated = root / "Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp";
     ASSERT_TRUE( fs::exists( generated ) ) << generated.string() << " is missing";
 
     // name -> the set of FieldTypes the generated reflection declares it under.
@@ -568,7 +558,7 @@ TEST( AssetReferenceCensus, EveryAssetReferenceInShippedContentIsSpelledAsAStrin
     size_t documents = 0;
     for ( const char* subdir : { "Scenes", "Prefabs" } )
     {
-        const fs::path dir = root + "Editor/Resources/Assets/" + subdir;
+        const fs::path dir = root / "Editor/Resources/Assets" / subdir;
         if ( !fs::exists( dir ) )
             continue;
         for ( const auto& entry : fs::recursive_directory_iterator( dir ) )
@@ -584,7 +574,7 @@ TEST( AssetReferenceCensus, EveryAssetReferenceInShippedContentIsSpelledAsAStrin
                 continue; // parsing is SceneVersionGate's subject, not this one
             ++documents;
             visit( Common::Json::Root( parsed.GetValue() ),
-                   fs::relative( entry.path(), root + "Editor/Resources/Assets" ).generic_string() );
+                   fs::relative( entry.path(), root / "Editor/Resources/Assets" ).generic_string() );
         }
     }
 
@@ -685,14 +675,13 @@ namespace
 
 TEST( AssetReferenceCensus, NoReferenceInShippedContentNamesItsAssetByPathAlone )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
+    const fs::path               root      = Desert::TestSupport::RepositoryRoot();
     const std::set<std::string>& guidNames = kGuidFieldNames;
     std::vector<std::string>     offences;
     size_t                       documents = 0;
     for ( const char* subdir : { "Scenes", "Prefabs" } )
     {
-        const fs::path dir = root + "Editor/Resources/Assets/" + subdir;
+        const fs::path dir = root / "Editor/Resources/Assets" / subdir;
         if ( !fs::exists( dir ) )
             continue;
         for ( const auto& entry : fs::recursive_directory_iterator( dir ) )
@@ -705,7 +694,7 @@ TEST( AssetReferenceCensus, NoReferenceInShippedContentNamesItsAssetByPathAlone 
                 continue; // parsing is SceneVersionGate's subject, not this one
             ++documents;
             PathsWithoutGuid( Common::Json::Root( parsed.GetValue() ),
-                              fs::relative( entry.path(), root + "Editor/Resources/Assets" ).generic_string(),
+                              fs::relative( entry.path(), root / "Editor/Resources/Assets" ).generic_string(),
                               guidNames, offences );
         }
     }
@@ -747,14 +736,13 @@ TEST( AssetReferenceCensus, TheByPathCensusReportsEachSpellingOfAPathOnlyReferen
 // stable key exists to make that impossible; this asserts it over the content actually shipped.
 TEST( AssetReferenceCensus, NoTwoShippedContentFilesDeriveTheSameHandle )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
 
-    const fs::path content = root + "Editor/Resources/Assets";
+    const fs::path content = root / "Editor/Resources/Assets";
     ASSERT_TRUE( fs::exists( content ) ) << content.string() << " is missing";
 
     ProjectRootGuard guard;
-    Common::Constants::Path::SetProjectRoot( root + "Editor", "Resources/Assets" );
+    Common::Constants::Path::SetProjectRoot( root / "Editor", "Resources/Assets" );
 
     std::map<uint64_t, std::string> claimed;
     size_t                          files = 0;

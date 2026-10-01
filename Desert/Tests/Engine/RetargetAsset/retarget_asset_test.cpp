@@ -114,17 +114,8 @@ namespace
 
     // The suite data project (Desert/Tests/Data), baked by the build (DESERT_TEST_DATA_DIR) — never found
     // from the working directory.
-    std::string DataRoot()
-    {
-        return Desert::TestSupport::TestDataDir().generic_string() + "/";
-    }
-
-    // The checkout, for the source-level caller census.
-    std::string RepoRoot()
-    {
-        return Desert::TestSupport::RepositoryRoot().generic_string() + "/";
-    }
-    std::string ReadFile( const std::string& path )
+    using Desert::TestSupport::TestDataDir;
+    std::string ReadFile( const std::filesystem::path& path )
     {
         const std::ifstream in( path, std::ios::binary );
         if ( !in )
@@ -136,7 +127,7 @@ namespace
 
     Skeleton RigFrom( const char* path )
     {
-        const std::string raw = ReadFile( DataRoot() + path );
+        const std::string raw = ReadFile( TestDataDir() / path );
         EXPECT_FALSE( raw.empty() ) << "could not read " << path;
         auto data = Common::Json::Read<File::SkeletonAssetData>( raw );
         EXPECT_TRUE( data.IsSuccess() ) << ( data.IsSuccess() ? "" : data.GetError() );
@@ -204,7 +195,7 @@ namespace
 
     std::vector<BoneInfo> TargetBones()
     {
-        const std::string raw = ReadFile( DataRoot() + kTargetRig );
+        const std::string raw = ReadFile( TestDataDir() / kTargetRig );
         EXPECT_FALSE( raw.empty() ) << "could not read " << kTargetRig;
         auto data = Common::Json::Read<File::SkeletonAssetData>( raw );
         EXPECT_TRUE( data.IsSuccess() ) << ( data.IsSuccess() ? "" : data.GetError() );
@@ -367,7 +358,7 @@ namespace
 
     File::RetargetAssetData ShippedRetarget()
     {
-        auto parsed = File::ParseRetarget( ReadFile( DataRoot() + kRetargetFile ) );
+        auto parsed = File::ParseRetarget( ReadFile( TestDataDir() / kRetargetFile ) );
         EXPECT_TRUE( parsed.IsSuccess() ) << ( parsed.IsSuccess() ? "" : parsed.GetError() );
         return parsed.IsSuccess() ? parsed.ExtractValue() : File::RetargetAssetData{};
     }
@@ -561,7 +552,7 @@ TEST( RetargetAssetTest, TheSourceRigIsNamedByTheGuidItsSkeletonStates )
     // number minted beside it: a GUID nobody states resolves to nothing, which loads fine and does nothing.
     const File::RetargetAssetData data = ShippedRetarget();
     const auto                    rigGuid =
-         Desert::Assets::ReadTextHeaderGuid( DataRoot() + "Resources/Assets/" + data.SourceSkeleton.Path );
+         Desert::Assets::ReadTextHeaderGuid( TestDataDir() / "Resources/Assets" / data.SourceSkeleton.Path );
     ASSERT_FALSE( rigGuid.IsNull() ) << data.SourceSkeleton.Path << " states no header GUID";
     EXPECT_EQ( data.SourceSkeleton.Guid, Common::Content::AssetGuidToText( rigGuid ) );
 }
@@ -1165,8 +1156,7 @@ TEST( RetargetAssetTest, ALayerIsRetargetedTooAndNotFoldedFromTheSourceRig )
 
 TEST( RetargetAssetTest, TheShippedRetargetNamesARigTheProjectHasAndTheWitnessScenesNameIt )
 {
-    const std::string root = DataRoot();
-    ASSERT_FALSE( root.empty() );
+    const std::filesystem::path root = TestDataDir();
 
     const File::RetargetAssetData data = ShippedRetarget();
     ASSERT_TRUE( File::ValidateRetargetData( data ).IsSuccess() );
@@ -1175,7 +1165,7 @@ TEST( RetargetAssetTest, TheShippedRetargetNamesARigTheProjectHasAndTheWitnessSc
     // `MESH_PATH_COOKED / SourceSkeleton.Path` (for the reader; the rig resolves by GUID); checking it here is
     // what stops the corpus from shipping a retarget whose source rig is a typo, which loads perfectly and does
     // nothing.
-    const std::string rig = root + "Resources/Assets/" + data.SourceSkeleton.Path;
+    const std::filesystem::path rig = root / "Resources/Assets" / data.SourceSkeleton.Path;
     EXPECT_FALSE( ReadFile( rig ).empty() )
          << "the shipped retarget names " << data.SourceSkeleton.Path << ", which is not in the cooked meshes";
 
@@ -1183,12 +1173,12 @@ TEST( RetargetAssetTest, TheShippedRetargetNamesARigTheProjectHasAndTheWitnessSc
     // IKProbe.skmesh to the source rig — see this file's header.
     EXPECT_NE( SourceRig().GetSignature(), RigFrom( kTargetRig ).GetSignature() );
 
-    const std::string witness = ReadFile( root + "Resources/Assets/Scenes/ANIM_RetargetWitness.desce" );
+    const std::string witness = ReadFile( root / "Resources/Assets/Scenes/ANIM_RetargetWitness.desce" );
     ASSERT_FALSE( witness.empty() );
     EXPECT_NE( witness.find( "Retargets/ForeignArm_To_IKProbe.retarget" ), std::string::npos );
     EXPECT_NE( witness.find( "ForeignArm_Swing" ), std::string::npos );
 
-    const std::string control = ReadFile( root + "Resources/Assets/Scenes/ANIM_RetargetWitness_NoRetarget.desce" );
+    const std::string control = ReadFile( root / "Resources/Assets/Scenes/ANIM_RetargetWitness_NoRetarget.desce" );
     ASSERT_FALSE( control.empty() );
     EXPECT_EQ( control.find( "\"Retarget\"" ), std::string::npos )
          << "the control scene must differ from the witness in exactly one thing: the retarget";
@@ -1206,8 +1196,7 @@ TEST( RetargetAssetTest, TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstr
     //
     // THEY ARE COMPARED BY VALUE AND NOT BY BYTES, because the writer is free to choose its spelling of a
     // float; what must agree is the rig and the motion.
-    const std::string root = DataRoot();
-    ASSERT_FALSE( root.empty() );
+    const std::filesystem::path root = TestDataDir();
 
     // THE REGENERATION PATH IS THIS TEST, not a sentence in a comment. Both files are written out on
     // every run, so "the corpus disagrees with the construction" and "here are the bytes that fix it"
@@ -1220,7 +1209,7 @@ TEST( RetargetAssetTest, TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstr
         std::ofstream( clipOut, std::ios::binary ) << Common::Json::Write( ForeignArmClipData() );
     }
 
-    const auto shippedRig = Common::Json::Read<File::SkeletonAssetData>( ReadFile( root + kSourceRig ) );
+    const auto shippedRig = Common::Json::Read<File::SkeletonAssetData>( ReadFile( root / kSourceRig ) );
     ASSERT_TRUE( shippedRig.IsSuccess() )
          << shippedRig.GetError() << "\n"
          << kSourceRig << " is missing or is not a skeleton; copy " << rigOut.string() << " over it";
@@ -1242,7 +1231,7 @@ TEST( RetargetAssetTest, TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstr
              << builtRig.Bones[i].Name << "'s inverse bind pose is not the one this suite builds";
     }
 
-    const auto shippedClip = Common::Json::Read<File::AnimationAssetData>( ReadFile( root + kSourceClip ) );
+    const auto shippedClip = Common::Json::Read<File::AnimationAssetData>( ReadFile( root / kSourceClip ) );
     ASSERT_TRUE( shippedClip.IsSuccess() )
          << shippedClip.GetError() << "\n"
          << kSourceClip << " is missing or is not a clip; copy " << clipOut.string() << " over it";
@@ -1258,7 +1247,7 @@ TEST( RetargetAssetTest, TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstr
     EXPECT_EQ( shipped.Sequence.Start.Value, built.Sequence.Start.Value );
     EXPECT_EQ( shipped.Sequence.End.Value, built.Sequence.End.Value );
     EXPECT_EQ( shippedClip.GetValue().Skeleton, ForeignArmClipData().Skeleton );
-    EXPECT_EQ( Common::Content::AssetGuidToText( Desert::Assets::ReadTextHeaderGuid( root + kSourceRig ) ),
+    EXPECT_EQ( Common::Content::AssetGuidToText( Desert::Assets::ReadTextHeaderGuid( root / kSourceRig ) ),
                kSourceRigGuid )
          << kSourceRig << " does not state the GUID the clip references";
     EXPECT_EQ( shipped.Sequence.TickRate.Numerator, built.Sequence.TickRate.Numerator );
@@ -1299,8 +1288,7 @@ TEST( RetargetAssetTest, TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstr
 
 TEST( RetargetAssetTest, EveryLinkFromTheFileToTheSkinningMatricesHasACaller )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "could not locate the repository root from the working directory";
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
 
     struct Link
     {
@@ -1358,7 +1346,7 @@ TEST( RetargetAssetTest, EveryLinkFromTheFileToTheSkinningMatricesHasACaller )
     for ( const Link& link : links )
     {
         SCOPED_TRACE( std::string( link.File ) + " :: " + link.Needle );
-        const std::string text = ReadFile( root + link.File );
+        const std::string text = ReadFile( root / link.File );
         ASSERT_FALSE( text.empty() ) << "could not read " << link.File;
         EXPECT_NE( text.find( link.Needle ), std::string::npos ) << link.Why;
         ++checked;

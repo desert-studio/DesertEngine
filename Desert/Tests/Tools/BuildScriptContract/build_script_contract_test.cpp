@@ -53,14 +53,7 @@ namespace fs = std::filesystem;
 
 namespace
 {
-    // The checkout the build baked in (TestSupport::RepositoryRoot, absolute), never searched for from the working
-    // directory: a path built off it resolves the same wherever the runner was started.
-    std::string RepoRoot()
-    {
-        return Desert::TestSupport::RepositoryRoot().generic_string() + "/";
-    }
-
-    std::string ReadFile( const std::string& path )
+    std::string ReadFile( const fs::path& path )
     {
         std::ifstream in( path, std::ios::binary );
         if ( !in )
@@ -212,12 +205,11 @@ namespace
 // row that is no longer absent fails too.
 TEST( BuildScriptContract, ThePendingReferenceRegisterIsNotStale )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() );
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
 
     for ( const auto& row : kPendingReferences )
     {
-        EXPECT_FALSE( fs::exists( root + row.Path ) )
+        EXPECT_FALSE( fs::exists( root / row.Path ) )
              << row.Path << " now exists, so its row in kPendingReferences is stale — delete the row. "
              << "It was owed by: " << row.OwedBy;
     }
@@ -225,11 +217,11 @@ TEST( BuildScriptContract, ThePendingReferenceRegisterIsNotStale )
 
 TEST( BuildScriptContract, EveryReferencedScriptExists )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "could not locate the repository root";
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
 
-    std::vector<std::string> sources = { root + "README.md", root + ".github/workflows/ci.yml" };
-    for ( const auto& e : fs::recursive_directory_iterator( root + "scripts" ) )
+    std::vector<std::string> sources = { ( root / "README.md" ).generic_string(),
+                                         ( root / ".github/workflows/ci.yml" ).generic_string() };
+    for ( const auto& e : fs::recursive_directory_iterator( root / "scripts" ) )
     {
         if ( !e.is_regular_file() )
             continue;
@@ -244,7 +236,7 @@ TEST( BuildScriptContract, EveryReferencedScriptExists )
         ASSERT_FALSE( text.empty() ) << source << " is empty or unreadable";
         for ( const auto& ref : ScriptPathsIn( text ) )
         {
-            if ( fs::exists( root + ref ) )
+            if ( fs::exists( root / ref ) )
                 continue;
             if ( const PendingReference* row = PendingRowFor( ref ) )
                 pending.push_back( source + " -> " + ref + "  [owed by: " + row->OwedBy + "]" );
@@ -267,11 +259,10 @@ TEST( BuildScriptContract, EveryReferencedScriptExists )
 
 TEST( BuildScriptContract, WindowsSetupPinsTheSameVulkanSdkAsCI )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() );
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
 
-    const std::string ci    = ReadFile( root + ".github/workflows/ci.yml" );
-    const std::string setup = ReadFile( root + "scripts/Windows/Setup.bat" );
+    const std::string ci    = ReadFile( root / ".github/workflows/ci.yml" );
+    const std::string setup = ReadFile( root / "scripts/Windows/Setup.bat" );
     ASSERT_FALSE( ci.empty() );
     ASSERT_FALSE( setup.empty() );
 
@@ -289,13 +280,12 @@ TEST( BuildScriptContract, WindowsSetupPinsTheSameVulkanSdkAsCI )
 
 TEST( BuildScriptContract, BothPackagersShipEveryEngineResourceTree )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() );
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
 
     // DERIVED from the tree, not typed: this is the whole point. `Assets` is excluded because it is
     // the sandbox PROJECT's content, which travels as the base scene's closure rather than whole.
     std::vector<std::string> engineTrees;
-    for ( const auto& e : fs::directory_iterator( root + "Editor/Resources" ) )
+    for ( const auto& e : fs::directory_iterator( root / "Editor/Resources" ) )
     {
         if ( !e.is_directory() )
             continue;
@@ -306,8 +296,8 @@ TEST( BuildScriptContract, BothPackagersShipEveryEngineResourceTree )
     std::sort( engineTrees.begin(), engineTrees.end() );
     ASSERT_FALSE( engineTrees.empty() );
 
-    const std::string sh  = ReadFile( root + "scripts/MacOS/Package.sh" );
-    const std::string bat = ReadFile( root + "scripts/Windows/Package.bat" );
+    const std::string sh  = ReadFile( root / "scripts/MacOS/Package.sh" );
+    const std::string bat = ReadFile( root / "scripts/Windows/Package.bat" );
     ASSERT_FALSE( sh.empty() );
     ASSERT_FALSE( bat.empty() );
 
@@ -329,15 +319,14 @@ TEST( BuildScriptContract, BothPackagersShipEveryEngineResourceTree )
 
 TEST( BuildScriptContract, BaseSceneClosureCoversWhatTheSceneNames )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() );
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
 
-    const fs::path assetsRoot = fs::path( root + "Editor/Resources/Assets" ).lexically_normal();
-    const fs::path projectDir = fs::path( root + "Editor" ).lexically_normal();
+    const fs::path assetsRoot = ( root / "Editor/Resources/Assets" ).lexically_normal();
+    const fs::path projectDir = ( root / "Editor" ).lexically_normal();
     ASSERT_TRUE( fs::is_directory( assetsRoot ) );
 
     const std::string sceneKey  = "Scenes/Starter.desce";
-    const std::string sceneText = ReadFile( ( assetsRoot / sceneKey ).string() );
+    const std::string sceneText = ReadFile( assetsRoot / sceneKey );
     ASSERT_FALSE( sceneText.empty() ) << "the drop's base scene is unreadable";
 
     Desert::Editor::AssetReferenceIndex index;
@@ -392,13 +381,12 @@ TEST( BuildScriptContract, BaseSceneClosureCoversWhatTheSceneNames )
 // source that calls glfwCreateWindowSurface names GlfwVulkan.hpp itself.
 TEST( BuildScriptContract, GlfwIsIncludedOnlyThroughItsEntryHeaders )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "could not locate the repository root";
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
 
     const std::string plain       = "Desert/Desert/Source/Engine/Core/Glfw.hpp";
     const std::string vulkan      = "Desert/Desert/Source/Engine/Core/GlfwVulkan.hpp";
-    const std::string plainText   = ReadFile( root + plain );
-    const std::string vulkanText  = ReadFile( root + vulkan );
+    const std::string plainText   = ReadFile( root / plain );
+    const std::string vulkanText  = ReadFile( root / vulkan );
     const std::string surfaceCall = "glfwCreateWindowSurface(";
     const std::string loaderCall  = "glfwInitVulkanLoader(";
     ASSERT_FALSE( plainText.empty() ) << plain << " is missing";
@@ -428,7 +416,7 @@ TEST( BuildScriptContract, GlfwIsIncludedOnlyThroughItsEntryHeaders )
     std::size_t              callers = 0;
     for ( const char* dir : { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source" } )
     {
-        for ( const auto& e : fs::recursive_directory_iterator( root + dir ) )
+        for ( const auto& e : fs::recursive_directory_iterator( root / dir ) )
         {
             const std::string ext = e.path().extension().string();
             if ( !e.is_regular_file() || ( ext != ".cpp" && ext != ".hpp" && ext != ".h" && ext != ".mm" ) )
@@ -437,7 +425,7 @@ TEST( BuildScriptContract, GlfwIsIncludedOnlyThroughItsEntryHeaders )
             ++scanned;
             if ( rel == plain || rel == vulkan )
                 continue;
-            const std::string text = ReadFile( e.path().string() );
+            const std::string text = ReadFile( e.path() );
             if ( text.find( "<GLFW/glfw3.h>" ) != std::string::npos )
                 bare.push_back( rel );
             if ( text.find( surfaceCall ) != std::string::npos || text.find( loaderCall ) != std::string::npos )
@@ -472,10 +460,11 @@ TEST( BuildScriptContract, GlfwIsIncludedOnlyThroughItsEntryHeaders )
 #if !defined( _WIN32 )
 namespace
 {
-    int RunGluedTextGate( const std::string& root, const fs::path& fixture )
+    int RunGluedTextGate( const fs::path& root, const fs::path& fixture )
     {
-        const std::string command = std::format(
-             "bash '{}scripts/CI/CheckGluedText.sh' --file '{}' >/dev/null 2>&1", root, fixture.string() );
+        const std::string command =
+             std::format( "bash '{}' --file '{}' >/dev/null 2>&1",
+                          ( root / "scripts/CI/CheckGluedText.sh" ).generic_string(), fixture.generic_string() );
         // NOLINTNEXTLINE(concurrency-mt-unsafe): single-threaded test, runs the real script
         const int status = std::system( command.c_str() );
         return WIFEXITED( status ) ? WEXITSTATUS( status ) : -1;
@@ -484,8 +473,7 @@ namespace
 
 TEST( BuildScriptContract, GluedTextGateSeparatesGlueFromFormat )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "could not locate the repository root";
+    const fs::path root = Desert::TestSupport::RepositoryRoot();
 
     struct Fixture
     {
