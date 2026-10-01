@@ -631,7 +631,7 @@ TEST( SceneDocumentCensus, EveryLoadParsesTheSceneTextOnce )
         EXPECT_EQ( count( loader, token ), 0u )
              << "SceneSerializer.cpp parses scene text a second time: " << token;
 
-    for ( const char* file : { "Editor/Source/EditorLayer.cpp", "Runtime/Source/RuntimeLayer.cpp",
+    for ( const char* file : { "Editor/Source/Editor/LevelEditor/SceneFiles.cpp", "Runtime/Source/RuntimeLayer.cpp",
                                "Desert/Desert/Source/Engine/Graphic/Render2D/UIRenderTextureCache.cpp" } )
     {
         const std::string text = ReadAll( root + file );

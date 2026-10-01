@@ -242,7 +242,7 @@ TEST( AnimGraphScript, TheSystemOrderTheOneFrameLatencyIsDocumentedAgainstStillH
 
     // Both hosts that build a gameplay scene. A claim about frame ordering that is true in the editor and
     // false in the packaged runtime is worse than no claim.
-    for ( const char* host : { "Editor/Source/EditorLayer.cpp", "Runtime/Source/RuntimeLayer.cpp" } )
+    for ( const char* host : { "Editor/Source/Editor/LevelEditor/SceneWorkspace.cpp", "Runtime/Source/RuntimeLayer.cpp" } )
     {
         SCOPED_TRACE( host );
         const std::string code = ReadFile( RepoRoot() + host );

@@ -255,12 +255,13 @@ TEST( AssetOpenRegister, MatchesTheAssetEditorsTheRegistrationsRegister )
 
 namespace
 {
-    // The EditorLayer member each LoadScene call sits in: the last line before it that opens a member at
-    // namespace indent ("    <ret> EditorLayer::Name(" — four spaces, then not a comment).
+    // The member each LoadScene call sits in: the last line before it that opens a member of one of the
+    // level editor's hosts at namespace indent ("    <ret> SceneFiles::Name(" — four spaces, then not a
+    // comment).
     std::multiset<std::string> LoadSceneCallers( const std::string& layer )
     {
         std::multiset<std::string> callers;
-        const std::regex           member( R"(^    (?:[^ /][^(]*)?(?:EditorLayer|SceneFiles)::(\w+)\()" );
+        const std::regex           member( R"(^    (?:[^ /][^(]*)?(?:EditorLayer|SceneFiles|DockLayout|ShotDirector)::(\w+)\()" );
         const std::regex           call( R"((^|[^:\w])RequestLoad\()" );
         std::istringstream         lines( layer );
         std::string                line;
@@ -289,16 +290,19 @@ namespace
 // the ask. Each row names its reason; a new caller is red here until it goes through SceneOpenRequest.
 TEST( SceneOpenRegister, OnlyTheGatedPlacesCallLoadScene )
 {
-    // EDL-4: the scene-file code moved into SceneFiles; the register reads the layer and both of its files.
+    // EDL-4: the scene-file code moved into SceneFiles; EDL-9: the recovery popup moved into DockLayout and
+    // the shot's scene into ShotDirector. The register reads the layer and every file that calls RequestLoad.
     const std::string layer = ReadRepoFile( "Editor/Source/EditorLayer.cpp" ) +
                               ReadRepoFile( "Editor/Source/Editor/LevelEditor/SceneFiles.cpp" ) +
-                              ReadRepoFile( "Editor/Source/Editor/LevelEditor/SceneFileDialogs.cpp" );
+                              ReadRepoFile( "Editor/Source/Editor/LevelEditor/SceneFileDialogs.cpp" ) +
+                              ReadRepoFile( "Editor/Source/Editor/LevelEditor/DockLayout.cpp" ) +
+                              ReadRepoFile( "Editor/Source/Editor/LevelEditor/ShotDirector.cpp" );
     ASSERT_FALSE( layer.empty() ) << "Editor/Source/EditorLayer.cpp not found from the working directory";
 
     // clang-format off
     const std::multiset<std::string> allowed = {
-        "EditorLayer",               // constructor: --scene and the shot's scene, before any edit exists
-        "EditorLayer",
+        "EditorLayer",               // constructor: --scene, before any edit exists
+        "QueueScene",                // ShotDirector: the shot's scene, before any edit exists
         "ConsumeOpenRequest",        // the SceneOpenRequest consumer, after the unsaved-changes check
         "DrawRecoveryPopup",         // restoring an autosave the user just chose to recover
         "DrawConfirmOpenScenePopup", // "Save and open" / "Discard and open" — the ask itself

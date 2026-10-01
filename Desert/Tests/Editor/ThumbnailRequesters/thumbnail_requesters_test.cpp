@@ -209,8 +209,11 @@ namespace
     constexpr Mechanism kMechanism[] = {
          { "Editor/Source/Editor/Widgets/ThumbnailService.cpp", "the queue every slot asks through" },
          { "Editor/Source/EditorLayer.cpp",
-           "drives the service — one Tick() per frame and one Shutdown() at teardown. It owns no row and "
-           "draws no picture; it is the clock, not a consumer" },
+           "ends the service — one Shutdown() and the cache's ReleaseAll() at teardown, while the device "
+           "still exists. It owns no row and draws no picture" },
+         { "Editor/Source/Editor/LevelEditor/EditorStartup.cpp",
+           "drives the service — EditorStartup::TickThumbnails is the one pump per frame, gated by the "
+           "splash's reveal state. It owns no row and draws no picture; it is the clock, not a consumer" },
 
          // ThumbnailCache.cpp WAS excused here as "where DiskPath is DEFINED" and no longer is: M11 moved
          // the cache-path rule to Editor/Widgets/ThumbnailKey.hpp, beside the rule that names the file,

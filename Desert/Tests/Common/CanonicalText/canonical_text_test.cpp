@@ -275,10 +275,6 @@ namespace
          CanonicalAtSource{
               "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/PrefabComponentWidget.cpp",
               "Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp" },
-         // Since WP16b the editor's scene saves go through ExternalEntities::WriteSceneText, and every file that
-         // writes (the scene, its header, each entity piece) is laid out by Common::Json::WriteCanonical, which
-         // hands the text to CanonicalJsonText.
-         CanonicalAtSource{ "Editor/Source/EditorLayer.cpp", "Desert/Common/Source/Common/Json/Carry.cpp" },
     };
 
     // Files that serialize and write, but what they write is not an authored text asset: machine and editor

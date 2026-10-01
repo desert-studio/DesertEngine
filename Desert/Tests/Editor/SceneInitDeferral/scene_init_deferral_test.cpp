@@ -83,8 +83,13 @@ TEST( SceneInitDeferral, TheSourceWasFound )
     ASSERT_FALSE( root.empty() ) << "could not locate the repository from "
                                  << Desert::TestSupport::RepositoryRoot().string();
     const std::string source = StripLineComments( ReadAll( root + kEditorLayer ) );
-    ASSERT_GT( source.size(), 100000u )
-         << "EditorLayer.cpp read as " << source.size() << " bytes; that is not the file this suite is about";
+    // Identified by what it defines, not by its size: the EDL cuts moved most of the file into
+    // Editor/LevelEditor, and a byte threshold would have to be re-guessed on every cut.
+    ASSERT_FALSE( source.empty() ) << kEditorLayer << " read as empty";
+    EXPECT_NE( source.find( "EditorLayer::OnAttach()" ), std::string::npos )
+         << kEditorLayer << " defines no EditorLayer::OnAttach; that is not the file this suite is about";
+    EXPECT_NE( source.find( "EditorLayer::OnUpdate(" ), std::string::npos )
+         << kEditorLayer << " defines no EditorLayer::OnUpdate; that is not the file this suite is about";
 }
 
 TEST( SceneInitDeferral, OnAttachDoesNotBuildARendererForAScenceAlreadyQueuedForReplacement )

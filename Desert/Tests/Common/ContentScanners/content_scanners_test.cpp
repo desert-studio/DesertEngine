@@ -177,10 +177,13 @@ namespace
            "" },
          { "Editor/Source/Editor/Import/MeshMaterial.cpp", Verdict::NotContent,
            "same: textures beside a source mesh, resolved during import.", "" },
-         { "Editor/Source/EditorLayer.cpp", Verdict::NotContent,
-           "the command palette lists installed collection FOLDERS (as CollectionsPanel does) and the "
-           "heightmap SOURCES under Assets/Landscape/Heightmaps awaiting import; its foliage entries go "
-           "through ListFilesRecursive.",
+         { "Editor/Source/Editor/Panels/Foliage/FoliageCommands.cpp", Verdict::NotContent,
+           "the command palette lists installed collection FOLDERS (as CollectionsPanel does): it looks for "
+           "directories that contain a collection.json, which the shared enumeration cannot answer.",
+           "" },
+         { "Editor/Source/Editor/Panels/Landscape/LandscapeCommands.cpp", Verdict::NotContent,
+           "the command palette lists the heightmap SOURCES under Assets/Landscape/Heightmaps awaiting "
+           "import - source art, pre-cook.",
            "" },
          { "Editor/Source/Editor/Panels/Collections/CollectionsPanel.cpp", Verdict::NotContent,
            "enumerates installed collection FOLDERS, not files - it looks for directories that contain a "
@@ -413,7 +416,8 @@ TEST( ContentScanners, TheTwoSceneListsGoThroughTheSharedEnumeration )
     ASSERT_FALSE( root.empty() );
 
     for ( const char* file :
-          { "Editor/Source/EditorLayer.cpp", "Editor/Source/Editor/Panels/Build/BuildSettingsPanel.cpp" } )
+          { "Editor/Source/Editor/LevelEditor/SceneFiles.cpp",
+            "Editor/Source/Editor/Panels/Build/BuildSettingsPanel.cpp" } )
     {
         const std::string source = ReadFile( root / file );
         ASSERT_FALSE( source.empty() ) << file;
@@ -430,7 +434,7 @@ TEST( ContentScanners, TheTwoSceneListsGoThroughTheSharedEnumeration )
 // than a weaker one: the `Load ▾` popup it enumerated `.dgraph` files for does not exist any more. A
 // `.dgraph` is an asset and its window is a document, so opening one is the browser's double-click or the
 // palette's Open group — and that group is built from OpenableAssets, which walks ASSETS_PATH through this
-// same shared enumeration (EditorLayer.cpp). The panel now walks nothing at all, so there is no call site
+// same shared enumeration (FileExplorer/AssetCommands.cpp). The panel now walks nothing at all, so there is no call site
 // here left to revert.
 TEST( ContentScanners, TheScannersI8FixedGoThroughTheSharedEnumeration )
 {
