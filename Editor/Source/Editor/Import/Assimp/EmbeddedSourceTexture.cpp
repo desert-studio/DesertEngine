@@ -3,6 +3,7 @@
 #include "SourceTexturePath.hpp"
 
 #include <Editor/Import/TextureSourceFormats.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <assimp/scene.h>
 
@@ -70,11 +71,15 @@ namespace Desert::Editor
         }
     } // namespace
 
-    std::filesystem::path EmbeddedTexturePath( const std::filesystem::path& sourcePath, unsigned index,
-                                               const aiTexture& texture )
+    std::filesystem::path EmbeddedTexturePath( const std::filesystem::path& sourcePath, unsigned index )
     {
-        const std::string ext = IsCompressed( texture ) ? CompressedExtension( texture ) : "png";
-        return sourcePath.parent_path() / std::format( "{}_{}.{}", sourcePath.stem().string(), index, ext );
+        return sourcePath.parent_path() /
+               std::format( "{}_{}{}", sourcePath.stem().string(), index, Assets::kTextureAssetExtension );
+    }
+
+    std::string EmbeddedTextureExtension( const aiTexture& texture )
+    {
+        return IsCompressed( texture ) ? "." + CompressedExtension( texture ) : std::string( ".png" );
     }
 
     Common::ResultStr<SourceTextureFile> ResolveSourceTexture( const aiScene&               scene,
@@ -86,19 +91,19 @@ namespace Desert::Editor
             return Common::MakeSuccess(
                  SourceTextureFile{ FindSourceTexture( sourcePath.parent_path(), reference ), std::nullopt } );
 
-        const std::filesystem::path out =
-             EmbeddedTexturePath( sourcePath, static_cast<unsigned>( index ), *texture );
-        if ( TextureSourceFormatRank( out.extension().string() ) == kTextureSourceExtensionCount )
+        const std::filesystem::path out       = EmbeddedTexturePath( sourcePath, static_cast<unsigned>( index ) );
+        const std::string           imageType = EmbeddedTextureExtension( *texture );
+        if ( TextureSourceFormatRank( imageType ) == kTextureSourceExtensionCount )
             return Common::MakeError<SourceTextureFile>(
                  std::format( "[Import][Tex] '{}': embedded texture '{}' is '{}', which no texture importer reads",
-                              sourcePath.generic_string(), reference, out.extension().string() ) );
+                              sourcePath.generic_string(), reference, imageType ) );
 
         const auto bytes = EncodedBytes( *texture );
         if ( !bytes.IsSuccess() )
             return Common::MakeError<SourceTextureFile>(
                  std::format( "[Import][Tex] '{}': embedded texture '{}': {}", sourcePath.generic_string(),
                               reference, bytes.GetError() ) );
-        const auto written = WriteDerivedTexture( bytes.GetValue(), out );
+        const auto written = WriteDerivedTexture( bytes.GetValue(), out, imageType );
         if ( !written.IsSuccess() )
             return Common::MakeError<SourceTextureFile>(
                  std::format( "[Import][Tex] '{}': embedded texture '{}': {}", sourcePath.generic_string(),

@@ -14,6 +14,7 @@
 #include <Editor/Import/Assimp/SourceTexturePath.hpp>
 #include <Editor/Import/MaterialImportContract.hpp>
 #include <Editor/Import/TextureChannelPack.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <algorithm>
 #include <array>
@@ -29,6 +30,38 @@
 #include <sstream>
 
 using namespace Desert::Editor;
+
+namespace
+{
+    // The image a derived texture asset (packed slot, embedded texture) carries: its SRCE bytes.
+    std::string CarriedImage( const std::filesystem::path& asset )
+    {
+        const auto read = Desert::Assets::ReadTextureSourceAssetFile( asset );
+        EXPECT_TRUE( read.IsSuccess() ) << ( read.IsSuccess() ? "" : read.GetError() );
+        if ( !read.IsSuccess() )
+            return {};
+        const auto& source = read.GetValue().Source;
+        return std::string( reinterpret_cast<const char*>( source.data() ), source.size() );
+    }
+
+    Desert::Common::Content::AssetGuid GuidOf( const std::filesystem::path& asset )
+    {
+        const auto read = Desert::Assets::ReadTextureSourceAssetFile( asset );
+        EXPECT_TRUE( read.IsSuccess() ) << ( read.IsSuccess() ? "" : read.GetError() );
+        return read.IsSuccess() ? read.GetValue().Guid : Desert::Common::Content::AssetGuid{};
+    }
+
+    // Image files (not assets) in `dir`: what an import must not leave in the content beside its source.
+    std::vector<std::string> LooseImagesIn( const std::filesystem::path& dir )
+    {
+        std::vector<std::string> found;
+        for ( const auto& e : std::filesystem::directory_iterator( dir ) )
+            for ( const char* ext : { ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".hdr", ".exr" } )
+                if ( e.path().extension() == ext )
+                    found.push_back( e.path().filename().string() );
+        return found;
+    }
+} // namespace
 namespace fs = std::filesystem;
 
 namespace
@@ -197,7 +230,7 @@ TEST( MaterialImportAdapter, EveryGltfKeyReachesItsPropertyOrSlot )
     ASSERT_EQ( orm->Parts.size(), 2u );
     EXPECT_TRUE( orm->NeedsPacking() );
     const fs::path packed = PackedTexturePath( *orm );
-    EXPECT_EQ( packed.filename().string(), "mr+occ_ORMTexture.png" );
+    EXPECT_EQ( packed.filename().string(), "mr+occ_ORMTexture.detex" );
     const auto wrote = PackTextureChannels( *orm, packed );
     ASSERT_TRUE( wrote.IsSuccess() ) << wrote.GetError();
 
@@ -223,7 +256,9 @@ TEST( MaterialImportAdapter, AMetallicRoughnessImageAloneIsPackedWithWhiteOcclus
     int      w  = 0;
     int      h  = 0;
     int      n  = 0;
-    uint8_t* px = stbi_load( packed.string().c_str(), &w, &h, &n, 4 );
+    const std::string carried = CarriedImage( packed );
+    uint8_t*          px      = stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( carried.data() ),
+                                                       static_cast<int>( carried.size() ), &w, &h, &n, 4 );
     ASSERT_NE( px, nullptr );
     uint8_t* src = stbi_load( ( file.parent_path() / "mr.png" ).string().c_str(), &w, &h, &n, 4 );
     ASSERT_NE( src, nullptr );
@@ -236,8 +271,8 @@ TEST( MaterialImportAdapter, AMetallicRoughnessImageAloneIsPackedWithWhiteOcclus
 }
 
 // THE PACKED ORM IS AN IMPORTED TEXTURE ASSET (lead decision, MAT1b-3): its name is a function of the sources,
-// so the texture importer keeps its GUID (kept by path); two imports in a row leave the file untouched (bytes and
-// mtime); a changed input rebuilds it.
+// so a re-import finds the same asset; two imports in a row leave the file untouched (bytes and mtime); a changed
+// input re-takes its source and KEEPS ITS GUID (what every material naming it holds).
 TEST( MaterialImportAdapter, APackedImageIsRebuiltOnlyWhenAnInputChanges )
 {
     const fs::path     file = WriteGltf( "pack-stable", kFullMaterial, kFullExtensions );
@@ -257,6 +292,8 @@ TEST( MaterialImportAdapter, APackedImageIsRebuiltOnlyWhenAnInputChanges )
     ASSERT_TRUE( first.IsSuccess() ) << first.GetError();
     EXPECT_EQ( first.GetValue(), PackOutcome::Written );
     const std::string firstBytes = bytes();
+    const auto        firstGuid  = GuidOf( packed );
+    EXPECT_FALSE( firstGuid.IsNull() );
 
     // Stamp the file into the past: a rewrite would move the stamp back to now.
     const auto stamp = fs::last_write_time( packed ) - std::chrono::hours( 1 );
@@ -288,6 +325,7 @@ TEST( MaterialImportAdapter, APackedImageIsRebuiltOnlyWhenAnInputChanges )
     ASSERT_TRUE( third.IsSuccess() ) << third.GetError();
     EXPECT_EQ( third.GetValue(), PackOutcome::Written );
     EXPECT_NE( bytes(), firstBytes );
+    EXPECT_EQ( GuidOf( packed ), firstGuid ) << "a rebuilt pack minted a new identity";
 }
 
 TEST( MaterialImportAdapter, AnUnlitMaterialTakesTheUnlitTemplate )
@@ -456,10 +494,24 @@ namespace
     }
 } // namespace
 
-TEST( MaterialImportAdapter, AnEmbeddedTextureIsDerivedBesideTheSourceAndRewrittenOnlyWhenItChanges )
+// UE INTERCHANGE: an embedded image becomes its own texture asset in the import folder; nothing else lands there.
+TEST( MaterialImportAdapter, AnEmbeddedTextureLeavesNoSourceWithoutAnAssetInTheContent )
+{
+    const fs::path                          file    = WriteGlbWithEmbeddedPng( "embedded-noloose" );
+    std::vector<std::optional<PackOutcome>> extracted;
+    Assimp::Importer                        importer;
+    const TemplateFill                      fill =
+         FillFromTemplate( ReadResolving( file, importer, extracted ), Template( "PBR/StandardSurface.shader" ) );
+    ASSERT_NE( Slot( fill, "u_AlbedoTexture" ), nullptr );
+    EXPECT_EQ( LooseImagesIn( file.parent_path() ), std::vector<std::string>{} )
+         << "an embedded texture was written into the content as a bare image";
+    EXPECT_TRUE( Desert::Assets::IsTextureSourceAssetFile( file.parent_path() / "helmet_0.detex" ) );
+}
+
+TEST( MaterialImportAdapter, AnEmbeddedTextureIsImportedAsATextureAssetThatKeepsItsGuid )
 {
     const fs::path                          file    = WriteGlbWithEmbeddedPng( "embedded" );
-    const fs::path                          derived = file.parent_path() / "helmet_0.png";
+    const fs::path                          derived = file.parent_path() / "helmet_0.detex";
     std::vector<std::optional<PackOutcome>> extracted;
     Assimp::Importer                        importer;
     const TemplateFill                      fill =
@@ -471,15 +523,12 @@ TEST( MaterialImportAdapter, AnEmbeddedTextureIsDerivedBesideTheSourceAndRewritt
     EXPECT_EQ( albedo->Parts.front().Source, derived );
     ASSERT_FALSE( extracted.empty() );
     EXPECT_EQ( extracted.front(), PackOutcome::Written );
-    const auto bytes = [&]
-    {
-        std::ifstream in( derived, std::ios::binary );
-        return std::string( std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() );
-    };
-    EXPECT_EQ( bytes(), std::string( kPng.begin(), kPng.end() ) )
-         << "a compressed embedded image is kept byte for byte";
+    EXPECT_EQ( CarriedImage( derived ), std::string( kPng.begin(), kPng.end() ) )
+         << "a compressed embedded image is carried byte for byte";
+    const auto guid = GuidOf( derived );
+    EXPECT_FALSE( guid.IsNull() );
 
-    // A second import of the same source names the same file and leaves it alone.
+    // A second import of the same source names the same asset and leaves it alone: file, stamp, GUID.
     const auto stamp = fs::last_write_time( derived ) - std::chrono::hours( 1 );
     fs::last_write_time( derived, stamp );
     extracted.clear();
@@ -491,6 +540,7 @@ TEST( MaterialImportAdapter, AnEmbeddedTextureIsDerivedBesideTheSourceAndRewritt
     ASSERT_FALSE( extracted.empty() );
     EXPECT_EQ( extracted.front(), PackOutcome::Unchanged );
     EXPECT_EQ( fs::last_write_time( derived ), stamp ) << "an unchanged embedded texture was rewritten";
+    EXPECT_EQ( GuidOf( derived ), guid ) << "a re-import minted a new texture identity";
 }
 
 TEST( MaterialImportAdapter, AnUncompressedEmbeddedTextureIsEncodedToPng )
@@ -514,11 +564,14 @@ TEST( MaterialImportAdapter, AnUncompressedEmbeddedTextureIsEncodedToPng )
     scene.mNumTextures  = 0;
     texture.pcData      = nullptr;
     ASSERT_TRUE( resolved.IsSuccess() ) << resolved.GetError();
-    EXPECT_EQ( resolved.GetValue().Path, dir / "chair_0.png" );
-    int      w    = 0;
-    int      h    = 0;
-    int      n    = 0;
-    uint8_t* rgba = stbi_load( ( dir / "chair_0.png" ).string().c_str(), &w, &h, &n, 4 );
+    EXPECT_EQ( resolved.GetValue().Path, dir / "chair_0.detex" );
+    EXPECT_EQ( LooseImagesIn( dir ), std::vector<std::string>{} );
+    const std::string carried = CarriedImage( dir / "chair_0.detex" );
+    int               w       = 0;
+    int               h       = 0;
+    int               n       = 0;
+    uint8_t*          rgba    = stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( carried.data() ),
+                                                       static_cast<int>( carried.size() ), &w, &h, &n, 4 );
     ASSERT_NE( rgba, nullptr );
     EXPECT_EQ( w, 2 );
     EXPECT_EQ( h, 1 );
