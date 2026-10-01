@@ -17,6 +17,7 @@
 #include <Engine/Core/Application.hpp>
 #include <ImGui/imgui_internal.h>
 
+#include <optional>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -227,6 +228,11 @@ namespace Desert::Editor
             // out into a sensible default instead of leaving them floating in a pile.
             // Checked BEFORE DockSpace() — the call itself creates the node. "Reset to Default
             // Layout" (View -> Layouts) forces the same rebuild on demand.
+            // "Restore panel": the layout captured when the panel was lifted out goes back whole (every node and
+            // every window's binding, as named layouts are applied), before this frame's dockspace is submitted.
+            if ( const std::optional<std::string> layout = m_PanelMaximize.TakeLayoutToRestore() )
+                ::ImGui::LoadIniSettingsFromMemory( layout->c_str(), layout->size() );
+
             const bool buildDefaultLayout =
                  ::ImGui::DockBuilderGetNode( dockspace_id ) == nullptr || m_ResetDefaultLayout;
             m_ResetDefaultLayout = false;
@@ -403,25 +409,17 @@ namespace Desert::Editor
                 const ImGuiWindow* window =
                      ImGui::FindWindowByName( PanelDisplayTitle( panel->GetName() ).c_str() );
                 const std::uint32_t dockId = window != nullptr ? window->DockId : 0;
-                const auto directive       = m_PanelMaximize.Before( PanelShownName( panel->GetName() ), dockId );
-                switch ( directive.Kind )
+                const auto          step =
+                     m_PanelMaximize.Before( PanelShownName( panel->GetName() ), dockId,
+                                             [] { return std::string( ImGui::SaveIniSettingsToMemory() ); } );
+                if ( step == PanelMaximize::Step::Undock )
                 {
-                    case PanelMaximize::Step::Undock:
-                    {
-                        const ImGuiViewport* viewport = ImGui::GetMainViewport();
-                        ImGui::SetNextWindowDockID( 0, ImGuiCond_Always );
-                        ImGui::SetNextWindowViewport( viewport->ID );
-                        ImGui::SetNextWindowPos( viewport->WorkPos, ImGuiCond_Always );
-                        ImGui::SetNextWindowSize( viewport->WorkSize, ImGuiCond_Always );
-                        ImGui::SetNextWindowFocus();
-                        break;
-                    }
-                    case PanelMaximize::Step::Redock:
-                        ImGui::SetNextWindowDockID( directive.DockId, ImGuiCond_Always );
-                        ImGui::SetNextWindowFocus();
-                        break;
-                    case PanelMaximize::Step::None:
-                        break;
+                    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+                    ImGui::SetNextWindowDockID( 0, ImGuiCond_Always );
+                    ImGui::SetNextWindowViewport( viewport->ID );
+                    ImGui::SetNextWindowPos( viewport->WorkPos, ImGuiCond_Always );
+                    ImGui::SetNextWindowSize( viewport->WorkSize, ImGuiCond_Always );
+                    ImGui::SetNextWindowFocus();
                 }
             }
 

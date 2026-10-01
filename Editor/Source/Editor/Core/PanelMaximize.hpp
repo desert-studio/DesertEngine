@@ -4,6 +4,8 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstdint>
+#include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -12,11 +14,18 @@
 namespace Desert::Editor
 {
     // "Maximize panel" / "Restore panel" (CTL2): one docked panel at a time is lifted out of its dock and
-    // stretched over the main viewport's work area, and put back into the SAME dock node on restore.
+    // stretched over the main viewport's work area; restore puts the WHOLE dock layout back as it stood.
+    //
+    // UE's maximize is a snapshot of the tab layout and a return to it, not a re-dock of one tab: a panel
+    // that was alone in its node empties that node when it is lifted out, ImGui deletes the empty node, and
+    // a re-dock into the remembered node id names a dead node — ImGui then makes a new FLOATING node, and the
+    // layout file keeps the panel floating across restarts (the Scene viewport was lost this way). So the
+    // layout is captured (as ImGui ini text) at the moment of undocking and handed back whole on restore.
     //
     // No ImGui here: the layer asks Before() right ahead of the panel's Begin and turns the answer into
-    // SetNextWindow* calls, so the state machine is testable without a context. Dock node ids are ImGuiID,
-    // a 32-bit unsigned, carried as std::uint32_t.
+    // SetNextWindow* calls, and asks TakeLayoutToRestore() at the top of the frame, before the dockspace is
+    // submitted; the state machine is testable without a context. Dock node ids are ImGuiID, carried as
+    // std::uint32_t.
     class PanelMaximize
     {
     public:
@@ -24,13 +33,7 @@ namespace Desert::Editor
         {
             None,   // nothing to do for this panel this frame
             Undock, // take it out of its dock, fill the work area, bring it forward
-            Redock  // back into Directive::DockId
-        };
-
-        struct Directive
-        {
-            Step          Kind   = Step::None;
-            std::uint32_t DockId = 0;
+            Restore // pending only: the layout snapshot goes back at the top of the next frame
         };
 
         [[nodiscard]] Common::BoolResultStr RequestMaximize( std::string_view panel )
@@ -49,43 +52,47 @@ namespace Desert::Editor
         {
             if ( !m_Maximized )
                 return Common::MakeError( "Restore panel: no panel is maximized" );
-            m_Pending = Step::Redock;
+            m_Pending = Step::Restore;
             return Common::MakeSuccess( true );
         }
 
-        // Right before the panel's Begin. `currentDockId` is the window's dock node now (0 = floating). A
-        // maximized panel the user docked back by hand counts as restored: the saved node would only
-        // move it a second time.
-        [[nodiscard]] Directive Before( std::string_view panel, std::uint32_t currentDockId )
+        // Right before the panel's Begin. `currentDockId` is the window's dock node now (0 = floating);
+        // `layoutNow` captures the dock layout as it stands, and is called only on the frame the panel is
+        // lifted out — before it is. A maximized panel the user docked back by hand counts as restored: putting
+        // the old layout back would undo what the user just did.
+        [[nodiscard]] Step Before( std::string_view panel, std::uint32_t currentDockId,
+                                   const std::function<std::string()>& layoutNow )
         {
             if ( panel != m_Panel )
-                return {};
+                return Step::None;
 
-            const Step step = std::exchange( m_Pending, Step::None );
-            switch ( step )
+            if ( m_Pending == Step::Undock )
             {
-                case Step::Undock:
-                    if ( currentDockId == 0 )
-                    {
-                        // A floating panel has no dock to return to; filling the screen would strand it there.
-                        m_Panel.clear();
-                        return {};
-                    }
-                    m_SavedDockId = currentDockId;
-                    m_Maximized   = true;
-                    return { Step::Undock, 0 };
-                case Step::Redock:
+                m_Pending = Step::None;
+                if ( currentDockId == 0 )
                 {
-                    const Directive redock{ Step::Redock, m_SavedDockId };
+                    // A floating panel has no dock to return to; filling the screen would strand it there.
                     Clear();
-                    return redock;
+                    return Step::None;
                 }
-                case Step::None:
-                    break;
+                m_Layout    = layoutNow();
+                m_Maximized = true;
+                return Step::Undock;
             }
-            if ( m_Maximized && currentDockId != 0 )
+            if ( m_Maximized && m_Pending == Step::None && currentDockId != 0 )
                 Clear();
-            return {};
+            return Step::None;
+        }
+
+        // At the top of the frame, before the dockspace is submitted: the layout captured when the panel was
+        // lifted out, once, after "Restore panel" — the layer loads it back whole. Empty otherwise.
+        [[nodiscard]] std::optional<std::string> TakeLayoutToRestore()
+        {
+            if ( m_Pending != Step::Restore )
+                return std::nullopt;
+            std::optional<std::string> layout = std::move( m_Layout );
+            Clear();
+            return layout;
         }
 
         [[nodiscard]] const std::string& MaximizedPanel() const
@@ -97,17 +104,17 @@ namespace Desert::Editor
         void Clear()
         {
             m_Panel.clear();
-            m_Maximized   = false;
-            m_SavedDockId = 0;
-            m_Pending     = Step::None;
+            m_Layout.clear();
+            m_Maximized = false;
+            m_Pending   = Step::None;
         }
 
         static inline const std::string kNone;
 
-        std::string   m_Panel;
-        bool          m_Maximized   = false;
-        std::uint32_t m_SavedDockId = 0;
-        Step          m_Pending     = Step::None;
+        std::string m_Panel;
+        std::string m_Layout; // ImGui ini text: every window's dock binding and every dock node
+        bool        m_Maximized = false;
+        Step        m_Pending   = Step::None;
     };
 
     // The palette entries: "Maximize panel: <name>" for every panel shown in a dock while none is maximized,

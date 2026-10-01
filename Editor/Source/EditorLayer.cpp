@@ -109,18 +109,10 @@
 #include <Editor/Panels/AnimationEditor/SkeletonReferenceSlots.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Serialization/AnimationClipWrite.hpp>
-#include "Editor/Panels/SceneProperties/ScenePropertiesPanel.hpp"
-#include "Editor/Panels/Debug/ShaderLibraryPanel.hpp"
-#include "Editor/Panels/Debug/UIDebuggerPanel.hpp"
 #include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
-#include "Editor/Panels/ViewportPanel/Tools/ActiveToolBar.hpp"
-#include "Editor/Panels/Scalability/ScalabilityPanel.hpp"
-#include "Editor/Panels/WorldSettings/WorldSettingsPanel.hpp"
-#include "Editor/Panels/WorldPartition/WorldPartitionPanel.hpp"
 
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
-#include "Editor/Panels/Landscape/LandscapePanel.hpp"
 #include "Editor/Panels/Landscape/LandscapeCommands.hpp"
 #include "Editor/LevelEditor/ViewportCommands.hpp"
 #include "Editor/Panels/Clouds/CloudCommands.hpp"
@@ -131,20 +123,6 @@
 #include "Editor/Panels/Modeling/ModelingCommands.hpp"
 #include "Editor/Panels/Foliage/FoliageCommands.hpp"
 #include "Editor/Core/Rigging/HumanoidCommands.hpp"
-#include "Editor/Panels/Modeling/ModelingPanel.hpp"
-#include "Editor/Panels/Logs/LogsPanel.hpp"
-#include "Editor/Panels/Collections/CollectionsPanel.hpp"
-#include "Editor/Panels/SceneProperties/ComponentWidgets/MaterialsPanelComponent.hpp"
-#include "Editor/Panels/Photogrammetry/PhotogrammetryPanel.hpp"
-#include "Editor/Panels/AssetReferences/AssetReferencesPanel.hpp"
-#include "Editor/Panels/LuaConsole/LuaConsolePanel.hpp"
-#include "Editor/Panels/Build/BuildSettingsPanel.hpp"
-#include "Editor/Panels/Build/ContentChunksPanel.hpp"
-#include "Editor/Panels/History/HistoryPanel.hpp"
-#include "Editor/Panels/Localization/LocalizationPanel.hpp"
-#include "Editor/Panels/Validation/SceneValidationPanel.hpp"
-#include "Editor/Panels/Clouds/CloudsPanel.hpp"
-#include "Editor/Panels/Animation/ControlRigPanel.hpp"
 #include "Editor/Core/Selection/AuthoringContext.hpp"
 #include "Editor/Core/ToastManager.hpp"
 #include "Editor/Core/OpenableAssets.hpp"
@@ -1468,41 +1446,7 @@ namespace Desert::Editor
     void EditorLayer::DrawPopups()
     {
         m_SceneFiles.DrawDialogs();
-        DrawProjectPopup();
         m_Preferences.Draw();
-    }
-
-    namespace
-    {
-        // One static box = mesh (Cube primitive) + Box collider + Static body, as a child of `parent`.
-        // The Cube primitive spans 2 units, so the visual size is 2*scale and the collider half-extents == scale
-        // (matches the demo ground). Child colliders are placed at their WORLD pose by PhysicsECSSystem.
-        void AddHousePart( ::Desert::Core::Scene* scene, ::Desert::ECS::Entity parent, const char* name,
-                           const glm::vec3& localPos, const glm::vec3& scale )
-        {
-            using namespace ::Desert;
-            auto& e                                              = scene->CreateNewEntity( std::string( name ) );
-            e.AddComponent<ECS::StaticMeshComponent>().Primitive = Geometry::PrimitiveType::Cube;
-            auto& t                                              = e.GetComponent<ECS::TransformComponent>();
-            t.Translation                                        = localPos * Common::Units::UnitsPerMetre;
-            t.Scale                                              = scale;
-            auto& col                                            = e.AddComponent<ECS::ColliderComponent>();
-            col.Data.Shape                                       = Physics::ShapeType::Box;
-            // The Cube primitive spans one metre, so a box of Scale s reaches 50*s units either way.
-            col.Data.HalfExtents                                = scale * ( Common::Units::UnitsPerMetre * 0.5f );
-            e.AddComponent<ECS::RigidBodyComponent>().Data.Type = Physics::BodyType::Static;
-            scene->Attach( parent, e );
-        }
-    } // namespace
-
-    // Builds a walkable greybox HOUSE (floor-less; sits on the demo ground): 4 walls (front wall has a
-    // doorway) + a flat roof, each a static collider so the character walks in through the door and is blocked
-    // by walls. All parented under one "House" root (a ready prefab root). 2-unit-cube convention: dims = 2*scale.
-    void EditorLayer::DrawProjectPopup()
-    {
-        // Intentionally empty: the editor never opens/switches projects in-session. All content paths
-        // are remapped to the project at startup (--project), so switching would require re-initializing
-        // the asset manager, cooked caches and panels — relaunch through the Project Hub instead.
     }
 
     void EditorLayer::FollowImGuiWithEvents()

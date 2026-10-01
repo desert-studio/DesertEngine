@@ -105,7 +105,7 @@ namespace Desert::Editor
         SceneFiles&     m_SceneFiles;
 
         std::string m_FocusPanel;
-        // "Maximize panel" / "Restore panel": the one panel lifted out of its dock, and the node it came from.
+        // "Maximize panel" / "Restore panel": the one panel lifted out of its dock, and the layout it came from.
         PanelMaximize m_PanelMaximize;
 
         bool                  m_ShowRecoveryPrompt = false;

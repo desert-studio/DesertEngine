@@ -101,13 +101,8 @@ namespace Desert::Editor
         // itself would work over the socket and do nothing under a person's hand.
         bool m_OpenPaletteRequested = false;
 
-        // Builds a ready-to-Play demo: a WASD character (Jolt CharacterVirtual) with a 3rd-person child
-        // camera, a ground floor, a sun light, and obstacles. (Remove the call in OnAttach for a blank scene.)
-        // Builds a walkable greybox house (walls + doorway + roof, static colliders) parented under one root.
-
         // ===== Popups =====
         void DrawPopups();
-        void DrawProjectPopup();
         void FollowImGuiWithEvents();
 
         // The one navigation `run Browse <folder>` and a field's "Show in browser" share.
