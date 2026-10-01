@@ -11,6 +11,8 @@
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/LevelEditor/WindowTitles.hpp"
 #include "Editor/Panels/IPanel.hpp"
+
+#include <Common/Utilities/FileSystem.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
@@ -50,6 +52,19 @@ namespace Desert::Editor
         }
 
         return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr DockLayout::KeepLayoutAcrossQuit()
+    {
+        const std::optional<std::string> layout = m_PanelMaximize.LayoutToKeepOnQuit();
+        if ( !layout )
+            return BOOLSUCCESS;
+        ImGuiIO& io = ::ImGui::GetIO();
+        if ( io.IniFilename == nullptr )
+            return BOOLSUCCESS;
+        const std::filesystem::path file = io.IniFilename;
+        io.IniFilename                   = nullptr;
+        return Common::Utils::FileSystem::WriteContentToFileAtomic( file, *layout );
     }
 
     void DockLayout::OfferRecovery( std::filesystem::path autosave )

@@ -123,3 +123,20 @@ TEST( PanelMaximize, AFloatingPanelIsNotMaximized )
     EXPECT_TRUE( state.MaximizedPanel().empty() );
     EXPECT_TRUE( state.RequestMaximize( "Logs" ).IsSuccess() );
 }
+
+TEST( PanelMaximize, QuittingWhileMaximizedKeepsTheLayoutFromBeforeTheMaximize )
+{
+    PanelMaximize state;
+    LayoutProbe   layout;
+    EXPECT_FALSE( state.LayoutToKeepOnQuit().has_value() ) << "nothing maximized: ImGui's own save stands";
+
+    auto maximize = Find( state, { "Assets" }, "Maximize panel: Assets" );
+    ASSERT_TRUE( maximize.Run );
+    ASSERT_TRUE( maximize.Run().IsSuccess() );
+    EXPECT_EQ( state.Before( "Assets", kBottomDock, layout.Fn() ), Step::Undock );
+    const std::string captured = layout.Text;
+
+    const auto kept = state.LayoutToKeepOnQuit();
+    ASSERT_TRUE( kept.has_value() ) << "a maximized panel at quit would be saved as a floating window";
+    EXPECT_EQ( *kept, captured );
+}

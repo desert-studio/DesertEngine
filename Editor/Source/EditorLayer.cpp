@@ -1474,6 +1474,8 @@ namespace Desert::Editor
         m_Application->GetCloseGate().Uninstall();
         // The socket goes first, and its file with it (ControlService::Close).
         m_Control.Close();
+        if ( const auto kept = m_Dock.KeepLayoutAcrossQuit(); !kept.IsSuccess() )
+            LOG_ERROR( "[Layout] the layout from before the maximize was not saved: {}", kept.GetError() );
 
         // THE DEVICE DIED, AND THIS IS THE LAST MOMENT THE USER'S WORK EXISTS ANYWHERE.
         //

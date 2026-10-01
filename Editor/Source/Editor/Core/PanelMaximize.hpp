@@ -95,6 +95,16 @@ namespace Desert::Editor
             return layout;
         }
 
+        // The layout from before the maximize while a panel is still lifted out: what the layout file must hold
+        // if the editor quits now (a maximized panel is a view state, never the saved arrangement). Empty
+        // otherwise.
+        [[nodiscard]] std::optional<std::string> LayoutToKeepOnQuit() const
+        {
+            if ( !m_Maximized || m_Layout.empty() )
+                return std::nullopt;
+            return m_Layout;
+        }
+
         [[nodiscard]] const std::string& MaximizedPanel() const
         {
             return m_Maximized ? m_Panel : kNone;

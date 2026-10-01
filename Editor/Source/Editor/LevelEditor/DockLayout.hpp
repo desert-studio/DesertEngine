@@ -65,6 +65,11 @@ namespace Desert::Editor
         // io.IniFilename = <Project>/Saved/Config/EditorLayout.ini. Before the first frame.
         [[nodiscard]] Common::BoolResultStr BindLayoutFile();
 
+        // On quit with a panel maximized: the layout file gets the arrangement from before the maximize, and
+        // ImGui's own save at shutdown is switched off so the lifted-out panel is not written as a floating
+        // window.
+        [[nodiscard]] Common::BoolResultStr KeepLayoutAcrossQuit();
+
         // After an unclean exit: the autosave to offer (empty = nothing to offer).
         void OfferRecovery( std::filesystem::path autosave );
 
