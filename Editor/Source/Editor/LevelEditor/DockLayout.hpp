@@ -63,7 +63,7 @@ namespace Desert::Editor
         }
 
         // io.IniFilename = <Project>/Saved/Config/EditorLayout.ini. Before the first frame.
-        [[nodiscard]] Common::BoolResultStr BindLayoutFile();
+        [[nodiscard]] static Common::BoolResultStr BindLayoutFile();
 
         // On quit with a panel maximized: the layout file gets the arrangement from before the maximize, and
         // ImGui's own save at shutdown is switched off so the lifted-out panel is not written as a floating
@@ -85,10 +85,10 @@ namespace Desert::Editor
 
         // One frame, in this order, around EditorLayer's toolbar and documents: BeginHost → (toolbar) →
         // DrawDockSpace → DrawPanels → … → popups → EndHost.
-        void BeginHost();
-        void DrawDockSpace();
-        void DrawPanels();
-        void EndHost();
+        void        BeginHost();
+        void        DrawDockSpace();
+        void        DrawPanels();
+        static void EndHost();
 
         // After an unclean exit, offers to reopen the newest autosave. No-op unless one was found.
         void DrawRecoveryPopup();

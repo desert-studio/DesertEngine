@@ -139,7 +139,7 @@ namespace Desert::Editor
 
         // Drop cached per-entity material instances so MeshECSSystem rebuilds them from the freshly
         // re-registered runtime materials (which now reference the reloaded texture images).
-        if ( activeScene )
+        if ( activeScene != nullptr )
         {
             auto& reg = activeScene->GetRegistry();
             reg.view<ECS::StaticMeshComponent>().each( []( auto, ECS::StaticMeshComponent& c )
@@ -148,7 +148,7 @@ namespace Desert::Editor
                                                         { c.RuntimeMaterialInstances.clear(); } );
         }
 
-        if ( fileExplorer )
+        if ( fileExplorer != nullptr )
             fileExplorer->QueueRefresh();
 
         LOG_INFO( "[Editor] Rebuilt cooked assets" );

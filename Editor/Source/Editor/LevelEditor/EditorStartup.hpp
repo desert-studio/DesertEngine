@@ -137,7 +137,7 @@ namespace Desert::Editor
         void BeginSplashStage( std::size_t stage, std::optional<std::size_t> items = std::nullopt );
         void PushSplash();
         // Every condition the splash hand-over depends on, for Splash::MayReveal.
-        Splash::RevealState CurrentRevealState() const;
+        [[nodiscard]] Splash::RevealState CurrentRevealState() const;
         // THUMB2: before the hand-over, upload the opening folder's cached thumbnails as workers finish
         // them, and hold the hand-over until they are all up (no time bound, THM1n).
         void UploadSplashThumbnails();

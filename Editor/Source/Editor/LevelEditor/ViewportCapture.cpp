@@ -6,8 +6,22 @@
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp> // reading the PRESENTED frame back (shot.window)
 #include <stb_image/stb_image_write.h>
 
+#include <format>
+
 namespace Desert::Editor
 {
+    namespace
+    {
+        // Every PNG this file writes: top row first, RGBA8, tightly packed. One spelling, so the flip and the
+        // stride cannot differ between the thumbnail, the viewport shot and the window shot.
+        bool WritePngRGBA8( const std::string& path, uint32_t width, uint32_t height, const uint8_t* rgba )
+        {
+            stbi_flip_vertically_on_write( 0 );
+            return stbi_write_png( path.c_str(), static_cast<int>( width ), static_cast<int>( height ), 4, rgba,
+                                   static_cast<int>( width ) * 4 ) != 0;
+        }
+    } // namespace
+
     // The one readback. Every picture the editor writes out of the viewport comes through here, so a
     // capture cannot quietly differ from a dump in flip, format or the device-idle wait that makes the
     // readback legal at all.
@@ -97,16 +111,14 @@ namespace Desert::Editor
                 const size_t dst = ( static_cast<size_t>( y ) * kOutW + x ) * 4;
                 for ( int c = 0; c < 4; ++c )
                     out[dst + static_cast<size_t>( c )] =
-                         static_cast<uint8_t>( samples ? accum[c] / samples : 0u );
+                         static_cast<uint8_t>( samples != 0 ? accum[c] / samples : 0u );
             }
         }
 
         // The name is a CONVENTION shared with the launcher, which looks for exactly this file
         // beside the .deproj. Leading dot so it does not show up as project content.
         const std::string file = ( std::filesystem::path( projectDirectory ) / ".thumbnail.png" ).string();
-        stbi_flip_vertically_on_write( 0 );
-        if ( stbi_write_png( file.c_str(), static_cast<int>( kOutW ), static_cast<int>( kOutH ), 4, out.data(),
-                             static_cast<int>( kOutW ) * 4 ) == 0 )
+        if ( !WritePngRGBA8( file, kOutW, kOutH, out.data() ) )
             return Common::MakeFormattedError<bool>( "could not write {}", file );
         LOG_INFO( "[Project] thumbnail -> {} ({}x{})", file, kOutW, kOutH );
         return BOOLSUCCESS;
@@ -147,8 +159,7 @@ namespace Desert::Editor
             return false;
         }
 
-        stbi_flip_vertically_on_write( 0 );
-        const bool written = stbi_write_png( path.c_str(), w, h, 4, px.data(), w * 4 ) != 0;
+        const bool written = WritePngRGBA8( path, w, h, px.data() );
         LOG_INFO( "[Shot] {} -> {} ({}x{})", written ? "wrote" : "FAILED to write", path, w, h );
         return written;
     }
@@ -206,7 +217,7 @@ namespace Desert::Editor
             std::filesystem::create_directories( file.parent_path(), ec );
             if ( ec && !std::filesystem::exists( file.parent_path() ) )
             {
-                outError = "could not create '" + file.parent_path().string() + "': " + ec.message();
+                outError = std::format( "could not create '{}': {}", file.parent_path().string(), ec.message() );
                 return false;
             }
         }
@@ -223,12 +234,10 @@ namespace Desert::Editor
             return false;
         }
 
-        stbi_flip_vertically_on_write( 0 );
-        const bool written = stbi_write_png( path.c_str(), static_cast<int>( width ), static_cast<int>( height ),
-                                             4, pixels.GetValue().data(), static_cast<int>( width ) * 4 ) != 0;
+        const bool written = WritePngRGBA8( path, width, height, pixels.GetValue().data() );
         if ( !written )
         {
-            outError = "stb_image_write refused to write '" + path + "'.";
+            outError = std::format( "stb_image_write refused to write '{}'.", path );
             return false;
         }
 

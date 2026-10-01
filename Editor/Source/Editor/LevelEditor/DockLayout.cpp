@@ -19,6 +19,7 @@
 #include <Engine/Core/Application.hpp>
 #include <ImGui/imgui_internal.h>
 
+#include <format>
 #include <optional>
 #include <string>
 #include <system_error>
@@ -148,9 +149,9 @@ namespace Desert::Editor
         {
             const ImGuiViewport* viewport = ::ImGui::GetMainViewport();
 
-            auto pos     = viewport->Pos;
-            auto size    = viewport->Size;
-            bool menuBar = true;
+            auto       pos     = viewport->Pos;
+            auto       size    = viewport->Size;
+            const bool menuBar = true;
             if ( menuBar )
             {
                 const float infoBarSize = ::ImGui::GetFrameHeight();
@@ -171,7 +172,7 @@ namespace Desert::Editor
 
         // When using ImGuiDockNodeFlags_PassthruCentralNode, DockSpace() will render our background
         // and handle the pass-thru hole, so we ask Begin() to not render a background.
-        if ( m_DockspaceFlags & ImGuiDockNodeFlags_DockSpace )
+        if ( ( m_DockspaceFlags & ImGuiDockNodeFlags_DockSpace ) != 0 )
             window_flags |= ImGuiWindowFlags_NoBackground;
 
         // Important: note that we proceed even if Begin() returns false (aka window is collapsed).
@@ -190,9 +191,9 @@ namespace Desert::Editor
     void DockLayout::DrawDockSpace()
     {
         // Submit the DockSpace
-        ImGuiIO& io = ::ImGui::GetIO();
+        const ImGuiIO& io = ::ImGui::GetIO();
 
-        if ( io.ConfigFlags & ImGuiConfigFlags_DockingEnable )
+        if ( ( io.ConfigFlags & ImGuiConfigFlags_DockingEnable ) != 0 )
         {
             // Reserve the bottom status-bar height so the DockSpace fills only the area between the toolbar
             // and the status bar (a full-height DockSpace(0,0) would sit under the status bar).
@@ -202,7 +203,7 @@ namespace Desert::Editor
             ImVec2      dockSize        = ::ImGui::GetContentRegionAvail();
             dockSize.y                  = ( dockSize.y > statusBarHeight ) ? dockSize.y - statusBarHeight : 0.0f;
 
-            ImGuiID dockspace_id = ::ImGui::GetID( "MyDockSpace" );
+            const ImGuiID dockspace_id = ::ImGui::GetID( "MyDockSpace" );
 
             // One-time auto-relayout: when the default layout's window IDs change (panel-title icons add a
             // ### suffix, changing every window's ImGui ID), old imgui.ini bindings stop matching and panels
@@ -232,11 +233,12 @@ namespace Desert::Editor
                 // the same reason it must be written back (a version that did not persist would rebuild
                 // the layout on every launch). Save() means "the user changed a setting" and would have
                 // logged this one as if they had.
-                const std::string layoutVersions = std::to_string( EditorPreferences::Get().DockLayoutVersion ) +
-                                                   " -> " + std::to_string( kDockLayoutVersion );
+                const std::string migration =
+                     std::format( "docking layout version {} -> {}", EditorPreferences::Get().DockLayoutVersion,
+                                  kDockLayoutVersion );
 
                 EditorPreferences::Get().DockLayoutVersion = kDockLayoutVersion;
-                EditorPreferences::SaveMigrated( "docking layout version " + layoutVersions );
+                EditorPreferences::SaveMigrated( migration );
             }
 
             // First run (nothing saved in imgui.ini for this dockspace): lay the panels
@@ -286,10 +288,12 @@ namespace Desert::Editor
                 ImGuiID center = dockspace_id;
                 ImGuiID right  = ::ImGui::DockBuilderSplitNode( center, ImGuiDir_Right, 0.20f, nullptr, &center );
                 ImGuiID left   = ::ImGui::DockBuilderSplitNode( center, ImGuiDir_Left, 0.22f, nullptr, &center );
-                ImGuiID bottom = ::ImGui::DockBuilderSplitNode( center, ImGuiDir_Down, 0.28f, nullptr, &center );
+                const ImGuiID bottom =
+                     ::ImGui::DockBuilderSplitNode( center, ImGuiDir_Down, 0.28f, nullptr, &center );
                 m_BottomDockId = bottom; // remembered so the drawer can be collapsed/restored later
-                ImGuiID leftBottom = ::ImGui::DockBuilderSplitNode( left, ImGuiDir_Down, 0.40f, nullptr, &left );
-                ImGuiID rightBottom =
+                const ImGuiID leftBottom =
+                     ::ImGui::DockBuilderSplitNode( left, ImGuiDir_Down, 0.40f, nullptr, &left );
+                const ImGuiID rightBottom =
                      ::ImGui::DockBuilderSplitNode( right, ImGuiDir_Down, 0.50f, nullptr, &right );
 
                 // Panels routed through the central Begin carry an icon (a ### suffix), so dock them by the
@@ -546,17 +550,17 @@ namespace Desert::Editor
         // Resolve the drawer node from the Assets window's ACTUAL dock node, not from the id captured while
         // building the default layout: that branch only runs for a fresh layout, so with a restored
         // imgui.ini the id stayed 0 and this control was permanently dead.
-        ImGuiDockNode* node = m_BottomDockId ? ImGui::DockBuilderGetNode( m_BottomDockId ) : nullptr;
-        if ( !node )
+        ImGuiDockNode* node = m_BottomDockId != 0 ? ImGui::DockBuilderGetNode( m_BottomDockId ) : nullptr;
+        if ( node == nullptr )
         {
             if ( ImGuiWindow* assets = ImGui::FindWindowByName( PanelDisplayTitle( "Assets" ).c_str() );
-                 assets && assets->DockNode )
+                 assets != nullptr && assets->DockNode != nullptr )
             {
                 node           = assets->DockNode;
                 m_BottomDockId = node->ID;
             }
         }
-        if ( !node )
+        if ( node == nullptr )
         {
             ImGui::TextDisabled( ICON_MDI_CHEVRON_DOWN );
             return;
@@ -603,7 +607,7 @@ namespace Desert::Editor
                 name.erase( hash ); // drop the "###id" ImGui suffix for display
             // Through PanelRequests, the one "show that panel" wire: it also brings the panel's tab
             // forward, which setting visibility alone never did for a panel already docked behind another.
-            commands.push_back( { "Panel", "Open " + name, [p]
+            commands.push_back( { "Panel", std::format( "Open {}", name ), [p]
                                   {
                                       Core::PanelRequests::Open( p->GetName() );
                                       return PaletteCommandDone();

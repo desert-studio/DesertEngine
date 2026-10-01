@@ -74,10 +74,12 @@ namespace Desert::Editor
         namespace ImGui  = ::ImGui;
         using SceneState = ::Desert::Core::Scene::SceneState;
 
-        const auto   state     = m_Workspace.ActiveScene()->GetState();
-        const char*  stateText = ( state == SceneState::Play )     ? ICON_MDI_PLAY " Play"
-                                 : ( state == SceneState::Paused ) ? ICON_MDI_PAUSE " Paused"
-                                                                   : ICON_MDI_PENCIL " Edit";
+        const auto  state     = m_Workspace.ActiveScene()->GetState();
+        const char* stateText = ICON_MDI_PENCIL " Edit";
+        if ( state == SceneState::Play )
+            stateText = ICON_MDI_PLAY " Play";
+        else if ( state == SceneState::Paused )
+            stateText = ICON_MDI_PAUSE " Paused";
         const ImVec4 stateColor =
              ( state == SceneState::Edit ) ? ThemeManager::GetIconColor() : ThemeManager::GetSelectedColor();
 
@@ -255,14 +257,14 @@ namespace Desert::Editor
         const bool  dirty   = m_SceneFiles.HasUnsavedChanges();
         const float starW   = dirty ? ImGui::CalcTextSize( "* " ).x : 0.0f;
         const float statsW  = ImGui::CalcTextSize( stats ).x;
-        const float alertsW = alerts[0] ? ImGui::CalcTextSize( alerts ).x + 16.0f : 0.0f;
+        const float alertsW = alerts[0] != '\0' ? ImGui::CalcTextSize( alerts ).x + 16.0f : 0.0f;
         // Right-aligned, but never left of where the left half actually ended: the document/budget text
         // grows with its numbers, and a position computed from the right edge alone drew the counters on
         // top of it. When both halves do not fit, the right half is pushed out and clipped, not overlaid.
         const float leftEndX = ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x + 16.0f;
         ImGui::SameLine( std::max( leftEndX, ImGui::GetWindowContentRegionMax().x - statsW - starW - alertsW ) );
 
-        if ( alerts[0] )
+        if ( alerts[0] != '\0' )
         {
             // Errors outrank warnings in the colour as well as in the text: one red count is the whole
             // signal, and painting it amber because warnings are also present would bury it.

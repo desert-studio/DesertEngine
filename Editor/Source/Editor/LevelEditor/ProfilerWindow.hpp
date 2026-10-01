@@ -40,7 +40,7 @@ namespace Desert::Editor
         void DrawEngineStats( float rightMargin );
         void DrawProfilerWindow();
         /// The profiler's CPU+GPU table as log lines — the panel's button and --gpu-profile share it.
-        void DumpProfilerToLog();
+        static void DumpProfilerToLog();
         /// --flight: times the previous frame's row and appends this frame's (Editor/Core/FlightRules.hpp).
         /// @p counted is whether the capture counts this frame; an uncounted one is a Settling row.
         void RecordFlightFrame( bool counted );

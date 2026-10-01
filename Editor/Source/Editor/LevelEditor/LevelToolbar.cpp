@@ -185,7 +185,7 @@ namespace Desert::Editor
             ImGui::EndDisabled();
         ImGui::PopStyleColor( 4 );
 
-        if ( tooltip && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+        if ( tooltip != nullptr && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
             ImGui::SetTooltip( "%s", tooltip );
         return clicked;
     }
@@ -310,10 +310,12 @@ namespace Desert::Editor
         const auto& undoStack = CommandHistory::Get().UndoStack();
         const auto& redoStack = CommandHistory::Get().RedoStack();
         // The tooltip NAMES the edit, which is the difference between an undo button and a dare.
-        const std::string undoTip =
-             undoStack.empty() ? "Nothing to undo" : "Undo " + undoStack.back()->GetLabel() + " (Ctrl+Z)";
-        const std::string redoTip =
-             redoStack.empty() ? "Nothing to redo" : "Redo " + redoStack.back()->GetLabel() + " (Ctrl+Shift+Z)";
+        const std::string undoTip = undoStack.empty()
+                                         ? std::string( "Nothing to undo" )
+                                         : std::format( "Undo {} (Ctrl+Z)", undoStack.back()->GetLabel() );
+        const std::string redoTip = redoStack.empty()
+                                         ? std::string( "Nothing to redo" )
+                                         : std::format( "Redo {} (Ctrl+Shift+Z)", redoStack.back()->GetLabel() );
         if ( ToolbarButton( ICON_MDI_UNDO, "", false, undoTip.c_str(), editMode && !undoStack.empty() ) )
             CommandHistory::Get().Undo();
         ImGui::SameLine();
@@ -376,11 +378,14 @@ namespace Desert::Editor
             const Gz::Space space   = Gz::EffectiveSpace( op );
             const bool      isLocal = space == Gz::Space::Local;
 
-            const char* tip = forced ? "Scaling is always along the object's own axes — a world-axis "
-                                       "scale of a rotated object is a shear, which a transform cannot hold"
-                              : isLocal
-                                   ? "Transform space: Local — drag along the object's own axes (click for World)"
-                                   : "Transform space: World — drag along the world axes (click for Local)";
+            const char* tip = nullptr;
+            if ( forced )
+                tip = "Scaling is always along the object's own axes — a world-axis scale of a rotated object "
+                      "is a shear, which a transform cannot hold";
+            else if ( isLocal )
+                tip = "Transform space: Local — drag along the object's own axes (click for World)";
+            else
+                tip = "Transform space: World — drag along the world axes (click for Local)";
 
             if ( ToolbarButton( isLocal ? ICON_MDI_AXIS_ARROW : ICON_MDI_EARTH,
                                 label( isLocal ? "Local" : "World" ), isLocal, tip, /*enabled=*/!forced ) )

@@ -101,7 +101,7 @@ namespace Desert::Editor
             return;
         }
 
-        const Control::Request request = parsed.GetValue();
+        const Control::Request& request = parsed.GetValue();
 
         // AN EDITOR THAT HAS NOT READ THE PROJECT DOES NOT ANSWER ABOUT IT.
         //
@@ -368,7 +368,7 @@ namespace Desert::Editor
                     rfl::Generic::Object entry;
                     entry["group"] = rfl::Generic( command.Group );
                     entry["label"] = rfl::Generic( command.Label );
-                    entries.push_back( rfl::Generic( entry ) );
+                    entries.emplace_back( entry );
                 }
 
                 rfl::Generic::Object payload;
@@ -399,8 +399,9 @@ namespace Desert::Editor
                 // can be trusted (Tools/DesertCtl/Source/Main.cpp says so at the top).
                 if ( const auto ran = dictionary[resolved.Index].Run(); !ran )
                 {
-                    return Control::Response::Failure( request.Id, "'" + request.Group + "' / '" + request.Label +
-                                                                        "' ran and refused: " + ran.GetError() );
+                    return Control::Response::Failure( request.Id, std::format( "'{}' / '{}' ran and refused: {}",
+                                                                                request.Group, request.Label,
+                                                                                ran.GetError() ) );
                 }
                 return Control::Response::Success( request.Id );
             }
@@ -429,7 +430,7 @@ namespace Desert::Editor
                 if ( request.Whose == Control::Subject::Viewport )
                 {
                     ::Desert::Core::EditorCamera* camera = m_Workspace.ActiveEditorCamera();
-                    if ( !camera )
+                    if ( camera == nullptr )
                         return Control::Response::Failure( request.Id, NoEditorCameraReason() );
 
                     return Control::Response::Success(
@@ -442,7 +443,7 @@ namespace Desert::Editor
                 // `m_Documents` here on А6-1's side; О9-2 moved document OWNERSHIP out of the well into
                 // Editor/Core/OpenDocuments.hpp and renamed the member, so the merged line asks the owner.
                 ISubjectDocument* focused = m_Documents.Documents().Find( m_Documents.FocusedDocument() );
-                if ( !focused )
+                if ( focused == nullptr )
                 {
                     return Control::Response::Failure(
                          request.Id,
@@ -497,12 +498,13 @@ namespace Desert::Editor
                 // different document from the one the person or the capture is looking at, on any frame
                 // where two materials declare the same parameter. They almost all do.
                 ISubjectDocument* focused = m_Documents.Documents().Find( m_Documents.FocusedDocument() );
-                if ( !focused )
+                if ( focused == nullptr )
                 {
                     return Control::Response::Failure(
-                         request.Id, "no document has the focus, so '" + request.Property +
-                                          "' belongs to nothing. Open the document first; 'state' names the "
-                                          "one that has the focus." );
+                         request.Id,
+                         std::format( "no document has the focus, so '{}' belongs to nothing. Open the "
+                                      "document first; 'state' names the one that has the focus.",
+                                      request.Property ) );
                 }
 
                 if ( const auto written = focused->SetEditableProperty( request.Property, request.Value );
@@ -524,12 +526,11 @@ namespace Desert::Editor
 
             case Control::Op::ShotWindow:
             case Control::Op::ShotViewport:
-                // Nothing happens now. The capture belongs to the settled frame this request is about to
-                // wait for, and is taken in OnFramePresented; answering here would be a picture of the
-                // frame BEFORE the commands that preceded it had been drawn.
-                return Control::Response::Success( request.Id );
-
             case Control::Op::Quit:
+                // Nothing happens now. A shot's capture belongs to the settled frame this request is about
+                // to wait for, and is taken in OnFramePresented; answering here would be a picture of the
+                // frame BEFORE the commands that preceded it had been drawn. A quit is acted on by the
+                // caller only after this success has been sent (m_ControlQuitCode), so the script hears it.
                 return Control::Response::Success( request.Id );
 
             case Control::Op::Drag:
@@ -642,7 +643,7 @@ namespace Desert::Editor
     Control::Response ControlService::SetViewportCameraProperty( const Control::Request& request )
     {
         ::Desert::Core::EditorCamera* camera = m_Workspace.ActiveEditorCamera();
-        if ( !camera )
+        if ( camera == nullptr )
             return Control::Response::Failure( request.Id, NoEditorCameraReason() );
 
         const auto which = ValidateViewportCameraWrite( request.Property, request.Value );
@@ -705,7 +706,7 @@ namespace Desert::Editor
         for ( const SubjectId& subject : m_Documents.Well().MostRecentOrder() )
         {
             const ISubjectDocument* document = m_Documents.Documents().Find( subject );
-            if ( !document )
+            if ( document == nullptr )
                 continue;
 
             Control::DocumentSnapshot entry;
@@ -776,8 +777,9 @@ namespace Desert::Editor
             const Engine::ViewBudget::Reading reading = Graphic::ReadViewBudget();
             snapshot.BudgetBytes                      = reading.CeilingBytes;
             snapshot.UsageBytes                       = reading.UsageBytes;
-            snapshot.IsmInstancesDrawn =
-                 m_Workspace.PrimaryRenderer() ? m_Workspace.PrimaryRenderer()->GetIsmInstancesDrawn() : 0u;
+            snapshot.IsmInstancesDrawn                = m_Workspace.PrimaryRenderer() != nullptr
+                                                             ? m_Workspace.PrimaryRenderer()->GetIsmInstancesDrawn()
+                                                             : 0u;
         }
 
         snapshot.LogInfoCount    = LogsPanel::InfoCount();

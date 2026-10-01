@@ -177,7 +177,7 @@ namespace Desert::Editor
     {
         std::vector<uint64_t> dismissed;
         for ( const auto& doc : m_ExtraScenes )
-            if ( doc->Viewport && !doc->Viewport->GetVisibility() )
+            if ( doc->Viewport != nullptr && !doc->Viewport->GetVisibility() )
                 dismissed.push_back( doc->Id );
         return dismissed;
     }
@@ -243,7 +243,7 @@ namespace Desert::Editor
 
         auto view   = std::make_unique<SceneViewport>();
         view->Id    = m_SceneViewIds.Next();
-        view->Name  = scene->GetSceneName() + " (view " + std::to_string( *viewIndex + 1 ) + ")";
+        view->Name  = std::format( "{} (view {})", scene->GetSceneName(), *viewIndex + 1 );
         view->Scene = scene;
 
         const std::string title = SceneWindowTitle( view->Name, "sceneviewport", view->Id );
@@ -277,7 +277,7 @@ namespace Desert::Editor
         // REUSE WHAT IS ALREADY OPEN: a second run re-aims and re-docks rather than opening three more.
         std::vector<SceneViewport*> panes;
         for ( const auto& view : m_ExtraViewports )
-            if ( view->Scene.lock() == scene && view->Viewport && panes.size() < kExtraAngles.size() )
+            if ( view->Scene.lock() == scene && view->Viewport != nullptr && panes.size() < kExtraAngles.size() )
                 panes.push_back( view.get() );
 
         while ( panes.size() < kExtraAngles.size() )
@@ -295,7 +295,7 @@ namespace Desert::Editor
 
         // RAW panel names; the dockspace pass turns each into its displayed window title when it docks.
         m_PendingViewportGrid.clear();
-        m_PendingViewportGrid.push_back( "Scene###scene" );
+        m_PendingViewportGrid.emplace_back( "Scene###scene" );
         if ( const auto aimed =
                   Editor::ViewportPanel::SetCameraPreset( kPrimarySceneViewId, ViewportCameraPreset::Perspective );
              !aimed )
@@ -323,7 +323,7 @@ namespace Desert::Editor
     {
         std::vector<uint64_t> dismissed;
         for ( const auto& view : m_ExtraViewports )
-            if ( view->Viewport && !view->Viewport->GetVisibility() )
+            if ( view->Viewport != nullptr && !view->Viewport->GetVisibility() )
                 dismissed.push_back( view->Id );
 
         for ( const uint64_t id : dismissed )
@@ -435,12 +435,13 @@ namespace Desert::Editor
         for ( const auto& view : m_ExtraViewports )
         {
             const uint64_t id = view->Id;
-            commands.push_back( { "Scene", "Close Viewport " + view->Name, [this, id]() -> Common::BoolResultStr
+            commands.push_back( { "Scene", std::format( "Close Viewport {}", view->Name ),
+                                  [this, id]() -> Common::BoolResultStr
                                   {
                                       const auto index = IndexOfSceneView(
                                            m_ExtraViewports,
                                            []( const std::unique_ptr<SceneViewport>& v ) { return v->Id; }, id );
-                                      if ( !index || !m_ExtraViewports[*index]->Viewport )
+                                      if ( !index || m_ExtraViewports[*index]->Viewport == nullptr )
                                       {
                                           return Common::MakeFormattedError<bool>(
                                                "viewport #{} is already closed; nothing to close.", id );
@@ -453,19 +454,19 @@ namespace Desert::Editor
         for ( const auto& doc : m_ExtraScenes )
         {
             const uint64_t id = doc->Id;
-            commands.push_back( { "Scene", "Close Scene View " + doc->Name, [this, id]() -> Common::BoolResultStr
-                                  {
-                                      const auto index = IndexOfSceneView(
-                                           m_ExtraScenes,
-                                           []( const std::unique_ptr<SceneDocument>& d ) { return d->Id; }, id );
-                                      if ( !index || !m_ExtraScenes[*index]->Viewport )
-                                      {
-                                          return Common::MakeFormattedError<bool>(
-                                               "scene view #{} is already closed; nothing to close.", id );
-                                      }
-                                      m_ExtraScenes[*index]->Viewport->GetVisibility() = false;
-                                      return PaletteCommandDone();
-                                  } } );
+            commands.push_back(
+                 { "Scene", std::format( "Close Scene View {}", doc->Name ), [this, id]() -> Common::BoolResultStr
+                   {
+                       const auto index = IndexOfSceneView(
+                            m_ExtraScenes, []( const std::unique_ptr<SceneDocument>& d ) { return d->Id; }, id );
+                       if ( !index || m_ExtraScenes[*index]->Viewport == nullptr )
+                       {
+                           return Common::MakeFormattedError<bool>(
+                                "scene view #{} is already closed; nothing to close.", id );
+                       }
+                       m_ExtraScenes[*index]->Viewport->GetVisibility() = false;
+                       return PaletteCommandDone();
+                   } } );
         }
     }
 } // namespace Desert::Editor
