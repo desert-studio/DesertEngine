@@ -14,6 +14,7 @@
 #include "Editor/LevelEditor/SceneFiles.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/LevelEditor/WindowTitles.hpp"
+#include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 
 #include <Engine/Core/Scene.hpp>

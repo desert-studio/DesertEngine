@@ -4931,6 +4931,7 @@ namespace Desert::Editor
         }
     }
 
+    namespace
     {
         // One static box = mesh (Cube primitive) + Box collider + Static body, as a child of `parent`.
         // The Cube primitive spans 2 units, so the visual size is 2*scale and the collider half-extents == scale
