@@ -390,7 +390,7 @@ TEST( ThumbnailPrefetch, TheSplashUploadsTheFolderTheBrowserOpensOn )
     EXPECT_NE( layer.find( "m_FileExplorerPanel->UploadPrefetchedThumbnails()" ), std::string::npos );
     EXPECT_NE(
          layer.find(
-              "                ThumbnailService::TickDiskAndDecode();\n            SampleFrameQuiescence();\n"
+              "                ThumbnailService::TickDiskAndDecode();\n            m_Control.SampleFrameQuiescence( StartupLoading() || ContentSettling() );\n"
               "            return BOOLSUCCESS;" ),
          std::string::npos )
          << "the startup stages no longer tick the worker decode";

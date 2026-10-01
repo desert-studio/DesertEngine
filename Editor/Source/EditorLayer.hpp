@@ -19,13 +19,8 @@
 #include "Editor/Core/Selection/EntityCommands.hpp"
 #include "Editor/Panels/FileExplorer/AssetCommands.hpp"
 #include "Editor/Core/PlayWorldCommands.hpp"
-#include "Editor/Core/Control/ControlPipeline.hpp"
-#include "Editor/Core/Control/ControlProtocol.hpp"
-#include "Editor/Core/Control/ControlSocket.hpp"
-#include "Editor/Core/Control/ControlState.hpp"
 #include "Editor/Core/SceneViewIdentity.hpp"
 #include "Editor/Core/Selection/AuthoringContext.hpp"
-#include "Editor/Core/Selection/SelectionTransformProperties.hpp"
 #include "Editor/Core/FlightRules.hpp"
 #include "Editor/Core/PanelRegistry.hpp"
 #include "Editor/RenderSystems/RenderRigistry.hpp"
@@ -38,6 +33,8 @@
 #include "Editor/LevelEditor/PreferencesWindow.hpp"
 #include "Editor/LevelEditor/LevelToolbar.hpp"
 #include "Editor/LevelEditor/StatusBar.hpp"
+#include "Editor/LevelEditor/ShotDirector.hpp"
+#include "Editor/LevelEditor/ControlService.hpp"
 #include "Editor/Widgets/WindowChrome.hpp"
 #include "Editor/Splash/RevealGate.hpp"
 #include "Editor/Splash/SplashScreen.hpp"
@@ -86,7 +83,7 @@ namespace Desert::Editor
 
         // The frame is out. This is where the control channel keeps its promise: a reply leaves only
         // after a frame that already reflects the command it answers, and a `shot.window` reads that very
-        // frame back off the swapchain. See ServiceControlChannel.
+        // frame back off the swapchain. See Editor/LevelEditor/ControlService.hpp.
         void OnFramePresented() override;
 
     private:
@@ -116,50 +113,6 @@ namespace Desert::Editor
         // closure: Draw() closes the palette on the line after it runs an entry, so opening it from inside
         // itself would work over the socket and do nothing under a person's hand.
         bool m_OpenPaletteRequested = false;
-
-        // ===== Control channel (Editor/Core/Control) =====
-        // Drained at the TOP of OnUpdate: accept, read one request, execute it. Everything it can run is
-        // a palette entry.
-        void ServiceControlChannel();
-        // Executes one request and decides whether its reply leaves now or waits for the frame that proves
-        // it. THE ONLY place a control request is run: there are two ways to arrive at one — read off the
-        // socket, or released by the readiness gate several frames later — and one way to run it.
-        void RunControlRequest( const Control::Request& request );
-        // Drop an in-flight request whose CONNECTION has gone, rather than answering its successor. True
-        // when it did. See the definition: a reply of 311 commands was measured reaching the wrong client.
-        [[nodiscard]] bool AbandonControlRequestIfItsAskerIsGone();
-        // Sampled after the deferred queues have drained and BEFORE the scene is rendered — "was anything
-        // outstanding while this frame was being made". Judged later, by the gate, at OnFramePresented.
-        // Also called once at the end of OnAttach: an unsampled census must not read as a settled editor.
-        void SampleFrameQuiescence();
-        // Runs one request against the live editor. Never throws, always answers.
-        [[nodiscard]] Control::Response ExecuteControlRequest( const Control::Request& request );
-        // The `set` for the channel's second subject — the editor's own view. See
-        // Editor/Core/ViewportCameraProperties.hpp for why a camera pose is a property write and not a
-        // palette command.
-        [[nodiscard]] Control::Response SetViewportCameraProperty( const Control::Request& request );
-        // The `selection` subject's entity and its transform: exactly one selected entity that has a
-        // TransformComponent, or a refusal saying what is selected instead.
-        [[nodiscard]] Common::ResultStr<std::pair<Common::UUID, Core::SelectionTransform>>
-        SelectedTransform() const;
-        // The active view IF it is the editor's fly camera; null in Play, where the scene's own
-        // CameraComponent drives. NoEditorCameraReason() is the refusal that goes with the null.
-        [[nodiscard]] ::Desert::Core::EditorCamera* ActiveEditorCamera() const;
-        [[nodiscard]] std::string                   NoEditorCameraReason() const;
-        // THE ONE PLACEMENT: `--camera`/`--look` and the control channel both land here, through the
-        // editor's own view-axis-gizmo and F-focus gestures. Two copies would drift.
-        static void PlaceEditorCamera( ::Desert::Core::EditorCamera& camera, const glm::vec3& position,
-                                       const glm::vec3& forward );
-        // Everything ControlState needs, read off this layer in one pass.
-        [[nodiscard]] Control::EditorSnapshot TakeEditorSnapshot() const;
-        // CAPTURING THE COMPOSITED FRAME, in two halves, because a swapchain image may only be touched
-        // between its acquire and its present.
-        //
-        // Recorded at the end of OnUIRender, while the frame is still being built and the image is
-        // legitimately ours; collected in OnFramePresented, once the present that carried the copy has
-        // gone out. Doing it all after the present produced a correct picture and a Vulkan spec violation
-        // that only the validation layer mentioned — see RecordWindowCaptureIfDue.
-        void RecordWindowCaptureIfDue();
 
         // After an unclean exit, offers to reopen the newest autosave. No-op unless one was found.
         void DrawRecoveryPopup();
@@ -309,6 +262,12 @@ namespace Desert::Editor
         // as an action. See Editor/LevelEditor/StatusBar.hpp.
         StatusBar m_StatusBar{ m_Workspace, m_SceneFiles, m_Documents, m_BackgroundCook,
                                [this] { DrawBottomDrawerToggle(); } };
+        // Headless capture: `--shot`, `--play`, `--camera`/`--look` (UE: the automation screenshot director). See
+        // Editor/LevelEditor/ShotDirector.hpp.
+        ShotDirector m_Shots{ m_Workspace, m_SceneFiles, m_Play, m_Capture };
+        // The control channel (UE: Remote Control), after every module it reads. See
+        // Editor/LevelEditor/ControlService.hpp.
+        ControlService m_Control{ m_Workspace, m_SceneFiles, m_Play, m_Documents, m_Capture, m_Panels, m_Commands };
 
         // Crash recovery: set at startup when the previous session crashed and an autosave was found.
         bool                  m_ShowRecoveryPrompt = false;
@@ -440,53 +399,13 @@ namespace Desert::Editor
         /// One tick of the wait: decides whether the frame just rendered closed the chain.
         void UpdateContentSettling();
 
-        // Screenshot mode counters (see Editor/Core/ShotOptions.hpp).
-        int  m_ShotFrame        = 0;
-        bool m_ShotCameraPlaced = false;
-        // Set when any PNG of this capture could not be written; becomes the process exit status.
-        bool m_ShotFailed = false;
         // --flight: one row per frame of Play, written as the CSV when the capture ends.
         Flight::FlightLog m_FlightLog;
-
-        // ===== Control channel =====
-        // Present only when `--control-socket` named one; silent otherwise. See
-        // Editor/Core/Control/ControlChannelOptions.hpp for why an editor does not listen by default.
-        Control::ControlSocket m_ControlSocket;
-
-        // The gate that makes "command -> frame -> snapshot" a property rather than a coincidence. Armed
-        // when a request executes; discharged by the first PRESENTED frame that was rendered with nothing
-        // outstanding. Editor/Core/Control/ControlPipeline.hpp has the argument.
-        Control::FrameGate m_ControlGate;
-
-        // The request whose reply the gate is holding, and the reply itself. Held together because they
-        // are one thing: a reply parked without its request could not say what it was answering, and a
-        // request parked without its reply would have to be re-run to produce one.
-        std::optional<Control::Request>  m_ControlInFlight;
-        std::optional<Control::Response> m_ControlPendingReply;
-
-        // WHICH CONNECTION asked for it. Not "was somebody connected": the editor notices a disconnect and
-        // accepts the next client in the SAME service call, so a request parked across that gap would have
-        // its reply written to a stranger. Measured — a 311-command answer delivered to the wrong client,
-        // with an id that matched because both had sent 1.
-        uint64_t m_ControlInFlightClient = 0;
-
-        // The outstanding work sampled while THIS frame was being built. Not read at the moment the gate
-        // judges it: by then the answer has moved on, and the question is about the picture.
-        Control::EditorQuiescence m_FrameQuiescence;
 
         // The palette providers that hold state or several slots (EDL-2b). Declared after every slot they point
         // at; the census is taken once per build (m_Commands.OnBuildBegin) and read by Assets, Foliage and Open.
         AssetFileCensus m_PaletteAssetFiles;
         std::unique_ptr<EntityCommands> m_EntityCommands;
         std::unique_ptr<AssetCommands>  m_AssetCommands;
-
-        // Frames since the layer attached. The gate's clock — deliberately this layer's own count and not
-        // the renderer's frame-in-flight index, which wraps at three and could not order anything.
-        uint64_t m_FrameIndex = 0;
-
-        // A `quit` the channel asked for. Honoured after its reply has actually gone out, so the last
-        // answer is not lost to the exit — a client that never hears "ok" cannot tell a clean shutdown
-        // from a crash.
-        std::optional<int32_t> m_ControlQuitCode;
     };
 } // namespace Desert::Editor
