@@ -1,14 +1,11 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
 #include <Engine/World/Landscape/LandscapeData.hpp>
-#include <Editor/Core/Control/InputInjection.hpp>
-#include <Editor/Core/Control/PointerDrag.hpp>
 #include <Engine/Core/Glfw.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include <Editor/Core/SaveShortcut.hpp>
 #include <Editor/Core/ContentCreateCommands.hpp>
 #include <Editor/Core/DetailsNavigation.hpp>
-#include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Graphic/Environment/EnvironmentBake.hpp>
 #include <Engine/Assets/ContentWork.hpp>
 #include <Engine/Assets/BootContent.hpp>
@@ -72,7 +69,6 @@
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include "Editor/Core/CommandLine.hpp"
 #include "Editor/Core/Control/ControlChannelOptions.hpp"
-#include "Editor/Core/Control/ControlDispatch.hpp" // resolving a request to a palette entry
 #include "Editor/Core/AutosavePaths.hpp"
 #include "Editor/Core/CrashRecovery.hpp"
 
@@ -99,14 +95,10 @@
 #include "Editor/Packaging/GamePackager.hpp"
 #include "Editor/Core/ProjectContext.hpp"
 
-#include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp> // reading the PRESENTED frame back (shot.window)
-#include <Engine/Graphic/Image.hpp>                      // Image2D::ReadPixelsRGBA8 (debug frame dump)
 #include <Engine/Core/Input.hpp>
 #include <Common/Core/KeyCodes.hpp>
 #include <Common/Core/Version.hpp>
 #include <Common/Settings/MachineSettings.hpp>
-#include <stb_image/stb_image_write.h>
 #include "Editor/Core/ImGuiUtilities.hpp"
 #include <ImGui/imgui_internal.h>
 
@@ -166,7 +158,6 @@
 #include "Editor/Core/Selection/AuthoringContext.hpp"
 #include "Editor/Core/ToastManager.hpp"
 #include "Editor/Core/OpenableAssets.hpp"
-#include "Editor/Core/ViewportCameraProperties.hpp"
 #include "Editor/Core/ControlNudgeRequest.hpp"
 #include "Editor/Core/Commands/PoseEditTransaction.hpp"
 #include <Engine/Animation/Rig/ControlManipulator.hpp>
@@ -186,8 +177,6 @@
 #include <Editor/Core/DocumentPlacement.hpp>
 #include <Editor/Core/Rigging/RigBuilder.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
-#include <Editor/Core/Selection/ModelingStateProperties.hpp>
-#include <Editor/Core/Selection/SelectionTransformProperties.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Engine/ECS/System/PointLightSystem.hpp>
 #include <Engine/ECS/System/SpotLightSystem.hpp>
