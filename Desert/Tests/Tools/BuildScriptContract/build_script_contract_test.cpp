@@ -43,10 +43,11 @@
 #include <string>
 #include <vector>
 
-#if !defined( _WIN32 )
-#include <sys/wait.h>
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
+
+#if !defined( _WIN32 )
+#include <sys/wait.h>
 #endif
 
 namespace fs = std::filesystem;
