@@ -26,6 +26,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <map>
 #include <set>
@@ -512,8 +513,13 @@ TEST( PointerOwnership, EditorLayerDeclaresItsHostsBeforeItsPanels )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    const std::string src = ReadRepoFile( "Editor/Source/EditorLayer.hpp" );
-    ASSERT_FALSE( src.empty() );
+    const std::string raw = ReadRepoFile( "Editor/Source/EditorLayer.hpp" );
+    ASSERT_FALSE( raw.empty() );
+    // Declarations are column-aligned by clang-format; the order is the fact, not the padding.
+    std::string src;
+    for ( const char c : raw )
+        if ( !std::isspace( static_cast<unsigned char>( c ) ) || src.empty() || src.back() != ' ' )
+            src.push_back( std::isspace( static_cast<unsigned char>( c ) ) ? ' ' : c );
 
     const std::size_t panels = src.find( "PanelRegistry m_Panels" );
     ASSERT_NE( panels, std::string::npos ) << "EditorLayer no longer declares m_Panels -- the twenty "
@@ -521,11 +527,11 @@ TEST( PointerOwnership, EditorLayerDeclaresItsHostsBeforeItsPanels )
                                               "re-deriving, not a renamed search string.";
 
     for ( const char* host :
-          { "std::shared_ptr<Assets::AssetManager>", "m_AnimationLibrary", "OpenDocuments m_OpenDocuments",
+          { "std::shared_ptr<Assets::AssetManager>", "m_AnimationLibrary", "DocumentHost m_Documents",
             // The level editor's worlds: the panels hold their scenes, and SceneWorkspace names m_Panels by
             // reference, so it must outlive every panel it registered a viewport into.
-            "SceneWorkspace m_Workspace", "PlaySession    m_Play", "ViewportCapture m_Capture",
-            "SceneFiles      m_SceneFiles" } )
+            "SceneWorkspace m_Workspace", "PlaySession m_Play", "ViewportCapture m_Capture",
+            "SceneFiles m_SceneFiles" } )
     {
         const std::size_t at = src.find( host );
         ASSERT_NE( at, std::string::npos ) << host << " is no longer a member of EditorLayer.";
@@ -538,15 +544,13 @@ TEST( PointerOwnership, EditorLayerDeclaresItsHostsBeforeItsPanels )
 
     // AND THE SAME ORDER FOR DOCUMENTS, WHICH THIS TEST DID NOT COVER. Half a dozen rows in the register
     // are about panels that are no longer panels: U7 moved the anim graph and the particle editor into
-    // m_OpenDocuments and U7-2 moved the sequencer and the UI editor, and a DOCUMENT holding
-    // `AnimationLibrary*` is guarded by its host preceding m_OpenDocuments — not by the host preceding
+    // the open-document list and U7-2 moved the sequencer and the UI editor, and a DOCUMENT holding
+    // `AnimationLibrary*` is guarded by its host preceding the document list — not by the host preceding
     // m_Panels, which is a different member and could satisfy the loop above while this failed.
     //
-    // The rows said "before m_Panels" for a whole release after their subject stopped being a panel. They
-    // happened to be true, because m_OpenDocuments is itself above m_Panels; a true sentence about the
-    // wrong container is exactly the guarantee that stops holding the day somebody reorders one of the
-    // three, and nothing would have gone red.
-    const std::size_t documents = src.find( "OpenDocuments m_OpenDocuments" );
+    // EDL-5a moved the list (m_OpenDocuments) into DocumentHost, which EditorLayer holds as m_Documents;
+    // the documents die with m_Documents, so that member is the one every document's host must precede.
+    const std::size_t documents = src.find( "DocumentHost m_Documents" );
     ASSERT_NE( documents, std::string::npos );
     for ( const char* host : { "std::shared_ptr<Assets::AssetManager>", "m_AnimationLibrary" } )
     {
@@ -554,10 +558,23 @@ TEST( PointerOwnership, EditorLayerDeclaresItsHostsBeforeItsPanels )
         ASSERT_NE( at, std::string::npos ) << host << " is no longer a member of EditorLayer.";
         EXPECT_LT( at, documents )
              << host
-             << " is now declared AFTER m_OpenDocuments, so it is destroyed BEFORE the documents that point "
+             << " is now declared AFTER m_Documents, so it is destroyed BEFORE the documents that point "
                 "at it. Every document holding a raw pointer to it is then reading freed memory during its "
-                "own destructor. Move it back above m_OpenDocuments, or give the documents a weak handle.";
+                "own destructor. Move it back above m_Documents, or give the documents a weak handle.";
     }
+
+    // INSIDE DocumentHost the same rule holds one level down: a document holding the subject-editor
+    // registry (AnimationEditorDocument::m_Editors) is guarded by m_SubjectEditors preceding
+    // m_OpenDocuments in DocumentHost.hpp.
+    const std::string host = ReadRepoFile( "Editor/Source/Editor/LevelEditor/DocumentHost.hpp" );
+    ASSERT_FALSE( host.empty() );
+    const std::size_t registry = host.find( "SubjectEditorRegistry m_SubjectEditors" );
+    const std::size_t open     = host.find( "OpenDocuments m_OpenDocuments" );
+    ASSERT_NE( registry, std::string::npos ) << "DocumentHost no longer declares m_SubjectEditors.";
+    ASSERT_NE( open, std::string::npos ) << "DocumentHost no longer declares m_OpenDocuments.";
+    EXPECT_LT( registry, open )
+         << "m_SubjectEditors is now declared AFTER m_OpenDocuments in DocumentHost, so the registry dies "
+            "before the documents that point at it. Move it back above m_OpenDocuments.";
 }
 
 // ------------------------------------------------------------------------------------------------
