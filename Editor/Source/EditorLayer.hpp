@@ -36,7 +36,8 @@
 #include "Editor/LevelEditor/DocumentHost.hpp"
 #include "Editor/LevelEditor/MainMenu.hpp"
 #include "Editor/LevelEditor/PreferencesWindow.hpp"
-#include "Editor/Widgets/ToolbarLayout.hpp"
+#include "Editor/LevelEditor/LevelToolbar.hpp"
+#include "Editor/LevelEditor/StatusBar.hpp"
 #include "Editor/Widgets/WindowChrome.hpp"
 #include "Editor/Splash/RevealGate.hpp"
 #include "Editor/Splash/SplashScreen.hpp"
@@ -91,41 +92,6 @@ namespace Desert::Editor
     private:
         void DrawMenuBar();
 
-        // ===== Top Bar Sections =====
-        void DrawProjectSection();
-        void DrawSceneRenameSection();
-
-        // UE5-style toolbar strip below the menu bar. Left: save + undo/redo, editor modes, transform
-        // tools, the two snap steps. Centre: playback. Right: package, profiler, preferences. Drawn inside
-        // the dockspace host window so it takes a fixed height above the docked panels.
-        //
-        // Every control here writes to state that already has one owner elsewhere (CommandHistory,
-        // ViewportMode, GizmoState, Scene::GetState) — the bar reports and commands, it never stores.
-        void DrawToolbar();
-        // One toolbar button. `active` is the armed/on state: tinted fill plus a 2px underline.
-        bool ToolbarButton( const char* icon, const char* label, bool active = false,
-                            const char* tooltip = nullptr, bool enabled = true );
-        void ToolbarSeparator();
-        // A snap step: the button reports the current step and opens the list that changes it, with the
-        // shared snapping toggle at the top. `rotation` picks the angle step over the grid step.
-        void DrawSnapControl( bool rotation );
-
-        // Bottom status bar: scene state (Edit/Play), scene name, current selection, and FPS/frame time.
-        void DrawStatusBar();
-        // Triangles drawn by the scene's meshes, summed over entities. Cached — see m_TriangleCache.
-        uint64_t SceneTriangleCount();
-        // The status bar's console line (UE's "Enter Console Command"); handed to the Lua console to run.
-        char m_StatusCmd[256] = {};
-
-        // Triangle census for the status bar. Walking every entity's submeshes each frame is cheap on a
-        // 24-entity scene and is not on a large one, so the answer is cached and recomputed on the two
-        // things that can change it: an edit (the revision moves) and an entity appearing or vanishing.
-        // A mesh finishing an ASYNC load bumps neither, so the cache also has a frame budget — a count
-        // that is three seconds stale is a status bar; a count that is permanently wrong is a lie.
-        uint64_t m_TriangleCache      = 0;
-        uint64_t m_TriangleCacheRev   = static_cast<uint64_t>( -1 );
-        size_t   m_TriangleCacheCount = static_cast<size_t>( -1 );
-        int      m_TriangleCacheAge   = 0;
         // Opens/closes panels whose context appeared or vanished (see IPanel::IsContextual).
         void UpdateContextualPanels();
 
@@ -340,6 +306,13 @@ namespace Desert::Editor
                                    m_ShowSaveLayoutPopup = true;
                                },
                                .ResetLayout = [this] { m_ResetDefaultLayout = true; } } };
+        // The strip below the menu bar and the title bar's project / level sections (UE: SLevelEditorToolBar).
+        // See Editor/LevelEditor/LevelToolbar.hpp.
+        LevelToolbar m_Toolbar{ m_Workspace, m_SceneFiles, m_Play, m_Preferences, m_ShowProfiler };
+        // The bottom strip (UE: SStatusBar); the bottom drawer's chevron stays with the dock layout and arrives
+        // as an action. See Editor/LevelEditor/StatusBar.hpp.
+        StatusBar m_StatusBar{ m_Workspace, m_SceneFiles, m_Documents, m_BackgroundCook,
+                               [this] { DrawBottomDrawerToggle(); } };
 
         // Crash recovery: set at startup when the previous session crashed and an autosave was found.
         bool                  m_ShowRecoveryPrompt = false;
