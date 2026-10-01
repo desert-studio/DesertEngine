@@ -211,6 +211,7 @@
 #include <chrono>    // per-stage startup timing (see the staged boot in OnUpdate)
 #include "Editor/LevelEditor/WindowTitles.hpp"
 #include "Editor/LevelEditor/AssetEditorRegistrations.hpp"
+#include "Editor/Core/AssetOpen.hpp"
 #include <Engine/Animation/AnimationLibrary.hpp>
 
 namespace Desert::Editor
