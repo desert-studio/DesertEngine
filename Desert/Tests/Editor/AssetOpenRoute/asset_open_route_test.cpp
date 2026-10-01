@@ -259,8 +259,8 @@ namespace
     std::multiset<std::string> LoadSceneCallers( const std::string& layer )
     {
         std::multiset<std::string> callers;
-        const std::regex           member( R"(^    (?:[^ /][^(]*)?EditorLayer::(\w+)\()" );
-        const std::regex           call( R"((^|[^:\w])LoadScene\()" );
+        const std::regex           member( R"(^    (?:[^ /][^(]*)?(?:EditorLayer|SceneFiles)::(\w+)\()" );
+        const std::regex           call( R"((^|[^:\w])RequestLoad\()" );
         std::istringstream         lines( layer );
         std::string                line;
         std::string                current;
@@ -288,14 +288,17 @@ namespace
 // the ask. Each row names its reason; a new caller is red here until it goes through SceneOpenRequest.
 TEST( SceneOpenRegister, OnlyTheGatedPlacesCallLoadScene )
 {
-    const std::string layer = ReadRepoFile( "Editor/Source/EditorLayer.cpp" );
+    // EDL-4: the scene-file code moved into SceneFiles; the register reads the layer and both of its files.
+    const std::string layer = ReadRepoFile( "Editor/Source/EditorLayer.cpp" ) +
+                              ReadRepoFile( "Editor/Source/Editor/LevelEditor/SceneFiles.cpp" ) +
+                              ReadRepoFile( "Editor/Source/Editor/LevelEditor/SceneFileDialogs.cpp" );
     ASSERT_FALSE( layer.empty() ) << "Editor/Source/EditorLayer.cpp not found from the working directory";
 
     // clang-format off
     const std::multiset<std::string> allowed = {
         "EditorLayer",               // constructor: --scene and the shot's scene, before any edit exists
         "EditorLayer",
-        "OnUpdate",                  // the SceneOpenRequest consumer, after the unsaved-changes check
+        "ConsumeOpenRequest",        // the SceneOpenRequest consumer, after the unsaved-changes check
         "DrawRecoveryPopup",         // restoring an autosave the user just chose to recover
         "DrawConfirmOpenScenePopup", // "Save and open" / "Discard and open" — the ask itself
         "DrawConfirmOpenScenePopup",
@@ -304,7 +307,7 @@ TEST( SceneOpenRegister, OnlyTheGatedPlacesCallLoadScene )
     EXPECT_EQ( LoadSceneCallers( layer ), allowed );
 
     // And the palette's "Open Scene <file>" entries go through the gate rather than around it.
-    const std::regex palette( R"("Open Scene " \+ SceneLabel\( scene \)[^}]*SceneOpenRequest::Request\()" );
+    const std::regex palette( R"("Open Scene " \+ Label\( scene \)[^}]*SceneOpenRequest::Request\()" );
     EXPECT_TRUE( std::regex_search( layer, palette ) );
 }
 

@@ -290,10 +290,6 @@ namespace Desert::Editor
     static constexpr const char* kMenuBarMenus[] = { "File",   "Edit",     "View", "Window",
                                                      "Scenes", "Graphics", "About" };
 
-    // "Unsaved changes" marker: the CommandHistory revision at the last save/load. Compared against the
-    // current revision for the status-bar dirty dot; reset wherever the scene is (re)loaded or saved.
-    static uint64_t s_SavedRevision = 0;
-
     static bool s_ShowPreferences = false; // Edit -> Preferences... window
 
     // Icon shown before a panel's tab/title + its View-menu entry. Keyed by the panel's STABLE name
@@ -597,7 +593,7 @@ namespace Desert::Editor
                 // The success line is inside the branch: this bake exists so the demo can be OPENED
                 // later, and announcing a file that is not there sends the next reader looking for a
                 // corrupt scene instead of a failed write.
-                if ( SaveSceneTo( demoPath.generic_string() ) )
+                if ( m_SceneFiles.SaveSceneTo( demoPath.generic_string() ) )
                 {
                     LOG_INFO( "[Editor] Baked the Cornell showcase -> {}", demoPath.string() );
                 }
@@ -642,7 +638,7 @@ namespace Desert::Editor
             }
             else
             {
-                LoadScene( Common::Filepath( shot.Scene ) );
+                m_SceneFiles.RequestLoad( Common::Filepath( shot.Scene ) );
             }
         }
         else if ( ProjectContext::HasProject() )
@@ -651,15 +647,15 @@ namespace Desert::Editor
             if ( const auto scenePath = ProjectContext::DefaultScenePath(); !scenePath.empty() )
             {
                 if ( std::filesystem::exists( scenePath ) )
-                    LoadScene( scenePath );
+                    m_SceneFiles.RequestLoad( scenePath );
                 else
                 {
                     BuildStarterScene();
-                    if ( SaveSceneTo( scenePath ) )
+                    if ( m_SceneFiles.SaveSceneTo( scenePath ) )
                     {
                         // It was built AND written, so it is now an open file like any other — a later
                         // Ctrl+S has to go back to it rather than to a path derived from its name.
-                        m_OpenScenePath = Common::Filepath( scenePath );
+                        m_SceneFiles.AdoptOpenPath( Common::Filepath( scenePath ) );
                         LOG_INFO( "[Editor] Generated the Starter scene -> {}", scenePath );
                     }
                     else
@@ -860,7 +856,7 @@ namespace Desert::Editor
         //
         // Propagated rather than reported: OnAttach owns a channel and Application::PushLayer now reads
         // it, and an editor whose main scene never initialised has no viewport to show anything in.
-        if ( !m_SceneLoadRequested )
+        if ( !m_SceneFiles.HasPendingLoad() )
         {
             if ( const auto inited = m_Workspace.ActiveScene()->Init(); !inited.IsSuccess() )
                 return Common::MakeFormattedError( "main scene failed to initialise: {}", inited.GetError() );
@@ -1427,7 +1423,7 @@ namespace Desert::Editor
         // ONLY for a genuinely empty boot: the constructor already gave a fresh project its Starter
         // scene (own sun+sky) and queued any existing project scene for load (brings its own). Adding
         // a sun here regardless is what produced TWO directional lights — and the engine supports one.
-        const bool sceneLoadPending = m_SceneLoadRequested.has_value();
+        const bool sceneLoadPending = m_SceneFiles.HasPendingLoad();
         const bool hasSun = !m_Workspace.ActiveScene()->GetRegistry().view<ECS::DirectionLightComponent>().empty();
         if ( !sceneLoadPending && !hasSun )
         {
@@ -1615,19 +1611,7 @@ namespace Desert::Editor
         // A scene handed over by a panel (dropped on the viewport, double-clicked in the asset browser).
         // It goes through the SAME deferred load as the menu — but a drag is easy to do by accident, so
         // unsaved work is not thrown away silently: the confirm popup decides, and only then do we queue.
-        if ( auto requested = Editor::Core::SceneOpenRequest::Consume() )
-        {
-            const Common::Filepath path( *requested );
-            if ( CommandHistory::Get().Revision() != s_SavedRevision )
-            {
-                m_PendingOpenScene      = path;
-                m_ConfirmOpenScenePopup = true;
-            }
-            else
-            {
-                LoadScene( path );
-            }
-        }
+        m_SceneFiles.ConsumeOpenRequest();
 
         // ONE PUMP PER TICK, AND IT IS THE FIRST THING THIS LAYER DOES AFTER THE BOOT.
         //
@@ -1643,38 +1627,15 @@ namespace Desert::Editor
         DrainBackgroundCook();
 
         // Scene loads wait until the startup stages finished (a scene expects cooked/preloaded assets).
-        if ( m_SceneLoadRequested && !StartupLoading() )
+        // A load that ran starts the content settle before the refused-load fallback and New Scene.
+        if ( !StartupLoading() )
         {
-            auto path = m_SceneLoadRequested.value();
-            m_SceneLoadRequested.reset();
-            LoadSceneInternal( path );
-            BeginContentSettle();
-
-            // THE OTHER HALF OF THE SKIPPED Init() IN OnAttach. That skip is safe only because THIS load
-            // initialises the scene — and LoadSceneInternal has three early returns (the file is gone,
-            // unreadable, or written by an older build) that deliberately leave the editor exactly as it
-            // was. "Exactly as it was" used to mean an initialised empty scene; with the first Init()
-            // pre-empted it would mean a scene whose renderer has no systems, and the frame below would
-            // record against it. Asked of the SCENE rather than inferred from the load's return value,
-            // which is void, and rather than tracked in a flag here, which would be a second copy of a
-            // fact the scene already holds.
-            if ( !m_Workspace.ActiveScene()->IsInitialized() )
+            if ( m_SceneFiles.ServiceLoadRequest() )
             {
-                if ( const auto inited = m_Workspace.ActiveScene()->Init(); !inited.IsSuccess() )
-                    LOG_ERROR( "[EditorLayer] the scene load was refused and the fallback initialise "
-                               "failed too: {}",
-                               inited.GetError() );
-                // The registry follows the Init that built the framebuffers its passes bind to, exactly
-                // as it does on the successful path inside LoadSceneInternal.
-                m_Workspace.RebuildRenderRegistry();
+                BeginContentSettle();
+                m_SceneFiles.InitializeIfLoadRefused();
             }
-        }
-
-        // New (empty) scene — deferred like a load so it never tears down resources mid-frame.
-        if ( m_NewSceneRequested && !StartupLoading() )
-        {
-            m_NewSceneRequested = false;
-            NewSceneInternal();
+            m_SceneFiles.ServiceNewRequest();
         }
 
         // Opening an extra scene view, a second angle or the four-up grid allocates a SceneRenderer + Init()
@@ -1744,9 +1705,9 @@ namespace Desert::Editor
                     {
                         Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(),
                                                                   m_AssetManager.get() );
-                        const auto                    path =
-                             Autosave::PathFor( m_OpenScenePath, m_Workspace.ActiveScene()->GetSceneName(),
-                                                Autosave::kPeriodicSuffix );
+                        const auto                    path = Autosave::PathFor( m_SceneFiles.OpenScenePath(),
+                                                                                m_Workspace.ActiveScene()->GetSceneName(),
+                                                                                Autosave::kPeriodicSuffix );
                         const auto      dir  = path.parent_path();
                         std::error_code ec;
                         std::filesystem::create_directories( dir, ec );
@@ -1867,7 +1828,8 @@ namespace Desert::Editor
         // capture is exactly that case, so `--play` changes what MOVES in the frame and nothing about
         // where the frame is taken from.
         if ( auto& shot = ShotOptions::Get();
-             shot.PlayActive() && !m_SceneLoadRequested && !StartupLoading() && m_Workspace.ActiveScene() &&
+             shot.PlayActive() && !m_SceneFiles.HasPendingLoad() && !StartupLoading() &&
+             m_Workspace.ActiveScene() &&
              m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Edit )
         {
             if ( m_Workspace.ActiveScene()->GetActiveCamera() )
@@ -1915,7 +1877,7 @@ namespace Desert::Editor
         // With `--camera-to` / `--look-to` the pose is re-placed EVERY frame, walking the path across
         // exactly the warm-up frames. Without them `HasMotion()` is false, the placement happens once at
         // parameter 0, and the pose it computes is (Position, Forward) to the bit.
-        if ( auto& shot = ShotOptions::Get(); shot.Active() && shot.HasCamera && !m_SceneLoadRequested &&
+        if ( auto& shot = ShotOptions::Get(); shot.Active() && shot.HasCamera && !m_SceneFiles.HasPendingLoad() &&
                                               !StartupLoading() &&
                                               ( !m_ShotCameraPlaced || shot.HasMotion() || shot.FlightRoute ) )
         {
@@ -1976,12 +1938,13 @@ namespace Desert::Editor
         // the picture of the scene -- the same shape as the blank-PNG trap the verification skill warns
         // about, and just as invisible in a diff of two such frames.
         if ( const auto& shot = ShotOptions::Get();
-             shot.FlightRoute && m_Workspace.ActiveScene() && !m_SceneLoadRequested && !StartupLoading() &&
+             shot.FlightRoute && m_Workspace.ActiveScene() && !m_SceneFiles.HasPendingLoad() &&
+             !StartupLoading() &&
              m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Play )
             RecordFlightFrame( !ContentSettling() );
 
         if ( auto& shot = ShotOptions::Get();
-             shot.Active() && !m_SceneLoadRequested && !StartupLoading() && !ContentSettling() )
+             shot.Active() && !m_SceneFiles.HasPendingLoad() && !StartupLoading() && !ContentSettling() )
         {
             ++m_ShotFrame;
 
@@ -1994,7 +1957,7 @@ namespace Desert::Editor
                 char name[64];
                 std::snprintf( name, sizeof( name ), "/frame_%05d.png", m_ShotFrame );
                 const std::string path = shot.Sequence + name;
-                if ( !WriteViewportPng( path ) )
+                if ( !m_Capture.WriteViewportPng( path ) )
                 {
                     LOG_ERROR( "[Shot] sequence frame {} not written to '{}'", m_ShotFrame, path );
                     m_ShotFailed = true;
@@ -2003,7 +1966,7 @@ namespace Desert::Editor
 
             if ( m_ShotFrame >= shot.Frames )
             {
-                if ( !shot.Output.empty() && !WriteViewportPng( shot.Output ) )
+                if ( !shot.Output.empty() && !m_Capture.WriteViewportPng( shot.Output ) )
                 {
                     LOG_ERROR( "[Shot] the final frame was not captured to '{}'", shot.Output );
                     m_ShotFailed = true;
@@ -2043,158 +2006,13 @@ namespace Desert::Editor
             const bool  f9       = Input::Keyboard::IsKeyPressed( Common::KeyCode::F9 );
             if ( f9 && !s_f9Prev )
             {
-                if ( !WriteViewportPng( "F:/DesertEngine/frame_dump.png" ) )
+                if ( !m_Capture.WriteViewportPng( "F:/DesertEngine/frame_dump.png" ) )
                     LOG_ERROR( "[Dump] final frame could not be written" );
             }
             s_f9Prev = f9;
         }
 
         return BOOLSUCCESS;
-    }
-
-    // The one readback. Every picture the editor writes out of the viewport comes through here, so a
-    // capture cannot quietly differ from a dump in flip, format or the device-idle wait that makes the
-    // readback legal at all.
-    Common::BoolResultStr EditorLayer::ReadViewportRGBA8( std::vector<uint8_t>& outPixels, uint32_t& outWidth,
-                                                          uint32_t& outHeight )
-    {
-        if ( !m_Workspace.ActiveScene() )
-            return Common::MakeError<bool>( "no scene to capture" );
-
-        Graphic::Renderer::GetInstance().WaitDeviceIdle();
-
-        auto img = m_Workspace.ActiveScene()->GetFinalImage();
-        if ( !img )
-            return Common::MakeError<bool>( "scene has no final image" );
-
-        // Г13: ReadPixelsRGBA8 answers instead of returning an empty vector for every kind of failure.
-        // The size check below is kept and now means only what it says — this arm carries the reason.
-        auto read = img->ReadPixelsRGBA8();
-        if ( !read.IsSuccess() )
-            return Common::MakeFormattedError<bool>( "readback refused: {}", read.GetError() );
-
-        outPixels = read.ExtractValue();
-        outWidth  = img->GetWidth();
-        outHeight = img->GetHeight();
-        if ( outPixels.size() != static_cast<size_t>( outWidth ) * outHeight * 4 )
-            return Common::MakeFormattedError<bool>( "readback is {} bytes, expected {}x{}x4 = {}",
-                                                     outPixels.size(), outWidth, outHeight,
-                                                     static_cast<size_t>( outWidth ) * outHeight * 4 );
-        return BOOLSUCCESS;
-    }
-
-    Common::BoolResultStr EditorLayer::WriteProjectThumbnail()
-    {
-        // The picture belongs to a project, so with no project there is nowhere for it to go. Not an
-        // error: the editor can be running a scene that was opened without one.
-        const std::string projectDirectory = Desert::Project::ProjectContext::Directory();
-        if ( projectDirectory.empty() )
-            return BOOLSUCCESS;
-
-        std::vector<uint8_t> px;
-        uint32_t             w = 0;
-        uint32_t             h = 0;
-        if ( const auto read = ReadViewportRGBA8( px, w, h ); !read.IsSuccess() )
-            return read;
-        if ( w == 0 || h == 0 )
-            return Common::MakeError<bool>( "the viewport has no size" );
-
-        // 16:9 window out of the middle of whatever the viewport is, then a box downsample to the
-        // fixed output size. Cropping rather than squashing, because a squashed frame is a picture
-        // of the wrong world; centre rather than top, because the interesting part of a viewport is
-        // where the camera is pointed.
-        constexpr uint32_t kOutW = 512;
-        constexpr uint32_t kOutH = 288; // 16:9 — the aspect the launcher's grid is built out of
-
-        uint32_t cropW = w;
-        uint32_t cropH = ( w * kOutH ) / kOutW;
-        if ( cropH > h )
-        {
-            cropH = h;
-            cropW = ( h * kOutW ) / kOutH;
-        }
-        const uint32_t cropX = ( w - cropW ) / 2;
-        const uint32_t cropY = ( h - cropH ) / 2;
-
-        std::vector<uint8_t> out( static_cast<size_t>( kOutW ) * kOutH * 4 );
-        for ( uint32_t y = 0; y < kOutH; ++y )
-        {
-            // Source rows this output row averages over. Integer bounds on both ends so no source
-            // pixel is counted twice and none is skipped.
-            const uint32_t sy0 = cropY + ( y * cropH ) / kOutH;
-            const uint32_t sy1 = std::max( sy0 + 1u, cropY + ( ( y + 1 ) * cropH ) / kOutH );
-            for ( uint32_t x = 0; x < kOutW; ++x )
-            {
-                const uint32_t sx0 = cropX + ( x * cropW ) / kOutW;
-                const uint32_t sx1 = std::max( sx0 + 1u, cropX + ( ( x + 1 ) * cropW ) / kOutW );
-
-                uint32_t accum[4] = { 0, 0, 0, 0 };
-                uint32_t samples  = 0;
-                for ( uint32_t sy = sy0; sy < sy1 && sy < h; ++sy )
-                    for ( uint32_t sx = sx0; sx < sx1 && sx < w; ++sx )
-                    {
-                        const size_t at = ( static_cast<size_t>( sy ) * w + sx ) * 4;
-                        for ( int c = 0; c < 4; ++c )
-                            accum[c] += px[at + static_cast<size_t>( c )];
-                        ++samples;
-                    }
-                const size_t dst = ( static_cast<size_t>( y ) * kOutW + x ) * 4;
-                for ( int c = 0; c < 4; ++c )
-                    out[dst + static_cast<size_t>( c )] =
-                         static_cast<uint8_t>( samples ? accum[c] / samples : 0u );
-            }
-        }
-
-        // The name is a CONVENTION shared with the launcher, which looks for exactly this file
-        // beside the .deproj. Leading dot so it does not show up as project content.
-        const std::string file = ( std::filesystem::path( projectDirectory ) / ".thumbnail.png" ).string();
-        stbi_flip_vertically_on_write( 0 );
-        if ( stbi_write_png( file.c_str(), static_cast<int>( kOutW ), static_cast<int>( kOutH ), 4, out.data(),
-                             static_cast<int>( kOutW ) * 4 ) == 0 )
-            return Common::MakeFormattedError<bool>( "could not write {}", file );
-        LOG_INFO( "[Project] thumbnail -> {} ({}x{})", file, kOutW, kOutH );
-        return BOOLSUCCESS;
-    }
-
-    // Read the resolved viewport back off the GPU and write it as a PNG. The one place that does this: the
-    // still capture, every frame of a `--shot-sequence`, and the F9 dump all go through here, so a capture
-    // cannot quietly differ from a dump in flip, format or the device-idle wait that makes the readback
-    // legal at all.
-    bool EditorLayer::WriteViewportPng( const std::string& path )
-    {
-        if ( !m_Workspace.ActiveScene() )
-        {
-            LOG_ERROR( "[Shot] no scene to capture ('{}')", path );
-            return false;
-        }
-
-        // The directory of a sequence is named on the command line and usually does not exist yet. Create
-        // it rather than letting stb fail on a path that is only missing a folder.
-        const std::filesystem::path file = std::filesystem::path( path );
-        if ( file.has_parent_path() && !file.parent_path().empty() )
-        {
-            std::error_code ec;
-            std::filesystem::create_directories( file.parent_path(), ec );
-            if ( ec && !std::filesystem::exists( file.parent_path() ) )
-            {
-                LOG_ERROR( "[Shot] could not create '{}': {}", file.parent_path().string(), ec.message() );
-                return false;
-            }
-        }
-
-        std::vector<uint8_t> px;
-        uint32_t             w = 0;
-        uint32_t             h = 0;
-        if ( const auto read = ReadViewportRGBA8( px, w, h ); !read.IsSuccess() )
-        {
-            LOG_ERROR( "[Shot] {} ('{}')", read.GetError(), path );
-            return false;
-        }
-
-        stbi_flip_vertically_on_write( 0 );
-        const bool written = stbi_write_png( path.c_str(), w, h, 4, px.data(), w * 4 ) != 0;
-        LOG_INFO( "[Shot] {} -> {} ({}x{})", written ? "wrote" : "FAILED to write", path, w, h );
-        return written;
     }
 
     // =============================================================================================
@@ -2377,8 +2195,8 @@ namespace Desert::Editor
         // work from that command remained. A `shot.viewport` answered while a worker is still reading the
         // sky would hand back a picture of a scene without its clouds and call it the scene.
         quiescence.Set( Control::PendingWork::StartupLoading, StartupLoading() || ContentSettling() );
-        quiescence.Set( Control::PendingWork::SceneLoad, m_SceneLoadRequested.has_value() );
-        quiescence.Set( Control::PendingWork::NewScene, m_NewSceneRequested );
+        quiescence.Set( Control::PendingWork::SceneLoad, m_SceneFiles.HasPendingLoad() );
+        quiescence.Set( Control::PendingWork::NewScene, m_SceneFiles.HasPendingNew() );
         // THE GRID BELONGS HERE TOO, and the pending DOCK is part of it: the layout is applied a frame
         // after the views open, so a reply released between the two would hand back a screenshot of four
         // floating windows and call it the grid.
@@ -2492,8 +2310,8 @@ namespace Desert::Editor
             // just certified as reflecting the command that came before it.
             std::string error;
             const bool  window  = ( m_ControlInFlight->Operation == Control::Op::ShotWindow );
-            const bool  written = window ? WriteWindowPng( m_ControlInFlight->Path, error )
-                                         : WriteViewportPng( m_ControlInFlight->Path );
+            const bool  written = window ? m_Capture.WriteWindowPng( m_ControlInFlight->Path, error )
+                                         : m_Capture.WriteViewportPng( m_ControlInFlight->Path );
 
             if ( written )
             {
@@ -2860,7 +2678,7 @@ namespace Desert::Editor
         Control::EditorSnapshot snapshot;
 
         snapshot.SceneName = m_Workspace.ActiveScene() ? m_Workspace.ActiveScene()->GetSceneName() : std::string();
-        snapshot.SceneHasUnsavedChanges = CommandHistory::Get().Revision() != s_SavedRevision;
+        snapshot.SceneHasUnsavedChanges = m_SceneFiles.HasUnsavedChanges();
         snapshot.InPlayMode             = m_Play.InPlayMode();
 
         for ( const Common::UUID& uuid : Core::SelectionManager::GetSelection() )
@@ -3012,84 +2830,7 @@ namespace Desert::Editor
         if ( !m_ControlGate.WouldDischarge( m_FrameIndex, m_FrameQuiescence ) )
             return;
 
-        auto swapChain = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanSwapChain>(
-             EngineContext::GetInstance().GetWindow()->GetWindowSwapChain() );
-        if ( !swapChain )
-        {
-            m_ControlCaptureError = "there is no Vulkan swapchain to capture the presented frame from.";
-            return;
-        }
-
-        if ( const auto recorded = swapChain->RecordFrameCapture(); !recorded )
-        {
-            m_ControlCaptureError = recorded.GetError();
-            return;
-        }
-        m_ControlCaptureError.clear();
-    }
-
-    bool EditorLayer::WriteWindowPng( const std::string& path, std::string& outError )
-    {
-        // THE WHOLE EDITOR, INTERFACE INCLUDED — which is what WriteViewportPng next door cannot do and
-        // never could. That one reads the scene's own final image; ImGui is recorded into the SWAPCHAIN
-        // render pass, so no capture this engine took before this existed held a single pixel of a panel,
-        // a menu or a dialog. It is why proving anything about the interface meant photographing the
-        // window from outside the process, by PID.
-        //
-        // This is the second half of the capture: the copy was recorded into this frame's command buffer
-        // by RecordWindowCaptureIfDue, and the bytes are collected here, once the present that carried it
-        // has gone out.
-        if ( !m_ControlCaptureError.empty() )
-        {
-            outError = m_ControlCaptureError;
-            m_ControlCaptureError.clear();
-            return false;
-        }
-
-        auto swapChain = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanSwapChain>(
-             EngineContext::GetInstance().GetWindow()->GetWindowSwapChain() );
-        if ( !swapChain )
-        {
-            outError = "there is no Vulkan swapchain to collect the captured frame from.";
-            return false;
-        }
-
-        const std::filesystem::path file = std::filesystem::path( path );
-        if ( file.has_parent_path() && !file.parent_path().empty() )
-        {
-            std::error_code ec;
-            std::filesystem::create_directories( file.parent_path(), ec );
-            if ( ec && !std::filesystem::exists( file.parent_path() ) )
-            {
-                outError = "could not create '" + file.parent_path().string() + "': " + ec.message();
-                return false;
-            }
-        }
-
-        // The copy was submitted with this frame; waiting is what makes the staging buffer readable.
-        Graphic::Renderer::GetInstance().WaitDeviceIdle();
-
-        uint32_t   width  = 0;
-        uint32_t   height = 0;
-        const auto pixels = swapChain->TakeCapturedFrameRGBA8( width, height );
-        if ( !pixels )
-        {
-            outError = pixels.GetError();
-            return false;
-        }
-
-        stbi_flip_vertically_on_write( 0 );
-        const bool written = stbi_write_png( path.c_str(), static_cast<int>( width ), static_cast<int>( height ),
-                                             4, pixels.GetValue().data(), static_cast<int>( width ) * 4 ) != 0;
-        if ( !written )
-        {
-            outError = "stb_image_write refused to write '" + path + "'.";
-            return false;
-        }
-
-        LOG_INFO( "[Control] wrote the presented frame (editor and interface) -> {} ({}x{})", path, width,
-                  height );
-        return true;
+        m_Capture.RecordWindowCapture();
     }
 
     Common::BoolResultStr EditorLayer::UpdateSceneFrame( Desert::Core::Scene&    scene,
@@ -3760,7 +3501,7 @@ namespace Desert::Editor
         // editor over an empty scene — the queued load runs in the NEXT OnUpdate and only then starts the
         // settle wait — and revealing on it showed the window 3 s before the content had settled
         // (measured on the first run of this change: "on screen" logged before "[Content] settled").
-        if ( !m_SceneLoadRequested )
+        if ( !m_SceneFiles.HasPendingLoad() )
             m_RealFrameDrawn = true;
 
         // ---- Global editing shortcuts ----
@@ -3796,7 +3537,7 @@ namespace Desert::Editor
                         Core::SelectionManager::SetSelection( std::move( pasted ) );
 
                 if ( ::ImGui::IsKeyPressed( ImGuiKey_N, false ) )
-                    m_NewSceneRequested = true; // Ctrl+N -> fresh empty scene (deferred, see OnUpdate)
+                    m_SceneFiles.RequestNew(); // Ctrl+N -> fresh empty scene (deferred, see OnUpdate)
 
                 if ( ::ImGui::IsKeyPressed( ImGuiKey_S, false ) )
                 {
@@ -3808,7 +3549,7 @@ namespace Desert::Editor
                     switch ( ResolveSaveShortcut( m_DocumentHasFocus, document ) )
                     {
                         case SaveShortcutTarget::Scene:
-                            (void)SaveOpenScene();
+                            (void)m_SceneFiles.SaveOpenScene();
                             break;
                         case SaveShortcutTarget::FocusedDocument:
                             (void)document->SaveDocument();
@@ -4217,12 +3958,6 @@ namespace Desert::Editor
         return BOOLSUCCESS;
     }
 
-    // Defined with the Open Scene popup's other helpers, further down this file; declared here because the
-    // command palette names its scene entries the same way that popup does, and one naming rule is the
-    // point — a level offered as "Arena.desce" in one list and "Levels/Arena.desce" in the other is two
-    // names for one thing, and the channel would then have a name the UI never shows.
-    static std::string SceneLabel( const Common::Filepath& path );
-
     // ONE OF A DOCUMENT'S OWN ACTIONS, RUN BY NAME. A named function rather than the lambda body it was:
     // a parameter-less multi-line lambda is the shape `bugprone-exception-escape` fires on in this tree
     // (ScenePropertiesPanel.cpp:92 records the same finding), and it is also the shape clang-format 18 and
@@ -4495,15 +4230,7 @@ namespace Desert::Editor
         // Routed through SceneOpenRequest, not through LoadScene, on purpose: that is the path that runs
         // the unsaved-changes gate, and a palette entry is at least as easy to hit by accident as the
         // drag-and-drop it was written for.
-        for ( const Common::Filepath& scene : CollectAvailableScenes() )
-        {
-            const std::string path = scene.string();
-            commands.push_back( { "Scene", "Open Scene " + SceneLabel( scene ), [path]
-                                  {
-                                      Editor::Core::SceneOpenRequest::Request( path );
-                                      return PaletteCommandDone();
-                                  } } );
-        }
+        m_SceneFiles.AppendOpenSceneCommands( commands );
 
         // The Level Viewport commands the F / Esc keys run, on the viewport the user works in.
         for ( const Editor::ViewportCommand command : Editor::kViewportCommandOrder )
@@ -4662,12 +4389,7 @@ namespace Desert::Editor
         // scene that could not be written came back over the channel as a success. This is the same
         // family as the toast that once said "Saved 'X'" for a file that had not been written
         // (FileSystem.hpp's note on the write primitive that is gone).
-        commands.push_back( { "Action", "Save Scene", [this]
-                              {
-                                  return PaletteCommandOutcome(
-                                       SaveOpenScene(), "the scene was NOT saved; the log line above says "
-                                                        "why, and the unsaved-changes mark is still set." );
-                              } } );
+        m_SceneFiles.AppendSaveSceneCommand( commands );
     }
 
     void EditorLayer::AppendWindowCommands( std::vector<PaletteCommand>& commands )
@@ -5437,7 +5159,7 @@ namespace Desert::Editor
 
             if ( ImGui::Button( "Reopen autosave", ImVec2( 150.0f, 0.0f ) ) )
             {
-                LoadScene( m_RecoveryAutosave );
+                m_SceneFiles.RequestLoad( m_RecoveryAutosave );
                 m_ShowRecoveryPrompt = false;
                 ImGui::CloseCurrentPopup();
             }
@@ -5518,7 +5240,7 @@ namespace Desert::Editor
         DrawEditMenu();
         DrawViewMenu();
         DrawWindowMenu();
-        DrawScenesMenu();
+        m_SceneFiles.DrawScenesMenu();
         DrawGraphicsMenu();
         DrawAboutMenu();
 
@@ -5570,17 +5292,17 @@ namespace Desert::Editor
 
         if ( ImGui::MenuItem( "New Scene", "CTRL+N" ) )
         {
-            m_NewSceneRequested = true;
+            m_SceneFiles.RequestNew();
         }
         if ( ImGui::MenuItem( "Save Scene", "CTRL+S" ) )
         {
-            m_SaveSceneRequested = true;
+            m_SceneFiles.RequestSave();
         }
         if ( ImGui::MenuItem( "Reload Scene", "CTRL+R" ) )
         {
         }
 
-        DrawOpenSceneMenuItem();
+        m_SceneFiles.DrawOpenSceneMenuItem();
         DrawStyleSubmenu();
 
         ImGui::Separator();
@@ -5661,85 +5383,6 @@ namespace Desert::Editor
         }
 
         ImGui::EndMenu();
-    }
-
-    void EditorLayer::DrawOpenSceneMenuItem()
-    {
-        namespace ImGui = ::ImGui;
-
-        if ( ImGui::MenuItem( "Open Scene" ) )
-        {
-            PrepareScenePopup();
-            m_OpenScenePopup = true;
-        }
-    }
-
-    // Case-insensitive matching for the scene filter (ASCII: scene paths on disk are ASCII).
-    static std::string Lowercased( const std::string& text )
-    {
-        std::string out = text;
-        std::transform( out.begin(), out.end(), out.begin(),
-                        []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
-        return out;
-    }
-
-    // How a scene is NAMED in the pickers: its path relative to the scenes root ("Levels/Arena.desce"),
-    // not the bare filename. With subfolders in play, filenames alone are both ambiguous (two "Test.desce"
-    // in different folders read identically) and lose the only structure the user gave their scenes.
-    static std::string SceneLabel( const Common::Filepath& path )
-    {
-        std::error_code   ec;
-        const std::string rel =
-             std::filesystem::relative( path, Common::Constants::Path::SCENE_PATH, ec ).generic_string();
-
-        // Outside the scenes root (a recent scene from elsewhere): a "../../.." chain says nothing.
-        if ( ec || rel.empty() || rel.rfind( "..", 0 ) == 0 )
-            return path.filename().string();
-        return rel;
-    }
-
-    std::vector<Common::Filepath> EditorLayer::CollectAvailableScenes()
-    {
-        std::vector<Common::Filepath> scenes;
-
-        // THROUGH THE ONE CONTENT ENUMERATION, and this used to be a raw recursive_directory_iterator.
-        //
-        // FileSystem.hpp states the rule over ListFilesRecursive in as many words — "every scanner that
-        // enumerates content must go through this: the font and icon services each used to walk only the
-        // disk half, so a packaged game — where the loose directories do not exist at all — scanned
-        // nothing and no text could resolve its font." This was the same defect in the same shape, one
-        // list over: a project whose content is mounted from a .dpak had NO levels in the Open Scene
-        // popup, in the Scene group of the command palette, or on the control channel, because the only
-        // half this loop could see was the loose one.
-        //
-        // Latent today, because the editor never mounts a pak — and latency is not a mitigation. The
-        // shared function exists precisely so that the day it stops being latent is not the day somebody
-        // discovers it: a scanner that walks the disk itself is a second answer to "what content is
-        // there", and this is the second one found. A6-2 point 2. `Desert/Tests/Engine/ContentScanners`
-        // now holds the register, so a third has to be argued for rather than merely written.
-        //
-        // RECURSION AND THE MISSING-DIRECTORY CASE COME WITH IT: scenes live in subfolders (Levels/,
-        // per-feature folders), which a flat scan simply did not list, and a missing scenes
-        // directory contributes nothing rather than throwing.
-        for ( const std::filesystem::path& file :
-              Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::SCENE_PATH ) )
-        {
-            if ( file.extension() == Common::Constants::Extensions::SCENE_EXTENSION )
-                scenes.push_back( file );
-        }
-
-        // Sorted by the label the list shows, which keeps every folder's scenes contiguous (they share the
-        // "Folder/" prefix) — that is what the folder headers in the popup rely on.
-        std::sort( scenes.begin(), scenes.end(), []( const Common::Filepath& a, const Common::Filepath& b )
-                   { return SceneLabel( a ) < SceneLabel( b ); } );
-        return scenes;
-    }
-
-    void EditorLayer::PrepareScenePopup()
-    {
-        m_AvailableScenes    = CollectAvailableScenes();
-        m_SelectedSceneIndex = -1;
-        m_SceneFilter[0]     = '\0';
     }
 
     void EditorLayer::BeginContentSettle()
@@ -5913,7 +5556,7 @@ namespace Desert::Editor
         state.HasSplash        = m_Splash != nullptr;
         state.Revealed         = m_Revealed;
         state.StartupLoading   = StartupLoading();
-        state.SceneLoadPending = m_SceneLoadRequested.has_value();
+        state.SceneLoadPending    = m_SceneFiles.HasPendingLoad();
         state.ContentSettling  = ContentSettling();
         state.RealFrameDrawn   = m_RealFrameDrawn;
         state.ThumbnailsUploading = m_ThumbnailsHoldReveal;
@@ -6425,7 +6068,7 @@ namespace Desert::Editor
         else if ( warnings > 0 )
             std::snprintf( alerts, sizeof( alerts ), ICON_MDI_ALERT " %zu warnings", warnings );
 
-        const bool  dirty   = CommandHistory::Get().Revision() != s_SavedRevision;
+        const bool  dirty   = m_SceneFiles.HasUnsavedChanges();
         const float starW   = dirty ? ImGui::CalcTextSize( "* " ).x : 0.0f;
         const float statsW  = ImGui::CalcTextSize( stats ).x;
         const float alertsW = alerts[0] ? ImGui::CalcTextSize( alerts ).x + 16.0f : 0.0f;
@@ -6650,7 +6293,7 @@ namespace Desert::Editor
         const auto label = [compact]( const char* text ) { return compact ? "" : text; };
 
         // ---- Left: the file/history group -------------------------------------------------------
-        const bool dirty = CommandHistory::Get().Revision() != s_SavedRevision;
+        const bool dirty = m_SceneFiles.HasUnsavedChanges();
         if ( ToolbarButton( ICON_MDI_CONTENT_SAVE, label( "Save" ), false,
                             dirty ? "Save the scene (Ctrl+S) — there are unsaved changes"
                                   : "Save the scene (Ctrl+S)" ) )
@@ -6658,7 +6301,7 @@ namespace Desert::Editor
             // The SAME deferred flag the File menu sets, not a second call to Serialize: saving mid-frame
             // from a toolbar and saving from a menu must be one code path, or one of them will grow a
             // step (the revision marker, a toast) the other forgets.
-            m_SaveSceneRequested = true;
+            m_SceneFiles.RequestSave();
         }
         ImGui::SameLine();
 
@@ -7111,11 +6754,7 @@ namespace Desert::Editor
 
     void EditorLayer::DrawPopups()
     {
-        DrawOpenScenePopup();
-        DrawConfirmOpenScenePopup();
-        DrawSaveScenePopup();
-        DrawNewScenePopup();
-        DrawReloadScenePopup();
+        m_SceneFiles.DrawDialogs();
         DrawProjectPopup();
         DrawPreferencesWindow();
     }
@@ -7485,89 +7124,6 @@ namespace Desert::Editor
         ImGui::EndMenu();
     }
 
-    bool EditorLayer::SaveSceneTo( const std::string& path )
-    {
-        // THROUGH SaveToFile AND NOT A SECOND COPY OF IT. This function used to create the directory and
-        // write SerializeToJson() itself, which was the same save spelled twice — and the moment the save
-        // grew a step (a landscape writes its tile files beside the scene before the scene names them),
-        // this copy would have written a .desce naming tile files that were never written.
-        const auto                    previousHeader = ForgetAssetIdentityUnlessSameFile( path );
-        Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(), m_AssetManager.get() );
-        if ( const auto written = serializer.SaveToFile( Common::Filepath( path ) ); !written )
-        {
-            // Nothing was written, so the scene is still the asset it was.
-            m_Workspace.ActiveScene()->SetAssetHeader( previousHeader );
-            LOG_ERROR( "[Scene] Could not write '{}': {}", path, written.GetError() );
-            return false;
-        }
-        return true;
-    }
-
-    std::optional<Common::Content::TextAssetHeaderSerialized>
-    EditorLayer::ForgetAssetIdentityUnlessSameFile( const std::string& destination )
-    {
-        auto previous = m_Workspace.ActiveScene()->GetAssetHeader();
-        // A save under another path is a new asset (Rules::SaveKeepsAssetIdentity): dropping the header
-        // makes the serializer mint a fresh GUID instead of copying this one into a second file.
-        if ( !Editor::Core::Rules::SaveKeepsAssetIdentity( m_OpenScenePath.generic_string(), destination ) )
-            m_Workspace.ActiveScene()->SetAssetHeader( std::nullopt );
-        return previous;
-    }
-
-    Common::Filepath EditorLayer::SceneSaveDestination() const
-    {
-        // The rule itself is a pure function in Editor/Core/SceneSaveRules.hpp so that a test can drive
-        // the case that matters — a file whose name disagrees with the scene's — without an editor. This
-        // call site supplies the two project paths it cannot know.
-        return Common::Filepath( Editor::Core::Rules::SceneSaveDestination(
-             m_OpenScenePath.generic_string(), m_Workspace.ActiveScene()->GetSceneName(),
-             Common::Constants::Path::SCENE_PATH.generic_string(),
-             Common::Constants::Extensions::SCENE_EXTENSION ) );
-    }
-
-    bool EditorLayer::SaveOpenScene()
-    {
-        const Common::Filepath destination    = SceneSaveDestination();
-        const auto             previousHeader = ForgetAssetIdentityUnlessSameFile( destination.generic_string() );
-        const auto             verdict        = Editor::Core::Rules::DecideAfterSceneSave(
-             m_Workspace.ActiveScene()->Serialize( m_AssetManager.get(), destination ),
-             m_Workspace.ActiveScene()->GetSceneName(), destination.string() );
-        if ( !verdict.MarkSceneSaved )
-            m_Workspace.ActiveScene()->SetAssetHeader( previousHeader );
-
-        if ( verdict.MarkSceneSaved )
-        {
-            s_SavedRevision = CommandHistory::Get().Revision();
-            // The scene now IS this file, whether it already was or was just given one. Without this a
-            // new scene would re-derive its path on every save and a rename between two saves would
-            // leave the user's work split across two files.
-            m_OpenScenePath = destination;
-        }
-
-        if ( verdict.IsError )
-        {
-            LOG_ERROR( "[Scene] {}", verdict.Message );
-        }
-        else
-        {
-            LOG_INFO( "[Scene] {}", verdict.Message );
-        }
-
-        // Refresh the launcher's tile picture for this project. Only on a save that actually
-        // happened — a refused save must not leave the launcher showing a world that was never
-        // written. The failure is a toast and nothing more: the scene IS saved, and a launcher tile
-        // without a picture is a state the launcher already draws.
-        if ( verdict.MarkSceneSaved )
-            if ( const auto thumbnail = WriteProjectThumbnail(); !thumbnail.IsSuccess() )
-                Editor::ToastManager::Push( "The scene was saved, but the project thumbnail was not: " +
-                                                 thumbnail.GetError(),
-                                            Editor::ToastLevel::Warning );
-
-        Editor::ToastManager::Push( verdict.Message,
-                                    verdict.IsError ? Editor::ToastLevel::Error : Editor::ToastLevel::Success );
-        return verdict.MayDiscardScene;
-    }
-
     void EditorLayer::BuildStarterScene()
     {
         // A fresh project's first scene = a TEST PLAYGROUND: procedural sky + sun, a ground slab,
@@ -7770,167 +7326,6 @@ namespace Desert::Editor
         }
     }
 
-    void EditorLayer::LoadScene( const Common::Filepath& path )
-    {
-        m_SceneLoadRequested = path;
-    }
-
-    void EditorLayer::NewSceneInternal()
-    {
-        // Same teardown as a load, minus the deserialize: clear the current scene to empty and re-init. The
-        // Scene object is REUSED (panels hold its shared_ptr), so their references stay valid.
-        EngineContext::GetInstance().GetDevice()->WaitIdle();
-
-        CommandHistory::Get().Clear();
-        s_SavedRevision = CommandHistory::Get().Revision();
-
-        Core::SelectionManager::ClearSelection();
-        m_Workspace.ActiveScene()->Clear();
-        m_Workspace.ActiveScene()->SetSceneName( "New Scene" );
-        // A new scene is not any file yet. Left pointing at the previous one, the first Ctrl+S would
-        // overwrite the scene the user had just moved away from with an empty world.
-        m_OpenScenePath.clear();
-        if ( const auto inited = m_Workspace.ActiveScene()->Init(); !inited.IsSuccess() )
-            LOG_ERROR( "[EditorLayer] new scene failed to initialise: {}", inited.GetError() );
-
-        // Rebuild the render registry against the fresh registry (its dtor unregisters editor passes by name).
-        m_Workspace.RebuildRenderRegistry();
-
-        Editor::ToastManager::Push( "New scene", Editor::ToastLevel::Success );
-        LOG_INFO( "[Scene] New empty scene" );
-    }
-
-    void EditorLayer::LoadSceneInternal( const Common::Filepath& requested )
-    {
-        // The old path of a moved scene opens the scene where it now lives (the registry follows the
-        // redirector the move left); only a redirector the registry cannot resolve reaches the refusal below.
-        const Common::Filepath path = Desert::Assets::ContentRegistry::FileToOpen( requested );
-        if ( path != requested )
-            LOG_INFO( "'{}' was moved; opening '{}'", requested.string(), path.string() );
-        if ( !std::filesystem::exists( path ) )
-        {
-            LOG_ERROR( "Scene file does not exist: {0}", path.string() );
-            return;
-        }
-
-        // ASKED BEFORE ANYTHING IS DESTROYED, and this is the call site that makes it worth asking. Below
-        // this point the undo history is dropped and the open scene is cleared; a file the loader will
-        // refuse - an old autosave, a scene saved by an older build - would then have cost the user the
-        // scene they had and given them nothing. So an unloadable file leaves the editor exactly as it is
-        // and says why, with the command that fixes the file.
-        Desert::Core::SceneLoadPhases phases( fmt::format( "Open '{}'", path.filename().string() ) );
-
-        const auto contentRead = Desert::Core::ExternalEntities::ReadSceneFileText( path );
-        if ( !contentRead )
-        {
-            LOG_ERROR( "{0}", contentRead.GetError() );
-            Editor::ToastManager::Push( "Scene not loaded — the file could not be read (see the log)",
-                                        Editor::ToastLevel::Error );
-            return;
-        }
-        const std::string& content = contentRead.GetValue();
-        phases.Lap( "read the file", content.size() );
-        // The old path of a moved scene: say where it went (the gate below could only name the GUID).
-        if ( const auto moved = Common::Content::RefuseRedirectorBytes(
-                  path.string(), content, Desert::Assets::ContentRegistry::KeyOfRedirectorTarget );
-             !moved )
-        {
-            LOG_ERROR( "{0}", moved.GetError() );
-            Editor::ToastManager::Push(
-                 "Scene not loaded — this path is a redirector to a moved scene (see the log)",
-                 Editor::ToastLevel::Error );
-            return;
-        }
-        auto loadable = Desert::Core::ParseLoadableScene( path.string(), content );
-        if ( !loadable )
-        {
-            LOG_ERROR( "{0}", loadable.GetError() );
-            Editor::ToastManager::Push( "Scene not loaded — see the log (it names the SceneMigrator command)",
-                                        Editor::ToastLevel::Error );
-            return;
-        }
-
-        phases.Lap( "version gate before tearing down the open scene", content.size() );
-
-        // Wait for GPU to be idle before destroying resources mid-frame
-        EngineContext::GetInstance().GetDevice()->WaitIdle();
-
-        // The undo history refers to entities of the OLD scene — none of it applies anymore.
-        CommandHistory::Get().Clear();
-        s_SavedRevision = CommandHistory::Get().Revision(); // a freshly loaded scene is "clean"
-
-        phases.Lap( "wait for the GPU, drop the undo history", 0 );
-        const std::size_t outgoing = m_Workspace.ActiveScene()->GetAllEntities().size();
-        m_Workspace.ActiveScene()->Clear();
-        phases.Lap( "clear the open scene", outgoing );
-
-        Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(), m_AssetManager.get() );
-        // Cannot fire - the same text passed the same check above, before anything was torn down. It is
-        // reported and NOT returned from on purpose: the scene is already cleared by this point, so the
-        // rebuild below is what leaves the editor in a coherent (empty) state rather than one holding a
-        // render registry for entities that no longer exist.
-        if ( const auto loaded = serializer.Deserialize( loadable.ExtractValue(), path.string() ); !loaded )
-        {
-            LOG_ERROR( "{0}", loaded.GetError() );
-            Editor::ToastManager::Push( "Scene failed to load — see the log", Editor::ToastLevel::Error );
-        }
-        const std::size_t incoming = m_Workspace.ActiveScene()->GetAllEntities().size();
-        phases.Lap( "deserialize (its own phases are logged above)", incoming );
-
-        // THE SCENE'S DEPENDENCY CLOSURE, from the registry's `deps` column, is read by the loader's workers
-        // while the open waits — meshes, their materials, parents and textures in one batch — so its first
-        // frame is whole and no read happens in a frame (AL1-8b).
-        const Runtime::ClosureResidency closure = Runtime::AwaitSceneClosure( *m_Workspace.ActiveScene() );
-        phases.Lap( "wait for the scene's dependency closure (rows)", closure.Rows );
-        LOG_INFO( "[SceneLoad] closure: {} row(s), {} worker read(s) awaited, {} drawable mesh(es)", closure.Rows,
-                  closure.Reads, closure.DrawableMeshes );
-
-        if ( const auto inited = m_Workspace.ActiveScene()->Init(); !inited.IsSuccess() )
-        {
-            LOG_ERROR( "[EditorLayer] loaded scene failed to initialise: {}", inited.GetError() );
-            Editor::ToastManager::Push( "Scene could not be initialised — see the log",
-                                        Editor::ToastLevel::Error );
-        }
-        phases.Lap( "initialise the scene", incoming );
-
-        // Destroy the old registry FIRST: its destructor unregisters the editor passes by name, and
-        // assignment would run it after the new registry already re-registered them.
-        m_Workspace.RebuildRenderRegistry();
-        phases.Lap( "rebuild the render registry", incoming );
-        phases.LogSummary();
-
-        // THE OPEN SCENE IS NOW THIS FILE, and it is set HERE rather than at the top of the function on
-        // purpose: every early return above leaves a scene that was NOT replaced, and adopting a path for
-        // a load that refused would point the next Ctrl+S at a file the user never opened.
-        //
-        // A RECOVERY COPY OPENS AS THE SCENE IT STANDS FOR. Bound to the copy, Ctrl+S would write the
-        // user's work back into Saved/Autosaves and the real scene would never get it; bound to the
-        // original (empty for a never-saved scene: Save As), Save writes the user's file. The copy is
-        // work the original does not have yet, so the scene starts DIRTY — a revision no command reaches.
-        if ( const auto original = Autosave::SceneFor( path ) )
-        {
-            m_OpenScenePath = *original;
-            s_SavedRevision = ~CommandHistory::Get().Revision();
-            LOG_INFO( "[Recovery] '{}' opened as '{}' (unsaved)", path.string(),
-                      original->empty() ? std::string( "an untitled scene" ) : original->string() );
-            return;
-        }
-        m_OpenScenePath = path;
-
-        // Update recent scenes
-        auto it = std::find( m_RecentScenes.begin(), m_RecentScenes.end(), path );
-        if ( it != m_RecentScenes.end() )
-        {
-            m_RecentScenes.erase( it );
-        }
-        m_RecentScenes.insert( m_RecentScenes.begin(), path );
-
-        if ( m_RecentScenes.size() > 5 )
-        {
-            m_RecentScenes.pop_back();
-        }
-    }
-
     void EditorLayer::DrawWindowMenu()
     {
         namespace ImGui = ::ImGui;
@@ -8016,45 +7411,6 @@ namespace Desert::Editor
         // therefore have to mean "rewrite every open document's file whether or not it changed", it could
         // not report how many of them needed it, and it would touch mtimes the asset hot-reload watches.
         // A per-document dirty flag with a working copy behind it is the next task; the item waits for it.
-
-        ImGui::EndMenu();
-    }
-
-    void EditorLayer::DrawScenesMenu()
-    {
-        namespace ImGui = ::ImGui;
-
-        if ( !ImGui::BeginMenu( "Scenes" ) )
-        {
-            return;
-        }
-
-        if ( ImGui::MenuItem( "Load Scene..." ) )
-        {
-            PrepareScenePopup();
-            m_OpenScenePopup = true;
-        }
-
-        // Opening and closing scene VIEWS moved to View -> Viewports, next to the Scene panel's own toggle.
-        // This menu is about scene FILES; a viewport is not one, and two menus offering the same New Scene
-        // View was two places to keep in step for one action.
-
-        if ( !m_RecentScenes.empty() )
-        {
-            ImGui::Separator();
-            ImGui::TextDisabled( "Recent Scenes" );
-
-            for ( const auto& path : m_RecentScenes )
-            {
-                const std::string label = SceneLabel( path );
-                if ( ImGui::MenuItem( label.c_str() ) )
-                {
-                    // Same gated path as the palette and the Open Scene dialog (see SceneOpenRequest).
-                    Editor::Core::SceneOpenRequest::Request( path.string() );
-                }
-                Utils::ImGuiUtilities::Tooltip( path.string().c_str() );
-            }
-        }
 
         ImGui::EndMenu();
     }
@@ -8239,217 +7595,6 @@ namespace Desert::Editor
         LOG_INFO( "[Demo] Character demo scene built — press Play, then WASD to move + Space to jump." );
     }
 
-    void EditorLayer::DrawOpenScenePopup()
-    {
-        namespace ImGui = ::ImGui;
-
-        if ( m_OpenScenePopup )
-        {
-            ImGui::OpenPopup( "Open Scene" );
-            m_OpenScenePopup = false;
-        }
-
-        ImGui::SetNextWindowPos( ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing,
-                                 ImVec2( 0.5f, 0.5f ) );
-
-        if ( ImGui::BeginPopupModal( "Open Scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize ) )
-        {
-            ImGui::TextUnformatted( "Select Scene" );
-            ImGui::Separator();
-
-            ImGui::SetNextItemWidth( 450.0f );
-            ImGui::InputTextWithHint( "##SceneFilter", ICON_MDI_MAGNIFY " Filter", m_SceneFilter,
-                                      sizeof( m_SceneFilter ) );
-
-            ImGui::BeginChild( "SceneList", ImVec2( 450, 300 ), true );
-
-            const std::string filter  = Lowercased( m_SceneFilter );
-            bool              loadNow = false; // double-click = pick AND load, in one gesture
-            std::string       shownFolder;     // last folder header drawn
-            bool              haveFolder = false;
-            bool              anyShown   = false;
-
-            for ( int i = 0; i < static_cast<int>( m_AvailableScenes.size() ); ++i )
-            {
-                const std::string label = SceneLabel( m_AvailableScenes[i] );
-                if ( !filter.empty() && Lowercased( label ).find( filter ) == std::string::npos )
-                    continue;
-
-                // Split "Folder/Sub/Scene.desce" into its folder header and the scene's own name.
-                const size_t      slash  = label.find_last_of( '/' );
-                const std::string folder = slash == std::string::npos ? std::string() : label.substr( 0, slash );
-                const std::string name   = slash == std::string::npos ? label : label.substr( slash + 1 );
-
-                if ( !haveFolder || folder != shownFolder )
-                {
-                    if ( anyShown )
-                        ImGui::Spacing();
-                    if ( folder.empty() )
-                        ImGui::TextDisabled( ICON_MDI_FOLDER_HOME " Scenes" );
-                    else
-                        ImGui::TextDisabled( ICON_MDI_FOLDER " %s", folder.c_str() );
-                    shownFolder = folder;
-                    haveFolder  = true;
-                }
-
-                anyShown = true;
-
-                ImGui::PushID( i ); // two folders may hold the same filename
-                ImGui::Indent( 12.0f );
-                if ( ImGui::Selectable( name.c_str(), m_SelectedSceneIndex == i,
-                                        ImGuiSelectableFlags_AllowDoubleClick ) )
-                {
-                    m_SelectedSceneIndex = i;
-                    if ( ImGui::IsMouseDoubleClicked( ImGuiMouseButton_Left ) )
-                        loadNow = true;
-                }
-                if ( ImGui::IsItemHovered() )
-                    ImGui::SetTooltip( "%s", m_AvailableScenes[i].string().c_str() );
-                ImGui::Unindent( 12.0f );
-                ImGui::PopID();
-            }
-
-            if ( !anyShown )
-                ImGui::TextDisabled( m_AvailableScenes.empty() ? "No scenes found" : "No match" );
-
-            ImGui::EndChild();
-
-            ImGui::Separator();
-
-            const bool hasSelection =
-                 m_SelectedSceneIndex >= 0 && m_SelectedSceneIndex < static_cast<int>( m_AvailableScenes.size() );
-
-            if ( ImGui::Button( "Load", ImVec2( 120, 0 ) ) || loadNow )
-            {
-                if ( hasSelection )
-                {
-                    // The palette's path, not LoadScene: this button used to skip the unsaved-changes gate
-                    // that the palette, the drop and the asset browser all run, and discarded edits silently.
-                    Editor::Core::SceneOpenRequest::Request( m_AvailableScenes[m_SelectedSceneIndex].string() );
-                }
-
-                ImGui::CloseCurrentPopup();
-            }
-
-            ImGui::SameLine();
-
-            if ( ImGui::Button( "Cancel", ImVec2( 120, 0 ) ) )
-            {
-                ImGui::CloseCurrentPopup();
-            }
-
-            ImGui::EndPopup();
-        }
-    }
-
-    // Guard for the scene handed over by a panel (viewport drop / asset double-click): the document is
-    // about to be replaced, and unlike the menu path this can be triggered by a slip of the mouse. Only
-    // shown when there is something to lose — a clean scene opens straight away.
-    void EditorLayer::DrawConfirmOpenScenePopup()
-    {
-        namespace ImGui = ::ImGui;
-
-        if ( m_ConfirmOpenScenePopup )
-        {
-            ImGui::OpenPopup( "Open Scene?" );
-            m_ConfirmOpenScenePopup = false;
-            // A failure belongs to the attempt that produced it. Without this a save that failed once
-            // would keep warning about a scene the user has since saved by hand.
-            m_SaveAndOpenError.clear();
-        }
-
-        ImGui::SetNextWindowPos( ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing,
-                                 ImVec2( 0.5f, 0.5f ) );
-
-        if ( !ImGui::BeginPopupModal( "Open Scene?", nullptr, ImGuiWindowFlags_AlwaysAutoResize ) )
-            return;
-
-        const bool havePending = m_PendingOpenScene.has_value();
-
-        ImGui::TextUnformatted( "The current scene has unsaved changes." );
-        ImGui::TextDisabled( "Open %s", havePending ? SceneLabel( *m_PendingOpenScene ).c_str() : "" );
-
-        // A failed "Save and Open" from a previous click of this same modal. It is shown INSIDE the
-        // modal rather than only as a toast because the buttons below are still live: the user is about
-        // to decide whether to discard this scene, and that decision changes completely once the save
-        // they asked for turns out not to have happened.
-        if ( !m_SaveAndOpenError.empty() )
-        {
-            ImGui::Separator();
-            ImGui::TextColored( ThemeManager::GetErrorColor(), "%s", m_SaveAndOpenError.c_str() );
-            ImGui::TextDisabled( "\"Discard\" below would throw these changes away for good." );
-        }
-
-        ImGui::Separator();
-
-        if ( ImGui::Button( "Save and Open", ImVec2( 130, 0 ) ) )
-        {
-            // THE GATE THIS WHOLE TASK EXISTS FOR. LoadScene below clears the command history and calls
-            // m_Workspace.ActiveScene()->Clear() — it destroys the only copy of the work the user just asked to
-            // have saved. Before the save chain returned a result this ran unconditionally, so a scene that failed
-            // to reach the disk was then deleted from memory, with a green "Saved" toast over it and nowhere to
-            // recover from. The modal now stays open on a failed write and says so.
-            if ( SaveOpenScene() )
-            {
-                m_SaveAndOpenError.clear();
-                if ( havePending )
-                    LoadScene( *m_PendingOpenScene );
-                m_PendingOpenScene.reset();
-                ImGui::CloseCurrentPopup();
-            }
-            else
-            {
-                m_SaveAndOpenError = "The scene was NOT saved — see the log for the failing step. "
-                                     "Nothing has been opened and nothing has been thrown away.";
-            }
-        }
-
-        ImGui::SameLine();
-
-        if ( ImGui::Button( "Discard", ImVec2( 110, 0 ) ) )
-        {
-            m_SaveAndOpenError.clear();
-            if ( m_PendingOpenScene.has_value() )
-            {
-                LoadScene( *m_PendingOpenScene );
-            }
-            m_PendingOpenScene.reset();
-            ImGui::CloseCurrentPopup();
-        }
-
-        ImGui::SameLine();
-
-        if ( ImGui::Button( "Cancel", ImVec2( 110, 0 ) ) )
-        {
-            m_SaveAndOpenError.clear();
-            m_PendingOpenScene.reset();
-            ImGui::CloseCurrentPopup();
-        }
-
-        ImGui::EndPopup();
-    }
-
-    void EditorLayer::DrawSaveScenePopup()
-    {
-        if ( !m_SaveSceneRequested )
-        {
-            return;
-        }
-
-        m_SaveSceneRequested = false;
-        // Discarded for the same reason as Ctrl+S: File -> Save destroys nothing, and SaveOpenScene has
-        // already reported the outcome and left the unsaved mark standing if the write failed.
-        (void)SaveOpenScene();
-    }
-
-    void EditorLayer::DrawNewScenePopup()
-    {
-    }
-
-    void EditorLayer::DrawReloadScenePopup()
-    {
-    }
-
     void EditorLayer::DrawProjectPopup()
     {
         // Intentionally empty: the editor never opens/switches projects in-session. All content paths
@@ -8526,8 +7671,9 @@ namespace Desert::Editor
             }
             else
             {
-                const auto path = Autosave::PathFor( m_OpenScenePath, m_Workspace.ActiveScene()->GetSceneName(),
-                                                     Autosave::kDeviceLostSuffix );
+                const auto path =
+                     Autosave::PathFor( m_SceneFiles.OpenScenePath(), m_Workspace.ActiveScene()->GetSceneName(),
+                                        Autosave::kDeviceLostSuffix );
                 const auto      dir  = path.parent_path();
                 std::error_code ec;
                 std::filesystem::create_directories( dir, ec );
@@ -8572,7 +7718,7 @@ namespace Desert::Editor
         // be written would be the tail wagging the dog.
         if ( !Editor::IsUnattendedSession( Editor::ShotOptions::Get(),
                                            Control::ControlChannelOptions::Get().Requested() ) )
-            if ( const auto thumbnail = WriteProjectThumbnail(); !thumbnail.IsSuccess() )
+            if ( const auto thumbnail = m_Capture.WriteProjectThumbnail(); !thumbnail.IsSuccess() )
                 LOG_WARN( "[Project] the tile thumbnail was not written on exit: {}", thumbnail.GetError() );
 
         // The app loop exits right after the last PresentFinalImage, so the GPU is still chewing on that
