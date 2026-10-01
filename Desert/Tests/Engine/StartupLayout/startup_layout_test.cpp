@@ -388,7 +388,8 @@ TEST( StartupLayout, SettingTheEngineDirMakesEveryEngineResourcePathAbsoluteAtSt
     P::SetEngineDir( {} );
     // Unset is an error, not a cwd-relative guess: nothing is derived until a host sets the directory.
     ASSERT_FALSE( P::HasEngineDir() );
-    ASSERT_TRUE( P::SHADERDIR_PATH.empty() ) << "the unset state derived a guessed spelling: " << P::SHADERDIR_PATH;
+    ASSERT_TRUE( P::SHADERDIR_PATH.empty() )
+         << "the unset state derived a guessed spelling: " << P::SHADERDIR_PATH;
 
     const fs::path engine = FreshDirectory( "engine_dir_service" ) / "Editor";
     P::SetEngineDir( engine );
