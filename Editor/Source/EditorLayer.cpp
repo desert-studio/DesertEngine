@@ -1705,9 +1705,9 @@ namespace Desert::Editor
                     {
                         Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(),
                                                                   m_AssetManager.get() );
-                        const auto                    path =
-                             Autosave::PathFor( m_SceneFiles.OpenScenePath(), m_Workspace.ActiveScene()->GetSceneName(),
-                                                Autosave::kPeriodicSuffix );
+                        const auto                    path = Autosave::PathFor( m_SceneFiles.OpenScenePath(),
+                                                                                m_Workspace.ActiveScene()->GetSceneName(),
+                                                                                Autosave::kPeriodicSuffix );
                         const auto      dir  = path.parent_path();
                         std::error_code ec;
                         std::filesystem::create_directories( dir, ec );
@@ -1828,7 +1828,8 @@ namespace Desert::Editor
         // capture is exactly that case, so `--play` changes what MOVES in the frame and nothing about
         // where the frame is taken from.
         if ( auto& shot = ShotOptions::Get();
-             shot.PlayActive() && !m_SceneFiles.HasPendingLoad() && !StartupLoading() && m_Workspace.ActiveScene() &&
+             shot.PlayActive() && !m_SceneFiles.HasPendingLoad() && !StartupLoading() &&
+             m_Workspace.ActiveScene() &&
              m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Edit )
         {
             if ( m_Workspace.ActiveScene()->GetActiveCamera() )
@@ -1937,7 +1938,8 @@ namespace Desert::Editor
         // the picture of the scene -- the same shape as the blank-PNG trap the verification skill warns
         // about, and just as invisible in a diff of two such frames.
         if ( const auto& shot = ShotOptions::Get();
-             shot.FlightRoute && m_Workspace.ActiveScene() && !m_SceneFiles.HasPendingLoad() && !StartupLoading() &&
+             shot.FlightRoute && m_Workspace.ActiveScene() && !m_SceneFiles.HasPendingLoad() &&
+             !StartupLoading() &&
              m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Play )
             RecordFlightFrame( !ContentSettling() );
 
@@ -5554,7 +5556,7 @@ namespace Desert::Editor
         state.HasSplash        = m_Splash != nullptr;
         state.Revealed         = m_Revealed;
         state.StartupLoading   = StartupLoading();
-        state.SceneLoadPending = m_SceneFiles.HasPendingLoad();
+        state.SceneLoadPending    = m_SceneFiles.HasPendingLoad();
         state.ContentSettling  = ContentSettling();
         state.RealFrameDrawn   = m_RealFrameDrawn;
         state.ThumbnailsUploading = m_ThumbnailsHoldReveal;
@@ -7669,8 +7671,9 @@ namespace Desert::Editor
             }
             else
             {
-                const auto path = Autosave::PathFor( m_SceneFiles.OpenScenePath(), m_Workspace.ActiveScene()->GetSceneName(),
-                                                     Autosave::kDeviceLostSuffix );
+                const auto path =
+                     Autosave::PathFor( m_SceneFiles.OpenScenePath(), m_Workspace.ActiveScene()->GetSceneName(),
+                                        Autosave::kDeviceLostSuffix );
                 const auto      dir  = path.parent_path();
                 std::error_code ec;
                 std::filesystem::create_directories( dir, ec );

@@ -36,7 +36,7 @@ namespace Desert::Editor
         // The two halves of a window capture: recorded into the frame being built (the swapchain image is
         // ours only between acquire and present), collected once that present went out. A refusal while
         // recording is carried to the collect half so it names the real reason.
-        void                RecordWindowCapture();
+        void               RecordWindowCapture();
         [[nodiscard]] bool WriteWindowPng( const std::string& path, std::string& outError );
 
     private:

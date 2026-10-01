@@ -112,7 +112,8 @@ TEST( SceneInitDeferral, TheDeferredLoadInitialisesTheSceneEvenWhenItRefusesTheF
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const std::string source = StripLineComments( ReadAll( root + "Editor/Source/Editor/LevelEditor/SceneFiles.cpp" ) );
+    const std::string source =
+         StripLineComments( ReadAll( root + "Editor/Source/Editor/LevelEditor/SceneFiles.cpp" ) );
 
     const std::size_t load = source.find( "LoadSceneInternal( path );" );
     ASSERT_NE( load, std::string::npos ) << "the deferred scene load is gone from OnUpdate";

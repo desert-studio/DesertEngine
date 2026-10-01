@@ -12,7 +12,7 @@ namespace Desert::Editor
     // capture cannot quietly differ from a dump in flip, format or the device-idle wait that makes the
     // readback legal at all.
     Common::BoolResultStr ViewportCapture::ReadViewportRGBA8( std::vector<uint8_t>& outPixels, uint32_t& outWidth,
-                                                          uint32_t& outHeight )
+                                                              uint32_t& outHeight )
     {
         if ( !m_Workspace.ActiveScene() )
             return Common::MakeError<bool>( "no scene to capture" );

@@ -394,15 +394,10 @@ namespace Desert::Editor
         void BuildStarterScene();    // fresh Hub project's DefaultScene: sun/ground/cube/light/camera
         void BuildCornellShowcase(); // sandbox demo: baked into CornellDemo.desce on first launch
 
-
-
         // Force re-cook of Cooked/ from sources, re-register cooked assets, refresh the asset panel.
         void RebuildCookedAssets();
 
-
-
     private:
-
         bool m_ShowProfiler = true; // View ▸ Profiler toggles the profiler window
 
     private:
@@ -443,7 +438,7 @@ namespace Desert::Editor
         // Pictures out of the viewport and the window, and the project tile (UE: FScreenshotRequest).
         ViewportCapture m_Capture{ m_Workspace };
         // New / Open / Save of the level file, its dialogs and the Scenes menu (UE: FEditorFileUtils).
-        SceneFiles      m_SceneFiles{ m_Workspace, m_AssetManager, m_Capture };
+        SceneFiles m_SceneFiles{ m_Workspace, m_AssetManager, m_Capture };
 
         // AssetTypeID -> the editor that opens it. Holds factories only; the documents it builds are owned by
         // m_OpenDocuments below.
@@ -579,7 +574,7 @@ namespace Desert::Editor
         bool                                    m_BottomCollapsed = false;
         float                                   m_BottomHeight    = 0.0f;
         void                                    DrawBottomDrawerToggle();
-        char                                    m_LayoutNameBuf[64]  = {};
+        char                                    m_LayoutNameBuf[64] = {};
 
         // Staged startup loading: the heavy boot work (mesh cooking, asset preload) runs one stage per
         // frame from OnUpdate, each announced on the splash, with the main window still hidden.
@@ -738,13 +733,9 @@ namespace Desert::Editor
         // the renderer's frame-in-flight index, which wraps at three and could not order anything.
         uint64_t m_FrameIndex = 0;
 
-
         // A `quit` the channel asked for. Honoured after its reply has actually gone out, so the last
         // answer is not lost to the exit — a client that never hears "ok" cannot tell a clean shutdown
         // from a crash.
         std::optional<int32_t> m_ControlQuitCode;
-
-
-
     };
 } // namespace Desert::Editor

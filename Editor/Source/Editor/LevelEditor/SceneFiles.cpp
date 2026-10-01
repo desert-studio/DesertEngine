@@ -50,7 +50,7 @@ namespace Desert::Editor
 {
     SceneFiles::SceneFiles( SceneWorkspace& workspace, const std::shared_ptr<Assets::AssetManager>& assets,
                             ViewportCapture& capture )
-        : m_Workspace( workspace ), m_Assets( assets ), m_Capture( capture )
+         : m_Workspace( workspace ), m_Assets( assets ), m_Capture( capture )
     {
     }
 
