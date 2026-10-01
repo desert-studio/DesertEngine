@@ -34,6 +34,8 @@
 #include "Editor/LevelEditor/SceneFiles.hpp"
 #include "Editor/LevelEditor/ViewportCapture.hpp"
 #include "Editor/LevelEditor/DocumentHost.hpp"
+#include "Editor/LevelEditor/MainMenu.hpp"
+#include "Editor/LevelEditor/PreferencesWindow.hpp"
 #include "Editor/Widgets/ToolbarLayout.hpp"
 #include "Editor/Widgets/WindowChrome.hpp"
 #include "Editor/Splash/RevealGate.hpp"
@@ -89,22 +91,6 @@ namespace Desert::Editor
     private:
         void DrawMenuBar();
 
-        // ===== Menus =====
-        void DrawFileMenu();
-        void DrawEditMenu();
-        void DrawViewMenu();
-        // Window ▸ Documents: the open documents, focused with a RADIO and closed with an x. A radio and
-        // not a checkbox on purpose — a tick reads as "shown / hidden", which is the very thing a document
-        // cannot be. See DocumentWell.
-        void DrawWindowMenu();
-        void DrawGraphicsMenu();
-        void DrawAboutMenu();
-
-        // ===== Menu sections =====
-        void DrawStyleSubmenu();
-        void DrawOpenSceneMenuItem();
-        void DrawPreferencesWindow(); // Edit -> Preferences... (persisted to ~/.desertengine/editor.json)
-
         // ===== Top Bar Sections =====
         void DrawProjectSection();
         void DrawSceneRenameSection();
@@ -145,12 +131,12 @@ namespace Desert::Editor
 
         // The palette's and the control channel's list, built from m_Commands (see CommandRegistry.hpp).
         [[nodiscard]] std::vector<PaletteCommand> BuildPaletteCommands();
-        // The palette groups of modules not cut out yet (panels, documents, menu, add shape, the palette's own
-        // door, open, scenes/views, save/play/undo/window): registered in palette order between the subject-owned
-        // providers; the later EDL cuts move each to its module (DockLayout, DocumentHost, MainMenu, SceneFiles...).
+        // The palette groups of modules not cut out yet (panels, documents, add shape, the palette's own
+        // door, open, scenes/views, save/play/window): registered in palette order between the subject-owned
+        // providers; the later EDL cuts move each to its module (DockLayout, DocumentHost, MainMenu,
+        // SceneFiles...).
         void AppendPanelCommands( std::vector<PaletteCommand>& commands );
         void AppendMaximizeCommands( std::vector<PaletteCommand>& commands );
-        void AppendMenuCommands( std::vector<PaletteCommand>& commands );
         void AppendAddShapeCommands( std::vector<PaletteCommand>& commands );
         void AppendPaletteDoorCommand( std::vector<PaletteCommand>& commands );
         void AppendSceneCommands( std::vector<PaletteCommand>& commands );
@@ -333,16 +319,27 @@ namespace Desert::Editor
         // Every palette provider, in palette order; registered in OnAttach.
         CommandRegistry m_Commands;
 
-        // THE MENU HELD OPEN, by name, for as long as the channel says so. Empty = nothing held.
-        //
-        // This is what `--open-menu` used to be, and the difference is the whole point: a flag could hold
-        // one menu open for the WHOLE RUN and could never let go, because there was no later moment at
-        // which to tell it to. A menu is now opened and closed like anything else on the palette, so a
-        // session can photograph the View menu and then carry on working.
-        //
-        // Re-issued every frame rather than opened once, for the reason it always was: a menu closes as
-        // soon as focus leaves it, and a capture may land on any frame.
-        std::string m_HeldOpenMenu;
+        // Edit ▸ Preferences... and the toolbar's gear (UE: SSettingsEditor). See
+        // Editor/LevelEditor/PreferencesWindow.hpp.
+        PreferencesWindow m_Preferences{ m_Workspace };
+        // File / Edit / View / Window / Scenes / Graphics / About and the menu's palette entries (UE:
+        // FLevelEditorMenu). The layout's two entries and the editor's exit stay with their owners and arrive as
+        // actions.
+        MainMenu m_MainMenu{ m_Workspace,
+                             m_SceneFiles,
+                             m_Documents,
+                             m_Panels,
+                             m_Preferences,
+                             m_ShowProfiler,
+                             { .RebuildCookedAssets = [this] { RebuildCookedAssets(); },
+                               .RequestExit         = [this] { RequestEditorExit(); },
+                               .SaveLayoutAs =
+                                    [this]
+                               {
+                                   m_LayoutNameBuf[0]    = '\0';
+                                   m_ShowSaveLayoutPopup = true;
+                               },
+                               .ResetLayout = [this] { m_ResetDefaultLayout = true; } } };
 
         // Crash recovery: set at startup when the previous session crashed and an autosave was found.
         bool                  m_ShowRecoveryPrompt = false;
