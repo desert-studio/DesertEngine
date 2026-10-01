@@ -6,24 +6,15 @@
 #include <string_view>
 #include <vector>
 
-namespace Desert::Editor::MaterialAssetUtils
+namespace Desert::Tests::CornellDemo
 {
-    // WHAT THE DEMO MATERIALS ARE, AS DATA RATHER THAN AS ARGUMENTS BURIED IN A BUILDER.
+    // WHAT THE CORNELL DEMO'S MATERIALS MUST SAY — the expected values of the shipped CB_*.demat files.
     //
-    // These values used to live only as literals inside EditorLayer::BuildCornellShowcase, passed
-    // straight into a find-or-create that never looked at them again once a file existed. That made
-    // them unreachable in two senses at once: the builder could not apply them, and NOTHING COULD READ
-    // THEM to check the file against — so `CB_Red.demat` shipped as a chrome mirror (MetallicFactor 1.0,
-    // RoughnessFactor 0.0) against an author that asked for roughness 0.9 and no metalness, and the only
-    // way to find out was to render the scene and notice a wall was black.
-    //
-    // As a table it is content, the builder is mechanism, and the agreement between the table and the
-    // files on disk is a plain data question that Desert/Tests/Engine/MaterialRequestAgreement answers
-    // offline, every sweep, with no editor and no GPU. That is the whole point of moving it: a defect
-    // that previously needed a human looking at a picture now needs a test that already runs.
-    //
-    // It is NOT a mirror of the .demat files — it is their SOURCE. The files are generated from this on
-    // first launch, and the test asserts the generated copies still say what this says.
+    // The files under Editor/Resources/Assets/Materials are the content (CornellDemo.desce references them);
+    // this table is what their author asked for: roughness 0.9 and no metalness on every wall. It lives with
+    // the suite that checks it, because the editor no longer builds the demo — the scene and its materials
+    // are files, and CB_Red once shipped as a chrome mirror (MetallicFactor 1.0, RoughnessFactor 0.0) that
+    // only a human looking at a picture could catch. The test asserts the files still say what this says.
     struct DemoMaterial
     {
         std::string_view                          Name;
@@ -74,4 +65,4 @@ namespace Desert::Editor::MaterialAssetUtils
                 return &material;
         return nullptr;
     }
-} // namespace Desert::Editor::MaterialAssetUtils
+} // namespace Desert::Tests::CornellDemo

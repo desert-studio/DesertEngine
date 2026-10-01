@@ -211,32 +211,22 @@ namespace Desert::Editor
         return verdict.MayDiscardScene;
     }
 
-    void SceneFiles::NewSceneInternal()
+    Common::Filepath SceneFiles::BasicLevelTemplate()
     {
-        // Same teardown as a load, minus the deserialize: clear the current scene to empty and re-init. The
-        // Scene object is REUSED (panels hold its shared_ptr), so their references stay valid.
-        EngineContext::GetInstance().GetDevice()->WaitIdle();
-
-        CommandHistory::Get().Clear();
-        m_SavedRevision = CommandHistory::Get().Revision();
-
-        Core::SelectionManager::ClearSelection();
-        m_Workspace.ActiveScene()->Clear();
-        m_Workspace.ActiveScene()->SetSceneName( "New Scene" );
-        // A new scene is not any file yet. Left pointing at the previous one, the first Ctrl+S would
-        // overwrite the scene the user had just moved away from with an empty world.
-        m_OpenScenePath.clear();
-        if ( const auto inited = m_Workspace.ActiveScene()->Init(); !inited.IsSuccess() )
-            LOG_ERROR( "[EditorLayer] new scene failed to initialise: {}", inited.GetError() );
-
-        // Rebuild the render registry against the fresh registry (its dtor unregisters editor passes by name).
-        m_Workspace.RebuildRenderRegistry();
-
-        Editor::ToastManager::Push( "New scene", Editor::ToastLevel::Success );
-        LOG_INFO( "[Scene] New empty scene" );
+        return Common::Filepath( Common::Constants::Path::ENGINE_CONTENT_PATH / "Maps" / "Templates" /
+                                 ( "Basic" + std::string( Common::Constants::Extensions::SCENE_EXTENSION ) ) );
     }
 
-    void SceneFiles::LoadSceneInternal( const Common::Filepath& requested )
+    void SceneFiles::NewSceneInternal()
+    {
+        // A new scene is the Basic level template opened as an untitled scene — content, not entities made
+        // here. The load's own refusals (a missing template is "Scene file does not exist: <path>") leave the
+        // editor as it was; InitializeIfLoadRefused covers the first boot, whose Init was deferred to this.
+        LoadSceneInternal( BasicLevelTemplate(), OpenAs::Untitled );
+        InitializeIfLoadRefused();
+    }
+
+    void SceneFiles::LoadSceneInternal( const Common::Filepath& requested, const OpenAs openAs )
     {
         // The old path of a moved scene opens the scene where it now lives (the registry follows the
         // redirector the move left); only a redirector the registry cannot resolve reaches the refusal below.
@@ -343,6 +333,18 @@ namespace Desert::Editor
         // user's work back into Saved/Autosaves and the real scene would never get it; bound to the
         // original (empty for a never-saved scene: Save As), Save writes the user's file. The copy is
         // work the original does not have yet, so the scene starts DIRTY — a revision no command reaches.
+        // A LEVEL TEMPLATE IS NOT THE FILE IT WAS READ FROM: no path (Ctrl+S asks where), no asset identity (a
+        // save mints a new GUID instead of copying the template's), not in the recent list.
+        if ( openAs == OpenAs::Untitled )
+        {
+            m_Workspace.ActiveScene()->SetAssetHeader( std::nullopt );
+            m_Workspace.ActiveScene()->SetSceneName( "New Scene" );
+            m_OpenScenePath.clear();
+            Editor::ToastManager::Push( "New scene", Editor::ToastLevel::Success );
+            LOG_INFO( "[Scene] New scene from the level template '{}'", path.string() );
+            return;
+        }
+
         if ( const auto original = Autosave::SceneFor( path ) )
         {
             m_OpenScenePath = *original;

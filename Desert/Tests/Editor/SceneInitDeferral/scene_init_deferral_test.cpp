@@ -93,7 +93,8 @@ TEST( SceneInitDeferral, OnAttachDoesNotBuildARendererForAScenceAlreadyQueuedFor
     ASSERT_FALSE( root.empty() );
     const std::string source = StripLineComments( ReadAll( root + kEditorLayer ) );
 
-    const std::size_t guard = source.find( "if ( !m_SceneFiles.HasPendingLoad() )" );
+    const std::size_t guard =
+         source.find( "if ( !m_SceneFiles.HasPendingLoad() && !m_SceneFiles.HasPendingNew() )" );
     ASSERT_NE( guard, std::string::npos )
          << "OnAttach initialises the main scene unconditionally again. When the constructor has already "
             "queued a scene load — which it has for --scene and for every project with a default scene — "
@@ -103,8 +104,8 @@ TEST( SceneInitDeferral, OnAttachDoesNotBuildARendererForAScenceAlreadyQueuedFor
     // The guard has to be the one in FRONT of the Init, not merely somewhere in the file.
     const std::size_t init = source.find( "m_Workspace.ActiveScene()->Init()", guard );
     ASSERT_NE( init, std::string::npos ) << "no m_Workspace.ActiveScene()->Init() after the guard";
-    EXPECT_LT( init - guard, 200u ) << "the !m_SceneLoadRequested guard and the Init it is supposed to "
-                                       "govern are "
+    EXPECT_LT( init - guard, 200u ) << "the pending-load/pending-new guard and the Init it is supposed "
+                                       "to govern are "
                                     << ( init - guard )
                                     << " characters apart; they are no longer the same statement";
 }
