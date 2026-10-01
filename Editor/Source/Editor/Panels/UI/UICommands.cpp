@@ -5,7 +5,7 @@
 
 namespace Desert::Editor
 {
-    void AppendUICommands( std::vector<PaletteCommand>& commands,
+    void AppendUICommands( std::vector<PaletteCommand>&                  commands,
                            const std::shared_ptr<::Desert::Core::Scene>& scene )
     {
         commands.push_back( { "View", "Toggle 2D UI mode", [&scene]
@@ -19,6 +19,5 @@ namespace Desert::Editor
                                   Editor::ViewportPanel::ToggleUIMode( *scene );
                                   return PaletteCommandDone();
                               } } );
-
     }
 } // namespace Desert::Editor

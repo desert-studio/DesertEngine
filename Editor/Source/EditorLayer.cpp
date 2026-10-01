@@ -508,7 +508,7 @@ namespace Desert::Editor
             const auto camera = [this] { return m_Workspace.ActiveEditorCamera(); };
             m_EntityCommands  = std::make_unique<EntityCommands>( m_Workspace.ActiveScene(),
                                                                   m_Documents.SubjectEditors(), camera );
-            m_AssetCommands = std::make_unique<AssetCommands>(
+            m_AssetCommands   = std::make_unique<AssetCommands>(
                  m_FileExplorerPanel, m_WorldPartitionPanel, m_Workspace.ActiveScene(), m_AssetManager,
                  m_PaletteAssetFiles, camera,
                  [this]( const std::string& folder ) { return ShowFolderInBrowser( folder ); } );
@@ -534,10 +534,12 @@ namespace Desert::Editor
             m_Commands.Register( "Entity", [this]( Out& out ) { m_EntityCommands->Append( out ); } );
             m_Commands.Register( "Modeling (Mesh To Collision)", [this]( Out& out )
                                  { AppendMeshToCollisionCommands( out, m_Workspace.ActiveScene() ); } );
-            m_Commands.Register( "Entity (collapse)", [this]( Out& out ) { m_EntityCommands->AppendCollapse( out ); } );
+            m_Commands.Register( "Entity (collapse)",
+                                 [this]( Out& out ) { m_EntityCommands->AppendCollapse( out ); } );
             m_Commands.Register( "Menu", [this]( Out& out ) { m_MainMenu.AppendMenuCommands( out ); } );
             m_Commands.Register( "Level viewport", []( Out& out ) { AppendViewportCommands( out ); } );
-            m_Commands.Register( "Modeling (Select Elements)", []( Out& out ) { AppendSelectElementsCommand( out ); } );
+            m_Commands.Register( "Modeling (Select Elements)",
+                                 []( Out& out ) { AppendSelectElementsCommand( out ); } );
             m_Commands.Register( "Landscape", [this]( Out& out )
                                  { AppendLandscapeCommands( out, m_Workspace.ActiveScene() ); } );
             m_Commands.Register( "Modeling (Create Shape)", []( Out& out ) { AppendCreateShapeCommands( out ); } );
@@ -549,7 +551,8 @@ namespace Desert::Editor
             m_Commands.Register( "UI",
                                  [this]( Out& out ) { AppendUICommands( out, m_Workspace.ActiveScene() ); } );
             m_Commands.Register( "Palette", [this]( Out& out ) { AppendPaletteDoorCommand( out ); } );
-            m_Commands.Register( "Assets (import)", [this]( Out& out ) { m_AssetCommands->AppendImportCommands( out ); } );
+            m_Commands.Register( "Assets (import)",
+                                 [this]( Out& out ) { m_AssetCommands->AppendImportCommands( out ); } );
             m_Commands.Register( "Foliage",
                                  [this]( Out& out ) {
                                      AppendFoliageCommands( out, m_Workspace.ActiveScene(), m_AssetManager,
@@ -557,11 +560,13 @@ namespace Desert::Editor
                                  } );
             m_Commands.Register( "Open", [this]( Out& out )
                                  { m_Documents.AppendOpenCommands( out, m_PaletteAssetFiles.Files() ); } );
-            m_Commands.Register( "Assets (folders)", [this]( Out& out ) { m_AssetCommands->AppendFolderCommands( out ); } );
+            m_Commands.Register( "Assets (folders)",
+                                 [this]( Out& out ) { m_AssetCommands->AppendFolderCommands( out ); } );
             m_Commands.Register( "Scene", [this]( Out& out ) { AppendSceneCommands( out ); } );
             m_Commands.Register( "Scene (new views)",
                                  [this]( Out& out ) { m_Workspace.AppendNewViewCommands( out ); } );
-            m_Commands.Register( "Debug (GPU allocations)", []( Out& out ) { AppendGpuAllocationCommand( out ); } );
+            m_Commands.Register( "Debug (GPU allocations)",
+                                 []( Out& out ) { AppendGpuAllocationCommand( out ); } );
             m_Commands.Register( "Scene (view layout)",
                                  [this]( Out& out ) { m_Workspace.AppendViewLayoutCommands( out ); } );
             m_Commands.Register( "Scene (actions)", [this]( Out& out ) { AppendSceneTailCommands( out ); } );
@@ -772,11 +777,11 @@ namespace Desert::Editor
                     const uint64_t rev = CommandHistory::Get().Revision();
                     if ( rev != s_LastAutosaveRevision )
                     {
-                        Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(),
-                                                                  m_AssetManager.get() );
-                        const auto                    path = Autosave::PathFor( m_SceneFiles.OpenScenePath(),
-                                                                                m_Workspace.ActiveScene()->GetSceneName(),
-                                                                                Autosave::kPeriodicSuffix );
+                        const Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(),
+                                                                        m_AssetManager.get() );
+                        const auto                          path = Autosave::PathFor( m_SceneFiles.OpenScenePath(),
+                                                                                      m_Workspace.ActiveScene()->GetSceneName(),
+                                                                                      Autosave::kPeriodicSuffix );
                         const auto      dir  = path.parent_path();
                         std::error_code ec;
                         std::filesystem::create_directories( dir, ec );
@@ -831,7 +836,7 @@ namespace Desert::Editor
             {
                 m_Workspace.PrimaryRegistry()->TickRenderTextures( *m_AssetManager, frameTs );
             }
-            for ( auto& doc : m_Workspace.Documents() )
+            for ( const auto& doc : m_Workspace.Documents() )
             {
                 if ( doc->Registry )
                 {
@@ -883,7 +888,7 @@ namespace Desert::Editor
         // per scene so a secondary viewport is a full, independent render — not a static snapshot.
         if ( auto r = UpdateSceneFrame( *m_Workspace.PrimaryScene(), m_Workspace.PrimaryRegistry(), frameTs ); !r )
             return Common::MakeError( r.GetError() );
-        for ( auto& doc : m_Workspace.Documents() )
+        for ( const auto& doc : m_Workspace.Documents() )
             if ( auto r = UpdateSceneFrame( *doc->Scene, doc->Registry.get(), frameTs ); !r )
                 return Common::MakeError( r.GetError() );
 
@@ -980,7 +985,7 @@ namespace Desert::Editor
         // renderer itself now (Scene::OnUpdate), and nothing may sit between a renderer's open and its
         // close. Today this records nothing into the graph anyway — the editor's injected passes execute
         // inside the renderer's own update — so moving it costs the frame nothing.
-        if ( registry )
+        if ( registry != nullptr )
             registry->Render();
 
         {
@@ -1041,7 +1046,7 @@ namespace Desert::Editor
         // Edit mode only (Play discards its changes on Stop anyway) and never while a text field owns the
         // keyboard. Runs at frame start, before any panel iterates the scene.
         {
-            ImGuiIO&   io       = ::ImGui::GetIO();
+            const ImGuiIO& io   = ::ImGui::GetIO();
             const bool editMode = m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Edit;
             if ( editMode && !io.WantTextInput && io.KeyCtrl )
             {
@@ -1242,7 +1247,7 @@ namespace Desert::Editor
         // Offered for the FOCUSED document only, because that is the one a person means by "the preview"
         // and because seven entries per open document would bury everything else in the list.
         if ( ISubjectDocument* focused = m_Documents.Documents().Find( m_Documents.FocusedDocument() );
-             focused && focused->HasPreview() )
+             focused != nullptr && focused->HasPreview() )
         {
             for ( const PreviewViewpoint& viewpoint : kPreviewViewpoints )
             {
@@ -1254,7 +1259,7 @@ namespace Desert::Editor
                                           // the entry being run.
                                           ISubjectDocument* target =
                                                m_Documents.Documents().Find( m_Documents.FocusedDocument() );
-                                          if ( !target || !target->HasPreview() )
+                                          if ( target == nullptr || !target->HasPreview() )
                                           {
                                               // REFUSES INSTEAD OF SLIPPING PAST. That re-resolution is
                                               // exactly a case that can come back empty, and the `if`
@@ -1304,7 +1309,7 @@ namespace Desert::Editor
                 commands.push_back( { "Document", "Apply this document's edits to the scene", [this, subject]
                                       {
                                           ISubjectDocument* target = m_Documents.Documents().Find( subject );
-                                          if ( !target )
+                                          if ( target == nullptr )
                                               return Common::MakeError<bool>(
                                                    "the document that had these edits is no longer open." );
                                           return PaletteCommandOutcome(
@@ -1315,7 +1320,7 @@ namespace Desert::Editor
                 commands.push_back( { "Document", "Discard this document's unapplied edits", [this, subject]
                                       {
                                           ISubjectDocument* target = m_Documents.Documents().Find( subject );
-                                          if ( !target )
+                                          if ( target == nullptr )
                                               return Common::MakeError<bool>(
                                                    "the document that had these edits is no longer open." );
                                           return PaletteCommandOutcome(
@@ -1328,7 +1333,7 @@ namespace Desert::Editor
             commands.push_back( { "Document", "Save this document", [this, subject]
                                   {
                                       ISubjectDocument* target = m_Documents.Documents().Find( subject );
-                                      if ( !target )
+                                      if ( target == nullptr )
                                           return Common::MakeError<bool>( "the document to save is no longer "
                                                                           "open." );
                                       return PaletteCommandOutcome(
@@ -1438,8 +1443,8 @@ namespace Desert::Editor
         if ( !window || !m_Workspace.ActiveScene() )
             return;
 
-        const std::string title = "Desert Engine — " + Editor::ProjectContext::Current().Name + " — " +
-                                  m_Workspace.ActiveScene()->GetSceneName();
+        const std::string title = std::format( "Desert Engine — {} — {}", Editor::ProjectContext::Current().Name,
+                                               m_Workspace.ActiveScene()->GetSceneName() );
         if ( window->GetTitle() != title )
             window->SetTitle( title );
     }
@@ -1494,10 +1499,11 @@ namespace Desert::Editor
         if ( Graphic::DeviceLost::IsLost() && m_Workspace.ActiveScene() )
         {
             using SceneState = ::Desert::Core::Scene::SceneState;
-            Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(), m_AssetManager.get() );
-            const std::string             text = m_Workspace.ActiveScene()->GetState() == SceneState::Edit
-                                                      ? serializer.SerializeToJson()
-                                                      : m_Play.AuthoredSnapshot();
+            const Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(),
+                                                            m_AssetManager.get() );
+            const std::string                   text = m_Workspace.ActiveScene()->GetState() == SceneState::Edit
+                                                            ? serializer.SerializeToJson()
+                                                            : m_Play.AuthoredSnapshot();
             if ( text.empty() )
             {
                 // An empty file under a recovery name is a silent wrong answer: the prompt would offer it

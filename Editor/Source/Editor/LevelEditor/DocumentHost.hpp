@@ -125,6 +125,8 @@ namespace Desert::Editor
         // Named rather than a lambda in the list above — see the definition for both reasons.
         [[nodiscard]] Common::BoolResultStr RunDocumentAction( const SubjectId&   subject,
                                                                const std::string& label );
+        // Runs one "Open" entry from AppendOpenCommands: the path goes through the path openers.
+        [[nodiscard]] Common::BoolResultStr OpenAssetPath( const std::string& path );
 
         // ===== Asset documents (one window per asset, opened from the browser) =====
         // Drains Core::SubjectOpenRequests and, per request, focuses the document already open on that subject

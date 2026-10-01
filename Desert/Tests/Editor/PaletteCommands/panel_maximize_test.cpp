@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -85,7 +86,7 @@ TEST( PanelMaximize, MaximizeUndocksOnceThenRestoreHandsBackTheLayoutCapturedBef
     EXPECT_EQ( state.Before( "Assets", 0, layout.Fn() ), Step::None ); // pending restore survives the Begin
     const auto restored = state.TakeLayoutToRestore();
     ASSERT_TRUE( restored.has_value() );
-    EXPECT_EQ( *restored, captured );
+    EXPECT_EQ( restored, captured );
     EXPECT_TRUE( state.MaximizedPanel().empty() );
     EXPECT_FALSE( state.TakeLayoutToRestore().has_value() ); // once
     EXPECT_EQ( state.Before( "Assets", kBottomDock, layout.Fn() ), Step::None );
@@ -138,5 +139,5 @@ TEST( PanelMaximize, QuittingWhileMaximizedKeepsTheLayoutFromBeforeTheMaximize )
 
     const auto kept = state.LayoutToKeepOnQuit();
     ASSERT_TRUE( kept.has_value() ) << "a maximized panel at quit would be saved as a floating window";
-    EXPECT_EQ( *kept, captured );
+    EXPECT_EQ( kept, captured );
 }

@@ -2,6 +2,8 @@
 
 #include <Engine/Localization/LocalizationService.hpp>
 
+#include <format>
+#include <functional>
 #include <string>
 
 namespace Desert::Editor
@@ -22,8 +24,11 @@ namespace Desert::Editor
         for ( const Localization::LocaleRow& row : Localization::Locales() )
         {
             const std::string tag = std::string( row.Tag );
-            commands.push_back( { "Language", tag + " - " + std::string( row.Endonym ),
-                                  [tag] { return Localization::Localization::Get().SetLanguage( tag ); } } );
+            // Bound, not a lambda: `bugprone-exception-escape` fires on a parameter-less lambda that copies a
+            // string into its closure (see DocumentHost::RunDocumentAction).
+            commands.push_back( { "Language", std::format( "{} - {}", tag, row.Endonym ),
+                                  std::bind_front( &Localization::Localization::SetLanguage,
+                                                   &Localization::Localization::Get(), tag ) } );
         }
     }
 } // namespace Desert::Editor

@@ -230,7 +230,7 @@ namespace Desert::Editor
 
         // The palette providers that hold state or several slots (EDL-2b). Declared after every slot they point
         // at; the census is taken once per build (m_Commands.OnBuildBegin) and read by Assets, Foliage and Open.
-        AssetFileCensus m_PaletteAssetFiles;
+        AssetFileCensus                 m_PaletteAssetFiles;
         std::unique_ptr<EntityCommands> m_EntityCommands;
         std::unique_ptr<AssetCommands>  m_AssetCommands;
     };

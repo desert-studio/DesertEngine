@@ -45,7 +45,8 @@ namespace Desert::Editor
                 const std::string path = manifest.generic_string();
                 // NOLINTBEGIN(bugprone-exception-escape)
                 commands.push_back(
-                     { "Foliage", "Add collection to the palette: " + dir.path().filename().string(),
+                     { "Foliage",
+                       std::format( "Add collection to the palette: {}", dir.path().filename().string() ),
                        [&scene, &assets, path]
                        {
                            if ( !scene || !assets )
@@ -67,7 +68,8 @@ namespace Desert::Editor
                 // FO-UI1: the "+ Foliage" picker's static meshes (a type is found or made for the mesh).
                 if ( ext == ".fbx" || ext == ".obj" || ext == ".gltf" || ext == ".glb" )
                     commands.push_back(
-                         { "Foliage", "Add mesh to the palette: " + file.stem().string(), [&scene, &assets, path]
+                         { "Foliage", std::format( "Add mesh to the palette: {}", file.stem().string() ),
+                           [&scene, &assets, path]
                            {
                                if ( !scene || !assets )
                                    return PaletteCommandOutcome( false, "no scene or no asset manager" );
@@ -77,7 +79,8 @@ namespace Desert::Editor
                 // FO-8: the "+ Foliage" picker's prefabs (a Prefab type is found or made for the prefab).
                 if ( ext == ".deprefab" )
                     commands.push_back(
-                         { "Foliage", "Add prefab to the palette: " + file.stem().string(), [&scene, &assets, path]
+                         { "Foliage", std::format( "Add prefab to the palette: {}", file.stem().string() ),
+                           [&scene, &assets, path]
                            {
                                if ( !scene || !assets )
                                    return PaletteCommandOutcome( false, "no scene or no asset manager" );
@@ -87,7 +90,8 @@ namespace Desert::Editor
                 if ( ext != Assets::Serialization::kFoliageTypeExtension )
                     continue;
                 commands.push_back(
-                     { "Foliage", "Add type to the palette: " + file.stem().string(), [&scene, &assets, path]
+                     { "Foliage", std::format( "Add type to the palette: {}", file.stem().string() ),
+                       [&scene, &assets, path]
                        {
                            if ( !scene || !assets )
                                return PaletteCommandOutcome( false, "no scene or no asset manager" );
@@ -96,7 +100,8 @@ namespace Desert::Editor
                        } } );
                 // FO-UI1: the row menu's Replace.
                 commands.push_back(
-                     { "Foliage", "Replace the edited type with: " + file.stem().string(), [&scene, &assets, path]
+                     { "Foliage", std::format( "Replace the edited type with: {}", file.stem().string() ),
+                       [&scene, &assets, path]
                        {
                            const auto editing = Core::FoliagePaint::EditingType();
                            if ( !scene || !assets || !editing )
@@ -217,7 +222,7 @@ namespace Desert::Editor
                           entity.GetComponent<ECS::LandscapeTileComponent>().Heights->WeightLayers() )
                         layerNames.insert( layer.Name );
             for ( const auto& name : layerNames )
-                commands.push_back( { "Foliage", "Brush layer filter: toggle " + name,
+                commands.push_back( { "Foliage", std::format( "Brush layer filter: toggle {}", name ),
                                       [name]() -> Common::BoolResultStr
                                       {
                                           auto&      layers = Core::FoliagePaint::BrushLayers();
@@ -232,12 +237,13 @@ namespace Desert::Editor
             for ( const auto& field : Tools::FoliagePaintTool::PaletteFields( *scene ) )
             {
                 const auto uuid = field.GetComponent<ECS::UUIDComponent>().UUID;
-                commands.push_back( { "Foliage", "Palette: edit " + field.GetComponent<ECS::TagComponent>().Tag,
-                                      [uuid]() -> Common::BoolResultStr
-                                      {
-                                          Core::FoliagePaint::SetEditingType( uuid );
-                                          return BOOLSUCCESS;
-                                      } } );
+                commands.push_back(
+                     { "Foliage", std::format( "Palette: edit {}", field.GetComponent<ECS::TagComponent>().Tag ),
+                       [uuid]() -> Common::BoolResultStr
+                       {
+                           Core::FoliagePaint::SetEditingType( uuid );
+                           return BOOLSUCCESS;
+                       } } );
             }
         }
         using FieldAction = std::function<Common::BoolResultStr( const Common::UUID& )>;
