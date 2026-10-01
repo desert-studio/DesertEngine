@@ -179,6 +179,10 @@ namespace Desert::Editor
         phases.LogSummary();
 
         scene->SetState( SceneState::Edit );
+        // The session ends with the world: without this the editor kept reporting Play (MCP state "playing")
+        // after every Stop — only a closed scene view used to end it (EndIfBoundTo).
+        m_State = State::Paused;
+        m_Snapshot.clear();
     }
 
     void PlaySession::ServiceRequests()
