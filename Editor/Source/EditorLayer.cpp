@@ -562,7 +562,7 @@ namespace Desert::Editor
                                  { m_Documents.AppendOpenCommands( out, m_PaletteAssetFiles.Files() ); } );
             m_Commands.Register( "Assets (folders)",
                                  [this]( Out& out ) { m_AssetCommands->AppendFolderCommands( out ); } );
-            m_Commands.Register( "Scene", [this]( Out& out ) { AppendSceneCommands( out ); } );
+            m_Commands.Register( "Scene", []( Out& out ) { AppendSceneCommands( out ); } );
             m_Commands.Register( "Scene (new views)",
                                  [this]( Out& out ) { m_Workspace.AppendNewViewCommands( out ); } );
             m_Commands.Register( "Debug (GPU allocations)",

@@ -90,7 +90,7 @@ namespace Desert::Editor
         // registered in palette order between the subject-owned providers.
         void AppendAddShapeCommands( std::vector<PaletteCommand>& commands );
         void AppendPaletteDoorCommand( std::vector<PaletteCommand>& commands );
-        void AppendSceneCommands( std::vector<PaletteCommand>& commands );
+        static void AppendSceneCommands( std::vector<PaletteCommand>& commands );
         void AppendSceneTailCommands( std::vector<PaletteCommand>& commands );
 
         // Ctrl+P "go to anything": draws the overlay over the dictionary above. No-op unless open.

@@ -7,6 +7,7 @@
 #include <regex>
 #include <set>
 #include <sstream>
+#include <format>
 #include <string>
 
 using namespace Desert;
@@ -319,7 +320,8 @@ TEST( SceneOpenRegister, OnlyTheGatedPlacesCallLoadScene )
     std::smatch entry;
     ASSERT_TRUE( std::regex_search( layer, entry, palette ) )
          << "no palette entry std::format( \"Open Scene {}\", Label( scene ) ) bound to a named function";
-    const std::regex gate( entry[1].str() + R"(\([^)]*\)\s*\{[^}]*SceneOpenRequest::Request\()" );
+    const std::regex gate(
+         std::format( R"({}\([^)]*\)\s*\{{[^}}]*SceneOpenRequest::Request\()", entry[1].str() ) );
     EXPECT_TRUE( std::regex_search( layer, gate ) ) << "the \"Open Scene\" palette entry runs " << entry[1].str()
                                                     << ", which does not call SceneOpenRequest::Request";
 }

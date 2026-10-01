@@ -22,6 +22,7 @@
 #include <regex>
 #include <set>
 #include <sstream>
+#include <format>
 #include <string>
 #include <vector>
 
@@ -356,7 +357,8 @@ namespace
             return true;
         if ( token.size() < 2 || token.front() != '"' || token.back() != '"' )
             return false;
-        return layer.find( "std::format( " + token.substr( 0, token.size() - 1 ) + "{" ) != std::string::npos;
+        return layer.find( std::format( "std::format( {}{{", token.substr( 0, token.size() - 1 ) ) ) !=
+               std::string::npos;
     }
 
     constexpr const char* kPanel = "Editor/Source/Editor/Panels/Foliage/FoliagePanel.cpp";
