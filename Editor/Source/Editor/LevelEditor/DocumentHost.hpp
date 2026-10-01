@@ -47,7 +47,8 @@ namespace Desert::Editor
         DocumentHost( const DocumentHost& )            = delete;
         DocumentHost& operator=( const DocumentHost& ) = delete;
 
-        // The registry the asset-editor registrations fill (EditorLayer::OnAttach) and every opener reads.
+        // The registry the asset-editor registrations fill (RegisterAssetEditors, AssetEditorRegistrations.hpp)
+        // and every opener reads.
         [[nodiscard]] SubjectEditorRegistry& SubjectEditors()
         {
             return m_SubjectEditors;
