@@ -439,10 +439,8 @@ TEST( GraphCanvasIdentity, TheFreshnessRuleIsOneRuleForBothGraphs )
 
 TEST( GraphCanvasIdentity, EveryCommittedAnimGraphPlansToTheSameCanvasTwice )
 {
-    const std::filesystem::path root = RepoRoot();
-    ASSERT_FALSE( root.empty() );
-
-    const std::filesystem::path folder = root / "Editor/Resources/Assets/AnimGraphs";
+    // The committed anim graphs are TEST DATA (Desert/Tests/Data), not engine content: the engine ships none.
+    const std::filesystem::path folder = Desert::TestSupport::TestDataDir() / "Resources/Assets/AnimGraphs";
     ASSERT_TRUE( std::filesystem::exists( folder ) ) << folder.generic_string();
 
     std::vector<std::filesystem::path> files;

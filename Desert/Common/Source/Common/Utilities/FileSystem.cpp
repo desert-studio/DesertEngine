@@ -61,11 +61,25 @@ namespace Common::Utils
                 std::this_thread::sleep_for( std::chrono::milliseconds( 10 * attempts ) );
             }
         }
+
+        // THE DISK SPELLING OF A CONTENT PATH (UE: every IFileManager call goes through
+        // FPaths::ConvertRelativePathToFull). A RELATIVE path is relative to the PROJECT — the same rule
+        // VFS::CanonicalAbs applies to the archive side — never to the process's working directory: the
+        // disk side read the cwd while the pak side read ProjectDir, so one relative spelling named two
+        // files depending on which side answered. Absolute paths and synthetic keys (`procedural://`)
+        // are taken as given; an unset root is FullPath's refusal, not a cwd fallback.
+        [[nodiscard]] fs::path OnDisk( const fs::path& filepath )
+        {
+            if ( filepath.empty() || filepath.is_absolute() ||
+                 filepath.generic_string().find( "://" ) != std::string::npos )
+                return filepath;
+            return Common::Constants::Path::FullPath( filepath );
+        }
     } // namespace
 
     bool FileSystem::Exists( const std::filesystem::path& filepath )
     {
-        return fs::exists( filepath ) || VFS::Exists( filepath );
+        return fs::exists( OnDisk( filepath ) ) || VFS::Exists( filepath );
     }
 
     bool FileSystem::Exists( const std::string& filepath )
@@ -190,7 +204,7 @@ namespace Common::Utils
 
     Common::ResultStr<std::string> FileSystem::ReadFileContent( const std::filesystem::path& filepath )
     {
-        std::ifstream in( filepath, std::ios::in | std::ios::binary );
+        std::ifstream in( OnDisk( filepath ), std::ios::in | std::ios::binary );
         if ( !in )
         {
             // Not on disk: a packaged game serves content from the mounted .dpak (disk first so loose
@@ -238,7 +252,7 @@ namespace Common::Utils
     Common::ResultStr<std::string> FileSystem::ReadFileContentPrefix( const std::filesystem::path& filepath,
                                                                       const std::size_t            maxBytes )
     {
-        std::ifstream in( filepath, std::ios::in | std::ios::binary );
+        std::ifstream in( OnDisk( filepath ), std::ios::in | std::ios::binary );
         if ( !in )
         {
             // Not on disk: fall through to the archive, which has no ranged read — see the header for
@@ -283,7 +297,7 @@ namespace Common::Utils
     Common::ResultStr<std::vector<uint8_t>>
     FileSystem::ReadByteFileContent( const std::filesystem::path& filepath )
     {
-        std::ifstream file( filepath, std::ios::in | std::ios::binary );
+        std::ifstream file( OnDisk( filepath ), std::ios::in | std::ios::binary );
         if ( !file )
         {
             if ( auto packed = VFS::ReadFile( filepath ) )
@@ -385,8 +399,9 @@ namespace Common::Utils
     uint32_t FileSystem::GetFileSize( const std::filesystem::path& filepath )
     {
         std::error_code ec;
-        if ( fs::exists( filepath, ec ) )
-            return (uint32_t)fs::file_size( filepath, ec );
+        const fs::path  onDisk = OnDisk( filepath );
+        if ( fs::exists( onDisk, ec ) )
+            return (uint32_t)fs::file_size( onDisk, ec );
         if ( auto packed = VFS::FileSize( filepath ) )
             return (uint32_t)*packed;
         return 0;
@@ -400,10 +415,13 @@ namespace Common::Utils
         return WriteBytesToFileAtomic( filepath, content, temp );
     }
 
-    Common::BoolResultStr FileSystem::WriteBytesToFileAtomic( const std::filesystem::path& filepath,
+    Common::BoolResultStr FileSystem::WriteBytesToFileAtomic( const std::filesystem::path& requestedPath,
                                                               std::span<const std::byte>   content,
-                                                              const std::filesystem::path& workingFile )
+                                                              const std::filesystem::path& requestedWorkingFile )
     {
+        // The write lands where a read of the same spelling looks: relative = off the project (OnDisk).
+        const fs::path filepath    = OnDisk( requestedPath );
+        const fs::path workingFile = OnDisk( requestedWorkingFile );
         // Contract and the reasoning behind every step are in the header. In one line: the original
         // file must survive a failure at ANY point, so nothing here ever opens the original for write.
         std::ofstream out( workingFile, std::ios::binary | std::ios::trunc );

@@ -60,7 +60,10 @@ namespace
 
 TEST_F( HumanoidSkeleton, TheFactoryPathIsTheEngineMountFile )
 {
-    EXPECT_EQ( Geometry::HumanoidSkeletonFile().lexically_normal(), fs::path( kHumanoid ).lexically_normal() );
+    // Engine content is spelled off the engine directory (UE: FPaths::EngineContentDir), so the factory's path is
+    // the committed file under THIS engine dir, not a bare relative spelling a cwd would have to complete.
+    EXPECT_EQ( Geometry::HumanoidSkeletonFile().lexically_normal(),
+               ( Common::Constants::Path::EngineDir() / kHumanoid ).lexically_normal() );
 }
 
 TEST_F( HumanoidSkeleton, TheFactoryBonesAreTheFileBones )

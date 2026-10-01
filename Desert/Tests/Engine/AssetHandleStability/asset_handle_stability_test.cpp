@@ -703,8 +703,14 @@ TEST( AssetHandleStability, EveryRootsKeyExpandsBackToThePathItCameFrom )
 
     // Engine resources come back too, and they must not follow the project: the same key under a
     // different project has to expand to the same file.
-    const std::string shaderKey = Common::AssetHandle::StableKeyForPath( "Resources/Shaders/Programs/PBR.shader" );
+    // Spelled off the ENGINE directory (UE: FPaths::EngineDir), the only place engine shaders live; a bare
+    // relative `Resources/...` would be read off the PROJECT and is not an engine path. The mount-prefixed
+    // spelling a material stores is its own key.
+    const std::string shaderKey = Common::AssetHandle::StableKeyForPath( Common::Constants::Path::EngineDir() /
+                                                                         "Resources/Shaders/Programs/PBR.shader" );
     EXPECT_EQ( shaderKey, "engine:Shaders/Programs/PBR.shader" );
+    EXPECT_EQ( Common::AssetHandle::StableKeyForPath( "engine:Shaders/Programs/PBR.shader" ), shaderKey )
+         << "a mount-prefixed engine path was read as a project-relative one";
     const std::filesystem::path underOneProject = Common::AssetHandle::PathForStableKey( shaderKey );
     Common::Constants::Path::SetProjectRoot( "/opt/ci/checkout/Other", "Assets" );
     EXPECT_EQ( Common::AssetHandle::PathForStableKey( shaderKey ), underOneProject );
@@ -763,10 +769,12 @@ TEST( AssetHandleStability, TwoRootsThatShareAPrefixDoNotSwapKeysOnExpansion )
 
     EXPECT_NE( Common::AssetHandle::PathForStableKey( "assets:Textures/T.png" ),
                Common::AssetHandle::PathForStableKey( "engine:Textures/T.png" ) );
-    EXPECT_EQ( Common::AssetHandle::PathForStableKey( "assets:Textures/T.png" ).generic_string(),
-               "Resources/Assets/Textures/T.png" );
-    EXPECT_EQ( Common::AssetHandle::PathForStableKey( "engine:Textures/T.png" ).generic_string(),
-               "Resources/Textures/T.png" );
+    // The sandbox's roots hang off the engine directory (ENG-ROOT), so the expansions are absolute there.
+    const std::filesystem::path engineDir = Common::Constants::Path::EngineDir();
+    EXPECT_EQ( Common::AssetHandle::PathForStableKey( "assets:Textures/T.png" ),
+               ( engineDir / "Resources/Assets/Textures/T.png" ).lexically_normal() );
+    EXPECT_EQ( Common::AssetHandle::PathForStableKey( "engine:Textures/T.png" ),
+               ( engineDir / "Resources/Textures/T.png" ).lexically_normal() );
 }
 
 TEST( AssetHandleStability, AnAbsoluteAndARelativeSpellingOfOneAssetAgree )
@@ -1693,6 +1701,18 @@ TEST_P( AssetOpenedByItsOldPath, IsTheMovedAssetAndLoadsItsBytes )
     fs::remove_all( root );
     fs::create_directories( root );
     root = fs::canonical( root );
+    // ENGINE-rooted kinds (a .shader lives under EngineDir()/Resources/Shaders) would otherwise be written into
+    // the checkout's own engine tree and outlive the test — the moved file and its redirector stayed there and
+    // every later gather over the engine read them. The engine directory is scoped to the scratch root as well.
+    struct EngineDirRestore
+    {
+        fs::path Saved = Common::Constants::Path::EngineDir();
+        ~EngineDirRestore()
+        {
+            Common::Constants::Path::SetEngineDir( Saved );
+        }
+    } const engineDirRestore;
+    Common::Constants::Path::SetEngineDir( root );
     Common::Constants::Path::SetProjectRoot( root, "Resources/Assets" );
     const fs::path& spec = *Common::Content::KindSpec( kind.Kind ).Root;
     // A string table's language is its directory (STRT 3), so it sits one level down, as in a project.

@@ -139,8 +139,8 @@ TEST_F( AnimationLibraryOnDemand, TheSpawnedHumanoidsDefaultClipIsACommittedEngi
             EXPECT_FALSE( binding.Locator.empty() ) << "a bone binding names no bone";
 
     // (HumanoidMeshFile lives in the generator's .cpp, which this suite does not link; the path is spelled.)
-    EXPECT_TRUE( fs::is_regular_file( Path::CurrentProjectRoot().ProjectDir /
-                                      "Resources/Engine/Meshes/Skinned/Humanoid.skmesh" ) )
+    // An ENGINE asset (UE /Engine/), so it is spelled off the engine directory, not the project's.
+    EXPECT_TRUE( fs::is_regular_file( Path::EngineDir() / "Resources/Engine/Meshes/Skinned/Humanoid.skmesh" ) )
          << "the humanoid's body Humanoid.skmesh is not committed";
 }
 

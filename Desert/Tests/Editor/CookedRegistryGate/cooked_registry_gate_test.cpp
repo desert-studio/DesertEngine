@@ -59,15 +59,18 @@ namespace
     class SandboxProject
     {
     public:
-        explicit SandboxProject( const fs::path& repoRoot )
+        // The engine is always the checkout's Editor/; the PROJECT defaults to the engine's own sandbox and may be
+        // any committed `.deproj` (the suite data project Desert/Tests/Data is the other one the repository
+        // ships).
+        explicit SandboxProject( const fs::path& repoRoot, const fs::path& projectFile = {} )
              : m_SavedRoot( Common::Constants::Path::CurrentProjectRoot() ),
                m_SavedEngineDir( Common::Constants::Path::EngineDir() )
         {
             const fs::path editorDir = repoRoot / "Editor";
             Common::Constants::Path::SetEngineDir( editorDir );
 
-            const auto json =
-                 Common::Utils::FileSystem::ReadFileContent( ( editorDir / "Desert.deproj" ).string() );
+            const fs::path deproj = projectFile.empty() ? editorDir / "Desert.deproj" : projectFile;
+            const auto     json   = Common::Utils::FileSystem::ReadFileContent( deproj.string() );
             if ( !json )
                 return;
 
@@ -75,7 +78,7 @@ namespace
             if ( !project )
                 return;
 
-            Common::Constants::Path::SetProjectRoot( editorDir, project.GetValue().AssetsRoot );
+            Common::Constants::Path::SetProjectRoot( deproj.parent_path(), project.GetValue().AssetsRoot );
             m_Opened = true;
         }
 
@@ -194,22 +197,32 @@ TEST( CookedRegistryGate, EveryContentKindIsRepresentedByTheShippedCorpus )
     // a census worth having is that it would have gone red, and that is only true of rows it reaches.
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const SandboxProject project( root );
-    ASSERT_TRUE( project.Opened() );
 
-    auto loaded = Common::MakeSuccess( Common::Content::GatherContentRegistry( {} ).Registry );
-    ASSERT_TRUE( loaded ) << loaded.GetError();
-
-    const auto tracked = Common::Content::TrackedContent( root );
-    if ( !tracked.has_value() )
-    {
-        ADD_FAILURE() << "the gate could not run — see the first test for what that means";
-        return;
-    }
-
+    // THE SHIPPED CORPUS IS EVERY COMMITTED PROJECT, not the engine's sandbox alone: engine content lives under
+    // Editor/Resources, and the fixtures only tests read (rigs, anim graphs, retargets) are the suite data
+    // project Desert/Tests/Data (ENG-ROOT). Each is opened as what it is — its own project over the one engine —
+    // and a kind counts as exercised when either corpus tracks it AND that project's registry holds the row.
+    const fs::path corpora[] = { root / "Editor/Desert.deproj", root / "Desert/Tests/Data/DesertTests.deproj" };
     std::set<std::string> kindsTracked;
-    for ( const auto& [key, file] : *tracked )
-        kindsTracked.insert( std::string( Common::Content::KindName( file.Kind ) ) );
+    std::set<std::string> kindsRegistered;
+    for ( const fs::path& deproj : corpora )
+    {
+        const SandboxProject project( root, deproj );
+        ASSERT_TRUE( project.Opened() ) << deproj.generic_string();
+
+        const Common::Utils::AssetRegistry registry = Common::Content::GatherContentRegistry( {} ).Registry;
+        for ( const Common::Utils::AssetRegistryEntry& row : registry.Entries() )
+            kindsRegistered.insert( row.Kind );
+
+        const auto tracked = Common::Content::TrackedContent( root );
+        if ( !tracked.has_value() )
+        {
+            ADD_FAILURE() << "the gate could not run — see the first test for what that means";
+            return;
+        }
+        for ( const auto& [key, file] : *tracked )
+            kindsTracked.insert( std::string( Common::Content::KindName( file.Kind ) ) );
+    }
 
     // KINDS THAT ARE PRODUCED, NEVER COMMITTED — one named row each, with the suite that reaches the row
     // instead. A kind listed here that the repository DOES track again is red: the exemption would then be
@@ -258,7 +271,7 @@ TEST( CookedRegistryGate, EveryContentKindIsRepresentedByTheShippedCorpus )
 
         EXPECT_NE( kindsTracked.find( name ), kindsTracked.end() )
              << "this repository ships no '" << name
-             << "' file, so nothing has ever exercised that census row: its root ("
+             << "' file in any committed project, so nothing has ever exercised that census row: its root ("
              << Common::Content::KindSpec( kind ).Root->string() << ") and its extension ("
              << Common::Content::KindSpec( kind ).Extension
              << ") could both be wrong and every run of this gate would still be green. Add one file of "
@@ -266,7 +279,7 @@ TEST( CookedRegistryGate, EveryContentKindIsRepresentedByTheShippedCorpus )
                 "COMMITTED, not merely present on your machine: a fixture nobody pushed certifies this "
                 "gate for its author and for nobody else, which has already happened twice.";
 
-        EXPECT_FALSE( loaded.GetValue().OfKind( name ).empty() )
+        EXPECT_NE( kindsRegistered.find( name ), kindsRegistered.end() )
              << "the registry holds no '" << name << "' row while the repository tracks one";
     }
 }

@@ -375,13 +375,32 @@ TEST( DerivedDataKey, GitIgnoresTheCacheAndNeverReIncludesIt )
 
     // The two lines are unanchored, so they would also swallow SOURCE: a directory of either name inside
     // the source trees is ignored and `git add` skips it without a word (this suite's first name did).
+    //
+    // EXCEPT where the folder is a PROJECT's own output (UE: <Project>/Saved, <Project>/DerivedDataCache):
+    // a directory holding a `.deproj` is a project root — the suite data project Desert/Tests/Data is one —
+    // and the editor opened on it writes exactly these two folders beside the `.deproj`. Ignoring them there
+    // is the line's purpose, not the hazard; any OTHER directory of either name is still source and refused.
+    const auto isProjectRoot = []( const fs::path& dir )
+    {
+        std::error_code listEc;
+        for ( const auto& entry : fs::directory_iterator( dir, listEc ) )
+            if ( entry.path().extension() == ".deproj" )
+                return true;
+        return false;
+    };
     for ( const char* root : { "Desert", "Editor/Source", "Runtime", "Tools" } )
     {
         std::error_code ec;
         for ( const auto& e : fs::recursive_directory_iterator( repo / root, ec ) )
-            if ( e.is_directory( ec ) )
-                EXPECT_TRUE( e.path().filename() != "DerivedDataCache" && e.path().filename() != "Saved" )
-                     << e.path().lexically_relative( repo ).generic_string() << " is ignored by .gitignore";
+        {
+            if ( !e.is_directory( ec ) )
+                continue;
+            const bool generatedName = e.path().filename() == "DerivedDataCache" || e.path().filename() == "Saved";
+            if ( generatedName && isProjectRoot( e.path().parent_path() ) )
+                continue;
+            EXPECT_FALSE( generatedName )
+                 << e.path().lexically_relative( repo ).generic_string() << " is ignored by .gitignore";
+        }
     }
 }
 

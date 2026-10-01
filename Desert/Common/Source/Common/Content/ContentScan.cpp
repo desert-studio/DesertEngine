@@ -633,7 +633,13 @@ namespace Common::Content
              {
                  const Utils::AssetRegistryEntry* cached   = cache.Registry.FindByKey( key );
                  const auto                       modified = cache.Modified.find( key );
-                 if ( cached != nullptr && modified != cache.Modified.end() && cached->Kind == KindName( kind ) &&
+                 // A REDIRECTOR's row states kind Redirector while the walk classifies its file by the extension
+                 // of the asset it stands in for (RegistryRowFor); comparing only against the walk's kind
+                 // re-read every redirector on every gather. Either kind the read itself would write agrees.
+                 const bool kindAgrees =
+                      cached != nullptr &&
+                      ( cached->Kind == KindName( kind ) || cached->Kind == KindName( ContentKind::Redirector ) );
+                 if ( kindAgrees && modified != cache.Modified.end() &&
                       cached->Size == Utils::FileSystem::GetFileSize( file ) &&
                       modified->second == ModifiedTime( file ) )
                  {

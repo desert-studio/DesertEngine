@@ -169,6 +169,18 @@ namespace Common
             if ( path.generic_string().find( "://" ) != std::string::npos )
                 return normalized.generic_string();
 
+            // AN ALREADY-TAGGED KEY (`engine:Shaders/X.shader`, `assets:T.png`) is a mount-prefixed name, not a
+            // relative path (UE: `/Engine/...` vs `/Game/...`): it is its own key. Joining it to ProjectDir would
+            // mint `<project>/engine:...`, which names no file and hashes to an identity nobody else derives.
+            const std::string spelled = path.generic_string();
+            for ( const PathRoot& candidate : ContentRoots() )
+            {
+                const std::string prefix = std::string( candidate.Tag ) + ':';
+                if ( spelled.size() > prefix.size() && spelled.rfind( prefix, 0 ) == 0 )
+                    return prefix +
+                           fs::path( spelled.substr( prefix.size() ) ).lexically_normal().generic_string();
+            }
+
             // A relative spelling is relative to the PROJECT (UE: FPaths::ConvertRelativePathToFull reads
             // ProjectDir), never to the process's working directory; FullPath refuses one when no root is set.
             // A path that is already absolute is taken as given.
