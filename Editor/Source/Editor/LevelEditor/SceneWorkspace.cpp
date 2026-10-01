@@ -6,6 +6,7 @@
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
 #include <Editor/Core/Selection/SelectionManager.hpp>
 
+#include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/SceneRenderCollectors.hpp>
 #include <Engine/ECS/System/AnimationECSSystem.hpp>
@@ -105,6 +106,18 @@ namespace Desert::Editor
         Core::SelectionManager::ClearSelection();
 
         LOG_INFO( "[Editor] Active scene -> '{}' (view #{})", m_ActiveScene->GetSceneName(), id );
+    }
+
+    // ── THE EDITOR'S OWN VIEW, AS SOMETHING THE CHANNEL CAN ADDRESS ────────────────────────────────────
+    //
+    // The scene's active camera, IF it is the editor's fly camera. Null in Play, where the view belongs to
+    // the scene's own CameraComponent — and null is the honest answer there rather than a pinned override,
+    // because "the editor camera" is not what is being looked through.
+    Desert::Core::EditorCamera* SceneWorkspace::ActiveEditorCamera() const
+    {
+        if ( !m_ActiveScene )
+            return nullptr;
+        return dynamic_cast<Desert::Core::EditorCamera*>( m_ActiveScene->GetActiveCamera().get() );
     }
 
     bool SceneWorkspace::HasPendingRequests() const

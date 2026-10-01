@@ -22,6 +22,11 @@
 #include <string>
 #include <vector>
 
+namespace Desert::Core
+{
+    class EditorCamera;
+}
+
 namespace Desert::Editor
 {
     class PanelRegistry;
@@ -66,6 +71,9 @@ namespace Desert::Editor
         {
             return m_ActiveScene;
         }
+        // The active view IF it is the editor's fly camera; null in Play, where the scene's own
+        // CameraComponent drives (the channel's `viewport` subject, `--camera`/`--look`, the entity palette).
+        [[nodiscard]] Desert::Core::EditorCamera*                 ActiveEditorCamera() const;
         [[nodiscard]] const std::shared_ptr<Desert::Core::Scene>& PrimaryScene() const
         {
             return m_PrimaryScene;
