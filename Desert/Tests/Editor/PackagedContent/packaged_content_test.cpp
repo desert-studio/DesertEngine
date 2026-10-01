@@ -53,6 +53,7 @@
 #include <PackagedContent.hpp>
 
 #include <gtest/gtest.h>
+#include "../../TestSupport/engine_dir.hpp"
 
 #include <cstdint>
 
@@ -151,14 +152,13 @@ namespace
     // Restores the engine directory, HOME and the (global) project-root remap, whatever the test body did.
     struct EnvironmentGuard
     {
-        fs::path OldEngineDir = Common::Constants::Path::EngineDir();
+        Desert::TestSupport::EngineDirScope EngineDir; // restores the previous engine directory on exit
         // NOLINTNEXTLINE(concurrency-mt-unsafe): single-threaded test fixture
         bool        HadHome = std::getenv( "HOME" ) != nullptr;
         // NOLINTNEXTLINE(concurrency-mt-unsafe): single-threaded test fixture
         std::string OldHome = HadHome ? std::getenv( "HOME" ) : "";
         ~EnvironmentGuard()
         {
-            Common::Constants::Path::SetEngineDir( OldEngineDir );
             // A Windows runner has no HOME until a test sets one: leaving the test's HOME behind would point
             // every later test in this process at a deleted sandbox, so an absent HOME is restored as absent.
             if ( HadHome )
@@ -1189,8 +1189,8 @@ TEST( PackagedContent, APackagedGameIsABinaryAndAnArchiveThatStartWithNoArgument
 // claim is host-independent: whatever this host produces when a bundle is asked for, the archive is in
 // the directory the player looks in from its own binary (FileSystem::PackagedContentDir). On a bundle host
 // that is Contents/Resources — Contents/MacOS holds code only (Apple's signing rule) — and the player
-// still needs no `--project` and no launcher to find it. Everywhere else the request is refused and the plain layout comes back, which satisfies the
-// same claim by a different route.
+// still needs no `--project` and no launcher to find it. Everywhere else the request is refused and the plain
+// layout comes back, which satisfies the same claim by a different route.
 TEST( PackagedContent, TheArchiveSitsBesideThePlayerBinaryInWhicheverLayoutTheHostProduces )
 {
     EnvironmentGuard guard;

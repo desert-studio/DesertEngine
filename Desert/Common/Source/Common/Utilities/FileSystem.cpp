@@ -171,7 +171,7 @@ namespace Common::Utils
 
     std::filesystem::path FileSystem::PackagedContentDir( const std::filesystem::path& baseDir )
     {
-        const fs::path dir      = baseDir.lexically_normal();
+        fs::path       dir      = baseDir.lexically_normal();
         const fs::path contents = dir.parent_path();
         if ( dir.filename() == "MacOS" && contents.filename() == "Contents" &&
              contents.parent_path().extension() == ".app" )

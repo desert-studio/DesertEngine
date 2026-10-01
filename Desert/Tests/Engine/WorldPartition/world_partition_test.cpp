@@ -41,6 +41,7 @@
 
 #include <glm/gtc/constants.hpp>
 #include <gtest/gtest.h>
+#include "../../TestSupport/engine_dir.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -723,10 +724,9 @@ namespace
     public:
         explicit EditorProject( const std::string& repoRoot )
              : m_SavedRoot( Common::Constants::Path::CurrentProjectRoot() ),
-               m_SavedEngineDir( Common::Constants::Path::EngineDir() )
+               m_EngineDir( std::filesystem::absolute( repoRoot + "Editor" ) )
         {
             const std::filesystem::path editorDir = std::filesystem::absolute( repoRoot + "Editor" );
-            Common::Constants::Path::SetEngineDir( editorDir );
             const auto project = Common::Project::ReadProjectFile( ReadAll( editorDir / "Desert.deproj" ) );
             if ( !project )
                 return;
@@ -736,7 +736,6 @@ namespace
         ~EditorProject()
         {
             Common::Constants::Path::SetProjectRoot( m_SavedRoot.ProjectDir, m_SavedRoot.AssetsRoot );
-            Common::Constants::Path::SetEngineDir( m_SavedEngineDir );
         }
         EditorProject( const EditorProject& )            = delete;
         EditorProject& operator=( const EditorProject& ) = delete;
@@ -747,7 +746,7 @@ namespace
 
     private:
         Common::Constants::Path::ProjectRootState m_SavedRoot;
-        std::filesystem::path                     m_SavedEngineDir;
+        Desert::TestSupport::EngineDirScope       m_EngineDir;
         bool                                      m_Opened = false;
     };
 } // namespace

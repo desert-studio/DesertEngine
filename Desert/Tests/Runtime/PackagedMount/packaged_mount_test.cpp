@@ -104,8 +104,8 @@ TEST( PackagedMount, AnIntactUpdateMountsAndTheGameSeesItsContent )
     const MountGuard guard;
     const fs::path dir = MakeTempDir( "intact" );
 
-    WriteBasePak( dir / "Content.dpak",
-              { { "Assets/level.desce", "first release" }, { "Assets/music.wav", "untouched by the update" } } );
+    WriteBasePak( dir / "Content.dpak", { { "Assets/level.desce", "first release" },
+                                          { "Assets/music.wav", "untouched by the update" } } );
     WritePak( dir / "Patch_001.dpak", { { "Assets/level.desce", "the fix the player downloaded" } } );
 
     const auto result = Desert::Player::MountPackagedContent( dir, "MyGame" );
@@ -129,7 +129,7 @@ TEST( PackagedMount, AnUpdateThatREMOVESAFileIsAppliedAtStartup )
     const fs::path dir = MakeTempDir( "removal" );
 
     WriteBasePak( dir / "Content.dpak", { { "Assets/level.desce", "first release" },
-                                      { "Assets/cut_character.mesh", "an asset the sequel drops" } } );
+                                          { "Assets/cut_character.mesh", "an asset the sequel drops" } } );
 
     // Present BEFORE the update — with the base alone, because the patch is what has to make the
     // difference. Writing it first would mount it here too, and the assertion below would pass on an
@@ -356,7 +356,7 @@ TEST( PackagedMount, AnUndamagedArchiveStillReadsBackEveryByte )
     const std::string one( 1, '\x01' );
     const std::string big( 300000, '\xa5' );
     WriteBasePak( dir / "Content.dpak",
-              { { "Assets/empty.bin", empty }, { "Assets/one.bin", one }, { "Assets/big.bin", big } } );
+                  { { "Assets/empty.bin", empty }, { "Assets/one.bin", one }, { "Assets/big.bin", big } } );
 
     const auto result = Desert::Player::MountPackagedContent( dir, "MyGame" );
     ASSERT_EQ( result.ExitCode, Desert::Player::kContentOk ) << result.Message;

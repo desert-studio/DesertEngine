@@ -92,7 +92,7 @@ namespace
     std::filesystem::path ShaderFileFor( const char* shaderName )
     {
         const std::string           name = TemplateOf( shaderName );
-        const std::filesystem::path programs( "Resources/Shaders/Programs" );
+        const std::filesystem::path programs = Common::Constants::Path::ShaderDir() / "Programs";
         for ( const char* dir : { "PBR", "Silhouette", "Unlit" } )
         {
             const auto candidate = programs / dir / ( name + ".shader" );
@@ -117,8 +117,8 @@ namespace
         static const std::string name = []
         {
             std::vector<std::string> found;
-            for ( const auto& entry :
-                  std::filesystem::recursive_directory_iterator( "Resources/Shaders/Programs" ) )
+            for ( const auto& entry : std::filesystem::recursive_directory_iterator(
+                       Common::Constants::Path::ShaderDir() / "Programs" ) )
                 if ( entry.path().extension() == ".shader" )
                     if ( const auto m = Common::Content::ReadShaderManifest( ReadFile( entry.path() ) );
                          m && m.GetValue().DefaultSurface )
@@ -279,7 +279,7 @@ namespace
         return out.str();
     }
 
-    // The engine resolves `#include <...>` against a path relative to the editor's working directory.
+    // The engine resolves `#include <...>` against ShaderDir(), derived from the engine directory this suite sets.
     struct ShaderRootFixture : ::testing::Test
     {
         static void SetUpTestSuite()
@@ -1048,7 +1048,8 @@ TEST( ShadowCaster, MaskedCastsThroughItsOwnTemplateCellOpaqueThroughTheSharedOn
 TEST_F( ShaderRootFixture, TheTableNamesNoTemplate )
 {
     std::set<std::string> templates;
-    for ( const auto& entry : std::filesystem::recursive_directory_iterator( "Resources/Shaders/Programs" ) )
+    for ( const auto& entry :
+          std::filesystem::recursive_directory_iterator( Common::Constants::Path::ShaderDir() / "Programs" ) )
         if ( entry.path().extension() == ".shader" )
             templates.insert( entry.path().stem().string() );
     ASSERT_FALSE( templates.empty() );

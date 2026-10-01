@@ -118,11 +118,12 @@ namespace Desert::Player
             // NO LIST IS A REFUSAL, naming the path. The packager writes it into EVERY base archive, an
             // undivided game included (ContentChunks.cpp: "an archive whose manifest is missing is
             // indistinguishable from a game that was never divided"), so a base without one is damaged.
-            const fs::path listPath = result.BasePak.parent_path() / std::string( Common::Content::CHUNK_MANIFEST_KEY );
-            const auto     listed   = Common::Utils::VFS::ReadFile( listPath );
-            const auto     parsed   = listed ? Common::Content::ParseChunkManifest( *listed )
-                                             : Common::MakeFormattedError<std::vector<std::string>>(
-                                                  "{} is not in {}", listPath.string(), result.BasePak.string() );
+            const fs::path listPath =
+                 result.BasePak.parent_path() / std::string( Common::Content::CHUNK_MANIFEST_KEY );
+            const auto listed = Common::Utils::VFS::ReadFile( listPath );
+            const auto parsed = listed ? Common::Content::ParseChunkManifest( *listed )
+                                       : Common::MakeFormattedError<std::vector<std::string>>(
+                                              "{} is not in {}", listPath.string(), result.BasePak.string() );
             if ( !parsed )
             {
                 Common::Utils::VFS::Unmount();
@@ -136,7 +137,7 @@ namespace Desert::Player
                       "option, then start it again." );
                 return result;
             }
-            const std::vector<std::string> chunkNames = parsed.GetValue();
+            const std::vector<std::string>& chunkNames = parsed.GetValue();
 
             for ( const std::string& name : chunkNames )
             {

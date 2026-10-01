@@ -30,6 +30,7 @@
 #include <Common/Utilities/VFS.hpp>
 
 #include <gtest/gtest.h>
+#include "../../TestSupport/engine_dir.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -95,11 +96,9 @@ namespace
     {
     public:
         explicit SandboxProject( const fs::path& repoRoot )
-             : m_SavedRoot( Common::Constants::Path::CurrentProjectRoot() ),
-               m_SavedEngineDir( Common::Constants::Path::EngineDir() )
+             : m_SavedRoot( Common::Constants::Path::CurrentProjectRoot() ), m_EngineDir( repoRoot / "Editor" )
         {
             const fs::path editorDir = repoRoot / "Editor";
-            Common::Constants::Path::SetEngineDir( editorDir );
 
             const auto json =
                  Common::Utils::FileSystem::ReadFileContent( ( editorDir / "Desert.deproj" ).string() );
@@ -116,7 +115,6 @@ namespace
         {
             VFS::Unmount();
             Common::Constants::Path::SetProjectRoot( m_SavedRoot.ProjectDir, m_SavedRoot.AssetsRoot );
-            Common::Constants::Path::SetEngineDir( m_SavedEngineDir );
         }
 
         SandboxProject( const SandboxProject& )            = delete;
@@ -129,7 +127,7 @@ namespace
 
     private:
         Common::Constants::Path::ProjectRootState m_SavedRoot;
-        fs::path                                  m_SavedEngineDir;
+        Desert::TestSupport::EngineDirScope       m_EngineDir;
         bool                                      m_Opened = false;
     };
 

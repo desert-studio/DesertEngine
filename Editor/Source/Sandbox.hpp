@@ -25,6 +25,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <string>
 #include <vector>
 
@@ -136,7 +137,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
         {
             // A REFUSAL, not a half-start. An editor that opens a window it cannot draw into costs
             // whoever downloaded it an afternoon of looking at the wrong thing.
-            Desert::Editor::RefuseToStart( 1, "[Engine] " + engine.Explanation );
+            Desert::Editor::RefuseToStart( 1, std::format( "[Engine] {}", engine.Explanation ) );
         }
         Common::Constants::Path::SetEngineDir( engine.Dir );
         startedInCheckout = engine.FromCheckout;

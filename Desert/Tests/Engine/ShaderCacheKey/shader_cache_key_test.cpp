@@ -69,9 +69,9 @@ using namespace Desert::Graphic::API::Vulkan;
 
 namespace
 {
-    // The engine resolves `#include <...>` against Common::Constants::Path::SHADERDIR_PATH, which is
-    // relative ("Resources/Shaders/"). The editor runs with its own directory as the working one; the
-    // test does the same so the include walk resolves the same files the runtime would.
+    // The engine resolves `#include <...>` against Common::Constants::Path::ShaderDir(), derived from the engine
+    // directory the host sets. The suite is that host: it sets the checkout's Editor/ and reads every shader
+    // path off ShaderDir(), never off the working directory.
     struct ShaderRootFixture : ::testing::Test
     {
         static void SetUpTestSuite()
@@ -101,7 +101,7 @@ namespace
 
     std::filesystem::path ShaderPath( const char* relative )
     {
-        return std::filesystem::path( "Resources/Shaders/Programs" ) / relative;
+        return ( Common::Constants::Path::ShaderDir() / "Programs" ) / relative;
     }
 
     // The assembled GLSL of one stage, straight out of the engine's own DSL parser — the same string
@@ -298,7 +298,7 @@ namespace
     struct ScopedHeader
     {
         explicit ScopedHeader( std::string body )
-             : Path( std::filesystem::path( "Resources/Shaders/Common" ) / "CacheKeyTestScratch.glslh" )
+             : Path( ( Common::Constants::Path::ShaderDir() / "Common" ) / "CacheKeyTestScratch.glslh" )
         {
             Write( std::move( body ) );
         }
@@ -1261,7 +1261,7 @@ namespace
     std::vector<std::filesystem::path> ShadersWithAGeneratedMaterialRow()
     {
         std::vector<std::filesystem::path> out;
-        const auto                         root = std::filesystem::path( "Resources/Shaders/Programs" );
+        const auto                         root = ( Common::Constants::Path::ShaderDir() / "Programs" );
         if ( !std::filesystem::exists( root ) )
             return out;
 
@@ -2010,7 +2010,7 @@ namespace
     std::vector<std::filesystem::path> ShippedShaderFiles()
     {
         std::vector<std::filesystem::path> files;
-        const std::filesystem::path        root = "Resources/Shaders";
+        const std::filesystem::path        root = Common::Constants::Path::ShaderDir();
         if ( std::filesystem::exists( root ) )
             for ( const auto& entry : std::filesystem::recursive_directory_iterator( root ) )
                 if ( entry.is_regular_file() && entry.path().extension() == ".shader" )
@@ -2719,7 +2719,8 @@ TEST_F( ShaderRootFixture, EveryShippedShaderStageCompilesAndReflects )
     namespace Preprocess = Desert::Core::Preprocess;
     size_t      files = 0, stages = 0;
     std::string failures;
-    for ( const auto& entry : std::filesystem::recursive_directory_iterator( "Resources/Shaders" ) )
+    for ( const auto& entry :
+          std::filesystem::recursive_directory_iterator( Common::Constants::Path::ShaderDir() ) )
     {
         if ( entry.path().extension() != ".shader" )
             continue;
@@ -2797,7 +2798,8 @@ TEST_F( ShaderRootFixture, OnlyTheGeneratedDispatchBranchesOnAShadingModel )
     // the parser) or, for the hand-written terrain, DefaultLit's generated define; both lighting passes call the
     // two dispatchers; and no shipped pass names Unlit's index or keeps the old hand-written table.
     namespace SM = Desert::Core::ShadingModels;
-    EXPECT_FALSE( std::filesystem::exists( "Resources/Shaders/Mesh/Surface/ShadingModels.glslh" ) )
+    EXPECT_FALSE(
+         std::filesystem::exists( Common::Constants::Path::ShaderDir() / "Mesh/Surface/ShadingModels.glslh" ) )
          << "the hand-written shading-model table is back beside the generated one";
 
     struct User
@@ -2818,7 +2820,7 @@ TEST_F( ShaderRootFixture, OnlyTheGeneratedDispatchBranchesOnAShadingModel )
     };
     for ( const User& user : users )
     {
-        const auto source = ReadFile( user.File );
+        const auto source = ReadFile( Common::Constants::Path::EngineDir() / user.File );
         ASSERT_FALSE( source.empty() ) << user.File;
         EXPECT_NE( source.find( std::format( "<{}>", SM::kGeneratedInclude ) ), std::string::npos )
              << user.File << " does not include the generated shading-model dispatch";

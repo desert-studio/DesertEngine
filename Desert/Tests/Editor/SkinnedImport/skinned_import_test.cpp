@@ -184,7 +184,7 @@ namespace
         {
             // Parsing a template resolves its `ShadingModel` through the engine's shader root, which hangs off
             // the engine directory the build baked in.
-            const TestSupport::EngineDirScope engineDir;
+            const TestSupport::EngineDirScope   engineDir;
             std::vector<Editor::ImportTemplate> shipped;
             for ( const char* file : { "Editor/Resources/Shaders/Programs/PBR/StandardSurface.shader",
                                        "Editor/Resources/Shaders/Programs/Unlit/Unlit.shader" } )
@@ -725,7 +725,7 @@ TEST_F( SkinnedImport, ASkeletonChosenOnTheMeshIsKeptByAReimport )
 // delete SourceHash from Desert/Tests/Data/Resources/Assets/Meshes/TwoJointProbe.gltf.deimport => red here.
 TEST( SkinnedImportCorpus, TheCommittedTwoJointProbeIsCurrentAndItsImportWritesNothing )
 {
-    const std::filesystem::path corpus = Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes";
+    const std::filesystem::path        corpus = Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes";
     const std::vector<std::string>     files = { "TwoJointProbe.gltf", "TwoJointProbe.gltf.deimport",
                                                  "TwoJointProbe.skmesh", "TwoJointProbe.skeleton",
                                                  "TwoJointProbe_ArmSwing.anim" };

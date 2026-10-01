@@ -953,8 +953,8 @@ namespace
     int GenerateCorpus( const std::filesystem::path& out, std::string& bytes,
                         const std::vector<std::string>& extra = {} )
     {
-        std::vector<std::string> args{ "--preset",  "corpus-smoke", "--project", ProjectRoot(),
-                                       "--assets",  AssetsRoot(),    "--partition" };
+        std::vector<std::string> args{ "--preset", "corpus-smoke", "--project",  ProjectRoot(),
+                                       "--assets", AssetsRoot(),   "--partition" };
         args.insert( args.end(), extra.begin(), extra.end() );
         return Generate( out, args, bytes );
     }
@@ -1145,10 +1145,11 @@ TEST( WorldSceneGenerator, CorpusPresetRefusesAMissingAssetByPathAndWritesNothin
     const auto out = Scratch() / "corpus_missing.desce";
     std::filesystem::remove( out );
     {
-        const std::vector<std::string> args{ "--out",    out.string(),   "--assets",  AssetsRoot(),
-                                             "--preset", "corpus-smoke", "--project", "/nonexistent-project-root" };
-        std::ostringstream             reported;
-        std::ostringstream             refused;
+        const std::vector<std::string> args{
+             "--out",    out.string(),   "--assets",  AssetsRoot(),
+             "--preset", "corpus-smoke", "--project", "/nonexistent-project-root" };
+        std::ostringstream reported;
+        std::ostringstream refused;
         EXPECT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 3 );
         EXPECT_NE( refused.str().find( "/nonexistent-project-root/WorldCorpus.json" ), std::string::npos )
              << refused.str();
@@ -1257,12 +1258,11 @@ TEST( WorldSceneGenerator, NeighbouringCorpusDistrictsHoldDisjointMaterialsAndAR
 TEST( WorldSceneGenerator, EveryCorpusPropFitsItsTileSoNothingIsPromotedOrAlwaysLoaded )
 {
     std::string bytes;
-    ASSERT_EQ(
-         Generate( Scratch() / "corpus_fit.desce",
-                   { "--preset", "corpus", "--project", ProjectRoot(), "--assets", AssetsRoot(), "--partition",
-                     "--loading-range", "4000" },
-                   bytes ),
-         0 )
+    ASSERT_EQ( Generate( Scratch() / "corpus_fit.desce",
+                         { "--preset", "corpus", "--project", ProjectRoot(), "--assets", AssetsRoot(),
+                           "--partition", "--loading-range", "4000" },
+                         bytes ),
+               0 )
          << bytes;
     const auto scene = ReadScene( bytes );
     ASSERT_TRUE( scene.has_value() && scene->WorldPartition.has_value() );
