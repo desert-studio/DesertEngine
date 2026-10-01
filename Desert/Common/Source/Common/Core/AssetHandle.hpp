@@ -176,7 +176,7 @@ namespace Common
             for ( const PathRoot& candidate : ContentRoots() )
             {
                 const std::string prefix = std::string( candidate.Tag ) + ':';
-                if ( spelled.size() > prefix.size() && spelled.rfind( prefix, 0 ) == 0 )
+                if ( spelled.size() > prefix.size() && spelled.starts_with( prefix ) )
                     return prefix +
                            fs::path( spelled.substr( prefix.size() ) ).lexically_normal().generic_string();
             }

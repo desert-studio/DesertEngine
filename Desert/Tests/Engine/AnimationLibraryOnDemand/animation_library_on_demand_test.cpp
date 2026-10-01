@@ -28,7 +28,8 @@ namespace
     namespace fs   = std::filesystem;
     namespace Path = Common::Constants::Path;
 
-    constexpr const char* kClip = "SkinProbe_Tilt"; // Desert/Tests/Data/Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim
+    constexpr const char* kClip =
+         "SkinProbe_Tilt"; // Desert/Tests/Data/Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim
 
     fs::path RepoRoot()
     {
@@ -151,7 +152,8 @@ TEST_F( AnimationLibraryOnDemand, TheSpawnedHumanoidsDefaultClipIsACommittedEngi
 // the import rewrites it.
 TEST_F( AnimationLibraryOnDemand, AClipAnImportWritesAfterPopulationIsOffered )
 {
-    const fs::path source = Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim";
+    const fs::path source =
+         Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim";
     const fs::path project =
          fs::temp_directory_path() /
          std::format( "anim_library_import_{}", ::testing::UnitTest::GetInstance()->random_seed() );

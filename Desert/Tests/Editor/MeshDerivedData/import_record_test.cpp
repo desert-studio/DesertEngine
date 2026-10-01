@@ -18,9 +18,11 @@
 
 #include <gtest/gtest.h>
 
-#include <format>
 #include <fstream>
 #include <sstream>
+#include <string_view>
+#include "../../TestSupport/committed_projects.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace fs = std::filesystem;
 using namespace Desert;
@@ -331,30 +333,29 @@ TEST( ImportRecord, ARecordStatingAKindNoImportWritesIsRefusedByName )
 // import" to correct.
 TEST( ImportRecord, NoRecordInTheRepositoryCallsASkinnedSourceStatic )
 {
-    std::string root = "./";
-    for ( int up = 0;
-          up < 6 && !fs::exists( std::format( "{}Desert/Desert/Source/Engine/Core/SceneSettings.hpp", root ) );
-          ++up )
-        root += "../";
-    const fs::path resources = fs::path( root ) / "Editor/Resources";
-    ASSERT_TRUE( fs::is_directory( resources ) ) << "the census runs from inside the repository";
-
+    // Every committed project, each walked from its own directory off the checkout (never off the working
+    // directory): the Sandbox's tree carries the engine content, the suites' project its own imports.
     int walked = 0;
-    for ( const auto& entry : fs::recursive_directory_iterator( resources ) )
+    for ( const std::string_view project : Desert::TestSupport::kCommittedProjects )
     {
-        if ( !entry.is_regular_file() || !Common::Content::IsImportRecord( entry.path() ) )
-            continue;
-        ++walked;
-        const fs::path source  = entry.path().parent_path() / entry.path().stem();
-        const bool     skinned = fs::exists( Editor::CookPaths::SkinnedAsset( source, ".skmesh" ) );
-        const auto     kind    = Ser::ReadImportRecordKind( source );
-        ASSERT_TRUE( kind.IsSuccess() ) << kind.GetError();
-        if ( skinned )
-            EXPECT_EQ( kind.GetValue(), Common::Content::ContentKind::SkinnedMesh )
-                 << entry.path().generic_string() << ": its source imports skinned";
-        else
-            EXPECT_NE( kind.GetValue(), Common::Content::ContentKind::SkinnedMesh )
-                 << entry.path().generic_string() << ": no skinned mesh stands beside its source";
+        const fs::path projectDir = ( Desert::TestSupport::RepositoryRoot() / project ).parent_path();
+        ASSERT_TRUE( fs::is_directory( projectDir ) ) << projectDir.generic_string() << " is not in the checkout";
+        for ( const auto& entry : fs::recursive_directory_iterator( projectDir ) )
+        {
+            if ( !entry.is_regular_file() || !Common::Content::IsImportRecord( entry.path() ) )
+                continue;
+            ++walked;
+            const fs::path source  = entry.path().parent_path() / entry.path().stem();
+            const bool     skinned = fs::exists( Editor::CookPaths::SkinnedAsset( source, ".skmesh" ) );
+            const auto     kind    = Ser::ReadImportRecordKind( source );
+            ASSERT_TRUE( kind.IsSuccess() ) << kind.GetError();
+            if ( skinned )
+                EXPECT_EQ( kind.GetValue(), Common::Content::ContentKind::SkinnedMesh )
+                     << entry.path().generic_string() << ": its source imports skinned";
+            else
+                EXPECT_NE( kind.GetValue(), Common::Content::ContentKind::SkinnedMesh )
+                     << entry.path().generic_string() << ": no skinned mesh stands beside its source";
+        }
     }
     EXPECT_GT( walked, 0 ) << "the walk found no record: it is looking in the wrong place";
 }

@@ -245,7 +245,8 @@ namespace
     class ScratchFile
     {
     public:
-        explicit ScratchFile( const std::filesystem::path& path ) : m_Path( Common::Constants::Path::FullPath( path ) )
+        explicit ScratchFile( const std::filesystem::path& path )
+             : m_Path( Common::Constants::Path::FullPath( path ) )
         {
             std::error_code ec;
             std::filesystem::create_directories( m_Path.parent_path(), ec );
@@ -583,7 +584,7 @@ TEST( AssetHandleStability, AnUnloadedMaterialShellAlreadyWearsItsHeaderGuidHand
 // this measuring identity and nothing else.
 TEST( AssetHandleStability, AHandleSavedByOneRunResolvesInTheNext )
 {
-    const ScratchDir    scratchDir( "desert-handle-run" );
+    const ScratchDir  scratchDir( "desert-handle-run" );
     const std::string subjectPath = ( scratchDir.Path() / kPathA ).generic_string();
     // The child process registers this path, and registering now requires the file to be there.
     const ScratchFile subject( subjectPath );
@@ -601,7 +602,7 @@ TEST( AssetHandleStability, AHandleSavedByOneRunResolvesInTheNext )
 
 TEST( AssetHandleStability, AHandleFromNoAssetStillFailsToResolve )
 {
-    const ScratchDir    scratchDir( "desert-handle-run" );
+    const ScratchDir  scratchDir( "desert-handle-run" );
     const std::string subjectPath = ( scratchDir.Path() / kPathA ).generic_string();
     // The companion the test above needs to mean anything: if FindByHandle returned something for every
     // number, "RESOLVED" would be worthless. The scratch file is here for the same reason it is there —
@@ -783,7 +784,7 @@ TEST( AssetHandleStability, AnAbsoluteAndARelativeSpellingOfOneAssetAgree )
     // and most callers pass absolute paths, but shaders never do (SHADERDIR_PATH is const and is never
     // remapped), the prefab save box hardcodes a relative literal while the instantiate box defaults to
     // the absolute root, and .dpak entries arrive relative. One file under two spellings was two assets.
-    const ScratchDir scratchDir( "desert-handle-spelling" );
+    const ScratchDir              scratchDir( "desert-handle-spelling" );
     ProjectRootGuard              guard;
 
     const std::filesystem::path projectDir = scratchDir.Path() / "SpellingProbe";
@@ -823,10 +824,9 @@ TEST( AssetHandleStability, EngineResourcesAreKeyedOnTheirOwnRootAndDoNotMoveWit
     ProjectRootGuard guard;
 
     const Desert::TestSupport::EngineDirScope engineDir;
-    const std::filesystem::path               shader = Common::Constants::Path::SHADERDIR_PATH / "Programs/PBR.shader";
-    const uint64_t                            beforeAnyProject = HandleValue( shader );
-    EXPECT_EQ( Common::AssetHandle::StableKeyForPath( shader ),
-               "engine:Shaders/Programs/PBR.shader" );
+    const std::filesystem::path shader           = Common::Constants::Path::SHADERDIR_PATH / "Programs/PBR.shader";
+    const uint64_t              beforeAnyProject = HandleValue( shader );
+    EXPECT_EQ( Common::AssetHandle::StableKeyForPath( shader ), "engine:Shaders/Programs/PBR.shader" );
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
     EXPECT_EQ( HandleValue( shader ), beforeAnyProject )
@@ -1074,8 +1074,8 @@ TEST( AssetHandleStability, TwoSpellingsOfOneFileRegisterAsOneAsset )
 
     const auto viaAbsolute = manager.CreateAsset<Desert::Assets::SkyboxAsset>(
          Common::Filepath( projectDir / "Content" / "Sky" / "Dawn.hdr" ) );
-    const auto viaRelative = manager.CreateAsset<Desert::Assets::SkyboxAsset>(
-         Common::Filepath( "Content/Sky/Dawn.hdr" ) );
+    const auto viaRelative =
+         manager.CreateAsset<Desert::Assets::SkyboxAsset>( Common::Filepath( "Content/Sky/Dawn.hdr" ) );
 
     ASSERT_TRUE( viaAbsolute != nullptr );
     ASSERT_TRUE( viaRelative != nullptr );
@@ -1116,11 +1116,11 @@ TEST( AssetHandleStability, TwoAssetTypesMayShareOnePathAndStayTwoRecords )
 
     Desert::Assets::AssetManager manager;
     const ScratchFile            shared( "Content/Shared.asset" );
-    const auto                   sky = manager.CreateAsset<Desert::Assets::SkyboxAsset>(
-         Common::Filepath( "Content/Shared.asset" ) );
+    const auto                   sky =
+         manager.CreateAsset<Desert::Assets::SkyboxAsset>( Common::Filepath( "Content/Shared.asset" ) );
     // loadAfterCreate=false: no such file exists, and this test is about the registry key, not parsing.
-    const auto cloudType = manager.CreateAsset<Desert::Assets::CloudTypeAsset>(
-         Common::Filepath( "Content/Shared.asset" ), false );
+    const auto cloudType =
+         manager.CreateAsset<Desert::Assets::CloudTypeAsset>( Common::Filepath( "Content/Shared.asset" ), false );
 
     // Asserted by TYPE CENSUS, and not by a null check on the returned pointer. The manager casts with
     // std::static_pointer_cast, so a registry that handed back the skybox record for the cloud type
@@ -1161,8 +1161,8 @@ TEST( AssetHandleStability, ATypedLookupRefusesARecordOfAnotherType )
     // with no type in it — which is exactly how a request for the wrong type arrives at a real record: a
     // saved scene stores a bare 64-bit number with no type beside it.
     const ScratchFile impostor( "Content/Impostor.asset" );
-    const auto        sky = manager.CreateAsset<Desert::Assets::SkyboxAsset>(
-         Common::Filepath( "Content/Impostor.asset" ) );
+    const auto        sky =
+         manager.CreateAsset<Desert::Assets::SkyboxAsset>( Common::Filepath( "Content/Impostor.asset" ) );
     ASSERT_NE( sky, nullptr );
 
     const Common::AssetHandle handle = sky->GetMetadata().Handle;
@@ -1506,15 +1506,17 @@ namespace
 
 TEST( AssetHandleStability, AControlRigHandleIsHandleForGuidOfItsHeader )
 {
-    const auto file = CopyCorpusFile( Desert::TestSupport::TestDataDir() / "Resources/Assets/Rigs/IKProbe_Arm.derig", "T7cRigHandle" );
+    const auto file = CopyCorpusFile(
+         Desert::TestSupport::TestDataDir() / "Resources/Assets/Rigs/IKProbe_Arm.derig", "T7cRigHandle" );
     ExpectHeaderGuidIdentity<Desert::Assets::ControlRigAsset>( file, Common::Content::ContentKind::ControlRig );
     std::filesystem::remove_all( file.parent_path() );
 }
 
 TEST( AssetHandleStability, AnAnimGraphHandleIsHandleForGuidOfItsHeader )
 {
-    const auto file =
-         CopyCorpusFile( Desert::TestSupport::TestDataDir() / "Resources/Assets/AnimGraphs/OneBoneBlend.danimgraph", "T7dAnimGraphHandle" );
+    const auto file = CopyCorpusFile( Desert::TestSupport::TestDataDir() /
+                                           "Resources/Assets/AnimGraphs/OneBoneBlend.danimgraph",
+                                      "T7dAnimGraphHandle" );
     ExpectHeaderGuidIdentity<Desert::Assets::AnimGraphAsset>( file, Common::Content::ContentKind::AnimGraph );
     std::filesystem::remove_all( file.parent_path() );
 }
@@ -1525,7 +1527,8 @@ TEST( AssetHandleStability, AnAnimGraphHandleIsHandleForGuidOfItsHeader )
 TEST( AssetHandleStability, ASkeletonHandleIsHandleForGuidOfItsHeader )
 {
     const auto file =
-         CopyCorpusFile( Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned/IKProbe.skeleton", "T7eSkeletonHandle" );
+         CopyCorpusFile( Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned/IKProbe.skeleton",
+                         "T7eSkeletonHandle" );
     ExpectHeaderGuidIdentity<Desert::Assets::SkeletonAsset>( file, Common::Content::ContentKind::Skeleton );
     Desert::Assets::SkeletonAsset asset( file );
     const auto                    loaded = asset.Load();
@@ -1555,7 +1558,8 @@ TEST( AssetHandleStability, ASkeletonWithNoHeaderIsRefusedByNameAndPointsAtTheMi
 TEST( AssetHandleStability, ARewriteOfASkeletonKeepsTheGuidOfTheFileItReplaces )
 {
     const auto file =
-         CopyCorpusFile( Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned/IKProbe.skeleton", "T7eSkeletonReimport" );
+         CopyCorpusFile( Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned/IKProbe.skeleton",
+                         "T7eSkeletonReimport" );
     const auto before = Desert::Assets::ReadTextHeaderGuid( file );
     ASSERT_FALSE( before.IsNull() );
     const auto kept = Desert::Assets::HeaderKeepingFileGuid(
@@ -1570,8 +1574,9 @@ TEST( AssetHandleStability, ARewriteOfASkeletonKeepsTheGuidOfTheFileItReplaces )
 
 TEST( AssetHandleStability, ARetargetHandleIsHandleForGuidOfItsHeader )
 {
-    const auto file =
-         CopyCorpusFile( Desert::TestSupport::TestDataDir() / "Resources/Assets/Retargets/ForeignArm_To_IKProbe.retarget", "T7cRetargetHandle" );
+    const auto file = CopyCorpusFile( Desert::TestSupport::TestDataDir() /
+                                           "Resources/Assets/Retargets/ForeignArm_To_IKProbe.retarget",
+                                      "T7cRetargetHandle" );
     ExpectHeaderGuidIdentity<Desert::Assets::RetargetAsset>( file, Common::Content::ContentKind::Retarget );
     std::filesystem::remove_all( file.parent_path() );
 }
@@ -1646,19 +1651,24 @@ namespace
     }
     bool WriteAnimGraph( const std::filesystem::path& file )
     {
-        return CopyCorpus( Desert::TestSupport::TestDataDir() / "Resources/Assets/AnimGraphs/OneBoneBlend.danimgraph", file );
+        return CopyCorpus(
+             Desert::TestSupport::TestDataDir() / "Resources/Assets/AnimGraphs/OneBoneBlend.danimgraph", file );
     }
     bool WriteRetarget( const std::filesystem::path& file )
     {
-        return CopyCorpus( Desert::TestSupport::TestDataDir() / "Resources/Assets/Retargets/ForeignArm_To_IKProbe.retarget", file );
+        return CopyCorpus( Desert::TestSupport::TestDataDir() /
+                                "Resources/Assets/Retargets/ForeignArm_To_IKProbe.retarget",
+                           file );
     }
     bool WriteSkeleton( const std::filesystem::path& file )
     {
-        return CopyCorpus( Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned/IKProbe.skeleton", file );
+        return CopyCorpus( Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned/IKProbe.skeleton",
+                           file );
     }
     bool WriteAnimation( const std::filesystem::path& file )
     {
-        return CopyCorpus( Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned/IKProbe_Swing.anim", file );
+        return CopyCorpus(
+             Desert::TestSupport::TestDataDir() / "Resources/Assets/Meshes/Skinned/IKProbe_Swing.anim", file );
     }
     // A .shader states its GUID in a first-line comment, not a JSON header (T7j). It declares the name of the
     // file it is moved TO, because the load refuses a declared name that differs from the stem it opens.

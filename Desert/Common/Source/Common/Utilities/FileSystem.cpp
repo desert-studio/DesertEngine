@@ -401,9 +401,9 @@ namespace Common::Utils
         std::error_code ec;
         const fs::path  onDisk = OnDisk( filepath );
         if ( fs::exists( onDisk, ec ) )
-            return (uint32_t)fs::file_size( onDisk, ec );
+            return static_cast<uint32_t>( fs::file_size( onDisk, ec ) );
         if ( auto packed = VFS::FileSize( filepath ) )
-            return (uint32_t)*packed;
+            return static_cast<uint32_t>( *packed );
         return 0;
     }
 

@@ -1,11 +1,11 @@
 #pragma once
 
-// THE HOST STEP, TAKEN THE WAY THE EDITOR TAKES IT (UE: FPaths::EngineDir). The engine resolves its own resources —
-// the shader root and the shading models in it, fonts, icons, the engine content — against the engine directory,
+// THE HOST STEP, TAKEN THE WAY THE EDITOR TAKES IT (UE: FPaths::EngineDir). The engine resolves its own resources
+// — the shader root and the shading models in it, fonts, icons, the engine content — against the engine directory,
 // which a host sets once with Common::Constants::Path::SetEngineDir (the editor from its executable's position or
 // --engine-dir). A suite is a host: it sets the directory the build baked in (DESERT_TEST_ENGINE_DIR, an absolute
-// path from Desert/Tests/premake5.lua) and never moves the working directory. A suite built without the define does
-// not compile — there is no guessed root.
+// path from Desert/Tests/premake5.lua) and never moves the working directory. A suite built without the define
+// does not compile — there is no guessed root.
 
 #include <Common/Core/Constants.hpp>
 
@@ -16,7 +16,7 @@ namespace Desert::TestSupport
     // The checkout's engine directory (Editor/), absolute.
     inline std::filesystem::path EngineDir()
     {
-        return std::filesystem::path( DESERT_TEST_ENGINE_DIR );
+        return { DESERT_TEST_ENGINE_DIR };
     }
 
     // The host step itself, first thing in a suite's main() (the editor's Sandbox.hpp, a tool's
@@ -33,8 +33,7 @@ namespace Desert::TestSupport
     class EngineDirScope
     {
     public:
-        EngineDirScope()
-            : EngineDirScope( EngineDir() )
+        EngineDirScope() : EngineDirScope( EngineDir() )
         {
         }
 

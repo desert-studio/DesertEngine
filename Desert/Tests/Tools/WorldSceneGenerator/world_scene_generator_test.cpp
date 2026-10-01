@@ -58,6 +58,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/engine_dir.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
 
 using Desert::Core::kSceneVersion;
 using Desert::Core::kUnitVersion;
@@ -71,23 +73,11 @@ using Desert::Core::Serialize::MergeSceneDocument;
 
 namespace
 {
-    // The repository root, found by walking up until the assets tree appears. Same shape the scene corpus
-    // suites use: the working directory of a test binary is not a thing to assume.
-    std::string RepoRoot()
-    {
-        std::string prefix;
-        for ( int depth = 0; depth < 8; ++depth )
-        {
-            if ( std::filesystem::exists( prefix + "Editor/Resources/Assets/Materials" ) )
-                return prefix;
-            prefix += "../";
-        }
-        return {};
-    }
-
+    // The engine's content root, off the engine directory the build baked in (never off the working directory):
+    // the materials every preset furnishes with.
     std::string AssetsRoot()
     {
-        return RepoRoot() + "Editor/Resources/Assets";
+        return ( Desert::TestSupport::EngineDir() / "Resources/Assets" ).generic_string();
     }
 
     std::filesystem::path Scratch()
@@ -947,7 +937,7 @@ namespace
     // are the engine's, so every corpus run also names --assets.
     std::string ProjectRoot()
     {
-        return RepoRoot() + "Desert/Tests/Data";
+        return Desert::TestSupport::TestDataDir().generic_string();
     }
 
     int GenerateCorpus( const std::filesystem::path& out, std::string& bytes,
@@ -1085,7 +1075,8 @@ TEST( WorldSceneGenerator, EveryCorpusAssetResolvesByItsGuidAndTheCorpusIsReal )
 
              // The mesh, by GUID.
              const std::string meshPath = text( *block, "MeshPath" );
-             const auto header = Common::Content::ReadAssetHeader( ProjectRoot() + "/" + meshPath, recordOnly );
+             const auto        header   = Common::Content::ReadAssetHeader(
+                  std::filesystem::path( ProjectRoot() ) / meshPath, recordOnly );
              ASSERT_TRUE( header.IsSuccess() ) << meshPath << ": " << header.GetError();
              EXPECT_EQ( Common::Content::AssetGuidToText( header.GetValue().Guid ), text( *block, "MeshGuid" ) )
                   << meshPath << ": MeshGuid is not the file's header GUID";

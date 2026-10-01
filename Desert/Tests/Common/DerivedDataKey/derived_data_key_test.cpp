@@ -383,10 +383,8 @@ TEST( DerivedDataKey, GitIgnoresTheCacheAndNeverReIncludesIt )
     const auto isProjectRoot = []( const fs::path& dir )
     {
         std::error_code listEc;
-        for ( const auto& entry : fs::directory_iterator( dir, listEc ) )
-            if ( entry.path().extension() == ".deproj" )
-                return true;
-        return false;
+        return std::ranges::any_of( fs::directory_iterator( dir, listEc ), []( const fs::directory_entry& entry )
+                                    { return entry.path().extension() == ".deproj"; } );
     };
     for ( const char* root : { "Desert", "Editor/Source", "Runtime", "Tools" } )
     {

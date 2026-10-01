@@ -46,8 +46,9 @@ namespace Desert::TestSupport
                               << "': " << ec.message();
                 return;
             }
-            // Canonical, so every spelling built on Path() names one root: macOS's temp is /var/folders/..., a link to /private/var/folders/..., and a test that
-            // compares a relative spelling against Path()-based ones would otherwise see two roots.
+            // Canonical, so every spelling built on Path() names one root: macOS's temp is /var/folders/..., a
+            // link to /private/var/folders/..., and a test that compares a relative spelling against Path()-based
+            // ones would otherwise see two roots.
             std::filesystem::path canonical = std::filesystem::canonical( m_Path, ec );
             if ( !ec )
                 m_Path = std::move( canonical );
@@ -79,13 +80,13 @@ namespace Desert::TestSupport
     // tracked files.
     inline std::filesystem::path RepositoryRoot()
     {
-        return std::filesystem::path( DESERT_TEST_REPO_ROOT );
+        return { DESERT_TEST_REPO_ROOT };
     }
 
     // The suite data tree, Desert/Tests/Data (DESERT_TEST_DATA_DIR): assets only tests read — probes, fixtures —
     // which never live in the engine's own content (Editor/Resources).
     inline std::filesystem::path TestDataDir()
     {
-        return std::filesystem::path( DESERT_TEST_DATA_DIR );
+        return { DESERT_TEST_DATA_DIR };
     }
 } // namespace Desert::TestSupport

@@ -29,6 +29,7 @@ namespace Desert::TestSupport
     {
     public:
         AssetsSandbox( std::string_view suite, std::initializer_list<const char*> headerlessFiles )
+             : m_Previous( Common::Constants::Path::EngineDir() )
         {
             static std::atomic<int> sequence = 0;
             m_Root                           = std::filesystem::temp_directory_path() /
@@ -44,7 +45,6 @@ namespace Desert::TestSupport
                      << "cannot create '" << file.generic_string() << "'";
             }
             std::filesystem::create_directories( m_Root / "Resources/Assets" );
-            m_Previous = Common::Constants::Path::EngineDir();
             Common::Constants::Path::SetEngineDir( m_Root );
         }
 

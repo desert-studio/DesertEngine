@@ -38,24 +38,12 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace Fmt = Desert::Core::Formats;
 
 namespace
 {
-    std::string RepoRoot()
-    {
-        std::string prefix = "./";
-        for ( int up = 0; up < 6; ++up )
-        {
-            const std::ifstream probe( prefix + "Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp" );
-            if ( probe )
-                return prefix;
-            prefix += "../";
-        }
-        return {};
-    }
-
     /// Every block format the table knows, derived from the table rather than listed here — so a third
     /// block format added tomorrow is exercised by all of the arithmetic tests without anyone editing
     /// this file, and a format added WITHOUT a block breaks the build long before it reaches here.
@@ -485,13 +473,14 @@ namespace
     /// The comparison is over `PreservedChannelCount` channels, the same promise the cook grades by:
     /// over four, a perfect BC4 encode scores nothing, because the three channels it was never asked
     /// to keep come back as the zeros a sampler returns.
-    Fidelity MeasureFile( const std::string& path, Fmt::ImageFormat blockFormat = Fmt::ImageFormat::BC7_UNORM )
+    Fidelity MeasureFile( const std::filesystem::path& path,
+                          Fmt::ImageFormat             blockFormat = Fmt::ImageFormat::BC7_UNORM )
     {
         // A texture's source image lives INSIDE its `.detex` since AF3/AF7 (the loose png is gone from the tree),
         // so a `.detex` row is measured on the bytes the cook itself encodes from; a plain image is read as is.
         int      width = 0, height = 0, channels = 0;
         stbi_uc* pixels = nullptr;
-        if ( std::filesystem::path( path ).extension() == ".detex" )
+        if ( path.extension() == ".detex" )
         {
             const auto asset = Desert::Assets::ReadTextureSourceAssetFile( path );
             if ( !asset.IsSuccess() )
@@ -501,7 +490,7 @@ namespace
                                             static_cast<int>( bytes.size() ), &width, &height, &channels, 4 );
         }
         else
-            pixels = stbi_load( path.c_str(), &width, &height, &channels, 4 );
+            pixels = stbi_load( path.string().c_str(), &width, &height, &channels, 4 );
         if ( pixels == nullptr )
             return {};
 
@@ -549,13 +538,12 @@ namespace
 
 TEST( BlockCompression, EverySourceImageReachesTheVerdictItsRowRecords )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "the corpus cannot find the repository from the working directory";
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
 
     int compressed = 0, refused = 0;
     for ( const CorpusRow& row : Corpus() )
     {
-        const Fidelity fidelity = MeasureFile( root + row.Path );
+        const Fidelity fidelity = MeasureFile( root / row.Path );
         ASSERT_TRUE( fidelity.Read ) << row.Path << " could not be read or encoded";
 
         const bool    keeps   = fidelity.Psnr >= kPsnrFloorDb && fidelity.MaxAbsoluteDelta <= kMaxDeltaCeiling;
@@ -580,11 +568,10 @@ TEST( BlockCompression, EverySourceImageReachesTheVerdictItsRowRecords )
 
 TEST( BlockCompression, TheCorpusRegisterDescribesFilesThatStillExist )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() );
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
     for ( const CorpusRow& row : Corpus() )
     {
-        EXPECT_TRUE( std::filesystem::exists( root + row.Path ) )
+        EXPECT_TRUE( std::filesystem::exists( root / row.Path ) )
              << row.Path
              << " has a row and is not in the tree; a register that keeps rows for files that "
                 "left stops being a description of the tree.";
@@ -663,18 +650,16 @@ namespace
 
 TEST( BlockCompression, EveryAuthoredSourceReachesTheVerdictItsRowRecordsInTheFormatItsIntentAsks )
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() );
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
 
     int encoded = 0, refusedByIntent = 0;
     for ( const AuthoredRow& row : AuthoredCorpus() )
     {
         // THE `.detex` ON DISK IS THE AUTHORITY, read here rather than assumed. A row whose word has
         // drifted from the file describes a cook nobody is performing.
-        std::string       detex = root + row.Path;
-        const std::size_t dot   = detex.rfind( '.' );
-        ASSERT_NE( dot, std::string::npos ) << row.Path;
-        detex.replace( dot, std::string::npos, ".detex" );
+        std::filesystem::path detex = root / row.Path;
+        ASSERT_TRUE( detex.has_extension() ) << row.Path;
+        detex.replace_extension( ".detex" );
 
         // The intent is IMPT's field since AF7 (binary envelope), not a JSON word; read it the way the cook does.
         const auto authored = Desert::Assets::ReadTextureSourceAssetFile( detex );
@@ -697,7 +682,7 @@ TEST( BlockCompression, EveryAuthoredSourceReachesTheVerdictItsRowRecordsInTheFo
             continue;
         }
 
-        const Fidelity fidelity = MeasureFile( root + row.Path, policy.Format );
+        const Fidelity fidelity = MeasureFile( root / row.Path, policy.Format );
         ASSERT_TRUE( fidelity.Read ) << row.Path << " could not be read or encoded as format "
                                      << static_cast<uint32_t>( policy.Format );
 
@@ -727,10 +712,9 @@ TEST( BlockCompression, TheAuthoredWordChangesTheOutcomeForAtLeastOneSourceInThi
     // THE FIELD HAS TO EARN ITS PLACE ON REAL CONTENT, not only on a synthetic 8x8. This asserts the
     // RELATION between the two registers: there is a file the MEASUREMENT alone stores uncompressed and
     // the AUTHORED word stores compressed, which is the entire argument for having two sources.
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() );
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
 
-    const std::string normal = root + "Editor/Resources/Assets/Meshes/texture_normal.detex";
+    const std::filesystem::path normal = root / "Editor/Resources/Assets/Meshes/texture_normal.detex";
 
     const Fidelity measured = MeasureFile( normal, Fmt::ImageFormat::BC7_UNORM );
     ASSERT_TRUE( measured.Read );

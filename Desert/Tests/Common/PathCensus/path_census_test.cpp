@@ -107,7 +107,7 @@ TEST( PathCensus, NoRowSurvivesARemapPointingAtThePreviousProject )
 
 TEST( PathCensus, TheSandboxLayoutIsTheHistoricalOne )
 {
-    ProjectRootGuard                          guard;
+    const ProjectRootGuard                    guard;
     const Desert::TestSupport::EngineDirScope engineDir;
     Path::ResetToSandbox();
 

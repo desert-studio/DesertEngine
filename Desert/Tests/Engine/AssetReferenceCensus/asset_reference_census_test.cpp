@@ -372,8 +372,8 @@ TEST( AssetReferenceCensus, EveryReferenceAShippedMaterialMakesNamesAFileInThePr
     EXPECT_TRUE( meshError.empty() ) << "a shipped mesh source asset does not read: " << meshError;
     // The hand-authored mesh sources (StaticProbe and the skinned probes) are suite data, a project of their own
     // whose scenes name the engine's materials: swept too, and resolved against both trees below.
-    const fs::path suiteContent = root + "Desert/Tests/Data/Resources/Assets";
-    int            suiteMeshesRead = 0;
+    const fs::path suiteContent        = root + "Desert/Tests/Data/Resources/Assets";
+    int            suiteMeshesRead     = 0;
     const auto     suiteMeshReferences = MeshReferencesUnder( suiteContent, &meshError, &suiteMeshesRead );
     EXPECT_TRUE( meshError.empty() ) << "a suite-data mesh source asset does not read: " << meshError;
     meshReferences.insert( meshReferences.end(), suiteMeshReferences.begin(), suiteMeshReferences.end() );

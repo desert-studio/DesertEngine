@@ -166,8 +166,8 @@ namespace Common::Utils
         // FFileSystemCacheStore writes to a unique temp): one `.tmp` for two writers let the second
         // rename find the first one's file already gone (Blockout_1/2, 09-30).
         [[nodiscard]] static Common::BoolResultStr
-        WriteBytesToFileAtomic( const std::filesystem::path& filepath, std::span<const std::byte> content,
-                                const std::filesystem::path& workingFile );
+        WriteBytesToFileAtomic( const std::filesystem::path& requestedPath, std::span<const std::byte> content,
+                                const std::filesystem::path& requestedWorkingFile );
 
         [[nodiscard]] static Common::BoolResultStr WriteContentToFileAtomic( const std::filesystem::path& filepath,
                                                                              const std::string& content );

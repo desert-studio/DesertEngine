@@ -360,8 +360,10 @@ TEST( StaticMeshCooked, TheShippedProbeKeepsTheIdentityTheSceneNamesItBy )
 {
     // The scene's spelling is relative to ITS project, so the identity is derived with that project open — as
     // the editor derives it when it loads M10_MeshSlot.desce from DesertTests.deproj.
-    namespace P      = Common::Constants::Path;
-    const auto saved = P::CurrentProjectRoot();
+    namespace P = Common::Constants::Path;
+    // A copy on purpose: SetProjectRoot below rewrites the state CurrentProjectRoot() refers to, so a reference
+    // would "restore" the probe project onto itself.
+    const auto saved = P::CurrentProjectRoot(); // NOLINT(performance-unnecessary-copy-initialization)
     P::SetProjectRoot( Desert::TestSupport::TestDataDir(), kProbeAssetsRoot );
     const std::string key = Common::AssetHandle::StableKeyForPath( kProbeCookedPath );
     const auto handle     = static_cast<std::uint64_t>( Common::AssetHandle::FromCookedPath( kProbeCookedPath ) );

@@ -45,9 +45,11 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <iterator>
 #include <set>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 #include "../../TestSupport/scratch_dir.hpp"
 #include "../../TestSupport/engine_dir.hpp"
@@ -790,22 +792,44 @@ namespace
         std::vector<std::string> Unresolved; ///< include targets the census could not open
     };
 
-    void AppendExpanded( const fs::path& shadersDir, const fs::path& file, std::set<std::string>& visited,
-                         ExpandedShader& out );
+    /// One file's text waiting to be read, with the directory a `"path"` include in it is looked up from. The
+    /// expansion walks a stack of these rather than recursing: an include chain is as deep as the shaders make it.
+    struct PendingSource
+    {
+        fs::path    IncluderDir;
+        std::string Raw;
+    };
 
     // The VIRTUAL include (UE /Engine/Generated/): no file exists at kGeneratedInclude — the shader includer
     // answers it with the shading-model registry's GenerateGlsl() over the shader root. The census answers it
     // the same way, through the same generator, so a sampler declared behind it is seen and a registry that
     // cannot be built is a named hole, not a silent skip.
-    void AppendGenerated( const fs::path& shadersDir, std::set<std::string>& visited, ExpandedShader& out );
-
-    void AppendText( const fs::path& shadersDir, const fs::path& includerDir, const std::string& raw,
-                     std::set<std::string>& visited, ExpandedShader& out )
+    void QueueGenerated( const fs::path& shadersDir, std::set<std::string>& visited, ExpandedShader& out,
+                         std::vector<PendingSource>& found )
     {
-        out.Text += Strip( raw );
+        const std::string target( Desert::Core::ShadingModels::kGeneratedInclude );
+        if ( !visited.insert( std::format( "<generated>{}", target ) ).second )
+            return;
+        const auto registry = Desert::Core::ShadingModels::ShadingModelRegistry::Scan( shadersDir );
+        if ( !registry.IsSuccess() )
+        {
+            out.Unresolved.push_back( std::format( "{} (the shading-model registry over {} was refused: {})",
+                                                   target, shadersDir.generic_string(), registry.GetError() ) );
+            return;
+        }
+        found.push_back( { shadersDir / fs::path( target ).parent_path(), registry.GetValue().GenerateGlsl() } );
+    }
+
+    // Appends one source's stripped text and answers the sources its includes name, in the order it names them
+    // (each file once across the whole expansion).
+    std::vector<PendingSource> AppendText( const fs::path& shadersDir, const PendingSource& source,
+                                           std::set<std::string>& visited, ExpandedShader& out )
+    {
+        out.Text += Strip( source.Raw );
         out.Text += '\n';
 
-        std::istringstream lines( raw );
+        std::vector<PendingSource> found;
+        std::istringstream         lines( source.Raw );
         for ( std::string line; std::getline( lines, line ); )
         {
             const std::size_t hash = CT::SkipSpace( line, 0 );
@@ -828,12 +852,12 @@ namespace
             const std::string target = line.substr( open + 1, close - open - 1 );
             if ( target == Desert::Core::ShadingModels::kGeneratedInclude )
             {
-                AppendGenerated( shadersDir, visited, out );
+                QueueGenerated( shadersDir, visited, out, found );
                 continue;
             }
             fs::path included = shadersDir / target;
-            if ( line[open] == '"' && fs::exists( includerDir / target ) )
-                included = includerDir / target;
+            if ( line[open] == '"' && fs::exists( source.IncluderDir / target ) )
+                included = source.IncluderDir / target;
             if ( !fs::exists( included ) )
             {
                 out.Unresolved.push_back( target );
@@ -841,37 +865,25 @@ namespace
             }
             if ( !visited.insert( fs::weakly_canonical( included ).string() ).second )
                 continue;
-            AppendExpanded( shadersDir, included, visited, out );
+            found.push_back( { included.parent_path(), ReadAll( included ) } );
         }
-    }
-
-    void AppendExpanded( const fs::path& shadersDir, const fs::path& file, std::set<std::string>& visited,
-                         ExpandedShader& out )
-    {
-        AppendText( shadersDir, file.parent_path(), ReadAll( file ), visited, out );
-    }
-
-    void AppendGenerated( const fs::path& shadersDir, std::set<std::string>& visited, ExpandedShader& out )
-    {
-        const std::string target( Desert::Core::ShadingModels::kGeneratedInclude );
-        if ( !visited.insert( std::format( "<generated>{}", target ) ).second )
-            return;
-        const auto registry = Desert::Core::ShadingModels::ShadingModelRegistry::Scan( shadersDir );
-        if ( !registry.IsSuccess() )
-        {
-            out.Unresolved.push_back( std::format( "{} (the shading-model registry over {} was refused: {})",
-                                                   target, shadersDir.generic_string(), registry.GetError() ) );
-            return;
-        }
-        AppendText( shadersDir, shadersDir / fs::path( target ).parent_path(), registry.GetValue().GenerateGlsl(),
-                    visited, out );
+        return found;
     }
 
     ExpandedShader ExpandIncludes( const fs::path& shadersDir, const fs::path& file )
     {
-        ExpandedShader        out;
-        std::set<std::string> visited;
-        AppendExpanded( shadersDir, file, visited, out );
+        ExpandedShader             out;
+        std::set<std::string>      visited;
+        std::vector<PendingSource> stack{ { file.parent_path(), ReadAll( file ) } };
+        while ( !stack.empty() )
+        {
+            const PendingSource source = std::move( stack.back() );
+            stack.pop_back();
+            std::vector<PendingSource> found = AppendText( shadersDir, source, visited, out );
+            // Reversed onto the stack, so the first include is read next — the order a recursive walk reads them.
+            stack.insert( stack.end(), std::make_move_iterator( found.rbegin() ),
+                          std::make_move_iterator( found.rend() ) );
+        }
         return out;
     }
 } // namespace
