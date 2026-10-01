@@ -63,10 +63,6 @@ namespace
     constexpr const char* kCorpusDir = "Resources/Assets/Meshes/Skinned/";
     constexpr const char* kProbeRig  = "Resources/Assets/Meshes/Skinned/SkinProbe.skeleton";
 
-    // The probe rig's one bone. Named here as well as read from the file so that a corpus clip pointing at
-    // a bone the rig does not have is a failure with a readable message rather than a silent non-match.
-    constexpr const char* kProbeBoneName = "Root";
-
     // The checkout and the suite data project (Desert/Tests/Data) are the roots the build baked in
     // (TestSupport::RepositoryRoot / TestDataDir) — never found from the working directory.
 #if defined( DESERT_PLATFORM_WINDOWS )
@@ -95,7 +91,7 @@ namespace
     std::optional<std::vector<std::string>> TrackedClips()
     {
         const std::string command =
-             std::format( "git -C \"{}\" ls-files -z -- \"*.anim\" 2>{}",
+             std::format( R"(git -C "{}" ls-files -z -- "*.anim" 2>{})",
                           Desert::TestSupport::RepositoryRoot().generic_string(), kNullDevice );
 
 #if defined( DESERT_PLATFORM_WINDOWS )
