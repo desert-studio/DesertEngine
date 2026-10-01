@@ -60,6 +60,7 @@
 #include <utility>
 #include <vector>
 #include "Editor/LevelEditor/DocumentHost.hpp"
+#include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/LevelEditor/WindowTitles.hpp"
 #include "Engine/Assets/AssetMetadata.hpp"
 #include "Engine/Assets/Common.hpp"
