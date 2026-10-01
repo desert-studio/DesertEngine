@@ -385,7 +385,7 @@ TEST_F( SkinnedImport, TheEmbeddedBaseColourIsWrittenBesideTheSource )
 {
     const std::filesystem::path extracted =
          m_Source.parent_path() / std::format( "{}_0.png", m_Source.stem().string() );
-    EXPECT_TRUE( std::filesystem::exists( extracted ) ) << extracted.string();
+    EXPECT_TRUE( std::filesystem::exists( Common::Constants::Path::FullPath( extracted ) ) ) << extracted.string();
 }
 
 // THM1l-b21: THE SKINNED MESH NAMES ITS MATERIAL AS THE STATIC ONE DOES: every .skmesh submesh states the GUID of
@@ -672,7 +672,7 @@ TEST_F( SkinnedImport, ARepeatedRunReimportsNothingUntilTheSourceBytesChange )
     EXPECT_EQ( ImportManager().Import( second ), Editor::CookVerdict::UpToDate )
          << "an unchanged source imported onto another file's skeleton was re-imported";
 
-    std::ofstream( m_Source, std::ios::binary | std::ios::app ) << "\n";
+    std::ofstream( Common::Constants::Path::FullPath( m_Source ), std::ios::binary | std::ios::app ) << "\n";
     EXPECT_EQ( ImportManager().Import( m_Source ), Editor::CookVerdict::Cooked )
          << "a source whose bytes changed was taken as up to date";
 }

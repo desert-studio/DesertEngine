@@ -775,7 +775,7 @@ namespace Desert::Assets
                 return;
 
             std::error_code ec;
-            if ( std::filesystem::exists( file, ec ) )
+            if ( std::filesystem::exists( Common::Constants::Path::FullPath( file ), ec ) )
             {
                 NoteFile( file );
                 return;
