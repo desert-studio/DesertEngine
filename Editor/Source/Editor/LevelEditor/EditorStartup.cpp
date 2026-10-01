@@ -18,7 +18,9 @@
 #include <Engine/Assets/BootContent.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/ContentWork.hpp>
+#include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Core/SceneAssetRoots.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Desert.hpp>
