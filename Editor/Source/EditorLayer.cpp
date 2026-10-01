@@ -426,7 +426,6 @@ namespace Desert::Editor
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;     // Enable Docking
         io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;   // Enable Multi-Viewport / Platform Windows
 
-
         // THE DOCKING LAYOUT FILE, OFF THE PROJECT (DockLayout::BindLayoutFile).
         if ( const auto bound = m_Dock.BindLayoutFile(); !bound.IsSuccess() )
             return Common::MakeError( bound.GetError() );
@@ -540,11 +539,14 @@ namespace Desert::Editor
             m_Commands.Register( "Debug (crash)", []( Out& out ) { AppendCrashCommand( out ); } );
             m_Commands.Register( "Assets (selection)",
                                  [this]( Out& out ) { m_AssetCommands->AppendSelectionCommands( out ); } );
-            m_Commands.Register( "Panels (maximize)", [this]( Out& out ) { m_Dock.AppendMaximizeCommands( out ); } );
+            m_Commands.Register( "Panels (maximize)",
+                                 [this]( Out& out ) { m_Dock.AppendMaximizeCommands( out ); } );
             // Details: scroll to a field / open an asset picker, as the last Details frame drew them (CTL2).
-            m_Commands.Register( "Details", []( Out& out )
+            m_Commands.Register( "Details",
+                                 []( Out& out )
                                  {
-                                     for ( PaletteCommand& command : DetailsPaletteCommands( GetDetailsNavigation() ) )
+                                     for ( PaletteCommand& command :
+                                           DetailsPaletteCommands( GetDetailsNavigation() ) )
                                          out.push_back( std::move( command ) );
                                  } );
             m_Commands.Register( "Clouds", []( Out& out ) { AppendCloudCommands( out ); } );
@@ -598,16 +600,17 @@ namespace Desert::Editor
                                  []( Out& out ) { MainMenu::AppendUndoRedoCommands( out ); } );
             m_Commands.Register( "Documents (close all)",
                                  [this]( Out& out ) { m_Documents.AppendCloseAllCommand( out ); } );
-            m_Commands.Register( "Window", [this]( Out& out )
-                                 { DockLayout::AppendWindowCommands( out, m_WindowChrome ? m_Application : nullptr ); } );
+            m_Commands.Register(
+                 "Window", [this]( Out& out )
+                 { DockLayout::AppendWindowCommands( out, m_WindowChrome ? m_Application : nullptr ); } );
             m_Commands.Register( "Build", []( Out& out ) { AppendBuildCommands( out ); } );
         }
         // THE TOOLS, in View-menu order (DockLayout.hpp, EditorPanels.cpp — UE: RegisterTabSpawner).
         {
-            const EditorPanelHandles handles =
-                 RegisterEditorPanels( m_Panels, m_Workspace, m_Play, m_Documents, m_AssetManager, m_AnimationLibrary );
-            m_FileExplorerPanel   = handles.FileExplorer;
-            m_WorldPartitionPanel = handles.WorldPartition;
+            const EditorPanelHandles handles = RegisterEditorPanels( m_Panels, m_Workspace, m_Play, m_Documents,
+                                                                     m_AssetManager, m_AnimationLibrary );
+            m_FileExplorerPanel              = handles.FileExplorer;
+            m_WorldPartitionPanel            = handles.WorldPartition;
             m_Startup.AttachFileExplorer( m_FileExplorerPanel );
         }
 

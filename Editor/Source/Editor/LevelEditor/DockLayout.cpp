@@ -122,7 +122,6 @@ namespace Desert::Editor
         }
     }
 
-
     void DockLayout::BeginHost()
     {
         // We are using the ImGuiWindowFlags_NoDocking flag to make the parent window not dockable into,
@@ -267,7 +266,7 @@ namespace Desert::Editor
                 ImGuiID right  = ::ImGui::DockBuilderSplitNode( center, ImGuiDir_Right, 0.20f, nullptr, &center );
                 ImGuiID left   = ::ImGui::DockBuilderSplitNode( center, ImGuiDir_Left, 0.22f, nullptr, &center );
                 ImGuiID bottom = ::ImGui::DockBuilderSplitNode( center, ImGuiDir_Down, 0.28f, nullptr, &center );
-                m_BottomDockId     = bottom; // remembered so the drawer can be collapsed/restored later
+                m_BottomDockId = bottom; // remembered so the drawer can be collapsed/restored later
                 ImGuiID leftBottom = ::ImGui::DockBuilderSplitNode( left, ImGuiDir_Down, 0.40f, nullptr, &left );
                 ImGuiID rightBottom =
                      ::ImGui::DockBuilderSplitNode( right, ImGuiDir_Down, 0.50f, nullptr, &right );
@@ -602,19 +601,17 @@ namespace Desert::Editor
     void DockLayout::AppendMaximizeCommands( std::vector<PaletteCommand>& commands )
     {
         // Maximize any panel that sits in a dock now; restore the maximized one.
-            std::vector<std::string> docked;
-            for ( const auto& panel : m_Panels )
-            {
-                if ( !panel->GetVisibility() )
-                    continue;
-                const ImGuiWindow* window =
-                     ::ImGui::FindWindowByName( PanelDisplayTitle( panel->GetName() ).c_str() );
-                if ( window != nullptr && window->DockId != 0 )
-                    docked.push_back( PanelShownName( panel->GetName() ) );
-            }
-            for ( PaletteCommand& command : PanelMaximizePaletteCommands( m_PanelMaximize, docked ) )
-                commands.push_back( std::move( command ) );
-
+        std::vector<std::string> docked;
+        for ( const auto& panel : m_Panels )
+        {
+            if ( !panel->GetVisibility() )
+                continue;
+            const ImGuiWindow* window = ::ImGui::FindWindowByName( PanelDisplayTitle( panel->GetName() ).c_str() );
+            if ( window != nullptr && window->DockId != 0 )
+                docked.push_back( PanelShownName( panel->GetName() ) );
+        }
+        for ( PaletteCommand& command : PanelMaximizePaletteCommands( m_PanelMaximize, docked ) )
+            commands.push_back( std::move( command ) );
     }
 
     void DockLayout::AppendWindowCommands( std::vector<PaletteCommand>& commands, Engine::Application* frameless )

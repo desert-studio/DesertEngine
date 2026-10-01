@@ -4,6 +4,7 @@
 
 #include "Editor/Core/PanelRegistry.hpp"
 #include "Editor/Core/SceneViewIdentity.hpp"
+#include "Editor/Import/ImportManager.hpp"
 #include "Editor/LevelEditor/DocumentHost.hpp"
 #include "Editor/LevelEditor/PlaySession.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
@@ -39,13 +40,13 @@
 namespace Desert::Editor
 {
     EditorPanelHandles RegisterEditorPanels( PanelRegistry& panels, SceneWorkspace& workspace, PlaySession& play,
-                                             DocumentHost& documents, std::shared_ptr<Assets::AssetManager>& assetManager,
+                                             DocumentHost&                                       documents,
+                                             std::shared_ptr<Assets::AssetManager>&              assetManager,
                                              const std::unique_ptr<Animation::AnimationLibrary>& animationLibrary )
     {
         EditorPanelHandles handles;
         panels.Add<Editor::SceneHierarchyPanel>( workspace.ActiveScene(), assetManager );
-        panels.Add<Editor::ScenePropertiesPanel>( workspace.ActiveScene(), assetManager,
-                                                    animationLibrary.get() );
+        panels.Add<Editor::ScenePropertiesPanel>( workspace.ActiveScene(), assetManager, animationLibrary.get() );
         panels.Add<Editor::ShaderLibraryPanel>();
         {
             auto primaryViewport =

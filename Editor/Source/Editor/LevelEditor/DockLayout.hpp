@@ -12,6 +12,7 @@
 #include <Editor/Core/CommandPalette.hpp>
 #include <Editor/Core/PanelMaximize.hpp>
 #include <ImGui/imgui.h>
+#include <ImGui/imgui_internal.h> // ImGuiDockNodeFlags_NoWindowMenuButton / NoCloseButton
 
 #include <filesystem>
 #include <memory>

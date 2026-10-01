@@ -164,9 +164,9 @@ namespace Desert::Editor
         // Opening, focus and closing of the asset documents, the unsaved-close question, the well and its
         // tabs, the refusal past the view budget (UE: UAssetEditorSubsystem + the document half of
         // FGlobalTabmanager). See Editor/LevelEditor/DocumentHost.hpp.
-        // The dockspace, its layouts and the tool windows (UE: FTabManager / LevelEditorLayout). BEFORE m_Documents:
-        // it owns the one focus slot (tool panel or document) the document host holds by reference. See
-        // Editor/LevelEditor/DockLayout.hpp.
+        // The dockspace, its layouts and the tool windows (UE: FTabManager / LevelEditorLayout). BEFORE
+        // m_Documents: it owns the one focus slot (tool panel or document) the document host holds by reference.
+        // See Editor/LevelEditor/DockLayout.hpp.
         DockLayout   m_Dock{ m_Panels, m_Documents, m_Workspace, m_SceneFiles };
         DocumentHost m_Documents{ m_Workspace, m_AssetManager, m_Dock.FocusSlot(),
                                   [this]( const std::string& folder ) { return ShowFolderInBrowser( folder ); } };
@@ -208,7 +208,7 @@ namespace Desert::Editor
              m_Profiler.Shown(),
              { .RebuildCookedAssets = [this]
                { m_AssetCompiling.RebuildCookedAssets( m_Workspace.ActiveScene().get(), m_FileExplorerPanel ); },
-               .RequestExit = [this] { RequestEditorExit(); },
+               .RequestExit  = [this] { RequestEditorExit(); },
                .SaveLayoutAs = [this] { m_Dock.RequestSaveLayoutAs(); },
                .ResetLayout  = [this] { m_Dock.RequestResetLayout(); } } };
         // The strip below the menu bar and the title bar's project / level sections (UE: SLevelEditorToolBar).
@@ -225,7 +225,6 @@ namespace Desert::Editor
         // Editor/LevelEditor/ControlService.hpp.
         ControlService m_Control{ m_Workspace, m_SceneFiles, m_Play,    m_Documents,
                                   m_Capture,   m_Panels,     m_Commands };
-
 
         // Set by the first OnUIRender that draws the editor rather than a loading frame.
         bool m_RealFrameDrawn = false;
