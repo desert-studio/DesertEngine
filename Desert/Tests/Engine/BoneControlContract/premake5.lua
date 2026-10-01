@@ -49,9 +49,6 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/TwoBoneIKControl.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp",
-        -- Timestep's constructor lives in a .cpp and Animator::Update takes one; libCommon is not among
-        -- the libraries a test suite links.
-        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source/Common/Core/Timestep.cpp",
     }
 
     includedirs {
