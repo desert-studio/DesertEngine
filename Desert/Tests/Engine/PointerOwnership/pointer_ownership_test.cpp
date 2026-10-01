@@ -552,6 +552,13 @@ TEST( PointerOwnership, EditorLayerDeclaresItsHostsBeforeItsPanels )
     // the documents die with m_Documents, so that member is the one every document's host must precede.
     const std::size_t documents = src.find( "DocumentHost m_Documents" );
     ASSERT_NE( documents, std::string::npos );
+    // DocumentHost holds DockLayout's focus slot by reference (one slot for tool panels and documents), so the
+    // dock layout must be constructed first and destroyed last of the two.
+    const std::size_t dock = src.find( "DockLayout m_Dock" );
+    ASSERT_NE( dock, std::string::npos ) << "EditorLayer no longer declares DockLayout m_Dock";
+    EXPECT_LT( dock, documents ) << "DockLayout m_Dock is declared AFTER m_Documents, which holds its focus slot "
+                                    "by reference: the document host would bind to a member not yet constructed "
+                                    "and outlive it.";
     for ( const char* host : { "std::shared_ptr<Assets::AssetManager>", "m_AnimationLibrary" } )
     {
         const std::size_t at = src.find( host );
@@ -641,7 +648,7 @@ TEST( PointerOwnership, EditorLayerSeedsEveryScenePanelAtRegistration )
     namespace fs           = std::filesystem;
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const std::string layer = ReadRepoFile( "Editor/Source/EditorLayer.cpp" );
+    const std::string layer = ReadRepoFile( "Editor/Source/Editor/LevelEditor/EditorPanels.cpp" );
     ASSERT_FALSE( layer.empty() );
 
     std::map<std::string, std::string> headers; // panel class -> header text
@@ -656,7 +663,7 @@ TEST( PointerOwnership, EditorLayerSeedsEveryScenePanelAtRegistration )
         headers[entry.path().stem().string()] = text.str();
     }
 
-    const std::string marker       = "m_Panels.Add<Editor::";
+    const std::string marker       = "panels.Add<Editor::";
     int               checked      = 0;
     bool              sawLandscape = false;
     for ( std::size_t at = layer.find( marker ); at != std::string::npos; at = layer.find( marker, at + 1 ) )
@@ -671,13 +678,13 @@ TEST( PointerOwnership, EditorLayerSeedsEveryScenePanelAtRegistration )
             continue;
         ++checked;
         sawLandscape = sawLandscape || panel == "LandscapePanel";
-        EXPECT_NE( layer.substr( nameEnd, callEnd - nameEnd ).find( "m_Workspace.ActiveScene()" ),
+        EXPECT_NE( layer.substr( nameEnd, callEnd - nameEnd ).find( "workspace.ActiveScene()" ),
                    std::string::npos )
              << panel
-             << " overrides SetScene but EditorLayer registers it without m_Workspace.ActiveScene(); "
+             << " overrides SetScene but EditorPanels registers it without workspace.ActiveScene(); "
                 "SetActiveScene "
              << "skips the already-active primary scene, so the panel has NO scene until the user switches "
-             << "views. Pass m_Workspace.ActiveScene() to its constructor.";
+             << "views. Pass workspace.ActiveScene() to its constructor.";
     }
     // Negative control: the census must actually see the panel whose defect it was written for.
     EXPECT_TRUE( sawLandscape ) << "the census no longer finds LandscapePanel's registration";

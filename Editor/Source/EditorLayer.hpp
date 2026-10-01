@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Common/Core/Subsystems/SubsystemCollection.hpp>
-#include <Editor/Core/PanelMaximize.hpp>
 
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Desert.hpp>
@@ -33,6 +32,7 @@
 #include "Editor/LevelEditor/AssetCompiling.hpp"
 #include "Editor/LevelEditor/EditorStartup.hpp"
 #include "Editor/LevelEditor/ProfilerWindow.hpp"
+#include "Editor/LevelEditor/DockLayout.hpp"
 #include "Editor/Widgets/WindowChrome.hpp"
 #include "Editor/Splash/SplashScreen.hpp"
 
@@ -84,22 +84,14 @@ namespace Desert::Editor
     private:
         void DrawMenuBar();
 
-        // Opens/closes panels whose context appeared or vanished (see IPanel::IsContextual).
-        void UpdateContextualPanels();
-
         // The palette's and the control channel's list, built from m_Commands (see CommandRegistry.hpp).
         [[nodiscard]] std::vector<PaletteCommand> BuildPaletteCommands();
-        // The palette groups of modules not cut out yet (panels, documents, add shape, the palette's own
-        // door, open, scenes/views, save/play/window): registered in palette order between the subject-owned
-        // providers; the later EDL cuts move each to its module (DockLayout, DocumentHost, MainMenu,
-        // SceneFiles...).
-        void AppendPanelCommands( std::vector<PaletteCommand>& commands );
-        void AppendMaximizeCommands( std::vector<PaletteCommand>& commands );
+        // The palette groups of modules not cut out yet (add shape, the palette's own door, scenes/views):
+        // registered in palette order between the subject-owned providers.
         void AppendAddShapeCommands( std::vector<PaletteCommand>& commands );
         void AppendPaletteDoorCommand( std::vector<PaletteCommand>& commands );
         void AppendSceneCommands( std::vector<PaletteCommand>& commands );
         void AppendSceneTailCommands( std::vector<PaletteCommand>& commands );
-        void AppendWindowCommands( std::vector<PaletteCommand>& commands );
 
         // Ctrl+P "go to anything": draws the overlay over the dictionary above. No-op unless open.
         void DrawCommandPalette();
@@ -109,19 +101,8 @@ namespace Desert::Editor
         // itself would work over the socket and do nothing under a person's hand.
         bool m_OpenPaletteRequested = false;
 
-        // After an unclean exit, offers to reopen the newest autosave. No-op unless one was found.
-        void DrawRecoveryPopup();
-
-        // Modal for naming + saving the current docking layout (opened from View -> Layouts).
-        void DrawLayoutSavePopup();
-
-        // Builds a ready-to-Play demo: a WASD character (Jolt CharacterVirtual) with a 3rd-person child
-        // camera, a ground floor, a sun light, and obstacles. (Remove the call in OnAttach for a blank scene.)
-        // Builds a walkable greybox house (walls + doorway + roof, static colliders) parented under one root.
-
         // ===== Popups =====
         void DrawPopups();
-        void DrawProjectPopup();
         void FollowImGuiWithEvents();
 
         // The one navigation `run Browse <folder>` and a field's "Show in browser" share.
@@ -178,9 +159,11 @@ namespace Desert::Editor
         // Opening, focus and closing of the asset documents, the unsaved-close question, the well and its
         // tabs, the refusal past the view budget (UE: UAssetEditorSubsystem + the document half of
         // FGlobalTabmanager). See Editor/LevelEditor/DocumentHost.hpp.
-        // The window (tool panel or document) to bring to the front of its dock next frame; ONE slot for both.
-        std::string  m_FocusPanel;
-        DocumentHost m_Documents{ m_Workspace, m_AssetManager, m_FocusPanel,
+        // The dockspace, its layouts and the tool windows (UE: FTabManager / LevelEditorLayout). BEFORE
+        // m_Documents: it owns the one focus slot (tool panel or document) the document host holds by reference.
+        // See Editor/LevelEditor/DockLayout.hpp.
+        DockLayout   m_Dock{ m_Panels, m_Documents, m_Workspace, m_SceneFiles };
+        DocumentHost m_Documents{ m_Workspace, m_AssetManager, m_Dock.FocusSlot(),
                                   [this]( const std::string& folder ) { return ShowFolderInBrowser( folder ); } };
 
         std::shared_ptr<ImGui::ImGuiLayer> m_ImGuiLayer;
@@ -196,12 +179,7 @@ namespace Desert::Editor
         // of UpdateContextualPanels already tests. So the set was write-only state, and one that went
         // dangling wholesale at `m_Panels.Clear()`. Removed with its five writes (A8-2), which is the same
         // decision this task took on `CloudNoiseService::GetGeneration` and `InstancesDirty`.
-        //
-        // The panel to bring to the front of its dock this frame IS read, and stays: it lives above
-        // m_Documents, which shares this one slot for the document windows.
-
-        // "Maximize panel" / "Restore panel": the one panel lifted out of its dock, and the node it came from.
-        PanelMaximize m_PanelMaximize;
+        // The focus slot this note once described lives in DockLayout (m_Dock.FocusSlot()).
 
         CommandPalette m_CommandPalette;
         // Every palette provider, in palette order; registered in OnAttach.
@@ -225,21 +203,16 @@ namespace Desert::Editor
              m_Profiler.Shown(),
              { .RebuildCookedAssets = [this]
                { m_AssetCompiling.RebuildCookedAssets( m_Workspace.ActiveScene().get(), m_FileExplorerPanel ); },
-               .RequestExit = [this] { RequestEditorExit(); },
-               .SaveLayoutAs =
-                    [this]
-               {
-                   m_LayoutNameBuf[0]    = '\0';
-                   m_ShowSaveLayoutPopup = true;
-               },
-               .ResetLayout = [this] { m_ResetDefaultLayout = true; } } };
+               .RequestExit  = [this] { RequestEditorExit(); },
+               .SaveLayoutAs = [this] { m_Dock.RequestSaveLayoutAs(); },
+               .ResetLayout  = [this] { m_Dock.RequestResetLayout(); } } };
         // The strip below the menu bar and the title bar's project / level sections (UE: SLevelEditorToolBar).
         // See Editor/LevelEditor/LevelToolbar.hpp.
         LevelToolbar m_Toolbar{ m_Workspace, m_SceneFiles, m_Play, m_Preferences, m_Profiler.Shown() };
         // The bottom strip (UE: SStatusBar); the bottom drawer's chevron stays with the dock layout and arrives
         // as an action. See Editor/LevelEditor/StatusBar.hpp.
         StatusBar m_StatusBar{ m_Workspace, m_SceneFiles, m_Documents, m_AssetCompiling.CookQueue(),
-                               [this] { DrawBottomDrawerToggle(); } };
+                               [this] { m_Dock.DrawBottomDrawerToggle(); } };
         // Headless capture: `--shot`, `--play`, `--camera`/`--look` (UE: the automation screenshot director). See
         // Editor/LevelEditor/ShotDirector.hpp.
         ShotDirector m_Shots{ m_Workspace, m_SceneFiles, m_Play, m_Capture };
@@ -247,23 +220,6 @@ namespace Desert::Editor
         // Editor/LevelEditor/ControlService.hpp.
         ControlService m_Control{ m_Workspace, m_SceneFiles, m_Play,    m_Documents,
                                   m_Capture,   m_Panels,     m_Commands };
-
-        // Crash recovery: set at startup when the previous session crashed and an autosave was found.
-        bool                  m_ShowRecoveryPrompt = false;
-        std::filesystem::path m_RecoveryAutosave;
-
-        // Saveable layouts: pending "reset to default docking" and the save-layout modal state.
-        bool m_ResetDefaultLayout  = false;
-        bool m_ShowSaveLayoutPopup = false;
-
-        // Bottom drawer (Assets / Logs / Shader Code). Collapsing SHRINKS the dock node to its tab bar
-        // instead of closing the panels: a closed panel has to be rediscovered from a menu, a collapsed
-        // one is still right there. m_BottomHeight remembers the expanded size across toggles.
-        ImGuiID                                 m_BottomDockId    = 0;
-        bool                                    m_BottomCollapsed = false;
-        float                                   m_BottomHeight    = 0.0f;
-        void                                    DrawBottomDrawerToggle();
-        char                                    m_LayoutNameBuf[64] = {};
 
         // Set by the first OnUIRender that draws the editor rather than a loading frame.
         bool m_RealFrameDrawn = false;
