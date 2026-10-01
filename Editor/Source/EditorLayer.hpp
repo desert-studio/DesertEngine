@@ -32,6 +32,8 @@
 #include "Editor/Core/FlightRules.hpp"
 #include "Editor/Core/PanelRegistry.hpp"
 #include "Editor/RenderSystems/RenderRigistry.hpp"
+#include "Editor/LevelEditor/PlaySession.hpp"
+#include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/Widgets/ToolbarLayout.hpp"
 #include "Editor/Widgets/WindowChrome.hpp"
 #include "Editor/Splash/RevealGate.hpp"
@@ -108,8 +110,6 @@ namespace Desert::Editor
         // ===== Top Bar Sections =====
         void DrawProjectSection();
         void DrawSceneRenameSection();
-        // The segmented Play | Options | Pause | Stop group at the slots `group` laid out, on row `y`.
-        void DrawPlaybackGroup( const ::Desert::Editor::ToolbarLayout::PlaybackGroup& group, float y );
 
         // UE5-style toolbar strip below the menu bar. Left: save + undo/redo, editor modes, transform
         // tools, the two snap steps. Centre: playback. Right: package, profiler, preferences. Drawn inside
@@ -159,6 +159,7 @@ namespace Desert::Editor
         void AppendOpenCommands( std::vector<PaletteCommand>& commands );
         void AppendSceneCommands( std::vector<PaletteCommand>& commands );
         void AppendSceneTailCommands( std::vector<PaletteCommand>& commands );
+        void AppendWindowCommands( std::vector<PaletteCommand>& commands );
 
         // Runs one action a document published (ISubjectDocument::Actions), addressed by subject + label.
         // Named rather than a lambda in the list above — see the definition for both reasons.
@@ -227,17 +228,6 @@ namespace Desert::Editor
         // Modal for naming + saving the current docking layout (opened from View -> Layouts).
         void DrawLayoutSavePopup();
 
-        // Play mode: snapshot the scene on Play, restore it on Stop (so play-time changes don't persist).
-        // Play: the pawn spawns at the level's PlayerStart. Play from Here (@p fromHere): it spawns at the
-        // editor camera instead, and the editor camera is the last-resort view (Core::BeginPlay).
-        // @p playerStartTag: the tagged PlayerStart to use (Core::PlayRequest::PlayerStartTag); empty = the rule.
-        void OnScenePlay( bool fromHere = false, const std::string& playerStartTag = {} );
-        void OnSceneStop();
-        // The ONE executor of the play-session commands (Editor/Core/PlayWorldCommands.hpp): the toolbar's
-        // playback group, its Play-options menu and the palette / control channel all call this. The
-        // result says whether the world moved, and why not when it did not.
-        [[nodiscard]] Common::BoolResultStr RunPlayWorldCommand( Editor::PlayWorldCommand command );
-
         // Builds a ready-to-Play demo: a WASD character (Jolt CharacterVirtual) with a 3rd-person child
         // camera, a ground floor, a sun light, and obstacles. (Remove the call in OnAttach for a blank scene.)
         void BuildCharacterDemoScene();
@@ -255,10 +245,6 @@ namespace Desert::Editor
         void RecordFlightFrame( bool counted );
         /// --flight, on the last frame: writes the CSV and logs the summary. False when either failed.
         [[nodiscard]] bool FinishFlight();
-        /// --flight's camera as a streaming source (UE's streaming source provider): a flight measures streaming
-        /// along its route, and in Play the camera is not a source by itself (Core::WorldStreamer). Empty without
-        /// a flight.
-        [[nodiscard]] std::vector<::Desert::Core::Rules::StreamingSource> InstrumentStreamingSources() const;
 
         // ===== Popups =====
         void DrawPopups();
@@ -281,52 +267,6 @@ namespace Desert::Editor
         void                                 LoadSceneInternal( const Common::Filepath& requested );
 
         void NewSceneInternal(); // clears the current scene to a fresh empty one (File -> New Scene / Ctrl+N)
-
-        // ===== Multi-scene editing (independent SceneRenderers) =====
-        // Adds the standard ECS systems to a scene (shared by the main scene and any extra scene views).
-        void BuildSceneSystems( Desert::Core::Scene& scene );
-        // Opens a new, empty scene alongside the main one — its own SceneRenderer + RenderRegistry + a live
-        // dockable viewport. Work on a UI/main-menu scene next to the game scene without switching.
-        void AddSceneView();
-        // Destroys the document named @p id: its viewport panel, render registry, scene and renderer, in that
-        // order and behind a device-idle wait. Called from OnUpdate (between frames) when the user closes a
-        // scene-view window; a no-op for an id that is already gone. This is what gives the view's GPU
-        // memory back — see Graphic/ViewResources.hpp.
-        void CloseSceneView( uint64_t id );
-        // Closes every scene view whose window the user dismissed since the last frame. One pass at the top
-        // of OnUpdate, because a close destroys GPU resources and removes a panel from m_Panels — neither is
-        // legal from inside the ImGui pass that is iterating it.
-        void CloseDismissedSceneViews();
-
-        // ===== Several ANGLES on ONE scene (what "New Scene View" was not) =====
-        // Opens another viewport onto the ACTIVE document: its own SceneRenderer and its own camera, the
-        // same world. Not a second Scene — that is AddSceneView above, and it is a second DOCUMENT: an
-        // independent copy that drifts from this one the moment either is edited. The engine side is
-        // Scene::AddView (Engine/Core/SceneViewList.hpp); the ECS is still walked once per frame no
-        // matter how many of these are open.
-        void AddSceneViewport();
-
-        // ── THE FOUR-UP GRID (UE's pattern, spelled in our docking) ───────────────────────────────
-        //
-        // What UE's four-viewport layout buys is "see the same object from fixed orthogonal directions
-        // at once". UE spells it as a dedicated splitter widget with a per-pane type menu, because its
-        // viewport area is not a general docking host. OURS IS — every viewport is an ordinary dockable
-        // window — so a bespoke splitter here would be a second, weaker layout system: its panes could
-        // not be tabbed, floated, resized against the Outliner, or saved as a named layout, all of
-        // which the docking already gives. So this opens the three extra views, aims the four cameras
-        // at Perspective / Top / Front / Right, and asks DockBuilder for the quarters.
-        //
-        // Runs from OnUpdate (between frames) because opening a view leases a renderer slot and builds
-        // GPU resources. REFUSES with the reason printed when the slot budget cannot carry four.
-        void BuildViewportGrid();
-        // The window titles waiting for the quarters, in grid order: top-left, top-right, bottom-left,
-        // bottom-right. Filled by BuildViewportGrid and drained by the dockspace pass on the NEXT frame
-        // — DockBuilder must run inside the ImGui frame, and BuildViewportGrid runs outside one.
-        std::vector<std::string> m_PendingViewportGrid;
-        // Destroys viewport @p id: its panel, then the renderer whose destructor hands the slot back.
-        // The scene is NOT touched beyond dropping the view — the other viewports of that world go on.
-        void CloseSceneViewport( uint64_t id );
-        void CloseDismissedSceneViewports();
 
         // ===== Asset documents (one window per asset, opened from the browser) =====
         // Drains Core::SubjectOpenRequests and, per request, focuses the document already open on that subject
@@ -401,9 +341,9 @@ namespace Desert::Editor
         template <typename ComponentT>
         [[nodiscard]] bool EntityHasComponent( const Common::UUID& owner ) const
         {
-            if ( !m_MainScene || owner.IsNull() )
+            if ( !m_Workspace.ActiveScene() || owner.IsNull() )
                 return false;
-            const auto entOpt = m_MainScene->FindEntityByID( owner );
+            const auto entOpt = m_Workspace.ActiveScene()->FindEntityByID( owner );
             return entOpt && entOpt->get().HasComponent<ComponentT>();
         }
         // Brings @p subject's window to the front and makes it the most recently used document.
@@ -463,21 +403,16 @@ namespace Desert::Editor
             std::optional<SubjectId> Document = {};
         };
         [[nodiscard]] std::vector<ViewConsumer> ViewCensus() const;
-        // Rebinds the editor to a focused document: m_MainScene (and thus every play/save/gizmo call site)
-        // points at it, Commands + the scene-bound panels follow. kPrimarySceneViewId = the primary/main
-        // scene. An id whose document has been closed rebinds nothing and says so — see SceneViewIdentity.hpp
-        // for why the viewports name their document instead of numbering it.
-        void SetActiveScene( uint64_t id );
         // Runs one render frame for a scene (outline aid + Begin/RegistryRender/OnUpdate/End). Called for
         // every open document each frame so all viewports stay live.
         Common::BoolResultStr UpdateSceneFrame( Desert::Core::Scene& scene, Render::RenderRegistry* registry,
                                                 const Common::Timestep& ts );
 
-        // Startup content is DATA, not code — these build entities into m_MainScene so the result
+        // Startup content is DATA, not code — these build entities into m_Workspace.ActiveScene() so the result
         // can be serialized to a .desce ONCE and loaded like any scene afterwards.
         void BuildStarterScene();    // fresh Hub project's DefaultScene: sun/ground/cube/light/camera
         void BuildCornellShowcase(); // sandbox demo: baked into CornellDemo.desce on first launch
-        // Serializes m_MainScene to @p path. False when the bytes did not land, with the reason logged;
+        // Serializes m_Workspace.ActiveScene() to @p path. False when the bytes did not land, with the reason logged;
         // the file that was there (if any) is unchanged. Both callers generate startup content, so a
         // false here means the project's own default scene is not on disk.
         [[nodiscard]] bool SaveSceneTo( const std::string& path );
@@ -530,26 +465,6 @@ namespace Desert::Editor
         [[nodiscard]] Common::BoolResultStr ReadViewportRGBA8( std::vector<uint8_t>& outPixels, uint32_t& outWidth,
                                                                uint32_t& outHeight );
 
-        enum class EditorState
-        {
-            Paused = 0,
-            Play,
-        };
-
-        // INITIALISED, and it was not. The constructor's init list never named it and the declaration
-        // carried no initialiser, so a freshly booted editor read whichever byte its allocation landed
-        // on. Measured 2026-09-22 from the control channel: two launches of the SAME binary minutes
-        // apart reported `"playing": false` and `"playing": true`, with the scene sitting in Edit both
-        // times — `OnScenePlay` guards on the SCENE's state, so the two can disagree and only this one
-        // was garbage. It is read by the state snapshot the control channel publishes and by
-        // CloseSceneView, which discards a play snapshot on the strength of it.
-        EditorState m_EditorState = EditorState::Paused;
-        std::string m_PlaySnapshot; // serialized scene captured on Play, restored on Stop
-        // A partitioned world in Play keeps only its streaming sources' neighbourhood in the ECS
-        // (WorldStreamer.hpp); null in Edit and for a world without a WorldPartition block. Ended before Stop
-        // restores the snapshot.
-        std::unique_ptr<Desert::Core::WorldStreamer> m_WorldStreamer;
-        double                                       m_WorldStreamClock = 0.0; // seconds of Play, for retries
         bool m_ShowProfiler = true; // View ▸ Profiler toggles the profiler window
 
     private:
@@ -582,50 +497,11 @@ namespace Desert::Editor
         // action, and a palette entry has to reach the object that owns the action.
         WorldPartitionPanel* m_WorldPartitionPanel = nullptr;
 
-        // m_MainScene is the ACTIVE document — rebound to the focused viewport's scene so the 100+ existing
-        // call sites (play/save/gizmo/autosave) operate on it without change. m_PrimaryScene keeps a handle
-        // to the original (index -1) so we can rebind back to it.
-        std::shared_ptr<Desert::Core::Scene> m_MainScene;
-        std::shared_ptr<Desert::Core::Scene> m_PrimaryScene;
-
-        std::unique_ptr<Render::RenderRegistry> m_RenderRegistry;
-
-        // Extra scenes opened alongside the main one (Scenes -> New Scene View). Each owns its own renderer,
-        // editor render-registry and a live ViewportPanel (non-owning ptr; the panel lives in m_Panels).
-        struct SceneDocument
-        {
-            // The document's name for as long as it exists, and the ONLY thing a viewport's activation
-            // callback captures. Not its position: see Editor/Core/SceneViewIdentity.hpp for why an index
-            // silently activates the wrong document the moment a view in front of it is closed.
-            uint64_t                                Id = kPrimarySceneViewId;
-            std::string                             Name;
-            std::shared_ptr<Desert::Core::Scene>    Scene;
-            std::unique_ptr<Graphic::SceneRenderer> Renderer;
-            std::unique_ptr<Render::RenderRegistry> Registry;
-            ViewportPanel*                          Viewport = nullptr;
-        };
-        std::vector<std::unique_ptr<SceneDocument>> m_ExtraScenes;
-
-        // A SECOND ANGLE, not a second document: no Scene of its own and no RenderRegistry of its own —
-        // the scene replays its external passes onto every view's renderer, so the grid, the collider
-        // wireframes and the 2D UI overlay arrive here without a second copy of the editor's pass set.
-        struct SceneViewport
-        {
-            uint64_t    Id = kPrimarySceneViewId;
-            std::string Name;
-            // WEAK. The document this looks at can be closed while this viewport is open; a shared_ptr
-            // here would keep a dead scene's registry alive and the viewport would keep rendering it.
-            std::weak_ptr<Desert::Core::Scene>      Scene;
-            std::unique_ptr<Graphic::SceneRenderer> Renderer;
-            ViewportPanel*                          Viewport = nullptr;
-        };
-        std::vector<std::unique_ptr<SceneViewport>> m_ExtraViewports;
-
-        // ONE id source for documents AND viewports. They share the ImGui window-id space and the
-        // authoring-context owner space, so two surfaces holding the same number would dock into one
-        // window and fight over the selected bone.
-        SceneViewIdSource m_SceneViewIds;
-        uint64_t          m_ActiveSceneId = kPrimarySceneViewId; // which document the editor is bound to
+        // The open worlds (primary scene, extra documents and viewports) and the Play session on the active one.
+        // By value and BEFORE m_Panels, so they outlive the panels that point into them; their collaborators
+        // arrive by reference (see Editor/LevelEditor/SceneWorkspace.hpp, PlaySession.hpp).
+        SceneWorkspace m_Workspace{ m_Panels, m_AssetManager, m_AnimationLibrary };
+        PlaySession    m_Play{ m_Workspace, m_AssetManager };
 
         // AssetTypeID -> the editor that opens it. Holds factories only; the documents it builds are owned by
         // m_OpenDocuments below.
@@ -762,7 +638,6 @@ namespace Desert::Editor
         float                                   m_BottomHeight    = 0.0f;
         void                                    DrawBottomDrawerToggle();
         char                                    m_LayoutNameBuf[64] = {};
-        std::unique_ptr<Graphic::SceneRenderer> m_SceneRenderer;
         bool                                    m_OpenScenePopup     = false;
         bool                                    m_SaveSceneRequested = false;
         // Set when "Save and Open" could not write the scene: the modal STAYS OPEN and shows this, so
@@ -770,12 +645,6 @@ namespace Desert::Editor
         // happen. Cleared whenever the modal is dismissed.
         std::string m_SaveAndOpenError;
         bool        m_NewSceneRequested     = false;
-        bool        m_AddSceneViewRequested = false; // Scenes -> New Scene View
-        // Deferred for the same reason as the flag above: opening a viewport leases a renderer slot and
-        // builds GPU resources, neither of which may happen inside the ImGui pass.
-        bool m_AddSceneViewportRequested = false;
-        // Scene -> Four-Up Viewports. Deferred like the two above, and for the same reason.
-        bool m_ViewportGridRequested = false;
 
         // Staged startup loading: the heavy boot work (mesh cooking, asset preload) runs one stage per
         // frame from OnUpdate, each announced on the splash, with the main window still hidden.
@@ -960,11 +829,6 @@ namespace Desert::Editor
         Common::Filepath m_OpenScenePath;
 
         std::optional<Common::Filepath> m_SceneLoadRequested;
-        // Stop tears down + recreates GPU render resources (framebuffers / render graph). It must run
-        // BETWEEN frames (like a scene load), never inline in the ImGui Stop-button handler — otherwise the
-        // next frame begins a render pass against a just-destroyed framebuffer (driver access violation in
-        // vkCmdBeginRenderPass). Deferred to the top of OnUpdate.
-        bool                          m_PendingSceneStop = false;
         std::vector<Common::Filepath> m_AvailableScenes;
         std::vector<Common::Filepath> m_RecentScenes;
         int                           m_SelectedSceneIndex = -1;

@@ -100,8 +100,8 @@ TEST( SceneInitDeferral, OnAttachDoesNotBuildARendererForAScenceAlreadyQueuedFor
             "contain, and the load then destroys them.";
 
     // The guard has to be the one in FRONT of the Init, not merely somewhere in the file.
-    const std::size_t init = source.find( "m_MainScene->Init()", guard );
-    ASSERT_NE( init, std::string::npos ) << "no m_MainScene->Init() after the guard";
+    const std::size_t init = source.find( "m_Workspace.ActiveScene()->Init()", guard );
+    ASSERT_NE( init, std::string::npos ) << "no m_Workspace.ActiveScene()->Init() after the guard";
     EXPECT_LT( init - guard, 200u ) << "the !m_SceneLoadRequested guard and the Init it is supposed to "
                                        "govern are "
                                     << ( init - guard )
@@ -117,7 +117,7 @@ TEST( SceneInitDeferral, TheDeferredLoadInitialisesTheSceneEvenWhenItRefusesTheF
     const std::size_t load = source.find( "LoadSceneInternal( path );" );
     ASSERT_NE( load, std::string::npos ) << "the deferred scene load is gone from OnUpdate";
 
-    const std::size_t fallback = source.find( "if ( !m_MainScene->IsInitialized() )", load );
+    const std::size_t fallback = source.find( "if ( !m_Workspace.ActiveScene()->IsInitialized() )", load );
     ASSERT_NE( fallback, std::string::npos )
          << "nothing after the deferred load asks whether the scene ended up initialised. "
             "LoadSceneInternal has three early returns — the file is gone, unreadable, or written by an "
@@ -127,13 +127,13 @@ TEST( SceneInitDeferral, TheDeferredLoadInitialisesTheSceneEvenWhenItRefusesTheF
          << "the IsInitialized fallback is " << ( fallback - load )
          << " characters after the load it belongs to; it has drifted out of that block";
 
-    const std::size_t init = source.find( "m_MainScene->Init()", fallback );
+    const std::size_t init = source.find( "m_Workspace.ActiveScene()->Init()", fallback );
     ASSERT_NE( init, std::string::npos ) << "the fallback asks the question and never initialises";
     EXPECT_LT( init - fallback, 200u ) << "the fallback's Init is not inside the fallback any more";
 
     // The editor passes bind to framebuffers that only exist after Init, so the registry follows it here
     // exactly as it does inside LoadSceneInternal.
-    const std::size_t registry = source.find( "std::make_unique<Render::RenderRegistry>", fallback );
+    const std::size_t registry = source.find( "m_Workspace.RebuildRenderRegistry()", fallback );
     ASSERT_NE( registry, std::string::npos ) << "the fallback initialises the scene and leaves the editor "
                                                 "passes bound to nothing";
     EXPECT_LT( registry - fallback, 700u ) << "the registry rebuild has drifted out of the fallback";
@@ -147,10 +147,10 @@ TEST( SceneInitDeferral, TheEditorPassRegistryIsNotBuiltAgainstAnUninitialisedSc
 
     // OnAttach's registry construction is the FIRST one in the file. Every editor pass creates its
     // pipeline from `scene->GetTargetFramebuffer()`, which does not exist until Init has run.
-    const std::size_t first = source.find( "std::make_unique<Render::RenderRegistry>" );
+    const std::size_t first = source.find( "m_Workspace.RebuildRenderRegistry()" );
     ASSERT_NE( first, std::string::npos ) << "the editor pass registry is never constructed";
 
-    const std::size_t guard = source.rfind( "if ( m_MainScene->IsInitialized() )", first );
+    const std::size_t guard = source.rfind( "if ( m_Workspace.ActiveScene()->IsInitialized() )", first );
     ASSERT_NE( guard, std::string::npos )
          << "OnAttach builds the editor pass registry unconditionally. With the first Init skipped there "
             "is no target framebuffer for the grid, collider and UI passes to bind their pipelines to.";

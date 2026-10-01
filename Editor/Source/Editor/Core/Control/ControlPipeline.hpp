@@ -17,7 +17,7 @@ namespace Desert::Editor::Control
      *
      * THE OBVIOUS FORMULATION IS FALSE, so it is worth saying why rather than only saying what. "Execute
      * at the top of OnUpdate, answer after that frame" sounds exact and is not: EditorLayer's update runs
-     * a block of DEFERRED work — CloseDismissedSceneViews, ServiceDocumentCloses, ServiceSubjectOpenRequests,
+     * a block of DEFERRED work — the dismissed scene views' closes, ServiceDocumentCloses, ServiceSubjectOpenRequests,
      * a pending scene stop — and several commands land in a QUEUE there rather than taking effect where
      * they were issued. Opening a document goes through Core::SubjectOpenRequests; a document refused for
      * want of one of the six renderer slots only raises its dialog on the NEXT ImGui frame. For those, a
