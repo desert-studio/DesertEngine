@@ -3021,21 +3021,8 @@ namespace Desert::Editor
     {
         m_Subsystems.reset();
         m_Application->GetCloseGate().Uninstall();
-        // The socket goes first, and its file with it. A leftover path is not harmless: the next editor
-        // to be given it PROBES what is there, and while a dead one only costs a log line, leaving the
-        // file behind on every exit would train everybody to ignore that line.
-        //
-        // A request still in flight is abandoned rather than answered — the frame that would have proved
-        // it is never going to be drawn, and a reply promising otherwise is exactly the lie this channel
-        // is built to prevent. The client sees the connection close, which is the truth.
-        if ( m_ControlInFlight )
-        {
-            LOG_WARN( "[Control] the editor is closing with a '{}' still in flight; it is abandoned rather "
-                      "than answered, because the frame that would have proved it will not be drawn.",
-                      m_ControlInFlight->Group.empty() ? "request" : m_ControlInFlight->Label );
-        }
-        m_ControlGate.Disarm();
-        m_ControlSocket.Close();
+        // The socket goes first, and its file with it (ControlService::Close).
+        m_Control.Close();
 
         // THE DEVICE DIED, AND THIS IS THE LAST MOMENT THE USER'S WORK EXISTS ANYWHERE.
         //

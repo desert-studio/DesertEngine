@@ -80,6 +80,9 @@ namespace Desert::Editor
         // whose reply has gone out — the layer closes the application with it.
         [[nodiscard]] std::optional<int32_t> OnFramePresented();
 
+        // OnDetach: abandon a request still in flight (logged, never answered) and remove the socket file.
+        void Close();
+
     private:
         // Executes one request and decides whether its reply leaves now or waits for the frame that proves
         // it. THE ONLY place a control request is run: there are two ways to arrive at one — read off the
