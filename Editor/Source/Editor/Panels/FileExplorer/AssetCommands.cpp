@@ -16,7 +16,7 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/Serialization/AnimationClipWrite.hpp>
-#include <Engine/Core/EditorCamera.hpp>
+#include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 
