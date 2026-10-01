@@ -2,215 +2,49 @@
 #include "Editor/LevelEditor/SceneFiles.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/LevelEditor/ViewportCapture.hpp"
-#include <Engine/World/Landscape/LandscapeData.hpp>
-#include <Editor/Core/Control/InputInjection.hpp>
-#include <Editor/Core/Control/PointerDrag.hpp>
-#include <Engine/Core/Glfw.hpp>
 #include <Engine/Core/PlayerStart.hpp>
-#include <Editor/Core/SaveShortcut.hpp>
-#include <Editor/Core/ContentCreateCommands.hpp>
-#include <Editor/Core/DetailsNavigation.hpp>
-#include <Engine/Graphic/ViewBudgetGate.hpp>
-#include <Engine/Graphic/Environment/EnvironmentBake.hpp>
-#include <Engine/Assets/ContentWork.hpp>
-#include <Engine/Assets/BootContent.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
-#include <Engine/Assets/Serialization/MeshBinary.hpp>
-#include <Common/Core/AssetHandle.hpp>
 #include <Common/Content/AssetRedirector.hpp>
-#include <Common/Content/ContentChunks.hpp>
-#include <Engine/Assets/TextureSourceAsset.hpp>
-#include <Engine/Assets/MeshDerivedData.hpp>
-#include <Editor/Import/MeshDeriver.hpp>
-#include <Common/Core/AssetPathIndex.hpp>
-#include <Common/Utilities/ContentScanLedger.hpp>
-#include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
-#include <Engine/Graphic/MemoryReadout.hpp>
-#include <Engine/Graphic/ResourceLedger.hpp>
-#include <Engine/Graphic/DrawCounters.hpp>
-#include <Engine/Assets/SyncLoadLedger.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Engine/Assets/TextureSourceAsset.hpp>
-#include <functional>
-#include <set>
-#include <Editor/Widgets/ThumbnailService.hpp>
-#include <Editor/Widgets/ThumbnailWarmup.hpp>
-#include <Editor/Widgets/ToolbarLayout.hpp>
-#include <Engine/Core/SceneAssetRoots.hpp>
 #include <Common/Core/Core.hpp>
-#include <Common/Core/CrashHandler.hpp>
-#include <Common/Core/Profiler.hpp>
-#include <Editor/Import/CookPaths.hpp>
-#include <Editor/Import/MeshDnD.hpp>
-#include <Editor/Import/ImportOptionsDialog.hpp>
-#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
-#include <Common/Core/JobSystem.hpp>
-#include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Entity.hpp>
-#include <Engine/ECS/Components.hpp>
-#include <Engine/Localization/LocalizationService.hpp>
-#include <Engine/ECS/EntityLock.hpp>
-#include <Engine/Geometry/PrimitiveType.hpp>
-#include <Common/Core/Units.hpp>
-#include <Engine/Geometry/DynamicMesh.hpp>
-#include <Engine/Geometry/ProceduralCharacterFactory.hpp>
-#include <Engine/Animation/Animator.hpp>
-#include <Engine/Animation/Rig/ControlHierarchy.hpp>
-#include <Engine/Animation/Rig/ControlRigStage.hpp>
-#include <Engine/Assets/AssetEviction.hpp>
-#include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
-#include "Editor/Core/CommandLine.hpp"
-#include "Editor/Core/Control/ControlChannelOptions.hpp"
-#include "Editor/Core/Control/ControlDispatch.hpp" // resolving a request to a palette entry
 #include "Editor/Core/AutosavePaths.hpp"
-#include "Editor/Core/CrashRecovery.hpp"
-#include <Engine/Graphic/DeviceLost.hpp>
-#include "Editor/Core/LayoutManager.hpp"
-#include "Editor/Core/PanelRequests.hpp"
 #include "Editor/Core/SceneOpenRequest.hpp"
 #include "Editor/Core/SceneSaveRules.hpp"
-#include "Editor/Core/ShotOptions.hpp"
-#include "Editor/Core/DemoMaterials.hpp"
-#include "Editor/Core/MaterialAssetUtils.hpp"
-#include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Common/Utilities/FileSystem.hpp>
-#include "Editor/Core/EditorResources.hpp"
-#include "Editor/Core/ThemeManager.hpp"
-#include "Editor/Core/GizmoState.hpp"
-#include "Editor/Core/NumberFormat.hpp"
-#include "Editor/Core/MeshResolve.hpp"            // the toolbar/status triangle census
-#include "Editor/Core/Selection/ViewportMode.hpp" // the editor-mode rail
-#include <Engine/Geometry/MeshStats.hpp>
 #include "Editor/Core/CommandHistory.hpp"
-#include "Editor/Core/Commands/LandscapeLayerCommands.hpp"
 #include "Editor/Core/Commands/SceneCommands.hpp"
-#include "Editor/Core/EditorPreferences.hpp"
-#include "Editor/Packaging/GamePackager.hpp"
-#include "Editor/Core/ProjectContext.hpp"
-#include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp> // reading the PRESENTED frame back (shot.window)
-#include <Engine/Graphic/Image.hpp>                      // Image2D::ReadPixelsRGBA8 (debug frame dump)
-#include <Engine/Core/Input.hpp>
-#include <Common/Core/KeyCodes.hpp>
-#include <Common/Core/Version.hpp>
-#include <Common/Settings/MachineSettings.hpp>
 #include <stb_image/stb_image_write.h>
-#include "Editor/Core/ImGuiUtilities.hpp"
-#include <ImGui/imgui_internal.h>
-#include <array>
-#include <format>
-#include <ImGuizmo.h>
-#include "Editor/Import/ImportManager.hpp"
-#include "Editor/Splash/SplashControls.hpp"
-#include "Editor/Splash/SplashImage.hpp"
-#include "Editor/Widgets/WindowButtonStyle.hpp"
-#include "Editor/Builtin/BuiltinMeshRegistry.hpp"
-#include "Editor/Panels/SceneHierarchy/SceneHierarchyPanel.hpp"
-#include <Editor/Core/SkeletonAssignPalette.hpp>
 #include <Editor/Panels/AnimationEditor/SkeletonReferenceSlots.hpp>
-#include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
-#include <Engine/Assets/Serialization/AnimationClipWrite.hpp>
-#include "Editor/Panels/SceneProperties/ScenePropertiesPanel.hpp"
-#include "Editor/Panels/Debug/ShaderLibraryPanel.hpp"
-#include "Editor/Panels/Debug/UIDebuggerPanel.hpp"
 #include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
-#include "Editor/Widgets/ThumbnailEdit.hpp"
-#include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
-#include "Editor/Panels/ViewportPanel/Tools/ActiveToolBar.hpp"
-#include "Editor/Panels/Scalability/ScalabilityPanel.hpp"
-#include "Editor/Panels/WorldSettings/WorldSettingsPanel.hpp"
 #include "Editor/Panels/WorldPartition/WorldPartitionPanel.hpp"
-#include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
-#include "Editor/Panels/Landscape/LandscapePanel.hpp"
-#include "Editor/Panels/Landscape/LandscapeCommands.hpp"
-#include "Editor/LevelEditor/ViewportCommands.hpp"
-#include "Editor/Panels/Clouds/CloudCommands.hpp"
-#include "Editor/Panels/Localization/LanguageCommands.hpp"
-#include "Editor/Panels/Build/BuildCommands.hpp"
-#include "Editor/Panels/UI/UICommands.hpp"
-#include "Editor/Core/DebugCommands.hpp"
-#include "Editor/Panels/Modeling/ModelingCommands.hpp"
 #include "Editor/Panels/Foliage/FoliageCommands.hpp"
-#include "Editor/Core/Rigging/HumanoidCommands.hpp"
-#include "Editor/Panels/Modeling/ModelingPanel.hpp"
-#include "Editor/Panels/Logs/LogsPanel.hpp"
 #include "Editor/Panels/Collections/CollectionsPanel.hpp"
 #include "Editor/Panels/NodeGraph/NodeGraphPanel.hpp"
-#include "Editor/Panels/NodeGraph/ShaderGraphDocumentOpen.hpp"
 #include "Editor/Panels/MaterialEditor/MaterialEditorPanel.hpp"
-#include "Editor/Panels/MaterialEditor/MaterialDocumentOpen.hpp"
-#include "Editor/Panels/SceneProperties/ComponentWidgets/MaterialsPanelComponent.hpp"
-#include "Editor/Core/AssetOpen.hpp"
 #include "Editor/Panels/Animation/AnimGraphPanel.hpp"
 #include "Editor/Panels/Photogrammetry/PhotogrammetryPanel.hpp"
-#include "Editor/Panels/Particles/ParticleEditorPanel.hpp"
-#include "Editor/Panels/UI/UIEditorPanel.hpp"
 #include "Editor/Panels/AssetReferences/AssetReferencesPanel.hpp"
 #include "Editor/Panels/LuaConsole/LuaConsolePanel.hpp"
 #include "Editor/Panels/Sequencer/SequencerPanel.hpp"
-#include <Engine/Animation/Timeline/Hosts.hpp>
-#include "Editor/Panels/Build/BuildSettingsPanel.hpp"
-#include "Editor/Panels/Build/ContentChunksPanel.hpp"
-#include "Editor/Packaging/ProjectChunkScheme.hpp"
-#include "Editor/Panels/History/HistoryPanel.hpp"
-#include "Editor/Panels/Localization/LocalizationPanel.hpp"
 #include "Editor/Panels/Validation/SceneValidationPanel.hpp"
 #include "Editor/Panels/Clouds/CloudModellingVolumePanel.hpp"
-#include "Editor/Panels/Clouds/CloudDocumentOpen.hpp"
 #include "Editor/Panels/Clouds/CloudLayoutPanel.hpp"
 #include "Editor/Panels/Clouds/CloudNoiseVolumePanel.hpp"
 #include "Editor/Panels/SkyboxViewer/SkyboxViewerDocument.hpp"
 #include "Editor/Panels/AnimationEditor/AnimationEditorDocument.hpp"
-#include <Common/Content/ContentKinds.hpp>
 #include "Editor/Panels/StaticMeshViewer/StaticMeshViewerDocument.hpp"
 #include "Editor/Panels/TextureViewer/TextureViewerDocument.hpp"
 #include "Editor/Panels/Clouds/CloudTypePanel.hpp"
 #include "Editor/Panels/Clouds/CloudsPanel.hpp"
-#include "Editor/Panels/Animation/ControlRigPanel.hpp"
-#include "Editor/Core/Selection/AuthoringContext.hpp"
 #include "Editor/Core/ToastManager.hpp"
-#include "Editor/Core/OpenableAssets.hpp"
-#include "Editor/Core/ViewportCameraProperties.hpp"
-#include "Editor/Core/SubjectEditorRegistry.hpp"
-#include "Editor/Core/ControlNudgeRequest.hpp"
-#include "Editor/Core/Commands/PoseEditTransaction.hpp"
-#include <Engine/Animation/Rig/ControlManipulator.hpp>
-#include "Editor/Core/SubjectOpenRequest.hpp"
-#include <glm/gtx/matrix_decompose.hpp>
-#include <glm/gtc/type_ptr.hpp>
-#include <Engine/Core/SceneRenderCollectors.hpp>
-#include <Engine/ECS/System/MeshECSSystem.hpp>
-#include <Engine/ECS/System/TextECSSystem.hpp>
-#include <Engine/ECS/System/SkyboxECSSystem.hpp>
-#include <Engine/ECS/System/HeightFogECSSystem.hpp>
-#include <Engine/ECS/System/VolumetricCloudECSSystem.hpp>
-#include <Engine/ECS/System/TimeOfDayECSSystem.hpp>
-#include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
-#include <Editor/Core/DocumentPlacement.hpp>
 #include <Editor/Core/Rigging/RigBuilder.hpp>
-#include <Editor/Core/Selection/ModelingState.hpp>
-#include <Editor/Core/Selection/ModelingStateProperties.hpp>
-#include <Editor/Core/Selection/SelectionTransformProperties.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
-#include <Engine/ECS/System/PointLightSystem.hpp>
-#include <Engine/ECS/System/SpotLightSystem.hpp>
-#include <Engine/ECS/System/AnimationECSSystem.hpp>
-#include <Engine/ECS/System/AttachmentSystem.hpp>
-#include <Engine/ECS/System/PhysicsECSSystem.hpp>
-#include <Engine/ECS/System/LevelSequenceSystem.hpp>
-#include <Engine/ECS/System/LocomotionSystem.hpp>
-#include <Engine/ECS/System/ScriptSystem.hpp>
-#include <Engine/ECS/System/AudioECSSystem.hpp>
-#include <algorithm> // std::sort / std::transform (scene list)
-#include <span>      // the View menu's groups, declared as data rather than as control flow
-#include <cctype>    // std::tolower (scene filter)
-#include <chrono>    // per-stage startup timing (see the staged boot in OnUpdate)
+#include <algorithm> // std::sort (scene list)
 
 namespace Desert::Editor
 {
@@ -246,44 +80,47 @@ namespace Desert::Editor
         }
     }
 
-    // Between frames, after the startup stages: the deferred load, then New Scene. True when a load ran.
-    bool SceneFiles::ServiceRequests()
+    // Between frames, after the startup stages: the deferred load. True when a load ran — the host starts
+    // the content settle then, BEFORE InitializeIfLoadRefused and New Scene (the order OnUpdate always had).
+    bool SceneFiles::ServiceLoadRequest()
     {
-        bool loaded = false;
-        if ( m_SceneLoadRequested )
-        {
-            auto path = m_SceneLoadRequested.value();
-            m_SceneLoadRequested.reset();
-            LoadSceneInternal( path );
-            loaded = true;
+        if ( !m_SceneLoadRequested )
+            return false;
+        auto path = m_SceneLoadRequested.value();
+        m_SceneLoadRequested.reset();
+        LoadSceneInternal( path );
+        return true;
+    }
 
-            // THE OTHER HALF OF THE SKIPPED Init() IN OnAttach. That skip is safe only because THIS load
-            // initialises the scene — and LoadSceneInternal has three early returns (the file is gone,
-            // unreadable, or written by an older build) that deliberately leave the editor exactly as it
-            // was. "Exactly as it was" used to mean an initialised empty scene; with the first Init()
-            // pre-empted it would mean a scene whose renderer has no systems, and the frame below would
-            // record against it. Asked of the SCENE rather than inferred from the load's return value,
-            // which is void, and rather than tracked in a flag here, which would be a second copy of a
-            // fact the scene already holds.
-            if ( !m_Workspace.ActiveScene()->IsInitialized() )
-            {
-                if ( const auto inited = m_Workspace.ActiveScene()->Init(); !inited.IsSuccess() )
-                    LOG_ERROR( "[EditorLayer] the scene load was refused and the fallback initialise "
-                               "failed too: {}",
-                               inited.GetError() );
-                // The registry follows the Init that built the framebuffers its passes bind to, exactly
-                // as it does on the successful path inside LoadSceneInternal.
-                m_Workspace.RebuildRenderRegistry();
-            }
-        }
-
-        // New (empty) scene — deferred like a load so it never tears down resources mid-frame.
-        if ( m_NewSceneRequested )
+    void SceneFiles::InitializeIfLoadRefused()
+    {
+        // THE OTHER HALF OF THE SKIPPED Init() IN OnAttach. That skip is safe only because THIS load
+        // initialises the scene — and LoadSceneInternal has three early returns (the file is gone,
+        // unreadable, or written by an older build) that deliberately leave the editor exactly as it
+        // was. "Exactly as it was" used to mean an initialised empty scene; with the first Init()
+        // pre-empted it would mean a scene whose renderer has no systems, and the frame below would
+        // record against it. Asked of the SCENE rather than inferred from the load's return value,
+        // which is void, and rather than tracked in a flag here, which would be a second copy of a
+        // fact the scene already holds.
+        if ( !m_Workspace.ActiveScene()->IsInitialized() )
         {
-            m_NewSceneRequested = false;
-            NewSceneInternal();
+            if ( const auto inited = m_Workspace.ActiveScene()->Init(); !inited.IsSuccess() )
+                LOG_ERROR( "[EditorLayer] the scene load was refused and the fallback initialise "
+                           "failed too: {}",
+                           inited.GetError() );
+            // The registry follows the Init that built the framebuffers its passes bind to, exactly
+            // as it does on the successful path inside LoadSceneInternal.
+            m_Workspace.RebuildRenderRegistry();
         }
-        return loaded;
+    }
+
+    // New (empty) scene — deferred like a load so it never tears down resources mid-frame.
+    void SceneFiles::ServiceNewRequest()
+    {
+        if ( !m_NewSceneRequested )
+            return;
+        m_NewSceneRequested = false;
+        NewSceneInternal();
     }
 
     void SceneFiles::RequestLoad( const Common::Filepath& path )

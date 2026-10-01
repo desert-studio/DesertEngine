@@ -54,8 +54,12 @@ namespace Desert::Editor
         }
         // Drains Core::SceneOpenRequest through the unsaved-changes gate.
         void ConsumeOpenRequest();
-        // The deferred load (with the Init fallback for a refused file), then New Scene. True when a load ran.
-        [[nodiscard]] bool ServiceRequests();
+        // Between frames, in this order: ServiceLoadRequest (true when a load ran — the host begins the
+        // content settle there), InitializeIfLoadRefused after a load, then ServiceNewRequest.
+        [[nodiscard]] bool ServiceLoadRequest();
+        // A refused load left the scene uninitialised (OnAttach skipped Init for it): Init + registry here.
+        void InitializeIfLoadRefused();
+        void ServiceNewRequest();
 
         // Serializes the active scene to @p path (startup content). False when the bytes did not land.
         [[nodiscard]] bool SaveSceneTo( const std::string& path );

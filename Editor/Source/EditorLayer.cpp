@@ -1627,9 +1627,16 @@ namespace Desert::Editor
         DrainBackgroundCook();
 
         // Scene loads wait until the startup stages finished (a scene expects cooked/preloaded assets).
-        // ...and a load that ran starts the content settle. New Scene is serviced in the same call.
-        if ( !StartupLoading() && m_SceneFiles.ServiceRequests() )
-            BeginContentSettle();
+        // A load that ran starts the content settle before the refused-load fallback and New Scene.
+        if ( !StartupLoading() )
+        {
+            if ( m_SceneFiles.ServiceLoadRequest() )
+            {
+                BeginContentSettle();
+                m_SceneFiles.InitializeIfLoadRefused();
+            }
+            m_SceneFiles.ServiceNewRequest();
+        }
 
         // Opening an extra scene view, a second angle or the four-up grid allocates a SceneRenderer + Init()
         // (WaitDeviceIdle + framebuffer creation) — serviced here, between frames, like scene load/stop above.
