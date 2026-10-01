@@ -70,7 +70,7 @@ namespace
     // is the same number on every machine.
     constexpr const char*   kProbeCookedPath    = "Resources/Assets/Meshes/StaticProbe.stmesh";
     constexpr const char*   kProbeAssetsRoot    = "Resources/Assets";
-    constexpr std::uint64_t kProbeMeshHandle    = 2625086686727164116ull; // FNV-1a of the tagged key
+    constexpr std::uint64_t kProbeMeshHandle    = 11618737799735426630ull; // FromCookedPath of the tagged key
     constexpr std::size_t   kProbeSubmeshes     = 2;
     constexpr std::size_t   kProbeVertices      = 48; // two boxes, 24 per-face vertices each
     constexpr std::size_t   kProbeTriangles     = 24; // 12 per box

@@ -202,8 +202,10 @@ namespace
         void SetUp() override
         {
             Assets::ContentRegistry::ResetForTest();
-            std::filesystem::create_directories( m_Source.parent_path() );
-            std::ofstream( m_Source, std::ios::binary ) << MockGltf();
+            // The source is written where the engine reads a relative path: off the project (the sandbox).
+            const std::filesystem::path onDisk = Common::Constants::Path::FullPath( m_Source );
+            std::filesystem::create_directories( onDisk.parent_path() );
+            std::ofstream( onDisk, std::ios::binary ) << MockGltf();
 
             m_Before  = Assets::ContentRegistry::WriteSerial();
             m_Outcome = ImportManager().ImportWithSettings( m_Source, Assets::SourceImportSettings{} );
@@ -595,8 +597,9 @@ namespace
 
     std::filesystem::path WriteSource( const std::filesystem::path& path, const std::string& tipName = "Tip" )
     {
-        std::filesystem::create_directories( path.parent_path() );
-        std::ofstream( path, std::ios::binary | std::ios::trunc ) << MockGltf( tipName );
+        const std::filesystem::path onDisk = Common::Constants::Path::FullPath( path );
+        std::filesystem::create_directories( onDisk.parent_path() );
+        std::ofstream( onDisk, std::ios::binary | std::ios::trunc ) << MockGltf( tipName );
         return path;
     }
 } // namespace
@@ -695,7 +698,8 @@ TEST_F( SkinnedImport, ASkeletonChosenOnTheMeshIsKeptByAReimport )
     copy.Header->Guid = otherText;
     copy.PreviewMesh.reset();
     const std::filesystem::path otherFile = "Resources/Assets/Mock/RigOther.skeleton";
-    std::ofstream( otherFile, std::ios::binary | std::ios::trunc ) << Ser::WriteSkeletonJson( copy );
+    std::ofstream( Common::Constants::Path::FullPath( otherFile ), std::ios::binary | std::ios::trunc )
+         << Ser::WriteSkeletonJson( copy );
     Assets::ContentRegistry::Update( otherFile );
     ASSERT_TRUE( Assets::ContentRegistry::RigRow( other ).has_value() )
          << "precondition: the registry does not know the other skeleton";
@@ -741,19 +745,21 @@ TEST( SkinnedImportCorpus, TheCommittedTwoJointProbeIsCurrentAndItsImportWritesN
     const TestSupport::DerivedDataSandbox derivedData{ "SkinnedImportCorpus" };
     const TestSupport::AssetsSandbox      sandbox{ "SkinnedImportCorpus", {} };
     const std::filesystem::path           folder = "Resources/Assets/Meshes";
-    std::filesystem::create_directories( folder );
+    const std::filesystem::path           onDisk = Common::Constants::Path::FullPath( folder );
+    std::filesystem::create_directories( onDisk );
     for ( const auto& [name, bytes] : committed )
-        std::ofstream( folder / name, std::ios::binary ) << bytes;
+        std::ofstream( onDisk / name, std::ios::binary ) << bytes;
 
     EXPECT_EQ( Editor::ImportManager().Import( folder / "TwoJointProbe.gltf" ), Editor::CookVerdict::UpToDate )
          << "the committed import of TwoJointProbe.gltf was taken as stale";
 
     std::map<std::string, std::string> after;
-    for ( const auto& entry : std::filesystem::recursive_directory_iterator( "Resources" ) )
+    for ( const auto& entry :
+          std::filesystem::recursive_directory_iterator( Common::Constants::Path::FullPath( "Resources" ) ) )
         if ( entry.is_regular_file() )
         {
             std::ifstream in( entry.path(), std::ios::binary );
-            after[entry.path().lexically_relative( folder ).generic_string()] =
+            after[entry.path().lexically_relative( onDisk ).generic_string()] =
                  std::string{ std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() };
         }
     EXPECT_EQ( after.size(), committed.size() ) << "the import added or removed a file";

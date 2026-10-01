@@ -787,7 +787,9 @@ TEST( PackagedContent, TheCookCompilesWhatTheRuntimeWillAskFor )
 
     // The runtime's side of the relation: assemble the same stages the way VulkanShader::Reload does
     // and ask the cache with the runtime's own key overload. Every stage must already be there.
-    const fs::path shaderFile = fs::path( "Resources" ) / "Shaders" / "CookProbe.shader";
+    // The runtime names a shader the way the shader root lists it (ENG-ROOT): off the engine directory's
+    // shader root, never a working-directory spelling — and under debug info that spelling is a key input.
+    const fs::path shaderFile = Common::Constants::Path::SHADERDIR_PATH / "CookProbe.shader";
 
     // Ф3 made the primitive return a ResultStr. Asserting on the read ITSELF rather than on an empty
     // string is the point of that change: a probe file this test cannot read is a broken fixture and

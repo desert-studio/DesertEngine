@@ -683,14 +683,15 @@ TEST( MeshBinaryFormat, TheAssetLoaderReadsAContainerOffDisk )
 TEST( MeshBinaryFormat, EveryCommittedCookedMeshIsTheContainer )
 {
     // THE CORPUS IS THE AUTHORED SKINNED-MESH FOLDER (AF8b). The committed meshes are authored assets under
-    // the assets root, beside their rigs and clips; `Cooked/` is derived and ignored whole, so nothing there
+    // the assets root of the TEST project (Desert/Tests/Data, ENG-ROOT: probes are test data, not the editor's
+    // content), beside their rigs and clips; `Cooked/` is derived and ignored whole, so nothing there
     // is this suite's business. The folder is enumerated rather than listed here: a typed list is one a new
     // mesh can fall out of in silence (A27).
     const std::filesystem::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "could not find the repository root from the working directory";
 
     const std::filesystem::path skinned =
-         std::filesystem::path( "Editor" ) / "Resources" / "Assets" / "Meshes" / "Skinned";
+         std::filesystem::path( "Desert" ) / "Tests" / "Data" / "Resources" / "Assets" / "Meshes" / "Skinned";
     std::vector<std::string> corpus;
     std::error_code          ec;
     for ( const auto& entry : std::filesystem::directory_iterator( root / skinned, ec ) )
