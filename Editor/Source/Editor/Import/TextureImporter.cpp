@@ -900,7 +900,8 @@ namespace Desert::Editor
                        assetPath.string(), authored.Problem );
             settings.Intent = Fmt::TextureIntent::Data;
         }
-        const fs::path rel  = fs::relative( source, Common::Constants::Path::SKYBOX_PATH );
+        const fs::path rel =
+             fs::relative( Common::Constants::Path::FullPath( source ), Common::Constants::Path::SKYBOX_PATH );
         const bool     sky  = !rel.empty() && rel.begin()->string() != "..";
         const auto     kind = sky ? Common::Content::ContentKind::Skybox : Common::Content::ContentKind::Texture;
         const Assets::TextureSourceAsset asset =

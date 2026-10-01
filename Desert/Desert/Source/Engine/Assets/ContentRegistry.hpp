@@ -756,10 +756,10 @@ namespace Desert::Assets
         inline std::optional<PickerRow> RowOfPath( Common::Content::ContentKind kind,
                                                    const std::filesystem::path& file )
         {
-            const std::filesystem::path wanted = std::filesystem::absolute( file ).lexically_normal();
+            const std::filesystem::path wanted = Common::Constants::Path::FullPath( file ).lexically_normal();
             for ( PickerRow& row : Rows( kind ) )
             {
-                if ( std::filesystem::absolute( row.Path ).lexically_normal() == wanted )
+                if ( Common::Constants::Path::FullPath( row.Path ).lexically_normal() == wanted )
                     return std::move( row );
             }
             return std::nullopt;
