@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 
 namespace Desert::Editor
 {
@@ -80,8 +81,8 @@ namespace Desert::Editor
             return;
         // Snapshot the authored scene so Stop can restore it exactly (play-time edits are discarded). Timed
         // like a load: it is the other half of the round trip Stop pays.
-        Desert::Core::SceneLoadPhases phases( "Play start" );
-        Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
+        Desert::Core::SceneLoadPhases       phases( "Play start" );
+        const Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
         m_Snapshot = serializer.SerializeToJson();
         phases.Lap( "write the Play snapshot", scene->GetAllEntities().size() );
         // The pawn is spawned AFTER the snapshot, so Stop's restore has never heard of it, and BEFORE the
@@ -100,7 +101,8 @@ namespace Desert::Editor
         if ( const auto began = Desert::Core::BeginPlay( *scene, *m_Assets, request ); !began )
         {
             LOG_ERROR( "[Scene] Play refused: {0}", began.GetError() );
-            Editor::ToastManager::Push( "Play refused: " + began.GetError(), Editor::ToastLevel::Error );
+            Editor::ToastManager::Push( std::format( "Play refused: {}", began.GetError() ),
+                                        Editor::ToastLevel::Error );
             m_Snapshot.clear();
             return;
         }
@@ -154,7 +156,7 @@ namespace Desert::Editor
         scene->Clear();
         phases.Lap( "clear the played scene", outgoing );
 
-        Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
+        const Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
         // NOT A FILE: named "<Play snapshot>" so a failure says which of the two "loading a scene" broke.
         if ( const auto restored = serializer.DeserializeFromJson( m_Snapshot, "<Play snapshot>" ); !restored )
         {
@@ -363,7 +365,7 @@ namespace Desert::Editor
             if ( tag.empty() )
                 continue;
             commands.push_back(
-                 { "Action", "Play at Player Start '" + tag + "'", [this, entity]
+                 { "Action", std::format( "Play at Player Start '{}'", tag ), [this, entity]
                    {
                        // Captured by ENTITY: an entry outliving the start refuses.
                        const auto& scene = m_Workspace.ActiveScene();

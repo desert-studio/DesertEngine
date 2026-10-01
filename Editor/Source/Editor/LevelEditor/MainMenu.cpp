@@ -21,12 +21,25 @@
 #include <ImGui/imgui.h>
 
 #include <algorithm>
+#include <format>
+#include <functional>
 #include <span>
+#include <string_view>
 #include <unordered_set>
 #include <utility>
 
 namespace Desert::Editor
 {
+    namespace
+    {
+        // A Window-menu row: the radio, the document's icon, its name. Measured once for the widest row and
+        // drawn once per document, so it is one spelling — two would drift and the x would land on the text.
+        std::string DocumentRowLabel( std::string_view radio, std::string_view icon, std::string_view name )
+        {
+            return std::format( "{}  {}  {}", radio, icon, name );
+        }
+    } // namespace
+
     namespace
     {
         // THE MENU BAR'S OWN MENUS, named once. Read by DrawMenus, which opens whichever one is held, and
@@ -73,6 +86,12 @@ namespace Desert::Editor
         DrawAboutMenu();
     }
 
+    Common::BoolResultStr MainMenu::HoldMenuOpen( const std::string& name )
+    {
+        m_HeldOpenMenu = name;
+        return PaletteCommandDone();
+    }
+
     void MainMenu::AppendMenuCommands( std::vector<PaletteCommand>& commands )
     {
         // THE MENU BAR. `--open-menu` is gone and this is where its capability went: a menu can be opened,
@@ -81,11 +100,10 @@ namespace Desert::Editor
         for ( const char* menu : kMenuBarMenus )
         {
             const std::string name = menu;
-            commands.push_back( { "Menu", "Open the " + name + " menu", [this, name]
-                                  {
-                                      m_HeldOpenMenu = name;
-                                      return PaletteCommandDone();
-                                  } } );
+            // NOT A LAMBDA: `bugprone-exception-escape` fires on a parameter-less lambda that captures a
+            // string (DocumentHost.cpp records the same finding); bind_front leaves nothing to analyse.
+            commands.push_back( { "Menu", std::format( "Open the {} menu", name ),
+                                  std::bind_front( &MainMenu::HoldMenuOpen, this, name ) } );
         }
         commands.push_back( { "Menu", "Close the open menu", [this]
                               {
@@ -362,7 +380,7 @@ namespace Desert::Editor
             for ( const auto& doc : m_Workspace.Documents() )
             {
                 const std::string item = std::string( ICON_MDI_CLOSE " Close " ) + doc->Name;
-                if ( ImGui::MenuItem( item.c_str() ) && doc->Viewport )
+                if ( ImGui::MenuItem( item.c_str() ) && doc->Viewport != nullptr )
                     doc->Viewport->GetVisibility() = false;
             }
             ImGui::EndMenu();
@@ -396,7 +414,7 @@ namespace Desert::Editor
             bool anyLeftover = false;
             for ( auto& panel : m_Panels )
             {
-                if ( placed.count( panel->GetName() ) != 0 )
+                if ( placed.contains( panel->GetName() ) )
                     continue;
                 if ( !anyLeftover )
                 {
@@ -462,9 +480,9 @@ namespace Desert::Editor
             float widestRow = 0.0f;
             for ( const auto& document : m_Documents.Documents() )
             {
-                const std::string measured = std::string( ICON_MDI_RADIOBOX_MARKED ) + "  " +
-                                             m_Documents.DocumentIcon( document->Subject() ) +
-                                             std::string( "  " ) + DocumentDisplayName( document->GetName() );
+                const std::string measured =
+                     DocumentRowLabel( ICON_MDI_RADIOBOX_MARKED, m_Documents.DocumentIcon( document->Subject() ),
+                                       DocumentDisplayName( document->GetName() ) );
                 widestRow = std::max( widestRow, ImGui::CalcTextSize( measured.c_str() ).x );
             }
 
@@ -472,7 +490,7 @@ namespace Desert::Editor
             for ( const SubjectId& subject : m_Documents.Well().MostRecentOrder() )
             {
                 const ISubjectDocument* document = m_Documents.Documents().Find( subject );
-                if ( !document )
+                if ( document == nullptr )
                     continue;
 
                 ImGui::PushID( static_cast<int>( std::hash<SubjectId>{}( subject ) & 0x7fffffff ) );
@@ -482,10 +500,9 @@ namespace Desert::Editor
                 // exactly what used to destroy the document. A radio says "this is the one you are in",
                 // which is true, is the only thing picking a row can mean, and offers no way to un-pick.
                 const bool        active = ( subject == m_Documents.FocusedDocument() );
-                const std::string label =
-                     std::string( active ? ICON_MDI_RADIOBOX_MARKED : ICON_MDI_RADIOBOX_BLANK ) + "  " +
-                     m_Documents.DocumentIcon( document->Subject() ) + std::string( "  " ) +
-                     DocumentDisplayName( document->GetName() );
+                const std::string label  = DocumentRowLabel(
+                     active ? ICON_MDI_RADIOBOX_MARKED : ICON_MDI_RADIOBOX_BLANK,
+                     m_Documents.DocumentIcon( document->Subject() ), DocumentDisplayName( document->GetName() ) );
 
                 if ( ImGui::MenuItem( label.c_str() ) )
                     m_Documents.FocusDocument( subject );

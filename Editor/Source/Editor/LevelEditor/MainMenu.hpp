@@ -54,10 +54,12 @@ namespace Desert::Editor
         // Window ▸ Documents: the open documents, focused with a RADIO and closed with an x. A radio and
         // not a checkbox on purpose — a tick reads as "shown / hidden", which is the very thing a document
         // cannot be. See DocumentWell.
-        void DrawWindowMenu();
-        void DrawGraphicsMenu();
-        void DrawAboutMenu();
-        void DrawStyleSubmenu();
+        void        DrawWindowMenu();
+        static void DrawGraphicsMenu();
+        static void DrawAboutMenu();
+        static void DrawStyleSubmenu();
+        // The palette's "Open the <menu> menu" entry: holds that menu open until "Close the open menu".
+        Common::BoolResultStr HoldMenuOpen( const std::string& name );
 
         SceneWorkspace&    m_Workspace;
         SceneFiles&        m_SceneFiles;

@@ -89,8 +89,8 @@ namespace Desert::Editor
         // How a scene is NAMED in every picker: its path relative to the scenes root.
         static std::string Label( const Common::Filepath& path );
 
-        void AppendOpenSceneCommands( std::vector<PaletteCommand>& commands );
-        void AppendSaveSceneCommand( std::vector<PaletteCommand>& commands );
+        static void AppendOpenSceneCommands( std::vector<PaletteCommand>& commands );
+        void        AppendSaveSceneCommand( std::vector<PaletteCommand>& commands );
 
         void DrawScenesMenu();
         void DrawOpenSceneMenuItem();

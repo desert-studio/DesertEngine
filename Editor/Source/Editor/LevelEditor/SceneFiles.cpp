@@ -45,6 +45,8 @@
 #include <Editor/Core/Rigging/RigBuilder.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <algorithm> // std::sort (scene list)
+#include <format>
+#include <functional>
 
 namespace Desert::Editor
 {
@@ -134,8 +136,8 @@ namespace Desert::Editor
         // write SerializeToJson() itself, which was the same save spelled twice — and the moment the save
         // grew a step (a landscape writes its tile files beside the scene before the scene names them),
         // this copy would have written a .desce naming tile files that were never written.
-        const auto                    previousHeader = ForgetAssetIdentityUnlessSameFile( path );
-        Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(), m_Assets.get() );
+        const auto                          previousHeader = ForgetAssetIdentityUnlessSameFile( path );
+        const Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(), m_Assets.get() );
         if ( const auto written = serializer.SaveToFile( Common::Filepath( path ) ); !written )
         {
             // Nothing was written, so the scene is still the asset it was.
@@ -162,10 +164,10 @@ namespace Desert::Editor
         // The rule itself is a pure function in Editor/Core/SceneSaveRules.hpp so that a test can drive
         // the case that matters — a file whose name disagrees with the scene's — without an editor. This
         // call site supplies the two project paths it cannot know.
-        return Common::Filepath( Editor::Core::Rules::SceneSaveDestination(
-             m_OpenScenePath.generic_string(), m_Workspace.ActiveScene()->GetSceneName(),
-             Common::Constants::Path::SCENE_PATH.generic_string(),
-             Common::Constants::Extensions::SCENE_EXTENSION ) );
+        return { Editor::Core::Rules::SceneSaveDestination( m_OpenScenePath.generic_string(),
+                                                            m_Workspace.ActiveScene()->GetSceneName(),
+                                                            Common::Constants::Path::SCENE_PATH.generic_string(),
+                                                            Common::Constants::Extensions::SCENE_EXTENSION ) };
     }
 
     bool SceneFiles::SaveOpenScene()
@@ -202,9 +204,10 @@ namespace Desert::Editor
         // without a picture is a state the launcher already draws.
         if ( verdict.MarkSceneSaved )
             if ( const auto thumbnail = m_Capture.WriteProjectThumbnail(); !thumbnail.IsSuccess() )
-                Editor::ToastManager::Push( "The scene was saved, but the project thumbnail was not: " +
-                                                 thumbnail.GetError(),
-                                            Editor::ToastLevel::Warning );
+                Editor::ToastManager::Push(
+                     std::format( "The scene was saved, but the project thumbnail was not: {}",
+                                  thumbnail.GetError() ),
+                     Editor::ToastLevel::Warning );
 
         Editor::ToastManager::Push( verdict.Message,
                                     verdict.IsError ? Editor::ToastLevel::Error : Editor::ToastLevel::Success );
@@ -213,8 +216,8 @@ namespace Desert::Editor
 
     Common::Filepath SceneFiles::BasicLevelTemplate()
     {
-        return Common::Filepath( Common::Constants::Path::ENGINE_CONTENT_PATH / "Maps" / "Templates" /
-                                 ( "Basic" + std::string( Common::Constants::Extensions::SCENE_EXTENSION ) ) );
+        return Common::Constants::Path::ENGINE_CONTENT_PATH / "Maps" / "Templates" /
+               Common::Filepath( "Basic" ).replace_extension( Common::Constants::Extensions::SCENE_EXTENSION );
     }
 
     void SceneFiles::NewSceneInternal()
@@ -290,7 +293,7 @@ namespace Desert::Editor
         m_Workspace.ActiveScene()->Clear();
         phases.Lap( "clear the open scene", outgoing );
 
-        Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(), m_Assets.get() );
+        const Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(), m_Assets.get() );
         // Cannot fire - the same text passed the same check above, before anything was torn down. It is
         // reported and NOT returned from on purpose: the scene is already cleared by this point, so the
         // rebuild below is what leaves the editor in a coherent (empty) state rather than one holding a
@@ -374,12 +377,12 @@ namespace Desert::Editor
     // in different folders read identically) and lose the only structure the user gave their scenes.
     std::string SceneFiles::Label( const Common::Filepath& path )
     {
-        std::error_code   ec;
-        const std::string rel =
+        std::error_code ec;
+        std::string     rel =
              std::filesystem::relative( path, Common::Constants::Path::SCENE_PATH, ec ).generic_string();
 
         // Outside the scenes root (a recent scene from elsewhere): a "../../.." chain says nothing.
-        if ( ec || rel.empty() || rel.rfind( "..", 0 ) == 0 )
+        if ( ec || rel.empty() || rel.starts_with( ".." ) )
             return path.filename().string();
         return rel;
     }
@@ -428,17 +431,22 @@ namespace Desert::Editor
         m_SceneFilter[0]     = '\0';
     }
 
+    namespace
+    {
+        // NOT A LAMBDA: `bugprone-exception-escape` fires on a parameter-less lambda that captures a string
+        // (DocumentHost.cpp records the same finding); bind_front leaves nothing to analyse.
+        Common::BoolResultStr RequestSceneOpen( const std::string& path )
+        {
+            Editor::Core::SceneOpenRequest::Request( path );
+            return PaletteCommandDone();
+        }
+    } // namespace
+
     void SceneFiles::AppendOpenSceneCommands( std::vector<PaletteCommand>& commands )
     {
         for ( const Common::Filepath& scene : CollectAvailableScenes() )
-        {
-            const std::string path = scene.string();
-            commands.push_back( { "Scene", "Open Scene " + Label( scene ), [path]
-                                  {
-                                      Editor::Core::SceneOpenRequest::Request( path );
-                                      return PaletteCommandDone();
-                                  } } );
-        }
+            commands.push_back( { "Scene", std::format( "Open Scene {}", Label( scene ) ),
+                                  std::bind_front( &RequestSceneOpen, scene.string() ) } );
     }
 
     void SceneFiles::AppendSaveSceneCommand( std::vector<PaletteCommand>& commands )

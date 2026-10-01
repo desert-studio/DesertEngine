@@ -25,6 +25,10 @@ namespace Desert::Editor
     {
         const ShotOptions&           shot     = ShotOptions::Get();
         Common::Profiling::Profiler& profiler = Common::Profiling::Profiler::Get();
+        // The caller records only while a flight is armed; without a route there is no position to log.
+        if ( !shot.FlightRoute.has_value() )
+            return;
+        const Flight::Route& route = *shot.FlightRoute;
 
         double gpuMs    = Flight::kNotMeasured;
         double streamMs = 0.0;
@@ -38,14 +42,17 @@ namespace Desert::Editor
         m_FlightLog.TimeLast( profiler.LastFrameMs(), gpuMs, streamMs );
 
         Flight::FrameRow row;
-        row.Frame    = m_Shots.Frame();
-        row.Kind     = m_Shots.Frame() < Flight::kWarmupFrames ? Flight::Phase::Warmup
-                       : counted                               ? Flight::Phase::Flight
-                                                               : Flight::Phase::Settling;
+        row.Frame = m_Shots.Frame();
+        if ( m_Shots.Frame() < Flight::kWarmupFrames )
+            row.Kind = Flight::Phase::Warmup;
+        else if ( counted )
+            row.Kind = Flight::Phase::Flight;
+        else
+            row.Kind = Flight::Phase::Settling;
         row.Distance = Flight::DistanceAt( m_Shots.Frame(), shot.FlightSpeed, ShotOptions::PlayStepSeconds );
-        row.Position = Flight::PoseAt( *shot.FlightRoute, row.Distance ).Position;
+        row.Position = Flight::PoseAt( route, row.Distance ).Position;
         row.Entities = m_Workspace.ActiveScene()->GetAllEntities().size();
-        if ( m_Play.Streamer() && m_Play.Streamer()->Streams( *m_Workspace.ActiveScene() ) )
+        if ( m_Play.Streamer() != nullptr && m_Play.Streamer()->Streams( *m_Workspace.ActiveScene() ) )
         {
             const auto& report   = m_Play.Streamer()->LastTick();
             row.ResidentRecords  = report.LiveRecords;
@@ -63,8 +70,14 @@ namespace Desert::Editor
     bool ProfilerWindow::FinishFlight()
     {
         const ShotOptions& shot = ShotOptions::Get();
-        const auto         rows = m_FlightLog.Rows();
-        const auto         written =
+        if ( !shot.FlightRoute.has_value() )
+        {
+            LOG_ERROR( "[Flight] finished with no flight route armed; there is no flight to write" );
+            return false;
+        }
+        const Flight::Route& route = *shot.FlightRoute;
+        const auto           rows  = m_FlightLog.Rows();
+        const auto           written =
              Common::Utils::FileSystem::WriteContentToFileAtomic( shot.FlightCsv, Flight::Csv( rows ) );
         if ( !written.IsSuccess() )
         {
@@ -74,11 +87,11 @@ namespace Desert::Editor
         const auto summary = Flight::Summarise( rows );
         if ( !summary.IsSuccess() )
         {
-            LOG_ERROR( "[Flight] '{}': {}", shot.FlightRoute->Spec, summary.GetError() );
+            LOG_ERROR( "[Flight] '{}': {}", route.Spec, summary.GetError() );
             return false;
         }
-        LOG_INFO( "[Flight] '{}' at {:.0f} cm/s, {} row(s) in '{}': {}", shot.FlightRoute->Spec, shot.FlightSpeed,
-                  rows.size(), shot.FlightCsv, Flight::Describe( summary.GetValue(), rows ) );
+        LOG_INFO( "[Flight] '{}' at {:.0f} cm/s, {} row(s) in '{}': {}", route.Spec, shot.FlightSpeed, rows.size(),
+                  shot.FlightCsv, Flight::Describe( summary.GetValue(), rows ) );
         return true;
     }
 

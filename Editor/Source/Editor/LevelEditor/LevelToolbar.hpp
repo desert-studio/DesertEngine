@@ -35,18 +35,18 @@ namespace Desert::Editor
 
         // ===== Title-bar sections (inside BeginMainMenuBar, after the menus) =====
         // The project name and the build configuration badge.
-        void DrawProjectSection();
+        static void DrawProjectSection();
         // The level's name; a double click renames it.
         void DrawSceneRenameSection();
 
     private:
         // One toolbar button. `active` is the armed/on state: tinted fill plus a 2px underline.
-        bool ToolbarButton( const char* icon, const char* label, bool active = false,
-                            const char* tooltip = nullptr, bool enabled = true );
-        void ToolbarSeparator();
+        static bool ToolbarButton( const char* icon, const char* label, bool active = false,
+                                   const char* tooltip = nullptr, bool enabled = true );
+        static void ToolbarSeparator();
         // A snap step: the button reports the current step and opens the list that changes it, with the
         // shared snapping toggle at the top. `rotation` picks the angle step over the grid step.
-        void DrawSnapControl( bool rotation );
+        static void DrawSnapControl( bool rotation );
 
         SceneWorkspace&    m_Workspace;
         SceneFiles&        m_SceneFiles;
