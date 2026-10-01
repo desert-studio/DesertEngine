@@ -92,7 +92,7 @@ TEST( SceneInitDeferral, OnAttachDoesNotBuildARendererForAScenceAlreadyQueuedFor
     ASSERT_FALSE( root.empty() );
     const std::string source = StripLineComments( ReadAll( root + kEditorLayer ) );
 
-    const std::size_t guard = source.find( "if ( !m_SceneLoadRequested )" );
+    const std::size_t guard = source.find( "if ( !m_SceneFiles.HasPendingLoad() )" );
     ASSERT_NE( guard, std::string::npos )
          << "OnAttach initialises the main scene unconditionally again. When the constructor has already "
             "queued a scene load — which it has for --scene and for every project with a default scene — "
@@ -112,7 +112,7 @@ TEST( SceneInitDeferral, TheDeferredLoadInitialisesTheSceneEvenWhenItRefusesTheF
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const std::string source = StripLineComments( ReadAll( root + kEditorLayer ) );
+    const std::string source = StripLineComments( ReadAll( root + "Editor/Source/Editor/LevelEditor/SceneFiles.cpp" ) );
 
     const std::size_t load = source.find( "LoadSceneInternal( path );" );
     ASSERT_NE( load, std::string::npos ) << "the deferred scene load is gone from OnUpdate";

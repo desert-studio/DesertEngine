@@ -34,6 +34,8 @@
 #include "Editor/RenderSystems/RenderRigistry.hpp"
 #include "Editor/LevelEditor/PlaySession.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
+#include "Editor/LevelEditor/SceneFiles.hpp"
+#include "Editor/LevelEditor/ViewportCapture.hpp"
 #include "Editor/Widgets/ToolbarLayout.hpp"
 #include "Editor/Widgets/WindowChrome.hpp"
 #include "Editor/Splash/RevealGate.hpp"
@@ -98,7 +100,6 @@ namespace Desert::Editor
         // not a checkbox on purpose — a tick reads as "shown / hidden", which is the very thing a document
         // cannot be. See DocumentWell.
         void DrawWindowMenu();
-        void DrawScenesMenu();
         void DrawGraphicsMenu();
         void DrawAboutMenu();
 
@@ -217,10 +218,6 @@ namespace Desert::Editor
         // gone out. Doing it all after the present produced a correct picture and a Vulkan spec violation
         // that only the validation layer mentioned — see RecordWindowCaptureIfDue.
         void RecordWindowCaptureIfDue();
-        // Collect what was recorded and write it as a PNG. Distinct from WriteViewportPng, which reads the
-        // scene's own image and holds no interface at all; neither substitutes for the other. False on any
-        // failure, with the reason in @p outError.
-        [[nodiscard]] bool WriteWindowPng( const std::string& path, std::string& outError );
 
         // After an unclean exit, offers to reopen the newest autosave. No-op unless one was found.
         void DrawRecoveryPopup();
@@ -248,32 +245,10 @@ namespace Desert::Editor
 
         // ===== Popups =====
         void DrawPopups();
-        void DrawOpenScenePopup();
-        // "Discard unsaved changes?" for a scene opened by drag-drop / double-click (see m_PendingOpenScene).
-        void DrawConfirmOpenScenePopup();
-        void DrawSaveScenePopup();
-        void DrawNewScenePopup();
-        void DrawReloadScenePopup();
         void DrawProjectPopup();
         void FollowImGuiWithEvents();
 
-        void PrepareScenePopup();
-        // Every .desce under the project's scenes root, recursively, sorted by the label the UI shows.
-        // Two readers: the Open Scene popup (through m_AvailableScenes) and the command palette, which
-        // does NOT cache it — the palette is rebuilt only while it is open or when the control channel
-        // asks, which is exactly when a fresh answer is wanted.
-        static std::vector<Common::Filepath> CollectAvailableScenes();
-        void                                 LoadScene( const Common::Filepath& path );
-        void                                 LoadSceneInternal( const Common::Filepath& requested );
 
-        void NewSceneInternal(); // clears the current scene to a fresh empty one (File -> New Scene / Ctrl+N)
-
-        // ===== Asset documents (one window per asset, opened from the browser) =====
-        // Drains Core::SubjectOpenRequests and, per request, focuses the document already open on that subject
-        // or builds a new one through m_AssetEditors. Runs from OnUpdate (between frames) because it adds to
-        // m_OpenDocuments, and REFUSES past the six renderer slots with the census printed by name — a seventh
-        // consumer would otherwise be handed slot 0 to share, which fails silently and days later.
-        void ServiceSubjectOpenRequests();
         // The one navigation `run Browse <folder>` and a field's "Show in browser" share.
         Common::BoolResultStr ShowFolderInBrowser( const std::string& folder );
         // Destroys every document the user asked to close, behind ONE device-idle wait. This is what returns
@@ -412,58 +387,15 @@ namespace Desert::Editor
         // can be serialized to a .desce ONCE and loaded like any scene afterwards.
         void BuildStarterScene();    // fresh Hub project's DefaultScene: sun/ground/cube/light/camera
         void BuildCornellShowcase(); // sandbox demo: baked into CornellDemo.desce on first launch
-        // Serializes m_Workspace.ActiveScene() to @p path. False when the bytes did not land, with the reason
-        // logged; the file that was there (if any) is unchanged. Both callers generate startup content, so a false
-        // here means the project's own default scene is not on disk.
-        [[nodiscard]] bool SaveSceneTo( const std::string& path );
-        // Drops the scene's text header when `destination` is not the file it was opened as (a copy is a
-        // new asset with a new GUID); returns the header it had, for a failed save to put back.
-        std::optional<Common::Content::TextAssetHeaderSerialized>
-        ForgetAssetIdentityUnlessSameFile( const std::string& destination );
 
-        // WHERE Ctrl+S goes: the file the scene was opened from, or — for a scene that has never been on
-        // disk — one named after it, which is the only thing there is to name it after. That fallback is
-        // the ONLY surviving name-to-path derivation in the editor and it is reachable only when there is
-        // no path; it used to run on EVERY save, in the engine, and silently sent a save meant for an
-        // open file into a second file beside it.
-        [[nodiscard]] Common::Filepath SceneSaveDestination() const;
 
-        // THE ONE place the open scene is saved from. Every entry point (Ctrl+S, File -> Save, the
-        // command palette, the "Save and Open" button) goes through it, so the policy — clear the
-        // unsaved-changes mark and announce success ONLY when the bytes landed — is written once and
-        // decided by a pure, tested rule (Editor/Core/SceneSaveRules.hpp). Returns whether the scene on
-        // disk is now current; a caller about to destroy the in-memory scene MUST branch on it.
-        [[nodiscard]] bool SaveOpenScene();
 
         // Force re-cook of Cooked/ from sources, re-register cooked assets, refresh the asset panel.
         void RebuildCookedAssets();
 
-        // Read the resolved viewport back off the GPU and write it to @p path as a PNG, creating the
-        // parent directory if it is missing. The single implementation behind the `--shot` still, every
-        // frame of a `--shot-sequence`, and the F9 dump. False on any failure, always with the reason
-        // logged and the numbers in it.
-        bool WriteViewportPng( const std::string& path );
 
-        // Writes `<project>/.thumbnail.png` — the picture the LAUNCHER puts on this project's tile.
-        //
-        // 512x288, centre-cropped to 16:9 from whatever the viewport happens to be. The aspect is
-        // not a preference: the launcher's grid is built out of 16:9 tiles, so a square or
-        // arbitrary-aspect file would either letterbox (which reads as a broken image) or crop
-        // differently on every project. Fixing it here means the launcher never has to guess.
-        //
-        // Called after a scene save and again on a clean exit, so the tile shows what the project
-        // last looked like rather than what it looked like the day it was created. Failure is
-        // returned, not swallowed — but the callers treat it as non-fatal: a project with no
-        // thumbnail is a state the launcher already draws, and losing a picture must never fail a
-        // save or hold up a shutdown.
-        [[nodiscard]] Common::BoolResultStr WriteProjectThumbnail();
 
     private:
-        // The resolved viewport as RGBA8, plus its size. One readback for every consumer: a capture
-        // that differed from a dump in flip, format or the device-idle wait that makes the readback
-        // legal would be a defect nobody could see in either picture alone.
-        [[nodiscard]] Common::BoolResultStr ReadViewportRGBA8( std::vector<uint8_t>& outPixels, uint32_t& outWidth,
-                                                               uint32_t& outHeight );
 
         bool m_ShowProfiler = true; // View ▸ Profiler toggles the profiler window
 
@@ -502,6 +434,10 @@ namespace Desert::Editor
         // arrive by reference (see Editor/LevelEditor/SceneWorkspace.hpp, PlaySession.hpp).
         SceneWorkspace m_Workspace{ m_Panels, m_AssetManager, m_AnimationLibrary };
         PlaySession    m_Play{ m_Workspace, m_AssetManager };
+        // Pictures out of the viewport and the window, and the project tile (UE: FScreenshotRequest).
+        ViewportCapture m_Capture{ m_Workspace };
+        // New / Open / Save of the level file, its dialogs and the Scenes menu (UE: FEditorFileUtils).
+        SceneFiles      m_SceneFiles{ m_Workspace, m_AssetManager, m_Capture };
 
         // AssetTypeID -> the editor that opens it. Holds factories only; the documents it builds are owned by
         // m_OpenDocuments below.
@@ -638,13 +574,6 @@ namespace Desert::Editor
         float                                   m_BottomHeight    = 0.0f;
         void                                    DrawBottomDrawerToggle();
         char                                    m_LayoutNameBuf[64]  = {};
-        bool                                    m_OpenScenePopup     = false;
-        bool                                    m_SaveSceneRequested = false;
-        // Set when "Save and Open" could not write the scene: the modal STAYS OPEN and shows this, so
-        // the choice the user is making ("throw this scene away") is made knowing the save did not
-        // happen. Cleared whenever the modal is dismissed.
-        std::string m_SaveAndOpenError;
-        bool        m_NewSceneRequested = false;
 
         // Staged startup loading: the heavy boot work (mesh cooking, asset preload) runs one stage per
         // frame from OnUpdate, each announced on the splash, with the main window still hidden.
@@ -803,42 +732,13 @@ namespace Desert::Editor
         // the renderer's frame-in-flight index, which wraps at three and could not order anything.
         uint64_t m_FrameIndex = 0;
 
-        // A capture that could not even be RECORDED — the surface refuses TRANSFER_SRC, the swapchain is
-        // gone. Carried from the record half to the collect half so the refusal names the real reason
-        // rather than "nothing was captured", which would be the symptom and not the cause.
-        std::string m_ControlCaptureError;
 
         // A `quit` the channel asked for. Honoured after its reply has actually gone out, so the last
         // answer is not lost to the exit — a client that never hears "ok" cannot tell a clean shutdown
         // from a crash.
         std::optional<int32_t> m_ControlQuitCode;
 
-        // WHICH FILE THE OPEN SCENE IS. Set by a load that succeeded, adopted by a save that landed,
-        // and cleared by File -> New Scene, which produces a scene that is not any file yet.
-        //
-        // It is the editor's, not the scene's, and that is the point: Play -> Stop clears the scene and
-        // rebuilds it from a snapshot, so an identity kept inside Scene would either be destroyed by that
-        // (and the next Ctrl+S would go somewhere else) or have to be saved and restored around it by
-        // hand, which is the link that gets dropped. The document is open in the editor; the editor knows
-        // which one.
-        //
-        // Empty means "this scene has never been on disk", and SceneSaveDestination is the ONE place that
-        // turns that into a path. Everything else that used to do it is gone: SceneSerializer derived the
-        // destination from the scene's NAME on every save, which is why an open U52_LockProbe.desce was
-        // never written and a U52_Lock_Probe.desce appeared beside it under a green "Saved" toast.
-        Common::Filepath m_OpenScenePath;
 
-        std::optional<Common::Filepath> m_SceneLoadRequested;
-        std::vector<Common::Filepath> m_AvailableScenes;
-        std::vector<Common::Filepath> m_RecentScenes;
-        int                           m_SelectedSceneIndex = -1;
-        // Open Scene popup: substring filter over the (recursive) scene list — with subfolders the list is
-        // long enough that scrolling for a name is worse than typing it.
-        char m_SceneFilter[128] = {};
 
-        // A scene a panel asked to open (dropped on the viewport, double-clicked in the browser) while the
-        // current one had unsaved edits: held until the confirm popup says discard/save/cancel.
-        std::optional<Common::Filepath> m_PendingOpenScene;
-        bool                            m_ConfirmOpenScenePopup = false;
     };
 } // namespace Desert::Editor

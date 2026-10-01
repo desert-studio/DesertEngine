@@ -524,7 +524,8 @@ TEST( PointerOwnership, EditorLayerDeclaresItsHostsBeforeItsPanels )
           { "std::shared_ptr<Assets::AssetManager>", "m_AnimationLibrary", "OpenDocuments m_OpenDocuments",
             // The level editor's worlds: the panels hold their scenes, and SceneWorkspace names m_Panels by
             // reference, so it must outlive every panel it registered a viewport into.
-            "SceneWorkspace m_Workspace", "PlaySession    m_Play" } )
+            "SceneWorkspace m_Workspace", "PlaySession    m_Play", "ViewportCapture m_Capture",
+            "SceneFiles      m_SceneFiles" } )
     {
         const std::size_t at = src.find( host );
         ASSERT_NE( at, std::string::npos ) << host << " is no longer a member of EditorLayer.";
