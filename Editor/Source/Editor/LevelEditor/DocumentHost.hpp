@@ -116,6 +116,8 @@ namespace Desert::Editor
         // Palette providers (CommandRegistry, groups "Documents" and "Open"); @p assetFiles is the census the
         // palette build took (EditorLayer::m_PaletteAssetFiles).
         void AppendDocumentCommands( std::vector<PaletteCommand>& commands );
+        // "Action / Close All Documents" (each dirty one asks first).
+        void AppendCloseAllCommand( std::vector<PaletteCommand>& commands );
         void AppendOpenCommands( std::vector<PaletteCommand>&              commands,
                                  const std::vector<std::filesystem::path>& assetFiles );
 
@@ -329,7 +331,7 @@ namespace Desert::Editor
         // waits on the asset editors' close requests).
         std::function<void()> m_AfterCloseQuestions;
         // The window to bring forward on the next frame (by its ImGui name); cleared when drawn. ONE slot for
-        // the whole editor, owned by EditorLayer (m_FocusPanel) and shared with the tool panels, so a later
+        // the whole editor, owned by DockLayout (FocusSlot) and shared with the tool panels, so a later
         // focus request replaces an earlier one whether either names a panel or a document.
         std::string& m_FocusWindow;
     };

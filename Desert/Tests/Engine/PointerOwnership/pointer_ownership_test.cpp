@@ -552,6 +552,13 @@ TEST( PointerOwnership, EditorLayerDeclaresItsHostsBeforeItsPanels )
     // the documents die with m_Documents, so that member is the one every document's host must precede.
     const std::size_t documents = src.find( "DocumentHost m_Documents" );
     ASSERT_NE( documents, std::string::npos );
+    // DocumentHost holds DockLayout's focus slot by reference (one slot for tool panels and documents), so the
+    // dock layout must be constructed first and destroyed last of the two.
+    const std::size_t dock = src.find( "DockLayout m_Dock" );
+    ASSERT_NE( dock, std::string::npos ) << "EditorLayer no longer declares DockLayout m_Dock";
+    EXPECT_LT( dock, documents ) << "DockLayout m_Dock is declared AFTER m_Documents, which holds its focus slot "
+                                    "by reference: the document host would bind to a member not yet constructed "
+                                    "and outlive it.";
     for ( const char* host : { "std::shared_ptr<Assets::AssetManager>", "m_AnimationLibrary" } )
     {
         const std::size_t at = src.find( host );

@@ -741,6 +741,15 @@ namespace Desert::Editor
              label );
     }
 
+    void DocumentHost::AppendCloseAllCommand( std::vector<PaletteCommand>& commands )
+    {
+        commands.push_back( { "Action", "Close All Documents", [this]
+                              {
+                                  RequestCloseAllDocuments();
+                                  return PaletteCommandDone();
+                              } } );
+    }
+
     void DocumentHost::AppendDocumentCommands( std::vector<PaletteCommand>& commands )
     {
         // Documents — FOCUS an open one. A separate category because the verb is different and the
