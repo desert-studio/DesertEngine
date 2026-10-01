@@ -57,7 +57,7 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/TwoBoneIKControl.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp",
-        -- Common/Core/Timestep.cpp IS NOT LISTED, unlike in AnimatorBlending and BoneControlContract:
+        -- Common/Core/Timestep.cpp IS NOT LISTED (nor in any suite that links Common):
         -- this suite LINKS Common (below), so Timestep is already in Common.lib, and compiling it here
         -- too gives the linker two definitions. Nothing said so until the Windows unity build, where
         -- Timestep shares its object file with Common symbols this suite does need, so the archive
