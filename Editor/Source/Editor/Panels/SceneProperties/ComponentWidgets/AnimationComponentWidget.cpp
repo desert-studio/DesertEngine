@@ -256,7 +256,8 @@ namespace Desert::Editor
             ImGui::Dummy( ImVec2( 0.0f, 4.0f ) );
             // The palette's "New AnimGraph" presses THIS button (DetailsNavigation): one handler, two routes.
             const bool commanded = TakeDetailsActionRequest( "New AnimGraph" );
-            if ( Utils::ImGuiUtilities::AccentButton( ICON_MDI_PLUS_CIRCLE "  New AnimGraph", 28.0f ) || commanded )
+            if ( Utils::ImGuiUtilities::AccentButton( ICON_MDI_PLUS_CIRCLE "  New AnimGraph", 28.0f ) ||
+                 commanded )
             {
                 CreateAnimGraphAsset( entity, animation, clips, assets );
             }
