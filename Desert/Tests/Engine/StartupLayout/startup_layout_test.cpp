@@ -385,7 +385,10 @@ TEST( StartupLayout, SettingTheEngineDirMakesEveryEngineResourcePathAbsoluteAtSt
     namespace P = Common::Constants::Path;
     P::ResetToSandbox();
     const fs::path* shadersAddress = &P::SHADERDIR_PATH;
-    ASSERT_EQ( P::SHADERDIR_PATH, fs::path( "Resources/Shaders/" ) ) << "the unset state changed spelling";
+    P::SetEngineDir( {} );
+    // Unset is an error, not a cwd-relative guess: nothing is derived until a host sets the directory.
+    ASSERT_FALSE( P::HasEngineDir() );
+    ASSERT_TRUE( P::SHADERDIR_PATH.empty() ) << "the unset state derived a guessed spelling: " << P::SHADERDIR_PATH;
 
     const fs::path engine = FreshDirectory( "engine_dir_service" ) / "Editor";
     P::SetEngineDir( engine );
@@ -414,7 +417,8 @@ TEST( StartupLayout, SettingTheEngineDirMakesEveryEngineResourcePathAbsoluteAtSt
 
     P::SetEngineDir( {} );
     P::ResetToSandbox();
-    EXPECT_EQ( P::SHADERDIR_PATH, fs::path( "Resources/Shaders/" ) );
+    EXPECT_FALSE( P::HasEngineDir() );
+    EXPECT_TRUE( P::SHADERDIR_PATH.empty() ) << P::SHADERDIR_PATH;
 }
 
 // ── 4. THE RELATION BETWEEN THE PACKAGER AND THE DERIVATIONS ────────────────────────────────────

@@ -30,6 +30,7 @@
 #include <set>
 #include <vector>
 #include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/engine_dir.hpp"
 
 namespace fs = std::filesystem;
 using namespace Desert;
@@ -325,8 +326,8 @@ namespace
 {
     std::filesystem::path ProbeMeshFile()
     {
-        return Desert::TestSupport::RepositoryRoot() / "Editor" / "Resources" / "Assets" / "Meshes" /
-               "StaticProbe.stmesh";
+        // A test-only probe: it lives in the suite data tree, never in the engine's content (Editor/Resources).
+        return Desert::TestSupport::TestDataDir() / "Resources" / "Assets" / "Meshes" / "StaticProbe.stmesh";
     }
 } // namespace
 
@@ -377,6 +378,9 @@ TEST( StaticMeshViewerStats, AShorterChainCountsItsCoarsestLevelAtDeeperLODs )
 
 int main( int argc, char** argv )
 {
+    // The host step (as the editor takes it in Sandbox.hpp): every engine path read after it answers off
+    // the checkout's engine directory, never off the working directory.
+    Desert::TestSupport::SetSuiteEngineDir();
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

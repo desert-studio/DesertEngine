@@ -55,6 +55,7 @@
 #include <filesystem>
 #include <string>
 #include <vector>
+#include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
 
 using Desert::Assets::AssetManager;
@@ -63,26 +64,24 @@ using Desert::Assets::Serialization::MeshAssetData;
 
 namespace
 {
-    // The shipped probe, by the path the scene stores it under. Its handle is derived from that
-    // project-relative spelling, so the constant below is the same number on every machine.
+    // The shipped probe, by the path the scene stores it under — relative to the suite data project
+    // (Desert/Tests/Data/DesertTests.deproj, AssetsRoot Resources/Assets) that M10_MeshSlot.desce lives in. Its
+    // handle is derived from that project's tagged key `assets:Meshes/StaticProbe.stmesh`, so the constant below
+    // is the same number on every machine.
     constexpr const char*   kProbeCookedPath    = "Resources/Assets/Meshes/StaticProbe.stmesh";
-    constexpr std::uint64_t kProbeMeshHandle    = 11618737799735426630ull;
+    constexpr const char*   kProbeAssetsRoot    = "Resources/Assets";
+    constexpr std::uint64_t kProbeMeshHandle    = 2625086686727164116ull; // FNV-1a of the tagged key
     constexpr std::size_t   kProbeSubmeshes     = 2;
     constexpr std::size_t   kProbeVertices      = 48; // two boxes, 24 per-face vertices each
     constexpr std::size_t   kProbeTriangles     = 24; // 12 per box
     constexpr const char*   kProbeFirstSubmesh  = "ProbeCube";
     constexpr const char*   kProbeSecondSubmesh = "ProbePillar";
 
-    // The repository root, found by walking up from the test binary's working directory — the same way
-    // Tests/Engine/ShippedShaderPasses and Tests/Engine/ShaderCacheKey locate shipped content.
-    std::filesystem::path RepositoryRoot()
-    {
-        return Desert::TestSupport::RepositoryRoot();
-    }
-
+    // The suite data project the build baked in (TestSupport::TestDataDir), never searched for from the
+    // working directory.
     std::filesystem::path ProbeFile()
     {
-        return RepositoryRoot() / "Desert" / "Tests" / "Data" / kProbeCookedPath;
+        return Desert::TestSupport::TestDataDir() / kProbeCookedPath;
     }
 
     // What the FILE says, read straight through reflect-cpp — the K side of the relation, obtained without
@@ -359,13 +358,23 @@ TEST( StaticMeshCooked, UnloadEmptiesTheAssetAndStopsItClaimingToBeReady )
 // silently emptying the one scene that covers this path.
 TEST( StaticMeshCooked, TheShippedProbeKeepsTheIdentityTheSceneNamesItBy )
 {
-    EXPECT_EQ( static_cast<std::uint64_t>( Common::AssetHandle::FromCookedPath( kProbeCookedPath ) ),
-               kProbeMeshHandle )
+    // The scene's spelling is relative to ITS project, so the identity is derived with that project open — as
+    // the editor derives it when it loads M10_MeshSlot.desce from DesertTests.deproj.
+    namespace P       = Common::Constants::Path;
+    const auto saved  = P::CurrentProjectRoot();
+    P::SetProjectRoot( Desert::TestSupport::TestDataDir(), kProbeAssetsRoot );
+    const std::string key = Common::AssetHandle::StableKeyForPath( kProbeCookedPath );
+    const auto handle     = static_cast<std::uint64_t>( Common::AssetHandle::FromCookedPath( kProbeCookedPath ) );
+    P::SetProjectRoot( saved.ProjectDir, saved.AssetsRoot );
+
+    EXPECT_EQ( key, "assets:Meshes/StaticProbe.stmesh" ) << "the probe no longer sits under the project's assets root";
+    EXPECT_EQ( handle, kProbeMeshHandle )
          << "the probe mesh's path-derived handle changed; M10_MeshSlot.desce would resolve to no mesh.";
 }
 
 int main( int argc, char** argv )
 {
+    Desert::TestSupport::SetSuiteEngineDir();
     testing::InitGoogleTest( &argc, argv );
     // The editor's builder derives a cooked mesh's render form on a DDC miss, as it does in the editor.
     Desert::Assets::SetMeshPlatformDataBuilder( Desert::Editor::BuildMeshPlatformData );

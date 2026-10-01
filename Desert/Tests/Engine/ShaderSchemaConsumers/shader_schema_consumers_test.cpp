@@ -38,35 +38,30 @@
 
 #include <gtest/gtest.h>
 
+#include <Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.hpp>
+#include <Engine/Core/ShaderCompiler/ShadingModels/ShadingModelRegistry.hpp>
+
 #include <algorithm>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <set>
 #include <sstream>
 #include <string>
 #include <vector>
 #include "../../TestSupport/scratch_dir.hpp"
+#include "../../TestSupport/engine_dir.hpp"
 
 namespace
 {
     namespace fs = std::filesystem;
     namespace CT = Desert::Tests::ConsumerText;
 
-    // Walks up from the working directory looking for a file only the repository has, as
-    // PureVirtualCensus and DeviceLostCensus do for the same reason: the runner's working directory is
-    // not fixed. (The suites share no header for this; copy-paste is the convention this directory
-    // follows.)
+    // The checkout the build baked in (TestSupport::RepositoryRoot), with a trailing separator so the
+    // census can spell `root + "Desert/..."`; never searched for from the working directory.
     std::string RepoRoot()
     {
-        std::string prefix = "./";
-        for ( int up = 0; up < 6; ++up )
-        {
-            std::ifstream probe( prefix + "Desert/Desert/Source/Engine/Core/Formats/ShaderProgramMeta.hpp" );
-            if ( probe )
-                return prefix;
-            prefix += "../";
-        }
-        return {};
+        return ( Desert::TestSupport::RepositoryRoot() / "" ).generic_string();
     }
 
     std::string ReadAll( const fs::path& path )
@@ -796,9 +791,17 @@ namespace
     };
 
     void AppendExpanded( const fs::path& shadersDir, const fs::path& file, std::set<std::string>& visited,
-                         ExpandedShader& out )
+                         ExpandedShader& out );
+
+    // The VIRTUAL include (UE /Engine/Generated/): no file exists at kGeneratedInclude — the shader includer
+    // answers it with the shading-model registry's GenerateGlsl() over the shader root. The census answers it
+    // the same way, through the same generator, so a sampler declared behind it is seen and a registry that
+    // cannot be built is a named hole, not a silent skip.
+    void AppendGenerated( const fs::path& shadersDir, std::set<std::string>& visited, ExpandedShader& out );
+
+    void AppendText( const fs::path& shadersDir, const fs::path& includerDir, const std::string& raw,
+                     std::set<std::string>& visited, ExpandedShader& out )
     {
-        const std::string raw = ReadAll( file );
         out.Text += Strip( raw );
         out.Text += '\n';
 
@@ -822,10 +825,15 @@ namespace
             }
             // `<path>` names a file under the Shaders directory; `"path"` is looked up next to the including
             // file first (Mesh/PointLight.glslh includes "LightSources.glslh"), as a relative include is.
-            const std::string target   = line.substr( open + 1, close - open - 1 );
-            fs::path          included = shadersDir / target;
-            if ( line[open] == '"' && fs::exists( file.parent_path() / target ) )
-                included = file.parent_path() / target;
+            const std::string target = line.substr( open + 1, close - open - 1 );
+            if ( target == Desert::Core::ShadingModels::kGeneratedInclude )
+            {
+                AppendGenerated( shadersDir, visited, out );
+                continue;
+            }
+            fs::path included = shadersDir / target;
+            if ( line[open] == '"' && fs::exists( includerDir / target ) )
+                included = includerDir / target;
             if ( !fs::exists( included ) )
             {
                 out.Unresolved.push_back( target );
@@ -835,6 +843,28 @@ namespace
                 continue;
             AppendExpanded( shadersDir, included, visited, out );
         }
+    }
+
+    void AppendExpanded( const fs::path& shadersDir, const fs::path& file, std::set<std::string>& visited,
+                         ExpandedShader& out )
+    {
+        AppendText( shadersDir, file.parent_path(), ReadAll( file ), visited, out );
+    }
+
+    void AppendGenerated( const fs::path& shadersDir, std::set<std::string>& visited, ExpandedShader& out )
+    {
+        const std::string target( Desert::Core::ShadingModels::kGeneratedInclude );
+        if ( !visited.insert( std::format( "<generated>{}", target ) ).second )
+            return;
+        const auto registry = Desert::Core::ShadingModels::ShadingModelRegistry::Scan( shadersDir );
+        if ( !registry.IsSuccess() )
+        {
+            out.Unresolved.push_back( std::format( "{} (the shading-model registry over {} was refused: {})",
+                                                   target, shadersDir.generic_string(), registry.GetError() ) );
+            return;
+        }
+        AppendText( shadersDir, shadersDir / fs::path( target ).parent_path(), registry.GetValue().GenerateGlsl(),
+                    visited, out );
     }
 
     ExpandedShader ExpandIncludes( const fs::path& shadersDir, const fs::path& file )
@@ -943,6 +973,9 @@ TEST( ShaderSchemaConsumers, EveryTexturePropertyHasASamplerToBindTo )
 
 int main( int argc, char** argv )
 {
+    // The host step (as the editor takes it in Sandbox.hpp): every engine path read after it answers off
+    // the checkout's engine directory, never off the working directory.
+    Desert::TestSupport::SetSuiteEngineDir();
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
