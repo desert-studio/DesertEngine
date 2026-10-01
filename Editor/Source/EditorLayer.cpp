@@ -777,8 +777,8 @@ namespace Desert::Editor
         // The order of these calls IS the palette's order of groups (and the control channel's list).
         {
             const auto camera = [this] { return ActiveEditorCamera(); };
-            m_EntityCommands =
-                 std::make_unique<EntityCommands>( m_Workspace.ActiveScene(), m_Documents.SubjectEditors(), camera );
+            m_EntityCommands  = std::make_unique<EntityCommands>( m_Workspace.ActiveScene(),
+                                                                  m_Documents.SubjectEditors(), camera );
             m_AssetCommands = std::make_unique<AssetCommands>(
                  m_FileExplorerPanel, m_WorldPartitionPanel, m_Workspace.ActiveScene(), m_AssetManager,
                  m_PaletteAssetFiles, camera,
@@ -817,7 +817,8 @@ namespace Desert::Editor
                                      AppendFoliageCommands( out, m_Workspace.ActiveScene(), m_AssetManager,
                                                             m_PaletteAssetFiles.Files() );
                                  } );
-            m_Commands.Register( "Open", [this]( Out& out ) { m_Documents.AppendOpenCommands( out, m_PaletteAssetFiles.Files() ); } );
+            m_Commands.Register( "Open", [this]( Out& out )
+                                 { m_Documents.AppendOpenCommands( out, m_PaletteAssetFiles.Files() ); } );
             m_Commands.Register( "Assets (folders)", [this]( Out& out ) { m_AssetCommands->AppendFolderCommands( out ); } );
             m_Commands.Register( "Scene", [this]( Out& out ) { AppendSceneCommands( out ); } );
             m_Commands.Register( "Scene (new views)",
@@ -981,7 +982,8 @@ namespace Desert::Editor
                                     m_AssetManager ? m_AssetManager->FindMetadataByHandle( handle ) : nullptr;
                                if ( meta != nullptr && Core::PersonaModeFor( *meta ) == Core::PersonaMode::Mesh )
                                    return std::make_unique<Editor::AnimationEditorDocument>(
-                                        handle, Core::PersonaMode::Mesh, m_AssetManager.get(), &m_Documents.SubjectEditors() );
+                                        handle, Core::PersonaMode::Mesh, m_AssetManager.get(),
+                                        &m_Documents.SubjectEditors() );
                                return std::make_unique<Editor::StaticMeshViewerDocument>( handle,
                                                                                           m_AssetManager.get() );
                            },
@@ -1129,8 +1131,8 @@ namespace Desert::Editor
                            [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
                            {
                                return std::make_unique<Editor::AnimGraphPanel>(
-                                    subject, m_Documents.SubjectEntityName( subject, "Anim Graph" ), m_Workspace.ActiveScene(),
-                                    m_AnimationLibrary.get(), m_AssetManager.get() );
+                                    subject, m_Documents.SubjectEntityName( subject, "Anim Graph" ),
+                                    m_Workspace.ActiveScene(), m_AnimationLibrary.get(), m_AssetManager.get() );
                            },
                            [this]( const SubjectId& subject )
                            { return EntityHasComponent<ECS::AnimationComponent>( subject.Owner ); } } );
@@ -1154,7 +1156,8 @@ namespace Desert::Editor
                            [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
                            {
                                return std::make_unique<Editor::UIEditorPanel>(
-                                    subject, m_Documents.SubjectEntityName( subject, "UI" ), m_Workspace.ActiveScene() );
+                                    subject, m_Documents.SubjectEntityName( subject, "UI" ),
+                                    m_Workspace.ActiveScene() );
                            },
                            [this]( const SubjectId& subject )
                            { return EntityHasComponent<ECS::UICanvasComponent>( subject.Owner ); } } );
@@ -1246,37 +1249,41 @@ namespace Desert::Editor
                  }
                  return SubjectEditorRegistry::PathOpenOutcome::NotMine;
              } );
-        m_Documents.SubjectEditors().RegisterPathOpener( { std::string( Assets::kCloudNoiseVolumeExtension ),
-                                               std::string( Assets::kCloudTypeExtension ),
-                                               std::string( Assets::kCloudModellingVolumeExtension ),
-                                               std::string( Assets::kCloudLayoutExtension ) },
-                                             [this]( const std::string& path )
-                                             {
-                                                 switch ( RequestCloudDocument( m_AssetManager.get(), path ) )
-                                                 {
-                                                     case CloudDocumentRequest::NotACloudPath:
-                                                         return SubjectEditorRegistry::PathOpenOutcome::NotMine;
-                                                     case CloudDocumentRequest::Failed:
-                                                         return SubjectEditorRegistry::PathOpenOutcome::Failed;
-                                                     case CloudDocumentRequest::Requested:
-                                                         return SubjectEditorRegistry::PathOpenOutcome::Requested;
-                                                 }
-                                                 return SubjectEditorRegistry::PathOpenOutcome::NotMine;
-                                             } );
+        m_Documents.SubjectEditors().RegisterPathOpener(
+             { std::string( Assets::kCloudNoiseVolumeExtension ), std::string( Assets::kCloudTypeExtension ),
+               std::string( Assets::kCloudModellingVolumeExtension ),
+               std::string( Assets::kCloudLayoutExtension ) },
+             [this]( const std::string& path )
+             {
+                 switch ( RequestCloudDocument( m_AssetManager.get(), path ) )
+                 {
+                     case CloudDocumentRequest::NotACloudPath:
+                         return SubjectEditorRegistry::PathOpenOutcome::NotMine;
+                     case CloudDocumentRequest::Failed:
+                         return SubjectEditorRegistry::PathOpenOutcome::Failed;
+                     case CloudDocumentRequest::Requested:
+                         return SubjectEditorRegistry::PathOpenOutcome::Requested;
+                 }
+                 return SubjectEditorRegistry::PathOpenOutcome::NotMine;
+             } );
         m_Documents.SubjectEditors().RegisterPathOpener(
              { std::string( Assets::kTextureAssetExtension ) },
              [this]( const std::string& path )
              {
                  // ONE opener per extension (OpenPath's rule), so the `.detex` split is made here: a panorama
                  // whose header says Skybox opens the skybox viewer, every other `.detex` the texture viewer.
-                 if ( const auto sky = RequestSkyboxDocument( m_AssetManager.get(), path, m_Documents.SubjectEditors() );
+                 if ( const auto sky =
+                           RequestSkyboxDocument( m_AssetManager.get(), path, m_Documents.SubjectEditors() );
                       sky != SubjectEditorRegistry::PathOpenOutcome::NotMine )
                      return sky;
                  return RequestTextureDocument( m_AssetManager.get(), path, m_Documents.SubjectEditors() );
              } );
         m_Documents.SubjectEditors().RegisterPathOpener(
-             { std::string( Animation::Timeline::kLevelSequenceExtension ) }, [this]( const std::string& path )
-             { return Editor::RequestLevelSequenceDocument( m_AssetManager.get(), path, m_Documents.SubjectEditors() ); } );
+             { std::string( Animation::Timeline::kLevelSequenceExtension ) },
+             [this]( const std::string& path ) {
+                 return Editor::RequestLevelSequenceDocument( m_AssetManager.get(), path,
+                                                              m_Documents.SubjectEditors() );
+             } );
         m_Documents.SubjectEditors().RegisterPathOpener(
              { std::string( Common::Constants::Extensions::STATIC_MESH ) }, [this]( const std::string& path )
              { return RequestStaticMeshDocument( m_AssetManager.get(), path, m_Documents.SubjectEditors() ); } );
@@ -1284,8 +1291,9 @@ namespace Desert::Editor
              { std::string( Editor::kAnimationClipExtension ),
                std::string( Common::Content::KindSpec( Common::Content::ContentKind::SkinnedMesh ).Extension ),
                std::string( Common::Content::KindSpec( Common::Content::ContentKind::Skeleton ).Extension ) },
-             [this]( const std::string& path )
-             { return RequestAnimationEditorDocument( m_AssetManager.get(), path, m_Documents.SubjectEditors() ); } );
+             [this]( const std::string& path ) {
+                 return RequestAnimationEditorDocument( m_AssetManager.get(), path, m_Documents.SubjectEditors() );
+             } );
         m_Documents.SubjectEditors().RegisterPathOpener(
              { std::string( Assets::Serialization::ShaderGraph::kShaderGraphExtension ) },
              [this]( const std::string& path )
@@ -3039,10 +3047,11 @@ namespace Desert::Editor
             // its windows are not submitted (the panel loop skips them), and KeepAliveOnly keeps them docked
             // where they were, so the Scene tab brings the level layout back untouched.
             const ImVec2 dockOrigin = ::ImGui::GetCursorScreenPos();
-            m_Documents.SetMajorTabArea( glm::vec2( dockOrigin.x, dockOrigin.y ), glm::vec2( dockSize.x, dockSize.y ) );
+            m_Documents.SetMajorTabArea( glm::vec2( dockOrigin.x, dockOrigin.y ),
+                                         glm::vec2( dockSize.x, dockSize.y ) );
             ::ImGui::DockSpace( dockspace_id, dockSize,
                                 m_Documents.MajorTabActive() ? dockspace_flags | ImGuiDockNodeFlags_KeepAliveOnly
-                                                 : dockspace_flags );
+                                                             : dockspace_flags );
             if ( m_Documents.MajorTabActive() )
                 ::ImGui::Dummy( dockSize );
 
@@ -3425,7 +3434,8 @@ namespace Desert::Editor
                                           // Re-resolved rather than captured: the focus can move, and the
                                           // document can be destroyed, between this list being built and
                                           // the entry being run.
-                                          ISubjectDocument* target = m_Documents.Documents().Find( m_Documents.FocusedDocument() );
+                                          ISubjectDocument* target =
+                                               m_Documents.Documents().Find( m_Documents.FocusedDocument() );
                                           if ( !target || !target->HasPreview() )
                                           {
                                               // REFUSES INSTEAD OF SLIPPING PAST. That re-resolution is

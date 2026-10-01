@@ -26,6 +26,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <map>
 #include <set>
@@ -512,8 +513,13 @@ TEST( PointerOwnership, EditorLayerDeclaresItsHostsBeforeItsPanels )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    const std::string src = ReadRepoFile( "Editor/Source/EditorLayer.hpp" );
-    ASSERT_FALSE( src.empty() );
+    const std::string raw = ReadRepoFile( "Editor/Source/EditorLayer.hpp" );
+    ASSERT_FALSE( raw.empty() );
+    // Declarations are column-aligned by clang-format; the order is the fact, not the padding.
+    std::string src;
+    for ( const char c : raw )
+        if ( !std::isspace( static_cast<unsigned char>( c ) ) || src.empty() || src.back() != ' ' )
+            src.push_back( std::isspace( static_cast<unsigned char>( c ) ) ? ' ' : c );
 
     const std::size_t panels = src.find( "PanelRegistry m_Panels" );
     ASSERT_NE( panels, std::string::npos ) << "EditorLayer no longer declares m_Panels -- the twenty "
@@ -524,8 +530,8 @@ TEST( PointerOwnership, EditorLayerDeclaresItsHostsBeforeItsPanels )
           { "std::shared_ptr<Assets::AssetManager>", "m_AnimationLibrary", "DocumentHost m_Documents",
             // The level editor's worlds: the panels hold their scenes, and SceneWorkspace names m_Panels by
             // reference, so it must outlive every panel it registered a viewport into.
-            "SceneWorkspace m_Workspace", "PlaySession    m_Play", "ViewportCapture m_Capture",
-            "SceneFiles      m_SceneFiles" } )
+            "SceneWorkspace m_Workspace", "PlaySession m_Play", "ViewportCapture m_Capture",
+            "SceneFiles m_SceneFiles" } )
     {
         const std::size_t at = src.find( host );
         ASSERT_NE( at, std::string::npos ) << host << " is no longer a member of EditorLayer.";

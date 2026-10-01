@@ -87,8 +87,8 @@ namespace Desert::Editor
 
     DocumentHost::DocumentHost( SceneWorkspace& workspace, std::shared_ptr<Assets::AssetManager>& assetManager,
                                 std::string& focusWindow, ShowFolderFn showFolder )
-        : m_Workspace( workspace ), m_AssetManager( assetManager ), m_ShowFolder( std::move( showFolder ) ),
-          m_FocusWindow( focusWindow )
+         : m_Workspace( workspace ), m_AssetManager( assetManager ), m_ShowFolder( std::move( showFolder ) ),
+           m_FocusWindow( focusWindow )
     {
     }
 
@@ -102,8 +102,8 @@ namespace Desert::Editor
     // up by a name that is an asset's and give every document the same fallback.
     std::string DocumentHost::DocumentDisplayTitle( const ISubjectDocument& document ) const
     {
-        return IconWindowTitle( DocumentIcon( document.Subject() ),
-                                DocumentDisplayName( document.GetName() ), document.GetName() );
+        return IconWindowTitle( DocumentIcon( document.Subject() ), DocumentDisplayName( document.GetName() ),
+                                document.GetName() );
     }
 
     std::vector<DocumentHost::ViewConsumer> DocumentHost::ViewCensus() const
@@ -299,7 +299,7 @@ namespace Desert::Editor
             }
 
             m_DocumentWell.Opened( subject ); // also brings a closed well back
-            m_FocusWindow      = name;         // brings the new window forward in the document well
+            m_FocusWindow     = name;         // brings the new window forward in the document well
             m_FocusedDocument = subject;
             LOG_INFO( "[Editor] Opened a '{}' document '{}' ({} open; {} spoken for by documents that have not "
                       "drawn yet; {}, in use {}).",
@@ -660,7 +660,7 @@ namespace Desert::Editor
 
         m_DocumentWell.Opened( subject ); // asked for by name: a closed well comes back to show it
         m_FocusedDocument = subject;
-        m_FocusWindow      = document->GetName(); // brings it forward in whatever dock it lives
+        m_FocusWindow     = document->GetName(); // brings it forward in whatever dock it lives
     }
 
     void DocumentHost::UpdateCycleShortcut( const ImGuiIO& io )
@@ -695,7 +695,7 @@ namespace Desert::Editor
         // Ctrl+Tab return to where the first started, so the order is committed when Ctrl is released —
         // see m_CyclingDocuments in OnUIRender.
         m_FocusedDocument  = *next;
-        m_FocusWindow       = document->GetName();
+        m_FocusWindow      = document->GetName();
         m_CyclingDocuments = true;
     }
 
@@ -778,8 +778,9 @@ namespace Desert::Editor
                 // same one), and `PaletteCommand::Run` takes no parameters, so there is no version of a
                 // lambda here that the check accepts. `bind_front` binds the member function directly and
                 // there is nothing for it to analyse.
-                commands.push_back( { "Document", name + ": " + label,
-                                      std::bind_front( &DocumentHost::RunDocumentAction, this, subject, label ) } );
+                commands.push_back(
+                     { "Document", name + ": " + label,
+                       std::bind_front( &DocumentHost::RunDocumentAction, this, subject, label ) } );
             }
         }
 

@@ -2,8 +2,6 @@
 #include "Editor/Core/IconsMaterialDesignIcons.hpp"
 #include <string>
 
-
-
 namespace Desert::Editor
 {
     // Icon shown before a panel's tab/title + its View-menu entry. Keyed by the panel's STABLE name

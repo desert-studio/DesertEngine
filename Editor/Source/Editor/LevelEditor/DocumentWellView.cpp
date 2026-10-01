@@ -209,9 +209,7 @@ namespace Desert::Editor
                 for ( const ClosedDocument& closed : m_DocumentWell.RecentlyClosed() )
                 {
                     ImGui::PushID( static_cast<int>( std::hash<SubjectId>{}( closed.Subject ) & 0x7fffffff ) );
-                    const std::string row =
-                         DocumentIcon( closed.Subject ) + "  " +
-                         closed.DisplayName;
+                    const std::string row = DocumentIcon( closed.Subject ) + "  " + closed.DisplayName;
                     if ( ImGui::Selectable( row.c_str() ) )
                         Core::SubjectOpenRequests::Request( closed.Subject );
                     if ( ImGui::IsItemHovered() )
@@ -244,8 +242,7 @@ namespace Desert::Editor
             ImGui::PushID( static_cast<int>( std::hash<SubjectId>{}( subject ) & 0x7fffffff ) );
 
             const std::string row =
-                 DocumentIcon( document->Subject() ) + "  " +
-                 DocumentDisplayName( document->GetName() );
+                 DocumentIcon( document->Subject() ) + "  " + DocumentDisplayName( document->GetName() );
             if ( ImGui::Selectable( row.c_str(), subject == m_FocusedDocument,
                                     ImGuiSelectableFlags_AllowItemOverlap ) )
                 FocusDocument( subject );

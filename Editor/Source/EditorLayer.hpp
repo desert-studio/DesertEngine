@@ -157,7 +157,6 @@ namespace Desert::Editor
         void AppendSceneTailCommands( std::vector<PaletteCommand>& commands );
         void AppendWindowCommands( std::vector<PaletteCommand>& commands );
 
-
         // Ctrl+P "go to anything": draws the overlay over the dictionary above. No-op unless open.
         void DrawCommandPalette();
         // The palette asked for BY NAME, from its own dictionary — the only way an unattended run can put
@@ -239,7 +238,6 @@ namespace Desert::Editor
         void DrawProjectPopup();
         void FollowImGuiWithEvents();
 
-
         // The one navigation `run Browse <folder>` and a field's "Show in browser" share.
         Common::BoolResultStr ShowFolderInBrowser( const std::string& folder );
         // Leaving the editor from its own frame's x or File > Exit: every dirty document asks first, and the
@@ -319,7 +317,7 @@ namespace Desert::Editor
         // tabs, the refusal past the view budget (UE: UAssetEditorSubsystem + the document half of
         // FGlobalTabmanager). See Editor/LevelEditor/DocumentHost.hpp.
         // The window (tool panel or document) to bring to the front of its dock next frame; ONE slot for both.
-        std::string m_FocusPanel;
+        std::string  m_FocusPanel;
         DocumentHost m_Documents{ m_Workspace, m_AssetManager, m_FocusPanel,
                                   [this]( const std::string& folder ) { return ShowFolderInBrowser( folder ); } };
 
