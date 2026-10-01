@@ -62,6 +62,7 @@ namespace
     constexpr const char* kAnimDocument =
          "Editor/Source/Editor/Panels/AnimationEditor/AnimationEditorDocument.cpp";
     constexpr const char* kLayer = "Editor/Source/EditorLayer.cpp";
+    constexpr const char* kPlay          = "Editor/Source/Editor/LevelEditor/PlaySession.cpp";
     constexpr const char* kAssetCommands = "Editor/Source/Editor/Panels/FileExplorer/AssetCommands.cpp";
 } // namespace
 
@@ -155,11 +156,11 @@ TEST( CommandHome, PlayWorldCommandsHaveStableAddresses )
 
 TEST( CommandHome, ThePlaybackGroupRunsThePlayWorldCommands )
 {
-    const std::string layer = ReadFile( kLayer );
-    EXPECT_NE( layer.find( "Editor::kPlayWorldCommandOrder" ), std::string::npos ) << "the palette lost them";
-    const std::string group = FunctionBody( layer, "void EditorLayer::DrawPlaybackGroup(", "EditorLayer::" );
+    const std::string play = ReadFile( kPlay );
+    EXPECT_NE( play.find( "kPlayWorldCommandOrder" ), std::string::npos ) << "the palette lost them";
+    const std::string group = FunctionBody( play, "void PlaySession::DrawPlaybackGroup(", "PlaySession::" );
     ASSERT_FALSE( group.empty() );
-    for ( const char* body : { "OnScenePlay(", "SetState(", "m_PendingSceneStop", "RequestSingleFrame(" } )
+    for ( const char* body : { "Play(", "Stop(", "SetState(", "m_PendingStop", "RequestSingleFrame(" } )
         EXPECT_EQ( group.find( body ), std::string::npos ) << body << " is a second home of a play-world command";
     for ( const char* name : { "Play )", "PlayFromHere )", "NextFrame )", "Stop )" } )
         EXPECT_NE( group.find( std::string( "run( Command::" ) + name ), std::string::npos )

@@ -415,13 +415,6 @@ namespace Desert::Editor
         return std::format( kIconWindowTitleFormat, icon, label, id );
     }
 
-    // A scene window's ImGui title: the name a person reads, then the "###<kind><id>" identity that keeps two
-    // windows from merging and a closed window's imgui.ini entry from being inherited.
-    static std::string SceneWindowTitle( std::string_view name, std::string_view kind, std::uint64_t id )
-    {
-        return std::format( "{}###{}{}", name, kind, id );
-    }
-
     static std::string PanelDisplayTitle( const std::string& name )
     {
         std::string label = name;
@@ -564,18 +557,22 @@ namespace Desert::Editor
         // Filled by the "Indexing animation clips" stage above, from the registry's clip rows.
         m_AnimationLibrary = std::make_unique<Animation::AnimationLibrary>( m_AssetManager.get() );
         Desert::Runtime::ResourceRegistry::BindOnDemandAssets( m_AssetManager );
-        // The viewport panel is laid out on the first frame, after Scene::Init builds this renderer; the
-        // panel's resize brings it to size then (see Graphic::kUnsizedViewExtent).
-        m_SceneRenderer = std::make_unique<Graphic::SceneRenderer>( Graphic::kUnsizedViewExtent );
-        m_MainScene     = std::make_shared<Desert::Core::Scene>( "New Scene", m_SceneRenderer.get() );
-        // Copies m_MainScene, built on the line above; a member initializer would copy null.
-        // NOLINTNEXTLINE(cppcoreguidelines-prefer-member-initializer)
-        m_PrimaryScene = m_MainScene; // the always-present document #-1 (see SetActiveScene)
+        m_Workspace.CreatePrimaryScene();
+        // Documents follow the active scene too. The Cloud Layout document READS the focused scene's cloud
+        // layer for its preview numbers — the scene is an input, never a second subject — and it stopped
+        // following it the moment documents left the panel list, which is exactly the "a middle link drops a
+        // property" shape this codebase has paid for seven times.
+        m_Workspace.OnActiveSceneChanged(
+             [this]( const std::shared_ptr<Desert::Core::Scene>& scene )
+             {
+                 for ( auto& document : m_OpenDocuments )
+                     document->SetScene( scene );
+             } );
 
         // The scene/asset-manager the undoable structural commands operate on (the scene OBJECT is reused
         // across loads — Clear() + deserialize — so this stays valid; the history itself is cleared on
         // load/Play/Stop instead).
-        Commands::SetContext( m_MainScene.get(), m_AssetManager.get() );
+        Commands::SetContext( m_Workspace.ActiveScene().get(), m_AssetManager.get() );
 
         LOG_INFO( "[Editor] Desert Engine {} ({} branch)", Common::Version::Full(), Common::Version::Branch() );
 
@@ -595,7 +592,7 @@ namespace Desert::Editor
             std::error_code ec;
             if ( !std::filesystem::exists( demoPath, ec ) )
             {
-                m_MainScene->Clear();
+                m_Workspace.ActiveScene()->Clear();
                 BuildCornellShowcase();
                 // The success line is inside the branch: this bake exists so the demo can be OPENED
                 // later, and announcing a file that is not there sends the next reader looking for a
@@ -610,7 +607,7 @@ namespace Desert::Editor
                                "demo scene to open (see the write failure above).",
                                demoPath.string() );
                 }
-                m_MainScene->Clear();
+                m_Workspace.ActiveScene()->Clear();
             }
         }
 
@@ -650,7 +647,7 @@ namespace Desert::Editor
         }
         else if ( ProjectContext::HasProject() )
         {
-            m_MainScene->SetSceneName( ProjectContext::Current().Name );
+            m_Workspace.ActiveScene()->SetSceneName( ProjectContext::Current().Name );
             if ( const auto scenePath = ProjectContext::DefaultScenePath(); !scenePath.empty() )
             {
                 if ( std::filesystem::exists( scenePath ) )
@@ -835,7 +832,7 @@ namespace Desert::Editor
         LOG_INFO( "[Import] {} import template(s) published from the loaded shaders",
                   ImportManager::PublishImportTemplates( *m_AssetManager ) );
 
-        BuildSceneSystems( *m_MainScene );
+        m_Workspace.BuildSceneSystems( *m_Workspace.ActiveScene() );
 
         // THE ANIMATION LIBRARY IS NOT FILLED HERE, and its absence is the fix rather than an omission: a fill
         // loop in OnAttach once ran before the clips were known and reported only the procedural ones, and the
@@ -865,7 +862,7 @@ namespace Desert::Editor
         // it, and an editor whose main scene never initialised has no viewport to show anything in.
         if ( !m_SceneLoadRequested )
         {
-            if ( const auto inited = m_MainScene->Init(); !inited.IsSuccess() )
+            if ( const auto inited = m_Workspace.ActiveScene()->Init(); !inited.IsSuccess() )
                 return Common::MakeFormattedError( "main scene failed to initialise: {}", inited.GetError() );
         }
 
@@ -877,9 +874,11 @@ namespace Desert::Editor
         // The order of these calls IS the palette's order of groups (and the control channel's list).
         {
             const auto camera = [this] { return ActiveEditorCamera(); };
-            m_EntityCommands  = std::make_unique<EntityCommands>( m_MainScene, m_SubjectEditors, camera );
-            m_AssetCommands   = std::make_unique<AssetCommands>(
-                 m_FileExplorerPanel, m_WorldPartitionPanel, m_MainScene, m_AssetManager, m_PaletteAssetFiles, camera,
+            m_EntityCommands =
+                 std::make_unique<EntityCommands>( m_Workspace.ActiveScene(), m_SubjectEditors, camera );
+            m_AssetCommands = std::make_unique<AssetCommands>(
+                 m_FileExplorerPanel, m_WorldPartitionPanel, m_Workspace.ActiveScene(), m_AssetManager,
+                 m_PaletteAssetFiles, camera,
                  [this]( const std::string& folder ) { return ShowFolderInBrowser( folder ); } );
             using Out = std::vector<PaletteCommand>;
             m_Commands.OnBuildBegin( [this] { m_PaletteAssetFiles.Take(); } );
@@ -892,58 +891,74 @@ namespace Desert::Editor
             m_Commands.Register( "Language", []( Out& out ) { AppendLanguageCommands( out ); } );
             m_Commands.Register( "Documents", [this]( Out& out ) { AppendDocumentCommands( out ); } );
             m_Commands.Register( "Entity", [this]( Out& out ) { m_EntityCommands->Append( out ); } );
-            m_Commands.Register( "Modeling (Mesh To Collision)",
-                                 [this]( Out& out ) { AppendMeshToCollisionCommands( out, m_MainScene ); } );
+            m_Commands.Register( "Modeling (Mesh To Collision)", [this]( Out& out )
+                                 { AppendMeshToCollisionCommands( out, m_Workspace.ActiveScene() ); } );
             m_Commands.Register( "Entity (collapse)", [this]( Out& out ) { m_EntityCommands->AppendCollapse( out ); } );
             m_Commands.Register( "Menu", [this]( Out& out ) { AppendMenuCommands( out ); } );
             m_Commands.Register( "Level viewport", []( Out& out ) { AppendViewportCommands( out ); } );
             m_Commands.Register( "Modeling (Select Elements)", []( Out& out ) { AppendSelectElementsCommand( out ); } );
-            m_Commands.Register( "Landscape", [this]( Out& out ) { AppendLandscapeCommands( out, m_MainScene ); } );
+            m_Commands.Register( "Landscape", [this]( Out& out )
+                                 { AppendLandscapeCommands( out, m_Workspace.ActiveScene() ); } );
             m_Commands.Register( "Modeling (Create Shape)", []( Out& out ) { AppendCreateShapeCommands( out ); } );
-            m_Commands.Register( "Humanoid", [this]( Out& out ) { AppendHumanoidCommands( out, m_MainScene ); } );
+            m_Commands.Register( "Humanoid", [this]( Out& out )
+                                 { AppendHumanoidCommands( out, m_Workspace.ActiveScene() ); } );
             m_Commands.Register( "Scene (add shape)", [this]( Out& out ) { AppendAddShapeCommands( out ); } );
-            m_Commands.Register( "Modeling", [this]( Out& out ) { AppendModelingCommands( out, m_MainScene ); } );
-            m_Commands.Register( "UI", [this]( Out& out ) { AppendUICommands( out, m_MainScene ); } );
+            m_Commands.Register( "Modeling", [this]( Out& out )
+                                 { AppendModelingCommands( out, m_Workspace.ActiveScene() ); } );
+            m_Commands.Register( "UI",
+                                 [this]( Out& out ) { AppendUICommands( out, m_Workspace.ActiveScene() ); } );
             m_Commands.Register( "Palette", [this]( Out& out ) { AppendPaletteDoorCommand( out ); } );
             m_Commands.Register( "Assets (import)", [this]( Out& out ) { m_AssetCommands->AppendImportCommands( out ); } );
-            m_Commands.Register( "Foliage", [this]( Out& out )
-                                 { AppendFoliageCommands( out, m_MainScene, m_AssetManager, m_PaletteAssetFiles.Files() ); } );
+            m_Commands.Register( "Foliage",
+                                 [this]( Out& out ) {
+                                     AppendFoliageCommands( out, m_Workspace.ActiveScene(), m_AssetManager,
+                                                            m_PaletteAssetFiles.Files() );
+                                 } );
             m_Commands.Register( "Open", [this]( Out& out ) { AppendOpenCommands( out ); } );
             m_Commands.Register( "Assets (folders)", [this]( Out& out ) { m_AssetCommands->AppendFolderCommands( out ); } );
             m_Commands.Register( "Scene", [this]( Out& out ) { AppendSceneCommands( out ); } );
+            m_Commands.Register( "Scene (new views)",
+                                 [this]( Out& out ) { m_Workspace.AppendNewViewCommands( out ); } );
             m_Commands.Register( "Debug (GPU allocations)", []( Out& out ) { AppendGpuAllocationCommand( out ); } );
-            m_Commands.Register( "Scene (views), Actions, Window", [this]( Out& out ) { AppendSceneTailCommands( out ); } );
+            m_Commands.Register( "Scene (view layout)",
+                                 [this]( Out& out ) { m_Workspace.AppendViewLayoutCommands( out ); } );
+            m_Commands.Register( "Scene (actions)", [this]( Out& out ) { AppendSceneTailCommands( out ); } );
+            m_Commands.Register( "Play", [this]( Out& out ) { m_Play.AppendPlayCommands( out ); } );
+            m_Commands.Register( "Actions, Window", [this]( Out& out ) { AppendWindowCommands( out ); } );
             m_Commands.Register( "Build", []( Out& out ) { AppendBuildCommands( out ); } );
         }
-        m_Panels.Add<Editor::SceneHierarchyPanel>( m_MainScene, m_AssetManager );
-        m_Panels.Add<Editor::ScenePropertiesPanel>( m_MainScene, m_AssetManager, m_AnimationLibrary.get() );
+        m_Panels.Add<Editor::SceneHierarchyPanel>( m_Workspace.ActiveScene(), m_AssetManager );
+        m_Panels.Add<Editor::ScenePropertiesPanel>( m_Workspace.ActiveScene(), m_AssetManager,
+                                                    m_AnimationLibrary.get() );
         m_Panels.Add<Editor::ShaderLibraryPanel>();
         {
-            auto primaryViewport = std::make_unique<Editor::ViewportPanel>( m_MainScene, m_AssetManager.get() );
+            auto primaryViewport =
+                 std::make_unique<Editor::ViewportPanel>( m_Workspace.ActiveScene(), m_AssetManager.get() );
             // Focusing the main viewport rebinds the editor back to the primary scene.
-            primaryViewport->SetOnActivate( [this] { SetActiveScene( kPrimarySceneViewId ); } );
+            primaryViewport->SetOnActivate( [this] { m_Workspace.SetActiveScene( kPrimarySceneViewId ); } );
             m_Panels.Adopt( std::move( primaryViewport ) );
         }
         {
             auto fileExplorer = std::make_unique<Editor::FileExplorerPanel>(
-                 Common::Constants::Path::ASSETS_PATH, &m_SubjectEditors, m_AssetManager.get(), m_MainScene );
+                 Common::Constants::Path::ASSETS_PATH, &m_SubjectEditors, m_AssetManager.get(),
+                 m_Workspace.ActiveScene() );
             m_FileExplorerPanel = fileExplorer.get();
             m_Panels.Adopt( std::move( fileExplorer ) );
         }
-        m_Panels.Add<Editor::ModelingPanel>( m_MainScene );
-        m_Panels.Add<Editor::LandscapePanel>( m_MainScene );
-        m_Panels.Add<Editor::WorldSettingsPanel>( m_MainScene );
+        m_Panels.Add<Editor::ModelingPanel>( m_Workspace.ActiveScene() );
+        m_Panels.Add<Editor::LandscapePanel>( m_Workspace.ActiveScene() );
+        m_Panels.Add<Editor::WorldSettingsPanel>( m_Workspace.ActiveScene() );
         m_Panels.Add<Editor::ScalabilityPanel>();
         // Hidden until asked for: the map is only meaningful on a partitioned scene. The streamer is read through
         // the getter each frame, because Stop and a streaming error destroy it from this side.
         m_WorldPartitionPanel = &m_Panels.Add<Editor::WorldPartitionPanel>(
-             m_MainScene, m_AssetManager.get(), [this] { return m_WorldStreamer.get(); } );
+             m_Workspace.ActiveScene(), m_AssetManager.get(), [this] { return m_Play.Streamer(); } );
         m_Panels.Add<Editor::LogsPanel>();
         m_Panels.Add<Editor::CollectionsPanel>( m_AssetManager.get() );
         m_Panels.Add<Editor::HistoryPanel>();
-        m_Panels.Add<Editor::SceneValidationPanel>( m_MainScene, m_AssetManager.get() );
+        m_Panels.Add<Editor::SceneValidationPanel>( m_Workspace.ActiveScene(), m_AssetManager.get() );
         m_Panels.Add<Editor::LocalizationPanel>();
-        m_Panels.Add<Editor::UIDebuggerPanel>( m_MainScene );
+        m_Panels.Add<Editor::UIDebuggerPanel>( m_Workspace.ActiveScene() );
         // THE FOUR CLOUD PANELS ARE NOT CONSTRUCTED HERE ANY MORE. They were singletons in this list, each
         // reached from the View menu and bound to whatever file its own combo had last opened; they are now
         // asset DOCUMENTS, built on demand by the registry below. Dropping them from the list is what
@@ -962,10 +977,10 @@ namespace Desert::Editor
         // — which is what U7 made expressible (Editor/Core/EditorSubject.hpp). Dropping them from this list
         // removes them from the View menu, the command palette and `--open-panel` at once, because all three
         // are generic over m_Panels; they are reached from the component that holds them, in Details.
-        m_Panels.Add<Editor::PhotogrammetryPanel>( m_MainScene, m_AssetManager.get() );
-        m_Panels.Add<Editor::AssetReferencesPanel>( m_MainScene, m_AssetManager );
-        m_Panels.Add<Editor::LuaConsolePanel>( m_MainScene.get(), m_AssetManager.get() );
-        m_Panels.Add<Editor::ControlRigPanel>( m_MainScene );
+        m_Panels.Add<Editor::PhotogrammetryPanel>( m_Workspace.ActiveScene(), m_AssetManager.get() );
+        m_Panels.Add<Editor::AssetReferencesPanel>( m_Workspace.ActiveScene(), m_AssetManager );
+        m_Panels.Add<Editor::LuaConsolePanel>( m_Workspace.ActiveScene().get(), m_AssetManager.get() );
+        m_Panels.Add<Editor::ControlRigPanel>( m_Workspace.ActiveScene() );
         m_Panels.Add<Editor::BuildSettingsPanel>();
         m_Panels.Add<Editor::ContentChunksPanel>();
         // THE CLOUDS WINDOW IS A TOOL, and it must be: it is a setting the user keeps (View ▸ Clouds), it
@@ -973,7 +988,7 @@ namespace Desert::Editor
         // What it DOES is show the documents that edit the six stages of the sky — asked of
         // m_OpenDocuments, which is the same container the document well reads, so both windows show the
         // same object and neither knows the other exists. See Editor/Panels/Clouds/CloudsPanel.hpp.
-        m_Panels.Add<Editor::CloudsPanel>( m_MainScene, m_AssetManager, m_OpenDocuments );
+        m_Panels.Add<Editor::CloudsPanel>( m_Workspace.ActiveScene(), m_AssetManager, m_OpenDocuments );
 
         // ── WHICH EDITOR OPENS WHICH KIND OF SUBJECT ──────────────────────────────────────────────────
         //
@@ -1155,7 +1170,8 @@ namespace Desert::Editor
                            [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
                            {
                                return std::make_unique<Editor::CloudLayoutPanel>(
-                                    Assets::AssetHandle( subject.Owner ), m_MainScene, m_AssetManager.get() );
+                                    Assets::AssetHandle( subject.Owner ), m_Workspace.ActiveScene(),
+                                    m_AssetManager.get() );
                            },
                            [this]( const SubjectId& subject )
                            {
@@ -1210,7 +1226,7 @@ namespace Desert::Editor
                            [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
                            {
                                return std::make_unique<Editor::AnimGraphPanel>(
-                                    subject, SubjectEntityName( subject, "Anim Graph" ), m_MainScene,
+                                    subject, SubjectEntityName( subject, "Anim Graph" ), m_Workspace.ActiveScene(),
                                     m_AnimationLibrary.get(), m_AssetManager.get() );
                            },
                            [this]( const SubjectId& subject )
@@ -1221,7 +1237,8 @@ namespace Desert::Editor
                            [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
                            {
                                return std::make_unique<Editor::ParticleEditorPanel>(
-                                    subject, SubjectEntityName( subject, "Particles" ), m_MainScene );
+                                    subject, SubjectEntityName( subject, "Particles" ),
+                                    m_Workspace.ActiveScene() );
                            },
                            [this]( const SubjectId& subject )
                            { return EntityHasComponent<ECS::ParticleEmitterComponent>( subject.Owner ); } } );
@@ -1231,9 +1248,10 @@ namespace Desert::Editor
         m_SubjectEditors.Register(
              Editor::UIEditorPanel::SubjectType(),
              Registration{ Editor::UIEditorPanel::kComponentTypeName, ICON_MDI_VIEW_DASHBOARD,
-                           [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument> {
+                           [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                           {
                                return std::make_unique<Editor::UIEditorPanel>(
-                                    subject, SubjectEntityName( subject, "UI" ), m_MainScene );
+                                    subject, SubjectEntityName( subject, "UI" ), m_Workspace.ActiveScene() );
                            },
                            [this]( const SubjectId& subject )
                            { return EntityHasComponent<ECS::UICanvasComponent>( subject.Owner ); } } );
@@ -1256,7 +1274,7 @@ namespace Desert::Editor
                            {
                                return std::make_unique<Editor::SequencerPanel>(
                                     subject, SubjectEntityName( subject, "Sequencer" ),
-                                    Editor::SequencerPanel::Timeline::Skeletal, m_MainScene,
+                                    Editor::SequencerPanel::Timeline::Skeletal, m_Workspace.ActiveScene(),
                                     m_AnimationLibrary.get(), m_AssetManager.get() );
                            },
                            [this]( const SubjectId& subject )
@@ -1271,8 +1289,8 @@ namespace Desert::Editor
                            {
                                return std::make_unique<Editor::SequencerPanel>(
                                     subject, SubjectEntityName( subject, "UI Timeline" ),
-                                    Editor::SequencerPanel::Timeline::UI, m_MainScene, m_AnimationLibrary.get(),
-                                    m_AssetManager.get() );
+                                    Editor::SequencerPanel::Timeline::UI, m_Workspace.ActiveScene(),
+                                    m_AnimationLibrary.get(), m_AssetManager.get() );
                            },
                            [this]( const SubjectId& subject )
                            { return EntityHasComponent<ECS::UIAnimComponent>( subject.Owner ); } } );
@@ -1291,8 +1309,8 @@ namespace Desert::Editor
                                     subject,
                                     meta != nullptr ? meta->Filepath.stem().string()
                                                     : std::string( "Level Sequence" ),
-                                    Editor::SequencerPanel::Timeline::Level, m_MainScene, m_AnimationLibrary.get(),
-                                    m_AssetManager.get() );
+                                    Editor::SequencerPanel::Timeline::Level, m_Workspace.ActiveScene(),
+                                    m_AnimationLibrary.get(), m_AssetManager.get() );
                            },
                            [this]( const SubjectId& subject )
                            {
@@ -1397,8 +1415,8 @@ namespace Desert::Editor
         // run — and when a scene load is already queued that Init is deliberately skipped (see the
         // comment beside it). The load recreates this registry after its own Init, which is what the
         // three other call sites of this line are for.
-        if ( m_MainScene->IsInitialized() )
-            m_RenderRegistry = std::make_unique<Render::RenderRegistry>( m_MainScene );
+        if ( m_Workspace.ActiveScene()->IsInitialized() )
+            m_Workspace.RebuildRenderRegistry();
 
         // Boot into an empty "New Scene" — the demo scene (procedural character/house + player_controller.lua)
         // referenced assets that were cleared out for the from-scratch rebuild. Re-enable to get it back.
@@ -1410,17 +1428,17 @@ namespace Desert::Editor
         // scene (own sun+sky) and queued any existing project scene for load (brings its own). Adding
         // a sun here regardless is what produced TWO directional lights — and the engine supports one.
         const bool sceneLoadPending = m_SceneLoadRequested.has_value();
-        const bool hasSun           = !m_MainScene->GetRegistry().view<ECS::DirectionLightComponent>().empty();
+        const bool hasSun = !m_Workspace.ActiveScene()->GetRegistry().view<ECS::DirectionLightComponent>().empty();
         if ( !sceneLoadPending && !hasSun )
         {
             using namespace ::Desert;
-            auto& sun         = m_MainScene->CreateNewEntity( "Sun" );
+            auto& sun         = m_Workspace.ActiveScene()->CreateNewEntity( "Sun" );
             auto& dl          = sun.AddComponent<ECS::DirectionLightComponent>();
             dl.Data.Color     = { 1.0f, 0.97f, 0.9f };
             dl.Data.Intensity = 3.0f;
             sun.GetComponent<ECS::TransformComponent>().Translation = { -0.4f, -1.0f, -0.5f };
 
-            auto& skyEnt    = m_MainScene->CreateNewEntity( "Skybox" );
+            auto& skyEnt    = m_Workspace.ActiveScene()->CreateNewEntity( "Skybox" );
             auto& sky       = skyEnt.AddComponent<ECS::SkyAtmosphereComponent>();
             sky.RequestBake = true;
         }
@@ -1640,16 +1658,15 @@ namespace Desert::Editor
             // record against it. Asked of the SCENE rather than inferred from the load's return value,
             // which is void, and rather than tracked in a flag here, which would be a second copy of a
             // fact the scene already holds.
-            if ( !m_MainScene->IsInitialized() )
+            if ( !m_Workspace.ActiveScene()->IsInitialized() )
             {
-                if ( const auto inited = m_MainScene->Init(); !inited.IsSuccess() )
+                if ( const auto inited = m_Workspace.ActiveScene()->Init(); !inited.IsSuccess() )
                     LOG_ERROR( "[EditorLayer] the scene load was refused and the fallback initialise "
                                "failed too: {}",
                                inited.GetError() );
                 // The registry follows the Init that built the framebuffers its passes bind to, exactly
                 // as it does on the successful path inside LoadSceneInternal.
-                m_RenderRegistry.reset();
-                m_RenderRegistry = std::make_unique<Render::RenderRegistry>( m_MainScene );
+                m_Workspace.RebuildRenderRegistry();
             }
         }
 
@@ -1660,34 +1677,22 @@ namespace Desert::Editor
             NewSceneInternal();
         }
 
-        // Opening an extra scene view allocates a fresh SceneRenderer + Init() (WaitDeviceIdle + framebuffer
-        // creation) — deferred here, between frames, for the same reason as scene load/stop above.
-        if ( m_AddSceneViewRequested && !StartupLoading() )
-        {
-            m_AddSceneViewRequested = false;
-            AddSceneView();
-        }
-
-        // A second ANGLE on the active document — same deferral, same reasons.
-        if ( m_AddSceneViewportRequested && !StartupLoading() )
-        {
-            m_AddSceneViewportRequested = false;
-            AddSceneViewport();
-        }
-
-        // Four angles at once — the same deferral again: it opens up to three views.
-        if ( m_ViewportGridRequested && !StartupLoading() )
-        {
-            m_ViewportGridRequested = false;
-            BuildViewportGrid();
-        }
+        // Opening an extra scene view, a second angle or the four-up grid allocates a SceneRenderer + Init()
+        // (WaitDeviceIdle + framebuffer creation) — serviced here, between frames, like scene load/stop above.
+        if ( !StartupLoading() )
+            m_Workspace.ServiceRequests();
 
         // ...and closing one destroys the same resources, so it is deferred to the same place. It must also
         // run BEFORE the OnPreUpdate loop below and before UpdateSceneFrame: a document whose window the user
         // dismissed last frame would otherwise get one more full scene render, and — until this existed at
         // all — every subsequent frame for the rest of the session, holding one of the six renderer slots.
-        CloseDismissedSceneViews();
-        CloseDismissedSceneViewports();
+        // A playing document ends Play first (UE closes a level after EndPlayMap), then the document goes.
+        for ( const uint64_t id : m_Workspace.DismissedSceneViews() )
+        {
+            m_Play.EndIfBoundTo( id );
+            m_Workspace.CloseSceneView( id );
+        }
+        m_Workspace.CloseDismissedSceneViewports();
 
         // A DOCUMENT WHOSE SUBJECT HAS GONE IS QUEUED FOR CLOSING BEFORE THE QUEUE IS SERVICED, so the
         // window disappears on the same frame the entity or the asset did rather than one later. It runs
@@ -1705,19 +1710,15 @@ namespace Desert::Editor
         ServiceSubjectOpenRequests();
 
         // Stop is deferred here (between frames) so it never destroys/recreates render resources while a
-        // command buffer that references them is in flight — see m_PendingSceneStop.
-        if ( m_PendingSceneStop )
-        {
-            m_PendingSceneStop = false;
-            OnSceneStop();
-        }
+        // command buffer that references them is in flight — see PlaySession::RequestStop.
+        m_Play.ServiceRequests();
 
         // First-frame prefs application (needs a live camera) + autosave timer.
         {
             static bool s_CameraSpeedApplied = false;
             if ( !s_CameraSpeedApplied )
             {
-                if ( auto cam = m_MainScene->GetMainCamera().lock() )
+                if ( auto cam = m_Workspace.ActiveScene()->GetMainCamera().lock() )
                     if ( auto* editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( cam.get() ) )
                     {
                         editorCam->SetMovementSpeed( EditorPreferences::Get().CameraSpeed );
@@ -1731,7 +1732,8 @@ namespace Desert::Editor
             static float    s_AutosaveAccum        = 0.0f;
             static uint64_t s_LastAutosaveRevision = 0;
             const auto&     prefs                  = EditorPreferences::Get();
-            if ( prefs.AutosaveMinutes > 0 && m_MainScene->GetState() == ::Desert::Core::Scene::SceneState::Edit )
+            if ( prefs.AutosaveMinutes > 0 &&
+                 m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Edit )
             {
                 s_AutosaveAccum += frameTs.GetSeconds();
                 if ( s_AutosaveAccum >= static_cast<float>( prefs.AutosaveMinutes ) * 60.0f )
@@ -1740,9 +1742,11 @@ namespace Desert::Editor
                     const uint64_t rev = CommandHistory::Get().Revision();
                     if ( rev != s_LastAutosaveRevision )
                     {
-                        Desert::Core::SceneSerializer serializer( m_MainScene.get(), m_AssetManager.get() );
-                        const auto      path = Autosave::PathFor( m_OpenScenePath, m_MainScene->GetSceneName(),
-                                                                  Autosave::kPeriodicSuffix );
+                        Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(),
+                                                                  m_AssetManager.get() );
+                        const auto                    path =
+                             Autosave::PathFor( m_OpenScenePath, m_Workspace.ActiveScene()->GetSceneName(),
+                                                Autosave::kPeriodicSuffix );
                         const auto      dir  = path.parent_path();
                         std::error_code ec;
                         std::filesystem::create_directories( dir, ec );
@@ -1793,11 +1797,11 @@ namespace Desert::Editor
         // element in it that stopped being advanced would show a frozen world with nothing in the log.
         if ( m_AssetManager )
         {
-            if ( m_RenderRegistry )
+            if ( m_Workspace.PrimaryRegistry() != nullptr )
             {
-                m_RenderRegistry->TickRenderTextures( *m_AssetManager, frameTs );
+                m_Workspace.PrimaryRegistry()->TickRenderTextures( *m_AssetManager, frameTs );
             }
-            for ( auto& doc : m_ExtraScenes )
+            for ( auto& doc : m_Workspace.Documents() )
             {
                 if ( doc->Registry )
                 {
@@ -1833,7 +1837,7 @@ namespace Desert::Editor
         // Asset hot-reload: pick up edited .demat/.shader files (runs BEFORE scene rendering so
         // a shader-triggered pipeline invalidation never touches an in-recording frame).
         if ( m_AssetManager )
-            m_AssetHotReload.Tick( frameTs, *m_AssetManager, m_MainScene.get() );
+            m_AssetHotReload.Tick( frameTs, *m_AssetManager, m_Workspace.ActiveScene().get() );
 
         // Destroy invalidated runtime materials (shader switched in the editor / hot reload) at
         // the only safe point: before any command recording, behind a device-idle wait. Doing it
@@ -1850,7 +1854,7 @@ namespace Desert::Editor
 
         // Screenshot mode, `--play`: start the world before the first frame that will be counted.
         //
-        // Through OnScenePlay(), the same entry the toolbar's Play button uses, so a headless run is a Play
+        // Through m_Play.Play(), the same entry the toolbar's Play button uses, so a headless run is a Play
         // session and not a second definition of one — the snapshot it takes is what would let a Stop
         // restore the authored scene, and a capture that entered Play by some private shortcut would drift
         // from the editor the day either changed.
@@ -1862,13 +1866,13 @@ namespace Desert::Editor
         // Pinning is the engine's existing "this view is driven from outside" mechanism and headless
         // capture is exactly that case, so `--play` changes what MOVES in the frame and nothing about
         // where the frame is taken from.
-        if ( auto& shot = ShotOptions::Get(); shot.PlayActive() && !m_SceneLoadRequested && !StartupLoading() &&
-                                              m_MainScene &&
-                                              m_MainScene->GetState() == ::Desert::Core::Scene::SceneState::Edit )
+        if ( auto& shot = ShotOptions::Get();
+             shot.PlayActive() && !m_SceneLoadRequested && !StartupLoading() && m_Workspace.ActiveScene() &&
+             m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Edit )
         {
-            if ( m_MainScene->GetActiveCamera() )
+            if ( m_Workspace.ActiveScene()->GetActiveCamera() )
             {
-                m_MainScene->PinActiveCamera( m_MainScene->GetActiveCamera() );
+                m_Workspace.ActiveScene()->PinActiveCamera( m_Workspace.ActiveScene()->GetActiveCamera() );
                 if ( shot.FlightRoute.has_value() )
                 {
                     // A ZERO AVERAGING WINDOW makes the profiler publish every frame, so the numbers read
@@ -1881,7 +1885,7 @@ namespace Desert::Editor
                               shot.FlightSpeed, Flight::kWarmupFrames, shot.Frames - Flight::kWarmupFrames,
                               shot.FlightCsv );
                 }
-                OnScenePlay();
+                m_Play.Play();
                 LOG_INFO( "[Shot] --play: gameplay running at a fixed {} s step; the {} captured frames are "
                           "{} s of simulated time",
                           ShotOptions::PlayStepSeconds, shot.Frames, shot.SimulatedSeconds( shot.Frames ) );
@@ -1894,7 +1898,7 @@ namespace Desert::Editor
                 LOG_ERROR( "[Shot] --play refused: scene '{}' has no active camera to pin, and Play would "
                            "choose the view itself. No gameplay time advanced; this capture is a frozen "
                            "world.",
-                           m_MainScene->GetSceneName() );
+                           m_Workspace.ActiveScene()->GetSceneName() );
                 shot.Play = false;
             }
         }
@@ -1947,19 +1951,19 @@ namespace Desert::Editor
         SampleFrameQuiescence();
 
         // Multi-scene editing: drive EVERY open document each frame so all viewports render live. The active
-        // one is m_MainScene (rebound on viewport focus); RigBuilder / F9 below act on it only. The outline
-        // aid + Begin/RegistryRender/OnUpdate/End are folded into UpdateSceneFrame (see below), applied per
-        // scene so a secondary viewport is a full, independent render — not a static snapshot.
-        if ( auto r = UpdateSceneFrame( *m_PrimaryScene, m_RenderRegistry.get(), frameTs ); !r )
+        // one is m_Workspace.ActiveScene() (rebound on viewport focus); RigBuilder / F9 below act on it only. The
+        // outline aid + Begin/RegistryRender/OnUpdate/End are folded into UpdateSceneFrame (see below), applied
+        // per scene so a secondary viewport is a full, independent render — not a static snapshot.
+        if ( auto r = UpdateSceneFrame( *m_Workspace.PrimaryScene(), m_Workspace.PrimaryRegistry(), frameTs ); !r )
             return Common::MakeError( r.GetError() );
-        for ( auto& doc : m_ExtraScenes )
+        for ( auto& doc : m_Workspace.Documents() )
             if ( auto r = UpdateSceneFrame( *doc->Scene, doc->Registry.get(), frameTs ); !r )
                 return Common::MakeError( r.GetError() );
 
         // Runs a queued "Convert to Skinned" (rig builder) here, outside ImGui component iteration — the swap
         // removes the StaticMeshComponent the Details panel is drawing, so it must not happen mid-render.
-        if ( m_MainScene && m_AssetManager )
-            RigBuilder::ProcessPending( *m_MainScene, *m_AssetManager );
+        if ( m_Workspace.ActiveScene() && m_AssetManager )
+            RigBuilder::ProcessPending( *m_Workspace.ActiveScene(), *m_AssetManager );
 
         // Screenshot mode, SECOND HALF: the frame just rendered is the frame that gets written. The frame
         // count is not decoration — a temporally accumulating pass needs several frames to converge, so an
@@ -1972,8 +1976,8 @@ namespace Desert::Editor
         // the picture of the scene -- the same shape as the blank-PNG trap the verification skill warns
         // about, and just as invisible in a diff of two such frames.
         if ( const auto& shot = ShotOptions::Get();
-             shot.FlightRoute && m_MainScene && !m_SceneLoadRequested && !StartupLoading() &&
-             m_MainScene->GetState() == ::Desert::Core::Scene::SceneState::Play )
+             shot.FlightRoute && m_Workspace.ActiveScene() && !m_SceneLoadRequested && !StartupLoading() &&
+             m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Play )
             RecordFlightFrame( !ContentSettling() );
 
         if ( auto& shot = ShotOptions::Get();
@@ -2054,12 +2058,12 @@ namespace Desert::Editor
     Common::BoolResultStr EditorLayer::ReadViewportRGBA8( std::vector<uint8_t>& outPixels, uint32_t& outWidth,
                                                           uint32_t& outHeight )
     {
-        if ( !m_MainScene )
+        if ( !m_Workspace.ActiveScene() )
             return Common::MakeError<bool>( "no scene to capture" );
 
         Graphic::Renderer::GetInstance().WaitDeviceIdle();
 
-        auto img = m_MainScene->GetFinalImage();
+        auto img = m_Workspace.ActiveScene()->GetFinalImage();
         if ( !img )
             return Common::MakeError<bool>( "scene has no final image" );
 
@@ -2158,7 +2162,7 @@ namespace Desert::Editor
     // legal at all.
     bool EditorLayer::WriteViewportPng( const std::string& path )
     {
-        if ( !m_MainScene )
+        if ( !m_Workspace.ActiveScene() )
         {
             LOG_ERROR( "[Shot] no scene to capture ('{}')", path );
             return false;
@@ -2378,10 +2382,8 @@ namespace Desert::Editor
         // THE GRID BELONGS HERE TOO, and the pending DOCK is part of it: the layout is applied a frame
         // after the views open, so a reply released between the two would hand back a screenshot of four
         // floating windows and call it the grid.
-        quiescence.Set( Control::PendingWork::SceneView, m_AddSceneViewRequested || m_AddSceneViewportRequested ||
-                                                              m_ViewportGridRequested ||
-                                                              !m_PendingViewportGrid.empty() );
-        quiescence.Set( Control::PendingWork::SceneStop, m_PendingSceneStop );
+        quiescence.Set( Control::PendingWork::SceneView, m_Workspace.HasPendingRequests() );
+        quiescence.Set( Control::PendingWork::SceneStop, m_Play.HasPendingRequests() );
         quiescence.Set( Control::PendingWork::DocumentCloses, !m_DocumentsToClose.empty() );
         // The queue is a file-static inbox drained by ServiceSubjectOpenRequests, so "is anything queued"
         // is asked of the queue itself rather than of a copy this layer keeps — a copy would be a second
@@ -2629,7 +2631,7 @@ namespace Desert::Editor
                     const auto after = Core::WriteSelectionTransform( before, request.Property, request.Value );
                     if ( !after )
                         return Control::Response::Failure( request.Id, after.GetError() );
-                    const auto ref = m_MainScene->FindEntityByID( uuid );
+                    const auto ref = m_Workspace.ActiveScene()->FindEntityByID( uuid );
                     if ( !ref )
                         return Control::Response::Failure(
                              request.Id, fmt::format( "the selected entity {} is not in the scene",
@@ -2766,14 +2768,14 @@ namespace Desert::Editor
 
     ::Desert::Core::EditorCamera* EditorLayer::ActiveEditorCamera() const
     {
-        if ( !m_MainScene )
+        if ( !m_Workspace.ActiveScene() )
             return nullptr;
-        return dynamic_cast<::Desert::Core::EditorCamera*>( m_MainScene->GetActiveCamera().get() );
+        return dynamic_cast<::Desert::Core::EditorCamera*>( m_Workspace.ActiveScene()->GetActiveCamera().get() );
     }
 
     std::string EditorLayer::NoEditorCameraReason() const
     {
-        if ( !m_MainScene )
+        if ( !m_Workspace.ActiveScene() )
             return "there is no scene, so there is no view to address.";
         return "the active view is not the editor's fly camera — the scene is in Play and its own "
                "CameraComponent is driving. Leave Play ('Action' / 'Stop' in the palette) and ask again; "
@@ -2807,7 +2809,8 @@ namespace Desert::Editor
                  "Entity <tag>'.",
                  Core::SelectionManager::Count() );
         const Common::UUID uuid = *selected;
-        const auto         ref  = m_MainScene ? m_MainScene->FindEntityByID( uuid ) : std::nullopt;
+        const auto         ref =
+             m_Workspace.ActiveScene() ? m_Workspace.ActiveScene()->FindEntityByID( uuid ) : std::nullopt;
         if ( !ref )
             return Common::MakeFormattedError<Result>( "the selected entity {} is not in the scene",
                                                        static_cast<uint64_t>( uuid ) );
@@ -2856,17 +2859,17 @@ namespace Desert::Editor
     {
         Control::EditorSnapshot snapshot;
 
-        snapshot.SceneName              = m_MainScene ? m_MainScene->GetSceneName() : std::string();
+        snapshot.SceneName = m_Workspace.ActiveScene() ? m_Workspace.ActiveScene()->GetSceneName() : std::string();
         snapshot.SceneHasUnsavedChanges = CommandHistory::Get().Revision() != s_SavedRevision;
-        snapshot.InPlayMode             = ( m_EditorState == EditorState::Play );
+        snapshot.InPlayMode             = m_Play.InPlayMode();
 
         for ( const Common::UUID& uuid : Core::SelectionManager::GetSelection() )
         {
             Control::EntitySnapshot entity;
             entity.Uuid = uuid.ToString();
-            if ( m_MainScene )
+            if ( m_Workspace.ActiveScene() )
             {
-                for ( const auto& candidate : m_MainScene->GetAllEntities() )
+                for ( const auto& candidate : m_Workspace.ActiveScene()->GetAllEntities() )
                 {
                     if ( !candidate.HasComponent<ECS::UUIDComponent>() )
                         continue;
@@ -2957,7 +2960,8 @@ namespace Desert::Editor
             const Engine::ViewBudget::Reading reading = Graphic::ReadViewBudget();
             snapshot.BudgetBytes                      = reading.CeilingBytes;
             snapshot.UsageBytes                       = reading.UsageBytes;
-            snapshot.IsmInstancesDrawn = m_SceneRenderer ? m_SceneRenderer->GetIsmInstancesDrawn() : 0u;
+            snapshot.IsmInstancesDrawn =
+                 m_Workspace.PrimaryRenderer() ? m_Workspace.PrimaryRenderer()->GetIsmInstancesDrawn() : 0u;
         }
 
         snapshot.LogInfoCount    = LogsPanel::InfoCount();
@@ -3088,30 +3092,6 @@ namespace Desert::Editor
         return true;
     }
 
-    void EditorLayer::BuildSceneSystems( Desert::Core::Scene& scene )
-    {
-        // The nine collectors that turn components into render data, and their order, live in ONE place
-        // now (Engine/Core/SceneRenderCollectors.hpp). They were copied by hand into five call sites, and
-        // the sixth — Ю16's render-texture cache — omitted them and got a world that rendered a single
-        // flat colour with nothing in the log. The gameplay systems below still belong to the host: each
-        // needs a service only the host owns.
-        Desert::Core::AddSceneRenderCollectors( scene );
-        scene.AddSystem<ECS::AnimationECSSystem>( m_AnimationLibrary.get(), m_AssetManager.get() );
-        // AttachmentSystem runs right AFTER animation: weapons-in-hand follow the freshly-posed bone this frame.
-        scene.AddSystem<ECS::AttachmentSystem>( &scene );
-        // ScriptSystem runs BEFORE physics: scripts set the character's move intent (+ look) which
-        // PhysicsECSSystem then executes the same frame.
-        scene.AddSystem<ECS::ScriptSystem>( &scene, m_AssetManager.get() );
-        scene.AddSystem<ECS::PhysicsECSSystem>( &scene );
-        // Maps character movement state (speed/onGround from physics) -> locomotion clip. Kept OUT of physics
-        // (mechanism vs behaviour); runs after it so it reads this frame's state.
-        scene.AddSystem<ECS::LocomotionSystem>( &scene );
-        scene.AddSystem<ECS::AudioECSSystem>( &scene );
-        // Level sequences play last: a keyed Transform wins over this frame's physics and locomotion (UE
-        // evaluates sequences after the actors' own tick).
-        scene.AddSystem<ECS::LevelSequenceSystem>( &scene, m_AssetManager.get() );
-    }
-
     Common::BoolResultStr EditorLayer::UpdateSceneFrame( Desert::Core::Scene&    scene,
                                                          Render::RenderRegistry* registry,
                                                          const Common::Timestep& ts )
@@ -3159,27 +3139,11 @@ namespace Desert::Editor
         if ( registry )
             registry->Render();
 
-        // BEFORE the systems run, so no system sees an entity whose cell has just left.
-        if ( m_WorldStreamer && m_WorldStreamer->Streams( scene ) )
-        {
-            DESERT_PROFILE_SCOPE( "WorldStreamer::Tick" );
-            m_WorldStreamClock += ts.GetSeconds();
-            if ( auto streamed = m_WorldStreamer->Tick( m_WorldStreamClock, InstrumentStreamingSources() );
-                 !streamed )
-            {
-                // The world stays as it is now, and Play goes on in it; streaming does not.
-                LOG_ERROR( "[Scene] world streaming stopped: {0}", streamed.GetError() );
-                Editor::ToastManager::Push( "World streaming stopped — see the log", Editor::ToastLevel::Error );
-                m_WorldStreamer.reset();
-            }
-        }
-
         {
             DESERT_PROFILE_SCOPE( "Scene::OnUpdate" );
             // Play's time stops while streaming waits for the cell under the camera (WP12, decision O2); the
             // streamer's Tick above goes on, so the loader keeps reading and the wait ends by itself.
-            const bool streamingWaits =
-                 m_WorldStreamer && m_WorldStreamer->Streams( scene ) && m_WorldStreamer->BlocksPlay();
+            const bool streamingWaits = m_Play.TickStreaming( scene, ts );
             if ( auto frame = scene.OnUpdate( streamingWaits ? Common::Timestep( 0.0f ) : ts ); !frame )
                 return Common::MakeError( frame.GetError() );
         }
@@ -3187,286 +3151,17 @@ namespace Desert::Editor
         return BOOLSUCCESS;
     }
 
-    void EditorLayer::AddSceneView()
-    {
-        auto           doc = std::make_unique<SceneDocument>();
-        const uint64_t id  = m_SceneViewIds.Next();
-        doc->Id            = id;
-        // Numbered by the id, not by the current count: with closing implemented, "Scene 3" reappearing as
-        // the name of a fourth view after the third was closed would put two different documents under one
-        // label across a session, and the log lines below are how a slot leak is read.
-        doc->Name = std::format( "Scene {}", id + 1 ); // the main scene reads as "Scene 1"
-
-        doc->Renderer = std::make_unique<Graphic::SceneRenderer>( Graphic::kUnsizedViewExtent );
-        doc->Scene    = std::make_shared<Desert::Core::Scene>( std::string( doc->Name ), doc->Renderer.get() );
-        BuildSceneSystems( *doc->Scene );
-        // Reported: AddSceneView is void and the document is already in the well by the time this runs, so
-        // there is nothing to hand a failure to. What matters is that the log names the view — a scene that
-        // did not initialise renders an empty viewport, which reads as a content problem, not an engine one.
-        if ( const auto inited = doc->Scene->Init(); !inited.IsSuccess() )
-            LOG_ERROR( "[EditorLayer] scene view '{}' failed to initialise: {}", doc->Name, inited.GetError() );
-        doc->Registry = std::make_unique<Render::RenderRegistry>( doc->Scene );
-
-        // Unique ImGui id per viewport — two windows sharing an id would merge into a single dockable window.
-        // Keyed on the document id so a closed window's saved imgui.ini entry (position, dock node, size) is
-        // never inherited by an unrelated later view.
-        const std::string title = SceneWindowTitle( doc->Name, "sceneview", id );
-        auto vp = std::make_unique<Editor::ViewportPanel>( doc->Scene, m_AssetManager.get(), title, id );
-        // Captures the ID, never the index. See Editor/Core/SceneViewIdentity.hpp.
-        vp->SetOnActivate( [this, id] { SetActiveScene( id ); } );
-        vp->GetVisibility() = true;
-        doc->Viewport       = vp.get();
-        m_Panels.Adopt( std::move( vp ) );
-
-        m_ExtraScenes.emplace_back( std::move( doc ) );
-        LOG_INFO( "[Editor] Opened scene view #{} (now {} scenes open; views: {})", id, m_ExtraScenes.size() + 1,
-                  Graphic::SceneRenderer::DescribeLiveViews() );
-    }
-
-    void EditorLayer::CloseDismissedSceneViews()
-    {
-        // Collect first, close after: CloseSceneView erases from both m_ExtraScenes and m_Panels, so deciding
-        // and mutating in one pass over either would be iterating a container while emptying it.
-        std::vector<uint64_t> dismissed;
-        for ( const auto& doc : m_ExtraScenes )
-            if ( doc->Viewport && !doc->Viewport->GetVisibility() )
-                dismissed.push_back( doc->Id );
-
-        for ( const uint64_t id : dismissed )
-            CloseSceneView( id );
-    }
-
-    void EditorLayer::CloseSceneView( uint64_t id )
-    {
-        const auto index = IndexOfSceneView(
-             m_ExtraScenes, []( const std::unique_ptr<SceneDocument>& doc ) { return doc->Id; }, id );
-        if ( !index )
-            return; // already closed — a second X on the same window in the same frame, or a stale request
-
-        // Closing the document that is PLAYING ends play mode with it. The snapshot Stop would restore is a
-        // snapshot of a scene that is about to cease existing, and OnSceneStop acts on whatever document is
-        // active — so leaving the state alone would strand the editor in Play with an Edit-mode scene under
-        // it: the Stop button would early-return and never come back up.
-        if ( m_EditorState == EditorState::Play && m_ActiveSceneId == id )
-        {
-            LOG_INFO( "[Editor] Scene view #{} was playing when it was closed — play mode ends with it and "
-                      "its snapshot is discarded.",
-                      id );
-            m_EditorState      = EditorState::Paused;
-            m_PendingSceneStop = false;
-            m_PlaySnapshot.clear();
-            m_WorldStreamer.reset();
-        }
-
-        // The editor must not stay bound to a scene that is about to stop existing. Rebinding BEFORE the
-        // teardown, not after, so no panel is holding the dying scene when its registry is destroyed.
-        if ( const uint64_t next = ActiveSceneViewAfterClose( m_ActiveSceneId, id ); next != m_ActiveSceneId )
-            SetActiveScene( next );
-
-        auto&             doc  = m_ExtraScenes[*index];
-        const std::string name = doc->Name;
-
-        // EVERY EXTRA ANGLE ON THIS DOCUMENT GOES WITH IT. A viewport opened on a document's scene holds
-        // that scene by shared_ptr, so leaving it open would keep a closed document's world alive and
-        // rendering — through a RenderRegistry that is about to be destroyed — in a window whose title
-        // names a document that no longer exists. Collected first and closed after, because
-        // CloseSceneViewport erases from the container this walks.
-        {
-            std::vector<uint64_t> onThisDocument;
-            for ( const auto& view : m_ExtraViewports )
-                if ( view->Scene.lock() == doc->Scene )
-                    onThisDocument.push_back( view->Id );
-            for ( const uint64_t viewportId : onThisDocument )
-                CloseSceneViewport( viewportId );
-        }
-
-        // The destruction order is the one ~PreviewViewport established and it is not interchangeable: the
-        // last submitted frame may still be executing against this document's pipelines, framebuffers and
-        // descriptor pools. Idle the device; then drop the PANEL (its UIHelper holds descriptor sets that
-        // reference the scene's images); then the registry, which holds render commands built from the
-        // scene; then the scene, which owns the passes; and only then the renderer that owns them all —
-        // whose destructor is what hands the renderer slot back.
-        Graphic::Renderer::GetInstance().WaitDeviceIdle();
-
-        IPanel* panel = doc->Viewport;
-        m_Panels.Remove( panel );
-        doc->Viewport = nullptr;
-
-        doc->Registry.reset();
-        doc->Scene.reset();
-        doc->Renderer.reset();
-        m_ExtraScenes.erase( m_ExtraScenes.begin() + static_cast<ptrdiff_t>( *index ) );
-
-        // The count is printed, not left to be derived: a surface that fails to destroy its view produces no
-        // error at all, and this line beside the one in AddSceneView is what makes the leak readable.
-        LOG_INFO( "[Editor] Closed scene view #{} '{}' ({} scenes open; views: {})", id, name,
-                  m_ExtraScenes.size() + 1, Graphic::SceneRenderer::DescribeLiveViews() );
-    }
-
-    void EditorLayer::AddSceneViewport()
-    {
-        const auto scene = m_MainScene;
-        if ( !scene )
-        {
-            LOG_ERROR( "[Editor] no active scene to open a second viewport on." );
-            return;
-        }
-
-        auto       renderer  = std::make_unique<Graphic::SceneRenderer>( Graphic::kUnsizedViewExtent );
-        const auto viewIndex = scene->AddView( renderer.get() );
-        if ( !viewIndex )
-        {
-            // Scene::AddView has already said why. The renderer is destroyed on the way out of this
-            // scope, which is what gives its slot straight back — a refused view must not cost one.
-            LOG_ERROR( "[Editor] '{}' refused a second viewport.", scene->GetSceneName() );
-            return;
-        }
-
-        auto view   = std::make_unique<SceneViewport>();
-        view->Id    = m_SceneViewIds.Next();
-        view->Name  = scene->GetSceneName() + " (view " + std::to_string( *viewIndex + 1 ) + ")";
-        view->Scene = scene;
-
-        // Unique ImGui id per window, keyed on the id and not the index — a closed window's saved
-        // imgui.ini entry must never be inherited by an unrelated later one.
-        const std::string title = SceneWindowTitle( view->Name, "sceneviewport", view->Id );
-        auto vp = std::make_unique<Editor::ViewportPanel>( scene, m_AssetManager.get(), title, view->Id,
-                                                           renderer.get() );
-        vp->GetVisibility() = true;
-        view->Viewport      = vp.get();
-        m_Panels.Adopt( std::move( vp ) );
-
-        view->Renderer = std::move( renderer );
-        m_ExtraViewports.emplace_back( std::move( view ) );
-
-        LOG_INFO( "[Editor] Opened viewport #{} on '{}' ({} view(s) of that world; views: {})",
-                  m_ExtraViewports.back()->Id, scene->GetSceneName(), scene->GetViewCount(),
-                  Graphic::SceneRenderer::DescribeLiveViews() );
-    }
-
-    void EditorLayer::BuildViewportGrid()
-    {
-        const auto scene = m_MainScene;
-        if ( !scene )
-        {
-            LOG_ERROR( "[Editor] no active scene to build a viewport grid on." );
-            return;
-        }
-
-        // The four panes, in the order the dock split below consumes them. The MAIN viewport is always
-        // the perspective one and always the top-left: it is the window every other part of the editor
-        // already refers to as "Scene", and moving the user's familiar view into a corner to make room
-        // for a new one is exactly the "the editor lost my panel" complaint.
-        //
-        // Top / Front / Right and not all six axis views: four panes is what the request names, and the
-        // remaining three are one combo away in each pane's camera gear.
-        static constexpr std::array<ViewportCameraPreset, 3> kExtraAngles = {
-             ViewportCameraPreset::Top, ViewportCameraPreset::Front, ViewportCameraPreset::Right };
-
-        // REUSE WHAT IS ALREADY OPEN. Running this twice must not open three more viewports and burn the
-        // renderer budget — the second run re-aims the panes it finds and re-docks them, which is also
-        // what makes it the "put my viewports back" command.
-        std::vector<SceneViewport*> panes;
-        for ( const auto& view : m_ExtraViewports )
-            if ( view->Scene.lock() == scene && view->Viewport && panes.size() < kExtraAngles.size() )
-                panes.push_back( view.get() );
-
-        while ( panes.size() < kExtraAngles.size() )
-        {
-            const size_t before = m_ExtraViewports.size();
-            AddSceneViewport();
-            if ( m_ExtraViewports.size() == before )
-            {
-                // AddSceneViewport has already said why (the view list refused, or there was no scene).
-                // REFUSING HALFWAY IS STILL AN ANSWER: the panes that did open are laid out below, and a
-                // grid of two is honest where a grid of four that silently became two is not.
-                LOG_WARN( "[Editor] the viewport grid stops at {} pane(s): '{}' would not open another.",
-                          panes.size() + 1, scene->GetSceneName() );
-                break;
-            }
-            panes.push_back( m_ExtraViewports.back().get() );
-        }
-
-        m_PendingViewportGrid.clear();
-        m_PendingViewportGrid.push_back( PanelDisplayTitle( "Scene###scene" ) );
-        if ( const auto aimed =
-                  Editor::ViewportPanel::SetCameraPreset( kPrimarySceneViewId, ViewportCameraPreset::Perspective );
-             !aimed )
-        {
-            LOG_WARN( "[Editor] the grid's perspective pane was not aimed: {}", aimed.GetError() );
-        }
-
-        for ( size_t i = 0; i < panes.size(); ++i )
-        {
-            m_PendingViewportGrid.push_back( PanelDisplayTitle( panes[i]->Viewport->GetName() ) );
-            if ( const auto aimed = Editor::ViewportPanel::SetCameraPreset( panes[i]->Id, kExtraAngles[i] );
-                 !aimed )
-            {
-                LOG_WARN( "[Editor] grid pane '{}' was not aimed: {}", panes[i]->Name, aimed.GetError() );
-            }
-        }
-
-        LOG_INFO( "[Editor] Viewport grid: {} pane(s) on '{}' (views: {}); the dock split runs on the "
-                  "next frame.",
-                  m_PendingViewportGrid.size(), scene->GetSceneName(),
-                  Graphic::SceneRenderer::DescribeLiveViews() );
-    }
-
-    void EditorLayer::CloseDismissedSceneViewports()
-    {
-        std::vector<uint64_t> dismissed;
-        for ( const auto& view : m_ExtraViewports )
-            if ( view->Viewport && !view->Viewport->GetVisibility() )
-                dismissed.push_back( view->Id );
-
-        for ( const uint64_t id : dismissed )
-            CloseSceneViewport( id );
-    }
-
-    void EditorLayer::CloseSceneViewport( uint64_t id )
-    {
-        const auto index = IndexOfSceneView(
-             m_ExtraViewports, []( const std::unique_ptr<SceneViewport>& view ) { return view->Id; }, id );
-        if ( !index )
-            return; // already closed
-
-        auto&             view = m_ExtraViewports[*index];
-        const std::string name = view->Name;
-
-        // Same order as CloseSceneView, minus the scene: idle the device, drop the panel (its UIHelper
-        // holds descriptor sets referencing this renderer's images), take the view off the scene so no
-        // frame records into it again, and only then destroy the renderer — whose destructor hands the
-        // renderer slot back.
-        Graphic::Renderer::GetInstance().WaitDeviceIdle();
-
-        m_Panels.Remove( view->Viewport );
-        view->Viewport = nullptr;
-
-        if ( const auto scene = view->Scene.lock() )
-        {
-            // Reported, not asserted: the scene may have been closed first, in which case the view went
-            // with it and there is nothing here to remove.
-            if ( !scene->RemoveView( view->Renderer.get() ) )
-                LOG_WARN( "[Editor] viewport '{}' was not a view of '{}' when it closed.", name,
-                          scene->GetSceneName() );
-        }
-        view->Renderer.reset();
-        m_ExtraViewports.erase( m_ExtraViewports.begin() + static_cast<ptrdiff_t>( *index ) );
-
-        LOG_INFO( "[Editor] Closed viewport '{}' (views: {})", name, Graphic::SceneRenderer::DescribeLiveViews() );
-    }
-
     std::vector<EditorLayer::ViewConsumer> EditorLayer::ViewCensus() const
     {
         std::vector<ViewConsumer> census;
         census.push_back( { "main viewport", true } ); // the primary scene's view exists for the session
 
-        for ( const auto& doc : m_ExtraScenes )
+        for ( const auto& doc : m_Workspace.Documents() )
             census.push_back( { "scene view '" + doc->Name + "'", true } );
 
         // A second ANGLE holds a view exactly as a second document does — leaving it out of the census
         // would make the refusal's own list disagree with SceneRenderer::LiveHoldings().
-        for ( const auto& view : m_ExtraViewports )
+        for ( const auto& view : m_Workspace.Viewports() )
             census.push_back( { "viewport '" + view->Name + "'", view->Renderer != nullptr } );
 
         // NO DETAILS ROW. Details holds no view (THM-FIXF): its asset rows are pictures from the thumbnail pool,
@@ -3497,9 +3192,9 @@ namespace Desert::Editor
         // not need a scene to know its own name, and an entity renamed afterwards does not become a second
         // window (an asset document behaves the same way; see Control::DocumentSnapshot::Subject).
         std::string name = "Entity";
-        if ( m_MainScene )
+        if ( m_Workspace.ActiveScene() )
         {
-            if ( const auto entOpt = m_MainScene->FindEntityByID( subject.Owner ) )
+            if ( const auto entOpt = m_Workspace.ActiveScene()->FindEntityByID( subject.Owner ) )
                 name = entOpt->get().GetComponent<ECS::TagComponent>().Tag;
         }
         return name + " \xc2\xb7 " + what;
@@ -3682,9 +3377,9 @@ namespace Desert::Editor
                       m_AssetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) )
                 return metadata->Filepath.stem().string();
         }
-        if ( subject.Domain == SubjectDomain::EntityComponent && m_MainScene )
+        if ( subject.Domain == SubjectDomain::EntityComponent && m_Workspace.ActiveScene() )
         {
-            if ( const auto entOpt = m_MainScene->FindEntityByID( subject.Owner ) )
+            if ( const auto entOpt = m_Workspace.ActiveScene()->FindEntityByID( subject.Owner ) )
                 return entOpt->get().GetComponent<ECS::TagComponent>().Tag;
         }
         return "this subject";
@@ -4042,45 +3737,6 @@ namespace Desert::Editor
         m_CyclingDocuments = true;
     }
 
-    void EditorLayer::SetActiveScene( uint64_t id )
-    {
-        if ( id == m_ActiveSceneId )
-            return;
-
-        const auto index = IndexOfSceneView(
-             m_ExtraScenes, []( const std::unique_ptr<SceneDocument>& doc ) { return doc->Id; }, id );
-        if ( id != kPrimarySceneViewId && !index )
-        {
-            // NAMED rather than ignored. An id that resolves to nothing means a viewport outlived its
-            // document, which is a lifetime bug in this file — and the whole reason activation is keyed on an
-            // id is that this case can be SEEN. An index would have silently activated a neighbour.
-            LOG_ERROR( "[Editor] Scene view #{} asked to become active but no such document is open — the "
-                       "active scene is unchanged ('{}').",
-                       id, m_MainScene ? m_MainScene->GetSceneName() : "<none>" );
-            return;
-        }
-
-        m_ActiveSceneId = id;
-        m_MainScene     = index ? m_ExtraScenes[*index]->Scene : m_PrimaryScene;
-
-        // Structural undo/redo context + the scene-bound editing panels follow the active document, so the
-        // Outliner / Details / Settings / Particle editor all show whichever viewport you are working in.
-        Commands::SetContext( m_MainScene.get(), m_AssetManager.get() );
-        for ( auto& panel : m_Panels )
-            panel->SetScene( m_MainScene );
-        // Documents follow the active scene too. The Cloud Layout document READS the focused scene's cloud
-        // layer for its preview numbers — the scene is an input, never a second subject — and it stopped
-        // following it the moment documents left the panel list, which is exactly the "a middle link drops a
-        // property" shape this codebase has paid for seven times.
-        for ( auto& document : m_OpenDocuments )
-            document->SetScene( m_MainScene );
-
-        // Selection is per-scene (entity UUIDs belong to one registry) — don't carry a stale one across.
-        Core::SelectionManager::ClearSelection();
-
-        LOG_INFO( "[Editor] Active scene -> '{}' (view #{})", m_MainScene->GetSceneName(), id );
-    }
-
     Common::BoolResultStr EditorLayer::OnUIRender()
     {
         m_ImGuiLayer->Begin();
@@ -4112,7 +3768,7 @@ namespace Desert::Editor
         // keyboard. Runs at frame start, before any panel iterates the scene.
         {
             ImGuiIO&   io       = ::ImGui::GetIO();
-            const bool editMode = m_MainScene->GetState() == ::Desert::Core::Scene::SceneState::Edit;
+            const bool editMode = m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Edit;
             if ( editMode && !io.WantTextInput && io.KeyCtrl )
             {
                 if ( ::ImGui::IsKeyPressed( ImGuiKey_Z, false ) )
@@ -4404,10 +4060,10 @@ namespace Desert::Editor
             //
             // A FLOATING main viewport has no node to split (DockId 0); the dockspace is the honest
             // fallback, and it is said out loud because the result then displaces the other panels.
-            if ( !m_PendingViewportGrid.empty() )
+            if ( const auto& grid = m_Workspace.PendingViewportGrid(); !grid.empty() )
             {
                 ImGuiID node = 0;
-                if ( const ::ImGuiWindow* win = ::ImGui::FindWindowByName( m_PendingViewportGrid[0].c_str() ) )
+                if ( const ::ImGuiWindow* win = ::ImGui::FindWindowByName( PanelDisplayTitle( grid[0] ).c_str() ) )
                     node = win->DockId;
                 if ( node == 0 || ::ImGui::DockBuilderGetNode( node ) == nullptr )
                 {
@@ -4429,11 +4085,11 @@ namespace Desert::Editor
                      ::ImGui::DockBuilderSplitNode( topRight, ImGuiDir_Down, 0.5f, nullptr, &topRight );
 
                 const ImGuiID quarters[4] = { topLeft, topRight, bottomLeft, bottomRight };
-                for ( size_t i = 0; i < m_PendingViewportGrid.size() && i < 4; ++i )
-                    ::ImGui::DockBuilderDockWindow( m_PendingViewportGrid[i].c_str(), quarters[i] );
+                for ( size_t i = 0; i < grid.size() && i < 4; ++i )
+                    ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( grid[i] ).c_str(), quarters[i] );
 
                 ::ImGui::DockBuilderFinish( dockspace_id );
-                m_PendingViewportGrid.clear();
+                m_Workspace.ClearPendingViewportGrid();
             }
         }
 
@@ -4802,14 +4458,14 @@ namespace Desert::Editor
         // ADD SHAPE: the outliner's Add > Shapes, one entry per authorable primitive, through the same spawn.
         for ( const Geometry::PrimitiveType type : Geometry::kAuthorablePrimitives )
         {
-            commands.push_back( { "Scene", std::string( "Add shape: " ) + Geometry::PrimitiveTypeName( type ),
-                                  [this, type]
-                                  {
-                                      if ( !m_MainScene )
-                                          return PaletteCommandOutcome( false, "no scene is open" );
-                                      Editor::SceneHierarchyPanel::SpawnPrimitive( *m_MainScene, type );
-                                      return PaletteCommandDone();
-                                  } } );
+            commands.push_back(
+                 { "Scene", std::string( "Add shape: " ) + Geometry::PrimitiveTypeName( type ), [this, type]
+                   {
+                       if ( !m_Workspace.ActiveScene() )
+                           return PaletteCommandOutcome( false, "no scene is open" );
+                       Editor::SceneHierarchyPanel::SpawnPrimitive( *m_Workspace.ActiveScene(), type );
+                       return PaletteCommandDone();
+                   } } );
         }
     }
 
@@ -4849,110 +4505,15 @@ namespace Desert::Editor
                                   } } );
         }
 
-        // A SECOND LIVE SCENE, for the same reason the levels above are here: the channel's vocabulary IS
-        // this list, and "New Scene View" was reachable only from Window -> Viewports. That made the one
-        // configuration where a renderer can bleed into another renderer — two SceneRenderers recording in
-        // one frame against the same shared materials — the one configuration nothing could verify
-        // unattended. Г14 needed exactly that check.
-        //
-        // Sets the same deferred flag the menu item does rather than calling AddSceneView(): it allocates a
-        // renderer slot and GPU resources, which must not happen inside the ImGui pass.
         // The Level Viewport commands the F / Esc keys run, on the viewport the user works in.
         for ( const Editor::ViewportCommand command : Editor::kViewportCommandOrder )
             commands.push_back( { std::string( Editor::CommandInfo( command ).Context ),
                                   std::string( Editor::CommandInfo( command ).Label ),
                                   std::bind_front( &Editor::ViewportPanel::RequestCommand, command ) } );
-        commands.push_back( { "Scene", "New Scene View", [this]
-                              {
-                                  m_AddSceneViewRequested = true;
-                                  return PaletteCommandDone();
-                              } } );
-
-        // A SECOND ANGLE ON THE SAME WORLD, which is what "New Scene View" above sounds like and is not:
-        // that one opens a second empty DOCUMENT. This one adds a view to the active scene — same
-        // entities, same edits, a different camera — and is the entry the owner's request names.
-        commands.push_back( { "Scene", "New Viewport (same scene)", [this]
-                              {
-                                  m_AddSceneViewportRequested = true;
-                                  return PaletteCommandDone();
-                              } } );
     }
 
     void EditorLayer::AppendSceneTailCommands( std::vector<PaletteCommand>& commands )
     {
-        // FOUR ANGLES IN ONE ACTION. Opening three viewports by hand and dragging each into a quarter is
-        // eleven gestures, none of which a headless run can make (synthetic input is closed on this
-        // machine) — so without this entry the arrangement the owner asked for could never be
-        // photographed, and an arrangement nobody can see is an arrangement nobody can check.
-        commands.push_back( { "Scene", "Four-Up Viewports", [this]
-                              {
-                                  m_ViewportGridRequested = true;
-                                  return PaletteCommandDone();
-                              } } );
-
-        // The named angles, for the viewport the user is working in. Same argument as the four-up entry
-        // above: the only other door is a combo inside a popup behind a toolbar button.
-        for ( const ViewportCameraPresetRow& preset : kViewportCameraPresets )
-        {
-            const ViewportCameraPreset p = preset.Preset;
-            commands.push_back( { "Scene", std::string( "Viewport Camera: " ) + preset.Name,
-                                  [p]() -> Common::BoolResultStr
-                                  { return Editor::ViewportPanel::RequestCameraPreset( p ); } } );
-        }
-
-        for ( const auto& view : m_ExtraViewports )
-        {
-            const uint64_t id = view->Id;
-            commands.push_back( { "Scene", "Close Viewport " + view->Name, [this, id]() -> Common::BoolResultStr
-                                  {
-                                      const auto index = IndexOfSceneView(
-                                           m_ExtraViewports,
-                                           []( const std::unique_ptr<SceneViewport>& v ) { return v->Id; }, id );
-                                      if ( !index || !m_ExtraViewports[*index]->Viewport )
-                                      {
-                                          return Common::MakeFormattedError<bool>(
-                                               "viewport #{} is already closed; nothing to close.", id );
-                                      }
-                                      // Hidden rather than destroyed here, exactly as the scene-view entry above
-                                      // does: the teardown waits on the device and must not run inside the ImGui
-                                      // pass.
-                                      m_ExtraViewports[*index]->Viewport->GetVisibility() = false;
-                                      return PaletteCommandDone();
-                                  } } );
-        }
-
-        // AND THE WAY BACK, which did not exist. Opening a scene view was in the palette; closing one was
-        // reachable only through the window's X — and the X needs a mouse, which this machine cannot
-        // synthesise. So the half of the renderer-slot budget that MATTERS was unverifiable: a slot is
-        // returned by the view being DESTROYED (see CloseSceneView's ordering note), and nothing
-        // unattended could destroy one. A check that can open six views and never close one measures the
-        // leak it is supposed to catch as the normal state.
-        //
-        // Hides the panel rather than calling CloseSceneView directly: that is the SAME route the X takes
-        // — CloseDismissedSceneViews collects invisible views at the top of the next OnUpdate — and the
-        // teardown waits on the device, which must not happen inside the ImGui pass.
-        // The ID is captured, never the panel pointer or the index — the same rule
-        // Editor/Core/SceneViewIdentity.hpp states and the Preview entries below follow: a view can be
-        // closed between this list being built and an entry being run, and a captured pointer would then
-        // be dangling while a captured index would address somebody else's view.
-        for ( const auto& doc : m_ExtraScenes )
-        {
-            const uint64_t id = doc->Id;
-            commands.push_back( { "Scene", "Close Scene View " + doc->Name, [this, id]() -> Common::BoolResultStr
-                                  {
-                                      const auto index = IndexOfSceneView(
-                                           m_ExtraScenes,
-                                           []( const std::unique_ptr<SceneDocument>& d ) { return d->Id; }, id );
-                                      if ( !index || !m_ExtraScenes[*index]->Viewport )
-                                      {
-                                          return Common::MakeFormattedError<bool>(
-                                               "scene view #{} is already closed; nothing to close.", id );
-                                      }
-                                      m_ExtraScenes[*index]->Viewport->GetVisibility() = false;
-                                      return PaletteCommandDone();
-                                  } } );
-        }
-
         // NAMED VIEWPOINTS for the focused document's preview — the replacement for `--preview-orbit
         // yaw,pitch`, whose continuous angle pair a palette entry has nowhere to carry. See
         // Editor/Core/PreviewViewpoints.hpp for why names are MORE reproducible than numbers, not less.
@@ -5107,47 +4668,10 @@ namespace Desert::Editor
                                        SaveOpenScene(), "the scene was NOT saved; the log line above says "
                                                         "why, and the unsaved-changes mark is still set." );
                               } } );
+    }
 
-        // THE PLAY SESSION, the toolbar group's slots (UE FPlayWorldCommands): Play, Play from Here, Pause,
-        // Resume, Next Frame (Frame Skip) and Stop. Without them a Stop restore could not be timed or
-        // exercised from the control channel at all - only a mouse could reach it - and the restore is the
-        // second of the two paths a 50 000-record world pays a full load on. Separate entries rather than
-        // toggles, so a script that asks for Stop (or Pause) is told when there was nothing playing
-        // instead of starting a session it did not want. The toolbar calls the same executor.
-        for ( const Editor::PlayWorldCommand command : Editor::kPlayWorldCommandOrder )
-            commands.push_back( { std::string( Editor::CommandInfo( command ).Context ),
-                                  std::string( Editor::CommandInfo( command ).Label ),
-                                  [this, command] { return RunPlayWorldCommand( command ); } } );
-        // Play at one TAGGED start - the control channel's spelling of `--player-start <tag>`: a command's
-        // label carries its argument (as "Select asset <path>" does), one entry per tag the level states, so
-        // `desertctl run Action "Play at Player Start 'Red'"` names a start the scene really has.
-        auto& registry = m_MainScene->GetRegistry();
-        for ( const auto entity : registry.view<ECS::PlayerStartComponent>() )
-        {
-            const std::string tag = registry.get<ECS::PlayerStartComponent>( entity ).Data.Tag;
-            if ( tag.empty() )
-                continue;
-            commands.push_back(
-                 { "Action", "Play at Player Start '" + tag + "'", [this, entity]
-                   {
-                       // The start is captured by ENTITY, not by a copy of its tag: the tag is
-                       // read when the command runs, so an entry outliving the start refuses.
-                       auto&       reg = m_MainScene->GetRegistry();
-                       const auto* start =
-                            reg.valid( entity ) ? reg.try_get<ECS::PlayerStartComponent>( entity ) : nullptr;
-                       if ( start == nullptr )
-                           return PaletteCommandOutcome( false, "that Player Start no longer exists." );
-                       using SceneState   = ::Desert::Core::Scene::SceneState;
-                       const bool editing = m_MainScene->GetState() == SceneState::Edit;
-                       if ( editing )
-                           OnScenePlay( /*fromHere=*/false, std::string( start->Data.Tag ) );
-                       return PaletteCommandOutcome(
-                            editing && m_MainScene->GetState() != SceneState::Edit,
-                            "the scene is not playing; either it was already playing or Play "
-                            "refused (the log says why)." );
-                   } } );
-        }
-
+    void EditorLayer::AppendWindowCommands( std::vector<PaletteCommand>& commands )
+    {
         // UNDO AND REDO ALREADY ANSWERED "was there anything to undo" and the answer went nowhere.
         // Nothing to undo is not a failure of the editor, but it IS the difference between a script that
         // walked the history back one step and a script that believes it did.
@@ -6102,9 +5626,9 @@ namespace Desert::Editor
 
         // Drop cached per-entity material instances so MeshECSSystem rebuilds them from the freshly
         // re-registered runtime materials (which now reference the reloaded texture images).
-        if ( m_MainScene )
+        if ( m_Workspace.ActiveScene() )
         {
-            auto& reg = m_MainScene->GetRegistry();
+            auto& reg = m_Workspace.ActiveScene()->GetRegistry();
             reg.view<ECS::StaticMeshComponent>().each( []( auto, ECS::StaticMeshComponent& c )
                                                        { c.RuntimeMaterialInstances.clear(); } );
             reg.view<ECS::SkinnedMeshComponent>().each( []( auto, ECS::SkinnedMeshComponent& c )
@@ -6454,12 +5978,13 @@ namespace Desert::Editor
     {
         // Once, when the scene the editor opens on is loaded and the renderer is up: the moment a scene
         // capture becomes allowed (Splash::SceneThumbnailCaptureAllowed).
-        if ( m_SplashWarmStarted || !m_MainScene || !Splash::SceneThumbnailCaptureAllowed( CurrentRevealState() ) )
+        if ( m_SplashWarmStarted || !m_Workspace.ActiveScene() ||
+             !Splash::SceneThumbnailCaptureAllowed( CurrentRevealState() ) )
             return;
         m_SplashWarmStarted = true;
 
         Assets::AssetRootSet roots;
-        ::Desert::Core::CollectAssetRoots( *m_MainScene, roots );
+        ::Desert::Core::CollectAssetRoots( *m_Workspace.ActiveScene(), roots );
         const std::vector<ThumbnailWarmup::WarmItem> scene = ThumbnailWarmup::SceneWarmList(
              roots.Handles(), []( const Common::AssetHandle& handle )
              { return Common::AssetPathIndex::PathFor( static_cast<uint64_t>( handle ) ); } );
@@ -6529,11 +6054,11 @@ namespace Desert::Editor
     void EditorLayer::SyncWindowTitle()
     {
         const auto& window = m_Application->GetWindow();
-        if ( !window || !m_MainScene )
+        if ( !window || !m_Workspace.ActiveScene() )
             return;
 
-        const std::string title =
-             "Desert Engine — " + Editor::ProjectContext::Current().Name + " — " + m_MainScene->GetSceneName();
+        const std::string title = "Desert Engine — " + Editor::ProjectContext::Current().Name + " — " +
+                                  m_Workspace.ActiveScene()->GetSceneName();
         if ( window->GetTitle() != title )
             window->SetTitle( title );
     }
@@ -6587,7 +6112,7 @@ namespace Desert::Editor
             // meant to rename the level would have renamed it AND maximized the window at the same time,
             // and a drag from it would have carried the window off. An id also buys the hover highlight,
             // which is the affordance the tooltip was standing in for.
-            const std::string& sceneName = m_MainScene->GetSceneName();
+            const std::string& sceneName = m_Workspace.ActiveScene()->GetSceneName();
             const ImVec2       nameSize  = ImGui::CalcTextSize( sceneName.c_str() );
             ImGui::Selectable( sceneName.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick,
                                ImVec2( nameSize.x, 0.0f ) );
@@ -6610,7 +6135,7 @@ namespace Desert::Editor
             if ( ImGui::IsItemDeactivatedAfterEdit() )
             {
                 if ( !sceneNameBuffer.empty() )
-                    m_MainScene->SetSceneName( sceneNameBuffer );
+                    m_Workspace.ActiveScene()->SetSceneName( sceneNameBuffer );
 
                 renameScene = false;
             }
@@ -6681,7 +6206,7 @@ namespace Desert::Editor
     uint64_t EditorLayer::SceneTriangleCount()
     {
         const uint64_t revision    = CommandHistory::Get().Revision();
-        const size_t   entityCount = m_MainScene->GetAllEntities().size();
+        const size_t   entityCount = m_Workspace.ActiveScene()->GetAllEntities().size();
 
         // Recompute on an edit, on the population changing, or every ~120 frames — the last one because an
         // async mesh load completes without touching either of the other two, and a status bar stuck on
@@ -6694,7 +6219,7 @@ namespace Desert::Editor
         }
 
         uint64_t total = 0;
-        for ( const ECS::Entity& entity : m_MainScene->GetAllEntities() )
+        for ( const ECS::Entity& entity : m_Workspace.ActiveScene()->GetAllEntities() )
         {
             // HIDDEN entities are excluded: the number sits beside the entity count in a bar that answers
             // "what is on screen", and a hidden mesh is not.
@@ -6722,7 +6247,7 @@ namespace Desert::Editor
         namespace ImGui  = ::ImGui;
         using SceneState = ::Desert::Core::Scene::SceneState;
 
-        const auto   state     = m_MainScene->GetState();
+        const auto   state     = m_Workspace.ActiveScene()->GetState();
         const char*  stateText = ( state == SceneState::Play )     ? ICON_MDI_PLAY " Play"
                                  : ( state == SceneState::Paused ) ? ICON_MDI_PAUSE " Paused"
                                                                    : ICON_MDI_PENCIL " Edit";
@@ -6780,7 +6305,7 @@ namespace Desert::Editor
         else if ( const auto sel = Core::SelectionManager::GetSelected() )
         {
             std::string selName = "Entity";
-            if ( auto e = m_MainScene->FindEntityByID( *sel ) )
+            if ( auto e = m_Workspace.ActiveScene()->FindEntityByID( *sel ) )
                 selName = e->get().GetComponent<ECS::TagComponent>().Tag;
             ImGui::TextDisabled( ICON_MDI_CURSOR_DEFAULT_OUTLINE " %s", selName.c_str() );
         }
@@ -6790,7 +6315,7 @@ namespace Desert::Editor
         }
 
         ImGui::SameLine( 0.0f, 16.0f );
-        ImGui::TextDisabled( ICON_MDI_SHAPE " %zu entities", m_MainScene->GetAllEntities().size() );
+        ImGui::TextDisabled( ICON_MDI_SHAPE " %zu entities", m_Workspace.ActiveScene()->GetAllEntities().size() );
 
         // What the scene costs to draw, beside what it contains. Two numbers that belong together: an
         // entity count says how much there is to manage, a triangle count says how much there is to
@@ -7061,7 +6586,7 @@ namespace Desert::Editor
         ImGui::BeginChild( "##Toolbar", ImVec2( 0.0f, barHeight ), false,
                            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse );
 
-        const bool editMode = m_MainScene->GetState() == ::Desert::Core::Scene::SceneState::Edit;
+        const bool editMode = m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Edit;
 
         // ---- Measure before drawing: the playback group sits on the bar's MIDDLE in every window ------
         // The left groups are measured both labelled and icon-only (the same text measure ToolbarButton
@@ -7255,7 +6780,7 @@ namespace Desert::Editor
                  .RightWidth  = rightW,
             } );
 
-            DrawPlaybackGroup( Layout::LayoutPlaybackGroup( frameH, row.CentreX ), rowY );
+            m_Play.DrawPlaybackGroup( Layout::LayoutPlaybackGroup( frameH, row.CentreX ), rowY );
 
             ImGui::SetCursorScreenPos( ImVec2( row.RightX, rowY ) );
             if ( ToolbarButton( right[0].Icon, right[0].Label, false, "Build and package the project" ) )
@@ -7328,16 +6853,6 @@ namespace Desert::Editor
     //
     // The GPU column comes from the backend's timestamp queries, so it is device time, not the CPU's wait
     // for it; the two columns disagreeing is the interesting case rather than a fault.
-    std::vector<::Desert::Core::Rules::StreamingSource> EditorLayer::InstrumentStreamingSources() const
-    {
-        const ::Desert::Core::EditorCamera* camera = ActiveEditorCamera();
-        if ( !ShotOptions::Get().FlightRoute || camera == nullptr )
-            return {};
-        ::Desert::Core::Rules::StreamingSource source;
-        source.Position = camera->GetPosition();
-        return { source };
-    }
-
     void EditorLayer::RecordFlightFrame( bool counted )
     {
         const ShotOptions&           shot     = ShotOptions::Get();
@@ -7361,10 +6876,10 @@ namespace Desert::Editor
                                                            : Flight::Phase::Settling;
         row.Distance = Flight::DistanceAt( m_ShotFrame, shot.FlightSpeed, ShotOptions::PlayStepSeconds );
         row.Position = Flight::PoseAt( *shot.FlightRoute, row.Distance ).Position;
-        row.Entities = m_MainScene->GetAllEntities().size();
-        if ( m_WorldStreamer && m_WorldStreamer->Streams( *m_MainScene ) )
+        row.Entities = m_Workspace.ActiveScene()->GetAllEntities().size();
+        if ( m_Play.Streamer() && m_Play.Streamer()->Streams( *m_Workspace.ActiveScene() ) )
         {
-            const auto& report   = m_WorldStreamer->LastTick();
+            const auto& report   = m_Play.Streamer()->LastTick();
             row.ResidentRecords  = report.LiveRecords;
             row.UnitsActivated   = report.Tick.UnitsActivated;
             row.UnitsDeactivated = report.Tick.UnitsDeactivated;
@@ -7614,7 +7129,7 @@ namespace Desert::Editor
             return;
         }
 
-        const bool editMode     = m_MainScene->GetState() == ::Desert::Core::Scene::SceneState::Edit;
+        const bool editMode     = m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Edit;
         const bool hasSelection = Core::SelectionManager::Count() > 0;
 
         if ( ImGui::MenuItem( "Undo", "Ctrl+Z", false, editMode ) )
@@ -7683,7 +7198,7 @@ namespace Desert::Editor
             ImGui::TextDisabled( "Editor Camera" );
             ImGui::Separator();
             if ( ImGui::SliderFloat( "Speed", &prefs.CameraSpeed, 0.1f, 10.0f, "%.2fx" ) )
-                if ( auto cam = m_MainScene->GetMainCamera().lock() )
+                if ( auto cam = m_Workspace.ActiveScene()->GetMainCamera().lock() )
                     if ( auto* editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( cam.get() ) )
                         editorCam->SetMovementSpeed( prefs.CameraSpeed );
             if ( ImGui::IsItemDeactivatedAfterEdit() )
@@ -7875,26 +7390,27 @@ namespace Desert::Editor
             // so a UI scene and the game scene can be worked on side by side. Focus a viewport to make its
             // scene active — the Outliner / Details / gizmo follow it.
             if ( ImGui::MenuItem( ICON_MDI_PLUS_BOX_MULTIPLE " New Scene View" ) )
-                m_AddSceneViewRequested = true; // deferred to OnUpdate (allocates GPU resources)
+                m_Workspace.RequestAddSceneView(); // serviced in OnUpdate (allocates GPU resources)
             // A SECOND ANGLE, and FOUR of them. Both are about the ACTIVE scene, not a second one, which
             // is what the item above opens — the menu says so in the tooltips because the two read alike.
             if ( ImGui::MenuItem( ICON_MDI_BORDER_ALL " New Viewport (same scene)" ) )
-                m_AddSceneViewportRequested = true;
+                m_Workspace.RequestAddSceneViewport();
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip( "Another camera on the SAME world: same entities, same edits." );
             if ( ImGui::MenuItem( ICON_MDI_GRID " Four-Up Viewports" ) )
-                m_ViewportGridRequested = true;
+                m_Workspace.RequestViewportGrid();
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip( "Perspective, Top, Front and Right on the active scene, docked in a\n"
                                    "2x2 grid. The panes are ordinary windows: re-arrange them and save\n"
                                    "the result under View > Layouts." );
-            if ( !m_ExtraScenes.empty() )
-                ImGui::TextDisabled( "%d scene view(s) open + main", static_cast<int>( m_ExtraScenes.size() ) );
+            if ( !m_Workspace.Documents().empty() )
+                ImGui::TextDisabled( "%d scene view(s) open + main",
+                                     static_cast<int>( m_Workspace.Documents().size() ) );
             // Closing from here does exactly what the window's x does — clear the VIEWPORT PANEL's
             // visibility — rather than tearing the scene down inside the ImGui pass. A scene view is a tool
             // panel bound to a scene, so visibility genuinely is its close signal; a document is the case
             // where that stopped being true, which is why documents have their own path.
-            for ( const auto& doc : m_ExtraScenes )
+            for ( const auto& doc : m_Workspace.Documents() )
             {
                 const std::string item = std::string( ICON_MDI_CLOSE " Close " ) + doc->Name;
                 if ( ImGui::MenuItem( item.c_str() ) && doc->Viewport )
@@ -7976,11 +7492,11 @@ namespace Desert::Editor
         // grew a step (a landscape writes its tile files beside the scene before the scene names them),
         // this copy would have written a .desce naming tile files that were never written.
         const auto                    previousHeader = ForgetAssetIdentityUnlessSameFile( path );
-        Desert::Core::SceneSerializer serializer( m_MainScene.get(), m_AssetManager.get() );
+        Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(), m_AssetManager.get() );
         if ( const auto written = serializer.SaveToFile( Common::Filepath( path ) ); !written )
         {
             // Nothing was written, so the scene is still the asset it was.
-            m_MainScene->SetAssetHeader( previousHeader );
+            m_Workspace.ActiveScene()->SetAssetHeader( previousHeader );
             LOG_ERROR( "[Scene] Could not write '{}': {}", path, written.GetError() );
             return false;
         }
@@ -7990,11 +7506,11 @@ namespace Desert::Editor
     std::optional<Common::Content::TextAssetHeaderSerialized>
     EditorLayer::ForgetAssetIdentityUnlessSameFile( const std::string& destination )
     {
-        auto previous = m_MainScene->GetAssetHeader();
+        auto previous = m_Workspace.ActiveScene()->GetAssetHeader();
         // A save under another path is a new asset (Rules::SaveKeepsAssetIdentity): dropping the header
         // makes the serializer mint a fresh GUID instead of copying this one into a second file.
         if ( !Editor::Core::Rules::SaveKeepsAssetIdentity( m_OpenScenePath.generic_string(), destination ) )
-            m_MainScene->SetAssetHeader( std::nullopt );
+            m_Workspace.ActiveScene()->SetAssetHeader( std::nullopt );
         return previous;
     }
 
@@ -8004,7 +7520,7 @@ namespace Desert::Editor
         // the case that matters — a file whose name disagrees with the scene's — without an editor. This
         // call site supplies the two project paths it cannot know.
         return Common::Filepath( Editor::Core::Rules::SceneSaveDestination(
-             m_OpenScenePath.generic_string(), m_MainScene->GetSceneName(),
+             m_OpenScenePath.generic_string(), m_Workspace.ActiveScene()->GetSceneName(),
              Common::Constants::Path::SCENE_PATH.generic_string(),
              Common::Constants::Extensions::SCENE_EXTENSION ) );
     }
@@ -8014,10 +7530,10 @@ namespace Desert::Editor
         const Common::Filepath destination    = SceneSaveDestination();
         const auto             previousHeader = ForgetAssetIdentityUnlessSameFile( destination.generic_string() );
         const auto             verdict        = Editor::Core::Rules::DecideAfterSceneSave(
-             m_MainScene->Serialize( m_AssetManager.get(), destination ), m_MainScene->GetSceneName(),
-             destination.string() );
+             m_Workspace.ActiveScene()->Serialize( m_AssetManager.get(), destination ),
+             m_Workspace.ActiveScene()->GetSceneName(), destination.string() );
         if ( !verdict.MarkSceneSaved )
-            m_MainScene->SetAssetHeader( previousHeader );
+            m_Workspace.ActiveScene()->SetAssetHeader( previousHeader );
 
         if ( verdict.MarkSceneSaved )
         {
@@ -8062,7 +7578,7 @@ namespace Desert::Editor
         auto prim = [&]( const std::string& name, Geometry::PrimitiveType type, glm::vec3 pos, glm::vec3 scale,
                          Assets::AssetHandle material = Common::UUID::Null() )
         {
-            auto& e       = m_MainScene->CreateNewEntity( std::string( name ) );
+            auto& e       = m_Workspace.ActiveScene()->CreateNewEntity( std::string( name ) );
             auto& smc     = e.AddComponent<ECS::StaticMeshComponent>();
             smc.Primitive = type;
             if ( material )
@@ -8089,12 +7605,12 @@ namespace Desert::Editor
         // This is the site that MINTED the upside-down sun the shipped Sandbox/Starter scenes carried:
         // normalize(-0.35, -0.9, -0.25) reproduces their corrected value [-0.3509, -0.9023, -0.2506]
         // exactly, so a scene rebuilt from here now matches the one on disk instead of contradicting it.
-        auto& sun = m_MainScene->CreateNewEntity( "Sun" );
+        auto& sun = m_Workspace.ActiveScene()->CreateNewEntity( "Sun" );
         sun.AddComponent<ECS::DirectionLightComponent>();
         sun.GetComponent<ECS::TransformComponent>().Translation =
              glm::normalize( glm::vec3( -0.35f, -0.9f, -0.25f ) );
 
-        auto& sky = m_MainScene->CreateNewEntity( "Sky" );
+        auto& sky = m_Workspace.ActiveScene()->CreateNewEntity( "Sky" );
         sky.AddComponent<ECS::SkyAtmosphereComponent>();
 
         prim( "Ground", Geometry::PrimitiveType::Cube, { 0.0f, -0.1f, 0.0f }, { 24.0f, 0.2f, 24.0f },
@@ -8140,7 +7656,7 @@ namespace Desert::Editor
         // Coloured fills (shadowless accents) framing the set.
         auto pointLight = [&]( const char* name, glm::vec3 pos, glm::vec3 color, float intensity )
         {
-            auto& e     = m_MainScene->CreateNewEntity( std::string( name ) );
+            auto& e     = m_Workspace.ActiveScene()->CreateNewEntity( std::string( name ) );
             auto& d     = e.AddComponent<ECS::PointLightComponent>().Data;
             d.Color     = color;
             d.Intensity = intensity;
@@ -8152,7 +7668,7 @@ namespace Desert::Editor
 
         // SDF text probe: emissive so it blooms like any emissive surface (no special path).
         {
-            auto& label          = m_MainScene->CreateNewEntity( "Text" );
+            auto& label          = m_Workspace.ActiveScene()->CreateNewEntity( "Text" );
             auto& tc             = label.AddComponent<ECS::TextComponent>();
             tc.Text              = "Desert Engine";
             tc.Color             = { 0.55f, 0.85f, 1.0f, 1.0f };
@@ -8162,7 +7678,7 @@ namespace Desert::Editor
             ttf.Translation      = Common::Units::Metres( 1.0f ) * glm::vec3( -2.2f, 3.4f, -3.0f );
         }
 
-        auto& camera = m_MainScene->CreateNewEntity( "Camera" );
+        auto& camera = m_Workspace.ActiveScene()->CreateNewEntity( "Camera" );
         camera.AddComponent<ECS::CameraComponent>();
         camera.GetComponent<ECS::TransformComponent>().Translation =
              Common::Units::Metres( 1.0f ) * glm::vec3( 0.0f, 2.5f, 7.0f );
@@ -8189,7 +7705,7 @@ namespace Desert::Editor
         // this site asked for a diffuse red wall, invisibly, for as long as the file existed.
         auto tinted = [&]( const char* name, glm::vec3 pos, glm::vec3 scale, const char* matName )
         {
-            auto& e            = m_MainScene->CreateNewEntity( std::string( name ) );
+            auto& e            = m_Workspace.ActiveScene()->CreateNewEntity( std::string( name ) );
             auto& smc          = e.AddComponent<ECS::StaticMeshComponent>();
             smc.Primitive      = Geometry::PrimitiveType::Cube;
             const auto* demo   = Editor::MaterialAssetUtils::FindDemoMaterial( matName );
@@ -8216,7 +7732,7 @@ namespace Desert::Editor
         tinted( "CB_OrangeCube", { 0, 1.3f, -1.2f }, { 1.4f, 1.4f, 1.4f }, "CB_Orange" );
 
         // Clear glass sphere in front of the cube.
-        auto& glass    = m_MainScene->CreateNewEntity( std::string( "CB_GlassSphere" ) );
+        auto& glass    = m_Workspace.ActiveScene()->CreateNewEntity( std::string( "CB_GlassSphere" ) );
         auto& gsmc     = glass.AddComponent<ECS::StaticMeshComponent>();
         gsmc.Primitive = Geometry::PrimitiveType::Sphere;
         if ( const auto* glassDemo = Editor::MaterialAssetUtils::FindDemoMaterial( "CB_Glass" ) )
@@ -8231,7 +7747,7 @@ namespace Desert::Editor
         gtf.Scale       = glm::vec3( 1.6f );
 
         // Point light BEHIND the objects (backlight / rim).
-        auto& pl      = m_MainScene->CreateNewEntity( std::string( "CB_BackLight" ) );
+        auto& pl      = m_Workspace.ActiveScene()->CreateNewEntity( std::string( "CB_BackLight" ) );
         auto& pld     = pl.AddComponent<ECS::PointLightComponent>().Data;
         pld.Color     = glm::vec3( 1.0f, 0.85f, 0.6f );
         pld.Intensity = 8.0f;
@@ -8241,9 +7757,9 @@ namespace Desert::Editor
 
         // The baked scene must carry its OWN sun — it no longer piggybacks on startup state.
         // (Exactly one: a second directional light would overflow the single-light UB.)
-        if ( m_MainScene->GetRegistry().view<ECS::DirectionLightComponent>().size() == 0 )
+        if ( m_Workspace.ActiveScene()->GetRegistry().view<ECS::DirectionLightComponent>().size() == 0 )
         {
-            auto& sun = m_MainScene->CreateNewEntity( "CB_Sun" );
+            auto& sun = m_Workspace.ActiveScene()->CreateNewEntity( "CB_Sun" );
             sun.AddComponent<ECS::DirectionLightComponent>();
             // Translation is the direction the light TRAVELS, so a sun ABOVE the horizon points DOWN.
             // This site used to author +Y and put its own sun 57.7 degrees underground; the committed
@@ -8269,17 +7785,16 @@ namespace Desert::Editor
         s_SavedRevision = CommandHistory::Get().Revision();
 
         Core::SelectionManager::ClearSelection();
-        m_MainScene->Clear();
-        m_MainScene->SetSceneName( "New Scene" );
+        m_Workspace.ActiveScene()->Clear();
+        m_Workspace.ActiveScene()->SetSceneName( "New Scene" );
         // A new scene is not any file yet. Left pointing at the previous one, the first Ctrl+S would
         // overwrite the scene the user had just moved away from with an empty world.
         m_OpenScenePath.clear();
-        if ( const auto inited = m_MainScene->Init(); !inited.IsSuccess() )
+        if ( const auto inited = m_Workspace.ActiveScene()->Init(); !inited.IsSuccess() )
             LOG_ERROR( "[EditorLayer] new scene failed to initialise: {}", inited.GetError() );
 
         // Rebuild the render registry against the fresh registry (its dtor unregisters editor passes by name).
-        m_RenderRegistry.reset();
-        m_RenderRegistry = std::make_unique<Render::RenderRegistry>( m_MainScene );
+        m_Workspace.RebuildRenderRegistry();
 
         Editor::ToastManager::Push( "New scene", Editor::ToastLevel::Success );
         LOG_INFO( "[Scene] New empty scene" );
@@ -8345,11 +7860,11 @@ namespace Desert::Editor
         s_SavedRevision = CommandHistory::Get().Revision(); // a freshly loaded scene is "clean"
 
         phases.Lap( "wait for the GPU, drop the undo history", 0 );
-        const std::size_t outgoing = m_MainScene->GetAllEntities().size();
-        m_MainScene->Clear();
+        const std::size_t outgoing = m_Workspace.ActiveScene()->GetAllEntities().size();
+        m_Workspace.ActiveScene()->Clear();
         phases.Lap( "clear the open scene", outgoing );
 
-        Desert::Core::SceneSerializer serializer( m_MainScene.get(), m_AssetManager.get() );
+        Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(), m_AssetManager.get() );
         // Cannot fire - the same text passed the same check above, before anything was torn down. It is
         // reported and NOT returned from on purpose: the scene is already cleared by this point, so the
         // rebuild below is what leaves the editor in a coherent (empty) state rather than one holding a
@@ -8359,18 +7874,18 @@ namespace Desert::Editor
             LOG_ERROR( "{0}", loaded.GetError() );
             Editor::ToastManager::Push( "Scene failed to load — see the log", Editor::ToastLevel::Error );
         }
-        const std::size_t incoming = m_MainScene->GetAllEntities().size();
+        const std::size_t incoming = m_Workspace.ActiveScene()->GetAllEntities().size();
         phases.Lap( "deserialize (its own phases are logged above)", incoming );
 
         // THE SCENE'S DEPENDENCY CLOSURE, from the registry's `deps` column, is read by the loader's workers
         // while the open waits — meshes, their materials, parents and textures in one batch — so its first
         // frame is whole and no read happens in a frame (AL1-8b).
-        const Runtime::ClosureResidency closure = Runtime::AwaitSceneClosure( *m_MainScene );
+        const Runtime::ClosureResidency closure = Runtime::AwaitSceneClosure( *m_Workspace.ActiveScene() );
         phases.Lap( "wait for the scene's dependency closure (rows)", closure.Rows );
         LOG_INFO( "[SceneLoad] closure: {} row(s), {} worker read(s) awaited, {} drawable mesh(es)", closure.Rows,
                   closure.Reads, closure.DrawableMeshes );
 
-        if ( const auto inited = m_MainScene->Init(); !inited.IsSuccess() )
+        if ( const auto inited = m_Workspace.ActiveScene()->Init(); !inited.IsSuccess() )
         {
             LOG_ERROR( "[EditorLayer] loaded scene failed to initialise: {}", inited.GetError() );
             Editor::ToastManager::Push( "Scene could not be initialised — see the log",
@@ -8380,8 +7895,7 @@ namespace Desert::Editor
 
         // Destroy the old registry FIRST: its destructor unregisters the editor passes by name, and
         // assignment would run it after the new registry already re-registered them.
-        m_RenderRegistry.reset();
-        m_RenderRegistry = std::make_unique<Render::RenderRegistry>( m_MainScene );
+        m_Workspace.RebuildRenderRegistry();
         phases.Lap( "rebuild the render registry", incoming );
         phases.LogSummary();
 
@@ -8572,127 +8086,6 @@ namespace Desert::Editor
 
     namespace
     {
-        // One slot of the segmented playback group. Drawn by hand rather than with ImGui::Button because
-        // a segmented group rounds only its OUTER corners, which a Button cannot, and because a disabled
-        // slot must keep its place and its fill (dimmed) — the group's shape is the same in every state.
-        bool PlaybackSlotButton( const char* id, const char* glyph, const ImVec2& pos, const ImVec2& size,
-                                 ImDrawFlags corners, const ImVec4& fill, const ImVec4& glyphColour, bool enabled,
-                                 const char* tooltip )
-        {
-            namespace ImGui = ::ImGui;
-
-            ImGui::SetCursorScreenPos( pos );
-            if ( !enabled )
-                ImGui::BeginDisabled();
-            const bool clicked = ImGui::InvisibleButton( id, size );
-            const bool hovered = enabled && ImGui::IsItemHovered();
-            const bool held    = enabled && ImGui::IsItemActive();
-            if ( tooltip != nullptr && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
-                ImGui::SetTooltip( "%s", tooltip );
-            if ( !enabled )
-                ImGui::EndDisabled();
-
-            // pressed darkens, hover lifts, rest is the fill as authored
-            float lift = 0.0f;
-            if ( held )
-                lift = -0.06f;
-            else if ( hovered )
-                lift = 0.08f;
-            const float  alpha = enabled ? 1.0f : 0.45f;
-            const auto   shade = [&]( float c ) { return std::clamp( c + lift, 0.0f, 1.0f ); };
-            ImDrawList*  draw  = ImGui::GetWindowDrawList();
-            const ImVec2 max( pos.x + size.x, pos.y + size.y );
-            draw->AddRectFilled(
-                 pos, max,
-                 ImGui::GetColorU32( ImVec4( shade( fill.x ), shade( fill.y ), shade( fill.z ), fill.w * alpha ) ),
-                 ImGui::GetStyle().FrameRounding, corners );
-
-            const ImVec2 textSize = ImGui::CalcTextSize( glyph );
-            draw->AddText(
-                 ImVec2( pos.x + ( size.x - textSize.x ) * 0.5f, pos.y + ( size.y - textSize.y ) * 0.5f ),
-                 ImGui::GetColorU32(
-                      ImVec4( glyphColour.x, glyphColour.y, glyphColour.z, glyphColour.w * alpha ) ),
-                 glyph );
-            return clicked && enabled;
-        }
-    } // namespace
-
-    void EditorLayer::DrawPlaybackGroup( const ::Desert::Editor::ToolbarLayout::PlaybackGroup& group, float y )
-    {
-        namespace ImGui  = ::ImGui;
-        using SceneState = ::Desert::Core::Scene::SceneState;
-        using Slot       = ::Desert::Editor::ToolbarLayout::PlaybackSlot;
-
-        // UE's Level Editor group: Play | Options | Pause | Next Frame | Stop. Every slot is present in every
-        // state and the ones that do not apply are greyed out, so the group never changes shape or position when
-        // the world starts, pauses or stops. Play (with its options) is the bar's PRIMARY action and gets
-        // the accent while it can be pressed; Pause turns into Resume, armed, while the world is paused.
-        const SceneState state   = m_MainScene->GetState();
-        const bool       editing = state == SceneState::Edit;
-        const bool       paused  = state == SceneState::Paused;
-
-        const float  h       = ImGui::GetFrameHeight();
-        const ImVec4 accent  = ThemeManager::GetSelectedColor();
-        const ImVec4 neutral = ImGui::GetStyleColorVec4( ImGuiCol_Button );
-        const ImVec4 white( 1.0f, 1.0f, 1.0f, 1.0f );
-        const ImVec4 icon = ThemeManager::GetIconColor();
-
-        const auto at   = [&]( Slot slot ) { return ImVec2( group[slot].X, y ); };
-        const auto size = [&]( Slot slot ) { return ImVec2( group[slot].Width, h ); };
-
-        using Command  = Editor::PlayWorldCommand;
-        const auto run = [this]( const Command command )
-        {
-            // The button is one more caller of the command; a refusal it could not have offered (the
-            // slot is disabled in every state that refuses) is still logged, never swallowed.
-            if ( const auto outcome = RunPlayWorldCommand( command ); !outcome )
-                LOG_ERROR( "[Toolbar] {}: {}", Editor::CommandInfo( command ).Label, outcome.GetError() );
-        };
-
-        if ( PlaybackSlotButton( "##Play", ICON_MDI_PLAY, at( Slot::Play ), size( Slot::Play ),
-                                 ImDrawFlags_RoundCornersLeft, editing ? accent : neutral, editing ? white : icon,
-                                 editing, editing ? "Play (the pawn spawns at the PlayerStart)" : "Playing" ) )
-            run( Command::Play );
-
-        if ( PlaybackSlotButton( "##PlayOptions", ICON_MDI_CHEVRON_DOWN, at( Slot::Options ),
-                                 size( Slot::Options ), ImDrawFlags_RoundCornersNone, editing ? accent : neutral,
-                                 editing ? white : icon, editing, "Play options" ) )
-            ImGui::OpenPopup( "PlayModes" );
-        ImGui::SetNextWindowPos( ImVec2( group[Slot::Play].X, y + h ) );
-        if ( ImGui::BeginPopup( "PlayModes" ) )
-        {
-            if ( ImGui::MenuItem( ICON_MDI_PLAY " Play", nullptr, false ) )
-                run( Command::Play );
-            if ( ImGui::MenuItem( ICON_MDI_CAMERA " Play from Here", nullptr, false ) )
-                run( Command::PlayFromHere );
-            ImGui::EndPopup();
-        }
-
-        // One slot, two commands (UE shows Pause while running and Resume while paused).
-        const Command pauseOrResume = paused ? Command::Resume : Command::Pause;
-        if ( PlaybackSlotButton( "##Pause", paused ? ICON_MDI_PLAY : ICON_MDI_PAUSE, at( Slot::Pause ),
-                                 size( Slot::Pause ), ImDrawFlags_RoundCornersNone, paused ? accent : neutral,
-                                 paused ? white : icon, !editing,
-                                 std::string( Editor::CommandInfo( pauseOrResume ).Label ).c_str() ) )
-            run( pauseOrResume );
-
-        if ( PlaybackSlotButton( "##NextFrame", ICON_MDI_STEP_FORWARD, at( Slot::NextFrame ),
-                                 size( Slot::NextFrame ), ImDrawFlags_RoundCornersNone, neutral, icon, paused,
-                                 paused ? "Next Frame (advance the paused world by one frame)"
-                                        : "Next Frame (pause the world first)" ) )
-            run( Command::NextFrame );
-
-        if ( PlaybackSlotButton( "##Stop", ICON_MDI_STOP, at( Slot::Stop ), size( Slot::Stop ),
-                                 ImDrawFlags_RoundCornersRight, neutral,
-                                 editing ? icon : ThemeManager::GetErrorColor(), !editing, "Stop" ) )
-            run( Command::Stop );
-
-        // Leave the cursor on the group's row, after its last slot, as a SameLine chain would.
-        ImGui::SetCursorScreenPos( ImVec2( group[Slot::Stop].X + group[Slot::Stop].Width, y ) );
-    }
-
-    namespace
-    {
         // One static box = mesh (Cube primitive) + Box collider + Static body, as a child of `parent`.
         // The Cube primitive spans 2 units, so the visual size is 2*scale and the collider half-extents == scale
         // (matches the demo ground). Child colliders are placed at their WORLD pose by PhysicsECSSystem.
@@ -8722,19 +8115,25 @@ namespace Desert::Editor
         using namespace ::Desert;
 
         // By VALUE: creating the wall children below reallocates the entity store; a reference would dangle.
-        ECS::Entity house                                         = m_MainScene->CreateNewEntity( "House" );
+        ECS::Entity house = m_Workspace.ActiveScene()->CreateNewEntity( "House" );
         house.GetComponent<ECS::TransformComponent>().Translation = origin;
 
         // Interior ~8x8 m, walls 3 m tall, 0.2 m thick. Half-sizes (= scale, since the cube is 2 units):
-        AddHousePart( m_MainScene.get(), house, "Wall_Back", { 0.0f, 1.5f, -4.0f }, { 4.0f, 1.5f, 0.1f } );
-        AddHousePart( m_MainScene.get(), house, "Wall_Left", { -4.0f, 1.5f, 0.0f }, { 0.1f, 1.5f, 4.0f } );
-        AddHousePart( m_MainScene.get(), house, "Wall_Right", { 4.0f, 1.5f, 0.0f }, { 0.1f, 1.5f, 4.0f } );
+        AddHousePart( m_Workspace.ActiveScene().get(), house, "Wall_Back", { 0.0f, 1.5f, -4.0f },
+                      { 4.0f, 1.5f, 0.1f } );
+        AddHousePart( m_Workspace.ActiveScene().get(), house, "Wall_Left", { -4.0f, 1.5f, 0.0f },
+                      { 0.1f, 1.5f, 4.0f } );
+        AddHousePart( m_Workspace.ActiveScene().get(), house, "Wall_Right", { 4.0f, 1.5f, 0.0f },
+                      { 0.1f, 1.5f, 4.0f } );
         // Front wall with a centered doorway (1.2 m wide, 2.2 m tall): two side segments + a lintel above.
-        AddHousePart( m_MainScene.get(), house, "Wall_FrontL", { -2.3f, 1.5f, 4.0f }, { 1.7f, 1.5f, 0.1f } );
-        AddHousePart( m_MainScene.get(), house, "Wall_FrontR", { 2.3f, 1.5f, 4.0f }, { 1.7f, 1.5f, 0.1f } );
-        AddHousePart( m_MainScene.get(), house, "Door_Lintel", { 0.0f, 2.6f, 4.0f }, { 0.6f, 0.4f, 0.1f } );
+        AddHousePart( m_Workspace.ActiveScene().get(), house, "Wall_FrontL", { -2.3f, 1.5f, 4.0f },
+                      { 1.7f, 1.5f, 0.1f } );
+        AddHousePart( m_Workspace.ActiveScene().get(), house, "Wall_FrontR", { 2.3f, 1.5f, 4.0f },
+                      { 1.7f, 1.5f, 0.1f } );
+        AddHousePart( m_Workspace.ActiveScene().get(), house, "Door_Lintel", { 0.0f, 2.6f, 4.0f },
+                      { 0.6f, 0.4f, 0.1f } );
         // Flat roof (slight overhang).
-        AddHousePart( m_MainScene.get(), house, "Roof", { 0.0f, 3.1f, 0.0f }, { 4.2f, 0.1f, 4.2f } );
+        AddHousePart( m_Workspace.ActiveScene().get(), house, "Roof", { 0.0f, 3.1f, 0.0f }, { 4.2f, 0.1f, 4.2f } );
 
         LOG_INFO( "[Demo] House built at ({}, {}, {}) — walk in through the +Z doorway.", origin.x, origin.y,
                   origin.z );
@@ -8746,7 +8145,7 @@ namespace Desert::Editor
 
         // --- Sun (directional light) — DirectionLight stores its DIRECTION in TransformComponent.Translation
         {
-            auto& sun         = m_MainScene->CreateNewEntity( "Sun" );
+            auto& sun         = m_Workspace.ActiveScene()->CreateNewEntity( "Sun" );
             auto& dl          = sun.AddComponent<ECS::DirectionLightComponent>();
             dl.Data.Color     = { 1.0f, 0.97f, 0.9f };
             dl.Data.Intensity = 3.0f;
@@ -8755,7 +8154,7 @@ namespace Desert::Editor
 
         // --- Ground: a flat static box the character stands on (mesh + Box collider + Static body)
         {
-            auto& ground                                              = m_MainScene->CreateNewEntity( "Ground" );
+            auto& ground = m_Workspace.ActiveScene()->CreateNewEntity( "Ground" );
             ground.AddComponent<ECS::StaticMeshComponent>().Primitive = Geometry::PrimitiveType::Cube;
             auto& gt        = ground.GetComponent<ECS::TransformComponent>();
             gt.Translation  = Common::Units::Metres( 1.0f ) * glm::vec3( 0.0f, -0.5f, 0.0f ); // top at y=0
@@ -8770,7 +8169,7 @@ namespace Desert::Editor
         // --- A few static obstacle boxes to walk into / around
         for ( int i = 0; i < 3; ++i )
         {
-            auto& box = m_MainScene->CreateNewEntity( "Obstacle" + std::to_string( i ) );
+            auto& box = m_Workspace.ActiveScene()->CreateNewEntity( "Obstacle" + std::to_string( i ) );
             box.AddComponent<ECS::StaticMeshComponent>().Primitive = Geometry::PrimitiveType::Cube;
             auto& bt                                               = box.GetComponent<ECS::TransformComponent>();
             bt.Translation        = Common::Units::Metres( 1.0f ) * glm::vec3( -4.0f + i * 4.0f, 0.5f, -5.0f );
@@ -8784,7 +8183,7 @@ namespace Desert::Editor
         // IS the physics. The player entity is left UNSCALED so its children (visual body + camera) don't
         // inherit a non-uniform scale (which would skew/displace a child camera and its gizmo). Starts above
         // the ground so it drops on Play. By VALUE: creating children below can reallocate the entity store.
-        ECS::Entity player = m_MainScene->CreateNewEntity( "Player" );
+        ECS::Entity player = m_Workspace.ActiveScene()->CreateNewEntity( "Player" );
         {
             auto& cc       = player.AddComponent<ECS::CharacterControllerComponent>();
             cc.Data.Radius = Common::Units::Metres( 0.3f );
@@ -8814,189 +8213,30 @@ namespace Desert::Editor
         // mesh origin is at the feet, so we drop it by the capsule half-height (~0.9) to stand on the capsule
         // bottom. An AnimationComponent is attached so it animates once idle/walk/run clips are registered.
         {
-            auto& body = m_MainScene->CreateNewEntity( "PlayerBody" );
+            auto& body = m_Workspace.ActiveScene()->CreateNewEntity( "PlayerBody" );
             body.AddComponent<ECS::SkinnedMeshComponent>().MeshHandle = Geometry::HumanoidMeshHandle();
             body.AddComponent<ECS::AnimationComponent>().CurrentClip =
                  std::string( Geometry::kHumanoidDefaultClip );
             body.GetComponent<ECS::TransformComponent>().Translation =
                  Common::Units::Metres( 1.0f ) * glm::vec3( 0.0f, -0.9f, 0.0f );
-            m_MainScene->Attach( player, body );
+            m_Workspace.ActiveScene()->Attach( player, body );
         }
 
         // --- Camera: a CHILD of the (unscaled) player. Offset behind+above = 3rd person; move it to ~(0,
         // 0.7, 0) with rotation 0 for 1st person. Follows the player via the hierarchy (WORLD transform).
         {
-            auto& cam            = m_MainScene->CreateNewEntity( "PlayerCamera" );
+            auto& cam                     = m_Workspace.ActiveScene()->CreateNewEntity( "PlayerCamera" );
             auto& cd             = cam.AddComponent<ECS::CameraComponent>();
             cd.Data.AutoActivateForPlayer = true;
             auto& ct             = cam.GetComponent<ECS::TransformComponent>();
             ct.Translation       = Common::Units::Metres( 1.0f ) * glm::vec3( 0.0f, 1.5f, 7.0f ); // 3rd person
             ct.Rotation          = { glm::radians( -10.0f ), 0.0f, 0.0f }; // look slightly down at the player
-            m_MainScene->Attach( player, cam );
+            m_Workspace.ActiveScene()->Attach( player, cam );
         }
 
         BuildHouse( Common::Units::Metres( 1.0f ) * glm::vec3( 12.0f, 0.0f, 0.0f ) ); // greybox house aside
 
         LOG_INFO( "[Demo] Character demo scene built — press Play, then WASD to move + Space to jump." );
-    }
-
-    void EditorLayer::OnScenePlay( bool fromHere, const std::string& playerStartTag )
-    {
-        using SceneState = ::Desert::Core::Scene::SceneState;
-        if ( m_MainScene->GetState() != SceneState::Edit )
-            return;
-        // Snapshot the authored scene so Stop can restore it exactly (play-time edits are discarded).
-        // Timed like a load, because it is the other half of the round trip Stop pays: the snapshot is a
-        // full write of the scene, and it was where a 50 000-record world spent seven minutes.
-        Desert::Core::SceneLoadPhases phases( "Play start" );
-        Desert::Core::SceneSerializer serializer( m_MainScene.get(), m_AssetManager.get() );
-        m_PlaySnapshot = serializer.SerializeToJson();
-        phases.Lap( "write the Play snapshot", m_MainScene->GetAllEntities().size() );
-        // AFTER the snapshot: streaming destroys every cell outside the camera's neighbourhood, and Stop
-        // restores what the snapshot holds. A world that cannot stream does not play half-loaded - it does not
-        // play, and says why.
-        // The pawn is spawned AFTER the snapshot, so Stop's restore has never heard of it, and BEFORE the
-        // streamer, which may unload the cell the PlayerStart stands in.
-        Desert::Core::PlayRequest request;
-        request.PlayerStartTag = playerStartTag;
-        if ( fromHere && m_MainScene->GetActiveCamera() )
-        {
-            // Stand where the editor camera is, facing where it faces - yaw only: a pawn tilted by the
-            // camera's pitch would stand on its capsule's side.
-            const glm::mat4 camWorld = glm::inverse( m_MainScene->GetActiveCamera()->GetViewMatrix() );
-            const glm::vec3 forward  = -glm::vec3( camWorld[2] );
-            const float     yaw      = std::atan2( -forward.x, -forward.z );
-            request.SpawnAt          = glm::translate( glm::mat4( 1.0f ), glm::vec3( camWorld[3] ) ) *
-                              glm::rotate( glm::mat4( 1.0f ), yaw, glm::vec3( 0.0f, 1.0f, 0.0f ) );
-        }
-        if ( const auto began = Desert::Core::BeginPlay( *m_MainScene, *m_AssetManager, request ); !began )
-        {
-            LOG_ERROR( "[Scene] Play refused: {0}", began.GetError() );
-            Editor::ToastManager::Push( "Play refused: " + began.GetError(), Editor::ToastLevel::Error );
-            m_PlaySnapshot.clear();
-            return;
-        }
-        phases.Lap( "spawn the player's pawn", m_MainScene->GetAllEntities().size() );
-        auto streamer = Desert::Core::WorldStreamer::Begin( *m_MainScene, *m_AssetManager, m_PlaySnapshot,
-                                                            InstrumentStreamingSources() );
-        phases.Lap( "begin the world streamer", m_MainScene->GetAllEntities().size() );
-        phases.LogSummary();
-        if ( !streamer )
-        {
-            LOG_ERROR( "[Scene] Play refused: {0}", streamer.GetError() );
-            Editor::ToastManager::Push( "Play refused: the world could not stream — see the log",
-                                        Editor::ToastLevel::Error );
-            // BeginPlay already spawned and entered Play; the refusal takes both back.
-            if ( const entt::entity pawn = m_MainScene->GetPlayerPawn(); pawn != entt::null )
-                m_MainScene->DestroyEntity( ECS::Entity( pawn, m_MainScene->GetRegistry() ) );
-            m_MainScene->SetPlayerPawn( entt::null );
-            m_MainScene->SetPlayFromHere( false );
-            m_MainScene->SetState( SceneState::Edit );
-            m_PlaySnapshot.clear();
-            return;
-        }
-        m_WorldStreamer    = streamer.ExtractValue();
-        m_WorldStreamClock = 0.0;
-#if DESERT_DEV_INSTRUMENTS
-        if ( m_WorldStreamer && ShotOptions::Get().StreamDelayTicks > 0 )
-        {
-            m_WorldStreamer->SetDebugLoadDelayTicks( ShotOptions::Get().StreamDelayTicks );
-            LOG_WARN( "[WorldPartition] DEV: every cell read is reported {0} frame(s) late (--stream-delay-ticks)",
-                      ShotOptions::Get().StreamDelayTicks );
-        }
-#endif
-        // Play-time changes are discarded on Stop anyway, and the Stop restore recreates every entity —
-        // an undo stack recorded against the authored scene must not fire into either state.
-        CommandHistory::Get().Clear();
-        m_EditorState = EditorState::Play;
-    }
-
-    void EditorLayer::OnSceneStop()
-    {
-        using SceneState = ::Desert::Core::Scene::SceneState;
-        if ( m_MainScene->GetState() == SceneState::Edit || m_PlaySnapshot.empty() )
-            return;
-
-        Desert::Core::SceneLoadPhases phases( "Stop restore" );
-        EngineContext::GetInstance().GetDevice()->WaitIdle();
-        CommandHistory::Get().Clear(); // anything recorded during Play targets entities about to be rebuilt
-        m_WorldStreamer.reset();       // before Clear: the snapshot below brings every cell back
-        phases.Lap( "wait for the GPU, drop the undo history and the streamer", 0 );
-        const std::size_t outgoing = m_MainScene->GetAllEntities().size();
-        m_MainScene->Clear();
-        phases.Lap( "clear the played scene", outgoing );
-
-        Desert::Core::SceneSerializer serializer( m_MainScene.get(), m_AssetManager.get() );
-        // NOT A FILE, and it cannot be at an old version: this text came out of SerializeToJson() a moment
-        // ago in this same build, which stamps the head of both version integers. It is named rather than
-        // pathed so that if it ever DOES fail, the message says which of the two things called "loading a
-        // scene" broke - restoring the pre-Play state is not opening a file, and reading "Play snapshot" in
-        // the log is the difference between one minute of diagnosis and twenty.
-        if ( const auto restored = serializer.DeserializeFromJson( m_PlaySnapshot, "<Play snapshot>" ); !restored )
-        {
-            LOG_ERROR( "[Scene] Play snapshot could not be restored: {0}", restored.GetError() );
-            Editor::ToastManager::Push( "Play snapshot could not be restored — see the log",
-                                        Editor::ToastLevel::Error );
-        }
-        const std::size_t incoming = m_MainScene->GetAllEntities().size();
-        phases.Lap( "deserialize the snapshot (its own phases are logged above)", incoming );
-        if ( const auto inited = m_MainScene->Init(); !inited.IsSuccess() )
-        {
-            LOG_ERROR( "[EditorLayer] scene failed to initialise after Play: {}", inited.GetError() );
-            Editor::ToastManager::Push( "Scene could not be initialised after Play — see the log",
-                                        Editor::ToastLevel::Error );
-        }
-        phases.Lap( "initialise the scene", incoming );
-
-        // Destroy the old registry FIRST: its destructor unregisters the editor passes by name, and
-        // assignment would run it after the new registry already re-registered them.
-        m_RenderRegistry.reset();
-        m_RenderRegistry = std::make_unique<Render::RenderRegistry>( m_MainScene );
-        phases.Lap( "rebuild the render registry", incoming );
-        phases.LogSummary();
-
-        m_MainScene->SetState( SceneState::Edit );
-    }
-
-    Common::BoolResultStr EditorLayer::RunPlayWorldCommand( const Editor::PlayWorldCommand command )
-    {
-        using SceneState       = ::Desert::Core::Scene::SceneState;
-        using Command          = Editor::PlayWorldCommand;
-        const SceneState state = m_MainScene->GetState();
-        switch ( command )
-        {
-            case Command::Play:
-            case Command::PlayFromHere:
-                if ( state == SceneState::Edit )
-                    OnScenePlay( /*fromHere=*/command == Command::PlayFromHere );
-                return PaletteCommandOutcome( state == SceneState::Edit &&
-                                                   m_MainScene->GetState() != SceneState::Edit,
-                                              "the scene is not playing; either it was already playing or "
-                                              "Play refused (the log says why)." );
-            case Command::Pause:
-                if ( state == SceneState::Play )
-                    m_MainScene->SetState( SceneState::Paused );
-                return PaletteCommandOutcome( state == SceneState::Play, state == SceneState::Paused
-                                                                              ? "the world is already paused."
-                                                                              : "nothing is playing, so there is "
-                                                                                "nothing to pause." );
-            case Command::Resume:
-                if ( state == SceneState::Paused )
-                    m_MainScene->SetState( SceneState::Play );
-                return PaletteCommandOutcome( state == SceneState::Paused, "the world is not paused, so there "
-                                                                           "is nothing to resume." );
-            case Command::NextFrame:
-                // Consumed by the next Scene::OnUpdate: the world advances one frame and holds again.
-                return PaletteCommandOutcome( m_MainScene->RequestSingleFrame(),
-                                              "the world is not paused; Next Frame steps a PAUSED world." );
-            case Command::Stop:
-                // Deferred to OnUpdate (between frames) — see m_PendingSceneStop.
-                if ( state != SceneState::Edit )
-                    m_PendingSceneStop = true;
-                return PaletteCommandOutcome( state != SceneState::Edit, "nothing is playing, so there is "
-                                                                         "nothing to stop." );
-        }
-        return Common::MakeError( "unknown play-world command" );
     }
 
     void EditorLayer::DrawOpenScenePopup()
@@ -9145,10 +8385,10 @@ namespace Desert::Editor
         if ( ImGui::Button( "Save and Open", ImVec2( 130, 0 ) ) )
         {
             // THE GATE THIS WHOLE TASK EXISTS FOR. LoadScene below clears the command history and calls
-            // m_MainScene->Clear() — it destroys the only copy of the work the user just asked to have
-            // saved. Before the save chain returned a result this ran unconditionally, so a scene that
-            // failed to reach the disk was then deleted from memory, with a green "Saved" toast over it
-            // and nowhere to recover from. The modal now stays open on a failed write and says so.
+            // m_Workspace.ActiveScene()->Clear() — it destroys the only copy of the work the user just asked to
+            // have saved. Before the save chain returned a result this ran unconditionally, so a scene that failed
+            // to reach the disk was then deleted from memory, with a green "Saved" toast over it and nowhere to
+            // recover from. The modal now stays open on a failed write and says so.
             if ( SaveOpenScene() )
             {
                 m_SaveAndOpenError.clear();
@@ -9265,28 +8505,29 @@ namespace Desert::Editor
         // still contains "_autosave", which is what Autosave::SceneFor matches on, and it is
         // the newest file there, so the recovery prompt offers this one.
         //
-        // IN PLAY MODE THE AUTHORED SCENE IS WHAT GETS WRITTEN — m_PlaySnapshot, the same text Stop would
+        // IN PLAY MODE THE AUTHORED SCENE IS WHAT GETS WRITTEN — PlaySession's snapshot, the same text Stop would
         // have restored. The live scene at that instant holds runtime mutations nobody authored and nobody
         // wants back; saving those under the user's scene name would be the wrong answer wearing the right
         // filename.
-        if ( Graphic::DeviceLost::IsLost() && m_MainScene )
+        if ( Graphic::DeviceLost::IsLost() && m_Workspace.ActiveScene() )
         {
             using SceneState = ::Desert::Core::Scene::SceneState;
-            Desert::Core::SceneSerializer serializer( m_MainScene.get(), m_AssetManager.get() );
-            const std::string             text =
-                 m_MainScene->GetState() == SceneState::Edit ? serializer.SerializeToJson() : m_PlaySnapshot;
+            Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(), m_AssetManager.get() );
+            const std::string             text = m_Workspace.ActiveScene()->GetState() == SceneState::Edit
+                                                      ? serializer.SerializeToJson()
+                                                      : m_Play.AuthoredSnapshot();
             if ( text.empty() )
             {
                 // An empty file under a recovery name is a silent wrong answer: the prompt would offer it
                 // and the user would open nothing. Say so instead.
                 LOG_ERROR( "[DeviceLost] nothing could be serialized to save — the scene is in {} and its "
                            "authored snapshot is empty. Your periodic autosave, if any, is untouched.",
-                           m_MainScene->GetState() == SceneState::Edit ? "Edit" : "Play" );
+                           m_Workspace.ActiveScene()->GetState() == SceneState::Edit ? "Edit" : "Play" );
             }
             else
             {
-                const auto      path = Autosave::PathFor( m_OpenScenePath, m_MainScene->GetSceneName(),
-                                                          Autosave::kDeviceLostSuffix );
+                const auto path = Autosave::PathFor( m_OpenScenePath, m_Workspace.ActiveScene()->GetSceneName(),
+                                                     Autosave::kDeviceLostSuffix );
                 const auto      dir  = path.parent_path();
                 std::error_code ec;
                 std::filesystem::create_directories( dir, ec );
@@ -9379,49 +8620,9 @@ namespace Desert::Editor
             LOG_ERROR( "[EditorLayer] ImGui layer failed to detach: {}", detached.GetError() );
         m_ImGuiLayer.reset();
 
-        // A SCENE NAMES ITS VIEWS' RENDERERS BY RAW POINTER (Scene::m_Views) AND OWNS NONE OF THEM, so a
-        // renderer may only die after its scene has let go of it. ~EditorLayer, left to itself, does it
-        // the other way round: members die in reverse declaration order, so m_SceneRenderer and every
-        // SceneViewport::Renderer went first, and m_RenderRegistry after them -- whose EditorUIPass,
-        // grid and collider passes call Scene::UnregisterExternalPass, which walks every view and
-        // dereferences each freed renderer. Every editor exit ended in an access violation (FIX6). The
-        // teardown is therefore explicit and in ownership order, each step the one its close site uses:
-        //
-        // Extra viewports first, as CloseSceneViewport does it: take the renderer off the scene it looks
-        // at, THEN destroy it. They are views of the documents below and must not outlive their removal.
-        for ( auto& view : m_ExtraViewports )
-        {
-            view->Viewport = nullptr; // the panel went with m_Panels above
-            if ( const auto scene = view->Scene.lock() )
-            {
-                if ( !scene->RemoveView( view->Renderer.get() ) )
-                    LOG_WARN( "[Editor] viewport '{}' was not a view of '{}' at shutdown.", view->Name,
-                              scene->GetSceneName() );
-            }
-            view->Renderer.reset();
-        }
-        m_ExtraViewports.clear();
-
-        // The primary document, in the order CloseSceneView uses for an extra one: the pass registry while
-        // the scene and its renderer are both alive (its passes unregister themselves from the scene),
-        // then the scene -- both handles, m_MainScene may alias m_PrimaryScene or an extra document's --
-        // and only then the renderer the scene was pointing at.
-        m_RenderRegistry.reset();
-        m_MainScene.reset();
-        m_PrimaryScene.reset();
-        m_SceneRenderer.reset();
-
-        // Extra documents in the same order CloseSceneView uses (their panels went with m_Panels above):
-        // registry, then scene, then renderer. Explicit rather than left to ~EditorLayer, which runs after
-        // the layer stack has moved on and would destroy renderers at an unspecified point relative to it.
-        for ( auto& doc : m_ExtraScenes )
-        {
-            doc->Viewport = nullptr; // the panel went with m_Panels above; see the note there
-            doc->Registry.reset();
-            doc->Scene.reset();
-            doc->Renderer.reset();
-        }
-        m_ExtraScenes.clear();
+        // A scene names its views' renderers by raw pointer and owns none of them, so every renderer dies
+        // after the scene that names it (FIX6) — the order is SceneWorkspace::Teardown's.
+        m_Workspace.Teardown();
 
         return BOOLSUCCESS;
     }

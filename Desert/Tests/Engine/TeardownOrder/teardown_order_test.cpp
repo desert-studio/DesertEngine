@@ -302,8 +302,8 @@ TEST( TeardownOrder, EverySiteThatDestroysASceneRendererIdlesTheDeviceFirst )
          { "Editor/Source/Editor/Widgets/AssetThumbnailRenderer.cpp",
            "AssetThumbnailRenderer::~AssetThumbnailRenderer",
            "the Content Browser thumbnail renderer -- ThumbnailService drops its renderer through this" },
-         { "Editor/Source/EditorLayer.cpp", "EditorLayer::CloseSceneView", "closing an extra scene view" },
-         { "Editor/Source/EditorLayer.cpp", "EditorLayer::OnDetach", "quitting, for every extra scene view" },
+         { "Editor/Source/Editor/LevelEditor/SceneWorkspace.cpp", "SceneWorkspace::CloseSceneView",
+           "closing an extra scene view" },
          { "Editor/Source/Editor/Panels/Photogrammetry/PhotogrammetryPanel.cpp",
            "PhotogrammetryPanel::ReleasePreview", "the reconstruction preview" },
     };
@@ -555,23 +555,42 @@ TEST( TeardownOrder, EveryVulkanObjectTheEngineCreatesHasADestroyCall )
 // renderer some scene may point at, so it fails the count until its teardown is added to OnDetach and here.
 TEST( TeardownOrder, EditorLayerOwnsExactlyTheSceneRenderersOnDetachReleases )
 {
-    const std::string header = StripLineComments( ReadFile( RepoRoot() / "Editor/Source/EditorLayer.hpp" ) );
-    ASSERT_FALSE( header.empty() ) << "Editor/Source/EditorLayer.hpp not found or empty";
+    // The level editor's worlds live in SceneWorkspace, a member of EditorLayer; EditorLayer itself owns none.
+    const std::string layer = StripLineComments( ReadFile( RepoRoot() / "Editor/Source/EditorLayer.hpp" ) );
+    ASSERT_FALSE( layer.empty() ) << "Editor/Source/EditorLayer.hpp not found or empty";
+    EXPECT_EQ( layer.find( "std::unique_ptr<Graphic::SceneRenderer>" ), std::string::npos )
+         << "EditorLayer.hpp owns a SceneRenderer again; the level editor's renderers belong to SceneWorkspace";
+
+    const std::string header =
+         StripLineComments( ReadFile( RepoRoot() / "Editor/Source/Editor/LevelEditor/SceneWorkspace.hpp" ) );
+    ASSERT_FALSE( header.empty() ) << "Editor/Source/Editor/LevelEditor/SceneWorkspace.hpp not found or empty";
 
     const std::string owner = "std::unique_ptr<Graphic::SceneRenderer>";
     size_t            count = 0;
     for ( size_t at = header.find( owner ); at != std::string::npos; at = header.find( owner, at + 1 ) )
         ++count;
-    EXPECT_EQ( count, 3u ) << "EditorLayer.hpp owns SceneRenderers in " << count
+    EXPECT_EQ( count, 3u ) << "SceneWorkspace.hpp owns SceneRenderers in " << count
                            << " places; the rows below cover m_SceneRenderer, SceneDocument::Renderer and "
                               "SceneViewport::Renderer";
 }
 
 TEST( TeardownOrder, OnDetachReleasesEverySceneRendererAfterTheSceneLetsGoOfIt )
 {
-    const std::string source = StripLineComments( ReadFile( RepoRoot() / "Editor/Source/EditorLayer.cpp" ) );
-    const std::string body   = FunctionBody( source, "EditorLayer::OnDetach" );
-    ASSERT_FALSE( body.empty() ) << "EditorLayer::OnDetach is not in Editor/Source/EditorLayer.cpp any more";
+    // OnDetach waits for the device, then hands the worlds to SceneWorkspace::Teardown, which is where the order
+    // lives.
+    const std::string layer  = StripLineComments( ReadFile( RepoRoot() / "Editor/Source/EditorLayer.cpp" ) );
+    const std::string detach = FunctionBody( layer, "EditorLayer::OnDetach" );
+    ASSERT_FALSE( detach.empty() ) << "EditorLayer::OnDetach is not in Editor/Source/EditorLayer.cpp any more";
+    const size_t detachIdle     = detach.find( "WaitDeviceIdle()" );
+    const size_t detachTeardown = detach.find( "m_Workspace.Teardown()" );
+    ASSERT_NE( detachTeardown, std::string::npos ) << "OnDetach no longer tears the level editor's worlds down";
+    ASSERT_NE( detachIdle, std::string::npos ) << "OnDetach destroys the worlds' renderers without a device wait";
+    EXPECT_LT( detachIdle, detachTeardown ) << "OnDetach tears the worlds down before the device is idle";
+
+    const std::string source =
+         StripLineComments( ReadFile( RepoRoot() / "Editor/Source/Editor/LevelEditor/SceneWorkspace.cpp" ) );
+    const std::string body = FunctionBody( source, "SceneWorkspace::Teardown" );
+    ASSERT_FALSE( body.empty() ) << "SceneWorkspace::Teardown is not in SceneWorkspace.cpp any more";
 
     // Extra viewports: off their scene, then destroyed -- the order CloseSceneViewport uses -- and all of
     // them gone before the primary registry walks the scene's views.
@@ -581,7 +600,7 @@ TEST( TeardownOrder, OnDetachReleasesEverySceneRendererAfterTheSceneLetsGoOfIt )
     // The primary document: its pass registry while scene and renderer both live, then both scene
     // handles, then the renderer.
     const size_t registry  = body.find( "m_RenderRegistry.reset()" );
-    const size_t mainScene = body.find( "m_MainScene.reset()" );
+    const size_t mainScene = body.find( "m_ActiveScene.reset()" );
     const size_t primary   = body.find( "m_PrimaryScene.reset()" );
     const size_t renderer  = body.find( "m_SceneRenderer.reset()" );
     // The extra documents, which were already right: registry, scene, renderer.
@@ -593,7 +612,7 @@ TEST( TeardownOrder, OnDetachReleasesEverySceneRendererAfterTheSceneLetsGoOfIt )
          << "OnDetach leaves m_RenderRegistry to ~EditorLayer, which destroys it AFTER m_SceneRenderer: "
             "~EditorUIPass -> Scene::UnregisterExternalPass then dereferences the freed renderer";
     ASSERT_NE( renderer, std::string::npos ) << "OnDetach leaves m_SceneRenderer to ~EditorLayer";
-    ASSERT_NE( mainScene, std::string::npos ) << "OnDetach never drops m_MainScene";
+    ASSERT_NE( mainScene, std::string::npos ) << "Teardown never drops m_ActiveScene";
     ASSERT_NE( primary, std::string::npos ) << "OnDetach never drops m_PrimaryScene";
     ASSERT_NE( viewRemove, std::string::npos ) << "OnDetach never takes an extra viewport off its scene";
     ASSERT_NE( viewReset, std::string::npos ) << "OnDetach never releases an extra viewport's renderer";
