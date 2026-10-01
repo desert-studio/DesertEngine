@@ -415,9 +415,8 @@ TEST( ContentScanners, TheTwoSceneListsGoThroughTheSharedEnumeration )
     const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
     ASSERT_FALSE( root.empty() );
 
-    for ( const char* file :
-          { "Editor/Source/Editor/LevelEditor/SceneFiles.cpp",
-            "Editor/Source/Editor/Panels/Build/BuildSettingsPanel.cpp" } )
+    for ( const char* file : { "Editor/Source/Editor/LevelEditor/SceneFiles.cpp",
+                               "Editor/Source/Editor/Panels/Build/BuildSettingsPanel.cpp" } )
     {
         const std::string source = ReadFile( root / file );
         ASSERT_FALSE( source.empty() ) << file;
@@ -434,8 +433,8 @@ TEST( ContentScanners, TheTwoSceneListsGoThroughTheSharedEnumeration )
 // than a weaker one: the `Load ▾` popup it enumerated `.dgraph` files for does not exist any more. A
 // `.dgraph` is an asset and its window is a document, so opening one is the browser's double-click or the
 // palette's Open group — and that group is built from OpenableAssets, which walks ASSETS_PATH through this
-// same shared enumeration (FileExplorer/AssetCommands.cpp). The panel now walks nothing at all, so there is no call site
-// here left to revert.
+// same shared enumeration (FileExplorer/AssetCommands.cpp). The panel now walks nothing at all, so there is no
+// call site here left to revert.
 TEST( ContentScanners, TheScannersI8FixedGoThroughTheSharedEnumeration )
 {
     const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();

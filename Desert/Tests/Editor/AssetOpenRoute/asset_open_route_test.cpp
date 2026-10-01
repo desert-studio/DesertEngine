@@ -261,7 +261,8 @@ namespace
     std::multiset<std::string> LoadSceneCallers( const std::string& layer )
     {
         std::multiset<std::string> callers;
-        const std::regex           member( R"(^    (?:[^ /][^(]*)?(?:EditorLayer|SceneFiles|DockLayout|ShotDirector)::(\w+)\()" );
+        const std::regex           member(
+             R"(^    (?:[^ /][^(]*)?(?:EditorLayer|SceneFiles|DockLayout|ShotDirector)::(\w+)\()" );
         const std::regex           call( R"((^|[^:\w])RequestLoad\()" );
         std::istringstream         lines( layer );
         std::string                line;

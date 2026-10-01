@@ -38,7 +38,7 @@ namespace
     constexpr const char* kRuntimeLayer  = "Runtime/Source/RuntimeLayer.cpp";
     constexpr const char* kRuntimeHeader = "Runtime/Source/RuntimeLayer.hpp";
     // The editor's ContentGate lives in its startup (EDL-7 moved it out of EditorLayer.cpp).
-    constexpr const char* kEditorHost    = "Editor/Source/Editor/LevelEditor/EditorStartup.cpp";
+    constexpr const char* kEditorHost = "Editor/Source/Editor/LevelEditor/EditorStartup.cpp";
 
     std::string RepoRoot()
     {
