@@ -9,6 +9,7 @@
 #include <Editor/Core/SubjectTitle.hpp>
 #include <Editor/Import/ImportOptionsDialog.hpp>
 #include <Editor/Panels/AnimationEditor/AnimationNotifyTracks.hpp>
+#include <Editor/Panels/AnimationEditor/ClipTiming.hpp>
 #include <Editor/Panels/AnimationEditor/SkeletonReferenceSlots.hpp>
 #include <Editor/Panels/AnimationEditor/SkeletonTree.hpp>
 #include <Editor/Panels/ViewportPanel/BoneOverlay.hpp>
@@ -520,6 +521,17 @@ namespace Desert::Editor
                     m_BindRevisionShown = revision;
                 }
             m_Preview->SetContentFingerprint( m_BindRevisionShown );
+        }
+
+        // The transport reads the clip's range and grid every frame: a Length or Display Rate edit, and its
+        // undo, reach it without a hook into this window (ClipTiming.hpp).
+        if ( ClipAsset() != nullptr )
+        {
+            const auto& timed           = m_ClipAsset->GetClip();
+            m_Transport.DurationSeconds = timed.DurationSeconds();
+            m_Transport.DisplayRate     = timed.Sequence.DisplayRate.IsValid() ? timed.Sequence.DisplayRate
+                                                                               : Animation::DEFAULT_DISPLAY_RATE;
+            m_Transport.SetTime( m_Transport.Time );
         }
 
         // Real seconds, scaled by the transport's speed: playback runs at clip speed whatever the frame rate.
@@ -1392,10 +1404,36 @@ namespace Desert::Editor
         ImGui::TextDisabled( "Skeleton" );
         ImGui::TableNextColumn();
         DrawSkeletonSlot();
-        row( "Length", std::format( "{:.3f} s", clip.DurationSeconds() ) );
+        // Length and Display Rate are edits (UE's Asset Details / Sequencer play range and rate), one undo
+        // record each (ClipTiming.hpp); the keys are ticks and stay where they are in time.
+        const auto labelled = []( const char* label )
+        {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled( "%s", label );
+            ImGui::TableNextColumn();
+            ImGui::SetNextItemWidth( -1.0f );
+        };
+        labelled( "Length" );
+        double lengthSeconds = clip.DurationSeconds();
+        if ( ImGui::InputDouble( "##cliplength", &lengthSeconds, 0.0, 0.0, "%.3f s",
+                                 ImGuiInputTextFlags_EnterReturnsTrue ) )
+            (void)SetClipLength( m_ClipAsset->GetClipForAuthoring(), ClipLengthTicks( clip, lengthSeconds ), {} );
         row( "Frames", std::format( "{}", m_Transport.LastFrame() + 1 ) );
-        row( "Display Rate", std::format( "{}/{} fps", clip.Sequence.DisplayRate.Numerator,
-                                          clip.Sequence.DisplayRate.Denominator ) );
+        labelled( "Display Rate" );
+        const auto shownRate = std::ranges::find( kClipDisplayRates, clip.Sequence.DisplayRate, &NamedFrameRate::Rate );
+        const std::string rateLabel =
+             shownRate != kClipDisplayRates.end()
+                  ? std::string( shownRate->Label )
+                  : std::format( "{}/{} fps", clip.Sequence.DisplayRate.Numerator,
+                                 clip.Sequence.DisplayRate.Denominator );
+        if ( ImGui::BeginCombo( "##clipdisplayrate", rateLabel.c_str() ) )
+        {
+            for ( const auto& named : kClipDisplayRates )
+                if ( ImGui::Selectable( std::string( named.Label ).c_str(), named.Rate == clip.Sequence.DisplayRate ) )
+                    (void)SetClipDisplayRate( m_ClipAsset->GetClipForAuthoring(), named.Rate, {} );
+            ImGui::EndCombo();
+        }
         row( "Tick Rate", std::format( "{}/{} ({} ticks)", clip.Sequence.TickRate.Numerator,
                                        clip.Sequence.TickRate.Denominator, clip.DurationTicks().Value ) );
         row( "Bone Tracks", std::format( "{}", boneTracks ) );
