@@ -19,8 +19,9 @@ namespace Desert::Graphic::System
         //   env cubes absent    -> the fallback cube (the split-sum ambient reads zero)
         //   BRDF LUT absent     -> Black (no specular ambient term)
         //   cloud shadow absent -> White (the sun is not occluded by clouds)
-        //   cascades past CascadeCount -> cascade 0's own map: same format and sampler, and the shader's
-        //                         cascade loop is bounded by CascadeCount, so it is never sampled.
+        //   normal map          -> FlatNormal (the glass draws share one material; no object has normal
+        //                         detail, which the old route expressed by leaving the slot on the fallback)
+        // The glass shader (StaticMeshGlass) samples no shadow cascade, so there is nothing to write for them.
         void BindGlassFrameDefaults( Material& material, const PBRSceneFrame& frame )
         {
             const auto& emptyCube =
@@ -39,13 +40,9 @@ namespace Desert::Graphic::System
                 if ( auto* tex = material.Get<Texture2DProperty>( "u_CloudShadowMap" ) )
                     tex->SetImage( DefaultTextures::Get().Share( Core::Formats::DefaultTextureKind::White ).get(),
                                    RDG::Access::SampledGraphics );
-            Image2D* const firstCascade = frame.CascadeMaps[0];
-            if ( !firstCascade )
-                return; // no cascade at all this frame: REMAINDER-W4D (piece 3, cascades as graph refs)
-            for ( uint32_t i = 0; i < MaterialPBRBase::kMaxCascades; ++i )
-                if ( i >= frame.CascadeCount || !frame.CascadeMaps[i] )
-                    if ( auto* tex = material.Get<Texture2DProperty>( MaterialPBRBase::kShadowMapNames[i] ) )
-                        tex->SetImage( firstCascade, RDG::Access::SampledGraphics );
+            if ( auto* tex = material.Get<Texture2DProperty>( "u_NormalTexture" ) )
+                tex->SetImage( DefaultTextures::Get().Share( Core::Formats::DefaultTextureKind::FlatNormal ).get(),
+                               RDG::Access::SampledGraphics );
         }
 
         constexpr std::string_view kGenericMeshNameFormat = "GenericMesh_{}";
