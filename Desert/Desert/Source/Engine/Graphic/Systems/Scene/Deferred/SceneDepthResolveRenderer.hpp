@@ -113,7 +113,8 @@ namespace Desert::Graphic::System
             RDG::PassBindings bindings( context );
             bindings.Sampled( "u_Depth", sceneDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
                               RDG::SamplerDesc::PointClamp() );
-            return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline, m_Material->GetMaterialExecutor() );
+            return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
+                                                           m_Material->GetMaterialExecutor() );
         }
 
     private:

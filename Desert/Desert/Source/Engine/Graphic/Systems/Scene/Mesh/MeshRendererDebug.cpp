@@ -344,8 +344,9 @@ namespace Desert::Graphic::System
                      if ( !renderData.Outlined || renderData.Mesh == nullptr )
                          continue;
 
-                     if ( auto drawn = DrawMesh( pass, m_SilhouettePipeline.get(), renderData.Mesh,
-                                                 renderData.Transform, m_SilhouetteMaterial->GetMaterialExecutor() );
+                     if ( auto drawn =
+                               DrawMesh( pass, m_SilhouettePipeline.get(), renderData.Mesh, renderData.Transform,
+                                         m_SilhouetteMaterial->GetMaterialExecutor() );
                           !drawn.IsSuccess() )
                          return drawn;
                  }
@@ -387,9 +388,9 @@ namespace Desert::Graphic::System
                          for ( const auto& [sd, boneOffset] : outlined )
                          {
                              m_SilhouetteSkinnedMaterial->SetBoneOffset( boneOffset );
-                             if ( auto drawn = DrawMesh( pass, m_SilhouetteSkinnedPipeline.get(), sd->Mesh,
-                                                         sd->Transform,
-                                                         m_SilhouetteSkinnedMaterial->GetMaterialExecutor() );
+                             if ( auto drawn =
+                                       DrawMesh( pass, m_SilhouetteSkinnedPipeline.get(), sd->Mesh, sd->Transform,
+                                                 m_SilhouetteSkinnedMaterial->GetMaterialExecutor() );
                                   !drawn.IsSuccess() )
                                  return drawn;
                          }

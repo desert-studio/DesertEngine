@@ -498,10 +498,10 @@ namespace Desert::Graphic::System
 
                      // Per-object path (singletons).
                      for ( const auto* rd : singles )
-                         if ( auto drawn = DrawMesh(
-                                   pass, m_ShadowPipeline.get(), rd->Mesh, rd->Transform,
-                                   m_ShadowMaterial[c]->GetMaterialExecutor(), 1, 0, 0,
-                                   ComputeLOD( rd->Transform, rd->Mesh, rd->ForcedLOD, rd->LODBias ) );
+                         if ( auto drawn =
+                                   DrawMesh( pass, m_ShadowPipeline.get(), rd->Mesh, rd->Transform,
+                                             m_ShadowMaterial[c]->GetMaterialExecutor(), 1, 0, 0,
+                                             ComputeLOD( rd->Transform, rd->Mesh, rd->ForcedLOD, rd->LODBias ) );
                               !drawn.IsSuccess() )
                              return drawn;
 
@@ -584,8 +584,8 @@ namespace Desert::Graphic::System
                              // sways with the plant (Common/FoliageWind.glslh is the one formula).
                              instMat->SetInstancedWind( b.Wind );
                              if ( auto drawn = DrawMesh( pass, m_ShadowInstancedPipeline.get(), b.Mesh,
-                                                         glm::mat4( 1.0f ), instMat->GetMaterialExecutor(), b.Count,
-                                                         b.First, /*hiddenSubmeshMask*/ 0, b.LodLevel );
+                                                         glm::mat4( 1.0f ), instMat->GetMaterialExecutor(),
+                                                         b.Count, b.First, /*hiddenSubmeshMask*/ 0, b.LodLevel );
                                   !drawn.IsSuccess() )
                                  return drawn;
                          }

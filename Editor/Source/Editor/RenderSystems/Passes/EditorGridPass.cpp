@@ -44,7 +44,7 @@ namespace Desert::Editor::Render
         pass.Dependencies          = { Graphic::RenderPassDependency( Graphic::RenderPhase::Geometry ) };
         pass.PipelineSpecification = m_Pipeline->GetSpecification();
         pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx,
-                               Graphic::RDG::PassContext& context ) -> Common::BoolResultStr
+                               Graphic::RDG::PassContext&          context ) -> Common::BoolResultStr
         {
             // The flag is asked of the RENDERER this pass is drawing into, not of the scene and not of a
             // global: it is what THIS view is showing (Graphic/DebugViewState.hpp). A scene rendered into
@@ -58,8 +58,8 @@ namespace Desert::Editor::Render
 
             m_Material->Update( ctx.Camera );
             // The grid samples nothing: no pass parameter.
-            return Graphic::Renderer::GetInstance().DrawFullscreen( Graphic::RDG::PassBindings( context ),
-                                                                    *m_Pipeline, m_Material->GetMaterialExecutor() );
+            return Graphic::Renderer::GetInstance().DrawFullscreen(
+                 Graphic::RDG::PassBindings( context ), *m_Pipeline, m_Material->GetMaterialExecutor() );
         };
 
         scene->RegisterExternalPass( std::move( pass ) );
