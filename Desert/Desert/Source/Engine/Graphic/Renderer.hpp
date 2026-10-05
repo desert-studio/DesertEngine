@@ -39,38 +39,20 @@ namespace Desert::Graphic
         [[nodiscard]] Common::BoolResultStr BeginFrame();
         [[nodiscard]] Common::BoolResultStr EndFrame();
         void BeginRenderPass( const RenderPass* renderPass, bool clearFrame = true );
-        void BeginSwapChainRenderPass();
         void EndRenderPass();
 
         // Named region in the current command buffer (RenderDoc pass tree). Pair Begin/End.
         void BeginDebugLabel( const char* name );
         Common::BoolResultStr ExecuteGraph( RDG::Builder& graph );
         Common::BoolResultStr ImportImage( const std::shared_ptr<Image>& image, RDG::ExternalTexture& into );
+        // RendererAPI::ImportBackBuffer: this frame's acquired swapchain image as a graph external.
+        Common::BoolResultStr ImportBackBuffer( RDG::ExternalTexture& into );
         Common::BoolResultStr ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
                                             RDG::ExternalBuffer&                                   into );
-        void EndDebugLabel();
-        void RenderMesh( const GraphicsPipeline* pipeline, const Mesh* mesh, const glm::mat4 transform,
-                         const MaterialExecutor* materialExecutor, uint32_t instanceCount = 1,
-                         uint32_t firstInstance = 0, uint64_t hiddenSubmeshMask = 0, uint32_t lodLevel = 0 );
-
-        // One triangle covering the viewport (3 vertices, Common/FullscreenTriangle.glslh) in the open render
-        // pass.
-        void SubmitFullscreenTriangle( const GraphicsPipeline* pipeline,
-                                       const MaterialExecutor* materialExecutor );
-
-        // Indexed draw from a caller-supplied dynamic VB+IB (the 2D/UI batcher). One call per state batch.
-        void SubmitIndexed( const GraphicsPipeline* pipeline, VertexBuffer* vertexBuffer, IndexBuffer* indexBuffer,
-                            uint32_t indexCount, uint32_t firstIndex, const MaterialExecutor* materialExecutor );
-
+        void                  EndDebugLabel();
         // Vertexless line draw: the pipeline (Lines topology) pulls vertices from a storage buffer by index.
         void SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
                           const MaterialExecutor* materialExecutor );
-
-        // Vertexless draw: the vertex shader synthesizes geometry from gl_VertexIndex (GPU terrain patches,
-        // particle billboards). Instanced MESH drawing is SubmitMesh's instanceCount, which is a different
-        // seam and the one hardware instancing of assets goes through.
-        void SubmitVertices( const GraphicsPipeline* pipeline, uint32_t vertexCount,
-                             const MaterialExecutor* materialExecutor );
 
         // RDG-A2 - the renderer-level consumers of a PassBindings (RDGPassBindings.hpp). Called only from inside
         // the exec lambda whose PassContext built @p bindings; they record on that pass's command buffer
@@ -98,7 +80,7 @@ namespace Desert::Graphic
                                                             const GraphicsPipeline&  pipeline,
                                                             const MaterialExecutor* material, uint32_t vertexCount,
                                                             uint32_t instanceCount );
-        // The PassBindings route for indexed batched draws (the 2D/UI batcher): SubmitIndexed's draw with the
+        // The PassBindings route for indexed batched draws (the 2D/UI batcher): one indexed draw with the
         // graph textures bound by shader name, e.g. Render2D's glass batches sampling u_Backdrop from this
         // frame's backdrop pyramid. Same contract as DrawFullscreen otherwise.
         [[nodiscard]] Common::BoolResultStr DrawIndexed( const RDG::PassBindings& bindings,

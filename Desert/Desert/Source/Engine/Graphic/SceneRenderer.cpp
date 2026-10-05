@@ -826,6 +826,7 @@ namespace Desert::Graphic
         RDG::Builder        graph( "SceneView" );
         graph.SetPassCulling( !m_DebugView.DisablePassCulling );
         FrameTextures       textures( graph );
+        ImportSceneViewTextures( textures );
         const auto          values = std::make_shared<FrameValues>();
 
         const auto sceneColor = [this, &textures]()
@@ -1535,7 +1536,7 @@ namespace Desert::Graphic
 
         const CloudShadowMapView& view = clouds->GetShadowMapView();
 
-        cloudShadow.Map        = clouds->GetShadowMapImage();
+        cloudShadow.HasMap     = clouds->GetShadowMapImage() != nullptr;
         cloudShadow.WorldToMap = view.WorldToMap;
         cloudShadow.FarDepthKm = view.FarDepthKm;
         cloudShadow.Strength   = clouds->GetShadowStrength();

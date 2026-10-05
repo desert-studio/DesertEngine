@@ -1737,7 +1737,8 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     // RDG-A2-W4: the SSR passes sample the G-buffer as graph refs by name, never a framebuffer image.
     declares( "AddFrameSSR", { "PassFlags::Compute", "Access::StorageWrite", "LoadTarget(pass,target)",
                                "GBufferInputsinputs{gbuffer[0],gbuffer[1],gbuffer[2]}",
-                               "RecordResolve(context,trace,tiles,inputs)" } );
+                               "RecordResolve(context,trace,tiles,history,inputs)",
+                               "RecordComposite(context,accum,tiles,inputs,viewProj)" } );
 }
 
 // DepthResolve is a Copy node: G-buffer depth CopySrc -> target depth CopyDst, so the graph plans the barriers
@@ -2224,7 +2225,7 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererDebug.cpp",
            "RenderOverdrawAccumManual" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererDebug.cpp",
-           "RenderOverdrawResolveManual" } };
+           "RecordOverdrawResolve" } };
     for ( const auto& [file, function] : bodies )
     {
         const std::string body = bodyOf( read( file ), function );
@@ -2243,11 +2244,14 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
     std::erase_if( glass, []( const char c ) { return std::isspace( static_cast<unsigned char>( c ) ); } );
     EXPECT_EQ( glass.find( "kShadowMapNames" ), std::string::npos );
 
-    // The deferred composite: a cascade that exists this frame is its graph texture, the rest read the white
-    // system texture (no shadow). Always-white would light every pixel as unshadowed.
-    std::string deferred = read( "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
-    std::erase_if( deferred, []( const char c ) { return std::isspace( static_cast<unsigned char>( c ) ); } );
-    EXPECT_NE( deferred.find( "inputs.ShadowMaps[c]=ref.IsValid()?ref:refs.System.White;" ), std::string::npos );
+    // The scene/view inputs every lit pass binds (SceneViewInputsOf): a cascade that exists this frame is its
+    // graph texture, the rest read the white system texture (no shadow). Always-white would light every pixel as
+    // unshadowed.
+    std::string view = read( "Desert/Desert/Source/Engine/Graphic/FrameGraphRefs.hpp" );
+    std::erase_if( view, []( const char c ) { return std::isspace( static_cast<unsigned char>( c ) ); } );
+    EXPECT_NE(
+         view.find( "inputs.ShadowMaps[c]=t.ShadowCascades[c].IsValid()?t.ShadowCascades[c]:refs.System.White;" ),
+         std::string::npos );
 }
 
 // THE PARTICLE SIMULATION IS A COMPUTE NODE (RDG-LEG1-L3): SceneRendererFrameAtmosphere.cpp adds it through
@@ -2558,17 +2562,26 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
 
     // Each system names what its pass samples, in its own RegisterPasses.
     const std::pair<const char*, const char*> declared[] = {
-         { "Systems/Scene/Skybox/SkyboxRenderer.cpp", "declared.Read(m_SkyViewLut,RDG::Access::SampledGraphics" },
          { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
-           "declared.Read(m_TransmittanceLut,RDG::Access::SampledGraphics" },
-         { "Systems/Scene/Mesh/MeshRenderer.cpp", "m_SceneRenderer->DeclareShadowReads(declared)" },
-         { "Systems/Scene/Terrain/TerrainRenderer.cpp", "m_SceneRenderer->DeclareShadowReads(declared)" },
+           "declared.Read(refs.Transients.SkyViewLut.IsValid()?refs.Transients.SkyViewLut:white,RDG::Access::"
+           "SampledGraphics" },
+         { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
+           "declared.Read(refs.Transients.SkyTransmittanceLut.IsValid()?refs.Transients.SkyTransmittanceLut:white,"
+           "RDG::Access::SampledGraphics" },
+         { "Systems/Scene/Mesh/MeshRenderer.cpp",
+           "for(constRDG::TextureRefinput:SceneViewInputsOf(refs).Refs())declared.Read(input,RDG::Access::"
+           "SampledGraphics" },
+         { "Systems/Scene/Terrain/TerrainRenderer.cpp",
+           "for(constRDG::TextureRefinput:SceneViewInputsOf(refs).Refs())declared.Read(input,RDG::Access::"
+           "SampledGraphics" },
          { "Systems/Scene/Particles/ParticleRenderer.cpp",
            "declared.Read(fe.ParticlesRef,RDG::Access::StorageRead)" },
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
            "declared.Read(refs.Transients.HeightFog,RDG::Access::SampledGraphics" },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
-           "declared.Read(m_HistoryImage[m_ResolvedIndex],RDG::Access::SampledGraphics" },
+           "declared.Read(refs.Transients.CloudScatter,RDG::Access::SampledGraphics" },
+         { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
+           "declared.Read(refs.Transients.CloudGuide,RDG::Access::SampledGraphics" },
          { "SceneRenderer.cpp", "declared.Read(mesh->GetCascadeShadowImage(c),RDG::Access::SampledGraphics" },
          { "SceneRenderer.cpp", "declared.Read(clouds->GetShadowMap(),RDG::Access::SampledGraphics" } };
     for ( const auto& [file, needle] : declared )
@@ -2673,6 +2686,27 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
     EXPECT_NE( source( "SceneRenderer.cpp" )
                     .find( "ResolveDeclared(textures,shadows,\"Deferred:Composite\",shadowMaps)" ),
                std::string::npos );
+
+    // RDG-TAILS-D2: the map is a graph ref of the frame (imported where its node runs), the composite declares
+    // it and binds it by shader name; its material only uploads CloudShadowUB (a slot filled by both routes is
+    // refused by DrawFullscreen).
+    EXPECT_NE( frame.find( "textures.Transients.CloudShadowMap=textures.Import(clouds->GetShadowMap(),"
+                           "\"Clouds.ShadowMap\")" ),
+               std::string::npos );
+    // MESH-PB1: the map is one of the scene/view inputs (SceneViewInputsOf), which the composite declares and
+    // binds.
+    EXPECT_NE( source( "FrameGraphRefs.hpp" ).find( "inputs.CloudShadowMap=CloudShadowMapOrWhite(refs);" ),
+               std::string::npos );
+    EXPECT_NE( source( "SceneRendererFrameDeferred.cpp" )
+                    .find( "conststd::vector<RDG::TextureRef>view=inputs.View.Refs();" ),
+               std::string::npos );
+    EXPECT_NE( source( "Systems/Scene/Deferred/DeferredLightingRenderer.hpp" )
+                    .find( "BindSceneViewInputs(bindings,inputs.View,*m_Shader);" ),
+               std::string::npos );
+    const std::string deferredMaterial = source( "Materials/Deferred/MaterialDeferredLighting.hpp" );
+    EXPECT_NE( deferredMaterial.find( "CloudShadowUpload(this,cloudShadow)" ), std::string::npos );
+    EXPECT_EQ( deferredMaterial.find( "\"u_CloudShadowMap\"" ), std::string::npos )
+         << "the deferred material sets the cloud map itself; it is a pass parameter";
 }
 
 // NO LEGACY CONSTRUCT REMAINS (RDG-LEG1-L5b). Every pass of the frame is a Raster, Compute or Copy node that
@@ -2684,7 +2718,14 @@ TEST( RenderGraphCompile, NoLegacyConstructRemainsInTheEngine )
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "run from inside the repository";
     const std::regex forbidden(
-         R"(AddLegacy|AddLegacyPass|LegacyRead|LegacyWrite|PassFlags::Legacy|WrapLegacyImage|LegacyFrameTextures)" );
+         R"(AddLegacy|AddLegacyPass|LegacyRead|LegacyWrite|PassFlags::Legacy|WrapLegacyImage|LegacyFrameTextures)"
+         // MESH-PB1 M2a: the material-route draws (no PassBindings) are deleted from Renderer / RendererAPI.
+         R"(|SubmitVertices\s*\(|RenderMesh\(\s*const GraphicsPipeline\s*\*)"
+         // MESH-PB1 M2e: the out-of-graph fullscreen blit (the runtime present is a graph node) and the
+         // material-side cloud-map binder (u_CloudShadowMap is a pass parameter).
+         R"(|SubmitFullscreenTriangle\s*\(|CloudShadowBind\s*\()"
+         // MESH-PB1 M2d: the editor's ImGui draw is a graph node; the out-of-graph swapchain pass is gone.
+         R"(|BeginSwapChainRenderPass)" );
     std::vector<std::string> found;
     size_t                   scanned = 0;
     for ( const char* tree : { "Desert/Desert/Source", "Editor/Source" } )
@@ -2700,7 +2741,7 @@ TEST( RenderGraphCompile, NoLegacyConstructRemainsInTheEngine )
             std::ifstream file( entry.path() );
             std::string   line;
             for ( size_t number = 1; std::getline( file, line ); ++number )
-                if ( line.find( "Legacy" ) != std::string::npos && std::regex_search( line, forbidden ) )
+                if ( std::regex_search( line, forbidden ) )
                     found.push_back( std::format( "{}:{}: {}", fs::relative( entry.path(), root ).generic_string(),
                                                   number, line ) );
         }
@@ -2710,6 +2751,56 @@ TEST( RenderGraphCompile, NoLegacyConstructRemainsInTheEngine )
     for ( const std::string& hit : found )
         std::format_to( std::back_inserter( list ), "\n  {}", hit );
     EXPECT_TRUE( found.empty() ) << found.size() << " legacy construct(s) remain:" << list;
+}
+
+// EVERY MESH PASS BODY RETURNS ITS DRAWS' RESULT (MESH-PB1 M2a). A draw through RDG::PassBindings is refused (an
+// undeclared or unfilled binding) by returning an error; a body that drops it and returns BOOLSUCCESS draws
+// nothing and the graph reports success. The cascade body returns each caster draw's and each non-mesh caster's
+// (terrain) result, and the terrain's own three bodies return RecordDraws'.
+TEST( RenderGraphCompile, MeshPassBodiesReturnTheirDrawResult )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const auto stripped = [&root]( const char* relative )
+    {
+        std::ifstream      file( root / "Desert/Desert/Source/Engine/Graphic" / relative );
+        std::ostringstream text;
+        text << file.rdbuf();
+        std::string out;
+        for ( const char ch : text.str() )
+            if ( std::isspace( static_cast<unsigned char>( ch ) ) == 0 )
+                out.push_back( ch );
+        return out;
+    };
+    const auto count = []( const std::string& text, const std::string& needle )
+    {
+        size_t n = 0;
+        for ( size_t at = text.find( needle ); at != std::string::npos; at = text.find( needle, at + 1 ) )
+            ++n;
+        return n;
+    };
+
+    const std::string shadow = stripped( "Systems/Scene/Mesh/MeshRendererShadow.cpp" );
+    ASSERT_FALSE( shadow.empty() );
+    EXPECT_NE( shadow.find( "if(autocast=caster->RecordShadowCascade(context,c,m_CascadeVP[c]);!cast.IsSuccess())"
+                            "returncast;" ),
+               std::string::npos )
+         << "the cascade body drops the non-mesh caster's draw result";
+    // RSM + the cascade's singles / generic / skinned / instanced draws.
+    EXPECT_GE( count( shadow, "!drawn.IsSuccess())returndrawn;" ), 5u )
+         << "a shadow / RSM draw's refusal is no longer returned by its body";
+
+    const std::string terrain = stripped( "Systems/Scene/Terrain/TerrainRenderer.cpp" );
+    ASSERT_FALSE( terrain.empty() );
+    EXPECT_NE( terrain.find( "draw.VertexCount,1);!drawn.IsSuccess())returndrawn;}returnBOOLSUCCESS;" ),
+               std::string::npos )
+         << "RecordDraws drops a refused terrain draw";
+    EXPECT_NE( terrain.find( "returnRecordDraws(bindings,*m_Pipeline,&ProgramMaterials::Forward" ),
+               std::string::npos );
+    EXPECT_NE( terrain.find( "returnRecordDraws(RDG::PassBindings(context),*m_GBufferPipeline" ),
+               std::string::npos );
+    EXPECT_NE( terrain.find( "returnRecordDraws(RDG::PassBindings(context),*m_ShadowPipeline" ),
+               std::string::npos );
 }
 
 // THE AUTO-EXPOSURE HISTOGRAM IS A TRANSIENT BUFFER OF EACH FRAME GRAPH (RDG-A2 P8). It is cleared, filled and
@@ -2798,4 +2889,118 @@ TEST( RenderGraphCompile, ExecuteWalksSegmentsAndReportsDemotionOncePerBackend )
     // Produce releases T and Out to the compute queue; Consume releases Out back to Graphics.
     EXPECT_EQ( std::count( separate.Calls.begin(), separate.Calls.end(), "Epilogue 2" ), 1 );
     EXPECT_EQ( std::count( separate.Calls.begin(), separate.Calls.end(), "Epilogue 1" ), 1 );
+}
+
+// MESH-PB1: the lit mesh nodes declare the scene/view inputs they bind (SceneViewInputs: shadow cascades,
+// environment cubes, BRDF LUT, cloud shadow map). A body that binds a texture its node did not declare is refused
+// by the graph at run time; this keeps the declaration from being dropped while the binding stays.
+TEST( RenderGraphCompile, LitMeshNodesDeclareTheSceneViewInputs )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const auto read = [&root]( const char* relative )
+    {
+        std::ifstream file( root / relative );
+        EXPECT_TRUE( file ) << relative << " is gone";
+        return std::string( std::istreambuf_iterator<char>( file ), std::istreambuf_iterator<char>() );
+    };
+    const std::string mesh = read( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
+    EXPECT_NE( mesh.find( "for ( const RDG::TextureRef input : SceneViewInputsOf( refs ).Refs() )" ),
+               std::string::npos )
+         << "MeshGeometryPass no longer declares the scene/view inputs";
+    EXPECT_NE( mesh.find( "declared.Read( input, RDG::Access::SampledGraphics" ), std::string::npos );
+
+    const std::string frame    = read( "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameMesh.cpp" );
+    size_t            declared = 0;
+    for ( size_t at = frame.find( "= view.Refs();" ); at != std::string::npos;
+          at        = frame.find( "= view.Refs();", at + 1 ) )
+        ++declared;
+    EXPECT_EQ( declared, 3u ) << "Deferred: Generic / Skinned / Glass each declare SceneViewInputs::Refs()";
+
+    const std::string refs = read( "Desert/Desert/Source/Engine/Graphic/FrameGraphRefs.hpp" );
+    EXPECT_NE( refs.find( "{ EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap }" ), std::string::npos )
+         << "SceneViewInputs::Refs() must name every input it binds, the cloud map included";
+
+    const std::string composite = read( "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
+    EXPECT_NE( composite.find( "const std::vector<RDG::TextureRef> view = inputs.View.Refs();" ),
+               std::string::npos )
+         << "Deferred: Composite no longer declares the scene/view inputs";
+}
+
+// THE PRESENT IS A GRAPH NODE (MESH-PB1 M2c). The runtime's back buffer is imported into a graph each frame
+// (Renderer::ImportBackBuffer, UE: RegisterExternalTexture of the viewport's RHI texture), one Raster node clears
+// it, blits the scene through PassBindings and draws the 2D batch, and the graph extracts it as Present. No draw
+// happens outside a graph pass: the swapchain render pass and the 2D batcher's out-of-graph SubmitIndexed are gone
+// from the runtime, and Render2D::Flush takes the node's context.
+TEST( RenderGraphCompile, RuntimePresentIsAGraphNode )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const std::string runtime = SqueezedSource( root, "Runtime/Source/RuntimeLayer.cpp" );
+    EXPECT_NE( runtime.find( "renderer.ImportBackBuffer(backBuffer)" ), std::string::npos );
+    EXPECT_NE( runtime.find( "graph.AddPass(\"RuntimePresent\",Graphic::RDG::PassFlags::Raster" ),
+               std::string::npos );
+    EXPECT_NE( runtime.find( "pass.ColorTarget(0,target," ), std::string::npos );
+    EXPECT_NE( runtime.find( "bindings.Sampled(\"u_Texture\",sceneRef,Graphic::RDG::Access::SampledGraphics" ),
+               std::string::npos );
+    EXPECT_NE( runtime.find( "graph.Extract(target,backBuffer,Graphic::RDG::Access::Present)" ),
+               std::string::npos );
+    EXPECT_NE( runtime.find( "renderer.ExecuteGraph(graph)" ), std::string::npos );
+    for ( const char* gone : { "BeginSwapChainRenderPass", "SubmitIndexed", "SubmitFullscreenTriangle",
+                               "EndRenderPass", "SetImage(" } )
+        EXPECT_EQ( runtime.find( gone ), std::string::npos )
+             << "RuntimeLayer.cpp draws outside the graph: " << gone;
+
+    const std::string render2D =
+         SqueezedSource( root, "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp" );
+    EXPECT_NE(
+         render2D.find( "Common::BoolResultStrFlush(constRDG::PassContext&context,RDG::TextureRefbackdrop);" ),
+         std::string::npos )
+         << "Render2D::Flush takes the node's context, with no default";
+    for ( const char* file : { "Desert/Desert/Source/Engine/Graphic/Renderer.hpp",
+                               "Desert/Desert/Source/Engine/Graphic/RendererAPI.hpp",
+                               "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp" } )
+        EXPECT_EQ( SqueezedSource( root, file ).find( "SubmitIndexed(" ), std::string::npos )
+             << file << ": the out-of-graph indexed draw is back";
+    EXPECT_EQ(
+         SqueezedSource( root, "Editor/Source/Editor/Panels/UI/UIEditorPanel.cpp" ).find( "BeginRenderPass(" ),
+         std::string::npos )
+         << "the UI editor preview draws outside the graph";
+}
+
+// THE EDITOR'S INTERFACE IS A GRAPH NODE (MESH-PB1 M2d). VulkanImGui::End imports the back buffer, records the
+// main viewport's draw data in one Raster node on that pass's own command buffer
+// (VulkanRdgBackend::CommandBufferOf), extracts the image as Present and executes the graph through the renderer.
+// The ImGui backend's pipeline is built against the graph's canonical render pass (CreateRdgRenderPass), not
+// against a swapchain render pass, and nothing in the file opens or closes a render pass of its own. The swapchain
+// keeps no render pass or framebuffers.
+TEST( RenderGraphCompile, EditorInterfaceIsAGraphNode )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const std::string imgui = SqueezedSource( root, "Editor/Source/Editor/ImGuiIntegration/VulkanImGuiLayer.cpp" );
+    EXPECT_NE( imgui.find( "renderer.ImportBackBuffer(backBuffer)" ), std::string::npos );
+    EXPECT_NE( imgui.find( "graph.AddPass(\"EditorImGui\",Graphic::RDG::PassFlags::Raster" ), std::string::npos );
+    EXPECT_NE( imgui.find( "pass.ColorTarget(0,target," ), std::string::npos );
+    EXPECT_NE( imgui.find( "VulkanRdgBackend::CommandBufferOf(context)" ), std::string::npos );
+    EXPECT_NE( imgui.find( "ImGui_ImplVulkan_RenderDrawData(drawData,commandBuffer.GetValue())" ),
+               std::string::npos )
+         << "the draw data is recorded on the node's command buffer";
+    EXPECT_NE( imgui.find( "graph.Extract(target,backBuffer,Graphic::RDG::Access::Present)" ), std::string::npos );
+    EXPECT_NE( imgui.find( "renderer.ExecuteGraph(graph)" ), std::string::npos );
+    EXPECT_NE( imgui.find( "ImGui_ImplVulkan_Init(&init_info,m_ImguiRenderPass)" ), std::string::npos );
+    EXPECT_NE( imgui.find( "CreateRdgRenderPass(" ), std::string::npos );
+    for ( const char* gone :
+          { "GetCurrentCommandBuffer", "BeginRenderPass(", "EndRenderPass(", "GetRenderPass(" } )
+        EXPECT_EQ( imgui.find( gone ), std::string::npos )
+             << "VulkanImGuiLayer.cpp draws outside the graph: " << gone;
+
+    for ( const char* file : { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp",
+                               "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanSwapChain.cpp" } )
+    {
+        const std::string swapChain = SqueezedSource( root, file );
+        for ( const char* gone : { "m_VkRenderPass", "m_SwapChainFramebuffers", "vkCreateRenderPass(" } )
+            EXPECT_EQ( swapChain.find( gone ), std::string::npos )
+                 << file << ": the swapchain owns a render pass again: " << gone;
+    }
 }

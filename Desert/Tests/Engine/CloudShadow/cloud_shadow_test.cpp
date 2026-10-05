@@ -1028,7 +1028,7 @@ TEST( CloudShadowReceiver, NoMaterialPacksTheUniformBlockForItself )
 {
     // The C++ half of the same relation. `CloudShadowUniforms` is filled in exactly ONE place —
     // CloudShadowPackUniforms, beside the struct — and reaches a descriptor set through exactly one
-    // writer, CloudShadowBind. A material that assembles the block itself is free to decide differently
+    // writer, CloudShadowUpload. A material that assembles the block itself is free to decide differently
     // what `Params.y` means, and the symptom is one render path shading with a shadow the other has
     // switched off.
     const std::filesystem::path engine = RepositoryRoot() / "Desert" / "Desert" / "Source";
@@ -1060,7 +1060,7 @@ TEST( CloudShadowReceiver, NoMaterialPacksTheUniformBlockForItself )
 
         const std::string code = StripLineComments( ReadFile( entry.path() ) );
         EXPECT_EQ( code.find( "CloudShadowUniforms" ), std::string::npos )
-             << name << " builds the cloud-shadow uniform block itself; call CloudShadowBind instead";
+             << name << " builds the cloud-shadow uniform block itself; call CloudShadowUpload instead";
     }
 
     EXPECT_EQ( declarations, 1 ) << "Engine/Graphic/Clouds/CloudShadowPayload.hpp was not found";
@@ -1077,11 +1077,8 @@ TEST( CloudShadowReceiver, TheShaderIsToldToFetchExactlyWhenThereIsSomethingToFe
     // so it must be 1 in exactly the states where a map is really bound. FOUR ways to be off, and each
     // of them was a real state in this engine: no cloud component at all, the layer switched off, the
     // layer not casting, and the artist's strength at zero.
-    Desert::Graphic::Image2D* const kMap =
-         reinterpret_cast<Desert::Graphic::Image2D*>( static_cast<std::uintptr_t>( 0x1000 ) );
-
     Desert::Graphic::CloudShadowInput live;
-    live.Map          = kMap;
+    live.HasMap       = true;
     live.WorldToMap   = glm::mat4( 2.0f );
     live.FarDepthKm   = 120.0f;
     live.Strength     = 0.75f;
@@ -1104,8 +1101,8 @@ TEST( CloudShadowReceiver, TheShaderIsToldToFetchExactlyWhenThereIsSomethingToFe
     EXPECT_FALSE( off.IsLive() );
     EXPECT_FLOAT_EQ( Desert::Graphic::CloudShadowPackUniforms( off ).Params.y, 0.0f );
 
-    off     = live;
-    off.Map = nullptr;
+    off        = live;
+    off.HasMap = false;
     EXPECT_FALSE( off.IsLive() );
     EXPECT_FLOAT_EQ( Desert::Graphic::CloudShadowPackUniforms( off ).Params.y, 0.0f );
 

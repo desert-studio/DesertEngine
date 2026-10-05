@@ -24,16 +24,16 @@ namespace Desert::Graphic::System
         };
     } // namespace
 
-    void MeshRenderer::RenderRSMManual()
+    Common::BoolResultStr MeshRenderer::RenderRSMManual( const RDG::PassContext& context )
     {
         // Reuses the G-buffer SHADER and attachment layout — the RSM framebuffer is created to match, so
         // the two are render-pass compatible and the shader's four outputs line up. The pipeline is its
         // own (standard-Z, see SetupDeferredPass) and so is the camera.
         if ( !m_RSMPipeline || !m_RSMMaterial || !m_RSMInstance || m_StaticQueue.empty() )
-            return;
+            return BOOLSUCCESS;
         const auto& rsm = m_SceneRenderer != nullptr ? m_SceneRenderer->GetRSMBuffer() : nullptr;
         if ( !rsm )
-            return;
+            return BOOLSUCCESS;
 
         // All OPAQUE static objects are bounce sources (glass transmits rather than bouncing diffusely).
         // Their effective materials go into the DEDICATED RSM material's Materials SSBO, so each texel's
@@ -55,9 +55,10 @@ namespace Desert::Graphic::System
             gpuMats.push_back( gm );
         }
         if ( objs.empty() )
-            return;
+            return BOOLSUCCESS;
 
-        auto& renderer = Renderer::GetInstance();
+        // The G-buffer shader's textures are the material's own (Properties): every draw is Plain.
+        const MeshPassBindings pass( context, {} );
 
         if ( auto* sb = m_RSMMaterial->Get<StorageBufferProperty>( "Materials" ) )
             sb->SetRawData( gpuMats.data(), static_cast<uint32_t>( gpuMats.size() * sizeof( PBRGpuMaterial ) ) );
@@ -76,9 +77,12 @@ namespace Desert::Graphic::System
             MaterialPBR::UpdateTransform( ri, obj->Transform );
             m_RSMMaterial->SetMaterialIndex( i );
             m_RSMMaterial->Bind( ri );
-            renderer.RenderMesh( m_RSMPipeline.get(), obj->Mesh, obj->Transform,
-                                 m_RSMMaterial->GetMaterialExecutor(), 1, 0, obj->HiddenSubmeshes );
+            if ( auto drawn = DrawMesh( pass, m_RSMPipeline.get(), obj->Mesh, obj->Transform,
+                                        m_RSMMaterial->GetMaterialExecutor(), 1, 0, obj->HiddenSubmeshes );
+                 !drawn.IsSuccess() )
+                return drawn;
         }
+        return BOOLSUCCESS;
     }
 
     void MeshRenderer::LogShadowBudget( double allocMs ) const
@@ -334,16 +338,17 @@ namespace Desert::Graphic::System
 
             builder.AddPass(
                  std::format( "MeshShadowCascade{}", c ), RenderPhase::DepthPrePass,
-                 [this, c]()
+                 [this, c]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
                  {
                      if ( !m_ShadowsEnabled )
-                         return;
+                         return BOOLSUCCESS;
 
                      // Shadow vert computes Projection*View*Transform; feed the combined cascade matrix as
                      // Projection and identity as View, matching u_LightViewProj[c] on the PBR side.
                      m_ShadowMaterial[c]->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeVP[c] );
 
-                     auto& renderer = Renderer::GetInstance();
+                     // Depth-only casters sample nothing: every draw is Plain.
+                     const MeshPassBindings pass( context, {} );
 
                      // Shadow casters are MATERIAL-INDEPENDENT (depth only), so batch purely by Mesh*: any
                      // group of >= 2 identical meshes collapses into ONE instanced draw per cascade. This is
@@ -493,9 +498,12 @@ namespace Desert::Graphic::System
 
                      // Per-object path (singletons).
                      for ( const auto* rd : singles )
-                         renderer.RenderMesh( m_ShadowPipeline.get(), rd->Mesh, rd->Transform,
-                                              m_ShadowMaterial[c]->GetMaterialExecutor(), 1, 0, 0,
-                                              ComputeLOD( rd->Transform, rd->Mesh, rd->ForcedLOD, rd->LODBias ) );
+                         if ( auto drawn =
+                                   DrawMesh( pass, m_ShadowPipeline.get(), rd->Mesh, rd->Transform,
+                                             m_ShadowMaterial[c]->GetMaterialExecutor(), 1, 0, 0,
+                                             ComputeLOD( rd->Transform, rd->Mesh, rd->ForcedLOD, rd->LODBias ) );
+                              !drawn.IsSuccess() )
+                             return drawn;
 
                      // Meshes drawn with a data-driven material (shader graph, Shader Override, per-slot
                      // custom materials) cast through the SAME pipeline as everything else: a caster is
@@ -518,9 +526,11 @@ namespace Desert::Graphic::System
                          if ( g.Mesh != nullptr && g.CastShadows &&
                               IsVisibleInView( cascadeFrustum, g.Transform,
                                                Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
-                             renderer.RenderMesh( m_ShadowPipeline.get(), g.Mesh, g.Transform,
-                                                  m_ShadowMaterial[c]->GetMaterialExecutor(), 1, 0, 0,
-                                                  ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ) );
+                             if ( auto drawn = DrawMesh( pass, m_ShadowPipeline.get(), g.Mesh, g.Transform,
+                                                         m_ShadowMaterial[c]->GetMaterialExecutor(), 1, 0, 0,
+                                                         ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ) );
+                                  !drawn.IsSuccess() )
+                                 return drawn;
 
                      // SKINNED casters. The cascade pass walked m_StaticQueue and m_GenericQueue by name
                      // and simply had no line about skinned meshes, so a character was lit by the sun,
@@ -552,8 +562,10 @@ namespace Desert::Graphic::System
                              for ( const auto& [sd, boneOffset] : casters )
                              {
                                  skinMat->SetBoneOffset( boneOffset );
-                                 renderer.RenderMesh( m_ShadowSkinnedPipeline.get(), sd->Mesh, sd->Transform,
-                                                      skinMat->GetMaterialExecutor() );
+                                 if ( auto drawn = DrawMesh( pass, m_ShadowSkinnedPipeline.get(), sd->Mesh,
+                                                             sd->Transform, skinMat->GetMaterialExecutor() );
+                                      !drawn.IsSuccess() )
+                                     return drawn;
                              }
                          }
                      }
@@ -571,9 +583,11 @@ namespace Desert::Graphic::System
                              // The same wind the surface pass pushed for these instances, so the shadow
                              // sways with the plant (Common/FoliageWind.glslh is the one formula).
                              instMat->SetInstancedWind( b.Wind );
-                             renderer.RenderMesh( m_ShadowInstancedPipeline.get(), b.Mesh, glm::mat4( 1.0f ),
-                                                  instMat->GetMaterialExecutor(), b.Count, b.First,
-                                                  /*hiddenSubmeshMask*/ 0, b.LodLevel );
+                             if ( auto drawn = DrawMesh( pass, m_ShadowInstancedPipeline.get(), b.Mesh,
+                                                         glm::mat4( 1.0f ), instMat->GetMaterialExecutor(),
+                                                         b.Count, b.First, /*hiddenSubmeshMask*/ 0, b.LodLevel );
+                                  !drawn.IsSuccess() )
+                                 return drawn;
                          }
                      }
 
@@ -581,7 +595,10 @@ namespace Desert::Graphic::System
                      // cascade is cleared once and holds everyone's depth (IShadowCaster).
                      for ( const auto& weak : m_ShadowCasters )
                          if ( const auto caster = weak.lock() )
-                             caster->RecordShadowCascade( c, m_CascadeVP[c] );
+                             if ( auto cast = caster->RecordShadowCascade( context, c, m_CascadeVP[c] );
+                                  !cast.IsSuccess() )
+                                 return cast;
+                     return BOOLSUCCESS;
                  },
                  m_ShadowPipeline->GetSpecification(), m_CascadeFB[c], {},
                  // Clear the R32F depth target to 1.0 (far): background texels must read as "no occluder",

@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialDepthExpand.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -69,14 +70,16 @@ namespace Desert::Graphic::System
         }
 
         // Inside the render pass the frame graph opens on the multisampled scene depth ("Deferred: DepthExpand").
-        Common::BoolResultStr Record( const std::shared_ptr<Image2D>& gbufferDepth )
+        // @p gbufferDepth is the node's SampledGraphics read, fetched texel by texel as u_Depth.
+        Common::BoolResultStr Record( const RDG::PassContext& context, RDG::TextureRef gbufferDepth )
         {
-            if ( !IsReady() || !gbufferDepth )
+            if ( !IsReady() || !gbufferDepth.IsValid() )
                 return Common::MakeError( "DepthExpand recorded without its pipeline or the G-buffer depth" );
-            m_Material->BindInputs( gbufferDepth );
-            Renderer::GetInstance().SubmitFullscreenTriangle( m_Pipeline.get(),
-                                                              m_Material->GetMaterialExecutor() );
-            return BOOLSUCCESS;
+            RDG::PassBindings bindings( context );
+            bindings.Sampled( "u_Depth", gbufferDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                              RDG::SamplerDesc::PointClamp() );
+            return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
+                                                           m_Material->GetMaterialExecutor() );
         }
 
     private:

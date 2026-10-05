@@ -141,8 +141,9 @@ namespace
     // fresh command buffer). The gates in those two therefore cover all of them, and
     // OnlyGatedFunctionsCanArmTheCommandBuffer below asserts the "only" rather than trusting this paragraph.
     //
-    // VulkanImGui::End and VulkanSwapChain::RecordFrameCapture record into the renderer's current command
-    // buffer (GetCurrentCommandBuffer) from outside that file and are gated rows of their own.
+    // VulkanImGui::End (the interface graph node) and VulkanSwapChain::RecordFrameCapture (through
+    // GetCurrentCommandBuffer) record into the frame's command buffer from outside that file and are gated rows
+    // of their own.
     // The frame's first command buffer comes from the frame loop's slot (VulkanFrameLoop), windowed or not; the
     // swapchain hands out none. Any future second route to a command buffer belongs here too -- grep
     // BeginCommandBuffer and GetCurrentCommandBuffer before believing there are none.
@@ -188,7 +189,7 @@ namespace
          // Records the interface into the renderer's current command buffer from outside
          // VulkanRenderer.cpp, so the gates in BeginFrame and ExecuteGraph do not cover it.
          { "Editor/Source/Editor/ImGuiIntegration/VulkanImGuiLayer.cpp", "VulkanImGui::End",
-           "a swapchain render pass and the whole interface's draw data" },
+           "the interface graph node and the whole interface's draw data" },
     };
 
     struct DroppedResult

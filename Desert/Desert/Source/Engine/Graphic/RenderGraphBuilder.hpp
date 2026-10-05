@@ -95,6 +95,15 @@ namespace Desert::Graphic
         // Both hand back the stored pass, valid until the next AddPass, so a registration can set a field the
         // short form has no parameter for in place: `builder.AddPass( ... ).Declare = ...;`.
         PassConfig& AddPass( const PassConfig& config );
+        // The node-body form: @p executeFunc gets the node's RDG::PassContext and this frame's graph refs, binds
+        // graph textures by shader name (RDG::PassBindings) and its error is the node's.
+        PassConfig& AddPass( const std::string& name, RenderPhaseID phase, NodeRecordFunc executeFunc,
+                             const GraphicsPipelineSpecification&     pipelineSpec      = {},
+                             std::shared_ptr<Framebuffer>             targetFramebuffer = nullptr,
+                             const std::vector<RenderPassDependency>& dependencies      = {},
+                             const std::optional<glm::vec4>&          clearColor        = std::nullopt,
+                             int32_t                                  orderInPhase      = RenderPassOrder::Default,
+                             const std::optional<float>&              clearDepth        = std::nullopt );
         PassConfig& AddPass( const std::string& name, RenderPhaseID phase, std::function<void()> executeFunc,
                              const GraphicsPipelineSpecification&     pipelineSpec      = {},
                              std::shared_ptr<Framebuffer>             targetFramebuffer = nullptr,

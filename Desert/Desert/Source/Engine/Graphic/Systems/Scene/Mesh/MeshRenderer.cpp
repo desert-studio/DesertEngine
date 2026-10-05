@@ -219,17 +219,17 @@ namespace Desert::Graphic::System
 
         builder
              .AddPass( "MeshGeometryPass", RenderPhase::Geometry,
-                       [this]()
+                       [this]( RDG::PassContext& context, const FrameGraphRefs& refs ) -> Common::BoolResultStr
                        {
                            // Forward path only. In Deferred, meshes are drawn into the G-buffer by
                            // MeshGBufferPass instead (this target keeps sky/grid/terrain for compositing).
                            if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred &&
                                 m_StaticGBufferPipeline )
-                               return;
+                               return BOOLSUCCESS;
 
                            const auto camera = m_SceneRenderer->GetMainCamera();
                            if ( !camera )
-                               return;
+                               return BOOLSUCCESS;
 
                            // `UpdateGlobalUniforms( camera, points, directionals )` used to be called
                            // here. Its entire body was `if ( !camera ) return;` — it read neither light
@@ -237,14 +237,23 @@ namespace Desert::Graphic::System
                            // reach the shaders through the material executors' uniform blocks, and the
                            // two `GetXLights()` calls that fed this one were a per-frame walk of the
                            // scene's light components for nothing.
-                           DrawStaticMeshes();
-                           DrawSkinnedMeshes();
-                           DrawGenericMeshes();
+                           // The cloud layer's shadow map is a pass parameter of this node (declared below).
+                           const MeshPassBindings pass( context, SceneViewInputsOf( refs ) );
+                           if ( auto drawn = DrawStaticMeshes( pass ); !drawn.IsSuccess() )
+                               return drawn;
+                           if ( auto drawn = DrawSkinnedMeshes( /*useLoadPass*/ false, pass ); !drawn.IsSuccess() )
+                               return drawn;
+                           return DrawGenericMeshes( /*useLoadPass*/ false, pass );
                        },
                        m_StaticPipeline->GetSpecification(), targetFb,
                        { RenderPassDependency( RenderPhase::DepthPrePass ) } )
-             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
-        { m_SceneRenderer->DeclareShadowReads( declared ); };
+             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
+        {
+            // The scene/view inputs the lit draws sample (SceneViewInputs: cascades, environment cubes, BRDF LUT,
+            // cloud shadow map), each a pass parameter the body binds.
+            for ( const RDG::TextureRef input : SceneViewInputsOf( refs ).Refs() )
+                declared.Read( input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
+        };
 
         // NOTE: the deferred G-buffer geometry is NOT a graph pass — it's rendered MANUALLY via
         // RenderGBufferManual() (called from SceneRenderer when Deferred). A graph pass targeting the G-buffer

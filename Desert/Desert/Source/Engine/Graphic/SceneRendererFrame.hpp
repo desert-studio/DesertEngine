@@ -3,6 +3,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGSystemTextures.hpp>
 #include <Engine/Graphic/DefaultTextures.hpp>
+#include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
@@ -163,14 +164,20 @@ namespace Desert::Graphic
             const std::shared_ptr<Image2D> white = DefaultTextures::Get().Share( DefaultTextureKind::White );
             RDG::ExternalTexture*          blackExternal = ImportExternal( black, "System.Black" );
             RDG::ExternalTexture*          whiteExternal = ImportExternal( white, "System.White" );
-            if ( !blackExternal || !whiteExternal )
+            // The engine's empty environment cube (UE GBlackTextureCube): a scene with no baked sky.
+            const std::shared_ptr<ImageCube> blackCube =
+                 FallbackTextures::Get().GetFallbackTextureCube( Core::Formats::ImageFormat::RGBA8F );
+            RDG::ExternalTexture* blackCubeExternal = ImportExternal( blackCube, "System.BlackCube" );
+            if ( !blackExternal || !whiteExternal || !blackCubeExternal )
                 return;
-            System = RDG::RegisterSystemTextures( m_Graph, *blackExternal, *whiteExternal );
+            System = RDG::RegisterSystemTextures( m_Graph, *blackExternal, *whiteExternal, *blackCubeExternal );
             // A later Import of the same engine image names the same graph texture.
             m_Refs.emplace( black.get(), System.Black );
             m_Externals.emplace( black.get(), blackExternal );
             m_Refs.emplace( white.get(), System.White );
             m_Externals.emplace( white.get(), whiteExternal );
+            m_Refs.emplace( blackCube.get(), System.BlackCube );
+            m_Externals.emplace( blackCube.get(), blackCubeExternal );
         }
 
         // @p image as an external holding its recorded layout, not yet registered; nullptr (logged) if it

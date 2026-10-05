@@ -1,8 +1,15 @@
 #pragma once
 
+#include <Common/Core/ResultStr.hpp>
+
 #include <glm/glm.hpp>
 
 #include <cstdint>
+
+namespace Desert::Graphic::RDG
+{
+    class PassContext;
+}
 
 namespace Desert::Graphic::System
 {
@@ -23,6 +30,9 @@ namespace Desert::Graphic::System
     public:
         virtual ~IShadowCaster() = default;
 
-        virtual void RecordShadowCascade( uint32_t cascade, const glm::mat4& cascadeViewProj ) = 0;
+        // Draws through the cascade node's @p context (RDG::PassBindings); the first refused draw is the error.
+        [[nodiscard]] virtual Common::BoolResultStr RecordShadowCascade( const RDG::PassContext& context,
+                                                                         uint32_t                cascade,
+                                                                         const glm::mat4& cascadeViewProj ) = 0;
     };
 } // namespace Desert::Graphic::System

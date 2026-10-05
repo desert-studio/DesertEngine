@@ -8,6 +8,7 @@
 
 #include <Engine/Graphic/SwapChain.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
+#include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/ViewMemory.hpp>
 
 #include <memory>
@@ -78,16 +79,6 @@ namespace Desert::Graphic::API::Vulkan
             return m_DepthStencilImages;
         }
 
-        auto GetRenderPass() const
-        {
-            return m_VkRenderPass;
-        }
-
-        auto GetVKFramebuffers() const
-        {
-            return m_SwapChainFramebuffers;
-        }
-
         const auto& GetOutput() const
         {
             return m_Output;
@@ -114,7 +105,7 @@ namespace Desert::Graphic::API::Vulkan
          *        touched between its acquire and its present.
          *
          * WHAT IS BEING CAPTURED. The whole editor as a person sees it — the scene AND the interface drawn
-         * over it — because ImGui records into the swapchain render pass (VulkanImGuiLayer::End). The
+         * over it — because ImGui records into the back buffer through a graph node (VulkanImGuiLayer::End). The
          * scene's own final image, which every capture in this engine read before this existed, contains
          * no interface at all: no panel, no menu, no dialog.
          *
@@ -150,6 +141,13 @@ namespace Desert::Graphic::API::Vulkan
             return m_CompositeFramebuffer;
         }
 
+        // The image acquired for this frame as a graph external (UE: the viewport's back buffer registered with
+        // RegisterExternalTexture each frame): its description, the graph's handle on it (one per swapchain image,
+        // kept until the images are rebuilt, so the views a pass binds outlive the frame's recording), and no
+        // prior state (an acquired image's contents are undefined). The graph that writes it extracts it as
+        // Present.
+        [[nodiscard]] Common::BoolResultStr ImportBackBuffer( ::Desert::Graphic::RDG::ExternalTexture& into );
+
     private:
         void InitSurface( GLFWwindow* window, const VkInstance instance );
 
@@ -166,8 +164,6 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] bool HasDrawableSurfaceArea( const Graphic::ViewExtent& requested ) const;
         [[nodiscard]] Common::ResultStr<Graphic::AcquireStatus>
         AcquireNextImage( VkSemaphore presentCompleteSemaphore, uint32_t* imageIndex );
-        [[nodiscard]] Common::ResultStr<VkResult> CreateSwapChainRenderPass();
-        [[nodiscard]] Common::ResultStr<VkResult> CreateSwapChainFramebuffers();
         [[nodiscard]] Common::ResultStr<VkResult>
         CreateColorAndDepthImages( const std::shared_ptr<VulkanLogicalDevice>& device );
 
@@ -216,10 +212,8 @@ namespace Desert::Graphic::API::Vulkan
             std::vector<VkImage>     Images;
             std::vector<VkImageView> ImagesView;
         } m_SwapChainImages;
-
-        std::vector<VkFramebuffer> m_SwapChainFramebuffers;
-
-        VkRenderPass m_VkRenderPass = VK_NULL_HANDLE;
+        // ImportBackBuffer's handle per swapchain image (index = image index); emptied with the image views.
+        std::vector<std::shared_ptr<::Desert::Graphic::RDG::IPhysicalTexture>> m_BackBufferGraphTextures;
 
         std::array<const void*, 2> m_VmaAllocation;
 

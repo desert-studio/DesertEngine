@@ -163,10 +163,12 @@ namespace Desert::Editor::Render
             // Glass panels sample THIS VIEW's blurred scene snapshot, built just before this phase as a transient
             // of this view's graph (ctx.Graph), bound by name over this node's context. It is only built when the
             // canvas asked for it LAST frame, so hand the flag back after flushing.
-            m_Render2D.Flush( &node, ctx.Graph.Transients.BackdropBlur );
+            const Common::BoolResultStr flushed = m_Render2D.Flush( node, ctx.Graph.Transients.BackdropBlur );
 
             if ( auto* renderer = ctx.Renderer )
                 renderer->SetBackdropBlurNeeded( m_Render2D.UsedBackdrop() );
+            if ( !flushed.IsSuccess() )
+                return flushed;
 
             // A button fired in preview: report it, but DON'T execute scene-load / quit / open-URL here —
             // that would close or switch the editor. Interactive toggles/sliders/inputs already mutated in

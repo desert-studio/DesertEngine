@@ -1,5 +1,6 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -57,6 +58,40 @@ namespace Desert::Graphic
         }
     } // namespace
 
+    void SceneRenderer::ImportSceneViewTextures( FrameTextures& textures )
+    {
+        FrameTransients& view = textures.Transients;
+        if ( const auto it = m_RenderSystems.find( "MeshSystem" ); it != m_RenderSystems.end() )
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            const auto*    mesh = UNIQUE_GET_AS( System::MeshRenderer, it->second );
+            const uint32_t cascades =
+                 mesh ? std::min( mesh->GetValidCascadeCount(), kSceneViewShadowCascades ) : 0u;
+            for ( uint32_t c = 0; c < cascades; ++c )
+                view.ShadowCascades[c] =
+                     textures.Import( mesh->GetCascadeShadowImage( c ), std::format( "CSM.Cascade{}", c ) );
+        }
+        auto* images = Runtime::ResourceRegistry::GetImageService();
+        if ( const auto env = GetEnvironment(); env.has_value() )
+        {
+            if ( env->IrradianceMap.IsValid() )
+                view.EnvIrradiance = textures.Import( images->Share( env->IrradianceMap ), "Env.Irradiance" );
+            if ( env->PreFilteredMap.IsValid() )
+                view.EnvSpecular = textures.Import( images->Share( env->PreFilteredMap ), "Env.Specular" );
+        }
+        if ( const auto& brdf = Renderer::GetInstance().GetBRDFTexture();
+             brdf && brdf->GetImageHandle().IsValid() )
+            view.BrdfLut = textures.Import( images->Share( brdf->GetImageHandle() ), "BRDF.LUT" );
+        if ( const auto it = m_RenderSystems.find( "SkyboxSystem" ); it != m_RenderSystems.end() )
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            if ( const auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, it->second );
+                 sky && sky->SkyPassSamplesLuts() )
+            {
+                view.SkyTransmittanceLut = textures.Import( sky->GetTransmittanceLut(), "Sky.TransmittanceLut" );
+                view.SkyViewLut          = textures.Import( sky->GetSkyViewLut(), "Sky.SkyViewLut" );
+            }
+    }
+
     void SceneRenderer::AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures )
     {
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "ClearMainFramebuffer" );
@@ -103,11 +138,11 @@ namespace Desert::Graphic
              graph, m_TargetFramebuffer->GetSpecification().Samples, sourceRef, targetRef,
              [source, target]( RDG::PassContext& ) -> Common::BoolResultStr
              { return Renderer::GetInstance().CopyDepthImage( source.get(), target.get() ); },
-             [expand, source]( RDG::PassContext& ) -> Common::BoolResultStr
+             [expand, sourceRef]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  if ( !expand )
                      return Common::MakeError( "Deferred: DepthExpand has no DepthExpandSystem" );
-                 return expand->Record( source );
+                 return expand->Record( context, sourceRef );
              } );
     }
 
@@ -132,13 +167,12 @@ namespace Desert::Graphic
              UNIQUE_GET_AS( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] );
         if ( !resolve || !resolve->IsReady() )
             return;
-        const std::shared_ptr<Image2D> sceneDepth = m_TargetFramebuffer->GetDepthAttachmentImage();
+        const RDG::TextureRef sceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" );
         DeferredFrameNodes::AddSceneDepthResolve(
-             graph, m_TargetFramebuffer->GetSpecification().Samples,
-             textures.Depth( m_TargetFramebuffer, "SceneColor" ),
+             graph, m_TargetFramebuffer->GetSpecification().Samples, sceneDepth,
              textures.Depth( resolve->GetFramebuffer(), "SceneDepthResolved" ),
-             [resolve, sceneDepth]( RDG::PassContext& ) -> Common::BoolResultStr
-             { return resolve->Record( sceneDepth ); } );
+             [resolve, sceneDepth]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return resolve->Record( context, sceneDepth ); } );
     }
 
     void SceneRenderer::AddFrameSSAO( RDG::Builder& graph, FrameTextures& textures,
@@ -299,19 +333,13 @@ namespace Desert::Graphic
         inputs.GBufferEmissive  = gbuffer[3];
         inputs.SSAO             = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
         inputs.GI               = giAccum.IsValid() ? giAccum : refs.System.Black;
-        const uint32_t cascades = meshRenderer ? meshRenderer->GetValidCascadeCount() : 0u;
-        for ( uint32_t c = 0; c < inputs.ShadowMaps.size(); ++c )
-        {
-            const std::shared_ptr<Image2D> map = c < cascades ? meshRenderer->GetCascadeShadowImage( c ) : nullptr;
-            const RDG::TextureRef          ref =
-                 map ? textures.Import( map, std::format( "CSM.Cascade{}", c ) ) : RDG::TextureRef{};
-            inputs.ShadowMaps[c] = ref.IsValid() ? ref : refs.System.White;
-        }
-        std::vector<RDG::TextureRef> reads = shadowReads; // + the cloud shadow map (material route)
+        inputs.View                        = SceneViewInputsOf( refs );
+        std::vector<RDG::TextureRef> reads = shadowReads;
         for ( const RDG::TextureRef ref : { inputs.GBufferA, inputs.GBufferB, inputs.GBufferC,
                                             inputs.GBufferEmissive, inputs.SSAO, inputs.GI } )
             reads.push_back( ref );
-        reads.insert( reads.end(), inputs.ShadowMaps.begin(), inputs.ShadowMaps.end() );
+        const std::vector<RDG::TextureRef> view = inputs.View.Refs();
+        reads.insert( reads.end(), view.begin(), view.end() );
         std::vector<RDG::TextureRef> declared; // one declaration per texture (System.White can fill several slots)
         for ( const RDG::TextureRef ref : reads )
             if ( ref.IsValid() && std::find( declared.begin(), declared.end(), ref ) == declared.end() )
@@ -455,8 +483,8 @@ namespace Desert::Graphic
                  ReadAll( pass, { trace, tiles, history }, RDG::Access::SampledGraphics );
                  pass.ColorTarget( 0, accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
              },
-             [ssr, trace, tiles, inputs]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return ssr->RecordResolve( context, trace, tiles, inputs ); } );
+             [ssr, trace, tiles, history, inputs]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return ssr->RecordResolve( context, trace, tiles, history, inputs ); } );
         graph.AddPass(
              "Deferred: SSRComposite", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -465,7 +493,7 @@ namespace Desert::Graphic
                  ReadAll( pass, { accum, tiles }, RDG::Access::SampledGraphics );
                  DeferredFrameNodes::LoadTarget( pass, target ); // blend over the scene
              },
-             [ssr, tiles, inputs, viewProj]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return ssr->RecordComposite( context, tiles, inputs, viewProj ); } );
+             [ssr, accum, tiles, inputs, viewProj]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return ssr->RecordComposite( context, accum, tiles, inputs, viewProj ); } );
     }
 } // namespace Desert::Graphic

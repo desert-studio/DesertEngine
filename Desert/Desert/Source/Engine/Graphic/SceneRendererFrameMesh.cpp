@@ -66,33 +66,6 @@ namespace Desert::Graphic
                  [body = std::move( body )]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return body( context ); } );
         }
-
-        // A raster node whose body binds no graph resource by name (its draws read what @p sampled declares
-        // through their materials) and cannot fail.
-        void AddRaster( RDG::Builder& graph, std::string_view name, const RasterTargets& targets,
-                        const RDG::LoadOp& color, const RDG::LoadOp& depth,
-                        const std::vector<RDG::TextureRef>& sampled, std::function<void()> body )
-        {
-            AddRaster( graph, name, targets, color, depth, sampled,
-                       [body = std::move( body )]( const RDG::PassContext& ) -> Common::BoolResultStr
-                       {
-                           body();
-                           return BOOLSUCCESS;
-                       } );
-        }
-
-        // The shadow images a lit forward pass samples (SceneRenderer::DeclareShadowReads), as graph textures.
-        // When one cannot be imported the error is logged and the pass declares none of them.
-        std::vector<RDG::TextureRef> ShadowSamples( const SceneRenderer& renderer, FrameTextures& textures,
-                                                    std::string_view node )
-        {
-            RenderPassDeclaration declared;
-            renderer.DeclareShadowReads( declared );
-            std::vector<RDG::TextureRef> images;
-            if ( !ResolveDeclared( textures, declared, node, images ) )
-                images.clear();
-            return images;
-        }
     } // namespace
 
     void SceneRenderer::AddGraphPhasePasses( RDG::Builder& graph, FrameTextures&            textures,
@@ -161,7 +134,8 @@ namespace Desert::Graphic
         // sky by dot(normal, normal).
         AddRaster( graph, "Deferred: GBuffer", *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
                    RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
-                   [meshRenderer]() { meshRenderer->RenderGBufferManual(); } );
+                   [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                   { return meshRenderer->RenderGBufferManual( context ); } );
     }
 
     void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )
@@ -173,11 +147,12 @@ namespace Desert::Graphic
         if ( !targets )
             return;
         // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        AddRaster(
-             graph, "TerrainGBuffer", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), {},
-             [this]() {
-                 UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->RenderGBufferManual();
-             } );
+        AddRaster( graph, "TerrainGBuffer", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), {},
+                   [this]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                   {
+                       return UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
+                            ->RenderGBufferManual( context );
+                   } );
         // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
     }
 
@@ -193,7 +168,8 @@ namespace Desert::Graphic
             // depth clears to 1 = far, not to the engine's reversed-Z clear.
             AddRaster( graph, "Deferred: RSM", *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
                        RDG::LoadOp::ClearDepth( 1.0f ), {},
-                       [meshRenderer]() { meshRenderer->RenderRSMManual(); } );
+                       [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                       { return meshRenderer->RenderRSMManual( context ); } );
             m_RSMLastSunDir = sunDir;
         }
     }
@@ -204,9 +180,12 @@ namespace Desert::Graphic
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Generic" );
         if ( !targets || !meshRenderer )
             return;
-        AddRaster( graph, "Deferred: Generic", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(),
-                   ShadowSamples( *this, textures, "Deferred: Generic" ),
-                   [meshRenderer]() { meshRenderer->RenderGenericManual(); } );
+        // The scene/view inputs (cascades, environment cubes, BRDF LUT, cloud shadow map) are pass parameters.
+        const SceneViewInputs              view    = SceneViewInputsOf( textures.GraphRefs() );
+        const std::vector<RDG::TextureRef> sampled = view.Refs();
+        AddRaster( graph, "Deferred: Generic", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), sampled,
+                   [meshRenderer, view]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                   { return meshRenderer->RenderGenericManual( context, view ); } );
     }
 
     void SceneRenderer::AddFrameSkinned( RDG::Builder& graph, FrameTextures& textures,
@@ -215,9 +194,12 @@ namespace Desert::Graphic
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Skinned" );
         if ( !targets || !meshRenderer )
             return;
-        AddRaster( graph, "Deferred: Skinned", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(),
-                   ShadowSamples( *this, textures, "Deferred: Skinned" ),
-                   [meshRenderer]() { meshRenderer->RenderSkinnedManual(); } );
+        // The scene/view inputs (cascades, environment cubes, BRDF LUT, cloud shadow map) are pass parameters.
+        const SceneViewInputs              view    = SceneViewInputsOf( textures.GraphRefs() );
+        const std::vector<RDG::TextureRef> sampled = view.Refs();
+        AddRaster( graph, "Deferred: Skinned", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), sampled,
+                   [meshRenderer, view]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                   { return meshRenderer->RenderSkinnedManual( context, view ); } );
     }
 
     void SceneRenderer::AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
@@ -228,13 +210,14 @@ namespace Desert::Graphic
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Glass" );
         if ( !targets )
             return;
-        // The glass samples the scene copy for its refraction (bound by name in the body), and the shadow maps as
-        // every lit forward pass does.
-        std::vector<RDG::TextureRef> sampled = ShadowSamples( *this, textures, "Deferred: Glass" );
+        // The glass samples the scene copy for its refraction and the scene/view inputs, both bound by name in
+        // the body.
+        const SceneViewInputs        view    = SceneViewInputsOf( textures.GraphRefs() );
+        std::vector<RDG::TextureRef> sampled = view.Refs();
         sampled.push_back( sceneCopy );
         AddRaster( graph, "Deferred: Glass", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), sampled,
-                   [meshRenderer, sceneCopy]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                   { return meshRenderer->RenderGlassManual( context, sceneCopy ); } );
+                   [meshRenderer, sceneCopy, view]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                   { return meshRenderer->RenderGlassManual( context, sceneCopy, view ); } );
     }
 
 #if DESERT_DEV_INSTRUMENTS
@@ -247,13 +230,15 @@ namespace Desert::Graphic
         const auto accum =
              TargetsOf( textures, meshRenderer->GetOverdrawFramebuffer(), "Overdraw", "Debug: Overdraw" );
         const auto scene = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Debug: Overdraw Resolve" );
-        if ( !accum || !scene )
+        if ( !accum || !scene || accum->Colors.empty() )
             return;
         AddRaster( graph, "Debug: Overdraw", *accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
                    RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
-                   [meshRenderer]() { meshRenderer->RenderOverdrawAccumManual(); } );
+                   [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                   { return meshRenderer->RenderOverdrawAccumManual( context ); } );
         AddRaster( graph, "Debug: Overdraw Resolve", *scene, RDG::LoadOp::Load(), RDG::LoadOp::Load(),
-                   accum->Colors, [meshRenderer]() { meshRenderer->RenderOverdrawResolveManual(); } );
+                   accum->Colors, [meshRenderer, overdraw = accum->Colors[0]]( const RDG::PassContext& context )
+                   { return meshRenderer->RecordOverdrawResolve( context, overdraw ); } );
     }
 #endif // DESERT_DEV_INSTRUMENTS
 } // namespace Desert::Graphic

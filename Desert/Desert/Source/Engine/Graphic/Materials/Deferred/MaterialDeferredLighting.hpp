@@ -69,9 +69,6 @@ namespace Desert::Graphic
     public:
         MaterialDeferredLighting() : Material( "MaterialDeferredLighting", "DeferredLighting" )
         {
-            m_EnvIrradiance   = m_MaterialExecutor->GetTextureCubeProperty( "u_EnvIrradianceTex" ).get();
-            m_EnvSpecular     = m_MaterialExecutor->GetTextureCubeProperty( "u_EnvSpecularTex" ).get();
-            m_BrdfLut         = m_MaterialExecutor->GetTexture2DProperty( "u_BRDFLUTTexture" ).get();
         }
 
         // The frame's values only: every graph texture the pass samples (G-buffer, AO, GI, shadow cascades)
@@ -84,36 +81,12 @@ namespace Desert::Graphic
                          float giIntensity, bool ssaoEnabled, int giMode, const CloudShadowInput& cloudShadow,
                          const DeferredEnvironmentInput& environment )
         {
-            // The baked sky, SET EVERY FRAME INCLUDING WHEN IT IS ABSENT — matching
-            // Graphic::SceneEnvironmentBind's shape, so the two paths cannot end up sampling different
-            // generations of the same bake, and now also so neither can sample a different SCENE's.
-            //
-            // This used to be gated on `environment.IsComplete()`, and the gate is what let a renderer
-            // carry one scene's sky into the next (Г14). The gate read as caution — "do not half-bind a
-            // split-sum set" — but a slot that is not written keeps what it had, so refusing to write an
-            // absent environment is precisely how the previous scene's environment survives. The
-            // completeness of the set is still asserted, by the caller, as a REPORT
-            // (DeferredLightingRenderer::ReportEnvironmentGap): it is a bake failure, not a mode.
-            //
-            // The pass records through Renderer::DrawFullscreen, which refuses a slot no route filled, so an
-            // absent cube is written as the engine's empty cube rather than left unwritten (UE binds
-            // GBlackTextureCube): the gap stays a REPORT (ReportEnvironmentGap), never a frame without lighting.
-            const auto& emptyCube =
-                 FallbackTextures::Get().GetFallbackTextureCube( Core::Formats::ImageFormat::RGBA8F );
-            if ( m_EnvIrradiance )
-                m_EnvIrradiance->SetTexture( environment.Irradiance ? environment.Irradiance : emptyCube.get() );
-            if ( m_EnvSpecular )
-                m_EnvSpecular->SetTexture( environment.Prefiltered ? environment.Prefiltered : emptyCube.get() );
+            // The baked sky's cubes and the BRDF LUT are pass parameters (SceneViewInputs, bound by the Composite
+            // node: System.BlackCube / System.Black when absent, UE GBlackTextureCube) - a graph ref of THIS
+            // frame, so no previous scene's sky can survive in a slot. Completeness stays a REPORT
+            // (DeferredLightingRenderer::ReportEnvironmentGap). The look they are read with is written every
+            // frame.
             SceneSkyLookBind( this, environment.Look );
-            // The LUT is a renderer-global that is never legitimately absent; a null is a bake fault, reported by
-            // ReportEnvironmentGap. It is bound as the engine's black texture (no split-sum Fresnel weight: the
-            // specular ambient goes dark, visibly), never left to whatever the slot held.
-            if ( m_BrdfLut )
-                m_BrdfLut->SetImage(
-                     environment.BrdfLut
-                          ? environment.BrdfLut
-                          : DefaultTextures::Get().Share( Core::Formats::DefaultTextureKind::Black ).get(),
-                     RDG::Access::SampledGraphics );
 
             SetLightDir( lightDir );
             SetLightColor( lightColor );
@@ -186,20 +159,14 @@ namespace Desert::Graphic
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
         }
 
-        // Uploads the cloud layer's shadow into CloudShadowUB + binds the map, through the SAME writer
-        // the forward PBR materials and the terrain material use (Graphic::CloudShadowBind). This pass
-        // used to pack the block itself; the packing is now one function beside the block it fills, so
-        // the two render paths cannot be told different things about one map.
+        // Uploads the cloud layer's shadow into CloudShadowUB through the SAME packer the forward PBR
+        // materials and the terrain material use (Graphic::CloudShadowUpload), so the two render paths cannot
+        // be told different things about one map. The map itself (u_CloudShadowMap) is a graph resource the
+        // composite exec binds through RDG::PassBindings (FrameTransients::CloudShadowMap, System.White when
+        // the frame has none), never here.
         void UploadCloudShadow( const CloudShadowInput& cloudShadow )
         {
-            CloudShadowBind( this, cloudShadow );
-            // CloudShadowBind leaves the map unwritten when the layer is off (Params.y tells the shader not to
-            // read it). This pass draws through DrawFullscreen, which refuses an unwritten slot, so it writes
-            // the engine's white texture (full transmittance) for that frame.
-            if ( !cloudShadow.IsLive() )
-                if ( auto* tex = Get<Texture2DProperty>( "u_CloudShadowMap" ) )
-                    tex->SetImage( DefaultTextures::Get().Share( Core::Formats::DefaultTextureKind::White ).get(),
-                                   RDG::Access::SampledGraphics );
+            CloudShadowUpload( this, cloudShadow );
         }
 
         MPROPERTY( glm::vec4, LightDir,   "u_LightDir",   ( glm::vec4( 0.0f, -1.0f, 0.0f, 0.0f ) ) )
@@ -208,8 +175,5 @@ namespace Desert::Graphic
         MPROPERTY( glm::vec4, CameraPos,  "u_CameraPos",  ( glm::vec4( 0.0f ) ) )
 
     private:
-        TextureCubeProperty* m_EnvIrradiance = nullptr;
-        TextureCubeProperty* m_EnvSpecular   = nullptr;
-        Texture2DProperty*   m_BrdfLut       = nullptr;
     };
 } // namespace Desert::Graphic

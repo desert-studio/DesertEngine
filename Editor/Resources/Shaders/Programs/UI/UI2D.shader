@@ -4,6 +4,14 @@ Shader "UI2D"
     // Screen-space 2D batcher shader (UI, sprites, text). One dynamic vertex+index buffer is filled by the
     // Render2D batcher each frame; every quad carries its own tint colour and UV. Solid shapes sample a 1x1
     // white texture so `texture * colour` collapses to the flat colour. Blend / depth are set by the pipeline.
+
+    // The batch's image is this material's own texture (Render2D caches one executor per image); everything
+    // else the 2D pass samples is a pass parameter bound through RDG::PassBindings.
+    Properties
+    {
+        Texture2D   u_Texture ("Texture")
+    }
+
     Vertex
     {
         In(0) vec2 a_Position;   // pixel coordinates (top-left origin)

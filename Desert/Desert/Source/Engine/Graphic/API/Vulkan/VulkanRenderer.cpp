@@ -240,42 +240,6 @@ namespace Desert::Graphic::API::Vulkan
         return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr VulkanRendererAPI::BeginSwapChainRenderPass()
-    {
-        if ( !IsRecording() )
-            return Common::MakeError( "No active command buffer" );
-
-        auto window            = m_Window.lock();
-        auto vulkanSwap        = SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() );
-        auto framebuffer       = vulkanSwap->GetCompositeFramebuffer();
-        m_CompositeFramebuffer = framebuffer;
-
-        uint32_t imageIndex = vulkanSwap->GetCurrentBufferIndex();
-
-        VkRenderPassBeginInfo renderPassInfo = {
-             .sType       = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-             .renderPass  = vulkanSwap->GetRenderPass(),
-             .framebuffer = vulkanSwap->GetVKFramebuffers()[imageIndex],
-             .renderArea  = {
-                   .offset = { 0, 0 },
-                   .extent = { framebuffer->GetFramebufferWidth(), framebuffer->GetFramebufferHeight() } } };
-
-        VkClearValue clearValue        = { .color = { { 0.1f, 0.1f, 0.1f, 1.0f } } };
-        renderPassInfo.clearValueCount = 1;
-        renderPassInfo.pClearValues    = &clearValue;
-
-        // Must open a region too: EndRenderPass closes one unconditionally, so skipping it here would
-        // leave the labels unbalanced.
-        VKUtils::BeginDebugLabel( m_CurrentCommandBuffer, "SwapChainPass" );
-
-        m_OpenRenderPass = CompatibleRenderPassKeyOf( framebuffer->GetSpecification(),
-                                                      static_cast<uint32_t>( vulkanSwap->GetMSAASamples() ) );
-        vkCmdBeginRenderPass( m_CurrentCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
-        SetViewportAndScissor( framebuffer->GetFramebufferWidth(), framebuffer->GetFramebufferHeight() );
-
-        return BOOLSUCCESS;
-    }
-
     Common::BoolResultStr VulkanRendererAPI::EndRenderPass()
     {
         if ( IsRecording() )
@@ -302,7 +266,7 @@ namespace Desert::Graphic::API::Vulkan
                                   0, nullptr,
                                   0, nullptr );
 
-            // Closes the region opened by BeginRenderPass / BeginSwapChainRenderPass. Both open exactly
+            // Closes the region opened by BeginRenderPass. It opens exactly
             // one, so this stays balanced — an unmatched Begin corrupts the capture's tree.
             VKUtils::EndDebugLabel( m_CurrentCommandBuffer );
         }
@@ -369,209 +333,6 @@ namespace Desert::Graphic::API::Vulkan
         return false;
     }
 
-    void VulkanRendererAPI::RenderMesh( const GraphicsPipeline* pipeline, const Mesh* mesh,
-                                        const glm::mat4 transform, const MaterialExecutor* materialExecutor,
-                                        uint32_t instanceCount, uint32_t firstInstance,
-                                        uint64_t hiddenSubmeshMask, uint32_t lodLevel )
-    {
-        // Aggregate cost of EVERY mesh draw call across ALL passes (geometry + 4 shadow cascades +
-        // silhouette). The call-site scopes break it down per-pass; this row is the engine-wide total.
-        DESERT_PROFILE_FUNC();
-
-        if ( !IsRecording() )
-            return;
-        const auto vulkanPipeline = static_cast<const VulkanPipeline*>( pipeline );
-        if ( !BindGraphicsPipeline( pipeline ) )
-            return;
-
-        // Bind Descriptor Sets
-        if ( materialExecutor )
-        {
-            DESERT_PROFILE_SCOPE( "Vk::RenderMesh BindMaterial" );
-            materialExecutor->Apply();
-            auto vkBackend = static_cast<VulkanMaterialBackend*>( materialExecutor->GetMaterialBackend().get() );
-
-            if ( !vkBackend->HasDescriptorSets() )
-            {
-                LOG_WARN( "VulkanRendererAPI: MaterialExecutor has no valid descriptor sets!" );
-                return;
-            }
-
-            uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
-            if ( !vkBackend->BindDescriptorSets( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
-                                                 VK_PIPELINE_BIND_POINT_GRAPHICS, frameIndex ) )
-                return;
-        }
-
-        VkDeviceSize offsets[] = { 0 };
-        auto vbuffer = sp_cast<API::Vulkan::VulkanVertexBuffer>( mesh->GetVertexBuffer() )->GetVulkanBuffer();
-        vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 0, 1, &vbuffer, offsets );
-
-        if ( auto indexBuffer = mesh->GetIndexBuffer() )
-        {
-            auto ibuffer = sp_cast<API::Vulkan::VulkanIndexBuffer>( indexBuffer )->GetVulkanBuffer();
-            vkCmdBindIndexBuffer( m_CurrentCommandBuffer, ibuffer, 0, VK_INDEX_TYPE_UINT32 );
-        }
-
-        const auto& submeshes = mesh->GetSubmeshes();
-        for ( size_t si = 0; si < submeshes.size(); ++si )
-        {
-            // Per-submesh visibility: bit si set = hidden -> skip the draw (and its push/transform work).
-            if ( si < 64 && ( ( hiddenSubmeshMask >> si ) & 1ull ) )
-                continue;
-
-            const auto&       submesh       = submeshes[si];
-            MaterialExecutor* materialExec   = (MaterialExecutor*)materialExecutor;
-            auto              finalTransform = transform * submesh.Transform;
-            materialExec->PushConstant( &finalTransform, sizeof( glm::mat4 ) );
-
-            const auto&   pcBuffer     = materialExecutor->GetPushConstantBuffer();
-            VulkanShader* vulkanShader = (VulkanShader*)pipeline->GetSpecification().Shader.get();
-            const auto&   pushConstant = vulkanShader->GetShaderPushConstant();
-            if ( pushConstant.has_value() )
-            {
-                // Push the full reflected range so sub-blocks the caller wrote past the transform
-                // (e.g. per-object PBR material params at offset sizeof(mat4)) are included. The
-                // push buffer is zero-initialized, so any unwritten declared bytes are defined.
-                const auto& pcInfo = *pushConstant;
-                if ( pcInfo.Size > 0 )
-                {
-                    vkCmdPushConstants( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
-                                        (VkShaderStageFlags)pcInfo.ShaderStage, 0, pcInfo.Size,
-                                        pcBuffer.Data );
-                }
-            }
-
-            if ( mesh->GetIndexBuffer() )
-            {
-                // LOD range for this submesh (LODs[0] is the original, so lodLevel 0 is identical to the
-                // base range). Clamp to the last available level; fall back to the base range when the
-                // submesh has no LOD chain (procedural / too small).
-                uint32_t drawOffset = submesh.IndexOffset;
-                uint32_t drawCount  = submesh.IndexCount;
-                if ( !submesh.LODs.empty() )
-                {
-                    const uint32_t lvl = lodLevel < submesh.LODs.size()
-                                              ? lodLevel
-                                              : static_cast<uint32_t>( submesh.LODs.size() ) - 1;
-                    drawOffset = submesh.LODs[lvl].IndexOffset;
-                    drawCount  = submesh.LODs[lvl].IndexCount;
-                }
-
-                if ( drawOffset + drawCount > mesh->GetIndexBuffer()->GetCount() )
-                {
-                    LOG_ERROR(
-                         "VulkanRendererAPI: Invalid index buffer access! Offset: {}, Count: {}, BufferSize: {}",
-                         drawOffset, drawCount, mesh->GetIndexBuffer()->GetCount() );
-                    continue;
-                }
-
-                DrawIndexedCounted( drawCount, instanceCount, drawOffset,
-                                    static_cast<int32_t>( submesh.VertexOffset ), firstInstance );
-            }
-            else
-            {
-                DrawCounted( submesh.VertexCount, instanceCount, submesh.VertexOffset, firstInstance );
-            }
-        }
-    }
-
-    void VulkanRendererAPI::SubmitFullscreenTriangle( const GraphicsPipeline* pipeline,
-                                                      const MaterialExecutor* materialExecutor )
-    {
-        if ( !IsRecording() )
-            return;
-        const auto vulkanPipeline = static_cast<const VulkanPipeline*>( pipeline );
-        if ( !BindGraphicsPipeline( pipeline ) )
-            return;
-
-        // Bind Descriptor Sets
-        if ( materialExecutor )
-        {
-            materialExecutor->Apply();
-            auto vkBackend = static_cast<VulkanMaterialBackend*>( materialExecutor->GetMaterialBackend().get() );
-
-            if ( !vkBackend->HasDescriptorSets() )
-            {
-                LOG_WARN( "VulkanRendererAPI: MaterialExecutor has no valid descriptor sets!" );
-                return;
-            }
-
-            uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
-            if ( !vkBackend->BindDescriptorSets( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
-                                                 VK_PIPELINE_BIND_POINT_GRAPHICS, frameIndex ) )
-                return;
-        }
-
-        const auto&   pcBuffer     = materialExecutor->GetPushConstantBuffer();
-        VulkanShader* vulkanShader = (VulkanShader*)pipeline->GetSpecification().Shader.get();
-        const auto&   pushConstant = vulkanShader->GetShaderPushConstant();
-        if ( ( pcBuffer.Size != 0u ) && pushConstant.has_value() )
-        {
-            const auto& pcInfo = *pushConstant;
-            vkCmdPushConstants( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
-                                (VkShaderStageFlags)pcInfo.ShaderStage, 0, (uint32_t)pcBuffer.Size,
-                                pcBuffer.Data );
-        }
-
-        DrawCounted( kFullscreenTriangleVertexCount, 1, 0, 0 );
-    }
-
-    void VulkanRendererAPI::SubmitIndexed( const GraphicsPipeline* pipeline, VertexBuffer* vertexBuffer,
-                                           IndexBuffer* indexBuffer, uint32_t indexCount, uint32_t firstIndex,
-                                           const MaterialExecutor* materialExecutor )
-    {
-        if ( !IsRecording() || vertexBuffer == nullptr || indexBuffer == nullptr || indexCount == 0 )
-            return;
-        const auto vulkanPipeline = static_cast<const VulkanPipeline*>( pipeline );
-        if ( !BindGraphicsPipeline( pipeline ) )
-            return;
-
-        // Bind Descriptor Sets (the batch's texture + any UBOs)
-        if ( materialExecutor )
-        {
-            materialExecutor->Apply();
-            auto vkBackend = static_cast<VulkanMaterialBackend*>( materialExecutor->GetMaterialBackend().get() );
-
-            // "NO SETS" HAS TWO CAUSES AND ONLY ONE OF THEM IS A DEFECT, and until Ю11 the second one
-            // could not happen so both were refused together. A shader that publishes NO LAYOUTS
-            // declares no descriptor resources at all — legal Vulkan, and what a purely procedural fill
-            // driven by push constants looks like (`UIMatError`); there is simply nothing to bind, and
-            // dropping the draw made such a program invisible. A shader that publishes layouts and has
-            // no SETS is the real failure — the view's allocation did not happen — and drawing it would
-            // sample whatever the last material left bound, so BindDescriptorSets refuses it (named once).
-            if ( vkBackend->HasDescriptorSets() )
-            {
-                uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
-                if ( !vkBackend->BindDescriptorSets( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
-                                                     VK_PIPELINE_BIND_POINT_GRAPHICS, frameIndex ) )
-                    return;
-            }
-
-            const auto&   pcBuffer     = materialExecutor->GetPushConstantBuffer();
-            VulkanShader* vulkanShader = (VulkanShader*)pipeline->GetSpecification().Shader.get();
-            const auto&   pushConstant = vulkanShader->GetShaderPushConstant();
-            if ( ( pcBuffer.Size != 0u ) && pushConstant.has_value() )
-            {
-                const auto& pcInfo = *pushConstant;
-                vkCmdPushConstants( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
-                                    (VkShaderStageFlags)pcInfo.ShaderStage, 0, (uint32_t)pcBuffer.Size,
-                                    pcBuffer.Data );
-            }
-        }
-
-        VkDeviceSize offsets[] = { 0 };
-        auto         vbuffer   = static_cast<API::Vulkan::VulkanVertexBuffer*>( vertexBuffer )->GetVulkanBuffer();
-        vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 0, 1, &vbuffer, offsets );
-
-        auto ibuffer = static_cast<API::Vulkan::VulkanIndexBuffer*>( indexBuffer )->GetVulkanBuffer();
-        vkCmdBindIndexBuffer( m_CurrentCommandBuffer, ibuffer, 0, VK_INDEX_TYPE_UINT32 );
-
-        // Vertices are addressed absolutely (the batcher bakes base offsets into the indices), so the
-        // vertex offset stays 0 and only firstIndex selects this batch's slice of the shared buffer.
-        DrawIndexedCounted( indexCount, 1, firstIndex, 0, 0 );
-    }
-
     void VulkanRendererAPI::SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount,
                                          float lineWidth, const MaterialExecutor* materialExecutor )
     {
@@ -604,53 +365,6 @@ namespace Desert::Graphic::API::Vulkan
 
         // Vertexless: the DebugLine vertex shader pulls each endpoint from the Lines storage buffer by
         // gl_VertexIndex. Lines topology -> every 2 vertices form one segment.
-        DrawCounted( vertexCount, 1, 0, 0 );
-    }
-
-    void VulkanRendererAPI::SubmitVertices( const GraphicsPipeline* pipeline, uint32_t vertexCount,
-                                            const MaterialExecutor* materialExecutor )
-    {
-        if ( !IsRecording() || vertexCount == 0 )
-            return;
-        const auto vulkanPipeline = static_cast<const VulkanPipeline*>( pipeline );
-        if ( !BindGraphicsPipeline( pipeline ) )
-            return;
-
-        if ( materialExecutor )
-        {
-            materialExecutor->Apply();
-            auto vkBackend = static_cast<VulkanMaterialBackend*>( materialExecutor->GetMaterialBackend().get() );
-            if ( !vkBackend->HasDescriptorSets() )
-            {
-                LOG_WARN( "VulkanRendererAPI::SubmitVertices: MaterialExecutor has no valid descriptor sets!" );
-                return;
-            }
-            uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
-            if ( !vkBackend->BindDescriptorSets( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
-                                                 VK_PIPELINE_BIND_POINT_GRAPHICS, frameIndex ) )
-                return;
-
-            const auto&   pcBuffer     = materialExecutor->GetPushConstantBuffer();
-            VulkanShader* vulkanShader = (VulkanShader*)pipeline->GetSpecification().Shader.get();
-            const auto&   pushConstant = vulkanShader->GetShaderPushConstant();
-            if ( ( pcBuffer.Size != 0u ) && pushConstant.has_value() )
-            {
-                // The REFLECTED size, not the buffer's. The push buffer is a fixed 128-byte scratch
-                // (MaterialExecutor), so pushing pcBuffer.Size wrote past the range the pipeline layout
-                // declares — a validation error the moment any vertexless draw gained a push constant,
-                // which the terrain's material row index is the first to do. RenderMesh three hundred
-                // lines up already used pcInfo.Size; this is the same line, and it was the odd one out.
-                const auto& pcInfo = *pushConstant;
-                if ( pcInfo.Size > 0 )
-                {
-                    vkCmdPushConstants( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
-                                        (VkShaderStageFlags)pcInfo.ShaderStage, 0, pcInfo.Size, pcBuffer.Data );
-                }
-            }
-        }
-
-        // Vertexless: the vertex shader synthesizes geometry from gl_VertexIndex. For a patch-list
-        // (tessellation) pipeline, vertexCount = patchCount * PatchControlPoints.
         DrawCounted( vertexCount, 1, 0, 0 );
     }
 
@@ -838,7 +552,7 @@ namespace Desert::Graphic::API::Vulkan
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes buffers
         const VkBuffer ibuffer = static_cast<API::Vulkan::VulkanIndexBuffer&>( indexBuffer ).GetVulkanBuffer();
         vkCmdBindIndexBuffer( m_CurrentCommandBuffer, ibuffer, 0, VK_INDEX_TYPE_UINT32 );
-        // As SubmitIndexed: vertices are addressed absolutely, only firstIndex selects the batch's slice.
+        // Vertices are addressed absolutely, only firstIndex selects the batch's slice.
         DrawIndexedCounted( indexCount, 1, firstIndex, 0, 0 );
         return Common::MakeSuccess( true );
     }
@@ -1257,6 +971,14 @@ namespace Desert::Graphic::API::Vulkan
         }
     } // namespace
 
+    Common::BoolResultStr VulkanRendererAPI::ImportBackBuffer( RDG::ExternalTexture& into )
+    {
+        const auto window = m_Window.lock();
+        if ( !window )
+            return Common::MakeError( "ImportBackBuffer: the window is gone" );
+        return SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() )->ImportBackBuffer( into );
+    }
+
     Common::BoolResultStr VulkanRendererAPI::ImportImage( const std::shared_ptr<Image>& image,
                                                           RDG::ExternalTexture&         into )
     {
@@ -1422,7 +1144,12 @@ namespace Desert::Graphic::API::Vulkan
     }
     std::shared_ptr<Framebuffer> VulkanRendererAPI::GetCompositeFramebuffer() const
     {
-        return m_CompositeFramebuffer.lock();
+        // The window swapchain's composite wrapper: the format every pipeline drawing into the back buffer is
+        // built against. Asked of the swapchain itself, so it exists from the first frame on.
+        const auto window = m_Window.lock();
+        if ( !window )
+            return nullptr;
+        return SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() )->GetCompositeFramebuffer();
     }
     void VulkanRendererAPI::SetViewportAndScissor( const uint32_t width, const uint32_t height )
     {

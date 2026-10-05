@@ -327,9 +327,10 @@ TEST( RenderGraphPassBindings, SystemBlackIsAValidImportedRefOfAFreshGraph )
 {
     ExternalTexture blackImage( Tex2D( 1, 1 ), Access::None );
     ExternalTexture whiteImage( Tex2D( 1, 1 ), Access::None );
+    ExternalTexture blackCubeImage( Tex2D( 1, 1 ), Access::None );
     Builder         graph( "system-textures" );
     graph.SetPassCulling( false ); // the test pass reads only; nothing reads what it writes
-    const SystemTextures system = RegisterSystemTextures( graph, blackImage, whiteImage );
+    const SystemTextures system = RegisterSystemTextures( graph, blackImage, whiteImage, blackCubeImage );
     ASSERT_TRUE( system.Black.IsValid() );
     ASSERT_TRUE( system.White.IsValid() );
     EXPECT_NE( system.Black.Index, system.White.Index );

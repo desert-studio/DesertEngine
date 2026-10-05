@@ -27,7 +27,7 @@ namespace Desert::Graphic
 
     // ------------------------------------------------------------------------------------------------
     // THE ONE WRITER of each per-frame scene block a shader can receive: the camera, the light payloads,
-    // the shadow cascades and the IBL trio. Same shape and same reason as Graphic::CloudShadowBind next
+    // the shadow cascades and the IBL trio. Same shape and same reason as Graphic::CloudShadowUpload next
     // door — every material in this engine binds by NAME, so one function serves every shader that
     // declares the block, whatever slot number it chose for it.
     //
@@ -130,11 +130,11 @@ namespace Desert::Graphic
 
     /// The cascaded directional shadow maps (R32F light-space depth) and their per-cascade light
     /// view-projections, bias, enable flag and debug switches — the `ShadowUB` block plus u_ShadowMap0..3.
-    inline void SceneShadowBind( Material* material, const glm::mat4* cascadeViewProj, Image2D* const* cascadeMaps,
-                                 uint32_t numCascades, float bias, bool enabled, int debugMode, bool showNormals,
+    inline void SceneShadowBind( Material* material, const glm::mat4* cascadeViewProj, uint32_t numCascades,
+                                 float bias, bool enabled, int debugMode, bool showNormals,
                                  const glm::vec4& cascadeWorldPerTexel, bool lightingDebug )
     {
-        if ( !material || !cascadeViewProj || !cascadeMaps )
+        if ( !material || !cascadeViewProj )
             return;
 
         // The block's layout and its cascade count are NOT restated here. They are one mirror
@@ -156,15 +156,6 @@ namespace Desert::Graphic
 
         if ( auto* ub = material->Get<UniformBufferProperty>( MaterialPBRBase::kShadowBlockName ) )
             ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
-
-        // Every cascade map, every frame: descriptors must stay valid for the set being recorded.
-        for ( uint32_t i = 0; i < kMaxCascades; ++i )
-        {
-            Image2D* img = ( i < n ) ? cascadeMaps[i] : nullptr;
-            if ( img )
-                if ( auto* tex = material->Get<Texture2DProperty>( MaterialPBRBase::kShadowMapNames[i] ) )
-                    tex->SetImage( img, RDG::Access::SampledGraphics );
-        }
     }
 
     /// The scene's sky look — rotation and gain — for any program that declares `SkyLookUB`. THE ONE
@@ -183,8 +174,8 @@ namespace Desert::Graphic
         }
     }
 
-    /// The IBL inputs of Mesh/AmbientIBL.glslh: the diffuse irradiance and prefiltered specular cubes and
-    /// the split-sum BRDF LUT.
+    /// The look of the IBL inputs of Mesh/AmbientIBL.glslh. MESH-PB1: the cubes and the split-sum BRDF LUT
+    /// themselves are pass parameters (SceneViewInputs, FrameGraphRefs.hpp); the text below is their history.
     ///
     /// THE TWO CUBES ARE SET EVERY CALL, null included — that is the relation this function exists to
     /// keep: **the environment a surface is shaded by belongs to the scene that surface is in**. The
@@ -200,20 +191,11 @@ namespace Desert::Graphic
     ///
     /// @p look is how the two cubes are read (Environment::Look); it travels with them because a cube
     /// bound without its look is the unturned sky under a turned backdrop.
-    inline void SceneEnvironmentBind( Material* material, ImageCube* irradiance, ImageCube* prefiltered,
-                                      Image2D* brdfLut, const SkyLook& look )
+    inline void SceneEnvironmentBind( Material* material, const SkyLook& look )
     {
         if ( !material )
             return;
 
         SceneSkyLookBind( material, look );
-
-        if ( auto* tex = material->Get<TextureCubeProperty>( MaterialPBRBase::kEnvIrradianceName ) )
-            tex->SetTexture( irradiance );
-        if ( auto* tex = material->Get<TextureCubeProperty>( MaterialPBRBase::kEnvSpecularName ) )
-            tex->SetTexture( prefiltered );
-        if ( brdfLut )
-            if ( auto* tex = material->Get<Texture2DProperty>( MaterialPBRBase::kBrdfLutName ) )
-                tex->SetImage( brdfLut, RDG::Access::SampledGraphics );
     }
 } // namespace Desert::Graphic

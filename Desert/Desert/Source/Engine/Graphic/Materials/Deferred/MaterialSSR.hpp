@@ -24,22 +24,12 @@ namespace Desert::Graphic
              : Material( "MaterialSSRResolve",
                          variant == SSRResolveVariant::Tiled ? "SSRResolveTiled" : "SSRResolve" )
         {
-            // u_Trace and u_GBufferWorldPos are textures of the frame graph in both variants, bound by name
-            // through RDG::PassBindings (SSRRenderer::RecordResolve, GIResolveRenderer::RecordTemporal). u_History
-            // is the SSR's own ping-pong (external to the graph) on this route.
-            m_History = m_MaterialExecutor->GetTexture2DProperty( "u_History" ).get();
+            // u_Trace, u_History and u_GBufferWorldPos are textures of the frame graph in both variants (the
+            // history ping-pong is imported), bound by name through RDG::PassBindings (SSRRenderer::RecordResolve,
+            // GIResolveRenderer::RecordTemporal).
         }
 
-        void BindInputs( const std::shared_ptr<Image2D>& history, const glm::mat4& prevViewProj,
-                         const glm::vec2& texelSize, float historyBlend )
-        {
-            if ( m_History && history )
-                m_History->SetImage( history.get(), RDG::Access::SampledGraphics );
-            BindValues( prevViewProj, texelSize, historyBlend );
-        }
-
-        // The SSRResolveUB values only, for a caller that binds u_History / u_GBufferWorldPos through
-        // RDG::PassBindings (GIResolveRenderer::RecordTemporal).
+        // The SSRResolveUB values: the material carries no texture.
         void BindValues( const glm::mat4& prevViewProj, const glm::vec2& texelSize, float historyBlend )
         {
             struct SSRResolveUBData
@@ -53,9 +43,6 @@ namespace Desert::Graphic
             if ( auto* ub = Get<UniformBufferProperty>( "SSRResolveUB" ) )
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
         }
-
-    private:
-        Texture2DProperty* m_History = nullptr;
     };
 
     // Composite half of SSR: blurs the traced reflection buffer (radius scaled by G-buffer roughness)
@@ -65,22 +52,16 @@ namespace Desert::Graphic
     public:
         MaterialSSRComposite() : Material( "MaterialSSRComposite", "SSRComposite" )
         {
-            m_SSR = m_MaterialExecutor->GetTexture2DProperty( "u_SSR" ).get();
-            // u_SSRTileMask and u_GBufferNormal are textures of the frame graph, bound through RDG::PassBindings
-            // (SSRRenderer::RecordComposite).
+            // u_SSR (the resolved accumulation target, imported), u_SSRTileMask and u_GBufferNormal are textures
+            // of the frame graph, bound through RDG::PassBindings (SSRRenderer::RecordComposite).
         }
 
-        void BindInputs( const std::shared_ptr<Image2D>& ssr, const glm::vec2& texelSize )
+        // The SSRCompositeUB values: the material carries no texture.
+        void BindValues( const glm::vec2& texelSize )
         {
-            if ( m_SSR && ssr )
-                m_SSR->SetImage( ssr.get(), RDG::Access::SampledGraphics );
-
             const glm::vec4 params( texelSize.x, texelSize.y, 0.0f, 0.0f );
             if ( auto* ub = Get<UniformBufferProperty>( "SSRCompositeUB" ) )
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &params ), sizeof( params ) );
         }
-
-    private:
-        Texture2DProperty* m_SSR = nullptr;
     };
 } // namespace Desert::Graphic

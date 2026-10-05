@@ -2176,19 +2176,26 @@ namespace Desert::Graphic::System
         RenderGraphBuilder::PassConfig config;
         config.Name        = "CloudComposite";
         config.Phase       = RenderPhase::Transparency;
-        config.ExecuteFunc = [this]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
+        config.ExecuteFunc = [this]( RDG::PassContext&     context,
+                                     const FrameGraphRefs& refs ) -> Common::BoolResultStr
         {
             // The RECONSTRUCTION, not the trace: the composite upsamples half to full, and the half-res
-            // pair is what the resolve wrote this frame.
-            if ( !m_HasFrameResult || !m_HistoryImage[m_ResolvedIndex] || !m_HistoryGuideImage[m_ResolvedIndex] ||
-                 !m_CompositeMaterial )
+            // pair is what the resolve wrote this frame (imported by SceneRenderer, declared by Declare below).
+            const RDG::TextureRef scatter = refs.Transients.CloudScatter;
+            const RDG::TextureRef guide   = refs.Transients.CloudGuide;
+            if ( !scatter.IsValid() || !guide.IsValid() || !m_CompositeMaterial )
                 return BOOLSUCCESS;
 
-            m_CompositeMaterial->BindInputs( m_HistoryImage[m_ResolvedIndex].get(),
-                                             m_HistoryGuideImage[m_ResolvedIndex].get() );
-            Renderer::GetInstance().SubmitFullscreenTriangle( m_CompositePipeline.get(),
-                                                              m_CompositeMaterial->GetMaterialExecutor() );
-            return BOOLSUCCESS;
+            // Both from ONE slot: the shader indexes them with one set of coordinates. The sampler the material
+            // route sampled them with (the image's own: linear, REPEAT).
+            RDG::PassBindings bindings( context );
+            bindings
+                 .Sampled( "u_CloudScatter", scatter, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           RDG::SamplerDesc::LinearRepeat() )
+                 .Sampled( "u_CloudGuide", guide, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                           RDG::SamplerDesc::LinearRepeat() );
+            return Renderer::GetInstance().DrawFullscreen( bindings, *m_CompositePipeline,
+                                                           m_CompositeMaterial->GetMaterialExecutor() );
         };
         config.PipelineSpec      = m_CompositePipeline->GetSpecification();
         config.TargetFramebuffer = target;
@@ -2200,14 +2207,14 @@ namespace Desert::Graphic::System
         config.OrderInPhase = RenderPassOrder::FarField;
         // The composite samples the reconstruction the resolve node wrote this frame (m_ResolvedIndex is decided
         // when the cloud nodes are declared, before this runs).
-        config.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
+        config.Declare = []( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
         {
-            if ( !m_HasFrameResult )
+            if ( !refs.Transients.CloudScatter.IsValid() || !refs.Transients.CloudGuide.IsValid() )
                 return;
-            declared.Read( m_HistoryImage[m_ResolvedIndex], RDG::Access::SampledGraphics,
-                           std::format( "Clouds.History{}", m_ResolvedIndex ) );
-            declared.Read( m_HistoryGuideImage[m_ResolvedIndex], RDG::Access::SampledGraphics,
-                           std::format( "Clouds.HistoryGuide{}", m_ResolvedIndex ) );
+            declared.Read( refs.Transients.CloudScatter, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All() );
+            declared.Read( refs.Transients.CloudGuide, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All() );
         };
 
         builder.AddPass( config );

@@ -1,5 +1,4 @@
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanRenderPassDependencies.hpp>
 #include <Engine/Core/GlfwVulkan.hpp> // glfwCreateWindowSurface: called here, so named here
 
 #include <Common/Core/DevInstruments.hpp>
@@ -10,6 +9,7 @@
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanFramebuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
@@ -72,13 +72,6 @@ namespace Desert::Graphic::API::Vulkan
              SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanInstance();
         
         Init( instance, device );
-
-        if ( m_VkRenderPass == VK_NULL_HANDLE )
-        {
-            const auto pass = CreateSwapChainRenderPass();
-            if ( !pass.IsSuccess() )
-                return Common::MakeFormattedError<bool>( "the swapchain render pass: {}", pass.GetError() );
-        }
 
         auto oldSwapchain = m_SwapChain;
 
@@ -234,15 +227,13 @@ namespace Desert::Graphic::API::Vulkan
             if ( !createdImageView.IsSuccess() ) return Common::MakeError<bool>( createdImageView.GetError() );
             m_SwapChainImages.ImagesView[i] = createdImageView.GetValue();
         }
+        // The graph handles wrap the images just fetched; any handle of the previous images is dropped here.
+        m_BackBufferGraphTextures.assign( swapChainImagesCount, nullptr );
 
         const auto attachments = CreateColorAndDepthImages( vkLogicalDevice );
         if ( !attachments.IsSuccess() )
             return Common::MakeFormattedError<bool>( "the swapchain colour/depth attachments: {}",
                                                      attachments.GetError() );
-
-        const auto framebuffers = CreateSwapChainFramebuffers();
-        if ( !framebuffers.IsSuccess() )
-            return Common::MakeFormattedError<bool>( "the swapchain framebuffers: {}", framebuffers.GetError() );
 
         if ( !m_Output )
         {
@@ -259,8 +250,8 @@ namespace Desert::Graphic::API::Vulkan
         fbSpec.DebugName = "SwapchainFramebufferWrapper";
         // BGRA8F to match the actual swapchain colour format (VK_FORMAT_B8G8R8A8_UNORM). This wrapper's render
         // pass is what the runtime builds its present/UI pipelines against, so its attachment format must match
-        // the swapchain pass BeginSwapChainRenderPass draws into — else the pipeline is render-pass-incompatible
-        // (was (ImageFormat)0 == RGBA8F, tripping VUID-vkCmdDraw-renderPass-02684 on the SwapchainBlit pipeline).
+        // the back buffer the present graph node draws into (ImportBackBuffer) — else the pipeline is
+        // render-pass-incompatible (was (ImageFormat)0 == RGBA8F, tripping VUID-vkCmdDraw-renderPass-02684).
         fbSpec.Attachments.Attachments = { Core::Formats::ImageFormat::BGRA8F };
         fbSpec.PresentTarget           = true; // build its render pass to match the actual present pass
         m_CompositeFramebuffer = std::make_shared<VulkanFramebuffer>( fbSpec );
@@ -437,12 +428,10 @@ namespace Desert::Graphic::API::Vulkan
         if ( m_SwapChain != VK_NULL_HANDLE )
         {
             for ( auto& view : m_SwapChainImages.ImagesView ) vkDestroyImageView( device, view, nullptr );
+            m_BackBufferGraphTextures.clear();
             vkDestroySwapchainKHR( device, m_SwapChain, nullptr );
             m_SwapChain = VK_NULL_HANDLE;
         }
-
-        for ( auto fb : m_SwapChainFramebuffers ) vkDestroyFramebuffer( device, fb, nullptr );
-        m_SwapChainFramebuffers.clear();
 
         // A CAPTURE RECORDED AND NEVER COLLECTED IS AN OWNED ALLOCATION WITH NO OWNER LEFT TO COLLECT IT.
         // `m_CaptureAllocation` is one of the two raw pointers in this class that genuinely OWN what they
@@ -465,12 +454,6 @@ namespace Desert::Graphic::API::Vulkan
             m_CaptureAllocation = nullptr;
             m_CaptureWidth      = 0;
             m_CaptureHeight     = 0;
-        }
-
-        if ( m_VkRenderPass != VK_NULL_HANDLE )
-        {
-            vkDestroyRenderPass( device, m_VkRenderPass, nullptr );
-            m_VkRenderPass = VK_NULL_HANDLE;
         }
 
         if ( m_ColorImages.Image )
@@ -510,6 +493,37 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         m_CompositeFramebuffer = nullptr;
+    }
+
+    Common::BoolResultStr VulkanSwapChain::ImportBackBuffer( ::Desert::Graphic::RDG::ExternalTexture& into )
+    {
+        const uint32_t index = GetCurrentBufferIndex();
+        if ( index >= m_SwapChainImages.Images.size() || index >= m_BackBufferGraphTextures.size() )
+            return Common::MakeError( std::format( "ImportBackBuffer: image index {} of a {}-image swapchain",
+                                                   index, m_SwapChainImages.Images.size() ) );
+
+        ::Desert::Graphic::RDG::TextureDesc desc;
+        desc.Size.Width  = m_Width;
+        desc.Size.Height = m_Height;
+        desc.Size.Depth  = 1;
+        // The composite framebuffer's format (CreateCompositeFramebuffer): the pipelines that draw into the back
+        // buffer are built against it.
+        desc.Format = Core::Formats::ImageFormat::BGRA8F;
+
+        if ( !m_BackBufferGraphTextures[index] )
+        {
+            const VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                                         ->GetVulkanLogicalDevice();
+            m_BackBufferGraphTextures[index] =
+                 VulkanRdgTexture::Wrap( device, m_SwapChainImages.Images[index], m_ColorFormat, desc );
+        }
+
+        into.Desc = desc;
+        into.SubresourceStates.assign( desc.SubresourceCount(), ::Desert::Graphic::RDG::GetAccessState(
+                                                                     ::Desert::Graphic::RDG::Access::None ) );
+        into.Physical     = m_BackBufferGraphTextures[index];
+        into.RecordStates = {};
+        return BOOLSUCCESS;
     }
 
     uint32_t VulkanSwapChain::GetCurrentBufferIndex() const
@@ -740,41 +754,6 @@ namespace Desert::Graphic::API::Vulkan
     }
 
 #endif // DESERT_DEV_INSTRUMENTS
-
-    Common::ResultStr<VkResult> VulkanSwapChain::CreateSwapChainFramebuffers()
-    {
-        const auto vkLogicalDevice = m_LogicalDevice.lock();
-        if ( !vkLogicalDevice ) DESERT_VERIFY( false );
-
-        m_SwapChainFramebuffers.resize( m_SwapChainImages.ImagesView.size() );
-        for ( uint32_t i = 0; i < m_SwapChainFramebuffers.size(); i++ )
-        {
-            VkImageView attachments[] = { m_SwapChainImages.ImagesView[i] };
-            VkFramebufferCreateInfo fbCreateInfo = { .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO, .renderPass = m_VkRenderPass, .attachmentCount = 1, .pAttachments = attachments, .width = m_Width, .height = m_Height, .layers = 1 };
-            VK_CHECK_RESULT( vkCreateFramebuffer( vkLogicalDevice->GetVulkanLogicalDevice(), &fbCreateInfo, NULL, &m_SwapChainFramebuffers[i] ) );
-        }
-        return Common::MakeSuccess( VK_SUCCESS );
-    }
-
-    Common::ResultStr<VkResult> VulkanSwapChain::CreateSwapChainRenderPass()
-    {
-        const auto vkLogicalDevice = m_LogicalDevice.lock();
-        if ( !vkLogicalDevice ) DESERT_VERIFY( false );
-
-        VkAttachmentDescription attachment = { .format = m_ColorFormat, .samples = VK_SAMPLE_COUNT_1_BIT, .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, .storeOp = VK_ATTACHMENT_STORE_OP_STORE, .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE, .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE, .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED, .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR };
-        VkAttachmentReference colorRef = { .attachment = 0, .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
-        VkSubpassDescription subpass = { .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS, .colorAttachmentCount = 1, .pColorAttachments = &colorRef };
-        const std::vector<VkSubpassDependency> dependencies = SinglePassDependencies( true, false, true );
-
-        VkRenderPassCreateInfo rpInfo = { .sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-                                          .attachmentCount = 1,
-                                          .pAttachments    = &attachment,
-                                          .subpassCount    = 1,
-                                          .pSubpasses      = &subpass,
-                                          .dependencyCount = static_cast<uint32_t>( dependencies.size() ),
-                                          .pDependencies   = dependencies.data() };
-        VK_RETURN_RESULT( vkCreateRenderPass( vkLogicalDevice->GetVulkanLogicalDevice(), &rpInfo, nullptr, &m_VkRenderPass ) );
-    }
 
     Common::ResultStr<VkResult> VulkanSwapChain::CreateColorAndDepthImages( const std::shared_ptr<VulkanLogicalDevice>& device )
     {

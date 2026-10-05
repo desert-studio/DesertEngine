@@ -902,53 +902,61 @@ namespace Desert::Graphic::System
 
         builder
              .AddPass(
-                  "SkyboxPass", RenderPhase::Sky, [this]() { Render(); },
+                  "SkyboxPass", RenderPhase::Sky,
+                  [this]( RDG::PassContext& context, const FrameGraphRefs& refs ) -> Common::BoolResultStr
+                  { return Render( context, refs ); },
                   m_Pipeline ? m_Pipeline->GetSpecification() : GraphicsPipelineSpecification{}, targetFb )
-             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
+             .Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
         {
-            // The procedural sky samples the transmittance and sky-view LUTs (Render); SkyAtmosphereLuts writes
-            // them as storage images, last frame's at this point of the frame.
-            m_SkyPassSamplesLuts = false;
+            // The procedural sky samples the transmittance and sky-view LUTs (Render): last frame's, imported by
+            // SceneRenderer::ImportSceneViewTextures when SkyPassSamplesLuts, or System.White until an earlier
+            // frame's SkyAtmosphereLuts nodes have written them (the gradient branch never samples them).
             if ( !m_BackdropVisible || !m_UseProceduralSky )
                 return;
-            // This node declares before SkyAtmosphereLuts (DeclareAtmosphereLutNodes) in the frame. It samples
-            // the LUTs only once an earlier frame's nodes have written them: a LUT allocated later in this
-            // frame's build would otherwise be bound by Render without this node having declared it (so without
-            // the graph's barrier), or read before it holds a single texel. Until then Render leaves the
-            // material's fallbacks bound.
-            m_SkyPassSamplesLuts = m_LutsValid && m_SkyViewLutFilled && m_TransmittanceLut && m_SkyViewLut;
-            if ( !m_SkyPassSamplesLuts )
-                return;
-            declared.Read( m_TransmittanceLut, RDG::Access::SampledGraphics, "Sky.TransmittanceLut" );
-            declared.Read( m_SkyViewLut, RDG::Access::SampledGraphics, "Sky.SkyViewLut" );
+            const RDG::TextureRef white = refs.System.White;
+            declared.Read( refs.Transients.SkyTransmittanceLut.IsValid() ? refs.Transients.SkyTransmittanceLut
+                                                                         : white,
+                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
+            declared.Read( refs.Transients.SkyViewLut.IsValid() ? refs.Transients.SkyViewLut : white,
+                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
         };
     }
 
-    void SkyboxRenderer::Render()
+    Common::BoolResultStr SkyboxRenderer::Render( const RDG::PassContext& context, const FrameGraphRefs& refs )
     {
         auto& renderer = Renderer::GetInstance();
         if ( !m_BackdropVisible )
-            return;
+            return BOOLSUCCESS;
+        // The cubemap is the skybox material's own (Properties); the procedural sky's LUTs are pass parameters.
+        RDG::PassBindings bindings( context );
 
-        // Engine-generated procedural atmosphere (no HDR asset needed). The LUTs ride along only once
-        // the physical model has allocated them; on the gradient they stay null and the material keeps
-        // its fallback descriptors for the two samplers the shader declares.
+        // Engine-generated procedural atmosphere (no HDR asset needed). The LUTs are bound whenever the
+        // procedural sky draws: this frame's imports, or System.White before the physical model has written
+        // them (the gradient branch never samples them).
         if ( m_UseProceduralSky && m_ProceduralPipeline && m_ProceduralMaterial && m_ActiveCamera )
         {
-            m_ProceduralMaterial->Update( m_ActiveCamera, m_SkyParams,
-                                          m_SkyPassSamplesLuts ? m_TransmittanceLut.get() : nullptr,
-                                          m_SkyPassSamplesLuts ? m_SkyViewLut.get() : nullptr );
-            renderer.SubmitFullscreenTriangle( m_ProceduralPipeline.get(),
-                                               m_ProceduralMaterial->GetMaterialExecutor() );
-            return;
+            m_ProceduralMaterial->Update( m_ActiveCamera, m_SkyParams );
+            const RDG::TextureRef white = refs.System.White;
+            bindings.Sampled(
+                 "u_TransmittanceLut",
+                 refs.Transients.SkyTransmittanceLut.IsValid() ? refs.Transients.SkyTransmittanceLut : white,
+                 RDG::Access::SampledGraphics, RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
+            bindings.Sampled(
+                 "u_SkyViewLut", refs.Transients.SkyViewLut.IsValid() ? refs.Transients.SkyViewLut : white,
+                 RDG::Access::SampledGraphics, RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearClamp() );
+            return renderer.DrawFullscreen( bindings, *m_ProceduralPipeline,
+                                            m_ProceduralMaterial->GetMaterialExecutor() );
         }
 
         if ( const auto& material = m_MaterialSkybox.lock() )
         {
             if ( m_ActiveCamera )
                 material->BindInputs( { m_ActiveCamera, m_SkyboxLook } );
-            renderer.SubmitFullscreenTriangle( m_Pipeline.get(), material->GetMaterialExecutor() );
+            if ( !m_Pipeline )
+                return Common::MakeError( "SkyboxPass: a skybox material without its pipeline" );
+            return renderer.DrawFullscreen( bindings, *m_Pipeline, material->GetMaterialExecutor() );
         }
+        return BOOLSUCCESS;
     }
 
 } // namespace Desert::Graphic::System

@@ -7,6 +7,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/FrameGraphRefs.hpp>
 
 #include <glm/glm.hpp>
 
@@ -26,7 +27,8 @@ namespace Desert::Graphic::System
         RDG::TextureRef                GBufferEmissive; // HDR emissive
         RDG::TextureRef                SSAO;            // FrameTransients::SSAO, or System.White (AO = 1)
         RDG::TextureRef                GI;              // RSM-GI accumulation, or System.Black (no indirect)
-        std::array<RDG::TextureRef, 4> ShadowMaps;      // cascade i, or System.White past the valid count
+        // The scene/view inputs (SceneViewInputsOf): cascades, environment cubes, BRDF LUT, cloud shadow map.
+        SceneViewInputs View;
     };
 
     // Deferred lighting + G-buffer debug pass. Fullscreen: reads the scene renderer's MRT G-buffer and writes
@@ -106,10 +108,7 @@ namespace Desert::Graphic::System
             sampled( "u_GBufferEmissive", inputs.GBufferEmissive );
             sampled( "u_SSAO", inputs.SSAO );
             sampled( "u_GI", inputs.GI );
-            static constexpr std::string_view kShadowMaps[4] = { "u_ShadowMap0", "u_ShadowMap1", "u_ShadowMap2",
-                                                                 "u_ShadowMap3" };
-            for ( size_t i = 0; i < inputs.ShadowMaps.size(); ++i )
-                sampled( kShadowMaps[i], inputs.ShadowMaps[i] );
+            BindSceneViewInputs( bindings, inputs.View, *m_Shader );
             return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
                                                            m_Material->GetMaterialExecutor() );
         }

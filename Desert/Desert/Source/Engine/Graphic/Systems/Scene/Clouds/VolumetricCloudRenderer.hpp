@@ -143,6 +143,23 @@ namespace Desert::Graphic::System
         // the history (resolved slot, frame index, previous view-projection); a refusal records nothing, so it
         // drops the history and the sky-occlusion volume rather than claim a resolve that never ran.
         void SettleFrameNodes( bool accepted );
+
+        // The reconstruction pair the composite samples this frame (the resolve's write slot), after
+        // SettleFrameNodes. Both null when the frame has none (clouds off, or the nodes were refused): the
+        // composite then draws nothing. SceneRenderer imports the pair into the frame graph
+        // (FrameTransients::CloudScatter / CloudGuide), and the composite binds those refs by shader name.
+        struct FrameResult
+        {
+            std::shared_ptr<Image2D> Scatter;
+            std::shared_ptr<Image2D> Guide;
+            uint32_t                 Slot = 0;
+        };
+        FrameResult GetFrameResult() const
+        {
+            if ( !m_HasFrameResult || !m_HistoryImage[m_ResolvedIndex] || !m_HistoryGuideImage[m_ResolvedIndex] )
+                return {};
+            return { m_HistoryImage[m_ResolvedIndex], m_HistoryGuideImage[m_ResolvedIndex], m_ResolvedIndex };
+        }
         // The cloud volumes a dispatch samples (modelling, authored atlas), declared SampledCompute.
         void DeclareVolumeReads( RenderPassDeclaration& declared ) const;
 

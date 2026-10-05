@@ -56,7 +56,6 @@ namespace Desert::Graphic
         // exercised, is how a guard ends up on the wrong one — removed rather than kept "just in case".
         virtual Common::BoolResultStr PresentFinalImage()                                              = 0;
         virtual Common::BoolResultStr BeginRenderPass( const RenderPass* renderPass, bool clearFrame ) = 0;
-        virtual Common::BoolResultStr BeginSwapChainRenderPass()                                       = 0;
         virtual Common::BoolResultStr EndRenderPass()                                                  = 0;
 
         // Named command-buffer region for graphics debuggers (RenderDoc shows these as a pass
@@ -80,6 +79,12 @@ namespace Desert::Graphic
         virtual Common::BoolResultStr ImportImage( const std::shared_ptr<Image>& image,
                                                    RDG::ExternalTexture&         into ) = 0;
 
+        // Imports the window's back buffer acquired for this frame into @p into for one graph (UE: the viewport's
+        // RHI texture registered as an external texture each frame). Its prior contents are undefined; the graph
+        // that writes it extracts it as RDG::Access::Present, and the frame presents after that graph. Fails when
+        // there is no window or no acquired image.
+        virtual Common::BoolResultStr ImportBackBuffer( RDG::ExternalTexture& into ) = 0;
+
         // Imports the copy of @p buffer bound for this frame and the active view into @p into for one graph:
         // its size, the graph's non-owning handle on it, the state the last graph that imported the same copy
         // left it in (untouched for a copy no graph has seen), and the hook through which Execute records the
@@ -89,36 +94,9 @@ namespace Desert::Graphic
         virtual Common::BoolResultStr ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
                                                     RDG::ExternalBuffer& into ) = 0;
 
-        // @p instanceCount > 1 issues a hardware-instanced draw (the instanced pipeline's vertex shader
-        // reads the per-instance model matrix from an InstanceTransforms SSBO by gl_InstanceIndex).
-        // @p firstInstance offsets gl_InstanceIndex (== firstInstance + 0..instanceCount-1), so several
-        // mesh sub-groups can share ONE packed InstanceTransforms buffer (each draw reads its own slice).
-        virtual void RenderMesh( const GraphicsPipeline* pipeline, const Mesh* mesh, const glm::mat4 transform,
-                                 const MaterialExecutor* materialExecutor, uint32_t instanceCount = 1,
-                                 uint32_t firstInstance = 0, uint64_t hiddenSubmeshMask = 0,
-                                 uint32_t lodLevel = 0 ) = 0;
-
-        virtual void SubmitFullscreenTriangle( const GraphicsPipeline* pipeline,
-                                               const MaterialExecutor* materialExecutor ) = 0;
-
-        // Indexed draw from caller-supplied vertex + index buffers. The 2D/UI batcher fills a dynamic
-        // VB+IB each frame (one buffer, many quads) and issues one SubmitIndexed per state batch;
-        // @p materialExecutor supplies the batch's texture and push constants (the ortho projection).
-        virtual void SubmitIndexed( const GraphicsPipeline* pipeline, VertexBuffer* vertexBuffer,
-                                    IndexBuffer* indexBuffer, uint32_t indexCount, uint32_t firstIndex,
-                                    const MaterialExecutor* materialExecutor ) = 0;
-
         // Vertexless line draw (Lines-topology pipeline pulls vertices from a storage buffer by index).
         virtual void SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
                                   const MaterialExecutor* materialExecutor )                            = 0;
-
-        // Vertexless draw of @p vertexCount vertices (no vertex/index buffer bound). The vertex shader
-        // synthesizes geometry from gl_VertexIndex. Used by the GPU terrain (patch-list tessellation) and
-        // the particle billboards. Hardware instancing of ASSETS is SubmitMesh's @p instanceCount above;
-        // this seam draws one instance because nothing synthesizes per-instance geometry any more (Г25
-        // removed the procedural grass, which was the only caller that did).
-        virtual void SubmitVertices( const GraphicsPipeline* pipeline, uint32_t vertexCount,
-                                     const MaterialExecutor* materialExecutor ) = 0;
 
         // The in-graph consumers of an RDG::PassBindings (see Renderer::DispatchCompute / DrawFullscreen): record
         // into the command buffer of the pass the bindings were built in, with descriptor sets written for this
@@ -133,7 +111,7 @@ namespace Desert::Graphic
         [[nodiscard]] virtual Common::BoolResultStr
         DrawProcedural( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                         const MaterialExecutor* material, uint32_t vertexCount, uint32_t instanceCount ) = 0;
-        // The PassBindings route of SubmitIndexed: one indexed draw of @p indexCount indices from @p firstIndex of
+        // The PassBindings indexed draw: one indexed draw of @p indexCount indices from @p firstIndex of
         // a caller-filled VB + IB (uint32 indices, vertices addressed absolutely), with the graph textures bound
         // by shader name from @p bindings and @p material supplying uniform values / asset textures only.
         [[nodiscard]] virtual Common::BoolResultStr

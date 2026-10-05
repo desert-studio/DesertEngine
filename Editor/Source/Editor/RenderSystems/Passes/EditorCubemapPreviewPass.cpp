@@ -1,5 +1,6 @@
 #include "EditorCubemapPreviewPass.hpp"
 
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -45,7 +46,7 @@ namespace Desert::Editor::Render
         pass.Dependencies          = { Graphic::RenderPassDependency( Graphic::RenderPhase::Geometry ) };
         pass.PipelineSpecification = m_Pipeline->GetSpecification();
         pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx,
-                               Graphic::RDG::PassContext& ) -> Common::BoolResultStr
+                               Graphic::RDG::PassContext&          context ) -> Common::BoolResultStr
         {
             if ( !ctx.Camera || !m_ResolveCube )
                 return BOOLSUCCESS;
@@ -59,9 +60,9 @@ namespace Desert::Editor::Render
 
             m_Material->Update( ctx.Camera, source.Cube, source.Look, m_Radius, m_Backdrop, source.Lod,
                                 m_LongLat );
-            Graphic::Renderer::GetInstance().SubmitFullscreenTriangle( m_Pipeline.get(),
-                                                                       m_Material->GetMaterialExecutor() );
-            return BOOLSUCCESS;
+            // The pass reads no graph texture: the sphere's cube is the material's.
+            return Graphic::Renderer::GetInstance().DrawFullscreen(
+                 Graphic::RDG::PassBindings( context ), *m_Pipeline, m_Material->GetMaterialExecutor() );
         };
 
         scene->RegisterExternalPass( std::move( pass ) );

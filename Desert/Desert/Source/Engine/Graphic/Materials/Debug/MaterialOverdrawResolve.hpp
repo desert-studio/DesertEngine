@@ -4,23 +4,14 @@
 
 namespace Desert::Graphic
 {
-    // Fullscreen resolve material for the Overdraw view: binds the additive accumulation image and drives
-    // OverdrawResolve.shader (heat-maps the overdraw count over the scene). Header-only (no new .cpp).
+    // Fullscreen resolve material for the Overdraw view: drives OverdrawResolve.shader (heat-maps the overdraw
+    // count over the scene). It carries no texture: the additive accumulation (u_Overdraw) is a graph texture the
+    // resolve node binds through RDG::PassBindings (MeshRenderer::RecordOverdrawResolve). Header-only.
     class MaterialOverdrawResolve final : public Material
     {
     public:
         MaterialOverdrawResolve() : Material( "MaterialOverdrawResolve", "OverdrawResolve" )
         {
-            m_Overdraw = m_MaterialExecutor->GetTexture2DProperty( "u_Overdraw" ).get();
         }
-
-        void BindInputs( const std::shared_ptr<Image2D>& accum )
-        {
-            if ( m_Overdraw && accum )
-                m_Overdraw->SetImage( accum.get(), RDG::Access::SampledGraphics );
-        }
-
-    private:
-        Texture2DProperty* m_Overdraw = nullptr;
     };
 } // namespace Desert::Graphic

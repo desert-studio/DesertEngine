@@ -58,10 +58,6 @@ namespace Desert::Graphic::System
         if ( !framebuffer )
             return Common::MakeError( "TonemapRenderer: the source framebuffer was destroyed or wasn't set up" );
 
-        // The auto-exposure image always exists once created; when disabled the auto flag makes its contents
-        // ignored, but the descriptor stays validly bound.
-        std::shared_ptr<Image2D> avgLuminance = m_AutoExposureImage.lock();
-
         // An effect whose nodes did not run this frame reads System.Black and adds nothing.
         const float bloomIntensity      = inputs.BloomProduced ? m_BloomIntensity : 0.0f;
         const float lightShaftIntensity = inputs.LightShaftsProduced ? m_LightShaftIntensity : 0.0f;
@@ -72,10 +68,15 @@ namespace Desert::Graphic::System
                                         m_ChromaticBloom,  m_WhitePoint,       lightShaftIntensity,
                                         m_LightShaftTint,  lensFlareIntensity, m_LensFlareTint };
 
-        m_MaterialTonemap->BindInputs( framebuffer->GetColorAttachmentImage(), avgLuminance, params );
+        m_MaterialTonemap->BindValues( params );
 
+        // The sampler the material route sampled these two with (the image's own: linear, REPEAT).
         RDG::PassBindings bindings( context );
         bindings
+             .Sampled( "u_GeometryTexture", inputs.Source, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
+             .Sampled( "u_AvgLuminance", inputs.AvgLuminance, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
              .Sampled( "u_BloomTexture", inputs.Bloom, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::Mip( 0 ), RDG::SamplerDesc::LinearClamp() )
              .Sampled( "u_LightShaftTexture", inputs.LightShafts, RDG::Access::SampledGraphics,

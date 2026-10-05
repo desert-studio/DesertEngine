@@ -40,7 +40,6 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] virtual Common::BoolResultStr PresentFinalImage() override;
         [[nodiscard]] virtual Common::BoolResultStr BeginRenderPass( const RenderPass* renderPass,
                                                                      bool              clearFrame ) override;
-        virtual Common::BoolResultStr               BeginSwapChainRenderPass() override;
         [[nodiscard]] virtual Common::BoolResultStr EndRenderPass() override;
 
         virtual void BeginDebugLabel( const char* name ) override;
@@ -48,26 +47,12 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr                  ExecuteGraph( RDG::Builder& graph ) override;
         Common::BoolResultStr                  ImportImage( const std::shared_ptr<Image>& image,
                                                             RDG::ExternalTexture&         into ) override;
+        Common::BoolResultStr                  ImportBackBuffer( RDG::ExternalTexture& into ) override;
         Common::BoolResultStr ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
                                             RDG::ExternalBuffer&                                   into ) override;
 
-        virtual void RenderMesh( const GraphicsPipeline* pipeline, const Mesh* mesh, const glm::mat4 transform,
-                                 const MaterialExecutor* materialExecutor, uint32_t instanceCount = 1,
-                                 uint32_t firstInstance = 0, uint64_t hiddenSubmeshMask = 0,
-                                 uint32_t lodLevel = 0 ) override;
-
-        virtual void SubmitFullscreenTriangle( const GraphicsPipeline* pipeline,
-                                               const MaterialExecutor* materialExecutor ) override;
-
-        virtual void SubmitIndexed( const GraphicsPipeline* pipeline, VertexBuffer* vertexBuffer,
-                                    IndexBuffer* indexBuffer, uint32_t indexCount, uint32_t firstIndex,
-                                    const MaterialExecutor* materialExecutor ) override;
-
         virtual void SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
                                   const MaterialExecutor* materialExecutor ) override;
-
-        virtual void SubmitVertices( const GraphicsPipeline* pipeline, uint32_t vertexCount,
-                                     const MaterialExecutor* materialExecutor ) override;
 
         Common::BoolResultStr DispatchCompute( const RDG::PassBindings& bindings, const ComputePipeline& pipeline,
                                                uint32_t groupCountX, uint32_t groupCountY,
@@ -171,8 +156,8 @@ namespace Desert::Graphic::API::Vulkan
         // The in-graph writer above, bound as the backend's RecordingListener.
         void SetGraphRecordingTarget( VkCommandBuffer commandBuffer );
 
-        // The compatibility key of the render pass this API opened on m_CurrentCommandBuffer (BeginRenderPass /
-        // BeginSwapChainRenderPass), empty between passes. BindGraphicsPipeline resolves the pipeline against it,
+        // The compatibility key of the render pass this API opened on m_CurrentCommandBuffer (BeginRenderPass),
+        // empty between passes. BindGraphicsPipeline resolves the pipeline against it,
         // or against the graph backend's open pass when the draw is recorded inside one.
         std::optional<RdgRenderPassKey> m_OpenRenderPass;
 
@@ -189,8 +174,6 @@ namespace Desert::Graphic::API::Vulkan
 #if DESERT_DEV_INSTRUMENTS
         VulkanGpuProfiler m_GpuProfiler;
 #endif
-
-        std::weak_ptr<Framebuffer> m_CompositeFramebuffer;
 
         // The frame-graph executor, made on the first ExecuteGraph (the device exists by then). The pool
         // holds transient images per frame in flight; the backend is re-pointed at the frame's command

@@ -26,11 +26,13 @@ namespace Desert::Graphic
         // CascadeCount, not kMaxCascades. The ceiling was passed here for as long as every renderer had
         // four cascades, which made the two indistinguishable; they are not, and the difference is a
         // preview that binds one map and would otherwise ask the shader to walk four.
-        SceneShadowBind( material, CascadeViewProj, CascadeMaps, CascadeCount, ShadowBias, ShadowsEnabled,
-                         ShadowDebugMode, ShowNormals, CascadeTexelWorld, LightingDebug );
+        SceneShadowBind( material, CascadeViewProj, CascadeCount, ShadowBias, ShadowsEnabled, ShadowDebugMode,
+                         ShowNormals, CascadeTexelWorld, LightingDebug );
 
-        SceneEnvironmentBind( material, IrradianceMap, PrefilteredMap, BrdfLut, EnvironmentLook );
-        CloudShadowBind( material, CloudShadow );
+        SceneEnvironmentBind( material, EnvironmentLook );
+        // The block only: u_CloudShadowMap is a pass parameter, bound by every mesh node that draws these
+        // materials (CloudShadowMapOrWhite through RDG::PassBindings).
+        CloudShadowUpload( material, CloudShadow );
     }
 
     void PBRSceneFrame::ApplyTo( MaterialInstance* instance ) const

@@ -144,30 +144,10 @@ namespace Desert::Graphic
         return s_RendererAPI->PresentFinalImage();
     }
 
-    void Renderer::SubmitFullscreenTriangle( const GraphicsPipeline* pipeline,
-                                             const MaterialExecutor* materialExecutor )
-    {
-        s_RendererAPI->SubmitFullscreenTriangle( pipeline, materialExecutor );
-    }
-
-    void Renderer::SubmitIndexed( const GraphicsPipeline* pipeline, VertexBuffer* vertexBuffer,
-                                  IndexBuffer* indexBuffer, uint32_t indexCount, uint32_t firstIndex,
-                                  const MaterialExecutor* materialExecutor )
-    {
-        s_RendererAPI->SubmitIndexed( pipeline, vertexBuffer, indexBuffer, indexCount, firstIndex,
-                                      materialExecutor );
-    }
-
     void Renderer::SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
                                 const MaterialExecutor* materialExecutor )
     {
         s_RendererAPI->SubmitLines( pipeline, vertexCount, lineWidth, materialExecutor );
-    }
-
-    void Renderer::SubmitVertices( const GraphicsPipeline* pipeline, uint32_t vertexCount,
-                                   const MaterialExecutor* materialExecutor )
-    {
-        s_RendererAPI->SubmitVertices( pipeline, vertexCount, materialExecutor );
     }
 
     Common::BoolResultStr Renderer::DispatchCompute( const RDG::PassBindings& bindings,
@@ -247,11 +227,6 @@ namespace Desert::Graphic
         s_RendererAPI->BeginRenderPass( renderPass, clearFrame );
     }
 
-    void Renderer::BeginSwapChainRenderPass()
-    {
-        s_RendererAPI->BeginSwapChainRenderPass();
-    }
-
     void Renderer::EndRenderPass()
     {
         s_RendererAPI->EndRenderPass();
@@ -265,6 +240,11 @@ namespace Desert::Graphic
     Common::BoolResultStr Renderer::ImportImage( const std::shared_ptr<Image>& image, RDG::ExternalTexture& into )
     {
         return s_RendererAPI->ImportImage( image, into );
+    }
+
+    Common::BoolResultStr Renderer::ImportBackBuffer( RDG::ExternalTexture& into )
+    {
+        return s_RendererAPI->ImportBackBuffer( into );
     }
 
     Common::BoolResultStr Renderer::ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
@@ -309,14 +289,6 @@ namespace Desert::Graphic
     std::shared_ptr<Framebuffer> Renderer::GetCompositeFramebuffer()
     {
         return s_RendererAPI->GetCompositeFramebuffer();
-    }
-
-    void Renderer::RenderMesh( const GraphicsPipeline* pipeline, const Mesh* mesh, const glm::mat4 transform,
-                               const MaterialExecutor* materialExecutor, uint32_t instanceCount,
-                               uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel )
-    {
-        s_RendererAPI->RenderMesh( pipeline, mesh, transform, materialExecutor, instanceCount, firstInstance,
-                                   hiddenSubmeshMask, lodLevel );
     }
 
     const std::shared_ptr<Desert::Graphic::Texture2D>& Renderer::GetBRDFTexture() const

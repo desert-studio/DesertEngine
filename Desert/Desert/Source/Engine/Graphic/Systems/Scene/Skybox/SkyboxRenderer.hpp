@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/AtmosphereEnv.hpp>
@@ -77,6 +78,23 @@ namespace Desert::Graphic::System
         void SettleAtmosphereLutNodes( bool accepted );
         // The LUTs a consumer of GetAtmosphere() samples, declared with @p access (the fog and the clouds).
         void DeclareAtmosphereReads( RenderPassDeclaration& declared, RDG::Access access ) const;
+        // The sky pass samples the transmittance / sky-view LUTs this frame: the procedural backdrop is drawn and
+        // an earlier frame's nodes have written both. SceneRenderer::ImportSceneViewTextures asks it before any
+        // node is added (the SkyboxPass declares before the LUT nodes, so they cannot publish a transient it
+        // sees) and imports the pair as FrameTransients::SkyTransmittanceLut / SkyViewLut.
+        [[nodiscard]] bool SkyPassSamplesLuts() const
+        {
+            return m_BackdropVisible && m_UseProceduralSky && m_LutsValid && m_SkyViewLutFilled &&
+                   m_TransmittanceLut && m_SkyViewLut;
+        }
+        [[nodiscard]] const std::shared_ptr<Image2D>& GetTransmittanceLut() const
+        {
+            return m_TransmittanceLut;
+        }
+        [[nodiscard]] const std::shared_ptr<Image2D>& GetSkyViewLut() const
+        {
+            return m_SkyViewLut;
+        }
 
         const std::optional<Environment> GetEnvironment() const
         {
@@ -107,7 +125,7 @@ namespace Desert::Graphic::System
         void RegisterPasses( RenderGraphBuilder& builder ) override;
 
     private:
-        void Render();
+        [[nodiscard]] Common::BoolResultStr Render( const RDG::PassContext& context, const FrameGraphRefs& refs );
 
         // Writes the packed parameter block into the SSBO. One buffer serves the graphics pass and the
         // bake's compute dispatch, so both are guaranteed to describe the same sky.
@@ -220,9 +238,6 @@ namespace Desert::Graphic::System
         bool m_SkyViewLutFilled = false;
         // DeclareAtmosphereLutNodes declared the SkyViewLut node this frame, until SettleAtmosphereLutNodes.
         bool m_SkyViewLutFillPending = false;
-        // Decided by the SkyboxPass's Declare and read by its Render in the same frame: the pass binds the LUTs
-        // only when it declared them.
-        bool m_SkyPassSamplesLuts = false;
         // The fingerprint DeclareAtmosphereLutNodes' transmittance/multi-scatter nodes bake, until settled.
         std::optional<AtmosphereLutFingerprint> m_LutBakePending;
         bool                             m_LutResourcesFailed               = false;

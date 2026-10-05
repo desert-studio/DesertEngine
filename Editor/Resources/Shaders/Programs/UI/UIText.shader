@@ -9,6 +9,13 @@ Shader "UIText"
     // It also draws ICONS (IconService), whose atlas carries one distance field replicated across RGB.
     // The median of three equal channels is that field, so icons reconstruct exactly as they did when
     // this shader sampled .r — no branch, no second shader, and no icon regression to pay for text.
+
+    // The glyph / icon atlas is this material's own texture (Render2D caches one executor per atlas).
+    Properties
+    {
+        Texture2D   u_SDFAtlas ("SDF Atlas")
+    }
+
     Vertex
     {
         In(0) vec2 a_Position;

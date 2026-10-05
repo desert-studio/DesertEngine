@@ -17,6 +17,12 @@
 // directly. Give it one and it appears in the material shader picker of that domain.
 Shader "CubemapSphere"
 {
+    // The previewed cube is the asset this material shows: a material parameter, not a pass input.
+    Properties
+    {
+        TextureCube u_CubeMap ("Cube Map")
+    }
+
     Fragment
     {
         Uniform(0) CubemapSphereUB

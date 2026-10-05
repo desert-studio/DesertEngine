@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
 #include <Engine/Graphic/Materials/PostProcessing/MaterialFXAA.hpp>
 
@@ -33,8 +34,9 @@ namespace Desert::Graphic::System
             return m_Framebuffer ? m_Framebuffer->GetColorAttachmentImage( 0 ) : nullptr;
         }
 
-        // Records the fullscreen FXAA inside the render pass the frame graph opens on GetOutputImage().
-        void Record();
+        // Records the fullscreen FXAA inside the render pass the frame graph opens on GetOutputImage(), sampling
+        // @p input (GetInputImage() imported; the pass declared it a SampledGraphics read) as u_InputTexture.
+        [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context, RDG::TextureRef input );
         void Resize( uint32_t width, uint32_t height );
 
     private:

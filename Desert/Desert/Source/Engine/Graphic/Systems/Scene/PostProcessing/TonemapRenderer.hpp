@@ -48,6 +48,8 @@ namespace Desert::Graphic::System
         // their nodes ran this frame, otherwise System.Black with that effect's intensity 0 for this draw.
         struct GraphInputs
         {
+            RDG::TextureRef Source;       // the scene colour (u_GeometryTexture), imported
+            RDG::TextureRef AvgLuminance; // the adapted luminance (u_AvgLuminance); System.White without one
             RDG::TextureRef Bloom;
             bool            BloomProduced = false;
             RDG::TextureRef LightShafts;
