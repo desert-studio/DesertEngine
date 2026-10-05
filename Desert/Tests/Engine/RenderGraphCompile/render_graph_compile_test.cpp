@@ -2517,7 +2517,7 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
     // The editor's UI pass declares the backdrop pyramid it samples (no blanket write, no phase-wide sample list).
     EXPECT_NE(
          SqueezedSource( root, "Editor/Source/Editor/RenderSystems/Passes/EditorUIPass.cpp" )
-              .find( "declared.Read(ctx.Renderer->GetBackdropBlurImage(),Graphic::RDG::Access::SampledGraphics" ),
+              .find( "declared.Read(ctx.Graph.Transients.BackdropBlur,Graphic::RDG::Access::SampledGraphics" ),
          std::string::npos );
 
     // The one compute dispatch records no barrier: every caller is a graph node, and the graph places the barrier

@@ -901,14 +901,6 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Environment/OwnedEnvironment.hpp",
           "OwnedEnvironment", "m_Service", Guard::StaticStorage,
           "ResourceRegistry::GetImageService's function-local static, which outlives every view that owns an environment" },
-        { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
-          "Render2D", "m_Backdrop", Guard::ReboundBeforeEveryUse,
-          "BackdropBlurRenderer::Resize does destroy the image this equals, but the UI pass calls "
-          "SetBackdrop from the live pyramid before every Flush and Flush is the only reader. It is also "
-          "the KEY of m_GlassExecutors, and A8-1 established that a stale key is a LEAK and not a dangle: "
-          "ExecutorFor re-points the entry's Texture2DProperty with SetImage before every use, so the "
-          "stale address is overwritten before anything reads it. The leak is closed by "
-          "RetireUnusedExecutors, whose window is asserted rather than described" },
         { "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp",
           "ExternalPassSystem", "m_Renderer", Guard::ObservedContainsUs,
           "the SceneRenderer owns its render systems, so it cannot be destroyed while one of them is alive" },

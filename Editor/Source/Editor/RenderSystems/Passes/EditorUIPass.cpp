@@ -39,7 +39,7 @@ namespace Desert::Editor::Render
         pass.Phase                 = Graphic::RenderPhase::UI;
         pass.Dependencies          = { Graphic::RenderPassDependency( Graphic::RenderPhase::Geometry ) };
         pass.PipelineSpecification = m_Render2D.GetPipeline()->GetSpecification();
-        pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx, Graphic::RDG::PassContext& ) -> Common::BoolResultStr
+        pass.Execute               = [this]( const Graphic::ExternalPassContext& ctx, Graphic::RDG::PassContext& node ) -> Common::BoolResultStr
         {
             const auto scene = m_Scene.lock();
             if ( !scene || !ctx.Target )
@@ -58,15 +58,6 @@ namespace Desert::Editor::Render
             }
 
             m_Render2D.BeginFrame( { 0.0f, 0.0f, w, h } );
-
-            // Glass panels sample the blurred scene snapshot built just before this phase. It is only
-            // built when the canvas asked for it LAST frame, so hand the flag back after flushing.
-            // The VIEW's blur snapshot, not the document's: the backdrop image is per-renderer per-frame
-            // state, so a second viewport reading the first one's would sample another size and another
-            // camera's picture through its glass panels.
-            if ( auto* renderer = ctx.Renderer )
-                m_Render2D.SetBackdrop( renderer->GetBackdropBlurImage().get(),
-                                        renderer->GetBackdropBlurMaxLod() );
 
             // UI Preview (Play-in-editor): feed the viewport's pointer/keyboard into the canvas so buttons /
             // toggles / sliders react in the editor. The ViewportPanel wrote this snapshot in viewport-display
@@ -168,7 +159,10 @@ namespace Desert::Editor::Render
             if ( const auto* wait = scene->GetRegistry().try_ctx<::Desert::Core::WorldStreamingWait>();
                  wait != nullptr && wait->Assessment.Blocks() )
                 UI::DrawStreamingWaitOverlay( m_Render2D.GetDrawList(), w, h, wait->FramesWaiting );
-            m_Render2D.Flush();
+            // Glass panels sample THIS VIEW's blurred scene snapshot, built just before this phase as a transient
+            // of this view's graph (ctx.Graph), bound by name over this node's context. It is only built when the
+            // canvas asked for it LAST frame, so hand the flag back after flushing.
+            m_Render2D.Flush( &node, ctx.Graph.Transients.BackdropBlur, ctx.Graph.Transients.BackdropBlurMaxLod );
 
             if ( auto* renderer = ctx.Renderer )
                 renderer->SetBackdropBlurNeeded( m_Render2D.UsedBackdrop() );
@@ -200,9 +194,9 @@ namespace Desert::Editor::Render
         // draws.
         pass.Declare = []( Graphic::RenderPassDeclaration& declared, const Graphic::ExternalPassContext& ctx )
         {
-            if ( ctx.Renderer )
-                declared.Read( ctx.Renderer->GetBackdropBlurImage(), Graphic::RDG::Access::SampledGraphics,
-                               "BackdropBlur" );
+            if ( ctx.Graph.Transients.BackdropBlur.IsValid() )
+                declared.Read( ctx.Graph.Transients.BackdropBlur, Graphic::RDG::Access::SampledGraphics,
+                               Graphic::RDG::SubresourceRange::All() );
         };
         scene->RegisterExternalPass( std::move( pass ) );
         return BOOLSUCCESS;

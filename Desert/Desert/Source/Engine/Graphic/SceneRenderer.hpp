@@ -641,10 +641,6 @@ namespace Desert::Graphic
             m_BackdropBlurNeeded = needed;
         }
 
-        // The blur pyramid glass samples, or null when it has never been built (the UI then falls back to
-        // a flat tint). Mip 0 is a mild blur; higher LODs are blurrier — see BackdropBlurRenderer.
-        const std::shared_ptr<Image2D>& GetBackdropBlurImage() const;
-        uint32_t                        GetBackdropBlurMaxLod() const;
 
     private:
         std::shared_ptr<Framebuffer> m_TargetFramebuffer;

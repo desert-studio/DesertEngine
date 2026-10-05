@@ -476,29 +476,33 @@ namespace Desert::Graphic
                                                          const std::vector<RDG::TextureRef>& sceneColor )
     {
         auto* backdrop = UNIQUE_GET_AS( System::BackdropBlurRenderer, m_RenderSystems["BackdropBlurSystem"] );
-        if ( !backdrop || !backdrop->Prepare() )
+        if ( !backdrop || sceneColor.empty() )
             return {};
-        const RDG::TextureRef pyramid = textures.Import( backdrop->GetImage(), "BackdropBlur" );
-        const uint32_t        mips    = backdrop->GetMipLevels();
+        const std::optional<RDG::TextureDesc> desc = backdrop->GetPyramidDesc();
+        if ( !desc )
+            return {};
+        // A transient of this graph, sized from this frame's view; the UI glass samples every mip of it.
+        const RDG::TextureRef pyramid          = graph.CreateTexture( *desc, "BackdropBlur" );
+        const RDG::TextureRef scene            = sceneColor.front();
+        textures.Transients.BackdropBlur       = pyramid;
+        textures.Transients.BackdropBlurMaxLod = System::BackdropBlurRenderer::MaxLod( *desc );
 
         // Scene -> pyramid mip 0, then mip i-1 -> mip i: one node per dispatch, declaring the one mip it samples
         // and the one it writes.
-        for ( uint32_t mip = 0; mip < mips; ++mip )
+        for ( uint32_t mip = 0; mip < desc->Mips; ++mip )
             graph.AddPass(
                  std::format( "UI: BackdropBlur{}", mip ), RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
                  {
                      if ( mip == 0 )
-                         ReadEach( pass, sceneColor, RDG::Access::SampledCompute );
+                         pass.Read( scene, RDG::Access::SampledCompute );
                      else
                          pass.Read( pyramid, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) );
                      pass.Write( pyramid, RDG::Access::StorageWrite, RDG::SubresourceRange::Mip( mip ) );
                  },
-                 [backdrop, mip]( RDG::PassContext& ) -> Common::BoolResultStr
-                 {
-                     backdrop->RecordDownsample( mip );
-                     return BOOLSUCCESS;
-                 } );
+                 [backdrop, scene, pyramid, pyramidDesc = *desc, mip]( RDG::PassContext& context )
+                      -> Common::BoolResultStr
+                 { return backdrop->RecordDownsample( context, scene, pyramid, pyramidDesc, mip ); } );
         // The UI phase samples the pyramid: the caller declares that read on the UI passes.
         return pyramid;
     }

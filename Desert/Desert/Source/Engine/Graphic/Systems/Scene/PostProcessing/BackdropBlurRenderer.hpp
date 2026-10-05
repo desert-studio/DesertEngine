@@ -4,6 +4,8 @@
 
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -12,6 +14,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 namespace Desert::Graphic::System
 {
@@ -26,8 +29,10 @@ namespace Desert::Graphic::System
     // image. Mip 0 is a mild blur and every further level roughly doubles it, so a UI element picks a
     // LOD instead of each element paying for its own kernel. No new shader, no new blur to maintain.
     //
-    // Compute nodes of the frame graph right before the UI phase, added ONLY when the UI
-    // actually asked for it — see SceneRenderer::SetBackdropBlurNeeded.
+    // RDG-A2 P5: the pyramid is a TRANSIENT of the frame graph (SceneRenderer::AddFrameBackdropBlur creates it
+    // from GetPyramidDesc, sized from THIS frame's view, so there is no image to resize and nothing that outlives
+    // the frame). The UI glass reads it as FrameTransients::BackdropBlur through the ExternalPassContext it is
+    // handed and binds it by name (u_Backdrop) — no Image2D of it crosses into a pass body.
     class BackdropBlurRenderer final : public RenderSystem
     {
     public:
@@ -35,13 +40,6 @@ namespace Desert::Graphic::System
 
         Common::BoolResultStr Initialize() override
         {
-            const auto& target = m_TargetFramebuffer.lock();
-            if ( !target )
-                return Common::MakeError( "BackdropBlurRenderer: target framebuffer is not available" );
-
-            if ( !CreateImage( target->GetFramebufferWidth(), target->GetFramebufferHeight() ) )
-                return Common::MakeError( "BackdropBlurRenderer: failed to create the backdrop image" );
-
             const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "BloomDownsample" );
             if ( !shader )
                 return Common::MakeError( "BackdropBlurRenderer: missing compute shader 'BloomDownsample'" );
@@ -59,77 +57,68 @@ namespace Desert::Graphic::System
         {
         }
 
-        void Resize( uint32_t width, uint32_t height )
-        {
-            if ( width == 0 || height == 0 )
-                return;
-            // Image2D has no in-place resize; recreate (SceneRenderer::Resize already idled the GPU).
-            CreateImage( width, height );
-        }
-
-        // The blur pyramid. Null until it is created — callers must handle that (the UI falls back to a
-        // plain tinted panel). Written by the "UI: BackdropBlur{mip}" graph nodes; the UI phase declares
-        // that it samples it.
-        const std::shared_ptr<Image2D>& GetImage() const
-        {
-            return m_Image;
-        }
-
-        // False: nothing to record this frame (no scene colour, pyramid or pipeline).
-        bool Prepare() const
-        {
-            return GetSceneColorImage() && m_Image && m_DownsamplePipeline;
-        }
-
-        uint32_t GetMipLevels() const
-        {
-            return m_MipLevels;
-        }
-
-        std::shared_ptr<Image2D> GetSceneColorImage() const
+        // The pyramid of this frame: half the view, mip-capped so the coarsest level is ~1/32 of the screen.
+        // nullopt while the view or the pipeline is missing (no node is added then and the glass reads nothing).
+        std::optional<RDG::TextureDesc> GetPyramidDesc() const
         {
             const auto scene = m_TargetFramebuffer.lock();
-            return scene ? scene->GetColorAttachmentImage() : nullptr;
+            if ( !scene || !scene->GetColorAttachmentImage() || !m_DownsamplePipeline )
+                return std::nullopt;
+            const uint32_t bw = std::max( 1u, scene->GetFramebufferWidth() / 2 );
+            const uint32_t bh = std::max( 1u, scene->GetFramebufferHeight() / 2 );
+            return RDG::TextureDesc{ .Size   = { .Width = bw, .Height = bh },
+                                     .Format = Core::Formats::ImageFormat::RGBA32F,
+                                     .Mips   = std::min( kMaxMips, Utils::CalculateMipCount( bw, bh ) ) };
         }
 
-        // Downsample into pyramid @p mip: mip 0 samples the scene colour, mip i samples mip i-1. One
-        // dispatch, recorded into the frame graph node that declares those two subresources.
-        void RecordDownsample( uint32_t mip )
+        // The coarsest LOD the glass may sample of a pyramid of @p desc.
+        static uint32_t MaxLod( const RDG::TextureDesc& desc )
         {
-            const auto scene = m_TargetFramebuffer.lock();
-            if ( !scene )
-                return;
-            const bool     first  = ( mip == 0 );
-            Image2D*       src    = first ? scene->GetColorAttachmentImage().get() : m_Image.get();
-            const uint32_t srcMip = first ? 0u : mip - 1;
-            const uint32_t bw     = m_Image->GetWidth();
-            const uint32_t bh     = m_Image->GetHeight();
-            const uint32_t srcW   = first ? scene->GetFramebufferWidth() : MipSize( bw, mip - 1 );
-            const uint32_t srcH   = first ? scene->GetFramebufferHeight() : MipSize( bh, mip - 1 );
+            return desc.Mips > 0 ? desc.Mips - 1 : 0;
+        }
 
-            // FirstPass = 0 everywhere: the Karis average + bright-pass belong to bloom, not to a
-            // backdrop, which must keep the scene's own colours.
+        // Scene colour -> pyramid mip 0, then mip - 1 -> mip, bright-pass off (a plain blur pyramid).
+        [[nodiscard]] Common::BoolResultStr RecordDownsample( const RDG::PassContext& context,
+                                                              RDG::TextureRef sceneColor, RDG::TextureRef pyramid,
+                                                              const RDG::TextureDesc& desc, uint32_t mip ) const
+        {
+            const bool     first = ( mip == 0 );
+            const uint32_t bw    = desc.Size.Width;
+            const uint32_t bh    = desc.Size.Height;
+            uint32_t       srcW  = 0;
+            uint32_t       srcH  = 0;
+            if ( first )
+            {
+                const auto scene = m_TargetFramebuffer.lock();
+                if ( !scene )
+                    return Common::MakeError( "BackdropBlurRenderer: the scene framebuffer is gone" );
+                srcW = scene->GetFramebufferWidth();
+                srcH = scene->GetFramebufferHeight();
+            }
+            else
+            {
+                srcW = MipSize( bw, mip - 1 );
+                srcH = MipSize( bh, mip - 1 );
+            }
+
             const DownsamplePush push{
-                 glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ),
-                 0, 0.0f };
+                 glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ), 0, 0.0f };
 
-            m_DownsamplePipeline->SetInput( 0, src, RDG::Access::SampledCompute,
-                                            RDG::SubresourceRange::Mip( srcMip ) );
-            m_DownsamplePipeline->SetOutput( 1, m_Image.get(), mip );
-            m_DownsamplePipeline->SetPushConstants( &push, sizeof( push ) );
-            Renderer::GetInstance().DispatchComputeInFrame( m_DownsamplePipeline.get(),
+            RDG::PassBindings bindings( context );
+            if ( first )
+                bindings.Sampled( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
+                                  RDG::SamplerDesc::LinearClamp() );
+            else
+                bindings.Sampled( "u_Source", pyramid, RDG::Access::SampledCompute,
+                                  RDG::SubresourceRange::Mip( mip - 1 ), RDG::SamplerDesc::LinearClamp() );
+            bindings.Storage( "u_Output", pyramid, RDG::Access::StorageWrite, mip )
+                 .PushConstants( &push, sizeof( push ) );
+            return Renderer::GetInstance().DispatchCompute( bindings, *m_DownsamplePipeline,
                                                             GroupCount( MipSize( bw, mip ) ),
                                                             GroupCount( MipSize( bh, mip ) ), 1 );
         }
 
-        // Highest LOD a caller may ask for (the chain's coarsest level).
-        uint32_t GetMaxLod() const
-        {
-            return m_MipLevels > 0 ? m_MipLevels - 1 : 0;
-        }
-
     private:
-        // Must match BloomDownsample's push block exactly.
         struct DownsamplePush
         {
             glm::vec2 SrcTexelSize;
@@ -149,28 +138,6 @@ namespace Desert::Graphic::System
             return ( dim + kGroupSize - 1 ) / kGroupSize;
         }
 
-        bool CreateImage( uint32_t width, uint32_t height )
-        {
-            const uint32_t bw = std::max( 1u, width / 2 );
-            const uint32_t bh = std::max( 1u, height / 2 );
-            m_MipLevels       = std::min( kMaxMips, Utils::CalculateMipCount( bw, bh ) );
-
-            const Core::Formats::Image2DSpecification spec = {
-                 .Tag        = "BackdropBlur",
-                 .Width      = bw,
-                 .Height     = bh,
-                 .Format     = Core::Formats::ImageFormat::RGBA32F,
-                 .Mips       = m_MipLevels,
-                 .Usage      = Core::Formats::Image2DUsage::Image2D,
-                 .Properties = Core::Formats::Storage | Core::Formats::Sample,
-            };
-
-            m_Image = Image2D::Create( spec );
-            return m_Image != nullptr;
-        }
-
-        std::shared_ptr<Image2D>         m_Image;
         std::shared_ptr<ComputePipeline> m_DownsamplePipeline;
-        uint32_t                         m_MipLevels = 1;
     };
 } // namespace Desert::Graphic::System

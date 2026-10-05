@@ -4,6 +4,7 @@
 #include <Engine/Graphic/Render2D/UIMaterialCache.hpp>
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
 #include <glm/glm.hpp>
 
@@ -69,7 +70,11 @@ namespace Desert::Graphic::Render2D
         }
 
         // Upload the recorded geometry and draw it into the current render pass. No-op when nothing was recorded.
-        void Flush();
+        // Glass rects sample @p backdrop (this frame's BackdropBlur transient, bound by name as u_Backdrop through
+        // RDG::PassBindings over @p context, the UI node's context) at up to @p backdropMaxLod; with no context
+        // or an invalid ref they draw as a flat tinted panel.
+        void Flush( const RDG::PassContext* context = nullptr, RDG::TextureRef backdrop = {},
+                    uint32_t backdropMaxLod = 0 );
 
         // This backend's UI-material cache. The canvas walk resolves an element's `.demat` through it and
         // hands the resolved entry to DrawList2D::AddMaterialRect; Flush then draws with that entry's own
@@ -78,14 +83,6 @@ namespace Desert::Graphic::Render2D
         UIMaterialCache& Materials()
         {
             return m_MaterialCache;
-        }
-
-        // The blurred scene snapshot glass rects sample (BackdropBlurRenderer's pyramid), and how many LODs
-        // it has. Set every frame by the host pass; null = glass falls back to a flat tinted panel.
-        void SetBackdrop( Image2D* image, uint32_t maxLod )
-        {
-            m_Backdrop       = image;
-            m_BackdropMaxLod = maxLod;
         }
 
         // Did the last Flush() draw any glass? The host reports this to the SceneRenderer so the blur
@@ -140,11 +137,8 @@ namespace Desert::Graphic::Render2D
 
         ExecutorCache m_Executors;      // UI2D, keyed by bound Image2D* (null => white)
         ExecutorCache m_TextExecutors;  // UIText, keyed by font atlas Image2D*
-        ExecutorCache m_GlassExecutors; // UIGlass, keyed by the backdrop Image2D*
 
-        Image2D* m_Backdrop       = nullptr; // blurred scene snapshot (not owned)
-        uint32_t m_BackdropMaxLod = 0;
-        bool     m_UsedBackdrop   = false; // glass drawn in the last Flush -> keep the pyramid alive
+        bool m_UsedBackdrop = false; // glass drawn in the last Flush -> keep the pyramid alive
 
         DrawList2D m_DrawList;
         glm::mat4  m_Projection = glm::mat4( 1.0f );

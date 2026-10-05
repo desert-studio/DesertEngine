@@ -1,6 +1,7 @@
 #include "Render2D.hpp"
 
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/Shader.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
@@ -188,7 +189,7 @@ namespace Desert::Graphic::Render2D
         return exec;
     }
 
-    void Render2D::Flush()
+    void Render2D::Flush( const RDG::PassContext* context, RDG::TextureRef backdrop, uint32_t backdropMaxLod )
     {
         if ( !m_Pipeline || !m_TextPipeline || m_DrawList.Empty() )
             return;
@@ -241,12 +242,8 @@ namespace Desert::Graphic::Render2D
 
             MaterialExecutor* exec;
             GraphicsPipeline* pipeline;
-            if ( cmd.Glass && m_GlassPipeline && m_Backdrop )
+            if ( cmd.Glass && m_GlassPipeline && context && backdrop.IsValid() )
             {
-                exec     = ExecutorFor( m_GlassExecutors, m_GlassShader, "u_Backdrop", m_Backdrop, m_Backdrop );
-                pipeline = m_GlassPipeline.get();
-                if ( !exec )
-                    continue;
 
                 // Per-element push block: projection, the rect in ITS OWN space, its corner radius, the
                 // blur LOD, 1/viewport (the shader maps gl_FragCoord into the snapshot with it) and the
@@ -264,7 +261,7 @@ namespace Desert::Graphic::Render2D
                     glm::vec4 InvRow0;
                     glm::vec4 InvRow1;
                 } push{ m_Projection, cmd.GlassRect,
-                        glm::vec4( cmd.GlassRound, cmd.GlassLod * static_cast<float>( m_BackdropMaxLod ),
+                        glm::vec4( cmd.GlassRound, cmd.GlassLod * static_cast<float>( backdropMaxLod ),
                                    m_ViewportPx.z > 0.0f ? 1.0f / m_ViewportPx.z : 0.0f,
                                    m_ViewportPx.w > 0.0f ? 1.0f / m_ViewportPx.w : 0.0f ),
                         glm::vec4( cmd.GlassInverse[0].x, cmd.GlassInverse[1].x, cmd.GlassInverse[2].x,
@@ -272,9 +269,16 @@ namespace Desert::Graphic::Render2D
                         glm::vec4( cmd.GlassInverse[0].y, cmd.GlassInverse[1].y, cmd.GlassInverse[2].y, 0.0f ) };
 
                 ApplyScissor( cmd );
-                exec->PushConstant( &push, (uint32_t)sizeof( push ) );
-                renderer.SubmitIndexed( pipeline, m_VertexBuffer.get(), m_IndexBuffer.get(), cmd.IndexCount,
-                                        cmd.IndexOffset, exec );
+                RDG::PassBindings bindings( *context );
+                bindings
+                     .Sampled( "u_Backdrop", backdrop, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                               RDG::SamplerDesc::LinearClamp() )
+                     .PushConstants( &push, (uint32_t)sizeof( push ) );
+                const Common::BoolResultStr drawn =
+                     renderer.DrawIndexed( bindings, *m_GlassPipeline, nullptr, *m_VertexBuffer, *m_IndexBuffer,
+                                           cmd.IndexCount, cmd.IndexOffset );
+                if ( !drawn.IsSuccess() )
+                    LOG_ERROR( "[Render2D] a glass panel was not drawn: {}", drawn.GetError() );
                 usedBackdrop = true;
                 continue;
             }
@@ -353,7 +357,7 @@ namespace Desert::Graphic::Render2D
         const uint64_t frame  = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const uint32_t window = ExecutorRetireWindow();
 
-        for ( ExecutorCache* cache : { &m_Executors, &m_TextExecutors, &m_GlassExecutors } )
+        for ( ExecutorCache* cache : { &m_Executors, &m_TextExecutors } )
         {
             for ( auto it = cache->begin(); it != cache->end(); )
             {

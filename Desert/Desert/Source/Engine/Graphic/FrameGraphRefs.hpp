@@ -25,6 +25,7 @@ namespace Desert::Graphic
         RDG::TextureRef GIResolve;      // RSM-GI resolve (raw, pre-temporal) -> GI temporal / deferred lighting
         RDG::TextureRef SceneColorCopy; // scene snapshot                     -> glass refraction
         RDG::TextureRef BackdropBlur;   // BackdropBlurRenderer pyramid (all mips) -> UI glass (Render2D)
+        uint32_t        BackdropBlurMaxLod = 0; // that pyramid's coarsest mip (its desc's Mips - 1), set with it
     };
 
     // RDG-A2 (owner decision 2, 2026-10-05). What EVERY node of the frame graph is handed, whatever registered

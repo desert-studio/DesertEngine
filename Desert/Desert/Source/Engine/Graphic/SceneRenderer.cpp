@@ -1202,11 +1202,6 @@ namespace Desert::Graphic
         UNIQUE_GET_AS( System::FXAARenderer, m_RenderSystems["FXAASystem"] )->Resize( width, height );
         UNIQUE_GET_AS( System::SMAARenderer, m_RenderSystems["SMAASystem"] )->Resize( width, height );
 
-        // The backdrop blur pyramid is sized from the target too. Its consumer (the UI pass) reads the
-        // image through GetBackdropBlurImage() every frame, so nothing needs re-pointing here.
-        if ( auto* backdrop =
-                  UNIQUE_GET_AS( System::BackdropBlurRenderer, m_RenderSystems["BackdropBlurSystem"] ) )
-            backdrop->Resize( width, height );
     }
 
     void SceneRenderer::SubmitMesh( const Mesh* mesh, const MaterialSlotBindingPtr& materialSlots,
@@ -1609,21 +1604,6 @@ namespace Desert::Graphic
             if ( clouds && clouds->HasShadowMap() )
                 declared.Read( clouds->GetShadowMap(), RDG::Access::SampledGraphics, "Clouds.ShadowMap" );
         }
-    }
-
-    const std::shared_ptr<Desert::Graphic::Image2D>& SceneRenderer::GetBackdropBlurImage() const
-    {
-        static const std::shared_ptr<Image2D> kNone;
-        const auto                            it = m_RenderSystems.find( "BackdropBlurSystem" );
-        if ( it == m_RenderSystems.end() )
-            return kNone;
-        return SP_CAST( System::BackdropBlurRenderer, it->second )->GetImage();
-    }
-
-    uint32_t SceneRenderer::GetBackdropBlurMaxLod() const
-    {
-        const auto it = m_RenderSystems.find( "BackdropBlurSystem" );
-        return it == m_RenderSystems.end() ? 0u : SP_CAST( System::BackdropBlurRenderer, it->second )->GetMaxLod();
     }
 
 } // namespace Desert::Graphic
