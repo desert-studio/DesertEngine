@@ -48,4 +48,12 @@ namespace Desert::Graphic
         FrameTransients     Transients;
         RDG::SystemTextures System;
     };
+
+    // What a cloud-shadow receiver samples as u_CloudShadowMap this frame: the cloud layer's map, or
+    // System.White (the sun is not occluded) when the frame has none. The ONE choice every receiver pass
+    // (deferred composite, forward meshes, glass, terrain) declares and binds.
+    [[nodiscard]] inline RDG::TextureRef CloudShadowMapOrWhite( const FrameGraphRefs& refs )
+    {
+        return refs.Transients.CloudShadowMap.IsValid() ? refs.Transients.CloudShadowMap : refs.System.White;
+    }
 } // namespace Desert::Graphic

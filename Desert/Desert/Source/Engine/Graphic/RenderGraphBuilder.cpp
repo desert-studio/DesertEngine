@@ -27,7 +27,7 @@ namespace Desert::Graphic
     }
 
     RenderGraphBuilder::PassConfig& RenderGraphBuilder::AddPass(
-         const std::string& name, RenderPhaseID phase, std::function<void()> executeFunc,
+         const std::string& name, RenderPhaseID phase, NodeRecordFunc executeFunc,
          const GraphicsPipelineSpecification& pipelineSpec, std::shared_ptr<Framebuffer> targetFramebuffer,
          const std::vector<RenderPassDependency>& dependencies, const std::optional<glm::vec4>& clearColor,
          int32_t orderInPhase, const std::optional<float>& clearDepth )
@@ -35,12 +35,7 @@ namespace Desert::Graphic
         PassConfig config;
         config.Name              = name;
         config.Phase             = phase;
-        config.ExecuteFunc       = [execute = std::move( executeFunc )]( RDG::PassContext&,
-                                                                   const FrameGraphRefs& ) -> Common::BoolResultStr
-        {
-            execute();
-            return BOOLSUCCESS;
-        };
+        config.ExecuteFunc       = std::move( executeFunc );
         config.PipelineSpec      = pipelineSpec;
         config.TargetFramebuffer = targetFramebuffer;
         config.Dependencies      = dependencies;
@@ -49,6 +44,24 @@ namespace Desert::Graphic
         config.ClearDepth        = clearDepth;
 
         return AddPass( config );
+    }
+
+    RenderGraphBuilder::PassConfig& RenderGraphBuilder::AddPass(
+         const std::string& name, RenderPhaseID phase, std::function<void()> executeFunc,
+         const GraphicsPipelineSpecification& pipelineSpec, std::shared_ptr<Framebuffer> targetFramebuffer,
+         const std::vector<RenderPassDependency>& dependencies, const std::optional<glm::vec4>& clearColor,
+         int32_t orderInPhase, const std::optional<float>& clearDepth )
+    {
+        return AddPass( name, phase,
+                        NodeRecordFunc(
+                             [execute = std::move( executeFunc )]( RDG::PassContext&,
+                                                                   const FrameGraphRefs& ) -> Common::BoolResultStr
+                             {
+                                 execute();
+                                 return BOOLSUCCESS;
+                             } ),
+                        pipelineSpec, std::move( targetFramebuffer ), dependencies, clearColor, orderInPhase,
+                        clearDepth );
     }
 
     void RenderGraphBuilder::AddPhaseDependency( RenderPhaseID requiredPhase, RenderPhaseID dependentPhase )

@@ -307,8 +307,7 @@ namespace Desert::Graphic
                  map ? textures.Import( map, std::format( "CSM.Cascade{}", c ) ) : RDG::TextureRef{};
             inputs.ShadowMaps[c] = ref.IsValid() ? ref : refs.System.White;
         }
-        inputs.CloudShadowMap =
-             refs.Transients.CloudShadowMap.IsValid() ? refs.Transients.CloudShadowMap : refs.System.White;
+        inputs.CloudShadowMap              = CloudShadowMapOrWhite( refs );
         std::vector<RDG::TextureRef> reads = shadowReads;
         for ( const RDG::TextureRef ref :
               { inputs.GBufferA, inputs.GBufferB, inputs.GBufferC, inputs.GBufferEmissive, inputs.SSAO, inputs.GI,
