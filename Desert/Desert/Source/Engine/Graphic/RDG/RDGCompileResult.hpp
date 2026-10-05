@@ -297,7 +297,7 @@ namespace Desert::Graphic::RDG
         // non-empty list to IBackend::GetAsyncComputeFallbackLog(), which logs it once per backend.
         std::vector<uint32_t> DemotedAsyncPasses;
 
-        const CompiledPass* FindPass( std::string_view name ) const
+        [[nodiscard]] const CompiledPass* FindPass( std::string_view name ) const
         {
             for ( const CompiledPass& pass : Passes )
             {

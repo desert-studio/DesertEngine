@@ -38,10 +38,10 @@ namespace Desert::Graphic::RDG
 
         // @p accessMask is the DerivedUsage of the resource (bit i = 1 << Access i): usage decides
         // tiling and compression, and therefore the size a device reports.
-        virtual Common::ResultStr<MemoryRequirements> GetTextureRequirements( const TextureDesc& desc,
-                                                                              uint32_t accessMask ) const = 0;
-        virtual Common::ResultStr<MemoryRequirements> GetBufferRequirements( const BufferDesc& desc,
-                                                                             uint32_t accessMask ) const  = 0;
+        [[nodiscard]] virtual Common::ResultStr<MemoryRequirements>
+        GetTextureRequirements( const TextureDesc& desc, uint32_t accessMask ) const = 0;
+        [[nodiscard]] virtual Common::ResultStr<MemoryRequirements>
+        GetBufferRequirements( const BufferDesc& desc, uint32_t accessMask ) const = 0;
     };
 
     // One resource of the graph as the backend sees it when it acquires physical resources.
@@ -142,8 +142,8 @@ namespace Desert::Graphic::RDG
     public:
         virtual ~IBackend() = default;
 
-        virtual BackendKind                        GetKind() const               = 0;
-        virtual const IMemoryRequirementsProvider& GetMemoryRequirements() const = 0;
+        [[nodiscard]] virtual BackendKind                        GetKind() const               = 0;
+        [[nodiscard]] virtual const IMemoryRequirementsProvider& GetMemoryRequirements() const = 0;
 
         // ── RDG-CONTRACTS additions ──────────────────────────────────────────────────────────────────────
         // A(1): where BeginGraph places transients. Valid for the backend's whole life.
@@ -190,7 +190,7 @@ namespace Desert::Graphic::RDG
         virtual void AbandonGraph() = 0;
 
         // Physical resource of a used resource, valid between BeginGraph and EndGraph / AbandonGraph.
-        virtual std::shared_ptr<IPhysicalTexture> GetPhysicalTexture( uint32_t resource ) const = 0;
-        virtual std::shared_ptr<IPhysicalBuffer>  GetPhysicalBuffer( uint32_t resource ) const  = 0;
+        [[nodiscard]] virtual std::shared_ptr<IPhysicalTexture> GetPhysicalTexture( uint32_t resource ) const = 0;
+        [[nodiscard]] virtual std::shared_ptr<IPhysicalBuffer>  GetPhysicalBuffer( uint32_t resource ) const  = 0;
     };
 } // namespace Desert::Graphic::RDG

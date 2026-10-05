@@ -15,8 +15,17 @@ dev_logdir() {
 
 # dev_capped <seconds> <cmd...> — runs cmd; after <seconds> SIGKILLs it and returns 124 (macOS has no `timeout`).
 # A watchdog parent, not `alarm; exec`: a test that blocks or handles SIGALRM outlived that cap by 40 minutes.
+#
+# The Homebrew validation layer's manifest names its library bare (libVkLayer_khronos_validation.dylib), and dyld's
+# default fallback on Apple Silicon is /usr/lib only, so every Vulkan suite got VK_ERROR_LAYER_NOT_PRESENT at
+# vkCreateInstance (RDG-MAC1). DYLD_* cannot be exported from here: SIP strips it on the way through /usr/bin/env
+# and /usr/bin/perl, so perl sets it in the child itself, before exec.
+DEV_LAYER_DIR=""
+[ "$(uname)" = Darwin ] && [ -f /opt/homebrew/lib/libVkLayer_khronos_validation.dylib ] && DEV_LAYER_DIR=/opt/homebrew/lib
+export DEV_LAYER_DIR
 dev_capped() {
-    perl -e '$t = shift; $p = fork; if (!$p) { exec @ARGV; exit 127 }
+    perl -e '$t = shift; $p = fork;
+             if (!$p) { if ($ENV{DEV_LAYER_DIR}) { $ENV{DYLD_FALLBACK_LIBRARY_PATH} = $ENV{DEV_LAYER_DIR} } exec @ARGV; exit 127 }
              $SIG{ALRM} = sub { kill 9, $p; waitpid $p, 0; exit 124 }; alarm $t; waitpid $p, 0;
              exit( ($? & 127) ? 128 + ($? & 127) : $? >> 8 )' "$@"
 }

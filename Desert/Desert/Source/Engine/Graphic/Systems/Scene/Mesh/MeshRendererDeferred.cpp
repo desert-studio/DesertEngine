@@ -7,8 +7,8 @@ namespace Desert::Graphic::System
     {
         if ( !m_StaticGBufferPipeline )
             return;
-        const auto& gbuffer = m_SceneRenderer ? m_SceneRenderer->GetGBuffer() : nullptr;
-        if ( !gbuffer || !m_SceneRenderer->GetMainCamera() )
+        const auto& gbuffer = m_SceneRenderer != nullptr ? m_SceneRenderer->GetGBuffer() : nullptr;
+        if ( !gbuffer || m_SceneRenderer->GetMainCamera() == nullptr )
             return;
 
         // The graph opens the render pass and clears it to ZERO (SceneRenderer::AddFrameGBuffer).
@@ -25,7 +25,7 @@ namespace Desert::Graphic::System
         if ( !m_StaticGBufferShader )
             return false;
 
-        const auto& gbuffer = m_SceneRenderer ? m_SceneRenderer->GetGBuffer() : nullptr;
+        const auto& gbuffer = m_SceneRenderer != nullptr ? m_SceneRenderer->GetGBuffer() : nullptr;
         if ( !gbuffer )
             return false;
 

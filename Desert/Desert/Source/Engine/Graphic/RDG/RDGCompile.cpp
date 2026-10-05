@@ -749,7 +749,7 @@ namespace Desert::Graphic::RDG
             // A class's peak is the memory its heaps hold together.
             for ( const TransientHeapDesc& heapDesc : result.Aliasing.Heaps )
                 result.Aliasing.PeakBytes[static_cast<uint32_t>( heapDesc.Class )] += heapDesc.Bytes;
-            for ( uint64_t peak : result.Aliasing.PeakBytes )
+            for ( const uint64_t peak : result.Aliasing.PeakBytes )
                 result.Aliasing.TotalPeakBytes += peak;
         }
 

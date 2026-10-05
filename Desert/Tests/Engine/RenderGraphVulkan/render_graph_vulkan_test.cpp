@@ -53,15 +53,16 @@ namespace
                                                    VkDebugUtilsMessageTypeFlagsEXT,
                                                    const VkDebugUtilsMessengerCallbackDataEXT* data, void* )
     {
-        std::lock_guard lock( g_MessageMutex );
-        g_Messages.push_back( { data && data->pMessageIdName ? data->pMessageIdName : "<no id>",
-                                data && data->pMessage ? data->pMessage : "<no message>" } );
+        const std::lock_guard lock( g_MessageMutex );
+        g_Messages.push_back(
+             { data != nullptr && data->pMessageIdName != nullptr ? data->pMessageIdName : "<no id>",
+               data != nullptr && data->pMessage != nullptr ? data->pMessage : "<no message>" } );
         return VK_FALSE;
     }
 
     std::vector<Message> TakeMessages()
     {
-        std::lock_guard lock( g_MessageMutex );
+        const std::lock_guard lock( g_MessageMutex );
         return std::exchange( g_Messages, {} );
     }
 
@@ -121,9 +122,19 @@ namespace
                       .set_debug_messenger_type( VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
                                                  VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT )
                       .build();
+            // "Available" only means the manifest was found (VulkanContext.cpp, PKG2): Homebrew's names its
+            // library bare, and dyld finds it only through DYLD_FALLBACK_LIBRARY_PATH (scripts/Dev/_common.sh).
+            if ( !instance && instance.vk_result() == VK_ERROR_LAYER_NOT_PRESENT )
+            {
+                out.Error = "VK_LAYER_KHRONOS_validation is listed but its library did not load "
+                            "(VK_ERROR_LAYER_NOT_PRESENT); on macOS run with "
+                            "DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib, VK_LOADER_DEBUG=layer names the path";
+                return out;
+            }
             if ( !instance )
             {
-                out.Error = std::format( "instance: {}", instance.error().message() );
+                out.Error = std::format( "instance: {} (VkResult {})", instance.error().message(),
+                                         static_cast<int>( instance.vk_result() ) );
                 return out;
             }
             out.Instance = instance.value();
@@ -189,8 +200,8 @@ namespace
     Common::ResultStr<std::vector<uint32_t>> CompileGlsl( const char* source, shaderc_shader_kind kind,
                                                           const char* name )
     {
-        shaderc::Compiler                   compiler;
-        shaderc::CompileOptions             options;
+        const shaderc::Compiler             compiler;
+        const shaderc::CompileOptions       options;
         const shaderc::SpvCompilationResult result = compiler.CompileGlslToSpv( source, kind, name, options );
         if ( result.GetCompilationStatus() != shaderc_compilation_status_success )
             return Common::MakeFormattedError<std::vector<uint32_t>>( "{}: {}", name, result.GetErrorMessage() );
@@ -299,7 +310,7 @@ void main()
                                                   VK_SHADER_STAGE_VERTEX_BIT, vsModule, "main", nullptr },
                  VkPipelineShaderStageCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
                                                   VK_SHADER_STAGE_FRAGMENT_BIT, fsModule, "main", nullptr } };
-            VkPipelineVertexInputStateCreateInfo vertexInput{
+            const VkPipelineVertexInputStateCreateInfo vertexInput{
                  VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
             VkPipelineInputAssemblyStateCreateInfo assembly{
                  VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
@@ -713,11 +724,11 @@ void main()
         {
         }
 
-        RDG::BackendKind GetKind() const override
+        [[nodiscard]] RDG::BackendKind GetKind() const override
         {
             return RDG::BackendKind::Recording;
         }
-        const RDG::IMemoryRequirementsProvider& GetMemoryRequirements() const override
+        [[nodiscard]] const RDG::IMemoryRequirementsProvider& GetMemoryRequirements() const override
         {
             return m_Inner.GetMemoryRequirements();
         }
@@ -762,7 +773,10 @@ void main()
             for ( const RDG::Barrier& barrier : barriers )
                 Recorded.push_back( { m_Current, barrier } );
             if ( m_Current != m_Pass )
-                return m_Inner.RecordBarriers( barriers );
+            {
+                m_Inner.RecordBarriers( barriers );
+                return;
+            }
             std::vector<RDG::Barrier> weakened( barriers.begin(), barriers.end() );
             for ( RDG::Barrier& barrier : weakened )
             {
@@ -792,11 +806,11 @@ void main()
         {
             m_Inner.AbandonGraph();
         }
-        std::shared_ptr<RDG::IPhysicalTexture> GetPhysicalTexture( uint32_t resource ) const override
+        [[nodiscard]] std::shared_ptr<RDG::IPhysicalTexture> GetPhysicalTexture( uint32_t resource ) const override
         {
             return m_Inner.GetPhysicalTexture( resource );
         }
-        std::shared_ptr<RDG::IPhysicalBuffer> GetPhysicalBuffer( uint32_t resource ) const override
+        [[nodiscard]] std::shared_ptr<RDG::IPhysicalBuffer> GetPhysicalBuffer( uint32_t resource ) const override
         {
             return m_Inner.GetPhysicalBuffer( resource );
         }
@@ -887,8 +901,8 @@ TEST( RenderGraphVulkan, TheEngineInstanceEnablesSynchronizationValidation )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "run from inside the repository";
-    std::ifstream     file( root / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanContext.cpp" );
-    std::stringstream text;
+    const std::ifstream file( root / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanContext.cpp" );
+    std::stringstream   text;
     text << file.rdbuf();
     const std::string source = text.str();
     const size_t      layers = source.find( "builder.request_validation_layers( true );" );
