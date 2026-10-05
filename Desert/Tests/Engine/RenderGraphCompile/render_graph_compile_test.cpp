@@ -2569,7 +2569,9 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
            "declared.Read(refs.Transients.HeightFog,RDG::Access::SampledGraphics" },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
-           "declared.Read(m_HistoryImage[m_ResolvedIndex],RDG::Access::SampledGraphics" },
+           "declared.Read(refs.Transients.CloudScatter,RDG::Access::SampledGraphics" },
+         { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
+           "declared.Read(refs.Transients.CloudGuide,RDG::Access::SampledGraphics" },
          { "SceneRenderer.cpp", "declared.Read(mesh->GetCascadeShadowImage(c),RDG::Access::SampledGraphics" },
          { "SceneRenderer.cpp", "declared.Read(clouds->GetShadowMap(),RDG::Access::SampledGraphics" } };
     for ( const auto& [file, needle] : declared )
