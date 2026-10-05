@@ -215,7 +215,7 @@ namespace Desert::Player
         void BeginStartupMovies();
         void TickStartupMovies( double deltaSeconds );
         [[nodiscard]] bool StartupMoviesPlaying() const;
-        void DrawStartupMovie( Graphic::Render2D::DrawList2D& dl, float w, float h );
+        void               DrawStartupMovie( Graphic::Render2D::DrawList2D& dl, float w, float h );
         /// What a covered frame (loading screen, startup movie) does with input: drops it, so nothing
         /// pressed during the cover reaches the first frame the player can see.
         void DiscardHeldInput();

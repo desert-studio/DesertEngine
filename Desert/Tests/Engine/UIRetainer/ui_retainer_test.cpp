@@ -88,7 +88,8 @@ TEST( UIRetainer, HazeIsAPureFunctionOfThePixelAndTheClock )
         std::vector<glm::vec2> out;
         for ( int y = 0; y < 64; ++y )
             for ( int x = 0; x < 64; ++x )
-                out.push_back( RetainerHazeOffsetPx( at, glm::vec2( static_cast<float>( x ) + 0.5f, static_cast<float>( y ) + 0.5f ) ) );
+                out.push_back( RetainerHazeOffsetPx(
+                     at, glm::vec2( static_cast<float>( x ) + 0.5f, static_cast<float>( y ) + 0.5f ) ) );
         return out;
     };
     const float step = 1.0f / 60.0f;

@@ -266,7 +266,7 @@ namespace Desert::Media
             uint32_t             width       = 0;
             uint32_t             height      = 0;
             uint32_t             channels    = 0;
-            double               rate = 0.0;
+            double               rate        = 0.0;
             std::string          codec;
             std::vector<uint8_t> priv;
             while ( entry.Next( childId, child ) )

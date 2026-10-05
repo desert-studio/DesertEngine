@@ -64,7 +64,9 @@ namespace Desert::UI
                 const glm::vec2 p3 = i + 2 < n ? control[i + 2] : p2 * 2.0f - p1;
                 for ( int s = 1; s <= steps; ++s )
                     out.Points.push_back(
-                         s == steps ? p2 : CatmullRom( p0, p1, p2, p3, static_cast<float>( s ) / static_cast<float>( steps ) ) );
+                         s == steps ? p2
+                                    : CatmullRom( p0, p1, p2, p3,
+                                                  static_cast<float>( s ) / static_cast<float>( steps ) ) );
             }
         }
 

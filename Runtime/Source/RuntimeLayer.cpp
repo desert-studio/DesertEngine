@@ -445,7 +445,7 @@ namespace Desert::Player
     {
         if ( !m_Movie.has_value() )
             return Common::MakeFormattedError<bool>( "--render-movie: no movie request to make a target for" );
-        const MovieRenderRequest& movie = *m_Movie;
+        const MovieRenderRequest&         movie = *m_Movie;
         Graphic::FramebufferSpecification spec;
         spec.Width       = movie.Width;
         spec.Height      = movie.Height;

@@ -373,11 +373,11 @@ namespace Desert::Graphic::Render2D
         for ( int c = 0; c < 4; ++c )
             for ( int s = 0; s <= kSeg; ++s )
             {
-                const float     a     = a0[c] + ( PI * 0.5f ) * ( static_cast<float>( s ) / static_cast<float>( kSeg ) );
-                const glm::vec2 dir   = { std::cos( a ), std::sin( a ) };
-                const glm::vec2 in    = cc[c] + dir * ( r - kEdgeFringe * 0.5f );
-                const glm::vec2 out   = cc[c] + dir * ( r + kEdgeFringe * 0.5f );
-                rim[perim]            = { Xf( in ), { 0.5f, 0.5f }, color };
+                const float a = a0[c] + ( PI * 0.5f ) * ( static_cast<float>( s ) / static_cast<float>( kSeg ) );
+                const glm::vec2 dir                  = { std::cos( a ), std::sin( a ) };
+                const glm::vec2 in                   = cc[c] + dir * ( r - kEdgeFringe * 0.5f );
+                const glm::vec2 out                  = cc[c] + dir * ( r + kEdgeFringe * 0.5f );
+                rim[perim]                           = { Xf( in ), { 0.5f, 0.5f }, color };
                 fringe[std::size_t{ perim } * 2]     = { Xf( out ), { 0.5f, 0.5f }, clear };
                 fringe[std::size_t{ perim } * 2 + 1] = rim[perim];
                 ++perim;

@@ -872,8 +872,10 @@ TEST( LevelSequenceMaterialUndo, AddingAMaterialParameterTrackAndKeyingItAreOneU
                           .IsSuccess() );
     }
     ASSERT_EQ( history.UndoStack().size(), 2U ) << "the key is one more step";
-    EXPECT_FLOAT_EQ( Engaged( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } ) ).x, 0.75F );
-    EXPECT_FLOAT_EQ( Engaged( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 20 } ) ).x, 0.5F )
+    EXPECT_FLOAT_EQ( Engaged( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } ) ).x,
+                     0.75F );
+    EXPECT_FLOAT_EQ( Engaged( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 20 } ) ).x,
+                     0.5F )
          << "Linear between the start key and the new one";
     ASSERT_EQ( ECS::MaterialParameterKeyTicks( sequence, door, roughness ).size(), 2U );
 
@@ -898,7 +900,8 @@ TEST( LevelSequenceMaterialUndo, AddingAMaterialParameterTrackAndKeyingItAreOneU
     ASSERT_TRUE( history.Undo() );
     ASSERT_TRUE( ECS::HasMaterialParameterTrack( sequence, door, roughness ) );
     EXPECT_EQ( ECS::MaterialParameterKeyTicks( sequence, door, roughness ).size(), 1U );
-    EXPECT_FLOAT_EQ( Engaged( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } ) ).x, 0.25F );
+    EXPECT_FLOAT_EQ( Engaged( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } ) ).x,
+                     0.25F );
     ASSERT_TRUE( history.Undo() );
     EXPECT_FALSE( ECS::HasMaterialParameterTrack( sequence, door, roughness ) );
     EXPECT_FALSE( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } ).has_value() );
@@ -907,9 +910,11 @@ TEST( LevelSequenceMaterialUndo, AddingAMaterialParameterTrackAndKeyingItAreOneU
 
     // Ctrl+Y ×2: the track, then its key, each by value.
     ASSERT_TRUE( history.Redo() );
-    EXPECT_FLOAT_EQ( Engaged( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } ) ).x, 0.25F );
+    EXPECT_FLOAT_EQ( Engaged( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } ) ).x,
+                     0.25F );
     ASSERT_TRUE( history.Redo() );
-    EXPECT_FLOAT_EQ( Engaged( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } ) ).x, 0.75F );
+    EXPECT_FLOAT_EQ( Engaged( ECS::MaterialParameterAt( sequence, door, roughness, A::FrameNumber{ 40 } ) ).x,
+                     0.75F );
     history.Clear();
 }
 

@@ -1392,10 +1392,11 @@ namespace Desert::Editor
                     // Captured by an init-capture, not from a const local: a const capture is a const member
                     // of the closure, and the closure's move would then copy it (and could throw).
                     if ( !ECS::HasMaterialParameterTrack( asset->GetSequence(), guid, choice.Parameter ) )
-                        actions.push_back( DocumentAction{
-                             std::format( "Add Material Parameter Track {} {} {}", binding.Label, slot.Label,
-                                          choice.Label ),
-                             [this, guid, parameter = choice.Parameter] { AddLevelMaterialParameterTrack( guid, parameter ); } } );
+                        actions.push_back( DocumentAction{ std::format( "Add Material Parameter Track {} {} {}",
+                                                                        binding.Label, slot.Label, choice.Label ),
+                                                           [this, guid, parameter = choice.Parameter] {
+                                                               AddLevelMaterialParameterTrack( guid, parameter );
+                                                           } } );
                     else
                         // Keys what the track says at the playhead (UE: the track row's key button).
                         actions.push_back(

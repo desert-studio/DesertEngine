@@ -46,8 +46,8 @@ namespace Desert::Media
             if ( !impl->Paused.load( std::memory_order_acquire ) )
             {
                 const std::lock_guard lock( impl->Lock );
-                const uint64_t  capacity = impl->CapacityFrames();
-                taken                    = std::min<uint64_t>( frameCount, impl->Tail - impl->Head );
+                const uint64_t        capacity = impl->CapacityFrames();
+                taken                          = std::min<uint64_t>( frameCount, impl->Tail - impl->Head );
                 for ( ma_uint64 i = 0; i < taken; ++i )
                 {
                     const size_t from = static_cast<size_t>( ( impl->Head + i ) % capacity ) * stride;
@@ -153,8 +153,8 @@ namespace Desert::Media
     void MediaAudioOutput::Push( const float* interleaved, uint64_t frames )
     {
         const std::lock_guard lock( m_Impl->Lock );
-        const uint64_t  capacity = m_Impl->CapacityFrames();
-        const size_t    stride   = m_Impl->Channels;
+        const uint64_t        capacity = m_Impl->CapacityFrames();
+        const size_t          stride   = m_Impl->Channels;
         // The player decodes a bounded lead (MediaPlayer kAudioLeadFrames, well under the ring's second);
         // a push that would overrun the reader drops its oldest unread frames rather than corrupt them.
         if ( m_Impl->Tail + frames - m_Impl->Head > capacity )

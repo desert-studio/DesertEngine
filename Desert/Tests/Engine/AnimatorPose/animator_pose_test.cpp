@@ -309,9 +309,9 @@ namespace
     /// The child's pose after two ticks of @p seconds each, starting 0.2 s into the clip.
     std::pair<glm::mat4, glm::mat4> TwoTicks( float seconds )
     {
-        static const Skeleton skel = MakeChain();
+        static const Skeleton      skel = MakeChain();
         static const AnimationClip clip = ChildRisingClip();
-        Animator              anim( skel );
+        Animator                   anim( skel );
         anim.Play( clip );
         anim.SetTime( 0.2f );
         anim.Update( Common::Timestep( seconds ) );

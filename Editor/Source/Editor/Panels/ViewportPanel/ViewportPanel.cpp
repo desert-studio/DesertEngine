@@ -1575,7 +1575,8 @@ namespace Desert::Editor
                 // Down/S wins over Up/W when both are pressed on one frame.
                 if ( ImGui::IsKeyPressed( ImGuiKey_DownArrow, false ) || ImGui::IsKeyPressed( ImGuiKey_S, false ) )
                     pv.Navigate = 1;
-                else if ( ImGui::IsKeyPressed( ImGuiKey_UpArrow, false ) || ImGui::IsKeyPressed( ImGuiKey_W, false ) )
+                else if ( ImGui::IsKeyPressed( ImGuiKey_UpArrow, false ) ||
+                          ImGui::IsKeyPressed( ImGuiKey_W, false ) )
                     pv.Navigate = -1;
                 else
                     pv.Navigate = 0;

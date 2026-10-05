@@ -106,12 +106,12 @@ namespace Desert::Player
     {
         using Result = std::optional<MovieRenderRequest>;
         MovieRenderRequest request;
-        bool any          = false;
-        bool haveMap      = false;
-        bool haveOut      = false;
-        bool haveRes      = false;
-        bool haveFps      = false;
-        bool haveDuration = false;
+        bool               any          = false;
+        bool               haveMap      = false;
+        bool               haveOut      = false;
+        bool               haveRes      = false;
+        bool               haveFps      = false;
+        bool               haveDuration = false;
 
         for ( size_t i = 0; i < args.size(); ++i )
         {

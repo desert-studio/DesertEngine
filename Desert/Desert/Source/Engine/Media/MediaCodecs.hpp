@@ -146,8 +146,8 @@ namespace Desert::Media
 
         std::string Open( const WebmAudioTrack& track ); // empty on success
         // Appends the packet's samples to `interleaved`; returns the number of frames appended, -1 on error.
-        int64_t  Decode( const MediaPacket& packet, std::vector<float>& interleaved );
-        void     Reset( bool fromStart ); // seek: decoder state cleared; pre-skip again when fromStart
+        int64_t Decode( const MediaPacket& packet, std::vector<float>& interleaved );
+        void    Reset( bool fromStart ); // seek: decoder state cleared; pre-skip again when fromStart
         [[nodiscard]] uint32_t Channels() const
         {
             return m_Channels;
