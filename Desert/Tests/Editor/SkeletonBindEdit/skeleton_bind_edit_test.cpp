@@ -119,6 +119,42 @@ TEST( SkeletonBindEdit, DontSavePutsTheFilesBindBackAndForgetsTheRecords )
     EXPECT_FALSE( Editor::CommandHistory::Get().Undo() ) << "the discarded edit's record went with it";
 }
 
+// The document's Dirty state (AnimationEditorDocument::GetDiskState in Skeleton mode = BindPoseDiffers against the
+// snapshot taken when the file was read): every way the bind moves turns it on, every way back turns it off.
+TEST( SkeletonBindEdit, TheDocumentIsDirtyAfterAnEditAndCleanAfterUndoOrSave )
+{
+    const auto           file = WriteRig( TempDir( "dirty" ) );
+    Assets::AssetManager manager;
+    auto                 rig = manager.CreateAsset<Assets::SkeletonAsset>( Common::Filepath( file ) );
+    ASSERT_TRUE( rig->Load().IsSuccess() );
+    auto snapshot = Editor::ReadBindPoseOnDisk( *rig );
+    ASSERT_TRUE( snapshot.IsSuccess() );
+    EXPECT_FALSE( Editor::BindPoseDiffers( *rig, snapshot.GetValue() ) ) << "a freshly opened rig is clean";
+
+    // A committed Details row (the Reference Pose Location X).
+    ASSERT_TRUE( Editor::CommitBindEdit( rig, 1U, kEdited ) );
+    EXPECT_TRUE( Editor::BindPoseDiffers( *rig, snapshot.GetValue() ) ) << "a row edit makes the tab Fox*";
+    ASSERT_TRUE( Editor::CommandHistory::Get().Undo() );
+    EXPECT_FALSE( Editor::BindPoseDiffers( *rig, snapshot.GetValue() ) ) << "undo back to the file is clean";
+    ASSERT_TRUE( Editor::CommandHistory::Get().Redo() );
+    EXPECT_TRUE( Editor::BindPoseDiffers( *rig, snapshot.GetValue() ) ) << "redo is dirty again";
+    ASSERT_TRUE( Editor::CommandHistory::Get().Undo() );
+
+    // A gizmo drag.
+    Editor::BindPoseGesture gesture;
+    gesture.Step( rig, 1U, true, nullptr );
+    gesture.Step( rig, 1U, true, &kEdited );
+    gesture.Step( rig, 1U, false, nullptr );
+    EXPECT_TRUE( Editor::BindPoseDiffers( *rig, snapshot.GetValue() ) ) << "a gizmo drag makes the tab Fox*";
+
+    // Save: the file now holds the bind, and the snapshot the document takes after it says clean.
+    ASSERT_TRUE( Assets::Serialization::SaveSkeletonAsset( *rig ).IsSuccess() );
+    auto saved = Editor::ReadBindPoseOnDisk( *rig );
+    ASSERT_TRUE( saved.IsSuccess() );
+    EXPECT_FALSE( Editor::BindPoseDiffers( *rig, saved.GetValue() ) ) << "Save clears the marker";
+    Editor::CommandHistory::Get().DropFor( rig.get() );
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

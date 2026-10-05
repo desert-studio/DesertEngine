@@ -872,20 +872,20 @@ namespace Desert::Editor
                  { origin.x, origin.y, view.x, view.y, ImGui::GetWindowViewport()->ID, ImGui::GetFrameCount() } );
             // The gizmo is evaluated BEFORE the preview's button and painted on a channel above it: the preview
             // then knows in the same frame that the pointer is on the gizmo and yields the press (a hover read
-            // one frame late let the orbit take the drag). Posing keys into the clip, so the gizmo is
-            // Animation mode's.
+            // one frame late let the orbit take the drag). Animation mode's gizmo poses into the clip; Skeleton
+            // mode's moves the Reference Pose (UE's Skeleton Editor). Mesh mode authors neither.
             ImDrawList* drawList = ImGui::GetWindowDrawList();
             drawList->ChannelsSplit( 2 );
             drawList->ChannelsSetCurrent( 1 );
             m_GizmoHovered = false;
-            if ( animation )
+            if ( animation || Mode() == Core::PersonaMode::Skeleton )
                 DrawBoneGizmo( glm::vec2( origin.x, origin.y ), glm::vec2( view.x, view.y ) );
             drawList->ChannelsSetCurrent( 0 );
             if ( !m_Preview || !m_UIHelper )
                 ImGui::TextDisabled( "Starting the preview..." );
             else
                 (void)m_Preview->Draw( *m_UIHelper, view,
-                                       PreviewInteractionUnderTool( m_GizmoHovered, m_BoneGesture.Active(),
+                                       PreviewInteractionUnderTool( m_GizmoHovered, m_BoneGesture.Active() || m_BindGesture.Active(),
                                                                     ImGui::IsAnyItemActive() ) );
             DrawBones( glm::vec2( origin.x, origin.y ), glm::vec2( view.x, view.y ) );
             // A click on a drawn joint selects that bone — in the tree too, which reads the same selection (UE's
@@ -1852,6 +1852,22 @@ namespace Desert::Editor
 
     void AnimationEditorDocument::DrawModeToolbar()
     {
+        // UE's asset editor toolbar starts with Save. Skeleton mode's document is the `.skeleton` (its Reference
+        // Pose edits: Save* / Don't Save on close); Animation mode's Save is on its transport, beside the clip.
+        if ( Mode() == Core::PersonaMode::Skeleton && m_SkeletonAsset )
+        {
+            if ( ImGui::Button( GetDiskState() == DiskState::Dirty ? "Save*" : "Save" ) )
+                (void)SaveDocument();
+            if ( !m_SaveStatus.empty() )
+            {
+                ImGui::SameLine();
+                if ( m_SaveFailed )
+                    ImGui::TextColored( ImVec4( 1.0f, 0.4f, 0.4f, 1.0f ), "%s", m_SaveStatus.c_str() );
+                else
+                    ImGui::TextDisabled( "%s", m_SaveStatus.c_str() );
+            }
+            ImGui::SameLine();
+        }
         // UE puts the mode switcher at the right of the asset editor's toolbar.
         constexpr std::array kModes = { Core::PersonaMode::Skeleton, Core::PersonaMode::Mesh,
                                         Core::PersonaMode::Animation };
@@ -1970,17 +1986,6 @@ namespace Desert::Editor
         if ( !m_SkeletonAsset )
             return;
 
-        // The Reference Pose edits are the document's (Save* / Don't Save on close, as the clip's notifies are).
-        if ( ImGui::Button( GetDiskState() == DiskState::Dirty ? "Save*" : "Save" ) )
-            (void)SaveDocument();
-        if ( !m_SaveStatus.empty() )
-        {
-            ImGui::SameLine();
-            if ( m_SaveFailed )
-                ImGui::TextColored( ImVec4( 1.0f, 0.4f, 0.4f, 1.0f ), "%s", m_SaveStatus.c_str() );
-            else
-                ImGui::TextDisabled( "%s", m_SaveStatus.c_str() );
-        }
 
         // What a change writes: the .skeleton, at once (UE marks the package dirty; this asset has no editor
         // document of its own to hold the edit, so the slot is the save).
