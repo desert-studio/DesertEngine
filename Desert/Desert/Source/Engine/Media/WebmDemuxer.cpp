@@ -52,7 +52,7 @@ namespace Desert::Media
             size_t         Size = 0;
             size_t         Pos  = 0;
 
-            bool AtEnd() const
+            [[nodiscard]] bool AtEnd() const
             {
                 return Pos >= Size;
             }
@@ -75,7 +75,7 @@ namespace Desert::Media
                     allOnes &= Data[Pos + i] == 0xFF;
                 }
                 Pos += len;
-                if ( length )
+                if ( length != nullptr )
                     *length = len;
                 value = ( !keepMarker && allOnes ) ? kUnknownSize : v;
                 return true;
@@ -84,7 +84,8 @@ namespace Desert::Media
             // One child: its id and a cursor over its body. False at the end or on a malformed child.
             bool Next( uint32_t& id, Cursor& body )
             {
-                uint64_t rawId = 0, size = 0;
+                uint64_t rawId = 0;
+                uint64_t size  = 0;
                 if ( !ReadVint( rawId, true ) || !ReadVint( size, false ) || size == kUnknownSize ||
                      size > Size - Pos )
                     return false;
@@ -94,23 +95,24 @@ namespace Desert::Media
                 return true;
             }
 
-            uint64_t Uint() const
+            [[nodiscard]] uint64_t Uint() const
             {
                 uint64_t v = 0;
                 for ( size_t i = 0; i < Size && i < 8; ++i )
                     v = ( v << 8 ) | Data[i];
                 return v;
             }
-            int64_t Int() const
+            [[nodiscard]] int64_t Int() const
             {
                 if ( Size == 0 )
                     return 0;
-                int64_t v = static_cast<int8_t>( Data[0] );
+                int64_t v =
+                     Data[0] >= 0x80 ? static_cast<int64_t>( Data[0] ) - 0x100 : static_cast<int64_t>( Data[0] );
                 for ( size_t i = 1; i < Size && i < 8; ++i )
                     v = static_cast<int64_t>( static_cast<uint64_t>( v ) << 8 ) | Data[i];
                 return v;
             }
-            double Float() const
+            [[nodiscard]] double Float() const
             {
                 if ( Size == 4 )
                     return static_cast<double>( std::bit_cast<float>( static_cast<uint32_t>( Uint() ) ) );
@@ -118,15 +120,15 @@ namespace Desert::Media
                     return std::bit_cast<double>( Uint() );
                 return 0.0;
             }
-            std::string String() const
+            [[nodiscard]] std::string String() const
             {
-                std::string s( reinterpret_cast<const char*>( Data ), Size );
+                std::string s( Data, Data + Size );
                 s.erase( std::find( s.begin(), s.end(), '\0' ), s.end() );
                 return s;
             }
-            std::vector<uint8_t> Bytes() const
+            [[nodiscard]] std::vector<uint8_t> Bytes() const
             {
-                return std::vector<uint8_t>( Data, Data + Size );
+                return { Data, Data + Size };
             }
         };
 
@@ -134,10 +136,10 @@ namespace Desert::Media
         bool ReadFileVint( std::ifstream& f, uint64_t& value, bool keepMarker )
         {
             uint8_t bytes[8];
-            if ( !f.read( reinterpret_cast<char*>( bytes ), 1 ) || bytes[0] == 0 )
+            if ( !f.read( std::bit_cast<char*>( &bytes[0] ), 1 ) || bytes[0] == 0 )
                 return false;
             const size_t len = static_cast<size_t>( std::countl_zero( bytes[0] ) ) + 1;
-            if ( len > 8 || ( len > 1 && !f.read( reinterpret_cast<char*>( bytes + 1 ),
+            if ( len > 8 || ( len > 1 && !f.read( std::bit_cast<char*>( &bytes[1] ),
                                                   static_cast<std::streamsize>( len - 1 ) ) ) )
                 return false;
             Cursor c{ bytes, len, 0 };
@@ -147,7 +149,7 @@ namespace Desert::Media
         bool ReadFileBody( std::ifstream& f, uint64_t size, std::vector<uint8_t>& out )
         {
             out.resize( static_cast<size_t>( size ) );
-            return size == 0 || static_cast<bool>( f.read( reinterpret_cast<char*>( out.data() ),
+            return size == 0 || static_cast<bool>( f.read( std::bit_cast<char*>( out.data() ),
                                                            static_cast<std::streamsize>( size ) ) );
         }
     } // namespace
@@ -159,13 +161,15 @@ namespace Desert::Media
         if ( !m_File )
             return std::format( "{}: cannot open the file", path.string() );
 
-        uint64_t             id = 0, size = 0;
+        uint64_t             id   = 0;
+        uint64_t             size = 0;
         std::vector<uint8_t> body;
         if ( !ReadFileVint( m_File, id, true ) || id != kEbml || !ReadFileVint( m_File, size, false ) ||
              size == kUnknownSize || !ReadFileBody( m_File, size, body ) )
             return std::format( "{}: not an EBML file (no EBML header)", path.string() );
         {
-            Cursor      header{ body.data(), body.size(), 0 }, child;
+            Cursor      header{ body.data(), body.size(), 0 };
+            Cursor      child;
             uint32_t    childId = 0;
             std::string docType;
             while ( header.Next( childId, child ) )
@@ -195,7 +199,11 @@ namespace Desert::Media
                 if ( !ReadFileBody( m_File, size, body ) )
                     return std::format( "{}: element 0x{:X} at byte {} is truncated", path.string(), id,
                                         elementOffset );
-                std::string error = id == kInfo ? ParseInfo( body ) : id == kTracks ? ParseTracks( body ) : "";
+                std::string error;
+                if ( id == kInfo )
+                    error = ParseInfo( body );
+                else if ( id == kTracks )
+                    error = ParseTracks( body );
                 if ( id == kCues )
                     ParseCues( body );
                 if ( !error.empty() )
@@ -221,7 +229,8 @@ namespace Desert::Media
 
     std::string WebmDemuxer::ParseInfo( const std::vector<uint8_t>& bytes )
     {
-        Cursor   info{ bytes.data(), bytes.size(), 0 }, child;
+        Cursor   info{ bytes.data(), bytes.size(), 0 };
+        Cursor   child;
         uint32_t id       = 0;
         double   duration = 0.0;
         while ( info.Next( id, child ) )
@@ -239,14 +248,24 @@ namespace Desert::Media
 
     std::string WebmDemuxer::ParseTracks( const std::vector<uint8_t>& bytes )
     {
-        Cursor   tracks{ bytes.data(), bytes.size(), 0 }, entry, child, sub;
-        uint32_t id = 0, childId = 0, subId = 0;
+        Cursor   tracks{ bytes.data(), bytes.size(), 0 };
+        Cursor   entry;
+        Cursor   child;
+        Cursor   sub;
+        uint32_t id      = 0;
+        uint32_t childId = 0;
+        uint32_t subId   = 0;
         while ( tracks.Next( id, entry ) )
         {
             if ( id != kTrackEntry )
                 continue;
-            uint64_t             number = 0, type = 0, codecDelay = 0, seekPreRoll = 0;
-            uint32_t             width = 0, height = 0, channels = 0;
+            uint64_t             number      = 0;
+            uint64_t             type        = 0;
+            uint64_t             codecDelay  = 0;
+            uint64_t             seekPreRoll = 0;
+            uint32_t             width       = 0;
+            uint32_t             height      = 0;
+            uint32_t             channels    = 0;
             double               rate = 0.0;
             std::string          codec;
             std::vector<uint8_t> priv;
@@ -321,8 +340,13 @@ namespace Desert::Media
 
     void WebmDemuxer::ParseCues( const std::vector<uint8_t>& bytes )
     {
-        Cursor   cues{ bytes.data(), bytes.size(), 0 }, point, child, sub;
-        uint32_t id = 0, childId = 0, subId = 0;
+        Cursor   cues{ bytes.data(), bytes.size(), 0 };
+        Cursor   point;
+        Cursor   child;
+        Cursor   sub;
+        uint32_t id      = 0;
+        uint32_t childId = 0;
+        uint32_t subId   = 0;
         while ( cues.Next( id, point ) )
         {
             if ( id != kCuePoint )
@@ -334,7 +358,8 @@ namespace Desert::Media
                     time = child.Uint();
                 else if ( childId == kCueTrackPos )
                 {
-                    uint64_t track = 0, position = 0;
+                    uint64_t track    = 0;
+                    uint64_t position = 0;
                     while ( child.Next( subId, sub ) )
                     {
                         if ( subId == kCueTrack )
@@ -364,8 +389,11 @@ namespace Desert::Media
             m_Error = std::format( "{}: cluster at byte {} is truncated", m_Path.string(), cluster.BodyOffset );
             return false;
         }
-        Cursor   c{ body.data(), body.size(), 0 }, child, sub;
-        uint32_t id = 0, subId = 0;
+        Cursor   c{ body.data(), body.size(), 0 };
+        Cursor   child;
+        Cursor   sub;
+        uint32_t id            = 0;
+        uint32_t subId         = 0;
         int64_t  clusterTimeNs = 0;
         while ( c.Next( id, child ) )
         {
@@ -391,7 +419,7 @@ namespace Desert::Media
                     else if ( subId == kDiscardPadding )
                         discard = sub.Int();
                 }
-                if ( block && !ParseBlock( block, blockSize, clusterTimeNs, false, discard ) )
+                if ( block != nullptr && !ParseBlock( block, blockSize, clusterTimeNs, false, discard ) )
                     return false;
             }
         }
@@ -408,17 +436,15 @@ namespace Desert::Media
             m_Error = std::format( "{}: malformed block header", m_Path.string() );
             return false;
         }
-        const int16_t relative = static_cast<int16_t>( ( data[c.Pos] << 8 ) | data[c.Pos + 1] );
+        const auto    relative = static_cast<int16_t>( ( data[c.Pos] << 8 ) | data[c.Pos + 1] );
         const uint8_t flags    = data[c.Pos + 2];
         c.Pos += 3;
 
-        MediaTrackKind kind;
-        if ( m_Video.Present && track == m_Video.Number )
-            kind = MediaTrackKind::Video;
-        else if ( m_Audio.Present && track == m_Audio.Number )
-            kind = MediaTrackKind::Audio;
-        else
+        const bool isVideo = m_Video.Present && track == m_Video.Number;
+        const bool isAudio = !isVideo && m_Audio.Present && track == m_Audio.Number;
+        if ( !isVideo && !isAudio )
             return true; // a track the player does not decode (subtitles, a second audio track)
+        const MediaTrackKind kind = isVideo ? MediaTrackKind::Video : MediaTrackKind::Audio;
 
         // Lacing: several frames in one block. 0 none, 1 Xiph, 2 fixed-size, 3 EBML.
         const int           lacing = ( flags >> 1 ) & 3;
@@ -458,7 +484,7 @@ namespace Desert::Media
                     size_t   len = 0;
                     if ( !c.ReadVint( raw, false, &len ) )
                         return false;
-                    const int64_t bias = ( int64_t( 1 ) << ( 7 * len - 1 ) ) - 1; // signed vint
+                    const int64_t bias = ( static_cast<int64_t>( 1 ) << ( 7 * len - 1 ) ) - 1; // signed vint
                     const int64_t s    = static_cast<int64_t>( sizes.back() ) + static_cast<int64_t>( raw ) - bias;
                     if ( s < 0 )
                         return false;

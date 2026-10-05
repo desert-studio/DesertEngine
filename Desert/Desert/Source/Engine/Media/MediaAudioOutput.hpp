@@ -19,8 +19,8 @@ namespace Desert::Media
 
         std::string Start( uint32_t sampleRate, uint32_t channels ) override;
         void        Push( const float* interleaved, uint64_t frames ) override;
-        uint64_t    PlayedFrames() const override;
-        uint64_t    QueuedFrames() const override;
+        [[nodiscard]] uint64_t PlayedFrames() const override;
+        [[nodiscard]] uint64_t QueuedFrames() const override;
         void        SetPaused( bool paused ) override;
         void        Flush() override;
 

@@ -98,9 +98,9 @@ namespace Desert::Media
         bool        LoadCluster( size_t index );
         bool        ParseBlock( const uint8_t* data, size_t size, int64_t clusterTimeNs, bool simple,
                                 int64_t discardPaddingNs );
-        std::string ParseInfo( const std::vector<uint8_t>& body );
-        std::string ParseTracks( const std::vector<uint8_t>& body );
-        void        ParseCues( const std::vector<uint8_t>& body );
+        std::string ParseInfo( const std::vector<uint8_t>& bytes );
+        std::string ParseTracks( const std::vector<uint8_t>& bytes );
+        void        ParseCues( const std::vector<uint8_t>& bytes );
 
         std::ifstream             m_File;
         std::filesystem::path     m_Path;
