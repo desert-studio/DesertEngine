@@ -497,12 +497,21 @@ namespace Common::Constants
         FullPath( const std::filesystem::path& path,
                   const std::source_location   reader = std::source_location::current() )
         {
-            // A path anchored at a root directory ("/tmp/x") names no project file: on Windows it has no drive and
-            // is_absolute() is false, yet it is never relative to the project — taken as given, like an absolute
-            // one.
-            if ( path.is_absolute() || path.has_root_directory() )
+            if ( path.is_absolute() )
                 return path.lexically_normal();
             const bool rooted = !Detail::s_ProjectRoot.ProjectDir.empty() || !Detail::s_EngineDir.empty();
+            // A path anchored at a root directory ("/tmp/x") names no project file. On Windows it has no drive, so
+            // it takes the drive of the root it is read against (the project's, else the engine's) - never the
+            // working directory's. Elsewhere the root name is empty and such a path is already absolute.
+            if ( path.has_root_directory() )
+            {
+                if ( !rooted )
+                    return path.lexically_normal();
+                const std::filesystem::path& anchor = !Detail::s_ProjectRoot.ProjectDir.empty()
+                                                           ? Detail::s_ProjectRoot.ProjectDir
+                                                           : Detail::s_EngineDir;
+                return ( anchor.root_name() / path ).lexically_normal();
+            }
             if ( !rooted || !ProjectDir( reader ).is_absolute() )
                 throw std::logic_error( std::format( "Path::FullPath: '{}' is relative and neither the engine "
                                                      "directory nor a project is set (read at {}:{})",
