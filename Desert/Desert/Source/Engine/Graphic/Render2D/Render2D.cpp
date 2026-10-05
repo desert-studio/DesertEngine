@@ -513,6 +513,15 @@ namespace Desert::Graphic::Render2D
                        H );
             return nullptr;
         }
+        // Framebuffer::Create only constructs: the images, the VkRenderPass and the VkFramebuffer are made by
+        // the first Resize. Without it the layer's pass was refused and its draws landed outside every pass.
+        if ( const auto made = t->Target->Resize( W, H ); !made )
+        {
+            LOG_ERROR(
+                 "[Render2D] a {}x{} retained-layer target could not be allocated: {}; the layer is not drawn", W,
+                 H, made.GetError() );
+            return nullptr;
+        }
         RenderPassSpecification passSpec;
         passSpec.TargetFramebuffer = t->Target;
         passSpec.DebugName         = "UIRetainedLayerPass";
@@ -544,7 +553,13 @@ namespace Desert::Graphic::Render2D
         r2d.RenderRetainedOf( layer, maskRoot );
 
         auto& renderer = Renderer::GetInstance();
-        renderer.BeginRenderPass( target.Pass.get(), true );
+        if ( const auto begun = renderer.BeginRenderPass( target.Pass.get(), true ); !begun )
+        {
+            // Nothing is recorded: a draw or an EndRenderPass after a refused begin is outside every pass.
+            LOG_ERROR( "[Render2D] retained layer {}x{} not drawn: {}", target.Width, target.Height,
+                       begun.GetError() );
+            return false;
+        }
         r2d.FlushList( layer );
         renderer.EndRenderPass();
         return target.Image != nullptr;

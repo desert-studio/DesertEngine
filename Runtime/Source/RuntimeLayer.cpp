@@ -343,6 +343,10 @@ namespace Desert::Player
         if ( !m_MovieTarget )
             return Common::MakeFormattedError<bool>( "--render-movie: could not create the {}x{} target",
                                                      m_Movie->Width, m_Movie->Height );
+        // Create only constructs; the first Resize makes the image, the VkRenderPass and the VkFramebuffer.
+        if ( const auto made = m_MovieTarget->Resize( m_Movie->Width, m_Movie->Height ); !made )
+            return Common::MakeFormattedError<bool>( "--render-movie: could not allocate the {}x{} target: {}",
+                                                     m_Movie->Width, m_Movie->Height, made.GetError() );
         Graphic::RenderPassSpecification passSpec;
         passSpec.TargetFramebuffer = m_MovieTarget;
         passSpec.DebugName         = "MovieRenderPass";
@@ -975,7 +979,19 @@ namespace Desert::Player
 
         // A movie composes into its own offscreen target of the requested size; the game into the swapchain.
         if ( m_Movie.has_value() )
-            renderer.BeginRenderPass( m_MoviePass.get(), true );
+        {
+            if ( const auto begun = renderer.BeginRenderPass( m_MoviePass.get(), true ); !begun )
+            {
+                // A refused pass records nothing: drawing on would land outside every pass. The movie fails
+                // (exit 1), no frame is read back, and the acquired swapchain image still gets its empty pass.
+                LOG_ERROR( "[Movie] frame {}: the movie pass was refused: {}", m_MovieFrame, begun.GetError() );
+                m_MovieFrameDrawn = false;
+                m_Application->Close( 1 );
+                renderer.BeginSwapChainRenderPass();
+                renderer.EndRenderPass();
+                return;
+            }
+        }
         else
             renderer.BeginSwapChainRenderPass();
 
