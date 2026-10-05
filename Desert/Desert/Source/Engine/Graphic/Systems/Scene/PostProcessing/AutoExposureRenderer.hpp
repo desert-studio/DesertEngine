@@ -5,7 +5,6 @@
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
-#include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <array>
 #include <memory>
@@ -28,24 +27,32 @@ namespace Desert::Graphic::System
         {
         }
 
+        // The histogram's bins: one uint per bin, 256 bins (AEHistogram*.shader `uint u_Bins[256]`).
+        static constexpr uint32_t kBins           = 256;
+        static constexpr uint64_t kHistogramBytes = kBins * sizeof( uint32_t );
+        // The histogram is a transient of each frame graph (Builder::CreateBuffer with this desc): it is written
+        // and read within one frame (Clear -> Histogram -> Average) and nothing reads it the next frame.
+        static RDG::BufferDesc GetHistogramDesc()
+        {
+            return RDG::BufferDesc{ .Bytes = kHistogramBytes };
+        }
+
         // Three compute nodes of the frame graph (SceneRendererFramePostFX.cpp "PostFX: AutoExposure*"). Prepare
         // runs when the graph is built: it advances the 1x1 ping-pong, so GetAdaptedLuminanceImage() is the image
         // this frame's RecordAverage writes and GetPreviousLuminanceImage() the one it adapts from. False:
-        // nothing to record (no scene colour, histogram or pipelines), and the ping-pong does not move.
+        // nothing to record (no scene colour or pipelines), and the ping-pong does not move.
         bool Prepare();
-        // Imports the histogram storage buffer into @p graph (Renderer::ImportBuffer), so the Clear and Histogram
-        // nodes declare Write(StorageWrite) on it and the Average node Read(StorageRead): the graph places every
-        // barrier between the three dispatches and against the previous frame's read. An invalid ref (logged):
-        // the buffer is not in the graph, and auto exposure sits out the frame. Called at graph-build time,
-        // before Prepare, so a refused import leaves the ping-pong where it was.
-        RDG::BufferRef ImportHistogram( RDG::Builder& graph );
-        // 1) Zero the histogram (the node declares Write(histogram, StorageWrite)).
-        void RecordClear();
-        // 2) Histogram of GetSceneColorImage() (sampled), atomic adds into the histogram.
-        void RecordHistogram();
-        // 3) Percentile-clipped average + temporal adaptation: samples GetPreviousLuminanceImage(), writes
-        //    GetAdaptedLuminanceImage() (storage).
-        void RecordAverage();
+        // 1) Zero the histogram (the node declares Write(histogram, StorageWrite)); binds "Histogram" by name.
+        [[nodiscard]] Common::BoolResultStr RecordClear( const RDG::PassContext& context, RDG::BufferRef histogram );
+        // 2) Histogram of @p scene (texelFetch, so PointClamp), atomic adds into @p histogram. @p width x @p height
+        //    is the scene's size this frame (one thread per texel).
+        [[nodiscard]] Common::BoolResultStr RecordHistogram( const RDG::PassContext& context, RDG::TextureRef scene,
+                                                             RDG::BufferRef histogram, uint32_t width,
+                                                             uint32_t height );
+        // 3) Percentile-clipped average + temporal adaptation: reads @p histogram, samples @p previous (the
+        //    imported GetPreviousLuminanceImage()), writes @p adapted (the imported GetAdaptedLuminanceImage()).
+        [[nodiscard]] Common::BoolResultStr RecordAverage( const RDG::PassContext& context, RDG::BufferRef histogram,
+                                                           RDG::TextureRef previous, RDG::TextureRef adapted );
 
         std::shared_ptr<Image2D> GetSceneColorImage() const
         {
@@ -102,10 +109,8 @@ namespace Desert::Graphic::System
     private:
         bool CreateResources();
 
-        std::shared_ptr<ShaderResources::StorageBuffer> m_Histogram;
-        // The graph's handle on m_Histogram for the frame being built; the graph points at it until it executes.
-        RDG::ExternalBuffer                             m_HistogramImport;
-        std::array<std::shared_ptr<Image2D>, 2>         m_LumImage; // ping-pong 1x1
+        // History (read by the next frame's Average and by the tonemap): stays external, imported every frame.
+        std::array<std::shared_ptr<Image2D>, 2> m_LumImage; // ping-pong 1x1
 
         std::shared_ptr<ComputePipeline> m_ClearPipeline;
         std::shared_ptr<ComputePipeline> m_HistogramPipeline;

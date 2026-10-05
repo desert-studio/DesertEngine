@@ -124,13 +124,11 @@ namespace Desert::Graphic
                                               const std::vector<RDG::TextureRef>& sceneColor )
     {
         auto* autoExp = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] );
-        if ( !autoExp )
+        if ( !autoExp || sceneColor.empty() )
             return;
-        // Build-time decisions, both legitimately so: the histogram import is what the nodes declare, and Prepare
-        // picks which 1x1 image this frame writes, which the graph must know to import it and the tonemap to
-        // sample it. The import goes first so a refused import does not advance the ping-pong.
-        const RDG::BufferRef histogram = autoExp->ImportHistogram( graph );
-        if ( !histogram.IsValid() || !autoExp->Prepare() )
+        // Prepare picks which 1x1 image this frame writes, which the graph must know to import it and the tonemap
+        // to sample it: a build-time decision.
+        if ( !autoExp->Prepare() )
             return;
         // The tonemap samples the luminance this frame writes; that image is known when the graph is built.
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
@@ -139,29 +137,32 @@ namespace Desert::Graphic
              textures.Import( autoExp->GetPreviousLuminanceImage(), "AutoExposure.Previous" );
         const RDG::TextureRef adapted =
              textures.Import( autoExp->GetAdaptedLuminanceImage(), "AutoExposure.Adapted" );
+        // The histogram lives within this frame: a transient buffer of this graph, cleared, filled and resolved by
+        // the three nodes below. Nothing reads it the next frame.
+        const RDG::BufferRef histogram =
+             graph.CreateBuffer( System::AutoExposureRenderer::GetHistogramDesc(), "AutoExposure.Histogram" );
+        // Prepare refused a frame without a scene image, so the dispatch size is this frame's scene size.
+        const RDG::TextureRef scene      = sceneColor.front();
+        const auto            sceneImage = autoExp->GetSceneColorImage();
+        const uint32_t        width      = sceneImage->GetWidth();
+        const uint32_t        height     = sceneImage->GetHeight();
 
-        // Clear and Histogram write the imported histogram, Average reads it: the graph orders the three and
-        // places their barriers, and Average's write of the adapted image keeps all three alive.
+        // Clear and Histogram write the histogram, Average reads it: the graph orders the three and places their
+        // barriers, and Average's write of the adapted image keeps all three alive.
         graph.AddPass(
              "PostFX: AutoExposureClear", RDG::PassFlags::Compute,
              [histogram]( RDG::PassBuilder& pass ) { pass.Write( histogram, RDG::Access::StorageWrite ); },
-             [autoExp]( RDG::PassContext& ) -> Common::BoolResultStr
-             {
-                 autoExp->RecordClear();
-                 return BOOLSUCCESS;
-             } );
+             [autoExp, histogram]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return autoExp->RecordClear( context, histogram ); } );
         graph.AddPass(
              "PostFX: AutoExposureHistogram", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 ReadEach( pass, sceneColor, RDG::Access::SampledCompute );
+                 pass.Read( scene, RDG::Access::SampledCompute );
                  pass.Write( histogram, RDG::Access::StorageWrite );
              },
-             [autoExp]( RDG::PassContext& ) -> Common::BoolResultStr
-             {
-                 autoExp->RecordHistogram();
-                 return BOOLSUCCESS;
-             } );
+             [autoExp, scene, histogram, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return autoExp->RecordHistogram( context, scene, histogram, width, height ); } );
         graph.AddPass(
              "PostFX: AutoExposureAverage", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
@@ -170,11 +171,8 @@ namespace Desert::Graphic
                  pass.Read( previous, RDG::Access::SampledCompute );
                  pass.Write( adapted, RDG::Access::StorageWrite );
              },
-             [autoExp]( RDG::PassContext& ) -> Common::BoolResultStr
-             {
-                 autoExp->RecordAverage();
-                 return BOOLSUCCESS;
-             } );
+             [autoExp, histogram, previous, adapted]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return autoExp->RecordAverage( context, histogram, previous, adapted ); } );
     }
 
     void SceneRenderer::AddFrameBloom( RDG::Builder& graph, FrameTextures& textures,
