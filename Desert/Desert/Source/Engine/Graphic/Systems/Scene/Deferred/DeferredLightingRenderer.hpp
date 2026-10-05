@@ -27,6 +27,7 @@ namespace Desert::Graphic::System
         RDG::TextureRef                SSAO;            // FrameTransients::SSAO, or System.White (AO = 1)
         RDG::TextureRef                GI;              // RSM-GI accumulation, or System.Black (no indirect)
         std::array<RDG::TextureRef, 4> ShadowMaps;      // cascade i, or System.White past the valid count
+        RDG::TextureRef CloudShadowMap; // FrameTransients::CloudShadowMap, or System.White (no cloud shadow)
     };
 
     // Deferred lighting + G-buffer debug pass. Fullscreen: reads the scene renderer's MRT G-buffer and writes
@@ -110,6 +111,7 @@ namespace Desert::Graphic::System
                                                                  "u_ShadowMap3" };
             for ( size_t i = 0; i < inputs.ShadowMaps.size(); ++i )
                 sampled( kShadowMaps[i], inputs.ShadowMaps[i] );
+            sampled( "u_CloudShadowMap", inputs.CloudShadowMap );
             return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
                                                            m_Material->GetMaterialExecutor() );
         }

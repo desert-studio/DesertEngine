@@ -2674,6 +2674,21 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
     EXPECT_NE( source( "SceneRenderer.cpp" )
                     .find( "ResolveDeclared(textures,shadows,\"Deferred:Composite\",shadowMaps)" ),
                std::string::npos );
+
+    // RDG-TAILS-D2: the map is a graph ref of the frame (imported where its node runs), the composite declares
+    // it and binds it by shader name; its material only uploads CloudShadowUB (a slot filled by both routes is
+    // refused by DrawFullscreen).
+    EXPECT_NE( frame.find( "textures.Transients.CloudShadowMap=textures.Import(clouds->GetShadowMap(),"
+                           "\"Clouds.ShadowMap\")" ),
+               std::string::npos );
+    EXPECT_NE( source( "SceneRendererFrameDeferred.cpp" ).find( "inputs.GI,inputs.CloudShadowMap}" ),
+               std::string::npos );
+    EXPECT_NE( source( "Systems/Scene/Deferred/DeferredLightingRenderer.hpp" )
+                    .find( "sampled(\"u_CloudShadowMap\",inputs.CloudShadowMap)" ),
+               std::string::npos );
+    const std::string deferredMaterial = source( "Materials/Deferred/MaterialDeferredLighting.hpp" );
+    EXPECT_NE( deferredMaterial.find( "CloudShadowUpload(this,cloudShadow)" ), std::string::npos );
+    EXPECT_EQ( deferredMaterial.find( "CloudShadowBind(" ), std::string::npos );
 }
 
 // NO LEGACY CONSTRUCT REMAINS (RDG-LEG1-L5b). Every pass of the frame is a Raster, Compute or Copy node that

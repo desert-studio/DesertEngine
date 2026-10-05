@@ -186,20 +186,14 @@ namespace Desert::Graphic
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
         }
 
-        // Uploads the cloud layer's shadow into CloudShadowUB + binds the map, through the SAME writer
-        // the forward PBR materials and the terrain material use (Graphic::CloudShadowBind). This pass
-        // used to pack the block itself; the packing is now one function beside the block it fills, so
-        // the two render paths cannot be told different things about one map.
+        // Uploads the cloud layer's shadow into CloudShadowUB through the SAME packer the forward PBR
+        // materials and the terrain material use (Graphic::CloudShadowUpload), so the two render paths cannot
+        // be told different things about one map. The map itself (u_CloudShadowMap) is a graph resource the
+        // composite exec binds through RDG::PassBindings (FrameTransients::CloudShadowMap, System.White when
+        // the frame has none), never here.
         void UploadCloudShadow( const CloudShadowInput& cloudShadow )
         {
-            CloudShadowBind( this, cloudShadow );
-            // CloudShadowBind leaves the map unwritten when the layer is off (Params.y tells the shader not to
-            // read it). This pass draws through DrawFullscreen, which refuses an unwritten slot, so it writes
-            // the engine's white texture (full transmittance) for that frame.
-            if ( !cloudShadow.IsLive() )
-                if ( auto* tex = Get<Texture2DProperty>( "u_CloudShadowMap" ) )
-                    tex->SetImage( DefaultTextures::Get().Share( Core::Formats::DefaultTextureKind::White ).get(),
-                                   RDG::Access::SampledGraphics );
+            CloudShadowUpload( this, cloudShadow );
         }
 
         MPROPERTY( glm::vec4, LightDir,   "u_LightDir",   ( glm::vec4( 0.0f, -1.0f, 0.0f, 0.0f ) ) )

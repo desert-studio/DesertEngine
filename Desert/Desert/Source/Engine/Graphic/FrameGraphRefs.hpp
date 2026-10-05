@@ -30,6 +30,9 @@ namespace Desert::Graphic
         // the ping-pong is the renderer's own); invalid when the frame has none   -> CloudComposite
         RDG::TextureRef CloudScatter;
         RDG::TextureRef CloudGuide;
+        // The cloud layer's shadow map (VolumetricCloudRenderer::GetShadowMap, imported: the renderer owns it),
+        // set once its shadow node was accepted; invalid when the frame has none   -> Deferred: Composite
+        RDG::TextureRef CloudShadowMap;
     };
 
     // RDG-A2 (owner decision 2, 2026-10-05). What EVERY node of the frame graph is handed, whatever registered

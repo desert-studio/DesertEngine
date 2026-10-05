@@ -307,9 +307,12 @@ namespace Desert::Graphic
                  map ? textures.Import( map, std::format( "CSM.Cascade{}", c ) ) : RDG::TextureRef{};
             inputs.ShadowMaps[c] = ref.IsValid() ? ref : refs.System.White;
         }
-        std::vector<RDG::TextureRef> reads = shadowReads; // + the cloud shadow map (material route)
-        for ( const RDG::TextureRef ref : { inputs.GBufferA, inputs.GBufferB, inputs.GBufferC,
-                                            inputs.GBufferEmissive, inputs.SSAO, inputs.GI } )
+        inputs.CloudShadowMap =
+             refs.Transients.CloudShadowMap.IsValid() ? refs.Transients.CloudShadowMap : refs.System.White;
+        std::vector<RDG::TextureRef> reads = shadowReads;
+        for ( const RDG::TextureRef ref :
+              { inputs.GBufferA, inputs.GBufferB, inputs.GBufferC, inputs.GBufferEmissive, inputs.SSAO, inputs.GI,
+                inputs.CloudShadowMap } )
             reads.push_back( ref );
         reads.insert( reads.end(), inputs.ShadowMaps.begin(), inputs.ShadowMaps.end() );
         std::vector<RDG::TextureRef> declared; // one declaration per texture (System.White can fill several slots)
