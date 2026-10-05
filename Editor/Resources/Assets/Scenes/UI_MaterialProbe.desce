@@ -6,7 +6,7 @@
             "SCNE": 43,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["53e7930a82e65578715e5c2659a4ae9f", "df51ca6ed9cb71779a9b5634db0863bc"]
     },
     "SceneName": "UI_MaterialProbe",
     "Entities": [

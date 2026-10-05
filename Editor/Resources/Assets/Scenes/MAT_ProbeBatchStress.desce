@@ -6,7 +6,7 @@
             "SCNE": 43,
             "UNIT": 1
         },
-        "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "91bde2ac45c15dd230d961a447b6fba7"]
+        "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "8d8f039e11a60108670d6a4ae05f9629", "91bde2ac45c15dd230d961a447b6fba7"]
     },
     "SceneName": "Batch Stress (1024 cubes, one material)",
     "Entities": [

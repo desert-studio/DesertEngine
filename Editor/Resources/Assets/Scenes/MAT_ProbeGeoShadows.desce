@@ -6,7 +6,7 @@
             "SCNE": 43,
             "UNIT": 1
         },
-        "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "45d579b03cc0d0a8df2e4cb025d6bea5", "5fd4737b3cc218b5bc0ecceccd3664ca", "f4263dfdcb77af201c6050be35f5394f"]
+        "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "3117919ba155db5f98b358e6f77e48d8", "45d579b03cc0d0a8df2e4cb025d6bea5", "5fd4737b3cc218b5bc0ecceccd3664ca", "f4263dfdcb77af201c6050be35f5394f"]
     },
     "SceneName": "Shader Graph Geometry Shadow Probe",
     "Entities": [
