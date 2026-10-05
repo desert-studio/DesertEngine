@@ -1592,4 +1592,16 @@ TEST( ConfigOwnership, ResolvingAntiAliasingIsPureAndCommittingMsaaLogsOnce )
     const std::string renderer =
          Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadAll( RepoRoot() + kSceneRendererImpl ) );
     EXPECT_EQ( renderer.find( "MSAAUnavailableOnPath" ), std::string::npos );
+
+    // The panel and the palette APPLY a change only through CommitAntiAliasing: neither writes the pair itself.
+    for ( const char* writer : { "Editor/Source/Editor/Panels/Scalability/ScalabilityPanel.cpp",
+                                 "Editor/Source/Editor/Panels/Scalability/AntiAliasingPaletteCommands.hpp" } )
+    {
+        SCOPED_TRACE( writer );
+        const std::string text =
+             Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadAll( RepoRoot() + writer ) );
+        ASSERT_FALSE( text.empty() );
+        EXPECT_NE( text.find( "CommitAntiAliasing(" ), std::string::npos );
+        EXPECT_FALSE( std::regex_search( text, std::regex( R"((AAMethod|MSAASamples)\s*=[^=])" ) ) );
+    }
 }
