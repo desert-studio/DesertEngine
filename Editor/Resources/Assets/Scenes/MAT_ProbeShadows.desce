@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "4338afd53eedf5cbc3b609890beffedc",
         "Versions": {
-            "SCNE": 42,
+            "SCNE": 43,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "6969dc1f8d457806e5cf208867250443", "df51ca6ed9cb71779a9b5634db0863bc"]
     },
     "SceneName": "Shader Graph Shadow Probe",
     "Entities": [

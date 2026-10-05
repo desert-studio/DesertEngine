@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "1eb1324b5419511d0f1637213db41ffe",
         "Versions": {
-            "SCNE": 42,
+            "SCNE": 43,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["e0ee3c11f6a10cf2edd3474d72613488"]
     },
     "SceneName": "SKY HDR Orientation",
     "Entities": [

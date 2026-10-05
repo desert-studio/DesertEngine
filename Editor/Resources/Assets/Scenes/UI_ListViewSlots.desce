@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "b72387f29f8e894416d4511b36ebb337",
         "Versions": {
-            "SCNE": 42,
+            "SCNE": 43,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["2025ba58183936d3ece25958990b0cca"]
     },
     "SceneName": "UI_ListViewSlots",
     "Entities": [

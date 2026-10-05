@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "cd822c9ad383d61a0d026032121a2525",
         "Versions": {
-            "SCNE": 42,
+            "SCNE": 43,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["45d579b03cc0d0a8df2e4cb025d6bea5"]
     },
     "SceneName": "PR_Hero0",
     "Entities": [

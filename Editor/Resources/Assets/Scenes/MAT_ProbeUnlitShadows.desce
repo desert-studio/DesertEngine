@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "6c3811d1b67d0cd37685fdcb4dd5b97e",
         "Versions": {
-            "SCNE": 42,
+            "SCNE": 43,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "58b25001fd9a29362681f26b0c4ebf67", "df51ca6ed9cb71779a9b5634db0863bc"]
     },
     "SceneName": "Handwritten Unlit Shadow Probe",
     "Entities": [

@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "da7d650c52f75b7db1b277cb6d1b723c",
         "Versions": {
-            "SCNE": 42,
+            "SCNE": 43,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["40e8fc4221d33289cca9e025f87dab0a"]
     },
     "SceneName": "Normal Map Witness (deferred)",
     "Entities": [

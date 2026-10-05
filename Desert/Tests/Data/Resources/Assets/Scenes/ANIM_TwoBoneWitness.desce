@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "9cb37b611894338c89e1778b0b485fe1",
         "Versions": {
-            "SCNE": 42,
+            "SCNE": 43,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["047623816f024edf9fd7a557f6501f7e", "443da08f9e394860b5c2bd3bb619e9cd", "d4fbdf9b566d4035ab03ab0f9a35330e", "e06572ed86a043209146d11062e05b5c"]
     },
     "SceneName": "Animation Two-Bone Witness",
     "Entities": [

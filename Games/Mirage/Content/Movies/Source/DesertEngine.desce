@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "4465736572744d6f76696500e1d0a301",
         "Versions": {
-            "SCNE": 42,
+            "SCNE": 43,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["4465736572744372657374000000a001", "446573657274466164654f7574000003", "44657365727457726f72646d61726b02"]
     },
     "SceneName": "DesertEngine",
     "Entities": [

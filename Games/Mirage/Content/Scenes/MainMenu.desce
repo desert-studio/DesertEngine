@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "4d6972616765b5d1a0c31f0e2b7a9e11",
         "Versions": {
-            "SCNE": 42,
+            "SCNE": 43,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["4774188636615749999"]
     },
     "SceneName": "MainMenu",
     "Entities": [

@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "cc502b887e2379e9375a4adfdd6c90ba",
         "Versions": {
-            "SCNE": 42,
+            "SCNE": 43,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["b33524f57b8f411039fb457c1c34be51"]
     },
     "SceneName": "Sky_PhysicalShowcase",
     "Entities": [

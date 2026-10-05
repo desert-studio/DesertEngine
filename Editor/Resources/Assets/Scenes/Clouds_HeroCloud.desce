@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "60bddb8ae3a4384740e3694b14e6b520",
         "Versions": {
-            "SCNE": 42,
+            "SCNE": 43,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["45d579b03cc0d0a8df2e4cb025d6bea5"]
     },
     "SceneName": "Clouds_HeroCloud",
     "Entities": [

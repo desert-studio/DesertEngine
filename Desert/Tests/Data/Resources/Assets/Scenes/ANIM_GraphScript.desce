@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "a8b98e82066b336a19f729bde6b25331",
         "Versions": {
-            "SCNE": 42,
+            "SCNE": 43,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["443da08f9e394860b5c2bd3bb619e9cd", "d4fbdf9b566d4035ab03ab0f9a35330e", "e06572ed86a043209146d11062e05b5c"]
     },
     "SceneName": "Animation Graph Script Witness",
     "Entities": [

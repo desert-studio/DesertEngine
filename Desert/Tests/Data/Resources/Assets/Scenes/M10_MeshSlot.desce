@@ -3,10 +3,10 @@
         "Kind": "Scene",
         "Guid": "a04bf3ba2301b7795ecd486ea5a5af32",
         "Versions": {
-            "SCNE": 42,
+            "SCNE": 43,
             "UNIT": 1
         },
-        "Dependencies": []
+        "Dependencies": ["8ff4ce2763991807a6b9f5e10aa8859c"]
     },
     "SceneName": "M10_MeshSlot",
     "Entities": [
