@@ -73,7 +73,7 @@ namespace Desert::UI
         std::uint32_t Index       = 0;
         BatchBreak    Break       = BatchBreak::None;
         const void*   Texture     = nullptr; // opaque Image2D id; null = the backend's 1x1 white
-        const void*   Material    = nullptr; // opaque UIMaterialCache::Entry id; null = not a material fill
+        std::uint64_t Material    = 0;       // the `.demat`'s asset handle (raw); 0 = not a material fill
         bool          Text        = false;
         bool          Glass       = false;
         glm::vec4     ClipRect    = { 0.0f, 0.0f, 0.0f, 0.0f };

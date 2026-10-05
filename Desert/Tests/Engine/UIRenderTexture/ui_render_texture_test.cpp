@@ -8,7 +8,7 @@
 //      does not exist, no backend wired at all — makes the element draw the MAGENTA error fill. The easy
 //      and wrong implementation is `if ( world ) AddImage( ... );`, which compiles, ships, and turns a
 //      six-slot shortage into a rect that looks exactly like a rect nobody finished authoring. §1.4
-//      forbids it and IUIMaterialSource says so in prose; here it is as an assertion.
+//      forbids it; here it is as an assertion.
 //
 //   2. ASKING IS THE DEMAND, AND NOT ASKING IS THE RELEASE. A renderer slot comes back by DESTROYING the
 //      capture that holds it and by nothing else, so the backend has to learn that an element left the

@@ -719,12 +719,12 @@ TEST( UIIntrospectionBatches, AMaterialBreakIsNamedAsAMaterialAndCountedAsAPipel
 {
     // Recorded directly rather than through a canvas walk: this is about the CLASSIFIER agreeing with
     // the draw list, and a walk would only add a way for the test to be about something else.
-    static const char kMatA = 0, kMatB = 0;
+    constexpr std::uint64_t kMatA = 0xA11CEull, kMatB = 0xB0Bull;
 
     Desert::Graphic::Render2D::DrawList2D dl;
     dl.AddRectFilled( { 0.0f, 0.0f }, { 10.0f, 10.0f }, { 1.0f, 1.0f, 1.0f, 1.0f } );
-    dl.AddMaterialRect( &kMatA, { 20.0f, 0.0f }, { 30.0f, 10.0f }, { 1.0f, 1.0f, 1.0f, 1.0f } );
-    dl.AddMaterialRect( &kMatB, { 40.0f, 0.0f }, { 50.0f, 10.0f }, { 1.0f, 1.0f, 1.0f, 1.0f } );
+    dl.AddMaterialRect( kMatA, { 20.0f, 0.0f }, { 30.0f, 10.0f }, { 1.0f, 1.0f, 1.0f, 1.0f } );
+    dl.AddMaterialRect( kMatB, { 40.0f, 0.0f }, { 50.0f, 10.0f }, { 1.0f, 1.0f, 1.0f, 1.0f } );
 
     UI::UIFrameProbe probe;
     UI::CaptureDrawList( dl, probe );
@@ -733,8 +733,8 @@ TEST( UIIntrospectionBatches, AMaterialBreakIsNamedAsAMaterialAndCountedAsAPipel
     EXPECT_EQ( probe.Batches[0].Break, BatchBreak::First );
     EXPECT_EQ( probe.Batches[1].Break, BatchBreak::Material );
     EXPECT_EQ( probe.Batches[2].Break, BatchBreak::Material );
-    EXPECT_EQ( probe.Batches[1].Material, &kMatA );
-    EXPECT_EQ( probe.Batches[2].Material, &kMatB );
+    EXPECT_EQ( probe.Batches[1].Material, kMatA );
+    EXPECT_EQ( probe.Batches[2].Material, kMatB );
 
     // Two distinct materials are two distinct PIPELINES, which is the cost that separates a material
     // change from a texture change: a texture is a descriptor bind, a material is a pipeline bind too.
@@ -756,7 +756,7 @@ TEST( UIIntrospectionBatches, ACanvasWithNoMaterialReportsNoneOfIt )
     UI::CaptureDrawList( dl, probe );
 
     ASSERT_EQ( probe.Batches.size(), 1u );
-    EXPECT_EQ( probe.Batches[0].Material, nullptr );
+    EXPECT_EQ( probe.Batches[0].Material, 0u );
     EXPECT_EQ( probe.Stats.UniqueMaterials, 0u );
     EXPECT_EQ( probe.Stats.PipelineSwitches, 0u );
 }

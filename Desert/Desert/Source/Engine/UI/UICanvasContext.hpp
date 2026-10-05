@@ -6,7 +6,6 @@
 #include <Engine/UI/UIAnimationPlayback.hpp>
 #include <Engine/UI/UIDataStore.hpp>
 #include <Engine/UI/UILayout.hpp>
-#include <Engine/UI/UIMaterialSource.hpp>
 #include <Engine/UI/UIRenderTextureSource.hpp>
 
 #include <entt/entt.hpp>
@@ -264,7 +263,7 @@ namespace Desert::UI
     // What is here rather than in the cell is what there is exactly ONE of per view no matter how many
     // canvases it draws: the pointer (one cursor elects one hot element across every canvas, which is what
     // makes an overlay canvas take the click away from the HUD under it), the drag it may be carrying, the
-    // view's clock, and the Render2D backend its materials belong to.
+    // view's clock, and the render-texture source its worlds come from.
     class UIViewContext
     {
     public:
@@ -395,22 +394,6 @@ namespace Desert::UI
         // every control. Saved and restored by the recursion, so it enters and leaves each walk at 1.
         glm::vec4 Tint{ 1.0f };
 
-        // --- UI materials (Ю11) -------------------------------------------------------------------------
-        // Where this view's UI materials come from — the Render2D backend that will draw the list. It is
-        // a VIEW's and not the process's because a UI material owns a pipeline, a pipeline is compiled
-        // against ONE framebuffer's render pass, and two viewports have two targets. A source reached
-        // through a global would hand the second viewport pipelines built against the first one's pass.
-        // See UIMaterialSource.hpp for why it is an interface.
-        //
-        // Null means this walk has no GPU backend behind it — a unit test, or a host that forgot to wire
-        // one. It is NOT a quiet "no materials today": an element whose slot is set draws its ordinary
-        // fill and the view says so ONCE, naming the element, because a panel that silently loses its
-        // material looks exactly like a panel nobody put a material on.
-        IUIMaterialSource* Materials = nullptr;
-
-        // The material handle this view last drew without a backend, so that report happens once.
-        Assets::AssetHandle WarnedMaterial;
-
         // --- UI render textures (Ю16) ------------------------------------------------------------------
         // Where this view's render-texture elements get their worlds from. A VIEW's and not the
         // process's for a reason one step stronger than the material cache's: the backend behind this
@@ -496,7 +479,6 @@ namespace Desert::UI
             Drag        = UIDragState{};
             Focusables.clear();
             Tint           = glm::vec4( 1.0f );
-            WarnedMaterial = Assets::AssetHandle{};
             ViewportPx     = Rect{};
             OverlayStack.clear();
             OverlayTooltip         = entt::null;

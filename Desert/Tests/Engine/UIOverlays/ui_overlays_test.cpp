@@ -26,7 +26,6 @@
 #include <Engine/UI/UICanvasContext.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
-#include <Engine/UI/UIMaterialSource.hpp>
 #include <Engine/UI/UIOverlay.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
@@ -229,9 +228,13 @@ namespace
 
         // ONE FRAME of @p view over every canvas in authored order — what a host does. Returns every
         // message the frame fired, in order.
+        // The list the last Frame recorded, kept for assertions about what reached the batcher.
+        R2D::DrawList2D LastList;
+
         std::vector<std::string> Frame( UIViewContext& view, const UIInput& input )
         {
-            R2D::DrawList2D          dl;
+            LastList.Reset();
+            R2D::DrawList2D&         dl = LastList;
             std::vector<std::string> out;
             std::string              clicked;
             DUI::BeginUIFrame( view, Registry, kViewport );
@@ -838,22 +841,8 @@ TEST( OverlayAuthoring, ADesignViewShowsEveryOverlayWhereItWasAuthored )
 
 // Ю11 put materials on UI elements. An overlay's chrome is ORDINARY UI, so it gets them for nothing —
 // and "for nothing" is a claim about the code having no second path, which is a thing to assert rather
-// than to state. The walk resolves a material from the element's own slot through the view's backend
-// (UICanvasRenderer2D::ResolveUIMaterial) and nothing on that path asks which canvas the element is in.
-namespace
-{
-    class RecordingMaterials final : public DUI::IUIMaterialSource
-    {
-    public:
-        const void* ResolveMaterial( const Desert::Assets::AssetHandle& handle ) override
-        {
-            Asked.push_back( static_cast<std::uint64_t>( handle ) );
-            return &Asked; // any non-null id; the batcher only stores it
-        }
-        std::vector<std::uint64_t> Asked;
-    };
-} // namespace
-
+// than to state. The walk records the element's own material HANDLE into the draw list (the drawing
+// Render2D resolves it in its own cache) and nothing on that path asks which canvas the element is in.
 TEST( OverlayAuthoring, AnElementInsideAnOverlayGetsItsMaterialLikeAnyOtherElement )
 {
     World              w;
@@ -861,15 +850,17 @@ TEST( OverlayAuthoring, AnElementInsideAnOverlayGetsItsMaterialLikeAnyOtherEleme
     const entt::entity item = w.Registry.get<ECS::RelationshipComponent>( menu ).Children.front();
     w.Registry.get<ECS::UIPanelComponent>( item ).Data.Material = Desert::Assets::AssetHandle( 0xC0FFEEull );
 
-    RecordingMaterials materials;
-    UIViewContext      view;
-    view.Materials        = &materials;
+    UIViewContext view;
     view.AuthoringPreview = true; // shown as authored, which is what an author sees while building it
     w.Frame( view, At( 900.0f, 900.0f ) );
 
-    ASSERT_EQ( materials.Asked.size(), 1u )
+    std::vector<std::uint64_t> recorded;
+    for ( const auto& cmd : w.LastList.GetCommands() )
+        if ( cmd.Material != 0 )
+            recorded.push_back( cmd.Material );
+    ASSERT_EQ( recorded.size(), 1u )
          << "the overlay's own panel never reached the material path, so an overlay is NOT ordinary UI";
-    EXPECT_EQ( materials.Asked.front(), 0xC0FFEEull );
+    EXPECT_EQ( recorded.front(), 0xC0FFEEull );
 }
 
 int main( int argc, char** argv )

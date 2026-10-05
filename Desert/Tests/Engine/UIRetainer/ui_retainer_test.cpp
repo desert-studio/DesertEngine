@@ -129,6 +129,33 @@ TEST( UIRetainer, TheCompositeCoversTheLayerPlusTheHazeAndIsItsOwnCommand )
     EXPECT_TRUE( root.GetMaskLayers().empty() );
 }
 
+// VIDEO-STUDIO-e: a UI-material fill inside a Retainer Box drew NOTHING, because the command carried a
+// UIMaterialCache::Entry of the MAIN Render2D (its pipeline compiled for the main target's render pass)
+// and the layer's own Render2D drew with it into the 512x512 layer target. The command now carries the
+// material's HANDLE, which every Render2D resolves in its own cache against its own target. Pinned here
+// at the seam the bug lived in: what the LAYER's list hands its renderer is the asset handle, unchanged,
+// and the composite in the root list carries no material of its own.
+TEST( UIRetainer, AMaterialFillInsideALayerCarriesItsHandleForTheLayersOwnRenderer )
+{
+    constexpr uint64_t kSunGlow = 0x5017A1ull;
+
+    DrawList2D  root;
+    uint32_t    layerIndex = 0;
+    DrawList2D& layer      = root.BeginRetainedLayer( &layerIndex );
+    layer.AddMaterialRect( kSunGlow, { 244.0f, 121.0f }, { 756.0f, 633.0f }, { 1.0f, 1.0f, 1.0f, 1.0f } );
+    ASSERT_TRUE( root.AddRetainedComposite( layerIndex, -1, RetainerEffect{}, glm::vec4( 1.0f ) ) );
+
+    ASSERT_EQ( root.GetLayers().size(), 1u );
+    const auto& layerCmds = root.GetLayers()[layerIndex]->GetCommands();
+    ASSERT_EQ( layerCmds.size(), 1u );
+    EXPECT_EQ( layerCmds[0].Material, kSunGlow )
+         << "the layer must carry the material's handle, resolved by the layer's own Render2D";
+    EXPECT_EQ( layerCmds[0].IndexCount, 6u );
+
+    for ( const auto& cmd : root.GetCommands() )
+        EXPECT_EQ( cmd.Material, 0u ) << "the composite quad is the layer's picture, not a material fill";
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

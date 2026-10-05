@@ -565,34 +565,6 @@ namespace Desert::UI
             return static_cast<Graphic::Image2D*>( imgService->Resolve( tex->GetImageHandle() ) );
         }
 
-        // Resolve an element's UI-material slot to the entry Render2D will draw it with, or nullptr when
-        // the slot is unset.
-        //
-        // THE ONE CASE THAT IS NOT AN ERROR AND IS STILL REPORTED: a walk with no GPU backend behind it
-        // (`ctx.View.Materials == nullptr`) — a unit test, or a host that never wired one. The element then
-        // draws its ordinary fill, which is a FALLBACK, so it is named. Reported once per view because a
-        // per-frame line buries the log and gets the whole message ignored; the picture is what keeps
-        // saying it, every frame.
-        const void* ResolveUIMaterial( WalkCtx& ctx, entt::entity e, const Assets::AssetHandle& handle )
-        {
-            if ( !HandleSet( handle ) )
-                return nullptr;
-
-            if ( !ctx.View.Materials )
-            {
-                if ( ctx.View.WarnedMaterial != handle )
-                {
-                    ctx.View.WarnedMaterial = handle;
-                    LOG_WARN( "[UI] element {} has material {} but this view has no 2D backend, so it "
-                              "draws its plain fill instead",
-                              static_cast<uint32_t>( e ), static_cast<uint64_t>( handle ) );
-                }
-                return nullptr;
-            }
-
-            return ctx.View.Materials->ResolveMaterial( handle );
-        }
-
         // The offscreen world a render-texture element shows this frame, or nullptr when there is none.
         //
         // THE SIZE IS COMPUTED HERE AND NOWHERE ELSE. `rect` is the element in canvas pixels — anchors,
@@ -1720,11 +1692,13 @@ namespace Desert::UI
                     // A UI-domain material IS the fill and is asked first, ahead of glass, video, the
                     // gradient and the sprite: those are the fixed list this replaces, and letting one of
                     // them win would make the material's presence depend on which other field happened to
-                    // be set. Resolve() never answers null for a set handle — a slot the UI path cannot
-                    // execute comes back as the magenta error entry, named once in the log.
-                    const auto* uiMaterial = ResolveUIMaterial( ctx, e, p.Material );
-                    if ( uiMaterial )
-                        dl.AddMaterialRect( uiMaterial, mn, mx, Tinted( ctx, glm::vec4( panelColor, op ) ) );
+                    // be set. The walk records the HANDLE; the Render2D that draws the list resolves it in its
+                    // own cache, against its own target (a Retainer Box layer is a different target), and a
+                    // slot the UI path cannot execute comes back there as the magenta error entry, named
+                    // once in the log.
+                    if ( HandleSet( p.Material ) )
+                        dl.AddMaterialRect( static_cast<uint64_t>( p.Material ), mn, mx,
+                                            Tinted( ctx, glm::vec4( panelColor, op ) ) );
                     else if ( p.BackdropBlur > 0.0f && !video && !HandleSet( p.Sprite ) )
                         dl.AddGlassRect( mn, mx, Tinted( ctx, glm::vec4( panelColor, op ) ), rounding,
                                          p.BackdropBlur );
@@ -2023,7 +1997,7 @@ namespace Desert::UI
                         }
                         else
                         {
-                            // MAGENTA, NOT NOTHING, and it is the same rule IUIMaterialSource states: an
+                            // MAGENTA, NOT NOTHING, and it is the same rule UIMaterialCache::Resolve keeps: an
                             // element that renders nothing is indistinguishable from an element that was
                             // meant to render nothing. The reason is already in the log with its numbers
                             // — who refused knows why, this site only knows that somebody did.

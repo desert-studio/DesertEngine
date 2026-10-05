@@ -126,12 +126,7 @@ namespace Desert::Editor::Render
             // scene document, so two viewports still do not walk into each other's hover clocks, hot element
             // or screen stacks.
             //
-            // This view's UI materials. Set here, beside the walk, because the cache belongs to the backend
-            // that will draw the list and a view must never be handed another view's pipelines — see
-            // UIViewContext::Materials.
-            m_UIView.Materials = &m_Render2D.Materials();
-
-            // And the worlds. Same rule and a stronger one: this source owns renderer SLOTS, and it
+            // This view's render-texture worlds. This source owns renderer SLOTS, and it
             // learns which of its captures are still wanted from the walks below — so it must be THIS
             // view's, never shared with another (UIViewContext::RenderTextures).
             m_UIView.RenderTextures = &m_RenderTextures;

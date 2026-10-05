@@ -756,22 +756,6 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Render2D/DrawList2D.hpp",
           "DrawCommand", "Texture", Guard::IdentityOnly,
           "a batch discriminator: consecutive primitives with the same value extend one draw. It is also the key of Render2D's executor caches, and THAT use is what makes address recycling matter -- see the Render2D rows" },
-        { "Desert/Desert/Source/Engine/Graphic/Render2D/DrawList2D.hpp",
-          "DrawCommand", "Material", Guard::FrameScoped,
-          "the UI material this batch is filled with, as a UIMaterialCache::Entry address. Unlike the "
-          "Texture row beside it this IS dereferenced -- Render2D::Flush reads the entry's pipeline and "
-          "its runtime material -- so identity alone would not close Q2. The frame does: the entry is "
-          "owned by the UIMaterialCache inside the Render2D that will Flush this very list, the walk that "
-          "recorded the command stamped the entry with the current frame through Resolve(), and "
-          "RetireUnused() (which runs AFTER the last draw of the same Flush) refuses to erase an entry "
-          "any frame in flight could still be reading -- the identical rule, and the identical window, as "
-          "Render2D's executor caches" },
-        { "Desert/Desert/Source/Engine/UI/UIIntrospection.hpp",
-          "UIBatchInfo", "Material", Guard::IdentityOnly,
-          "a COPY of DrawCommand::Material taken for display, on exactly the terms of the Texture copy "
-          "below it: the panel prints it as an address so an author can tell two material batches apart, "
-          "nothing dereferences it, and UIFrameProbe::Reset drops the whole list at the start of every "
-          "capture so the value never outlives the frame it came from" },
         // FOUND BY Ю13 AND NOT BY Ю13'S CODE. This member is a raw pointer and has been one all along;
         // the scan called it a `shared_ptr` because `Assets::Asset` is an alias for one and the alias was
         // matched against the whole declaration, MEMBER NAME INCLUDED — so a member literally named
@@ -820,14 +804,6 @@ namespace Desert::Tests::PointerCensus
           "EnumScope", "Row", Guard::CallScoped,
           "UIL1: the record answering a bound list row's bindings during one EnumerateCanvas recursion; the "
           "scope is a stack value of that recursion and the collection is not mutated while a query runs" },
-        { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
-          "UIViewContext", "Materials", Guard::ObservedContainsUs,
-          "where this view's UI materials come from, as an IUIMaterialSource. The one implementation is "
-          "the UIMaterialCache that is a MEMBER of the Render2D backend the view's host owns alongside "
-          "the context and hands to every RenderCanvas2D call it makes; the backend cannot be destroyed "
-          "while the host that owns both is still walking. Null is a legal value and means the walk has "
-          "no GPU backend at all (a unit test), which the walk REPORTS rather than treating as 'no "
-          "materials today'" },
         { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
           "UIViewContext", "RenderTextures", Guard::ObservedContainsUs,
           "where this view's render-texture elements get their worlds from, as an IUIRenderTextureSource. "

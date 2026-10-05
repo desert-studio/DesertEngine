@@ -42,22 +42,28 @@ namespace Desert::Graphic::Render2D
         uint32_t    IndexCount  = 0;                          // number of indices in this batch
         bool        Text        = false;                      // true => SDF glyph atlas (text pipeline), else UI2D
 
-        // MATERIAL (Ю11): an opaque id for the UI-domain material this batch's fill is drawn with
-        // (Graphic::UIMaterial*), null for every batch that is not one. The backend resolves it to a
-        // pipeline of that material's own shader plus the material's row of `Materials[]`.
+        // MATERIAL (Ю11): the asset handle (raw 64-bit value) of the UI-domain `.demat` this batch's fill
+        // is drawn with, 0 for every batch that is not one.
+        //
+        // A DESCRIPTOR, NOT A RESOLVED PIPELINE. The Render2D that draws the list resolves it in ITS OWN
+        // UIMaterialCache, whose pipelines are compiled against THAT renderer's target. The id used to be a
+        // resolved UIMaterialCache::Entry of the view's main Render2D, so a material fill inside a Retainer
+        // Box layer was drawn by the layer's Render2D with a pipeline built for the main target's render
+        // pass and drew nothing. UE has the same split: FSlateDrawElement carries the material RESOURCE and
+        // the rendering policy picks the shader/pipeline for the target it renders into. A raw uint64 and
+        // not Assets::AssetHandle because this list is pure: eleven suites compile it with no Common
+        // library linked, and AssetHandle is implicitly interconvertible with its raw value by design.
         //
         // IT IS A SECOND RESOURCE AND NOT A WIDENING OF `Texture`, deliberately. Slate puts its material
         // in the texture slot because an FSlateMaterialResource IS an FSlateShaderResource, and that is
         // the right call for Slate — but here `Texture` is read by UIIntrospection as "distinct
         // descriptor sets bound this frame" and by the UI Debugger as a texture column, and a material
-        // arriving under that name would make both of them quietly wrong. Two pointers cost one extra
-        // compare in the merge test below and keep every reader honest.
+        // arriving under that name would make both of them quietly wrong.
         //
-        // The batch consequence is the same either way, and it is the good one: a material breaks a run
-        // exactly like a different texture does, and an element with NO material adds nothing to the key
-        // — measured on UI_ElementProbe, where 5 of 6 breaks are text/solid alternation and 0 are
-        // resources.
-        const void* Material = nullptr;
+        // The batch consequence: a material breaks a run exactly like a different texture does, and an
+        // element with NO material adds nothing to the key — measured on UI_ElementProbe, where 5 of 6
+        // breaks are text/solid alternation and 0 are resources.
+        uint64_t Material = 0;
 
         // GLASS (backdrop blur): this batch samples the blurred scene snapshot instead of a texture, and
         // masks itself with a rounded rectangle. Every glass rect carries its own rect/radius/blur in push
@@ -192,8 +198,9 @@ namespace Desert::Graphic::Render2D
         void AddImage( const void* texture, const glm::vec2& min, const glm::vec2& max, const glm::vec2& uv0,
                        const glm::vec2& uv1, const glm::vec4& tint );
 
-        // Quad filled by a UI-DOMAIN MATERIAL (Ю11). `material` is an opaque id the backend resolves to
-        // that material's pipeline and parameter row; `tint` travels as the vertex colour, so a material
+        // Quad filled by a UI-DOMAIN MATERIAL (Ю11). `material` is the `.demat`'s asset handle (raw value);
+        // the Render2D that draws this list resolves it to that material's pipeline (for ITS target) and
+        // parameter row; `tint` travels as the vertex colour, so a material
         // that multiplies by `v_Color` honours the element's authored Color/Opacity for free and one that
         // ignores it is free to.
         //
@@ -205,7 +212,7 @@ namespace Desert::Graphic::Render2D
         //
         // Same-material quads batch together; a different material opens a new command, and a material
         // quad never merges with a plain one.
-        void AddMaterialRect( const void* material, const glm::vec2& min, const glm::vec2& max,
+        void AddMaterialRect( uint64_t material, const glm::vec2& min, const glm::vec2& max,
                               const glm::vec4& tint );
 
         // Textured quad sampled as an SDF glyph (the backend routes these to the text pipeline). Same args as
@@ -263,12 +270,12 @@ namespace Desert::Graphic::Render2D
 
         // Returns a command matching the given state (texture + text mode + material), extending the last
         // one when possible or opening a new one anchored at the current end of the index buffer.
-        DrawCommand& CurrentCommand( const void* texture, bool text, const void* material = nullptr );
+        DrawCommand& CurrentCommand( const void* texture, bool text, uint64_t material = 0 );
 
         // Append one textured/tinted quad (the shared path behind AddRectFilled / AddImage / AddText /
         // AddMaterialRect).
         void AddQuad( const void* texture, const glm::vec2& min, const glm::vec2& max, const glm::vec2& uv0,
-                      const glm::vec2& uv1, const glm::vec4& color, bool text, const void* material = nullptr );
+                      const glm::vec2& uv1, const glm::vec4& color, bool text, uint64_t material = 0 );
 
         // --- The three shapes every primitive here is made of, and the only places geometry is appended ---
         // Each has an EXACT unclipped path — the vertices are stored as given and indexed exactly as they

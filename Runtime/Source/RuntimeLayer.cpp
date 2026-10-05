@@ -1071,7 +1071,6 @@ namespace Desert::Player
                     // canvas only; Ю4 keys that state by (canvas x view), so a HUD and a pause menu are simply
                     // two canvases and both are drawn. A level with none draws nothing and says nothing — a
                     // game without UI is legitimate, and it was only ever a refusal because of the limit.
-                    m_UIView.Materials      = &m_Render2D->Materials();
                     m_UIView.RenderTextures = m_UIRenderTextures.get();
                     UI::BeginUIFrame( m_UIView, m_Scene->GetRegistry(), UI::Rect{ 0.0f, 0.0f, w, h } );
                     for ( const entt::entity canvas : UI::CanvasesInDrawOrder( m_Scene->GetRegistry() ) )

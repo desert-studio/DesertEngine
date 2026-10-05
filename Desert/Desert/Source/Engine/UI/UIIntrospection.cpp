@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstring>
 #include <unordered_set>
+#include <utility>
 
 namespace Desert::UI
 {
@@ -67,21 +68,18 @@ namespace Desert::UI
 
     namespace
     {
-        // Which of the three pipelines Render2D::Flush binds for a command. Glass wins over Text because
-        // that is the order Flush tests them in.
-        // WHICH PIPELINE a command binds, as an identity rather than as a small integer. It used to be
-        // 0/1/2 for UI2D/UIText/UIGlass, which was exact while those were the only three; a UI material
-        // brings a pipeline of ITS OWN, one per material, so two adjacent material batches are two
-        // pipeline binds and a fixed enumeration cannot say so. The three built-ins keep distinct
-        // addresses of their own so the comparison stays one comparison.
-        const void* PipelineOf( const Graphic::Render2D::DrawCommand& cmd )
+        // WHICH PIPELINE a command binds, as (kind, material handle) rather than as a small integer. It
+        // used to be 0/1/2 for UI2D/UIText/UIGlass, which was exact while those were the only three; a UI
+        // material brings a pipeline of ITS OWN, one per material, so two adjacent material batches are
+        // two pipeline binds and a fixed enumeration cannot say so. Glass wins over Text because that is the
+        // order Flush tests them in.
+        std::pair<int, std::uint64_t> PipelineOf( const Graphic::Render2D::DrawCommand& cmd )
         {
-            static const char kSolid = 0, kText = 0, kGlass = 0;
             if ( cmd.Glass )
-                return &kGlass;
+                return { 2, 0 };
             if ( cmd.Material )
-                return cmd.Material;
-            return cmd.Text ? static_cast<const void*>( &kText ) : static_cast<const void*>( &kSolid );
+                return { 3, cmd.Material };
+            return { cmd.Text ? 1 : 0, 0 };
         }
     } // namespace
 
@@ -95,8 +93,8 @@ namespace Desert::UI
         out.Stats.Batches   = static_cast<std::uint32_t>( commands.size() );
 
         std::unordered_set<const void*> textures;
-        std::unordered_set<const void*> materials;
-        const void*                     lastPipeline = nullptr;
+        std::unordered_set<std::uint64_t> materials;
+        std::pair<int, std::uint64_t>     lastPipeline = { -1, 0 };
 
         out.Batches.reserve( commands.size() );
         for ( std::size_t i = 0; i < commands.size(); ++i )
@@ -128,13 +126,13 @@ namespace Desert::UI
 
             if ( cmd.Texture != nullptr )
                 textures.insert( cmd.Texture );
-            if ( cmd.Material != nullptr )
+            if ( cmd.Material != 0 )
                 materials.insert( cmd.Material );
 
-            const void* pipeline = PipelineOf( cmd );
+            const auto pipeline = PipelineOf( cmd );
             if ( pipeline != lastPipeline )
             {
-                if ( lastPipeline != nullptr )
+                if ( lastPipeline.first != -1 )
                     out.Stats.PipelineSwitches++;
                 lastPipeline = pipeline;
             }

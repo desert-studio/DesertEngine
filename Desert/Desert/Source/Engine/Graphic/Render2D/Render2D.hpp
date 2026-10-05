@@ -89,15 +89,6 @@ namespace Desert::Graphic::Render2D
             return static_cast<uint32_t>( m_RetainedPool.size() );
         }
 
-        // This backend's UI-material cache. The canvas walk resolves an element's `.demat` through it and
-        // hands the resolved entry to DrawList2D::AddMaterialRect; Flush then draws with that entry's own
-        // pipeline. It lives HERE and not behind a service because a pipeline belongs to one framebuffer's
-        // render pass, and this object is the only thing that knows which framebuffer that is.
-        UIMaterialCache& Materials()
-        {
-            return m_MaterialCache;
-        }
-
         // The blurred scene snapshot glass rects sample (BackdropBlurRenderer's pyramid), and how many LODs
         // it has. Set every frame by the host pass; null = glass falls back to a flat tinted panel.
         void SetBackdrop( Image2D* image, uint32_t maxLod )
@@ -181,7 +172,10 @@ namespace Desert::Graphic::Render2D
         std::shared_ptr<Texture2D> m_WhiteTexture;
         Image2D*                   m_WhiteImage = nullptr;
 
-        UIMaterialCache m_MaterialCache; // UI-domain `.demat` fills, keyed by asset handle
+        // UI-domain `.demat` fills, keyed by asset handle. The draw list carries the HANDLE and FlushList
+        // resolves it here, so a pipeline always belongs to the framebuffer THIS renderer draws into — a
+        // retained layer's Render2D resolves in its own cache, never in the main one's.
+        UIMaterialCache m_MaterialCache;
 
         ExecutorCache m_Executors;      // UI2D, keyed by bound Image2D* (null => white)
         ExecutorCache m_TextExecutors;  // UIText, keyed by font atlas Image2D*

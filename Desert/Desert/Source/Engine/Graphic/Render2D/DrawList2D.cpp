@@ -105,7 +105,7 @@ namespace Desert::Graphic::Render2D
         return m_Clip.Bounded ? m_Clip.Box : glm::vec4( 0.0f, 0.0f, 0.0f, 0.0f );
     }
 
-    DrawCommand& DrawList2D::CurrentCommand( const void* texture, bool text, const void* material )
+    DrawCommand& DrawList2D::CurrentCommand( const void* texture, bool text, uint64_t material )
     {
         const glm::vec4 scissor = ScissorBox();
 
@@ -314,7 +314,7 @@ namespace Desert::Graphic::Render2D
 
     void DrawList2D::AddQuad( const void* texture, const glm::vec2& min, const glm::vec2& max,
                               const glm::vec2& uv0, const glm::vec2& uv1, const glm::vec4& color, bool text,
-                              const void* material )
+                              uint64_t material )
     {
         if ( ClipRegionEmpty( m_Clip ) )
             return;
@@ -406,13 +406,13 @@ namespace Desert::Graphic::Render2D
         AddQuad( texture, min, max, uv0, uv1, tint, false );
     }
 
-    void DrawList2D::AddMaterialRect( const void* material, const glm::vec2& min, const glm::vec2& max,
+    void DrawList2D::AddMaterialRect( uint64_t material, const glm::vec2& min, const glm::vec2& max,
                                       const glm::vec4& tint )
     {
-        // A null material would silently become an ordinary white-textured rect — the element would look
-        // ALMOST right (its authored colour, no material) and nothing would say the fill never ran. The
-        // resolve-or-error decision belongs to the caller, which is the only place that knows which handle
-        // failed; Graphic::UIMaterialCache::Resolve never returns null for that reason.
+        // An unset handle would silently become an ordinary white-textured rect — the element would look
+        // ALMOST right (its authored colour, no material) and nothing would say the fill never ran. A SET
+        // handle the UI path cannot execute is not refused here: Render2D's UIMaterialCache::Resolve turns
+        // it into the magenta error fill, with the reason logged.
         if ( !material || max.x <= min.x || max.y <= min.y )
             return;
 

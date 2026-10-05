@@ -8,13 +8,13 @@
 // WHERE A UI ELEMENT'S LIVE WORLD COMES FROM, stated as the one question the canvas walk asks and nothing
 // more.
 //
-// WHY THIS IS AN INTERFACE AND NOT A POINTER TO THE CACHE — the same reason, measured, as
-// UIMaterialSource.hpp next door. The walk (UICanvasRenderer2D) is pure: three suites compile it with no
-// GPU, no Vulkan and no pipeline in the binary at all (UIIntrospection, UICanvasContext, UIEventRouting),
-// which is what lets the batching, the hit test and the event routing be asserted rather than described.
-// Naming Graphic::Render2D::UIMaterialCache in the context made those three fail to LINK on the one
-// symbol the walk calls. A render texture is a whole Core::Scene and a Graphic::SceneRenderer behind it,
-// so naming ITS backend would end that purity far more thoroughly than a material ever could.
+// WHY THIS IS AN INTERFACE AND NOT A POINTER TO THE CACHE. The walk (UICanvasRenderer2D) is pure: three suites
+// compile it with no GPU, no Vulkan and no pipeline in the binary at all (UIIntrospection, UICanvasContext,
+// UIEventRouting), which is what lets the batching, the hit test and the event routing be asserted rather than
+// described. Naming Graphic::Render2D::UIMaterialCache in the context once made those three fail to LINK on the
+// one symbol the walk called (UI materials now need no backend in the walk at all: the walk records the handle and
+// the drawing Render2D resolves it). A render texture is a whole Core::Scene and a Graphic::SceneRenderer behind
+// it, so naming ITS backend would end that purity far more thoroughly.
 //
 // So the walk depends on the QUESTION and the backend supplies the ANSWER.
 // Graphic::Render2D::UIRenderTextureCache is the only implementation; a suite that wants to test the
@@ -54,7 +54,7 @@ namespace Desert::UI
         // numbers before returning one. The reason belongs to the implementation and not to this
         // signature because only the implementation knows it: how many renderer slots are live, whether
         // the file parsed, which scene refused. The picture is what keeps saying it every frame; the log
-        // line is said once per stretch, the same way UICanvasRenderer2D::ResolveUIMaterial does it.
+        // line is said once per stretch.
         //
         // CALLING THIS IS ALSO THE DEMAND. An implementation that owns renderer slots learns from this
         // call, and only from this call, that the element is ON SCREEN — a slot is given back by

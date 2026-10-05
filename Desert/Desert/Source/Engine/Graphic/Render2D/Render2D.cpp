@@ -354,12 +354,14 @@ namespace Desert::Graphic::Render2D
 
             if ( cmd.Material )
             {
-                // A UI-DOMAIN MATERIAL FILL. The batch carries the resolved entry the canvas walk got
-                // from UIMaterialCache::Resolve — never null, and never null-and-meaning-fine: a handle
-                // the UI path cannot execute resolved to the magenta error entry back there, with the
-                // reason logged, so there is nothing left here to fall back from.
-                const auto* entry = static_cast<const UIMaterialCache::Entry*>( cmd.Material );
-                if ( !entry->Pipeline || !entry->Material )
+                // A UI-DOMAIN MATERIAL FILL. The batch carries the material's HANDLE and it is resolved
+                // HERE, in this renderer's own cache, whose pipelines are compiled against this renderer's
+                // target. A retained layer is drawn by its own Render2D into its own offscreen target, so a
+                // pipeline resolved by the view's main Render2D (built for the main target's render pass)
+                // drew nothing there. Resolve never answers null for a set handle: a material the UI path
+                // cannot execute is the magenta error entry, with the reason logged.
+                const auto* entry = m_MaterialCache.Resolve( Assets::AssetHandle( cmd.Material ) );
+                if ( !entry || !entry->Pipeline || !entry->Material )
                     continue;
 
                 auto* material = entry->Material.get();

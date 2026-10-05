@@ -2,7 +2,6 @@
 
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
-#include <Engine/UI/UIMaterialSource.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -35,7 +34,7 @@ namespace Desert::Graphic::Render2D
     // replaces a shared material with a per-widget instance the first time anybody animates a parameter,
     // and their own docs name that as the dominant real-world batching cost of UI materials. Here two
     // elements pointing at one asset share one entry, so they share one batch.
-    class UIMaterialCache final : public ::Desert::UI::IUIMaterialSource
+    class UIMaterialCache final
     {
     public:
         // One resolved material: the pipeline its shader is compiled into against the UI target, and the
@@ -69,13 +68,6 @@ namespace Desert::Graphic::Render2D
         // Returns nullptr only for an UNSET handle (the element has no material and draws its ordinary
         // fill) or when the UI target has not been built yet.
         [[nodiscard]] const Entry* Resolve( const Assets::AssetHandle& handle );
-
-        // IUIMaterialSource. The walk holds this object through the interface and never through the
-        // concrete type, so the opaque id it records is the Entry address Render2D::Flush casts back.
-        [[nodiscard]] const void* ResolveMaterial( const Assets::AssetHandle& handle ) override
-        {
-            return Resolve( handle );
-        }
 
         // Destroy the entries no frame still in flight can be reading. Called once per Flush, on the same
         // rule and with the same window as Render2D's texture executors — a UI material owns descriptor
