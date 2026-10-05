@@ -193,6 +193,45 @@ TEST( AnimatorBlending, ACrossFadeAtOneIsTheTargetClip )
     EXPECT_EQ( animator.GetCurrentClip(), &b ) << "the blend did not retire into its target";
 }
 
+TEST( AnimatorBlending, ACrossFadeDuringACrossFadeStacksInsteadOfCuttingTheIncomingClip )
+{
+    // UE's active transition array: B is still fading in when C is asked for; B must keep playing under C
+    // and fade out with A, not vanish on the frame of the interruption.
+    const Skeleton skeleton = MakeRig();
+    Animator       animator( skeleton );
+
+    AnimationClip a = StaticClip( "A", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ) );
+    AnimationClip b = StaticClip( "B", "spine", glm::vec3( 0.0F, 80.0F, 0.0F ) );
+    AnimationClip c = StaticClip( "C", "spine", glm::vec3( 0.0F, 10.0F, 0.0F ) );
+
+    animator.Play( a );
+    animator.CrossFade( b, 1.0F );
+    animator.Update( Timestep( 0.5F ) );
+    animator.CrossFade( c, 1.0F );
+
+    auto w = animator.BaseLayerWeights();
+    ASSERT_EQ( w.size(), 3U ) << "the interrupted fade was dropped instead of stacked";
+    EXPECT_NEAR( w[0], 0.5F, 1e-5F );
+    EXPECT_NEAR( w[1], 0.5F, 1e-5F ) << "the interruption cut the clip that was fading in";
+    EXPECT_NEAR( w[2], 0.0F, 1e-5F );
+    EXPECT_EQ( animator.GetCurrentClip(), &c );
+
+    animator.Update( Timestep( 0.25F ) ); // B at 0.75 over A, C at 0.25 over both
+    w = animator.BaseLayerWeights();
+    ASSERT_EQ( w.size(), 3U );
+    EXPECT_NEAR( w[0], 0.25F * 0.75F, 1e-5F );
+    EXPECT_NEAR( w[1], 0.75F * 0.75F, 1e-5F );
+    EXPECT_NEAR( w[2], 0.25F, 1e-5F );
+    EXPECT_NEAR( w[0] + w[1] + w[2], 1.0F, 1e-5F );
+
+    animator.Update( Timestep( 0.25F ) ); // B's fade ends: A retires, B is the current clip under C
+    w = animator.BaseLayerWeights();
+    ASSERT_EQ( w.size(), 2U ) << "a finished lower fade did not retire the layer under it";
+    EXPECT_NEAR( w[0], 0.5F, 1e-5F );
+    EXPECT_NEAR( w[1], 0.5F, 1e-5F );
+    EXPECT_EQ( animator.GetCurrentClip(), &c );
+}
+
 TEST( AnimatorBlending, ACrossFadeKeepsTheSkeletonConnected )
 {
     // THE INVARIANT THAT DOES NOT DEPEND ON THE IMPLEMENTATION: blending two poses of the same rig cannot

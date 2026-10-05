@@ -226,7 +226,7 @@ namespace Desert::ECS
                                 if ( !cur || cur->AnimationName != clip.AnimationName )
                                 {
                                     if ( res.Changed && res.Blend > 0.0f )
-                                        anim.Animator->CrossFade( clip, res.Blend, res.Current->Loop );
+                                        anim.Animator->CrossFade( clip, res.Blend, res.Current->Loop, res.Curve );
                                     else
                                         anim.Animator->Play( clip, res.Current->Loop );
                                 }
@@ -245,6 +245,10 @@ namespace Desert::ECS
 
                         DrivePoseGraph( anim, clipRig, graphRebuilt );
                         anim.Animator->Update( animTs );
+                        // The machine's active transitions on the SAME step the Animator's fades just took
+                        // (its clock scales by the playback speed), so both stacks retire on one frame.
+                        anim.GraphEvaluator->AdvanceTransitions( animTs.GetSeconds() *
+                                                                 anim.Animator->GetPlaybackSpeed() );
                         anim.PendingNotifies = anim.Animator->ConsumeNotifyEvents();
                     }
                     continue;

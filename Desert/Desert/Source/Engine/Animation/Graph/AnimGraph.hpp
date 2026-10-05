@@ -2,6 +2,7 @@
 
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Animation/AlphaBlend.hpp>
 #include <Engine/Animation/Graph/LayeredBlendPerBone.hpp>
 #include <Engine/Animation/Graph/LinkedAnimLayer.hpp>
 
@@ -77,6 +78,12 @@ namespace Desert::Animation::Graph
         bool                   HasExitTime = false;
         float                  ExitTime    = 1.0f; // require the source clip to reach this fraction [0,1] first
         std::vector<Condition> Conditions;         // ALL must hold (logical AND); empty + exit-time = auto-advance
+        /// The shape of the cross-fade's weight over `Blend` seconds (UE: BlendMode / EAlphaBlendOption).
+        int BlendCurve = static_cast<int>( AlphaBlendOption::Linear );
+        /// While this transition is still blending, may a transition out of its target fire and be stacked
+        /// on top of it (UE: the state machine's ActiveTransitionArray)? false = the machine waits until
+        /// this fade has finished before it evaluates any transition again.
+        bool CanInterrupt = true;
     };
 
     struct State
@@ -368,6 +375,14 @@ namespace Desert::Animation::Graph
             const State* Current = nullptr; // current state after this tick (null only if the graph has no states)
             bool         Changed = false;   // a transition fired this tick
             float        Blend   = 0.0f;    // cross-fade seconds for the change (valid when Changed)
+            AlphaBlendOption Curve = AlphaBlendOption::Linear; // the change's fade curve (valid when Changed)
+        };
+
+        /// One layer of the output machine's blend: a state and the weight its pose has right now.
+        struct StateWeight
+        {
+            const State* Of     = nullptr; ///< the state this layer plays
+            float        Weight = 0.0f;
         };
 
         /**
@@ -381,6 +396,24 @@ namespace Desert::Animation::Graph
          * @return What the state machine wired into Output Pose did this tick.
          */
         Result Update( float normalizedTime );
+
+        /**
+         * @brief Advances every state machine's ACTIVE TRANSITIONS by `seconds` of blend time and retires
+         *        the ones whose fade has finished (UE: FAnimNode_StateMachine's ActiveTransitionArray).
+         *
+         * A transition that fires while another is still blending does not cut it: it is stacked on top,
+         * blending from everything below it to its own target, and each fade runs on its own clock and
+         * curve. When a fade reaches its end every layer below it has weight 0, so it and those layers are
+         * retired. SEPARATE FROM `Update` because the blend clock is the one the pose is blended by: the
+         * caller passes the exact step its Animator just advanced its own fades by, so the two stacks
+         * retire on the same frame.
+         */
+        void AdvanceTransitions( float seconds );
+
+        /// The output machine's blend right now: the state under every active transition first, then each
+        /// active transition's target, oldest to newest, with weights summing to 1 (a lone current state at
+        /// weight 1 when nothing is blending; empty when the machine has no states).
+        [[nodiscard]] std::vector<StateWeight> ActiveStateWeights() const;
 
         [[nodiscard]] const AnimGraph& Graph() const
         {
@@ -397,8 +430,26 @@ namespace Desert::Animation::Graph
 
     private:
         /// A state machine node's running state: indices into its machine's States.
+        /// A transition that fired and is still blending (UE: FAnimationActiveTransitionEntry).
+        struct ActiveTransition
+        {
+            int              From         = -1; ///< the state it left (the base, for the oldest)
+            int              To           = -1;
+            float            Duration     = 0.0f;
+            float            Elapsed      = 0.0f;
+            AlphaBlendOption Curve        = AlphaBlendOption::Linear;
+            bool             CanInterrupt = true;
+
+            /// The weight of `To` over everything below it: Elapsed / Duration through the curve.
+            [[nodiscard]] float Alpha() const
+            {
+                return AlphaBlendCurve( Curve, Duration > 0.0f ? Elapsed / Duration : 1.0f );
+            }
+        };
+
         struct MachineRun
         {
+            std::vector<ActiveTransition> Active; ///< oldest first; the last one's target is Current
             int Current = -1;
             int Previous = -1; ///< см. PreviousState(): пишется там же, где срабатывает переход
         };

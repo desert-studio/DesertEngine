@@ -40,6 +40,111 @@ namespace
     }
 } // namespace
 
+namespace
+{
+    // A --(GoB)--> B --(GoC)--> C, each a 1-second fade: the shortest graph in which a transition can fire
+    // while another is still blending.
+    AnimGraph ChainGraph( bool abCanInterrupt = true, int abCurve = 0 )
+    {
+        AnimGraph g               = ::Desert::Animation::Graph::MakeStateMachineGraph();
+        g.Name                    = "Chain";
+        OutputMachine( g )->Entry = "A";
+        g.Parameters.push_back( { "GoB", static_cast<int>( ParamType::Bool ), 0.0f } );
+        g.Parameters.push_back( { "GoC", static_cast<int>( ParamType::Bool ), 0.0f } );
+
+        State      a{ .Name = "A", .Clip = "a" };
+        Transition ab{
+             .To = "B", .Blend = 1.0f, .Conditions = { { "GoB", static_cast<int>( CompareOp::IsTrue ), 0.0f } } };
+        ab.BlendCurve   = abCurve;
+        ab.CanInterrupt = abCanInterrupt;
+        a.Transitions.push_back( ab );
+        State b{ .Name = "B", .Clip = "b" };
+        b.Transitions.push_back( { .To         = "C",
+                                   .Blend      = 1.0f,
+                                   .Conditions = { { "GoC", static_cast<int>( CompareOp::IsTrue ), 0.0f } } } );
+        State c{ .Name = "C", .Clip = "c" };
+        OutputMachine( g )->States = { a, b, c };
+        return g;
+    }
+} // namespace
+
+TEST( AnimGraph, AnInterruptingTransitionStacksOnTheOneStillBlending )
+{
+    Evaluator eval( ChainGraph() );
+    ASSERT_TRUE( eval.SetBool( "GoB", true ) );
+    ASSERT_TRUE( eval.Update( 0.0f ).Changed );
+    eval.AdvanceTransitions( 0.5f );
+
+    ASSERT_TRUE( eval.SetBool( "GoC", true ) );
+    const auto fired = eval.Update( 0.0f );
+    ASSERT_TRUE( fired.Changed ) << "a transition out of the target was refused while the first one blended";
+    EXPECT_EQ( fired.Current->Name, "C" );
+
+    eval.AdvanceTransitions( 0.25f ); // A->B at 0.75, B->C at 0.25
+    const auto layers = eval.ActiveStateWeights();
+    ASSERT_EQ( layers.size(), 3U ) << "the interrupted transition was cut instead of stacked";
+    EXPECT_EQ( layers[0].Of->Name, "A" );
+    EXPECT_EQ( layers[1].Of->Name, "B" );
+    EXPECT_EQ( layers[2].Of->Name, "C" );
+    EXPECT_NEAR( layers[0].Weight, 0.25f * 0.75f, 1e-5f ) << "the oldest pose is not fading out under both";
+    EXPECT_NEAR( layers[1].Weight, 0.75f * 0.75f, 1e-5f );
+    EXPECT_NEAR( layers[2].Weight, 0.25f, 1e-5f );
+    EXPECT_NEAR( layers[0].Weight + layers[1].Weight + layers[2].Weight, 1.0f, 1e-5f );
+
+    eval.AdvanceTransitions( 0.25f ); // A->B finishes: A is gone, B fades out under C
+    const auto later = eval.ActiveStateWeights();
+    ASSERT_EQ( later.size(), 2U );
+    EXPECT_EQ( later[0].Of->Name, "B" );
+    EXPECT_NEAR( later[0].Weight, 0.5f, 1e-5f );
+    EXPECT_NEAR( later[1].Weight, 0.5f, 1e-5f );
+
+    eval.AdvanceTransitions( 0.5f );
+    const auto settled = eval.ActiveStateWeights();
+    ASSERT_EQ( settled.size(), 1U );
+    EXPECT_EQ( settled[0].Of->Name, "C" );
+    EXPECT_EQ( settled[0].Weight, 1.0f );
+}
+
+TEST( AnimGraph, ATransitionThatCannotBeInterruptedHoldsTheMachineUntilItEnds )
+{
+    Evaluator eval( ChainGraph( /*abCanInterrupt=*/false ) );
+    ASSERT_TRUE( eval.SetBool( "GoB", true ) );
+    ASSERT_TRUE( eval.SetBool( "GoC", true ) );
+    ASSERT_TRUE( eval.Update( 0.0f ).Changed ); // A -> B
+
+    eval.AdvanceTransitions( 0.5f );
+    const auto held = eval.Update( 0.0f );
+    EXPECT_FALSE( held.Changed ) << "B -> C fired over a transition marked CanInterrupt = false";
+    EXPECT_EQ( held.Current->Name, "B" );
+
+    eval.AdvanceTransitions( 0.5f ); // A -> B ends
+    const auto freed = eval.Update( 0.0f );
+    ASSERT_TRUE( freed.Changed ) << "the machine stayed held after the uninterruptible fade ended";
+    EXPECT_EQ( freed.Current->Name, "C" );
+}
+
+TEST( AnimGraph, ABlendCurveShapesTheTransitionsWeight )
+{
+    // CubicInOut is symmetric (0.5 at the midpoint), so the curve is told apart from Linear at a quarter.
+    Evaluator eval( ChainGraph( true, static_cast<int>( Desert::Animation::AlphaBlendOption::CubicInOut ) ) );
+    ASSERT_TRUE( eval.SetBool( "GoB", true ) );
+    const auto fired = eval.Update( 0.0f );
+    ASSERT_TRUE( fired.Changed );
+    EXPECT_EQ( fired.Curve, Desert::Animation::AlphaBlendOption::CubicInOut )
+         << "the consumer is not told the curve";
+
+    eval.AdvanceTransitions( 0.25f );
+    auto layers = eval.ActiveStateWeights();
+    ASSERT_EQ( layers.size(), 2U );
+    EXPECT_NEAR( layers[1].Weight, 4.0f * 0.25f * 0.25f * 0.25f, 1e-5f ) << "the fade ignored its curve";
+    EXPECT_NEAR( layers[0].Weight + layers[1].Weight, 1.0f, 1e-5f );
+
+    eval.AdvanceTransitions( 0.25f );
+    layers = eval.ActiveStateWeights();
+    ASSERT_EQ( layers.size(), 2U );
+    EXPECT_NEAR( layers[1].Weight, 0.5f, 1e-5f );
+}
+
 TEST( AnimGraph, StartsAtEntryState )
 {
     Evaluator eval( LocomotionGraph() );
