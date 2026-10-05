@@ -105,7 +105,8 @@ namespace Desert::Assets
             return Common::MakeError<bool>( "the rig is not loaded" );
         const auto& bones = m_Skeleton->GetBones();
         if ( bone >= bones.size() )
-            return Common::MakeFormattedError<bool>( "bone {} is out of range (the rig has {})", bone, bones.size() );
+            return Common::MakeFormattedError<bool>( "bone {} is out of range (the rig has {})", bone,
+                                                     bones.size() );
         if ( name.empty() )
             return Common::MakeError<bool>( "a bone needs a name" );
         if ( bones[bone].Name == name )

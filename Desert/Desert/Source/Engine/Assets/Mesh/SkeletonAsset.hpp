@@ -84,10 +84,10 @@ namespace Desert::Assets
         /// loaded or @p bone is out of range.
         bool SetLocalBindTransform( uint32_t bone, const glm::mat4& localBind );
 
-        /// RENAME BONE (Skeleton Editor; UE Skeleton Editing's Rename Bone): @p bone answers to @p name on the loaded
-        /// rig, in memory - Serialization::SaveSkeletonAsset writes it and carries it into every asset of this
-        /// skeleton that names the bone (Assets::RenameBonesInSkeletonAssets). Indices do not move, so a skin and
-        /// every resolved index stay valid; the rig is rebuilt at the same address (its name lookup and its
+        /// RENAME BONE (Skeleton Editor; UE Skeleton Editing's Rename Bone): @p bone answers to @p name on the
+        /// loaded rig, in memory - Serialization::SaveSkeletonAsset writes it and carries it into every asset of
+        /// this skeleton that names the bone (Assets::RenameBonesInSkeletonAssets). Indices do not move, so a skin
+        /// and every resolved index stay valid; the rig is rebuilt at the same address (its name lookup and its
         /// signature are the names'), the signature moves (AnimationECSSystem re-resolves on it) and so does the
         /// bind revision. Refused, by reason: the rig is not loaded, @p bone is out of range, @p name is empty or
         /// already another bone's. The same name is a success that changes nothing.

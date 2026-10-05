@@ -122,12 +122,14 @@ namespace Desert::Editor
         std::vector<std::string> Names;
         std::vector<glm::mat4>   Binds;
     };
-    [[nodiscard]] Common::ResultStr<ReferencePoseOnDisk> ReadBindPoseOnDisk( const Assets::SkeletonAsset& skeleton );
+    [[nodiscard]] Common::ResultStr<ReferencePoseOnDisk>
+    ReadBindPoseOnDisk( const Assets::SkeletonAsset& skeleton );
 
     /// True when the rig in memory has a rest pose or a bone name other than @p onDisk (or another bone count).
     [[nodiscard]] bool BindPoseDiffers( const Assets::SkeletonAsset& skeleton, const ReferencePoseOnDisk& onDisk );
 
     /// "Don't Save": @p onDisk's names and binds back into the rig, and every record of this skeleton forgotten
     /// (they would redo an edit the user threw away). False when the rig is not loaded or the counts differ.
-    bool RestoreBindPose( const std::shared_ptr<Assets::SkeletonAsset>& skeleton, const ReferencePoseOnDisk& onDisk );
+    bool RestoreBindPose( const std::shared_ptr<Assets::SkeletonAsset>& skeleton,
+                          const ReferencePoseOnDisk&                    onDisk );
 } // namespace Desert::Editor

@@ -61,22 +61,24 @@ namespace Desert::Assets
     {
         SkeletonReferrers referrers;
         referrers.Loaded = loaded;
-        for ( const ContentRegistry::PickerRow& row : ContentRegistry::Rows( Common::Content::ContentKind::Animation ) )
+        for ( const ContentRegistry::PickerRow& row :
+              ContentRegistry::Rows( Common::Content::ContentKind::Animation ) )
             if ( row.Skeleton == skeleton )
                 referrers.ClipFiles.push_back( row.Path );
         return referrers;
     }
 
-    Common::BoolResultStr RenameBonesInSkeletonAssets( const Common::Content::AssetGuid&                    skeleton,
-                                                       const std::span<const Animation::Timeline::BoneRename> renames,
-                                                       const SkeletonReferrers&                             referrers )
+    Common::BoolResultStr
+    RenameBonesInSkeletonAssets( const Common::Content::AssetGuid&                      skeleton,
+                                 const std::span<const Animation::Timeline::BoneRename> renames,
+                                 const SkeletonReferrers&                               referrers )
     {
         if ( renames.empty() )
             return BOOLSUCCESS;
         for ( const std::filesystem::path& clipFile : referrers.ClipFiles )
         {
-            // The FILE is renamed from the file, never from a resident clip: an open clip editor's unsaved edits are
-            // its own Save's, and this writes the rename alone.
+            // The FILE is renamed from the file, never from a resident clip: an open clip editor's unsaved edits
+            // are its own Save's, and this writes the rename alone.
             const std::filesystem::path file = ContentRegistry::FileToOpen( clipFile );
             auto                        raw  = Common::Utils::FileSystem::ReadFileContent( file );
             if ( !raw )
@@ -84,16 +86,19 @@ namespace Desert::Assets
                                                          raw.GetError() );
             auto data = Serialization::ReadAnimationJson( raw.GetValue() );
             if ( !data )
-                return Common::MakeFormattedError<bool>( "bone rename: clip '{}': {}", file.string(), data.GetError() );
+                return Common::MakeFormattedError<bool>( "bone rename: clip '{}': {}", file.string(),
+                                                         data.GetError() );
             auto clip = Serialization::BuildClipFromAssetData( data.GetValue() );
             if ( !clip )
-                return Common::MakeFormattedError<bool>( "bone rename: clip '{}': {}", file.string(), clip.GetError() );
+                return Common::MakeFormattedError<bool>( "bone rename: clip '{}': {}", file.string(),
+                                                         clip.GetError() );
             Animation::AnimationClip renamed = clip.ExtractValue();
-            if ( renamed.Skeleton != skeleton || Animation::Timeline::RenameBoneLocators( renamed.Sequence, renames ) == 0 )
+            if ( renamed.Skeleton != skeleton ||
+                 Animation::Timeline::RenameBoneLocators( renamed.Sequence, renames ) == 0 )
                 continue;
             if ( const auto written = Serialization::SaveClipToFile( file, renamed ); !written )
-                return Common::MakeFormattedError<bool>( "bone rename: clip '{}' was not written: {}", file.string(),
-                                                         written.GetError() );
+                return Common::MakeFormattedError<bool>( "bone rename: clip '{}' was not written: {}",
+                                                         file.string(), written.GetError() );
         }
         if ( referrers.Loaded != nullptr )
             for ( const auto& [handle, clip] : referrers.Loaded->FindAllByType<AnimationAsset>() )
@@ -120,7 +125,7 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<bool>( "skeleton '{}' was not saved: {}", file.string(),
                                                      read.GetError() );
 
-        SkeletonAssetData                             data = read.ExtractValue();
+        SkeletonAssetData                            data = read.ExtractValue();
         std::vector<Animation::Timeline::BoneRename> renames;
         // THE REFERENCE POSE AND THE BONE NAMES ARE AUTHORED (Skeleton Editor, UE's Skeleton Tree): every bone's
         // LocalBindTransform and Name come from the rig in memory, index for index. The parent links are the
@@ -175,7 +180,8 @@ namespace Desert::Assets::Serialization
                                                      "into its assets: the header GUID: {}",
                                                      file.string(), guid.GetError() );
         if ( auto carried = RenameBonesInSkeletonAssets( guid.GetValue(), renames, referrers ); !carried )
-            return Common::MakeFormattedError<bool>( "skeleton '{}' was saved; {}", file.string(), carried.GetError() );
+            return Common::MakeFormattedError<bool>( "skeleton '{}' was saved; {}", file.string(),
+                                                     carried.GetError() );
         return BOOLSUCCESS;
     }
 

@@ -158,8 +158,8 @@ TEST( SkeletonBindEdit, TheDocumentIsDirtyAfterAnEditAndCleanAfterUndoOrSave )
     Editor::CommandHistory::Get().DropFor( rig.get() );
 }
 
-// Rename Bone (ANIM-FIX4b, UE Skeleton Editing): the name moves in memory as ONE undo record, and Save writes it to
-// the .skeleton AND into this skeleton's clip - the clip's channel then finds the bone by its new name.
+// Rename Bone (ANIM-FIX4b, UE Skeleton Editing): the name moves in memory as ONE undo record, and Save writes it
+// to the .skeleton AND into this skeleton's clip - the clip's channel then finds the bone by its new name.
 TEST( SkeletonBindEdit, ARenamedBoneIsSavedIntoTheSkeletonAndItsClip )
 {
     const auto           dir  = TempDir( "rename" );

@@ -98,7 +98,7 @@ namespace Desert::Animation::Timeline
      * A <-> B is two entries and not a chain. The binding GUID stays: it is the identity tracks point at, minted
      * once and kept across a rename (Binding.hpp), so no track is touched. Returns how many bindings moved.
      */
-    std::size_t RenameBoneLocators( Sequence& sequence, std::span<const BoneRename> renames );
+    std::size_t                  RenameBoneLocators( Sequence& sequence, std::span<const BoneRename> renames );
     [[nodiscard]] const Track*   FindTrack( const Sequence& sequence, const BindingGuid& binding,
                                             std::string_view property );
 

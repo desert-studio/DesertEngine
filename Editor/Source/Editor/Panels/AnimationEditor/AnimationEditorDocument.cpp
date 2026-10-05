@@ -671,8 +671,9 @@ namespace Desert::Editor
     {
         if ( !m_SkeletonAsset )
             return Common::MakeError<bool>( "no skeleton is loaded in this window" );
-        // A RENAMED BONE IS CARRIED INTO THE SKELETON'S CLIPS (files by the registry's Rig tag, and the ones resident
-        // in this manager in memory) by the save itself - the one point (Assets::RenameBonesInSkeletonAssets).
+        // A RENAMED BONE IS CARRIED INTO THE SKELETON'S CLIPS (files by the registry's Rig tag, and the ones
+        // resident in this manager in memory) by the save itself - the one point
+        // (Assets::RenameBonesInSkeletonAssets).
         if ( const auto saved = Assets::Serialization::SaveSkeletonAsset(
                   *m_SkeletonAsset, Assets::ReferrersOfSkeleton( m_Skeleton, m_Assets ) );
              !saved )
@@ -1034,7 +1035,8 @@ namespace Desert::Editor
             ImGui::PopID();
         }
         if ( canRename && m_SelectedBone && !m_RenamingBone &&
-             ImGui::IsWindowFocused( ImGuiFocusedFlags_ChildWindows ) && ImGui::IsKeyPressed( ImGuiKey_F2, false ) )
+             ImGui::IsWindowFocused( ImGuiFocusedFlags_ChildWindows ) &&
+             ImGui::IsKeyPressed( ImGuiKey_F2, false ) )
             BeginRename( *m_SelectedBone );
         ImGui::EndChild();
         if ( !m_RenameStatus.empty() )
@@ -1078,7 +1080,8 @@ namespace Desert::Editor
         const uint32_t parent   = skeleton.ResolveParent( index );
         if ( Mode() == Core::PersonaMode::Skeleton && m_SkeletonAsset && m_BindOnDisk )
         {
-            // The Details Name row (UE: the bone's name in the Skeleton Tree Details): Enter commits a Rename Bone.
+            // The Details Name row (UE: the bone's name in the Skeleton Tree Details): Enter commits a Rename
+            // Bone.
             std::array<char, 128> name{};
             bone.Name.copy( name.data(), std::min( bone.Name.size(), name.size() - 1 ) );
             ImGui::SetNextItemWidth( -80.0f );

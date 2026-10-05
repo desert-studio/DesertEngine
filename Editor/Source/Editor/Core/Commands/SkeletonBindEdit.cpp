@@ -23,8 +23,8 @@ namespace Desert::Editor
         return m_Skeleton && m_Skeleton->SetLocalBindTransform( m_Bone, m_After );
     }
 
-    SkeletonRenameCommand::SkeletonRenameCommand( std::shared_ptr<Assets::SkeletonAsset> skeleton, const uint32_t bone,
-                                                  std::string before, std::string after )
+    SkeletonRenameCommand::SkeletonRenameCommand( std::shared_ptr<Assets::SkeletonAsset> skeleton,
+                                                  const uint32_t bone, std::string before, std::string after )
          : m_Skeleton( std::move( skeleton ) ), m_Bone( bone ), m_Before( std::move( before ) ),
            m_After( std::move( after ) )
     {
@@ -40,8 +40,8 @@ namespace Desert::Editor
         return m_Skeleton && m_Skeleton->RenameBone( m_Bone, m_After ).IsSuccess();
     }
 
-    Common::BoolResultStr CommitBoneRename( const std::shared_ptr<Assets::SkeletonAsset>& skeleton, const uint32_t bone,
-                                            const std::string& name )
+    Common::BoolResultStr CommitBoneRename( const std::shared_ptr<Assets::SkeletonAsset>& skeleton,
+                                            const uint32_t bone, const std::string& name )
     {
         if ( !skeleton || skeleton->GetSkeleton() == nullptr )
             return Common::MakeError<bool>( "the rig is not loaded" );
@@ -147,7 +147,8 @@ namespace Desert::Editor
         return false;
     }
 
-    bool RestoreBindPose( const std::shared_ptr<Assets::SkeletonAsset>& skeleton, const ReferencePoseOnDisk& onDisk )
+    bool RestoreBindPose( const std::shared_ptr<Assets::SkeletonAsset>& skeleton,
+                          const ReferencePoseOnDisk&                    onDisk )
     {
         if ( !skeleton || skeleton->GetSkeleton() == nullptr ||
              skeleton->GetSkeleton()->GetBones().size() != onDisk.Binds.size() ||
