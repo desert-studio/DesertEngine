@@ -175,7 +175,7 @@ namespace Desert::Editor
             {
                 if ( path.extension() != ".desce" )
                     continue;
-                auto text = Core::ExternalEntities::ReadSceneFileText( path );
+                auto text = ::Desert::Core::ExternalEntities::ReadSceneFileText( path );
                 if ( !text )
                 {
                     error = "cooking the worlds: " + text.GetError();
@@ -184,7 +184,7 @@ namespace Desert::Editor
                 // Only a file that names the block can state one; the rest are not parsed twice.
                 if ( text.GetValue().find( "\"WorldPartition\"" ) == std::string::npos )
                     continue;
-                auto scene = Core::ParseLoadableScene( path.string(), text.GetValue() );
+                auto scene = ::Desert::Core::ParseLoadableScene( path.string(), text.GetValue() );
                 if ( !scene )
                 {
                     error = "cooking the worlds: " + scene.GetError();
@@ -192,14 +192,14 @@ namespace Desert::Editor
                 }
                 if ( !scene.GetValue().Scene.WorldPartition.has_value() )
                     continue;
-                auto cooked = Core::WorldCells::CookWorld( scene.GetValue().Scene,
-                                                           std::span( &Assets::ContentRegistry::Get(), 1 ) );
+                auto cooked = ::Desert::Core::WorldCells::CookWorld(
+                     scene.GetValue().Scene, std::span( &Assets::ContentRegistry::Get(), 1 ) );
                 if ( !cooked )
                 {
                     error = "cooking the world '" + key + "': " + cooked.GetError();
                     return false;
                 }
-                const std::string directory = Core::WorldCells::CookedWorldDirectory( key );
+                const std::string directory = ::Desert::Core::WorldCells::CookedWorldDirectory( key );
                 for ( const auto& file : cooked.GetValue().Files )
                 {
                     baseBlobs.emplace_back( directory + file.Name,
@@ -772,8 +772,8 @@ namespace Desert::Editor
         // The shader SET is the target's too: a Shipping runtime cannot load the developer-instrument
         // programs, so its package neither cooks nor carries them (Common/Core/DeveloperOnlyShaders.hpp).
         const bool      developerInstruments = Common::ConfigHasDeveloperInstruments( options.Config );
-        const CookStats cook =
-             CookContentCaches( Core::SpirvDebugInfoForConfigName( options.Config ), developerInstruments );
+        const CookStats cook = CookContentCaches( ::Desert::Core::SpirvDebugInfoForConfigName( options.Config ),
+                                                  developerInstruments );
 
         // BEFORE ANYTHING IS WRITTEN. A refusal after the output directory exists leaves half a
         // package behind, and half a package is the thing somebody ships by accident.
@@ -1101,7 +1101,8 @@ namespace Desert::Editor
         // cross-config dev runtime misses and self-heals into loose Cooked/ — dev machines are
         // writable; only the shipped package must never rely on that.) FIRST, for PackageGame's
         // reason: the cook writes files the gather below must name.
-        const CookStats cook = CookContentCaches( Core::SpirvDebugInfoThisBuild(), DESERT_DEV_INSTRUMENTS != 0 );
+        const CookStats cook =
+             CookContentCaches( ::Desert::Core::SpirvDebugInfoThisBuild(), DESERT_DEV_INSTRUMENTS != 0 );
 
         // The same gather PackageGame makes, for the same reason: this archive is what a developer's
         // Runtime mounts, so its registry must name what the archive holds.
