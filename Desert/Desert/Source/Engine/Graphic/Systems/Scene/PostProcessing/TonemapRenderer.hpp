@@ -29,13 +29,11 @@ namespace Desert::Graphic::System
         {
             std::shared_ptr<Image2D> Source; // the configured source framebuffer's colour 0
             std::shared_ptr<Image2D> AutoExposure;
-            std::shared_ptr<Image2D> LightShafts;
-            std::shared_ptr<Image2D> LensFlare;
         };
         Inputs GetInputs() const
         {
             const auto source = m_TargetFramebuffer.lock();
-            return { source ? source->GetColorAttachmentImage() : nullptr, m_AutoExposureImage.lock(), m_LightShaftImage.lock(), m_LensFlareImage.lock() };
+            return { source ? source->GetColorAttachmentImage() : nullptr, m_AutoExposureImage.lock() };
         }
         // The tonemapped image, colour 0 of GetSystemFramebuffer(): the node's ColorTarget.
         std::shared_ptr<Image2D> GetOutputImage() const
@@ -46,10 +44,16 @@ namespace Desert::Graphic::System
         // The graph resources one tonemap exec binds by shader name. Bloom is FrameTextures::Transients.Bloom,
         // or the graph's FrameTextures::System.Black when the bloom chain did not run this frame; then
         // BloomProduced is false and the bloom intensity is 0 for this draw, whatever SetBloomIntensity said.
+        // LightShafts and LensFlare follow the same rule: FrameTextures::Transients.LightShafts / .LensFlare when
+        // their nodes ran this frame, otherwise System.Black with that effect's intensity 0 for this draw.
         struct GraphInputs
         {
             RDG::TextureRef Bloom;
             bool            BloomProduced = false;
+            RDG::TextureRef LightShafts;
+            bool            LightShaftsProduced = false;
+            RDG::TextureRef LensFlare;
+            bool            LensFlareProduced = false;
         };
         // Records the fullscreen tonemap inside the render pass the frame graph opens on GetOutputImage().
         // Called from the exec of the pass that declared @p inputs as SampledGraphics reads.
@@ -104,11 +108,7 @@ namespace Desert::Graphic::System
 
         // The sun light's radial streaks (LightShaftRenderer) and their strength — the intensity is
         // Bloom Scale x the sun's screen-edge fade, computed by SceneRenderer from the SAME params that
-        // decided whether the shaft dispatches ran, so a zero here always means the image is inert.
-        void SetLightShaftImage( const std::shared_ptr<Image2D>& shafts )
-        {
-            m_LightShaftImage = shafts;
-        }
+        // decided whether the shaft dispatches ran. The image is a graph transient (GraphInputs).
         void SetLightShafts( float intensity, const glm::vec3& tint )
         {
             m_LightShaftIntensity = intensity;
@@ -116,11 +116,7 @@ namespace Desert::Graphic::System
         }
 
         // The lens flare (LensFlareRenderer) and its strength — Intensity x the sun's screen-edge fade,
-        // on the same contract as the shafts above: zero here always means the image contributes nothing.
-        void SetLensFlareImage( const std::shared_ptr<Image2D>& flare )
-        {
-            m_LensFlareImage = flare;
-        }
+        // on the same contract as the shafts above. The image is a graph transient (GraphInputs).
         void SetLensFlare( float intensity, const glm::vec3& tint )
         {
             m_LensFlareIntensity = intensity;
@@ -145,11 +141,9 @@ namespace Desert::Graphic::System
         bool                   m_AutoExposureEnabled = false;
         float                      m_ExposureKey         = 0.18f;
 
-        std::weak_ptr<Image2D> m_LightShaftImage;
         float                  m_LightShaftIntensity = 0.0f;
         glm::vec3              m_LightShaftTint      = glm::vec3( 1.0f );
 
-        std::weak_ptr<Image2D> m_LensFlareImage;
         float                  m_LensFlareIntensity = 0.0f;
         glm::vec3              m_LensFlareTint      = glm::vec3( 1.0f );
     };

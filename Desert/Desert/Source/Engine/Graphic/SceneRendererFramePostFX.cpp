@@ -233,43 +233,48 @@ namespace Desert::Graphic
 
         auto* shafts  = UNIQUE_GET_AS( System::LightShaftRenderer, m_RenderSystems["LightShaftSystem"] );
         auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
-        if ( !shafts || !tonemap || !shafts->Prepare() )
+        if ( !shafts || !tonemap || sceneColor.empty() )
             return;
-        tonemap->SetLightShaftImage( shafts->GetShaftImage() );
-        const RDG::TextureRef ping = textures.Import( shafts->GetPingImage(), "LightShaft.Ping" );
 
-        // Mask: scene HDR -> ping, toward the sun computed above.
+        // The params and the tonemap's shaft intensity come from the same numbers that decide whether the nodes
+        // exist, so a frame without shaft nodes is also a frame whose tonemap reads System.Black at intensity 0.
+        const SunScreen& sun = values->Sun;
+        shafts->SetParams( System::LightShaftRenderer::Params{
+             .Enabled       = m_SunLightFx.LightShaftBloom,
+             .BloomScale    = m_SunLightFx.BloomScale,
+             .Threshold     = m_SunLightFx.BloomThreshold,
+             .MaxBrightness = m_SunLightFx.BloomMaxBrightness,
+             .BloomTint     = m_SunLightFx.BloomTint,
+        } );
+        const float intensity = m_SunLightFx.LightShaftBloom ? m_SunLightFx.BloomScale * sun.Fade : 0.0f;
+        tonemap->SetLightShafts( intensity, m_SunLightFx.BloomTint );
+        if ( !shafts->IsActive( sun.Fade ) )
+            return;
+        const std::optional<RDG::TextureDesc> desc = shafts->GetTargetDesc();
+        if ( !desc )
+            return;
+
+        // Two half-resolution transients of this graph; mask -> ping, then ping -> pong, pong -> ping, ping -> pong.
+        const RDG::TextureRef scene = sceneColor.front();
+        const RDG::TextureRef ping  = graph.CreateTexture( *desc, "LightShaft.Ping" );
+        const RDG::TextureRef pong  = graph.CreateTexture( *desc, "LightShaft.Pong" );
+        const glm::vec2       sunUv = sun.Uv;
+
         graph.AddPass(
              "PostFX: LightShaftMask", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
-                 ReadEach( pass, sceneColor, RDG::Access::SampledCompute );
+                 pass.Read( scene, RDG::Access::SampledCompute );
                  pass.Write( ping, RDG::Access::StorageWrite );
              },
-             [this, shafts, tonemap, values]( RDG::PassContext& ) -> Common::BoolResultStr
-             {
-                 const SunScreen& sun = values->Sun;
-
-                 shafts->SetParams( System::LightShaftRenderer::Params{
-                      .Enabled       = m_SunLightFx.LightShaftBloom,
-                      .BloomScale    = m_SunLightFx.BloomScale,
-                      .Threshold     = m_SunLightFx.BloomThreshold,
-                      .MaxBrightness = m_SunLightFx.BloomMaxBrightness,
-                      .BloomTint     = m_SunLightFx.BloomTint,
-                 } );
-                 shafts->RecordMask( sun.Uv, sun.Fade );
-
-                 const float intensity = m_SunLightFx.LightShaftBloom ? m_SunLightFx.BloomScale * sun.Fade : 0.0f;
-                 tonemap->SetLightShafts( intensity, m_SunLightFx.BloomTint );
-                 return BOOLSUCCESS;
-             } );
+             [shafts, scene, ping, desc = *desc, sunUv]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return shafts->RecordMask( context, scene, ping, desc, sunUv ); } );
         // Radial blur ping-pong: one node per pass, each sampling the previous pass's target.
+        RDG::TextureRef last = ping;
         for ( uint32_t blur = 0; blur < System::LightShaftRenderer::GetBlurPassCount(); ++blur )
         {
-            const RDG::TextureRef source = textures.Import(
-                 shafts->GetBlurSource( blur ), blur % 2 == 0 ? "LightShaft.Ping" : "LightShaft.Pong" );
-            const RDG::TextureRef target = textures.Import(
-                 shafts->GetBlurTarget( blur ), blur % 2 == 0 ? "LightShaft.Pong" : "LightShaft.Ping" );
+            const RDG::TextureRef source = blur % 2 == 0 ? ping : pong;
+            const RDG::TextureRef target = blur % 2 == 0 ? pong : ping;
             graph.AddPass(
                  std::format( "PostFX: LightShaftBlur{}", blur ), RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -277,12 +282,12 @@ namespace Desert::Graphic
                      pass.Read( source, RDG::Access::SampledCompute );
                      pass.Write( target, RDG::Access::StorageWrite );
                  },
-                 [shafts, values, blur]( RDG::PassContext& ) -> Common::BoolResultStr
-                 {
-                     shafts->RecordBlur( blur, values->Sun.Uv, values->Sun.Fade );
-                     return BOOLSUCCESS;
-                 } );
+                 [shafts, source, target, desc = *desc, blur, sunUv]( RDG::PassContext& context )
+                      -> Common::BoolResultStr
+                 { return shafts->RecordBlur( context, source, target, desc, blur, sunUv ); } );
+            last = target;
         }
+        textures.Transients.LightShafts = last;
     }
 
     void SceneRenderer::AddFrameLensFlare( RDG::Builder& graph, FrameTextures& textures,
@@ -291,42 +296,44 @@ namespace Desert::Graphic
     {
         auto* flare   = UNIQUE_GET_AS( System::LensFlareRenderer, m_RenderSystems["LensFlareSystem"] );
         auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
-        if ( !flare || !tonemap )
+        if ( !flare || !tonemap || sceneColor.empty() )
             return;
-        tonemap->SetLensFlareImage( flare->GetFlareImage() );
 
         // The sun is the frame's (AddFrameLightShafts put it in the shared values when the graph was built).
-        // The intensity is derived HERE, from the same two numbers that decide whether the dispatches run, so a
-        // zero intensity and a skipped dispatch can never disagree — the bloom image's contract.
+        // The intensity is derived HERE, from the same two numbers that decide whether the nodes exist; a frame
+        // without flare nodes has the tonemap read System.Black at intensity 0.
         const SunScreen& sun = values->Sun;
         flare->SetParams( m_LensFlare );
         const float intensity = m_LensFlare.Enabled ? LensFlareStrength( sun.Fade, m_LensFlare.Intensity ) : 0.0f;
         tonemap->SetLensFlare( intensity, m_LensFlareTint );
-        if ( !flare->Prepare( sun.Uv, sun.Fade ) )
+        if ( !flare->Prepare( sun.Fade ) )
+            return;
+        const std::optional<RDG::TextureDesc> sourceDesc = flare->GetSourceDesc();
+        const std::optional<RDG::TextureDesc> flareDesc  = flare->GetFlareDesc();
+        if ( !sourceDesc || !flareDesc )
             return;
 
-        const RDG::TextureRef source = textures.Import( flare->GetSourceImage(), "LensFlare.Source" );
-        const RDG::TextureRef image  = textures.Import( flare->GetFlareImage(), "LensFlare" );
-        const uint32_t        mips   = flare->GetSourceMipLevels();
+        // Two transients of this graph: the half-resolution source chain and the quarter-resolution flare image.
+        const RDG::TextureRef scene  = sceneColor.front();
+        const RDG::TextureRef source = graph.CreateTexture( *sourceDesc, "LensFlare.Source" );
+        const RDG::TextureRef image  = graph.CreateTexture( *flareDesc, "LensFlare" );
+        const glm::vec2       sunUv  = sun.Uv;
 
         // Bright pass: scene -> source mip 0 (thresholded), then mip i-1 -> mip i. One node per dispatch, each
         // declaring the one mip it samples and the one it writes.
-        for ( uint32_t mip = 0; mip < mips; ++mip )
+        for ( uint32_t mip = 0; mip < sourceDesc->Mips; ++mip )
             graph.AddPass(
                  std::format( "PostFX: LensFlareBright{}", mip ), RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
                  {
                      if ( mip == 0 )
-                         ReadEach( pass, sceneColor, RDG::Access::SampledCompute );
+                         pass.Read( scene, RDG::Access::SampledCompute );
                      else
                          pass.Read( source, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) );
                      pass.Write( source, RDG::Access::StorageWrite, RDG::SubresourceRange::Mip( mip ) );
                  },
-                 [flare, mip]( RDG::PassContext& ) -> Common::BoolResultStr
-                 {
-                     flare->RecordBrightPass( mip );
-                     return BOOLSUCCESS;
-                 } );
+                 [flare, scene, source, desc = *sourceDesc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return flare->RecordBrightPass( context, scene, source, desc, mip ); } );
         // Features: every ghost reads the source mip its magnification picks, so the whole chain is sampled.
         graph.AddPass(
              "PostFX: LensFlareFeatures", RDG::PassFlags::Compute,
@@ -335,11 +342,9 @@ namespace Desert::Graphic
                  pass.Read( source, RDG::Access::SampledCompute );
                  pass.Write( image, RDG::Access::StorageWrite );
              },
-             [flare]( RDG::PassContext& ) -> Common::BoolResultStr
-             {
-                 flare->RecordFeatures();
-                 return BOOLSUCCESS;
-             } );
+             [flare, source, image, desc = *flareDesc, sunUv]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return flare->RecordFeatures( context, source, image, desc, sunUv ); } );
+        textures.Transients.LensFlare = image;
     }
 
     void SceneRenderer::AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures )
@@ -351,18 +356,23 @@ namespace Desert::Graphic
         const std::vector<RDG::TextureRef>    reads  = {
              textures.Import( inputs.Source, "Tonemap.Source" ),
              textures.Import( inputs.AutoExposure, "AutoExposure.Adapted" ),
-             textures.Import( inputs.LightShafts, "LightShaft.Pong" ),
-             textures.Import( inputs.LensFlare, "LensFlare" ),
         };
         // Bloom is this graph's transient when the chain ran; otherwise the graph's system black texture with
         // zero intensity (TonemapRenderer::GraphInputs), an explicit choice rather than a stale image.
         const bool                           bloomProduced = textures.Transients.Bloom.IsValid();
-        System::TonemapRenderer::GraphInputs graphInputs{ .Bloom = bloomProduced ? textures.Transients.Bloom
-                                                                                 : textures.System.Black,
-                                                          .BloomProduced = bloomProduced };
-        if ( !graphInputs.Bloom.IsValid() )
+        // The light shafts and the lens flare follow the same rule.
+        const bool shaftsProduced = textures.Transients.LightShafts.IsValid();
+        const bool flareProduced  = textures.Transients.LensFlare.IsValid();
+        System::TonemapRenderer::GraphInputs graphInputs{
+             .Bloom               = bloomProduced ? textures.Transients.Bloom : textures.System.Black,
+             .BloomProduced       = bloomProduced,
+             .LightShafts         = shaftsProduced ? textures.Transients.LightShafts : textures.System.Black,
+             .LightShaftsProduced = shaftsProduced,
+             .LensFlare           = flareProduced ? textures.Transients.LensFlare : textures.System.Black,
+             .LensFlareProduced   = flareProduced };
+        if ( !graphInputs.Bloom.IsValid() || !graphInputs.LightShafts.IsValid() || !graphInputs.LensFlare.IsValid() )
         {
-            LOG_ERROR( "[SceneRenderer] the tonemap has no bloom input (System.Black is not in this graph); "
+            LOG_ERROR( "[SceneRenderer] the tonemap is missing a graph input (System.Black is not in this graph); "
                        "the tonemap pass is not recorded this frame" );
             return;
         }
@@ -375,6 +385,12 @@ namespace Desert::Graphic
                      if ( read.IsValid() )
                          pass.Read( read, RDG::Access::SampledGraphics );
                  pass.Read( graphInputs.Bloom, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ) );
+                 // Any of the three may be System.Black: a texture the node already reads is not declared again
+                 // (every binding reads mip 0, the shaft and flare images' only level).
+                 if ( graphInputs.LightShafts != graphInputs.Bloom )
+                     pass.Read( graphInputs.LightShafts, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ) );
+                 if ( graphInputs.LensFlare != graphInputs.Bloom && graphInputs.LensFlare != graphInputs.LightShafts )
+                     pass.Read( graphInputs.LensFlare, RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ) );
                  // A fullscreen quad writes every pixel: the old contents are not loaded.
                  pass.ColorTarget( 0, output, RDG::LoadOp::DontCare() );
              },
